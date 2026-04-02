@@ -17,8 +17,6 @@ import {
   ChevronDown,
   ExternalLink,
   MessageSquare,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   Search,
   Settings,
@@ -136,8 +134,6 @@ export class AppShellComponent {
   readonly CheckIcon = Check;
   readonly ChevronDownIcon = ChevronDown;
   readonly MessageSquareIcon = MessageSquare;
-  readonly PanelLeftCloseIcon = PanelLeftClose;
-  readonly PanelLeftOpenIcon = PanelLeftOpen;
   readonly PlusIcon = Plus;
   readonly SearchIcon = Search;
   readonly SettingsIcon = Settings;

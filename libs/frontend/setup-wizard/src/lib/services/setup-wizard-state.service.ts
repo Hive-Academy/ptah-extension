@@ -805,6 +805,7 @@ export class SetupWizardStateService {
     this.completionDataSignal.set(null);
     this.errorStateSignal.set(null);
     this.fallbackWarningSignal.set(null);
+    this.generationStreamInitialized = false;
     // Reset deep analysis state (TASK_2025_111)
     this.deepAnalysisSignal.set(null);
     this.recommendationsSignal.set([]);
@@ -1109,10 +1110,7 @@ export class SetupWizardStateService {
             break;
 
           case 'setup-wizard:generation-stream':
-            this.generationStreamSignal.update((msgs) => [
-              ...msgs,
-              message.payload,
-            ]);
+            this.handleGenerationStream(message.payload);
             break;
 
           case 'setup-wizard:enhance-stream':
@@ -1195,6 +1193,30 @@ export class SetupWizardStateService {
     this.analysisStreamSignal.update((messages) => [...messages, payload]);
 
     // TASK_2025_229: Accumulate flat events into per-phase StreamingState
+    if (payload.flatEvent) {
+      this.accumulateFlatEvent(payload.flatEvent);
+    }
+  }
+
+  /**
+   * Handle generation stream messages for live transcript display.
+   * Clears stale analysis streaming states on the first generation event
+   * so the transcript component shows generation output instead of old analysis data.
+   * Accumulates flat events into phaseStreamingStates for ExecutionNode rendering.
+   */
+  private generationStreamInitialized = false;
+
+  private handleGenerationStream(payload: GenerationStreamPayload): void {
+    // Clear stale analysis streaming states on first generation event
+    if (!this.generationStreamInitialized) {
+      this.generationStreamInitialized = true;
+      this.phaseStreamingStatesSignal.set(new Map());
+    }
+
+    // Keep flat payload accumulation for backward compat
+    this.generationStreamSignal.update((msgs) => [...msgs, payload]);
+
+    // Accumulate flat events into per-phase StreamingState for ExecutionNode rendering
     if (payload.flatEvent) {
       this.accumulateFlatEvent(payload.flatEvent);
     }

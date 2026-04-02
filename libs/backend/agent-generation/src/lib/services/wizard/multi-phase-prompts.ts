@@ -46,7 +46,7 @@ Produce a comprehensive factual profile of this codebase. Report only verifiable
 You MUST write your complete analysis document to this exact file path:
 \`${outputFile}\`
 
-Use the Write tool or \`ptah.files.write('${outputFile}', content)\` to save the full document.
+Use the Write tool to save the full document.
 Do NOT just respond with the content — you must write it to the file above.
 
 ${RESPONSE_RULES}
@@ -132,7 +132,7 @@ Use it to understand the tech stack and structure before beginning your assessme
 You MUST write your complete analysis document to this exact file path:
 \`${outputFile}\`
 
-Use the Write tool or \`ptah.files.write('${outputFile}', content)\` to save the full document.
+Use the Write tool to save the full document.
 Do NOT just respond with the content — you must write it to the file above.
 
 ${RESPONSE_RULES}
@@ -224,7 +224,7 @@ Read these files to understand the project before auditing:
 You MUST write your complete analysis document to this exact file path:
 \`${outputFile}\`
 
-Use the Write tool or \`ptah.files.write('${outputFile}', content)\` to save the full document.
+Use the Write tool to save the full document.
 Do NOT just respond with the content — you must write it to the file above.
 
 ${RESPONSE_RULES}
@@ -346,7 +346,7 @@ Read ALL three previous analysis files:
 You MUST write your complete analysis document to this exact file path:
 \`${outputFile}\`
 
-Use the Write tool or \`ptah.files.write('${outputFile}', content)\` to save the full document.
+Use the Write tool to save the full document.
 Do NOT just respond with the content — you must write it to the file above.
 
 ${RESPONSE_RULES}

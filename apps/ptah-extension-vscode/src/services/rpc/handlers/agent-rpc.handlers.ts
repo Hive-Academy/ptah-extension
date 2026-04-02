@@ -784,6 +784,7 @@ export class AgentRpcHandlers {
       ptahCliName: spawnResult.agentName,
       ptahCliId: params.ptahCliId,
       resumedFromAgentId: params.previousAgentId,
+      resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
     });
   }
 

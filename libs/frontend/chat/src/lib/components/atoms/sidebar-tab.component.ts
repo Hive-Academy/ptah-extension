@@ -35,13 +35,20 @@ import {
     .tab-label--flip {
       transform: rotate(180deg);
     }
+
+    .tab-label--sm {
+      font-size: 9px;
+      letter-spacing: 0.08em;
+    }
   `,
   template: `
     <button
       type="button"
-      class="group relative flex items-center justify-center w-8 h-full
+      class="group relative flex items-center justify-center h-full
              bg-base-200/60 hover:bg-base-300/80
              transition-colors duration-200 cursor-pointer"
+      [class.w-8]="size() === 'default'"
+      [class.w-6]="size() === 'sm'"
       [class.border-l]="side() === 'right'"
       [class.border-r]="side() === 'left'"
       [class.border-base-content/10]="true"
@@ -63,6 +70,7 @@ import {
         class="tab-label whitespace-nowrap tracking-widest uppercase
                text-[10px] font-semibold select-none transition-colors duration-200"
         [class.tab-label--flip]="side() === 'left'"
+        [class.tab-label--sm]="size() === 'sm'"
         [class.text-primary]="isOpen()"
         [class.text-base-content/40]="!isOpen()"
         [class.group-hover:text-base-content/70]="!isOpen()"
@@ -94,6 +102,9 @@ export class SidebarTabComponent {
 
   /** Whether the associated panel is currently open */
   readonly isOpen = input.required<boolean>();
+
+  /** Tab size: 'default' (32px) for spacious layouts, 'sm' (24px) for constrained panels */
+  readonly size = input<'sm' | 'default'>('default');
 
   /** Optional status badge: 'warning' (yellow pulse), 'info' (blue pulse), 'neutral' (gray) */
   readonly badgeType = input<'warning' | 'info' | 'neutral' | null>(null);

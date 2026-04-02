@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/services/email.service';
 
@@ -7,8 +7,8 @@ export class SessionService {
   private readonly logger = new Logger(SessionService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly emailService: EmailService
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EmailService) private readonly emailService: EmailService,
   ) {}
 
   /**
@@ -65,14 +65,14 @@ export class SessionService {
         paymentStatus: isFreeSession
           ? 'none'
           : paddleTransactionId
-          ? 'pending'
-          : 'none',
+            ? 'pending'
+            : 'none',
         paddleTransactionId,
       },
     });
 
     this.logger.log(
-      `Session request created for ${userEmail} (topic: ${sessionTopicId}, free: ${isFreeSession})`
+      `Session request created for ${userEmail} (topic: ${sessionTopicId}, free: ${isFreeSession})`,
     );
 
     // Send notification email to team
@@ -86,7 +86,7 @@ export class SessionService {
     } catch (error) {
       this.logger.error(
         'Failed to send session request notification:',
-        error instanceof Error ? error.message : 'Unknown error'
+        error instanceof Error ? error.message : 'Unknown error',
       );
     }
 
@@ -100,7 +100,7 @@ export class SessionService {
     } catch (error) {
       this.logger.error(
         'Failed to send session confirmation:',
-        error instanceof Error ? error.message : 'Unknown error'
+        error instanceof Error ? error.message : 'Unknown error',
       );
     }
 

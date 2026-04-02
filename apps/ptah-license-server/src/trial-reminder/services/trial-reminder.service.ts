@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../../email/services/email.service';
@@ -38,8 +38,8 @@ export class TrialReminderService {
   private readonly BATCH_DELAY_MS = 30000;
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly emailService: EmailService
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EmailService) private readonly emailService: EmailService,
   ) {}
 
   /**
@@ -77,14 +77,14 @@ export class TrialReminderService {
       for (const config of reminderConfigs) {
         const sent = await this.processReminderType(
           config.type,
-          config.daysFromExpiry
+          config.daysFromExpiry,
         );
         totalSent += sent;
       }
 
       const duration = Date.now() - startTime;
       this.logger.log(
-        `Trial reminder job completed: ${downgraded} downgraded, ${totalSent} reminders sent in ${duration}ms`
+        `Trial reminder job completed: ${downgraded} downgraded, ${totalSent} reminders sent in ${duration}ms`,
       );
     } catch (error) {
       const errorMessage =
@@ -135,12 +135,12 @@ export class TrialReminderService {
 
     if (expiredTrials.length === 1000) {
       this.logger.warn(
-        'Hit 1000 subscription limit for downgrades - some users may not be processed. Consider implementing pagination.'
+        'Hit 1000 subscription limit for downgrades - some users may not be processed. Consider implementing pagination.',
       );
     }
 
     this.logger.debug(
-      `Found ${expiredTrials.length} expired trials to downgrade`
+      `Found ${expiredTrials.length} expired trials to downgrade`,
     );
 
     if (expiredTrials.length === 0) {
@@ -170,7 +170,7 @@ export class TrialReminderService {
             data: { status: 'expired' },
           });
           this.logger.log(
-            `Skipped downgrade for ${subscription.user.email} - has active paid subscription`
+            `Skipped downgrade for ${subscription.user.email} - has active paid subscription`,
           );
           continue;
         }
@@ -186,7 +186,7 @@ export class TrialReminderService {
           // 2. Update user's license to 'community' plan
           // Find the active license for this user
           const activeLicense = subscription.user.licenses.find(
-            (l) => l.status === 'active'
+            (l) => l.status === 'active',
           );
 
           if (activeLicense) {
@@ -215,13 +215,13 @@ export class TrialReminderService {
 
         downgradedCount++;
         this.logger.debug(
-          `Downgraded ${subscription.user.email} to Community plan`
+          `Downgraded ${subscription.user.email} to Community plan`,
         );
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : 'Unknown error';
         this.logger.warn(
-          `Failed to downgrade ${subscription.user.email}: ${errorMessage}`
+          `Failed to downgrade ${subscription.user.email}: ${errorMessage}`,
         );
       }
     }
@@ -238,10 +238,10 @@ export class TrialReminderService {
    */
   private async processReminderType(
     type: ReminderType,
-    daysFromExpiry: number
+    daysFromExpiry: number,
   ): Promise<number> {
     this.logger.debug(
-      `Processing ${type} reminders (${daysFromExpiry} days from expiry)`
+      `Processing ${type} reminders (${daysFromExpiry} days from expiry)`,
     );
 
     // Calculate target date range (start of day to end of day for the target date)
@@ -282,12 +282,12 @@ export class TrialReminderService {
     // Warn if limit is reached - some users may be missed
     if (eligibleSubscriptions.length === 1000) {
       this.logger.warn(
-        `[${type}] Hit 1000 subscription limit - some users may not receive reminders. Consider implementing pagination.`
+        `[${type}] Hit 1000 subscription limit - some users may not receive reminders. Consider implementing pagination.`,
       );
     }
 
     this.logger.debug(
-      `Found ${eligibleSubscriptions.length} eligible users for ${type} reminder`
+      `Found ${eligibleSubscriptions.length} eligible users for ${type} reminder`,
     );
 
     if (eligibleSubscriptions.length === 0) {
@@ -304,7 +304,7 @@ export class TrialReminderService {
           // Skip if trialEnd is null (shouldn't happen for trialing status, but defensive check)
           if (!subscription.trialEnd) {
             this.logger.warn(
-              `Skipping subscription ${subscription.id}: trialEnd is null despite trialing status`
+              `Skipping subscription ${subscription.id}: trialEnd is null despite trialing status`,
             );
             continue;
           }
@@ -314,7 +314,7 @@ export class TrialReminderService {
             type,
             subscription.user.email,
             subscription.user.firstName,
-            subscription.trialEnd
+            subscription.trialEnd,
           );
 
           // Record sent reminder to prevent duplicates (idempotency)
@@ -332,7 +332,7 @@ export class TrialReminderService {
           const errorMessage =
             error instanceof Error ? error.message : 'Unknown error';
           this.logger.warn(
-            `Failed to send ${type} reminder to ${subscription.user.email}: ${errorMessage}`
+            `Failed to send ${type} reminder to ${subscription.user.email}: ${errorMessage}`,
           );
         }
       }
@@ -359,7 +359,7 @@ export class TrialReminderService {
     type: ReminderType,
     email: string,
     firstName: string | null,
-    trialEnd: Date
+    trialEnd: Date,
   ): Promise<void> {
     switch (type) {
       case '7_day':

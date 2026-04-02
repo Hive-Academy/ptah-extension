@@ -1,5 +1,6 @@
 import {
   Controller,
+  Inject,
   Post,
   Headers,
   Req,
@@ -54,7 +55,10 @@ interface RequestWithRawBody extends Request {
 export class PaddleController {
   private readonly logger = new Logger(PaddleController.name);
 
-  constructor(private readonly webhookService: PaddleWebhookService) {}
+  constructor(
+    @Inject(PaddleWebhookService)
+    private readonly webhookService: PaddleWebhookService,
+  ) {}
 
   /**
    * Handle Paddle webhook events
@@ -82,13 +86,13 @@ export class PaddleController {
   @HttpCode(HttpStatus.OK)
   async handleWebhook(
     @Headers('paddle-signature') signature: string,
-    @Req() req: RequestWithRawBody
+    @Req() req: RequestWithRawBody,
   ): Promise<WebhookResponse> {
     // Step 1: Validate request has raw body for signature verification
     if (!req.rawBody) {
       this.logger.error('Raw body not available - check middleware config');
       throw new BadRequestException(
-        'Webhook processing error - raw body not available'
+        'Webhook processing error - raw body not available',
       );
     }
 

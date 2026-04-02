@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EventsService } from '../../events/events.service';
 import { PLANS, getPlanConfig, PlanName } from '../../config/plans.config';
@@ -92,8 +92,8 @@ export class LicenseService {
   private signingKey: KeyObject | undefined | null = null;
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly eventsService: EventsService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EventsService) private readonly eventsService: EventsService,
   ) {}
 
   /**

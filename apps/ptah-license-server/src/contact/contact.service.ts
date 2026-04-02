@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { EmailService } from '../email/services/email.service';
 import { ContactCategory } from './dto/contact-message.dto';
 
@@ -6,7 +6,9 @@ import { ContactCategory } from './dto/contact-message.dto';
 export class ContactService {
   private readonly logger = new Logger(ContactService.name);
 
-  constructor(private readonly emailService: EmailService) {}
+  constructor(
+    @Inject(EmailService) private readonly emailService: EmailService,
+  ) {}
 
   async sendContactMessage(params: {
     userEmail: string;
@@ -20,7 +22,7 @@ export class ContactService {
     this.logger.log(
       `Processing contact message from ${userEmail} (category: ${
         category || 'general'
-      })`
+      })`,
     );
 
     await this.emailService.sendContactMessage({
