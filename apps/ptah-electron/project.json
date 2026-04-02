@@ -55,7 +55,13 @@
           "p-limit",
           "p-queue",
           "axios",
-          "node-pty"
+          "node-pty",
+          "exa-js",
+          "gpt-tokenizer",
+          "web-tree-sitter",
+          "@tavily/core",
+          "gifenc",
+          "jpeg-js"
         ],
         "assets": [
           {
@@ -188,6 +194,13 @@
       "executor": "nx:run-commands",
       "options": {
         "command": "tsc --noEmit --project apps/ptah-electron/tsconfig.app.json"
+      }
+    },
+    "validate-deps": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-main"],
+      "options": {
+        "command": "node apps/ptah-electron/scripts/validate-deps.js"
       }
     },
     "lint": {
