@@ -94,10 +94,10 @@ export class PermissionHandlerService {
       if (expiredIds.length > 0) {
         console.log(
           '[PermissionHandlerService] Cleaning up expired question requests:',
-          expiredIds
+          expiredIds,
         );
         this._questionRequests.update((reqs) =>
-          reqs.filter((r) => r.timeoutAt <= 0 || r.timeoutAt > now)
+          reqs.filter((r) => r.timeoutAt <= 0 || r.timeoutAt > now),
         );
       }
     });
@@ -114,18 +114,15 @@ export class PermissionHandlerService {
   }
 
   /**
-   * Check if a request belongs to the currently active session.
-   * Returns true if the request should be visible in the current tab.
-   * - No sessionId on request -> show everywhere (backward compat)
-   * - No active session -> show all
-   * - sessionId matches active session -> show
-   * - sessionId doesn't match -> hide
+   * Check if a request should be visible in the UI.
+   * Always returns true — permissions/questions must always be shown regardless
+   * of which tab is active. Each request carries its own sessionId for response
+   * routing, so the backend handles delivery to the correct session.
+   * Hiding permissions behind tab matching caused them to be silently dropped
+   * when the backend's sessionId (tabId) didn't match the tab's claudeSessionId.
    */
-  private isRequestForActiveSession(req: { sessionId?: string }): boolean {
-    const activeSessionId = this.tabManager.activeTab()?.claudeSessionId;
-    if (!req.sessionId) return true;
-    if (!activeSessionId) return true;
-    return req.sessionId === activeSessionId;
+  private isRequestForActiveSession(_req: { sessionId?: string }): boolean {
+    return true;
   }
 
   // ============================================================================
@@ -145,7 +142,7 @@ export class PermissionHandlerService {
    */
   public getPermissionByToolId(toolId: string): PermissionRequest | undefined {
     return this._permissionRequests().find(
-      (req) => req.toolUseId === toolId && this.isRequestForActiveSession(req)
+      (req) => req.toolUseId === toolId && this.isRequestForActiveSession(req),
     );
   }
 
@@ -205,7 +202,7 @@ export class PermissionHandlerService {
     if (allPermissions.length === 0) return [];
 
     const sessionPermissions = allPermissions.filter((req) =>
-      this.isRequestForActiveSession(req)
+      this.isRequestForActiveSession(req),
     );
     if (sessionPermissions.length === 0) return [];
 
@@ -258,7 +255,7 @@ export class PermissionHandlerService {
     if (latencyMs !== null && latencyMs > 100) {
       console.warn(
         '[PermissionHandlerService] High permission latency detected:',
-        `${latencyMs}ms (expected < 100ms)`
+        `${latencyMs}ms (expected < 100ms)`,
       );
     }
 
@@ -279,10 +276,10 @@ export class PermissionHandlerService {
   }): void {
     console.log(
       '[PermissionHandlerService] Permission auto-resolved:',
-      payload
+      payload,
     );
     this._permissionRequests.update((requests) =>
-      requests.filter((r) => r.id !== payload.id)
+      requests.filter((r) => r.id !== payload.id),
     );
   }
 
@@ -305,7 +302,7 @@ export class PermissionHandlerService {
     // - agentToolCallId unset: no subagent context, use sentinel (legacy fallback)
     if (response.decision === 'deny') {
       const originalRequest = this._permissionRequests().find(
-        (r) => r.id === response.id
+        (r) => r.id === response.id,
       );
       const denyId =
         originalRequest?.agentToolCallId &&
@@ -321,7 +318,7 @@ export class PermissionHandlerService {
 
     // Remove from pending requests
     this._permissionRequests.update((requests) =>
-      requests.filter((r) => r.id !== response.id)
+      requests.filter((r) => r.id !== response.id),
     );
 
     // Use public VSCodeService.postMessage() API
@@ -358,7 +355,7 @@ export class PermissionHandlerService {
    * Extracted from chat.store.ts:195-212
    */
   getPermissionForTool(
-    toolCallId: string | undefined
+    toolCallId: string | undefined,
   ): PermissionRequest | null {
     if (!toolCallId) return null;
 
@@ -413,7 +410,7 @@ export class PermissionHandlerService {
     if (latencyMs !== null && latencyMs > 100) {
       console.warn(
         '[PermissionHandlerService] High question request latency detected:',
-        `${latencyMs}ms (expected < 100ms)`
+        `${latencyMs}ms (expected < 100ms)`,
       );
     }
 
@@ -438,7 +435,7 @@ export class PermissionHandlerService {
 
     // Remove from pending requests
     this._questionRequests.update((requests) =>
-      requests.filter((r) => r.id !== response.id)
+      requests.filter((r) => r.id !== response.id),
     );
 
     // Send to backend via VSCodeService
@@ -455,13 +452,13 @@ export class PermissionHandlerService {
    * @returns AskUserQuestionRequest if one exists, null otherwise
    */
   getQuestionForTool(
-    toolUseId: string | undefined
+    toolUseId: string | undefined,
   ): AskUserQuestionRequest | null {
     if (!toolUseId) return null;
     return (
       this._questionRequests().find(
         (req) =>
-          req.toolUseId === toolUseId && this.isRequestForActiveSession(req)
+          req.toolUseId === toolUseId && this.isRequestForActiveSession(req),
       ) ?? null
     );
   }
@@ -475,11 +472,11 @@ export class PermissionHandlerService {
     console.log('[PermissionHandlerService] Session cleanup:', sessionId);
 
     this._permissionRequests.update((requests) =>
-      requests.filter((r) => r.sessionId !== sessionId)
+      requests.filter((r) => r.sessionId !== sessionId),
     );
 
     this._questionRequests.update((requests) =>
-      requests.filter((r) => r.sessionId !== sessionId)
+      requests.filter((r) => r.sessionId !== sessionId),
     );
   }
 }

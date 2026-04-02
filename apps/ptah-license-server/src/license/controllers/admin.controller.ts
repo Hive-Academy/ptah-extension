@@ -1,4 +1,11 @@
-import { Controller, Post, Body, UseGuards, Logger } from '@nestjs/common';
+import {
+  Controller,
+  Inject,
+  Post,
+  Body,
+  UseGuards,
+  Logger,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AdminApiKeyGuard } from '../guards/admin-api-key.guard';
 import { LicenseService } from '../services/license.service';
@@ -23,8 +30,8 @@ export class AdminController {
   private readonly logger = new Logger(AdminController.name);
 
   constructor(
-    private readonly licenseService: LicenseService,
-    private readonly emailService: EmailService
+    @Inject(LicenseService) private readonly licenseService: LicenseService,
+    @Inject(EmailService) private readonly emailService: EmailService,
   ) {}
 
   /**
@@ -60,7 +67,7 @@ export class AdminController {
     this.logger.log(
       `License created: plan=${dto.plan}, email=${dto.email}, expires=${
         expiresAt?.toISOString() || 'never'
-      }`
+      }`,
     );
 
     // Step 2: Send email (if requested)
@@ -84,13 +91,13 @@ export class AdminController {
         emailError =
           error instanceof Error ? error.message : 'Unknown email error';
         this.logger.error(
-          `Failed to send license email to ${dto.email}: ${emailError}`
+          `Failed to send license email to ${dto.email}: ${emailError}`,
         );
       }
     } else {
       // WARNING: If sendEmail=false, user will NOT receive their license key
       this.logger.warn(
-        `Email sending skipped (sendEmail=false) - user will NOT receive license key`
+        `Email sending skipped (sendEmail=false) - user will NOT receive license key`,
       );
     }
 

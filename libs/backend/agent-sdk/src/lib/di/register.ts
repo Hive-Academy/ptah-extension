@@ -330,7 +330,7 @@ export function registerSdkServices(
 
   // ============================================================
   // Skill Junction Service (TASK_2025_201)
-  // Manages workspace .claude/skills/ junctions to plugin skill directories
+  // Manages workspace .ptah/skills/ junctions to plugin skill directories
   // So third-party providers (Codex, Copilot) can find skills via MCP search
   // ============================================================
   container.register(

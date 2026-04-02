@@ -64,31 +64,77 @@ export function providerSecretKey(providerId: string): string {
  *
  * Enumerated explicitly because IWorkspaceProvider.getConfiguration takes
  * (section, key) — wildcard reads are not supported.
+ *
+ * TASK_2025_247: Keys are split between two storage backends:
+ * - VS Code config (package.json contributes.configuration) — safe keys
+ * - File-based (~/.ptah/settings.json) — keys containing trademarked terms
+ * The IWorkspaceProvider.getConfiguration() call transparently routes to the
+ * correct backend, so consumers do not need to know which storage is used.
  */
 export const KNOWN_CONFIG_KEYS = [
+  // --- VS Code config settings (stored in package.json contributes.configuration) ---
   'authMethod',
   'model.selected',
   'autopilot.enabled',
   'autopilot.permissionLevel',
-  'anthropicProviderId',
   'enhancedPrompts.enabled',
   'compaction.enabled',
   'compaction.threshold',
-  'llm.defaultProvider',
-  'llm.vscode.model',
   'reasoningEffort',
   'mcpPort',
   'apiUrl',
   'agentOrchestration.preferredAgentOrder',
-  'agentOrchestration.disabledClis',
   'agentOrchestration.maxConcurrentAgents',
   'agentOrchestration.geminiModel',
+
+  // --- File-based settings (stored in ~/.ptah/settings.json, not VS Code config) ---
+  // Provider selection
+  'anthropicProviderId',
+
+  // LLM configuration
+  'llm.defaultProvider',
+  'llm.vscode.model',
+
+  // Agent orchestration
   'agentOrchestration.copilotModel',
   'agentOrchestration.codexModel',
   'agentOrchestration.codexReasoningEffort',
   'agentOrchestration.copilotReasoningEffort',
   'agentOrchestration.codexAutoApprove',
   'agentOrchestration.copilotAutoApprove',
+  'agentOrchestration.disabledClis',
+
+  // Provider: GitHub Copilot
+  'provider.github-copilot.tokenExchangeUrl',
+  'provider.github-copilot.apiEndpoint',
+  'provider.github-copilot.clientId',
+  'provider.github-copilot.modelTier.opus',
+  'provider.github-copilot.modelTier.sonnet',
+  'provider.github-copilot.modelTier.haiku',
+
+  // Provider: OpenAI Codex
+  'provider.openai-codex.oauthApiEndpoint',
+  'provider.openai-codex.modelTier.opus',
+  'provider.openai-codex.modelTier.sonnet',
+  'provider.openai-codex.modelTier.haiku',
+
+  // Provider: OpenRouter
+  'provider.openrouter.modelTier.opus',
+  'provider.openrouter.modelTier.sonnet',
+  'provider.openrouter.modelTier.haiku',
+
+  // Provider: Moonshot
+  'provider.moonshot.modelTier.opus',
+  'provider.moonshot.modelTier.sonnet',
+  'provider.moonshot.modelTier.haiku',
+
+  // Provider: Z-AI
+  'provider.z-ai.modelTier.opus',
+  'provider.z-ai.modelTier.sonnet',
+  'provider.z-ai.modelTier.haiku',
+
+  // CLI agent configurations
+  'ptahCliAgents',
 ] as const;
 
 export type KnownConfigKey = (typeof KNOWN_CONFIG_KEYS)[number];

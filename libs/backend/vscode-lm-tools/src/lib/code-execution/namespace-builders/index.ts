@@ -60,3 +60,17 @@ export {
   buildGitNamespace,
   type GitNamespaceDependencies,
 } from './git-namespace.builder';
+
+// JSON namespace (TASK_2025_240 - JSON validation and repair)
+export {
+  buildJsonNamespace,
+  type JsonNamespaceDependencies,
+} from './json-namespace.builder';
+
+// Browser namespace (TASK_2025_244 - CDP browser integration)
+export {
+  buildBrowserNamespace,
+  type IBrowserCapabilities,
+  type BrowserNamespaceDependencies,
+  validateBrowserUrl,
+} from './browser-namespace.builder';

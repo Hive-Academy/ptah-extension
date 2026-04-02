@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -109,13 +109,13 @@ export interface CreateRecordsResult {
 export class SubscriptionDbService {
   private readonly logger = new Logger(SubscriptionDbService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   /**
    * Find user with their most recent subscription
    */
   async findUserWithSubscription(
-    userId: string
+    userId: string,
   ): Promise<UserWithSubscription | null> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -155,7 +155,7 @@ export class SubscriptionDbService {
    * Find user with their most recent subscription and active/paused license
    */
   async findUserWithSubscriptionAndLicense(
-    userId: string
+    userId: string,
   ): Promise<UserWithSubscriptionAndLicense | null> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -232,7 +232,7 @@ export class SubscriptionDbService {
    * Returns the most recent subscription with valid status
    */
   async findSubscriptionForPortal(
-    userId: string
+    userId: string,
   ): Promise<LocalSubscription | null> {
     const subscription = await this.prisma.subscription.findFirst({
       where: {
@@ -266,7 +266,7 @@ export class SubscriptionDbService {
    */
   async createSubscriptionAndLicense(
     subscriptionData: CreateSubscriptionData,
-    licenseData: CreateLicenseData
+    licenseData: CreateLicenseData,
   ): Promise<CreateRecordsResult> {
     const licenseKey = this.generateLicenseKey();
 
@@ -310,7 +310,7 @@ export class SubscriptionDbService {
     });
 
     this.logger.log(
-      `Created subscription ${result.subscriptionId} and license ${result.licenseId}`
+      `Created subscription ${result.subscriptionId} and license ${result.licenseId}`,
     );
 
     return result;
@@ -321,7 +321,7 @@ export class SubscriptionDbService {
    */
   async updateSubscription(
     subscriptionId: string,
-    data: UpdateSubscriptionData
+    data: UpdateSubscriptionData,
   ): Promise<void> {
     await this.prisma.subscription.update({
       where: { id: subscriptionId },
@@ -336,7 +336,7 @@ export class SubscriptionDbService {
    */
   async updateLicense(
     licenseId: string,
-    data: UpdateLicenseData
+    data: UpdateLicenseData,
   ): Promise<void> {
     await this.prisma.license.update({
       where: { id: licenseId },

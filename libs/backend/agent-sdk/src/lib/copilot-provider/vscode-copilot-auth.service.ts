@@ -19,6 +19,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IPlatformInfo,
   IUserInteraction,
+  IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { CopilotAuthService } from './copilot-auth.service';
 
@@ -28,8 +29,10 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
     @inject(TOKENS.LOGGER) logger: Logger,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO) platformInfo: IPlatformInfo,
     @inject(PLATFORM_TOKENS.USER_INTERACTION) userInteraction: IUserInteraction,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    workspaceProvider: IWorkspaceProvider,
   ) {
-    super(logger, platformInfo, userInteraction);
+    super(logger, platformInfo, userInteraction, workspaceProvider);
   }
 
   /**

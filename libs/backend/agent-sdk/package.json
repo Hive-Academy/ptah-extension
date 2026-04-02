@@ -8,7 +8,7 @@
   "dependencies": {
     "@ptah-extension/shared": "0.0.1",
     "@ptah-extension/vscode-core": "0.0.1",
-    "axios": "^1.6.0",
+    "axios": "1.13.6",
     "tsyringe": "^4.10.0",
     "@types/vscode": "^1.103.0",
     "zod": "^4.1.12",

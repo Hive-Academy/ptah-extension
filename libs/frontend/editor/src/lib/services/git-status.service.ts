@@ -4,7 +4,6 @@ import {
   signal,
   computed,
   DestroyRef,
-  NgZone,
 } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import type {
@@ -34,24 +33,29 @@ const EMPTY_BRANCH: GitBranchInfo = {
 };
 
 /**
- * GitStatusService - Polls git:info RPC and exposes reactive signals for git state.
+ * GitStatusService - Event-driven git state management.
  *
- * Complexity Level: 2 (Medium - signal-based state, RPC communication, workspace partitioning, polling)
- * Patterns: Injectable service, workspace-partitioned Map (matching EditorService), correlationId RPC
+ * Complexity Level: 2 (Medium - signal-based state, RPC communication, workspace partitioning, push events)
+ * Patterns: Injectable service, workspace-partitioned Map (matching EditorService), event-driven push
+ *
+ * Architecture:
+ * - Backend watches .git directory and workspace files for changes (fs.watch)
+ * - On change, backend pushes a 'git:status-update' message via WebviewManager
+ * - This service listens for push events and updates signals (zero polling)
+ * - On-demand RPC fetch for initial load and workspace switches only
  *
  * Responsibilities:
- * - Poll git:info RPC at 5s intervals (paused when window loses focus)
+ * - Listen for git:status-update push events from the backend
  * - Expose branch info, file statuses, and derived computed signals
  * - Maintain per-workspace state cache for instant workspace switching
  * - Provide fileStatusMap (Map<relativePath, GitFileStatus>) for O(1) lookups by FileTreeNodeComponent
  *
- * Communication: Uses MESSAGE_TYPES.RPC_CALL / RPC_RESPONSE with correlationId matching.
+ * Communication: Receives push events via window 'message', on-demand RPC for initial fetch.
  */
 @Injectable({ providedIn: 'root' })
 export class GitStatusService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly ngZone = inject(NgZone);
 
   // ============================================================================
   // WORKSPACE STATE
@@ -67,11 +71,11 @@ export class GitStatusService {
   private _activeWorkspacePath: string | null = null;
 
   // ============================================================================
-  // POLLING STATE
+  // LISTENER STATE
   // ============================================================================
 
-  private _pollIntervalId: ReturnType<typeof setInterval> | null = null;
-  private _isFocused = true;
+  private _isListening = false;
+  private _messageHandler: ((event: MessageEvent) => void) | null = null;
 
   // ============================================================================
   // SIGNAL STATE
@@ -132,7 +136,6 @@ export class GitStatusService {
   }
 
   constructor() {
-    this.setupFocusListeners();
     this.destroyRef.onDestroy(() => this.stopPolling());
   }
 
@@ -187,36 +190,44 @@ export class GitStatusService {
   }
 
   // ============================================================================
-  // POLLING
+  // EVENT LISTENING (replaces polling)
   // ============================================================================
 
   /**
-   * Start polling git:info at 5s intervals.
-   * Called when the editor panel becomes visible.
-   * Skips poll ticks when window is blurred or no active workspace.
+   * Start listening for git:status-update push events from the backend.
+   * Also performs an initial RPC fetch to populate state immediately.
+   *
+   * Method name kept as startPolling() for backward compatibility with
+   * EditorPanelComponent which calls startPolling()/stopPolling() on lifecycle.
    */
   startPolling(): void {
-    if (this._pollIntervalId !== null) return;
+    if (this._isListening) return;
+    this._isListening = true;
 
-    // Immediate first fetch
+    // Listen for push events from the backend git watcher
+    this._messageHandler = (event: MessageEvent) => {
+      const data = event.data;
+      if (data?.type === 'git:status-update' && data.payload) {
+        this.applyGitInfo(data.payload as GitInfoResult);
+      }
+    };
+    window.addEventListener('message', this._messageHandler);
+
+    // Initial fetch to populate state immediately (the watcher may not have
+    // pushed yet, or we may be on VS Code where there's no watcher).
     this.fetchGitInfo();
-
-    this.ngZone.runOutsideAngular(() => {
-      this._pollIntervalId = setInterval(() => {
-        if (this._isFocused && this._activeWorkspacePath) {
-          this.ngZone.run(() => this.fetchGitInfo());
-        }
-      }, 5000);
-    });
   }
 
   /**
-   * Stop polling. Called when editor panel is hidden or service is destroyed.
+   * Stop listening for push events.
+   * Called when editor panel is hidden or service is destroyed.
    */
   stopPolling(): void {
-    if (this._pollIntervalId !== null) {
-      clearInterval(this._pollIntervalId);
-      this._pollIntervalId = null;
+    this._isListening = false;
+
+    if (this._messageHandler) {
+      window.removeEventListener('message', this._messageHandler);
+      this._messageHandler = null;
     }
   }
 
@@ -225,8 +236,19 @@ export class GitStatusService {
   // ============================================================================
 
   /**
-   * Fetch git info via RPC for the active workspace.
-   * Updates signals and saves to workspace state map on success.
+   * Apply a git info result to the current signals and cache.
+   * Used by both push events and on-demand RPC responses.
+   */
+  private applyGitInfo(data: GitInfoResult): void {
+    this._branch.set(data.branch);
+    this._files.set(data.files);
+    this._isGitRepo.set(data.isGitRepo);
+    this.saveCurrentState();
+  }
+
+  /**
+   * Fetch git info via RPC for the active workspace (on-demand).
+   * Used for initial load and workspace switches only — not periodic polling.
    */
   private async fetchGitInfo(): Promise<void> {
     if (!this._activeWorkspacePath) return;
@@ -250,10 +272,7 @@ export class GitStatusService {
     }
 
     if (result.success && result.data) {
-      this._branch.set(result.data.branch);
-      this._files.set(result.data.files);
-      this._isGitRepo.set(result.data.isGitRepo);
-      this.saveCurrentState();
+      this.applyGitInfo(result.data);
     }
 
     this._isLoading.set(false);
@@ -270,27 +289,6 @@ export class GitStatusService {
       files: this._files(),
       isGitRepo: this._isGitRepo(),
       lastUpdated: Date.now(),
-    });
-  }
-
-  /**
-   * Set up focus/blur listeners to pause polling when the window loses focus.
-   * Registered with DestroyRef for automatic cleanup.
-   */
-  private setupFocusListeners(): void {
-    const onFocus = () => {
-      this._isFocused = true;
-    };
-    const onBlur = () => {
-      this._isFocused = false;
-    };
-
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('blur', onBlur);
-
-    this.destroyRef.onDestroy(() => {
-      window.removeEventListener('focus', onFocus);
-      window.removeEventListener('blur', onBlur);
     });
   }
 }

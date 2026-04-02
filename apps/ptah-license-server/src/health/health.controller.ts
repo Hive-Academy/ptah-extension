@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Inject,
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -20,7 +21,7 @@ import { PrismaService } from '../prisma/prisma.service';
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   /**
    * Health check with database validation

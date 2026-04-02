@@ -334,6 +334,9 @@ export interface ExecutionChatMessage {
   /** Attached file paths (for user messages with @ syntax) */
   readonly files?: readonly string[];
 
+  /** Number of inline images sent with this message */
+  readonly imageCount?: number;
+
   /** Session ID this message belongs to */
   readonly sessionId?: string;
 
@@ -537,7 +540,7 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
     isCollapsed: z.boolean(),
     isHighlighted: z.boolean().optional(),
     isBackground: z.boolean().optional(),
-  })
+  }),
 );
 
 export const AgentInfoSchema = z.object({
@@ -560,6 +563,7 @@ export const ExecutionChatMessageSchema = z.object({
   streamingState: ExecutionNodeSchema.nullable(),
   rawContent: z.string().optional(),
   files: z.array(z.string()).readonly().optional(),
+  imageCount: z.number().optional(),
   sessionId: z.string().optional(),
   agentInfo: AgentInfoSchema.optional(),
 });
@@ -632,7 +636,7 @@ export const JSONLMessageSchema = z.object({
  * Create a new ExecutionNode with default values
  */
 export function createExecutionNode(
-  partial: Partial<ExecutionNode> & Pick<ExecutionNode, 'id' | 'type'>
+  partial: Partial<ExecutionNode> & Pick<ExecutionNode, 'id' | 'type'>,
 ): ExecutionNode {
   return {
     status: 'pending',
@@ -648,7 +652,7 @@ export function createExecutionNode(
  */
 export function createExecutionChatMessage(
   partial: Partial<ExecutionChatMessage> &
-    Pick<ExecutionChatMessage, 'id' | 'role'>
+    Pick<ExecutionChatMessage, 'id' | 'role'>,
 ): ExecutionChatMessage {
   return {
     timestamp: Date.now(),
@@ -797,6 +801,8 @@ export interface MessageStartEvent extends FlatStreamEvent {
   readonly eventType: 'message_start';
   readonly role: 'user' | 'assistant';
   readonly parentToolUseId?: string; // For sub-agent messages
+  /** Number of inline images in this user message (set during history replay) */
+  readonly imageCount?: number;
 }
 
 /**

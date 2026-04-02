@@ -44,4 +44,7 @@ export const PLATFORM_TOKENS = {
 
   /** IDiagnosticsProvider — workspace diagnostics (errors, warnings) */
   DIAGNOSTICS_PROVIDER: Symbol.for('PlatformDiagnosticsProvider'),
+
+  /** ContentDownloadService — downloads plugins/templates from GitHub (TASK_2025_248) */
+  CONTENT_DOWNLOAD: Symbol.for('PlatformContentDownload'),
 } as const;

@@ -6,5 +6,6 @@
  */
 export const ELECTRON_TOKENS = {
   GIT_INFO_SERVICE: Symbol.for('GitInfoService'),
+  GIT_WATCHER_SERVICE: Symbol.for('GitWatcherService'),
   PTY_MANAGER_SERVICE: Symbol.for('PtyManagerService'),
 } as const;

@@ -6,7 +6,7 @@
  *
  * Key difference from Copilot:
  * - Codex uses the Responses API (/responses) exclusively — no Chat Completions
- * - Endpoint depends on auth mode: api.openai.com (API key) vs chatgpt.com (OAuth)
+ * - Endpoint depends on auth mode: api.openai.com (API key) vs user-configured (OAuth)
  * - completionsPath is unused because shouldUseResponsesApi always returns true
  *
  * All HTTP server logic, request/response translation, retry, and streaming
@@ -25,7 +25,7 @@ export class CodexTranslationProxy extends TranslationProxyBase {
   constructor(
     @inject(TOKENS.LOGGER) logger: Logger,
     @inject(SDK_TOKENS.SDK_CODEX_AUTH)
-    private readonly codexAuth: ICodexAuthService
+    private readonly codexAuth: ICodexAuthService,
   ) {
     super(logger, {
       name: 'Codex',
@@ -42,7 +42,7 @@ export class CodexTranslationProxy extends TranslationProxyBase {
    * Get the Codex API base URL from the auth service.
    * Returns auth-mode-appropriate endpoint:
    *   API key → https://api.openai.com/v1
-   *   OAuth  → https://chatgpt.com/backend-api/codex
+   *   OAuth  → user-configured endpoint from settings
    */
   protected async getApiEndpoint(): Promise<string> {
     return this.codexAuth.getApiEndpoint();
@@ -56,7 +56,9 @@ export class CodexTranslationProxy extends TranslationProxyBase {
   }
 
   /**
-   * On 401, attempt to refresh the OAuth token via the auth service.
+   * On 401, check if credentials are still valid.
+   * For API key mode, returns false (key cannot be refreshed).
+   * For OAuth mode, returns false if token is stale (user must run `codex login`).
    */
   protected async onAuthFailure(): Promise<boolean> {
     return this.codexAuth.ensureTokensFresh();

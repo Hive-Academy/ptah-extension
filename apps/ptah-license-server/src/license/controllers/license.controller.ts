@@ -1,5 +1,6 @@
 import {
   Controller,
+  Inject,
   Post,
   Body,
   Get,
@@ -28,8 +29,8 @@ export class LicenseController {
   private readonly logger = new Logger(LicenseController.name);
 
   constructor(
-    private readonly licenseService: LicenseService,
-    private readonly prisma: PrismaService
+    @Inject(LicenseService) private readonly licenseService: LicenseService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -313,7 +314,7 @@ export class LicenseController {
 
     if (!license) {
       this.logger.warn(
-        `License key reveal denied: userId=${user.id}, reason=no_active_license`
+        `License key reveal denied: userId=${user.id}, reason=no_active_license`,
       );
       return {
         success: false,
@@ -322,7 +323,7 @@ export class LicenseController {
     }
 
     this.logger.log(
-      `License key revealed: userId=${user.id}, licenseId=${license.id}, plan=${license.plan}`
+      `License key revealed: userId=${user.id}, licenseId=${license.id}, plan=${license.plan}`,
     );
 
     return {
@@ -395,7 +396,7 @@ export class LicenseController {
 
     if (!fullUser) {
       this.logger.warn(
-        `Downgrade denied: userId=${user.id}, reason=user_not_found`
+        `Downgrade denied: userId=${user.id}, reason=user_not_found`,
       );
       return {
         success: false,
@@ -426,7 +427,7 @@ export class LicenseController {
       this.logger.warn(
         `Downgrade denied: userId=${
           user.id
-        }, reason=trial_not_ended, daysRemaining=${daysRemaining || 'N/A'}`
+        }, reason=trial_not_ended, daysRemaining=${daysRemaining || 'N/A'}`,
       );
 
       return {
@@ -444,7 +445,7 @@ export class LicenseController {
       const result = await this.licenseService.downgradeToCommunity(user.id);
 
       this.logger.log(
-        `Downgrade successful: userId=${user.id}, email=${user.email}, plan=${result.plan}`
+        `Downgrade successful: userId=${user.id}, email=${user.email}, plan=${result.plan}`,
       );
 
       return {
@@ -456,7 +457,7 @@ export class LicenseController {
         error instanceof Error ? error.message : 'Unknown error';
 
       this.logger.error(
-        `Downgrade failed: userId=${user.id}, error=${errorMessage}`
+        `Downgrade failed: userId=${user.id}, error=${errorMessage}`,
       );
 
       // Return user-friendly errors

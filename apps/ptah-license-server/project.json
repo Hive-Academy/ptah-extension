@@ -19,9 +19,6 @@
         "bundle": true,
         "generatePackageJson": true,
         "thirdParty": false,
-        "esbuildOptions": {
-          "sourcemap": true
-        },
         "external": [
           "@workos-inc/node",
           "@paddle/paddle-node-sdk",
@@ -31,7 +28,8 @@
           "pg",
           "@nestjs/microservices",
           "@nestjs/websockets",
-          "@nestjs/platform-socket.io"
+          "@nestjs/platform-socket.io",
+          "@sentry/nestjs"
         ],
         "assets": [
           {
@@ -42,16 +40,8 @@
         ]
       },
       "configurations": {
-        "development": {
-          "esbuildOptions": {
-            "sourcemap": true
-          }
-        },
-        "production": {
-          "esbuildOptions": {
-            "sourcemap": false
-          }
-        }
+        "development": {},
+        "production": {}
       }
     },
     "prune-lockfile": {

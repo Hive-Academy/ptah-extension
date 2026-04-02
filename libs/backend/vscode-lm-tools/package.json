@@ -15,6 +15,10 @@
     "minimatch": "10.2.4",
     "@ptah-extension/llm-abstraction": "0.0.1",
     "exa-js": "^2.10.2",
-    "@tavily/core": "^0.7.2"
+    "@tavily/core": "^0.7.2",
+    "chrome-launcher": "^1.2.1",
+    "chrome-remote-interface": "^0.34.0",
+    "jpeg-js": "^0.4.4",
+    "gifenc": "^1.0.3"
   }
 }

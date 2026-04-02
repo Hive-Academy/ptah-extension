@@ -46,7 +46,7 @@ Produce a comprehensive factual profile of this codebase. Report only verifiable
 You MUST write your complete analysis document to this exact file path:
 \`${outputFile}\`
 
-Use the Write tool or \`ptah.files.write('${outputFile}', content)\` to save the full document.
+Use the Write tool to save the full document.
 Do NOT just respond with the content — you must write it to the file above.
 
 ${RESPONSE_RULES}
@@ -93,8 +93,14 @@ You have access to the Ptah MCP Server via the \`execute_code\` tool. Use it to 
 - \`ptah.files.list('/path')\` — List directory contents for file tree
 - \`ptah.project.getMonorepoInfo()\` — Detect monorepo type and packages
 - \`ptah.help()\` — Get full API reference if you need other methods
+- \`ptah_json_validate({ file: 'path/to/file.json' })\` — Validate and repair JSON files after writing them
 
 Start with \`ptah.workspace.analyze()\` to get the project overview, then drill into specifics. Read package files for exact versions, explore the file tree, identify entry points and configs. For monorepos, enumerate all packages. You decide what to explore and how deep to go based on what you discover.
+
+## JSON File Hygiene
+If you write any JSON files during this phase, call \`ptah_json_validate\` with the file path
+immediately after writing. The tool will extract JSON, repair common issues, and overwrite with
+clean JSON. If validation fails, read the errors and re-write the file.
 
 CRITICAL: Report ONLY facts. No opinions, no "this is good/bad", no recommendations.
 CRITICAL: Write the FULL document to \`${outputFile}\` — do not just respond with it.
@@ -126,7 +132,7 @@ Use it to understand the tech stack and structure before beginning your assessme
 You MUST write your complete analysis document to this exact file path:
 \`${outputFile}\`
 
-Use the Write tool or \`ptah.files.write('${outputFile}', content)\` to save the full document.
+Use the Write tool to save the full document.
 Do NOT just respond with the content — you must write it to the file above.
 
 ${RESPONSE_RULES}
@@ -179,8 +185,14 @@ Read 01-project-profile.md first. Then use the \`execute_code\` tool with \`ptah
 - \`ptah.diagnostics.getErrors()\` — Check for existing compilation errors
 - \`ptah.files.read('/path/to/file.ts')\` — Read source files to examine imports and patterns
 - \`ptah.help('ast')\` or \`ptah.help('ide.lsp')\` — Get detailed API docs
+- \`ptah_json_validate({ file: 'path/to/file.json' })\` — Validate and repair JSON files after writing them
 
 Examine imports, folder structures, dependency relationships. Look for patterns and evaluate consistency. Find specific violations — cite the file and import. Compare against best practices for this tech stack.
+
+## JSON File Hygiene
+If you write any JSON files during this phase, call \`ptah_json_validate\` with the file path
+immediately after writing. The tool will extract JSON, repair common issues, and overwrite with
+clean JSON. If validation fails, read the errors and re-write the file.
 
 CRITICAL: Write the FULL document to \`${outputFile}\` — do not just respond with it.
 CRITICAL: No conversational text. Only tool calls. Final response: "Done."`,
@@ -212,7 +224,7 @@ Read these files to understand the project before auditing:
 You MUST write your complete analysis document to this exact file path:
 \`${outputFile}\`
 
-Use the Write tool or \`ptah.files.write('${outputFile}', content)\` to save the full document.
+Use the Write tool to save the full document.
 Do NOT just respond with the content — you must write it to the file above.
 
 ${RESPONSE_RULES}
@@ -291,8 +303,14 @@ Read both previous phase files first. Then use the \`execute_code\` tool with \`
 - \`ptah.files.read('/path/to/file.ts')\` — Read source files for quality analysis
 - \`ptah.ide.lsp.getReferences(file, line, col)\` — Check how widely a symbol is used
 - \`ptah.help('diagnostics')\` or \`ptah.help('ast')\` — Get detailed API docs
+- \`ptah_json_validate({ file: 'path/to/file.json' })\` — Validate and repair JSON files after writing them
 
 Choose which files to examine based on what you've learned — entry points, core services, complex components, utilities. Read as many files as you need to form a thorough opinion. Look for real issues: unsafe types, swallowed errors, security gaps, missing tests for critical paths. Also identify strengths — they are equally important.
+
+## JSON File Hygiene
+If you write any JSON files during this phase, call \`ptah_json_validate\` with the file path
+immediately after writing. The tool will extract JSON, repair common issues, and overwrite with
+clean JSON. If validation fails, read the errors and re-write the file.
 
 CRITICAL: Write the FULL document to \`${outputFile}\` — do not just respond with it.
 CRITICAL: No conversational text. Only tool calls. Final response: "Done."`,
@@ -308,7 +326,7 @@ CRITICAL: No conversational text. Only tool calls. Final response: "Done."`,
  */
 export function buildPhase4Prompts(
   slugDir: string,
-  pluginSkillsContext?: string
+  pluginSkillsContext?: string,
 ): PhasePrompts {
   const outputFile = `${slugDir}/04-elevation-plan.md`;
 
@@ -328,7 +346,7 @@ Read ALL three previous analysis files:
 You MUST write your complete analysis document to this exact file path:
 \`${outputFile}\`
 
-Use the Write tool or \`ptah.files.write('${outputFile}', content)\` to save the full document.
+Use the Write tool to save the full document.
 Do NOT just respond with the content — you must write it to the file above.
 
 ${RESPONSE_RULES}
@@ -369,8 +387,14 @@ Read all three previous analysis files. Then use the \`execute_code\` tool with 
 - \`ptah.files.read('/path/to/file.ts')\` — Read source files for before/after examples
 - \`ptah.search.findFiles({ query: 'keyword' })\` — Find files related to recommendations
 - \`ptah.help()\` — Get full API reference
+- \`ptah_json_validate({ file: 'path/to/file.json' })\` — Validate and repair JSON files after writing them
 
 Create a prioritized elevation plan specific to THIS codebase. Every recommendation must reference actual files and patterns found in the analysis — no generic advice. Include before/after code examples. Order by highest impact + lowest effort first. Be specific and actionable.
+
+## JSON File Hygiene
+If you write any JSON files during this phase, call \`ptah_json_validate\` with the file path
+immediately after writing. The tool will extract JSON, repair common issues, and overwrite with
+clean JSON. If validation fails, read the errors and re-write the file.
 
 CRITICAL: Write the FULL document to \`${outputFile}\` — do not just respond with it.
 CRITICAL: No conversational text. Only tool calls. Final response: "Done."${

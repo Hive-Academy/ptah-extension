@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Inject,
   Post,
   Body,
   UseGuards,
@@ -17,12 +18,14 @@ import { SessionRequestDto } from './dto/session-request.dto';
 export class SessionController {
   private readonly logger = new Logger(SessionController.name);
 
-  constructor(private readonly sessionService: SessionService) {}
+  constructor(
+    @Inject(SessionService) private readonly sessionService: SessionService,
+  ) {}
 
   @Get('eligibility')
   @UseGuards(JwtAuthGuard)
   async checkEligibility(
-    @Req() req: Request
+    @Req() req: Request,
   ): Promise<{ hasFreeSession: boolean; usedFreeSession: boolean }> {
     const user = req.user as { userId?: string; id?: string };
     const userId = user.userId || user.id || '';
@@ -34,7 +37,7 @@ export class SessionController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   async requestSession(
     @Body() body: SessionRequestDto,
-    @Req() req: Request
+    @Req() req: Request,
   ): Promise<{ success: boolean; message: string; isFreeSession: boolean }> {
     const user = req.user as {
       email: string;
@@ -43,7 +46,7 @@ export class SessionController {
     };
 
     this.logger.log(
-      `Session request from ${user.email} for topic: ${body.sessionTopicId}`
+      `Session request from ${user.email} for topic: ${body.sessionTopicId}`,
     );
 
     const result = await this.sessionService.createRequest({

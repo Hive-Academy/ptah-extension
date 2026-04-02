@@ -52,9 +52,9 @@
   <!-- Chat (default): Sidebar + Header + Chat layout -->
   @default {
     <div class="flex h-full">
-      <!-- Session Sidebar (always visible, fixed width) -->
+      <!-- Session Sidebar (toggleable width, no border — tab provides visual edge) -->
       <aside
-        class="flex flex-col bg-base-200 border-r border-base-content/5 transition-all duration-300"
+        class="flex flex-col bg-base-200 transition-all duration-300"
         [class.w-0]="!sidebarOpen()"
         [class.w-56]="sidebarOpen()"
         [class.overflow-hidden]="!sidebarOpen()"
@@ -296,30 +296,35 @@
         </div>
       </aside>
 
+      <!-- Sessions vertical tab (always visible — primary toggle for session panel) -->
+      <ptah-sidebar-tab
+        label="Sessions"
+        side="left"
+        [isOpen]="sidebarOpen()"
+        [size]="isElectron ? 'default' : 'sm'"
+        (toggled)="toggleSidebar()"
+      />
+
       <!-- Main Content -->
       <div class="flex-1 flex flex-col min-w-0">
         <!-- Header -->
         <div
           class="navbar bg-base-100 border-b border-base-300 min-h-[40px] px-2 gap-2"
         >
-          <!-- Sidebar toggle -->
-          <button
-            class="btn btn-ghost btn-sm"
-            [class.btn-square]="!isElectron"
-            [class.gap-1]="isElectron"
-            aria-label="Toggle sidebar"
-            (click)="toggleSidebar()"
-          >
-            <lucide-angular
-              [img]="sidebarOpen() ? PanelLeftCloseIcon : PanelLeftOpenIcon"
-              class="w-4 h-4"
-            />
-            @if (isElectron) {
-              <span class="text-xs">Sessions</span>
-            }
-          </button>
+          <!-- Dashboard (gold accent, VS Code only — Electron has it in global navbar) -->
+          @if (!isElectron) {
+            <button
+              class="btn btn-gold btn-xs gap-1"
+              aria-label="Dashboard"
+              title="Session Analytics"
+              (click)="openDashboard()"
+            >
+              <lucide-angular [img]="BarChart3Icon" class="w-4 h-4" />
+              <span class="icon-btn-label text-xs">Dashboard</span>
+            </button>
+          }
 
-          <!-- Tab bar (relocated from below) -->
+          <!-- Tab bar -->
           <div class="flex-1 min-w-0">
             <ptah-tab-bar />
           </div>
@@ -352,43 +357,10 @@
               </button>
             }
 
-            <!-- Agent monitor toggle (always visible) -->
-            <button
-              class="btn btn-ghost btn-xs relative"
-              [class.btn-square]="!isElectron"
-              [class.gap-1]="isElectron"
-              aria-label="Toggle agent monitor"
-              title="Toggle agent monitor"
-              (click)="agentMonitorStore.togglePanel()"
-            >
-              <lucide-angular
-                [img]="
-                  agentMonitorStore.panelOpen()
-                    ? PanelRightCloseIcon
-                    : PanelRightOpenIcon
-                "
-                class="w-3.5 h-3.5"
-              />
-              @if (isElectron) {
-                <span class="text-xs">Cli Agents</span>
-              }
-              @if (agentMonitorStore.pendingPermissions().length > 0) {
-                <span
-                  class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-warning rounded-full animate-pulse ring-2 ring-base-100"
-                ></span>
-              } @else if (agentMonitorStore.hasRunningAgents()) {
-                <span
-                  class="absolute top-0 right-0 w-2 h-2 bg-info rounded-full animate-pulse"
-                ></span>
-              } @else if (agentMonitorStore.agentCount() > 0) {
-                <span
-                  class="absolute top-0 right-0 w-1.5 h-1.5 bg-base-content/30 rounded-full"
-                ></span>
-              }
-            </button>
-
-            <!-- Divider between View controls and Session group -->
-            <div class="w-px h-4 bg-base-content/10"></div>
+            <!-- Divider between View controls and Session group (VS Code only — pop out button exists) -->
+            @if (!isElectron) {
+              <div class="w-px h-4 bg-base-content/10"></div>
+            }
 
             <!-- Group 2: Session -->
 
@@ -412,20 +384,16 @@
               [backdropClass]="'transparent'"
               (closed)="handleCancelSession()"
             >
-              <!-- Trigger: New Session button -->
+              <!-- Trigger: New Session button (gold accent) -->
               <button
                 trigger
-                class="btn btn-ghost btn-xs"
-                [class.btn-square]="!isElectron"
-                [class.gap-1]="isElectron"
+                class="btn btn-gold btn-xs gap-1"
                 (click)="createNewSession()"
                 aria-label="New Session"
                 title="New Session"
               >
                 <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
-                @if (isElectron) {
-                  <span class="text-xs">New Session</span>
-                }
+                <span class="icon-btn-label text-xs">New</span>
               </button>
 
               <!-- Popover content -->
@@ -480,23 +448,14 @@
               <!-- Theme toggle -->
               <ptah-theme-toggle />
 
-              <!-- Dashboard -->
               <button
-                class="btn btn-square btn-ghost btn-xs"
-                aria-label="Dashboard"
-                title="Session Analytics"
-                (click)="openDashboard()"
-              >
-                <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
-              </button>
-
-              <button
-                class="btn btn-square btn-ghost btn-xs"
+                class="btn btn-ghost btn-xs gap-1"
                 aria-label="Settings"
                 title="Settings"
                 (click)="openSettings()"
               >
                 <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
+                <span class="icon-btn-label text-xs">Settings</span>
               </button>
             }
           </div>
@@ -515,6 +474,16 @@
 
       <!-- Right sidebar: Agent Monitor Panel -->
       <ptah-agent-monitor-panel />
+
+      <!-- Agents vertical tab (always visible — primary toggle for agent panel) -->
+      <ptah-sidebar-tab
+        label="Agents"
+        side="right"
+        [isOpen]="agentMonitorStore.panelOpen()"
+        [badgeType]="agentBadgeType()"
+        [size]="isElectron ? 'default' : 'sm'"
+        (toggled)="agentMonitorStore.togglePanel()"
+      />
     </div>
   }
 }

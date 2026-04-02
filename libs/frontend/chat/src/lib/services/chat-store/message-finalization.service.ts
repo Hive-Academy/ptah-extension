@@ -283,6 +283,9 @@ export class MessageFinalizationService {
             rawContent: textContent,
             sessionId: targetTab?.claudeSessionId ?? undefined,
             timestamp: messageStartEvent.timestamp,
+            ...(messageStartEvent.imageCount
+              ? { imageCount: messageStartEvent.imageCount }
+              : {}),
           }),
         );
       } else {

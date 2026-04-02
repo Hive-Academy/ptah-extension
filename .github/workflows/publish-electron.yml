@@ -4,11 +4,15 @@
 #
 # Workflow:
 #   1. Push to release/electron branch OR trigger manually with bump type
-#   2. Auto-bumps the version in apps/ptah-electron/package.json
+#   2. Auto-bumps the version (computed in prepare, patched locally in build jobs)
 #   3. Checks if the version tag already exists (prevents duplicate releases)
 #   4. Builds for all 3 platforms in parallel
 #   5. Creates git tag + GitHub Release with all installers
-#   6. Commits the version bump back to the branch
+#   6. Opens a PR to merge the version bump into main
+#
+# Version bump goes to a chore/ branch with a PR to main — never pushes back
+# to release/electron (which would re-trigger this workflow in an infinite loop).
+# A commit message filter provides extra safety.
 #
 # Phase 1: Unsigned builds — no code signing secrets configured.
 # Users will see platform warnings ("unidentified developer") until
@@ -38,6 +42,7 @@ concurrency:
 
 permissions:
   contents: write
+  pull-requests: write
 
 env:
   NODE_VERSION: 22
@@ -46,6 +51,10 @@ env:
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    # Skip version-bump commits to prevent infinite loop
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      !startsWith(github.event.head_commit.message, 'chore(release):')
     outputs:
       version: ${{ steps.bump.outputs.new_version }}
       tag: ${{ steps.bump.outputs.tag }}
@@ -101,13 +110,9 @@ jobs:
         if: steps.check.outputs.should_release != 'true'
         run: exit 1
 
-      - name: Commit version bump
-        env:
-          HUSKY: '0'
-        run: |
-          git add apps/ptah-electron/package.json
-          git commit --no-verify -m "chore(release): electron v${{ steps.bump.outputs.new_version }}"
-          git push origin HEAD
+      # Version bump is NOT pushed back to release/electron (that would
+      # re-trigger this workflow in an infinite loop). Build jobs receive the
+      # new version via the prepare.outputs.version output and patch locally.
 
   build:
     needs: prepare
@@ -128,6 +133,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
+
+      - name: Patch version from prepare output
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('apps/ptah-electron/package.json', 'utf8'));
+            pkg.version = '${{ needs.prepare.outputs.version }}';
+            fs.writeFileSync('apps/ptah-electron/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "Patched electron version to ${{ needs.prepare.outputs.version }}"
 
       - uses: actions/setup-node@v4
         with:
@@ -183,12 +198,40 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN }}
 
-      - name: Create git tag
+      - name: Create git tag and version bump PR to main
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          TAG="${{ needs.prepare.outputs.tag }}"
+          BRANCH="chore/bump-electron-v${VERSION}"
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "${{ needs.prepare.outputs.tag }}" -m "Electron Desktop App v${{ needs.prepare.outputs.version }}"
-          git push origin "${{ needs.prepare.outputs.tag }}"
+
+          # Tag the release
+          git tag -a "$TAG" -m "Electron Desktop App v${VERSION}"
+          git push origin "$TAG"
+
+          # Create a fresh branch from main with the version bump
+          git fetch origin main
+          git checkout -b "$BRANCH" origin/main
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('apps/ptah-electron/package.json', 'utf8'));
+            pkg.version = '${VERSION}';
+            fs.writeFileSync('apps/ptah-electron/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          git add apps/ptah-electron/package.json
+          git commit --no-verify -m "chore(release): electron v${VERSION}"
+          git push origin "$BRANCH"
+
+          # Create PR to main
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): electron v${VERSION}" \
+            --body "Auto-generated version bump after publishing Electron Desktop v${VERSION}."
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4

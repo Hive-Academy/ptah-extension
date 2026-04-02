@@ -61,6 +61,14 @@ export class SessionLoaderService {
   private readonly _isLoadingMoreSessions = signal(false);
   private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
 
+  /**
+   * Set of sessionIds currently being loaded via switchSession() or
+   * refreshResumableSubagentsForSession(). Prevents duplicate chat:resume
+   * calls when the same session is requested while a load is already in
+   * progress (e.g., from restored-session effect firing alongside switchSession).
+   */
+  private readonly _inFlightSessions = new Set<string>();
+
   // Page size constant
   private static readonly SESSIONS_PAGE_SIZE = 30;
 
@@ -451,7 +459,17 @@ export class SessionLoaderService {
    * like live streaming events, building the same execution tree.
    */
   async switchSession(sessionId: string): Promise<void> {
+    // Guard: prevent duplicate loads of the same session
+    if (this._inFlightSessions.has(sessionId)) {
+      console.debug(
+        '[SessionLoaderService] Skipping duplicate switchSession for:',
+        sessionId,
+      );
+      return;
+    }
+
     try {
+      this._inFlightSessions.add(sessionId);
       const workspacePath = this.vscodeService.config().workspaceRoot;
       if (!workspacePath) {
         console.warn('[SessionLoaderService] No workspace path available');
@@ -627,6 +645,8 @@ export class SessionLoaderService {
       console.error('[SessionLoaderService] Failed to switch session:', error);
       // Clear stale resumable subagents from previous session on switch failure
       this._resumableSubagents.set([]);
+    } finally {
+      this._inFlightSessions.delete(sessionId);
     }
   }
 
@@ -701,7 +721,13 @@ export class SessionLoaderService {
     sessionId: string,
     tabId: string,
   ): Promise<void> {
+    // Skip if switchSession is already loading this session
+    if (this._inFlightSessions.has(sessionId)) {
+      return;
+    }
+
     try {
+      this._inFlightSessions.add(sessionId);
       const workspacePath = this.vscodeService.config().workspaceRoot;
       const result = await this.claudeRpcService.call('chat:resume', {
         sessionId: sessionId as SessionId,
@@ -722,6 +748,8 @@ export class SessionLoaderService {
         '[SessionLoaderService] Failed to check resumable subagents for restored session',
         error,
       );
+    } finally {
+      this._inFlightSessions.delete(sessionId);
     }
   }
 

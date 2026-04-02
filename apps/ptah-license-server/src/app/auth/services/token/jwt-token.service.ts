@@ -1,4 +1,9 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@workos-inc/node';
 import type {
@@ -35,8 +40,8 @@ export class JwtTokenService {
   private readonly logger = new Logger(JwtTokenService.name);
 
   constructor(
-    private readonly jwtService: JwtService,
-    private readonly prisma: PrismaService,
+    @Inject(JwtService) private readonly jwtService: JwtService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
   ) {}
 
   /**

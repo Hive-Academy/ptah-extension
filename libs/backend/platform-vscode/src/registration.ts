@@ -23,7 +23,10 @@ import { VscodeTokenCounter } from './implementations/vscode-token-counter';
 import { VscodeDiagnosticsProvider } from './implementations/vscode-diagnostics-provider';
 
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
-import { PlatformType } from '@ptah-extension/platform-core';
+import {
+  PlatformType,
+  ContentDownloadService,
+} from '@ptah-extension/platform-core';
 
 /**
  * Register all platform implementations in the DI container.
@@ -110,5 +113,10 @@ export function registerPlatformVscodeServices(
   // Diagnostics Provider (wraps vscode.languages.getDiagnostics())
   container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
     useValue: new VscodeDiagnosticsProvider(),
+  });
+
+  // Content Download — downloads plugins/templates from GitHub to ~/.ptah/ (TASK_2025_248)
+  container.register(PLATFORM_TOKENS.CONTENT_DOWNLOAD, {
+    useValue: new ContentDownloadService(),
   });
 }

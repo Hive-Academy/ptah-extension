@@ -17,6 +17,19 @@ import type {
   CliDetectionResult,
   GitWorktreeInfo,
 } from '@ptah-extension/shared';
+import type {
+  BrowserNavigateResult,
+  BrowserScreenshotResult,
+  BrowserEvaluateResult,
+  BrowserClickResult,
+  BrowserTypeResult,
+  BrowserContentResult,
+  BrowserNetworkResult,
+  BrowserStatusResult,
+  BrowserRecordStartResult,
+  BrowserRecordStopResult,
+  BrowserWaitForUserResult,
+} from '../types';
 
 // ============================================================
 // Workspace & Search Tools
@@ -781,6 +794,446 @@ export function formatWorktreeRemove(result: {
       { h2: 'Worktree Removal Failed' },
       {
         p: `**Error:** ${result.error ?? 'Unknown error'}`,
+      },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+// ============================================================
+// JSON Validation Tool (TASK_2025_240)
+// ============================================================
+
+/**
+ * Format ptah_json_validate result as readable Markdown.
+ * On success: shows file path, repairs applied, file overwritten confirmation.
+ * On failure: shows errors for agent self-correction.
+ */
+export function formatJsonValidate(result: {
+  success: boolean;
+  file: string;
+  repairs: string[];
+  errors: string[];
+  fileOverwritten: boolean;
+}): string {
+  try {
+    if (result.success) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const blocks: any[] = [
+        { h2: 'JSON Validation Passed' },
+        { p: `**File:** ${result.file}  \n**Status:** Valid JSON` },
+      ];
+
+      if (result.repairs.length > 0) {
+        blocks.push({ h3: 'Repairs Applied' });
+        blocks.push({ ul: result.repairs });
+      }
+
+      if (result.fileOverwritten) {
+        blocks.push({
+          p: 'File overwritten with clean, formatted JSON.',
+        });
+      }
+
+      return json2md(blocks);
+    }
+
+    // Failure case — provide errors for agent self-correction
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { h2: 'JSON Validation Failed' },
+      { p: `**File:** ${result.file}` },
+    ];
+
+    if (result.repairs.length > 0) {
+      blocks.push({ h3: 'Repairs Attempted' });
+      blocks.push({ ul: result.repairs });
+    }
+
+    blocks.push({ h3: 'Errors' });
+    blocks.push({ ul: result.errors });
+    blocks.push({
+      p: 'Please fix these issues and write the file again, then call ptah_json_validate to re-validate.',
+    });
+
+    return json2md(blocks);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+// ============================================================
+// Browser Automation Tools (TASK_2025_244)
+// ============================================================
+
+/**
+ * Format ptah_browser_navigate result
+ */
+export function formatBrowserNavigate(result: BrowserNavigateResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Navigation Failed' },
+        { p: `**URL:** ${result.url}` },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    return json2md([
+      { h2: 'Navigation Complete' },
+      { p: `**URL:** ${result.url}  \n**Title:** ${result.title}` },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_screenshot result.
+ * Returns the base64 data as a labeled text block since the MCP text
+ * response format is used for all tool results.
+ */
+export function formatBrowserScreenshot(
+  result: BrowserScreenshotResult,
+): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Screenshot Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    const sizeKB = Math.round((result.data.length * 3) / 4 / 1024);
+    return json2md([
+      { h2: 'Screenshot Captured' },
+      {
+        p: `**Format:** ${result.format}  \n**Size:** ~${sizeKB}KB  \n**Data (base64):**`,
+      },
+      { code: { content: result.data } },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_evaluate result
+ */
+export function formatBrowserEvaluate(result: BrowserEvaluateResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'JavaScript Evaluation Failed' },
+        { p: `**Type:** ${result.type}` },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    const valueStr =
+      typeof result.value === 'object'
+        ? JSON.stringify(result.value, null, 2)
+        : String(result.value);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { h2: 'JavaScript Evaluation Result' },
+      { p: `**Type:** ${result.type}` },
+    ];
+
+    if (result.type === 'object' || valueStr.length > 100) {
+      blocks.push({ code: { language: 'json', content: valueStr } });
+    } else {
+      blocks.push({ p: `**Value:** ${valueStr}` });
+    }
+
+    return json2md(blocks);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_click result
+ */
+export function formatBrowserClick(result: BrowserClickResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Click Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+    return json2md([
+      { h2: 'Click Successful' },
+      { p: 'Element clicked successfully.' },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_type result
+ */
+export function formatBrowserType(result: BrowserTypeResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Type Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+    return json2md([
+      { h2: 'Type Successful' },
+      { p: 'Text entered successfully.' },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_content result.
+ * Truncates content if longer than 32KB to keep response manageable.
+ */
+export function formatBrowserContent(result: BrowserContentResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Content Read Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    const MAX_TEXT_LENGTH = 32 * 1024;
+    const text =
+      result.text.length > MAX_TEXT_LENGTH
+        ? result.text.substring(0, MAX_TEXT_LENGTH) + '\n\n[...truncated]'
+        : result.text;
+
+    const html =
+      result.html.length > MAX_TEXT_LENGTH
+        ? result.html.substring(0, MAX_TEXT_LENGTH) + '\n\n[...truncated]'
+        : result.html;
+
+    return json2md([
+      { h2: 'Page Content' },
+      { h3: 'Text' },
+      { code: { content: text } },
+      { h3: 'HTML' },
+      { code: { language: 'html', content: html } },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_network result as a markdown table
+ */
+export function formatBrowserNetwork(result: BrowserNetworkResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Network Requests' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    if (result.requests.length === 0) {
+      return json2md([
+        { h2: 'Network Requests' },
+        { p: 'No network requests captured.' },
+      ]);
+    }
+
+    const rows = result.requests.map((req) => ({
+      Method: req.method,
+      Status: String(req.status),
+      Type: req.type,
+      Size: req.size ? `${Math.round(req.size / 1024)}KB` : '-',
+      URL: req.url.length > 80 ? req.url.substring(0, 77) + '...' : req.url,
+    }));
+
+    return json2md([
+      { h2: 'Network Requests' },
+      { p: `**Total:** ${result.requests.length}` },
+      {
+        table: {
+          headers: ['Method', 'Status', 'Type', 'Size', 'URL'],
+          rows,
+        },
+      },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_close result
+ */
+export function formatBrowserClose(result: {
+  success: boolean;
+  error?: string;
+}): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Browser Close Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+    return json2md([
+      { h2: 'Browser Session Closed' },
+      { p: 'Browser session closed and resources released.' },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_status result
+ */
+export function formatBrowserStatus(result: BrowserStatusResult): string {
+  try {
+    if (!result.connected) {
+      return json2md([
+        { h2: 'Browser Status' },
+        {
+          p: '**Connected:** No  \nNo active browser session. Use ptah_browser_navigate to start one.',
+        },
+      ]);
+    }
+
+    const uptimeSec = result.uptimeMs ? Math.round(result.uptimeMs / 1000) : 0;
+    const autoCloseMin = result.autoCloseInMs
+      ? Math.round(result.autoCloseInMs / 60000)
+      : 0;
+
+    // TASK_2025_254: Include headless and recording status
+    let statusText =
+      `**Connected:** Yes  \n**URL:** ${result.url ?? 'N/A'}  \n` +
+      `**Title:** ${result.title ?? 'N/A'}  \n` +
+      `**Uptime:** ${uptimeSec}s  \n` +
+      `**Auto-close in:** ${autoCloseMin}m`;
+
+    if (result.headless !== undefined) {
+      statusText += `  \n**Mode:** ${result.headless ? 'Headless' : 'Visible'}`;
+    }
+    if (result.recording !== undefined) {
+      statusText += `  \n**Recording:** ${result.recording ? 'Active' : 'Inactive'}`;
+    }
+
+    return json2md([{ h2: 'Browser Status' }, { p: statusText }]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+// ============================================================
+// Browser Enhancement Tools (TASK_2025_254)
+// ============================================================
+
+/**
+ * Format ptah_browser_record_start result
+ */
+export function formatBrowserRecordStart(
+  result: BrowserRecordStartResult,
+): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Recording Start Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+    return json2md([
+      { h2: 'Recording Started' },
+      {
+        p: 'Screen recording is now active. Use ptah_browser_record_stop to save the GIF.',
+      },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_record_stop result
+ */
+export function formatBrowserRecordStop(
+  result: BrowserRecordStopResult,
+): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Recording Stop Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    const sizeKB = Math.round(result.fileSizeBytes / 1024);
+    const durationSec = Math.round(result.durationMs / 1000);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { h2: 'Recording Saved' },
+      {
+        p:
+          `**File:** ${result.filePath}  \n` +
+          `**Frames:** ${result.frameCount}  \n` +
+          `**Duration:** ${durationSec}s  \n` +
+          `**Size:** ${sizeKB}KB`,
+      },
+    ];
+
+    if (result.truncated) {
+      blocks.push({
+        p: '**Warning:** Recording was truncated because the frame buffer limit was reached. Older frames were discarded.',
+      });
+    }
+
+    return json2md(blocks);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_wait_for_user result
+ */
+export function formatBrowserWaitForUser(
+  result: BrowserWaitForUserResult,
+): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Wait for User Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    const waitSec = Math.round(result.waitDurationMs / 1000);
+
+    if (result.ready) {
+      return json2md([
+        { h2: 'User Ready' },
+        {
+          p: `The user has completed the requested action. Wait time: ${waitSec}s. You may now resume automated navigation.`,
+        },
+      ]);
+    }
+
+    return json2md([
+      { h2: 'User Not Ready' },
+      {
+        p:
+          `**Reason:** ${result.reason ?? 'Unknown'}  \n` +
+          `**Wait time:** ${waitSec}s`,
       },
     ]);
   } catch {

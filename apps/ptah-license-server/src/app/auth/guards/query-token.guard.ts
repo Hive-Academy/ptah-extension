@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  Inject,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -36,8 +37,8 @@ import { AuthService, TicketService } from '../services';
 @Injectable()
 export class QueryTokenAuthGuard implements CanActivate {
   constructor(
-    private readonly authService: AuthService,
-    private readonly ticketService: TicketService
+    @Inject(AuthService) private readonly authService: AuthService,
+    @Inject(TicketService) private readonly ticketService: TicketService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

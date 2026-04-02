@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { SentryModule } from '../sentry/sentry.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { LicenseModule } from '../license/license.module';
 import { AuthModule } from './auth/auth.module';
@@ -40,6 +41,11 @@ import { HealthModule } from '../health/health.module';
   imports: [
     // Global configuration - makes ConfigService available everywhere
     ConfigModule.forRoot({ isGlobal: true }),
+
+    // TASK_2025_251: Sentry error tracking and performance monitoring
+    // Must be imported early to capture exceptions from all other modules.
+    // Safe to include when SENTRY_DSN is not set (Sentry calls become no-ops).
+    SentryModule,
 
     // TASK_2025_125: Rate limiting to prevent abuse and DoS attacks
     // Default: 100 requests per minute per IP (generous for normal usage)
