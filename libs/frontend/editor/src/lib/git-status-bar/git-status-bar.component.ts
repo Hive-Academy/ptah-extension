@@ -4,7 +4,6 @@ import {
   signal,
   computed,
   ChangeDetectionStrategy,
-  HostListener,
   ElementRef,
 } from '@angular/core';
 import {
@@ -219,6 +218,7 @@ import type { GitWorktreeInfo } from '@ptah-extension/shared';
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(document:click)': 'onDocumentClick($event)' },
 })
 export class GitStatusBarComponent {
   protected readonly gitStatus = inject(GitStatusService);
@@ -227,7 +227,6 @@ export class GitStatusBarComponent {
   private readonly elementRef = inject(ElementRef);
 
   /** Close the worktree dropdown when clicking outside the component. */
-  @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
     const target = event.target;
     if (

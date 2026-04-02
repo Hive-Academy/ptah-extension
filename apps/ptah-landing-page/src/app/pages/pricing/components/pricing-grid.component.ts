@@ -8,7 +8,6 @@ import {
   effect,
   OnDestroy,
   DestroyRef,
-  HostListener,
 } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -197,6 +196,7 @@ import {
       }
     `,
   ],
+  host: { '(window:focus)': 'onWindowFocus()' },
 })
 export class PricingGridComponent implements OnInit, OnDestroy {
   /** Lucide icon references */
@@ -317,7 +317,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Handle window focus to refresh subscription state after portal return.
    * Only refreshes if portal was opened previously.
    */
-  @HostListener('window:focus')
   public onWindowFocus(): void {
     if (this.portalWasOpened) {
       this.portalWasOpened = false;
