@@ -384,6 +384,19 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
                                   <span
                                     class="loading loading-spinner loading-xs text-primary shrink-0"
                                   ></span>
+                                } @else if (
+                                  getAgentStatus(pack.source, agent.file) ===
+                                  'error'
+                                ) {
+                                  <button
+                                    class="btn btn-ghost btn-xs text-error"
+                                    (click)="
+                                      onInstallAgent(pack.source, agent.file);
+                                      $event.stopPropagation()
+                                    "
+                                  >
+                                    Retry
+                                  </button>
                                 } @else {
                                   <button
                                     class="btn btn-ghost btn-xs"
@@ -719,11 +732,15 @@ export class AgentSelectionComponent {
    */
   private async loadCommunityPacks(): Promise<void> {
     this.wizardState.setCommunityPacksLoading(true);
+    this.errorMessage.set(null);
     try {
       const packs = await this.wizardRpc.listAgentPacks();
       this.wizardState.setCommunityPacks(packs);
     } catch (error) {
-      console.error('Failed to load community packs:', error);
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.errorMessage.set(
+        `Failed to load community packs: ${msg}. Check your internet connection.`,
+      );
     } finally {
       this.wizardState.setCommunityPacksLoading(false);
     }
@@ -750,24 +767,33 @@ export class AgentSelectionComponent {
    * Install all agents from a community pack.
    */
   protected async onInstallAllAgents(pack: AgentPackInfoDto): Promise<void> {
-    const files = pack.agents.map((a) => a.file);
-    for (const file of files) {
-      const key = `${pack.source}::${file}`;
-      if (this.getAgentStatus(pack.source, file) !== 'installed') {
-        this.wizardState.setAgentInstallStatus(key, 'installing');
-      }
+    // Only install agents that aren't already installed
+    const pendingFiles = pack.agents
+      .filter((a) => this.getAgentStatus(pack.source, a.file) !== 'installed')
+      .map((a) => a.file);
+
+    if (pendingFiles.length === 0) return;
+
+    for (const file of pendingFiles) {
+      this.wizardState.setAgentInstallStatus(
+        `${pack.source}::${file}`,
+        'installing',
+      );
     }
     try {
-      const result = await this.wizardRpc.installPackAgents(pack.source, files);
+      const result = await this.wizardRpc.installPackAgents(
+        pack.source,
+        pendingFiles,
+      );
       const status = result.success ? 'installed' : 'error';
-      for (const file of files) {
+      for (const file of pendingFiles) {
         this.wizardState.setAgentInstallStatus(
           `${pack.source}::${file}`,
           status,
         );
       }
     } catch {
-      for (const file of files) {
+      for (const file of pendingFiles) {
         this.wizardState.setAgentInstallStatus(
           `${pack.source}::${file}`,
           'error',
@@ -779,7 +805,10 @@ export class AgentSelectionComponent {
   /**
    * Get the install status for a specific agent in a pack.
    */
-  protected getAgentStatus(source: string, file: string): string {
+  protected getAgentStatus(
+    source: string,
+    file: string,
+  ): 'idle' | 'installing' | 'installed' | 'error' {
     return (
       this.wizardState.agentInstallStatus()[`${source}::${file}`] ?? 'idle'
     );

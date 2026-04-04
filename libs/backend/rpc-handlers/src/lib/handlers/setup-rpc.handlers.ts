@@ -45,6 +45,10 @@ import type {
   MultiPhaseAnalysisResponse,
   SavedAnalysisMetadata,
   AgentCategory,
+  WizardListAgentPacksParams,
+  WizardListAgentPacksResult,
+  WizardInstallPackAgentsParams,
+  WizardInstallPackAgentsResult,
 } from '@ptah-extension/shared';
 import { Result } from '@ptah-extension/shared';
 import type { MultiPhaseManifest } from '@ptah-extension/agent-generation';
@@ -681,20 +685,29 @@ export class SetupRpcHandlers {
     });
   }
 
+  /** Singleton AgentPackDownloadService — preserves deduplication and cache serialization */
+  private agentPackService: AgentPackDownloadService | null = null;
+
+  private getAgentPackService(): AgentPackDownloadService {
+    if (!this.agentPackService) {
+      this.agentPackService = new AgentPackDownloadService();
+    }
+    return this.agentPackService;
+  }
+
   /**
    * wizard:list-agent-packs - List available community agent packs
    */
   private registerListAgentPacks(): void {
-    this.rpcHandler.registerMethod<Record<string, never>, { packs: unknown[] }>(
-      'wizard:list-agent-packs',
-      async () => {
-        this.logger.debug('RPC: wizard:list-agent-packs called');
+    this.rpcHandler.registerMethod<
+      WizardListAgentPacksParams,
+      WizardListAgentPacksResult
+    >('wizard:list-agent-packs', async () => {
+      this.logger.debug('RPC: wizard:list-agent-packs called');
 
-        const service = new AgentPackDownloadService();
-        const packs = await service.listCuratedPacks();
-        return { packs };
-      },
-    );
+      const packs = await this.getAgentPackService().listCuratedPacks();
+      return { packs };
+    });
   }
 
   /**
@@ -702,13 +715,8 @@ export class SetupRpcHandlers {
    */
   private registerInstallPackAgents(): void {
     this.rpcHandler.registerMethod<
-      { source: string; agentFiles: string[] },
-      {
-        success: boolean;
-        agentsDownloaded: number;
-        fromCache: boolean;
-        error?: string;
-      }
+      WizardInstallPackAgentsParams,
+      WizardInstallPackAgentsResult
     >('wizard:install-pack-agents', async (params) => {
       this.logger.debug('RPC: wizard:install-pack-agents called', {
         source: params.source,
@@ -723,8 +731,7 @@ export class SetupRpcHandlers {
       const path = await import('path');
       const targetDir = path.join(workspaceRoot, '.claude', 'agents');
 
-      const service = new AgentPackDownloadService();
-      return service.downloadAgents(
+      return this.getAgentPackService().downloadAgents(
         params.source,
         params.agentFiles,
         targetDir,
