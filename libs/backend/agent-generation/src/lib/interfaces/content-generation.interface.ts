@@ -82,8 +82,8 @@ export interface IContentGenerationService {
   generateContent(
     template: AgentTemplate,
     context: AgentProjectContext,
-    sdkConfig?: ContentGenerationSdkConfig
-  ): Promise<Result<string, Error>>;
+    sdkConfig?: ContentGenerationSdkConfig,
+  ): Promise<Result<{ content: string; description: string }, Error>>;
 
   /**
    * Generate LLM customizations for template sections.
@@ -115,6 +115,6 @@ export interface IContentGenerationService {
    */
   generateLlmSections(
     template: AgentTemplate,
-    context: AgentProjectContext
+    context: AgentProjectContext,
   ): Promise<Result<LlmCustomization[], Error>>;
 }

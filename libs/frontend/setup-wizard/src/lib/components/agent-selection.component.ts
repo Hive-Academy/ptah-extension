@@ -20,6 +20,12 @@ import {
   Users,
   ChevronLeft,
   Zap,
+  LayoutDashboard,
+  Code,
+  Search,
+  Settings,
+  Palette,
+  Package,
 } from 'lucide-angular';
 
 /**
@@ -64,10 +70,10 @@ import {
       </div>
 
       @if (errorMessage(); as error) {
-      <div class="alert alert-error mb-2 py-2 text-xs" role="alert">
-        <lucide-angular [img]="XCircleIcon" class="h-4 w-4 shrink-0" />
-        <span>{{ error }}</span>
-      </div>
+        <div class="alert alert-error mb-2 py-2 text-xs" role="alert">
+          <lucide-angular [img]="XCircleIcon" class="h-4 w-4 shrink-0" />
+          <span>{{ error }}</span>
+        </div>
       }
 
       <!-- Selection controls and count -->
@@ -101,144 +107,131 @@ import {
       </div>
 
       @if (sortedRecommendations().length === 0) {
-      <!-- No recommendations available -->
-      <div class="card border border-base-300 bg-base-200/50">
-        <div class="card-body items-center text-center py-6">
-          <lucide-angular
-            [img]="UsersIcon"
-            class="h-8 w-8 text-base-content/30 mb-2"
-          />
-          <h3 class="text-sm font-semibold mb-1">No Agent Recommendations</h3>
-          <p class="text-xs text-base-content/60">
-            Unable to load agent recommendations. Please go back and restart the
-            analysis.
-          </p>
+        <!-- No recommendations available -->
+        <div class="card border border-base-300 bg-base-200/50">
+          <div class="card-body items-center text-center py-6">
+            <lucide-angular
+              [img]="UsersIcon"
+              class="h-8 w-8 text-base-content/30 mb-2"
+            />
+            <h3 class="text-sm font-semibold mb-1">No Agent Recommendations</h3>
+            <p class="text-xs text-base-content/60">
+              Unable to load agent recommendations. Please go back and restart
+              the analysis.
+            </p>
+          </div>
         </div>
-      </div>
       } @else {
-      <!-- Agent categories -->
-      @for (category of categoryOrder; track category) { @if
-      (getAgentsByCategory(category).length > 0) {
-      <div class="mb-4">
-        <h3
-          class="text-xs font-medium uppercase tracking-wide mb-2 flex items-center gap-1.5"
-        >
-          <span
-            class="badge badge-sm"
-            [class]="getCategoryBadgeClass(category)"
-          >
-            {{ getCategoryIcon(category) }}
-          </span>
-          {{ getCategoryLabel(category) }}
-          <span class="text-xs text-base-content/60 font-normal normal-case">
-            ({{ getAgentsByCategory(category).length }})
-          </span>
-        </h3>
-
-        <div class="space-y-2">
-          @for (agent of getAgentsByCategory(category); track agent.agentId) {
-          <div
-            class="card border border-base-300 bg-base-200/50 hover:border-primary/40 transition-colors cursor-pointer"
-            [class.ring-1]="isSelected(agent.agentId)"
-            [class.ring-primary]="isSelected(agent.agentId)"
-            (click)="onToggleAgent(agent.agentId)"
-            (keydown.enter)="onToggleAgent(agent.agentId)"
-            (keydown.space)="
-              onToggleAgent(agent.agentId); $event.preventDefault()
-            "
-            tabindex="0"
-            role="checkbox"
-            [attr.aria-checked]="isSelected(agent.agentId)"
-            [attr.aria-label]="
-              'Select ' +
-              agent.agentName +
-              ' agent, relevance score ' +
-              agent.relevanceScore +
-              ' percent'
-            "
-          >
-            <div class="card-body p-2.5">
-              <div class="flex items-center gap-3">
-                <!-- 1. Checkbox (60px) -->
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-primary checkbox-sm shrink-0"
-                  [checked]="isSelected(agent.agentId)"
-                  (click)="$event.stopPropagation()"
-                  (change)="onToggleAgent(agent.agentId)"
-                  [attr.aria-label]="'Select ' + agent.agentName"
+        <!-- Agent categories -->
+        @for (category of categoryOrder; track category) {
+          @if (getAgentsByCategory(category).length > 0) {
+            <div class="mb-4">
+              <h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
+                <lucide-angular
+                  [img]="getCategoryLucideIcon(category)"
+                  class="h-4 w-4"
                 />
+                {{ getCategoryLabel(category) }}
+                <span class="badge badge-ghost badge-sm">{{
+                  getAgentsByCategory(category).length
+                }}</span>
+              </h3>
 
-                <!-- 2. Name + Recommended Badge (200px) -->
-                <div class="w-48 shrink-0">
-                  <div class="flex items-center gap-1.5">
-                    <span class="text-xs font-semibold truncate">{{
-                      agent.agentName
-                    }}</span>
-                    @if (agent.recommended) {
-                    <span class="badge badge-success badge-xs gap-0.5 shrink-0">
-                      <lucide-angular [img]="CheckIcon" class="h-2.5 w-2.5" />
-                      Rec
-                    </span>
-                    }
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                @for (
+                  agent of getAgentsByCategory(category);
+                  track agent.agentId
+                ) {
+                  <div
+                    class="card border bg-base-200/50 hover:border-primary/50 transition-all cursor-pointer"
+                    [class.ring-2]="isSelected(agent.agentId)"
+                    [class.ring-primary]="isSelected(agent.agentId)"
+                    [class.border-base-300]="!isSelected(agent.agentId)"
+                    (click)="onToggleAgent(agent.agentId)"
+                    (keydown.enter)="onToggleAgent(agent.agentId)"
+                    (keydown.space)="
+                      onToggleAgent(agent.agentId); $event.preventDefault()
+                    "
+                    tabindex="0"
+                    role="checkbox"
+                    [attr.aria-checked]="isSelected(agent.agentId)"
+                    [attr.aria-label]="
+                      'Select ' +
+                      agent.agentName +
+                      ' agent, relevance score ' +
+                      agent.relevanceScore +
+                      ' percent'
+                    "
+                  >
+                    <div class="card-body p-3">
+                      <!-- Header row: checkbox + name + score + recommended badge -->
+                      <div class="flex items-center justify-between gap-2">
+                        <div class="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            class="checkbox checkbox-primary checkbox-sm"
+                            [checked]="isSelected(agent.agentId)"
+                            (click)="$event.stopPropagation()"
+                            (change)="onToggleAgent(agent.agentId)"
+                            [attr.aria-label]="'Select ' + agent.agentName"
+                          />
+                          <span class="font-semibold text-sm">{{
+                            agent.agentName
+                          }}</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                          @if (agent.recommended) {
+                            <span class="badge badge-success badge-xs"
+                              >Rec</span
+                            >
+                          }
+                          <span
+                            class="badge badge-sm font-bold"
+                            [class]="getScoreBadgeClass(agent.relevanceScore)"
+                          >
+                            {{ agent.relevanceScore }}%
+                          </span>
+                        </div>
+                      </div>
+
+                      <!-- Description (full, not truncated) -->
+                      <p
+                        class="text-xs text-base-content/70 mt-1 leading-relaxed"
+                      >
+                        {{ agent.description }}
+                      </p>
+
+                      <!-- Matched criteria tags -->
+                      @if (agent.matchedCriteria?.length) {
+                        <div class="flex flex-wrap gap-1 mt-2">
+                          @for (
+                            criteria of agent.matchedCriteria;
+                            track criteria
+                          ) {
+                            <span class="badge badge-outline badge-xs">{{
+                              criteria
+                            }}</span>
+                          }
+                        </div>
+                      }
+                    </div>
                   </div>
-                </div>
-
-                <!-- 3. Description (flex-1, grows to fill available space) -->
-                <div class="flex-1 min-w-0">
-                  <p
-                    class="text-xs text-base-content/60 truncate"
-                    [title]="agent.description"
-                  >
-                    {{ agent.description }}
-                  </p>
-                </div>
-
-                <!-- 4. Score Badge (80px) -->
-                <div class="w-20 shrink-0 flex justify-center">
-                  <span
-                    class="badge badge-sm font-bold"
-                    [class]="getScoreBadgeClass(agent.relevanceScore)"
-                  >
-                    {{ agent.relevanceScore }}%
-                  </span>
-                </div>
-
-                <!-- 5. Matched Criteria Badges (250px, with truncation) -->
-                @if (agent.matchedCriteria && agent.matchedCriteria.length > 0)
-                {
-                <div class="w-64 shrink-0 flex gap-1 overflow-hidden">
-                  @for (criteria of agent.matchedCriteria.slice(0, 2); track
-                  criteria) {
-                  <span
-                    class="badge badge-outline badge-xs truncate max-w-[100px]"
-                    [title]="criteria"
-                  >
-                    {{ criteria }}
-                  </span>
-                  } @if (agent.matchedCriteria.length > 2) {
-                  <span
-                    class="badge badge-ghost badge-xs cursor-help shrink-0"
-                    [title]="agent.matchedCriteria.slice(2).join(', ')"
-                  >
-                    +{{ agent.matchedCriteria.length - 2 }}
-                  </span>
-                  }
-                </div>
                 }
               </div>
             </div>
-          </div>
           }
-        </div>
-      </div>
-      } } }
+        }
+      }
 
       <!-- Action buttons -->
       <div
         class="flex gap-2 justify-between items-center mt-4 pt-3 border-t border-base-300"
       >
-        <button class="btn btn-ghost btn-sm" (click)="onBack()">
+        <button
+          class="btn btn-ghost btn-sm"
+          [disabled]="isGenerating()"
+          (click)="onBack()"
+        >
           <lucide-angular [img]="ChevronLeftIcon" class="h-4 w-4" />
           Back
         </button>
@@ -256,12 +249,13 @@ import {
           (click)="onGenerateAgents()"
         >
           @if (isGenerating()) {
-          <span class="loading loading-spinner loading-sm"></span>
-          Generating... } @else {
-          <lucide-angular [img]="ZapIcon" class="h-4 w-4" />
-          Generate {{ selectedCount() }} Agent{{
-            selectedCount() === 1 ? '' : 's'
-          }}
+            <span class="loading loading-spinner loading-sm"></span>
+            Generating...
+          } @else {
+            <lucide-angular [img]="ZapIcon" class="h-4 w-4" />
+            Generate {{ selectedCount() }} Agent{{
+              selectedCount() === 1 ? '' : 's'
+            }}
           }
         </button>
       </div>
@@ -278,6 +272,12 @@ export class AgentSelectionComponent {
   protected readonly UsersIcon = Users;
   protected readonly ChevronLeftIcon = ChevronLeft;
   protected readonly ZapIcon = Zap;
+  protected readonly LayoutDashboardIcon = LayoutDashboard;
+  protected readonly CodeIcon = Code;
+  protected readonly SearchIcon = Search;
+  protected readonly SettingsIcon = Settings;
+  protected readonly PaletteIcon = Palette;
+  protected readonly PackageIcon = Package;
 
   /**
    * Known agent categories for filtering.
@@ -314,7 +314,7 @@ export class AgentSelectionComponent {
   protected readonly sortedRecommendations = computed(() => {
     const recommendations = this.wizardState.recommendations();
     return [...recommendations].sort(
-      (a, b) => b.relevanceScore - a.relevanceScore
+      (a, b) => b.relevanceScore - a.relevanceScore,
     );
   });
 
@@ -356,21 +356,36 @@ export class AgentSelectionComponent {
   protected readonly noneSelected = computed(() => this.selectedCount() === 0);
 
   /**
-   * Get agents filtered by category.
-   * For 'other', returns agents with unknown categories.
+   * Agents grouped by category (memoized).
+   * Computed once per signal change instead of per template iteration.
+   */
+  protected readonly agentsByCategory = computed(() => {
+    const agents = this.sortedRecommendations();
+    const grouped = new Map<AgentCategory | 'other', AgentRecommendation[]>();
+
+    for (const category of this.categoryOrder) {
+      if (category === 'other') {
+        const others = agents.filter(
+          (agent) =>
+            !this.knownCategories.includes(agent.category as AgentCategory),
+        );
+        if (others.length > 0) grouped.set('other', others);
+      } else {
+        const matched = agents.filter((agent) => agent.category === category);
+        if (matched.length > 0) grouped.set(category, matched);
+      }
+    }
+
+    return grouped;
+  });
+
+  /**
+   * Get agents for a category from the memoized map.
    */
   protected getAgentsByCategory(
-    category: AgentCategory | 'other'
+    category: AgentCategory | 'other',
   ): AgentRecommendation[] {
-    if (category === 'other') {
-      return this.sortedRecommendations().filter(
-        (agent) =>
-          !this.knownCategories.includes(agent.category as AgentCategory)
-      );
-    }
-    return this.sortedRecommendations().filter(
-      (agent) => agent.category === category
-    );
+    return this.agentsByCategory().get(category) ?? [];
   }
 
   /**
@@ -390,55 +405,24 @@ export class AgentSelectionComponent {
   }
 
   /**
-   * Get progress bar class based on relevance score.
+   * Get Lucide icon for agent category.
+   * Replaces emoji-based category icons with proper Lucide icon components.
    */
-  protected getScoreProgressClass(score: number): string {
-    if (score >= 80) return 'progress-success';
-    if (score >= 60) return 'progress-warning';
-    return 'progress-error';
-  }
-
-  /**
-   * Get category badge class for styling.
-   * Includes fallback for 'other' category.
-   */
-  protected getCategoryBadgeClass(category: AgentCategory | 'other'): string {
+  protected getCategoryLucideIcon(category: AgentCategory | 'other') {
     switch (category) {
       case 'planning':
-        return 'badge-primary';
+        return this.LayoutDashboardIcon;
       case 'development':
-        return 'badge-secondary';
+        return this.CodeIcon;
       case 'qa':
-        return 'badge-accent';
+        return this.SearchIcon;
       case 'specialist':
-        return 'badge-info';
+        return this.SettingsIcon;
       case 'creative':
-        return 'badge-warning';
+        return this.PaletteIcon;
       case 'other':
       default:
-        return 'badge-ghost';
-    }
-  }
-
-  /**
-   * Get category icon emoji.
-   * Includes fallback for 'other' category.
-   */
-  protected getCategoryIcon(category: AgentCategory | 'other'): string {
-    switch (category) {
-      case 'planning':
-        return '\u{1F4CB}'; // Clipboard
-      case 'development':
-        return '\u{1F4BB}'; // Laptop
-      case 'qa':
-        return '\u{1F50D}'; // Magnifying glass
-      case 'specialist':
-        return '\u{2699}\u{FE0F}'; // Gear
-      case 'creative':
-        return '\u{1F3A8}'; // Artist palette
-      case 'other':
-      default:
-        return '\u{1F4E6}'; // Package
+        return this.PackageIcon;
     }
   }
 
@@ -510,7 +494,7 @@ export class AgentSelectionComponent {
 
     return selectedAgentIds.map((agentId) => {
       const recommendation = this.sortedRecommendations().find(
-        (r) => r.agentId === agentId
+        (r) => r.agentId === agentId,
       );
       return {
         id: agentId,
@@ -546,20 +530,20 @@ export class AgentSelectionComponent {
 
         if (!multiPhase) {
           throw new Error(
-            'No analysis data available. Please re-run the wizard scan.'
+            'No analysis data available. Please re-run the wizard scan.',
           );
         }
 
         // Submit selection with multi-phase analysisDir
         const response = await this.wizardRpc.submitAgentSelection(
           selectedAgents,
-          multiPhase.analysisDir
+          multiPhase.analysisDir,
         );
 
         // Verify backend acknowledgment before transitioning
         if (!response?.success) {
           throw new Error(
-            response?.error ?? 'Backend did not acknowledge selection'
+            response?.error ?? 'Backend did not acknowledge selection',
           );
         }
 
@@ -570,9 +554,9 @@ export class AgentSelectionComponent {
         this.errorMessage.set(error.message);
         console.error(
           'Agent generation failed:',
-          error.details ?? error.message
+          error.details ?? error.message,
         );
-      }
+      },
     );
 
     if (result) {
@@ -580,7 +564,7 @@ export class AgentSelectionComponent {
       // This MUST happen before transitioning so handleGenerationProgress()
       // can update per-item status (it silently ignores updates when items.length === 0).
       const selectedAgentIds = Object.entries(
-        this.wizardState.selectedAgentsMap()
+        this.wizardState.selectedAgentsMap(),
       )
         .filter(([_, isSelected]) => isSelected)
         .map(([agentId]) => agentId);
@@ -588,7 +572,7 @@ export class AgentSelectionComponent {
       const progressItems: SkillGenerationProgressItem[] = selectedAgentIds.map(
         (agentId) => {
           const recommendation = this.sortedRecommendations().find(
-            (r) => r.agentId === agentId
+            (r) => r.agentId === agentId,
           );
           return {
             id: agentId,
@@ -597,7 +581,7 @@ export class AgentSelectionComponent {
             status: 'pending' as const,
             progress: 0,
           };
-        }
+        },
       );
 
       this.wizardState.setSkillGenerationProgress(progressItems);

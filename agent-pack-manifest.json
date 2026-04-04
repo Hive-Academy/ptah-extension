@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "Ptah Core Agents",
+  "version": "1.0.0",
+  "description": "Core development agent pack for the Ptah coding orchestra",
+  "contentHash": "",
+  "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/libs/backend/agent-generation/templates/agents",
+  "agents": [
+    {
+      "file": "backend-developer.template.md",
+      "name": "Backend Developer",
+      "description": "Backend developer specializing in scalable server-side architecture and API design",
+      "category": "development"
+    },
+    {
+      "file": "frontend-developer.template.md",
+      "name": "Frontend Developer",
+      "description": "Frontend developer specializing in modern UI frameworks and component design",
+      "category": "development"
+    },
+    {
+      "file": "software-architect.template.md",
+      "name": "Software Architect",
+      "description": "Elite Software Architect for system design and strategic planning",
+      "category": "planning"
+    },
+    {
+      "file": "project-manager.template.md",
+      "name": "Project Manager",
+      "description": "Technical Lead for task orchestration and strategic planning",
+      "category": "planning"
+    },
+    {
+      "file": "team-leader.template.md",
+      "name": "Team Leader",
+      "description": "Task Decomposition and Batch Orchestration Specialist",
+      "category": "planning"
+    },
+    {
+      "file": "code-logic-reviewer.template.md",
+      "name": "Code Logic Reviewer",
+      "description": "Ensures business logic correctness and complete implementations",
+      "category": "qa"
+    },
+    {
+      "file": "code-style-reviewer.template.md",
+      "name": "Code Style Reviewer",
+      "description": "Focuses on coding standards, patterns, and best practices",
+      "category": "qa"
+    },
+    {
+      "file": "senior-tester.template.md",
+      "name": "Senior Tester",
+      "description": "Comprehensive quality assurance and test mastery",
+      "category": "qa"
+    },
+    {
+      "file": "researcher-expert.template.md",
+      "name": "Research Expert",
+      "description": "Deep technical analysis and strategic insights",
+      "category": "specialist"
+    },
+    {
+      "file": "devops-engineer.template.md",
+      "name": "DevOps Engineer",
+      "description": "CI/CD, containerization, and deployment automation",
+      "category": "specialist"
+    },
+    {
+      "file": "modernization-detector.template.md",
+      "name": "Modernization Detector",
+      "description": "Identifies technology modernization opportunities",
+      "category": "specialist"
+    },
+    {
+      "file": "ui-ux-designer.template.md",
+      "name": "UI/UX Designer",
+      "description": "Visual design systems and production-ready specifications",
+      "category": "creative"
+    },
+    {
+      "file": "visual-reviewer.template.md",
+      "name": "Visual Reviewer",
+      "description": "UI/UX visual quality and responsive design testing",
+      "category": "creative"
+    },
+    {
+      "file": "technical-content-writer.template.md",
+      "name": "Technical Content Writer",
+      "description": "Marketing pages, blogs, documentation, and video scripts",
+      "category": "creative"
+    }
+  ]
+}

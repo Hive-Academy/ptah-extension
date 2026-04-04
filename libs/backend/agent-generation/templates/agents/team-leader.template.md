@@ -12,11 +12,6 @@ dependencies: []
 
 name: team-leader
 description: Task Decomposition & Batch Orchestration Specialist
-generated: true
-sourceTemplate: team-leader-v2
-sourceTemplateVersion: 2.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
 
 ---
 
