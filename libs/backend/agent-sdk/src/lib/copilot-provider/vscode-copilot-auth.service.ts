@@ -67,6 +67,35 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
   }
 
   /**
+   * Override tryRestoreAuth to also try VS Code native auth silently.
+   *
+   * In VS Code, we can silently check for an existing GitHub session via
+   * vscode.authentication.getSession(false) without prompting the user.
+   * This is faster than file-based restore and covers users who previously
+   * authenticated through VS Code's GitHub auth provider.
+   */
+  override async tryRestoreAuth(): Promise<boolean> {
+    // Try VS Code native auth silently first (no prompt, createIfNone=false)
+    try {
+      const session = await this.getVscodeGitHubSession(false);
+      if (session) {
+        this.logger.info(
+          '[VscodeCopilotAuth] Silent restore via VS Code GitHub session',
+        );
+        const exchanged = await this.exchangeToken(session.accessToken);
+        if (exchanged) return true;
+      }
+    } catch (error) {
+      this.logger.debug(
+        `[VscodeCopilotAuth] Silent VS Code session check failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    // Fallback to base class (file-based token)
+    return super.tryRestoreAuth();
+  }
+
+  /**
    * Override token refresh to use VS Code native auth as a refresh source.
    *
    * The base class only tries cached token exchange + file-based refresh.

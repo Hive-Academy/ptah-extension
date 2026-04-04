@@ -43,6 +43,9 @@ import {
 /** Token refresh buffer: refresh 5 minutes before actual expiry */
 const TOKEN_REFRESH_BUFFER_SECONDS = 5 * 60;
 
+/** Shorter timeout for silent auth restore during startup (avoid blocking window creation) */
+const SILENT_RESTORE_TIMEOUT_MS = 5_000;
+
 /** Default Copilot API endpoint */
 const DEFAULT_COPILOT_API_ENDPOINT = 'https://api.githubcopilot.com';
 
@@ -129,18 +132,9 @@ export class CopilotAuthService implements ICopilotAuthService {
       this.logger.info('[CopilotAuth] Starting authentication...');
 
       // Strategy 1: Try reading token from Copilot config file
-      const fileToken = await readCopilotToken();
-      if (fileToken) {
-        this.logger.info(
-          '[CopilotAuth] Found GitHub token in Copilot config file',
-        );
-        const exchanged = await this.exchangeToken(fileToken);
-        if (exchanged) {
-          return true;
-        }
-        this.logger.warn(
-          '[CopilotAuth] File token exchange failed, falling back to device code flow',
-        );
+      const fileRestored = await this.tryFileBasedAuth();
+      if (fileRestored) {
+        return true;
       }
 
       // Strategy 2: GitHub Device Code flow
@@ -176,6 +170,56 @@ export class CopilotAuthService implements ICopilotAuthService {
       );
       return false;
     }
+  }
+
+  /**
+   * Attempt to restore Copilot authentication silently from persisted tokens.
+   * Tries file-based token reading (~/.config/github-copilot/hosts.json)
+   * but does NOT trigger the interactive device code flow.
+   *
+   * Used by AuthManager during startup to avoid blocking the UI with
+   * auth dialogs before the main window is created. Uses a shorter
+   * network timeout (5s vs 15s) to minimize startup delay.
+   *
+   * @returns true if authentication was restored, false otherwise
+   */
+  async tryRestoreAuth(): Promise<boolean> {
+    try {
+      this.logger.info(
+        '[CopilotAuth] Attempting silent auth restore from file...',
+      );
+      return await this.tryFileBasedAuth(SILENT_RESTORE_TIMEOUT_MS);
+    } catch (error) {
+      this.logger.info(
+        `[CopilotAuth] Silent auth restore unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Try to authenticate using the token from the Copilot config file.
+   * Shared by both login() (full timeout) and tryRestoreAuth() (short timeout).
+   *
+   * @param timeoutMs - HTTP timeout for the token exchange request
+   * @returns true if file-based auth succeeded
+   */
+  private async tryFileBasedAuth(timeoutMs?: number): Promise<boolean> {
+    const fileToken = await readCopilotToken();
+    if (!fileToken) {
+      this.logger.info('[CopilotAuth] No Copilot config file found');
+      return false;
+    }
+
+    this.logger.info('[CopilotAuth] Found GitHub token in Copilot config file');
+    const exchanged = await this.exchangeToken(fileToken, timeoutMs);
+    if (exchanged) {
+      return true;
+    }
+    this.logger.warn(
+      '[CopilotAuth] File token exchange failed (token may be expired)',
+    );
+    return false;
   }
 
   /**
@@ -299,9 +343,13 @@ export class CopilotAuthService implements ICopilotAuthService {
    * a GitHub token via VS Code's native authentication provider.
    *
    * @param githubToken - GitHub OAuth access token
+   * @param timeoutMs - HTTP request timeout in milliseconds (default: 15s)
    * @returns true if exchange succeeded
    */
-  protected async exchangeToken(githubToken: string): Promise<boolean> {
+  protected async exchangeToken(
+    githubToken: string,
+    timeoutMs = 15_000,
+  ): Promise<boolean> {
     const tokenUrl = this.getTokenExchangeUrl();
     if (!tokenUrl) {
       this.logger.warn(
@@ -324,7 +372,7 @@ export class CopilotAuthService implements ICopilotAuthService {
             Accept: 'application/json',
             'User-Agent': `ptah-extension/${version}`,
           },
-          timeout: 15_000,
+          timeout: timeoutMs,
         },
       );
 
