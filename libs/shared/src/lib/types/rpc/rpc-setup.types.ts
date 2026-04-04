@@ -314,3 +314,46 @@ export interface EnhancedPromptsRegenerateResponse {
   /** Updated status (on success) */
   status?: EnhancedPromptsGetStatusResponse;
 }
+
+// ============================================================
+// Agent Pack Browser RPC Types (TASK_2025_258)
+// ============================================================
+
+/** A single agent entry within a pack (frontend-facing DTO) */
+export interface AgentPackEntryDto {
+  file: string;
+  name: string;
+  description: string;
+  category: string;
+}
+
+/** Public info about an agent pack (frontend-facing DTO) */
+export interface AgentPackInfoDto {
+  name: string;
+  version: string;
+  description: string;
+  agents: AgentPackEntryDto[];
+  source: string;
+}
+
+/** Parameters for wizard:list-agent-packs RPC method */
+export type WizardListAgentPacksParams = Record<string, never>;
+
+/** Response from wizard:list-agent-packs RPC method */
+export interface WizardListAgentPacksResult {
+  packs: AgentPackInfoDto[];
+}
+
+/** Parameters for wizard:install-pack-agents RPC method */
+export interface WizardInstallPackAgentsParams {
+  source: string;
+  agentFiles: string[];
+}
+
+/** Response from wizard:install-pack-agents RPC method */
+export interface WizardInstallPackAgentsResult {
+  success: boolean;
+  agentsDownloaded: number;
+  fromCache: boolean;
+  error?: string;
+}

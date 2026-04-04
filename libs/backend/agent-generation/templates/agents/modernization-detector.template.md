@@ -11,12 +11,7 @@ dependencies: []
 ---
 
 name: modernization-detector
-description: An expert at identifying technology modernization opportunities across any codebase using current industry best practices.
-generated: true
-sourceTemplate: modernization-detector-v2
-sourceTemplateVersion: 2.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
+description: Expert at identifying technology modernization opportunities across any codebase
 
 ---
 

@@ -39,7 +39,11 @@ import {
   CliSessionReference,
   parseWorktreeList,
 } from '@ptah-extension/shared';
-import type { AgentPermissionRequest } from '@ptah-extension/shared';
+import type {
+  AgentPermissionRequest,
+  AnalysisStreamPayload,
+  FlatStreamEventUnion,
+} from '@ptah-extension/shared';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import * as vscode from 'vscode';
 
@@ -823,6 +827,29 @@ export class RpcMethodRegistrationService {
           this.logger.error(
             'Failed to send agent-start event to webview',
             error instanceof Error ? error : new Error(String(error)),
+          );
+        });
+
+      // Also broadcast to setup wizard pipeline so the wizard's ExecutionTreeBuilder
+      // can match agent_start events to Task tool nodes during analysis.
+      // Without this, wizard sessions that spawn sub-agents show "No agent_start match"
+      // because agent_start events were only sent through CHAT_CHUNK.
+      const wizardStreamPayload: AnalysisStreamPayload = {
+        kind: 'status',
+        content: `Agent started: ${agentStartEvent.agentType ?? 'unknown'}`,
+        timestamp: agentStartEvent.timestamp,
+        flatEvent: streamingEvent as FlatStreamEventUnion,
+      };
+
+      this.webviewManager
+        .broadcastMessage(
+          MESSAGE_TYPES.SETUP_WIZARD_ANALYSIS_STREAM,
+          wizardStreamPayload,
+        )
+        .catch((error) => {
+          this.logger.debug(
+            'Failed to send agent-start to wizard pipeline (wizard may not be active)',
+            { error: error instanceof Error ? error.message : String(error) },
           );
         });
     });

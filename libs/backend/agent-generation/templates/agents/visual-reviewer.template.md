@@ -11,12 +11,7 @@ dependencies: []
 ---
 
 name: visual-reviewer
-description: Elite Visual Reviewer focusing on UI/UX visual quality, responsive design, and browser-based visual testing using Chrome DevTools
-generated: true
-sourceTemplate: visual-reviewer-v2
-sourceTemplateVersion: 2.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
+description: Elite Visual Reviewer focusing on UI/UX visual quality, responsive design, and browser-based visual testing
 
 ---
 

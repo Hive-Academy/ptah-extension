@@ -5,6 +5,7 @@ import { CTASectionComponent } from '../sections/cta/cta-section.component';
 import { FooterComponent } from '../components/footer.component';
 import { FeaturesHijackedScrollComponent } from '../sections/features/features-hijacked-scroll.component';
 import { HeroComponent } from '../sections/hero/hero.component';
+import { OpenSourceSectionComponent } from '../sections/open-source/open-source-section.component';
 import { PremiumShowcaseComponent } from '../sections/premium-showcase/premium-showcase.component';
 import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcase.component';
 
@@ -76,6 +77,7 @@ import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcas
     HeroComponent,
     VideoShowcaseComponent,
     PremiumShowcaseComponent,
+    OpenSourceSectionComponent,
     FeaturesHijackedScrollComponent,
     ComparisonSectionComponent,
     CTASectionComponent,
@@ -97,6 +99,14 @@ import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcas
         <section id="premium-showcase" aria-label="Why Ptah">
           <ptah-premium-showcase />
         </section>
+
+        @defer (on viewport) {
+          <section id="open-source" aria-label="Open Source">
+            <ptah-open-source-section />
+          </section>
+        } @placeholder {
+          <div class="min-h-screen"></div>
+        }
 
         @defer (on viewport) {
           <section id="features" aria-label="Features">

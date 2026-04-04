@@ -12,11 +12,6 @@ dependencies: []
 
 name: researcher-expert
 description: Elite Research Expert for deep technical analysis and strategic insights
-generated: true
-sourceTemplate: researcher-expert-v2
-sourceTemplateVersion: 2.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
 
 ---
 
