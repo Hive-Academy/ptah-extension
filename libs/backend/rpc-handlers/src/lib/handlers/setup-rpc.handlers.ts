@@ -383,36 +383,117 @@ export class SetupRpcHandlers {
             'Multi-phase analysis detected, returning all agents recommended',
           );
 
-          const agentCatalog: Array<{ id: string; category: AgentCategory }> = [
-            { id: 'project-manager', category: 'planning' },
-            { id: 'software-architect', category: 'planning' },
-            { id: 'team-leader', category: 'planning' },
-            { id: 'backend-developer', category: 'development' },
-            { id: 'frontend-developer', category: 'development' },
-            { id: 'devops-engineer', category: 'development' },
-            { id: 'senior-tester', category: 'qa' },
-            { id: 'code-style-reviewer', category: 'qa' },
-            { id: 'code-logic-reviewer', category: 'qa' },
-            { id: 'researcher-expert', category: 'specialist' },
-            { id: 'modernization-detector', category: 'specialist' },
-            { id: 'technical-content-writer', category: 'creative' },
-            { id: 'ui-ux-designer', category: 'creative' },
+          const agentCatalog: Array<{
+            id: string;
+            name: string;
+            description: string;
+            category: AgentCategory;
+          }> = [
+            {
+              id: 'project-manager',
+              name: 'Project Manager',
+              description:
+                'Analyzes requirements, creates task descriptions, and validates delivery',
+              category: 'planning',
+            },
+            {
+              id: 'software-architect',
+              name: 'Software Architect',
+              description:
+                'Investigates codebase, designs implementation plans, and defines architecture',
+              category: 'planning',
+            },
+            {
+              id: 'team-leader',
+              name: 'Team Leader',
+              description:
+                'Decomposes plans into tasks, coordinates developers, and manages batches',
+              category: 'planning',
+            },
+            {
+              id: 'backend-developer',
+              name: 'Backend Developer',
+              description:
+                'Implements APIs, database logic, business services, and server-side code',
+              category: 'development',
+            },
+            {
+              id: 'frontend-developer',
+              name: 'Frontend Developer',
+              description:
+                'Implements UI components, handles state management, and builds responsive interfaces',
+              category: 'development',
+            },
+            {
+              id: 'devops-engineer',
+              name: 'DevOps Engineer',
+              description:
+                'Manages CI/CD pipelines, containerization, deployment, and infrastructure',
+              category: 'development',
+            },
+            {
+              id: 'senior-tester',
+              name: 'Senior Tester',
+              description:
+                'Creates comprehensive test suites, verifies implementations, and ensures quality',
+              category: 'qa',
+            },
+            {
+              id: 'code-style-reviewer',
+              name: 'Code Style Reviewer',
+              description:
+                'Reviews code for formatting, naming conventions, and style consistency',
+              category: 'qa',
+            },
+            {
+              id: 'code-logic-reviewer',
+              name: 'Code Logic Reviewer',
+              description:
+                'Reviews business logic, identifies bugs, and validates implementation correctness',
+              category: 'qa',
+            },
+            {
+              id: 'researcher-expert',
+              name: 'Researcher Expert',
+              description:
+                'Investigates technologies, researches solutions, and provides technical guidance',
+              category: 'specialist',
+            },
+            {
+              id: 'modernization-detector',
+              name: 'Modernization Detector',
+              description:
+                'Identifies outdated patterns, suggests improvements, and detects technical debt',
+              category: 'specialist',
+            },
+            {
+              id: 'technical-content-writer',
+              name: 'Technical Content Writer',
+              description:
+                'Creates documentation, blog posts, video scripts, and marketing content',
+              category: 'creative',
+            },
+            {
+              id: 'ui-ux-designer',
+              name: 'UI/UX Designer',
+              description:
+                'Designs user interfaces, creates visual specifications, and improves user experience',
+              category: 'creative',
+            },
           ];
 
           const recommendations: AgentRecommendation[] = agentCatalog.map(
-            ({ id: agentId, category }) => ({
+            ({ id: agentId, name, description, category }) => ({
               agentId,
-              agentName: agentId
-                .split('-')
-                .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-                .join(' '),
+              agentName: name,
               category,
               relevanceScore: 100,
               recommended: true,
               matchedCriteria: [
-                'Multi-phase analysis (all agents recommended)',
+                'Deep codebase analysis',
+                'All agents recommended',
               ],
-              description: `Agent for ${agentId.replace(/-/g, ' ')} tasks`,
+              description,
             }),
           );
 

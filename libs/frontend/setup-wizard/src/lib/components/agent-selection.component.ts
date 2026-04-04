@@ -108,45 +108,52 @@ import {
 
       @if (sortedRecommendations().length === 0) {
         <!-- No recommendations available -->
-        <div class="card border border-base-300 bg-base-200/50">
-          <div class="card-body items-center text-center py-6">
-            <lucide-angular
-              [img]="UsersIcon"
-              class="h-8 w-8 text-base-content/30 mb-2"
-            />
-            <h3 class="text-sm font-semibold mb-1">No Agent Recommendations</h3>
-            <p class="text-xs text-base-content/60">
-              Unable to load agent recommendations. Please go back and restart
-              the analysis.
-            </p>
-          </div>
+        <div
+          class="border border-base-300/30 rounded-md bg-base-200/20 p-6 text-center"
+        >
+          <lucide-angular
+            [img]="UsersIcon"
+            class="h-8 w-8 text-base-content/30 mb-2 mx-auto"
+          />
+          <h3 class="text-sm font-semibold mb-1">No Agent Recommendations</h3>
+          <p class="text-xs text-base-content/50">
+            Unable to load agent recommendations. Please go back and restart the
+            analysis.
+          </p>
         </div>
       } @else {
         <!-- Agent categories -->
         @for (category of categoryOrder; track category) {
           @if (getAgentsByCategory(category).length > 0) {
-            <div class="mb-4">
-              <h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
+            <div class="mb-5">
+              <!-- Category header matching settings section style -->
+              <div class="flex items-center gap-2 mb-2.5">
                 <lucide-angular
                   [img]="getCategoryLucideIcon(category)"
-                  class="h-4 w-4"
+                  class="h-3.5 w-3.5 text-base-content/50"
                 />
-                {{ getCategoryLabel(category) }}
-                <span class="badge badge-ghost badge-sm">{{
-                  getAgentsByCategory(category).length
-                }}</span>
-              </h3>
+                <span
+                  class="text-[10px] font-medium text-base-content/50 uppercase tracking-wide"
+                >
+                  {{ getCategoryLabel(category) }}
+                </span>
+                <span class="text-[10px] text-base-content/30">
+                  {{ getAgentsByCategory(category).length }}
+                </span>
+              </div>
 
-              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 @for (
                   agent of getAgentsByCategory(category);
                   track agent.agentId
                 ) {
                   <div
-                    class="card border bg-base-200/50 hover:border-primary/50 transition-all cursor-pointer"
-                    [class.ring-2]="isSelected(agent.agentId)"
-                    [class.ring-primary]="isSelected(agent.agentId)"
-                    [class.border-base-300]="!isSelected(agent.agentId)"
+                    class="border rounded-md p-2.5 cursor-pointer transition-all"
+                    [class.border-primary/50]="isSelected(agent.agentId)"
+                    [class.bg-primary/5]="isSelected(agent.agentId)"
+                    [class.border-base-300/40]="!isSelected(agent.agentId)"
+                    [class.bg-base-200/20]="!isSelected(agent.agentId)"
+                    [class.hover:border-primary/30]="!isSelected(agent.agentId)"
                     (click)="onToggleAgent(agent.agentId)"
                     (keydown.enter)="onToggleAgent(agent.agentId)"
                     (keydown.space)="
@@ -163,58 +170,61 @@ import {
                       ' percent'
                     "
                   >
-                    <div class="card-body p-3">
-                      <!-- Header row: checkbox + name + score + recommended badge -->
-                      <div class="flex items-center justify-between gap-2">
-                        <div class="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            class="checkbox checkbox-primary checkbox-sm"
-                            [checked]="isSelected(agent.agentId)"
-                            (click)="$event.stopPropagation()"
-                            (change)="onToggleAgent(agent.agentId)"
-                            [attr.aria-label]="'Select ' + agent.agentName"
-                          />
-                          <span class="font-semibold text-sm">{{
-                            agent.agentName
-                          }}</span>
-                        </div>
-                        <div class="flex items-center gap-1.5">
-                          @if (agent.recommended) {
-                            <span class="badge badge-success badge-xs"
-                              >Rec</span
-                            >
-                          }
-                          <span
-                            class="badge badge-sm font-bold"
-                            [class]="getScoreBadgeClass(agent.relevanceScore)"
-                          >
-                            {{ agent.relevanceScore }}%
-                          </span>
-                        </div>
-                      </div>
-
-                      <!-- Description (full, not truncated) -->
-                      <p
-                        class="text-xs text-base-content/70 mt-1 leading-relaxed"
+                    <!-- Header: checkbox + name -->
+                    <div class="flex items-center gap-2 mb-1.5">
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-primary checkbox-xs shrink-0"
+                        [checked]="isSelected(agent.agentId)"
+                        (click)="$event.stopPropagation()"
+                        (change)="onToggleAgent(agent.agentId)"
+                        [attr.aria-label]="'Select ' + agent.agentName"
+                      />
+                      <span class="text-xs font-medium flex-1 truncate">{{
+                        agent.agentName
+                      }}</span>
+                      <!-- Score pill -->
+                      <span
+                        class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0"
+                        [class.bg-success/20]="agent.relevanceScore >= 80"
+                        [class.text-success]="agent.relevanceScore >= 80"
+                        [class.bg-warning/20]="
+                          agent.relevanceScore >= 60 &&
+                          agent.relevanceScore < 80
+                        "
+                        [class.text-warning]="
+                          agent.relevanceScore >= 60 &&
+                          agent.relevanceScore < 80
+                        "
+                        [class.bg-error/20]="agent.relevanceScore < 60"
+                        [class.text-error]="agent.relevanceScore < 60"
                       >
-                        {{ agent.description }}
-                      </p>
-
-                      <!-- Matched criteria tags -->
-                      @if (agent.matchedCriteria?.length) {
-                        <div class="flex flex-wrap gap-1 mt-2">
-                          @for (
-                            criteria of agent.matchedCriteria;
-                            track criteria
-                          ) {
-                            <span class="badge badge-outline badge-xs">{{
-                              criteria
-                            }}</span>
-                          }
-                        </div>
-                      }
+                        {{ agent.relevanceScore }}%
+                      </span>
                     </div>
+
+                    <!-- Description -->
+                    <p
+                      class="text-[11px] text-base-content/60 leading-relaxed mb-2 pl-6"
+                    >
+                      {{ agent.description }}
+                    </p>
+
+                    <!-- Matched criteria -->
+                    @if (agent.matchedCriteria?.length) {
+                      <div class="flex flex-wrap gap-1 pl-6">
+                        @for (
+                          criteria of agent.matchedCriteria;
+                          track criteria
+                        ) {
+                          <span
+                            class="text-[9px] px-1.5 py-0.5 rounded bg-base-300/30 text-base-content/40"
+                          >
+                            {{ criteria }}
+                          </span>
+                        }
+                      </div>
+                    }
                   </div>
                 }
               </div>
