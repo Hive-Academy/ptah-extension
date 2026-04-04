@@ -1,27 +1,22 @@
 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Ptah - Compact toolbar version -->
+  <!-- Ptah Ankh with code brackets - Toolbar icon (compact) -->
 
-  <!-- Nemes headdress - top curve -->
-  <path d="M8 1.5c-2.2 0-4 1.5-4 3.5v1" stroke="#C5C5C5" stroke-width="1.2" stroke-linecap="round"/>
-  <path d="M8 1.5c2.2 0 4 1.5 4 3.5v1" stroke="#C5C5C5" stroke-width="1.2" stroke-linecap="round"/>
+  <!-- Ankh loop (top circle) -->
+  <path d="M8 1.5C6.3 1.5 5 2.7 5 4.2C5 5.7 6.3 6.8 8 6.8C9.7 6.8 11 5.7 11 4.2C11 2.7 9.7 1.5 8 1.5Z" stroke="#C5C5C5" stroke-width="1.3" fill="none"/>
 
-  <!-- Headdress band -->
-  <line x1="4" y1="5" x2="12" y2="5" stroke="#C5C5C5" stroke-width="0.8"/>
+  <!-- Ankh crossbar -->
+  <line x1="4.5" y1="6.8" x2="11.5" y2="6.8" stroke="#C5C5C5" stroke-width="1.3" stroke-linecap="round"/>
 
-  <!-- Headdress side lappets -->
-  <path d="M4 6v4.5c0 .5-.3.8-.7 1l-.8.5" stroke="#C5C5C5" stroke-width="1.1" stroke-linecap="round"/>
-  <path d="M12 6v4.5c0 .5.3.8.7 1l.8.5" stroke="#C5C5C5" stroke-width="1.1" stroke-linecap="round"/>
+  <!-- Ankh vertical shaft -->
+  <line x1="8" y1="6.8" x2="8" y2="14.5" stroke="#C5C5C5" stroke-width="1.3" stroke-linecap="round"/>
 
-  <!-- Face outline -->
-  <path d="M5.5 6v2c0 1.7 1.1 3 2.5 3s2.5-1.3 2.5-3V6" stroke="#C5C5C5" stroke-width="1.1"/>
+  <!-- Code bracket left -->
+  <path d="M3 4L1.5 6L3 8" stroke="#C5C5C5" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
 
-  <!-- Eyes -->
-  <line x1="6.2" y1="7.8" x2="7.5" y2="7.8" stroke="#C5C5C5" stroke-width="1" stroke-linecap="round"/>
-  <line x1="8.5" y1="7.8" x2="9.8" y2="7.8" stroke="#C5C5C5" stroke-width="1" stroke-linecap="round"/>
+  <!-- Code bracket right -->
+  <path d="M13 4L14.5 6L13 8" stroke="#C5C5C5" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
 
-  <!-- Uraeus -->
-  <circle cx="8" cy="3.5" r="0.6" fill="#C5C5C5"/>
-
-  <!-- Divine beard -->
-  <path d="M8 11v3.5" stroke="#C5C5C5" stroke-width="1.3" stroke-linecap="round"/>
+  <!-- Circuit nodes on shaft -->
+  <circle cx="8" cy="9.5" r="0.8" fill="#C5C5C5"/>
+  <circle cx="8" cy="12.5" r="0.8" fill="#C5C5C5"/>
 </svg>
