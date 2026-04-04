@@ -391,6 +391,17 @@ export interface JsonValidateResult {
 // ========================================
 
 /**
+ * Viewport dimensions in pixels.
+ * Used across browser session configuration, status reporting, and tool schemas.
+ */
+export interface ViewportDimensions {
+  /** Width in pixels (must be a positive integer, max 7680) */
+  width: number;
+  /** Height in pixels (must be a positive integer, max 7680) */
+  height: number;
+}
+
+/**
  * Browser navigation result
  */
 export interface BrowserNavigateResult {
@@ -502,6 +513,58 @@ export interface BrowserStatusResult {
   autoCloseInMs?: number;
   /** Error message if status check failed */
   error?: string;
+  /** Whether the current session is running in headless mode */
+  headless?: boolean;
+  /** Whether recording is currently active */
+  recording?: boolean;
+  /** Current viewport dimensions */
+  viewport?: ViewportDimensions;
+}
+
+// ========================================
+// Browser Recording Types (TASK_2025_254)
+// ========================================
+
+/**
+ * Result of starting a browser recording
+ */
+export interface BrowserRecordStartResult {
+  /** Whether recording started successfully */
+  success: boolean;
+  /** Error message if start failed */
+  error?: string;
+}
+
+/**
+ * Result of stopping a browser recording and assembling the GIF
+ */
+export interface BrowserRecordStopResult {
+  /** Absolute file path to the generated GIF */
+  filePath: string;
+  /** Number of frames captured */
+  frameCount: number;
+  /** Recording duration in milliseconds */
+  durationMs: number;
+  /** GIF file size in bytes */
+  fileSizeBytes: number;
+  /** Whether older frames were discarded due to buffer limit */
+  truncated: boolean;
+  /** Error message if stop/assembly failed */
+  error?: string;
+}
+
+/**
+ * Result of waiting for user interaction in the browser
+ */
+export interface BrowserWaitForUserResult {
+  /** Whether the user signaled readiness */
+  ready: boolean;
+  /** Reason for non-readiness (user cancelled, timeout) */
+  reason?: string;
+  /** How long the wait lasted in milliseconds */
+  waitDurationMs: number;
+  /** Error message if wait failed */
+  error?: string;
 }
 
 /**
@@ -515,12 +578,19 @@ export interface BrowserNamespace {
    * URL is validated against a security blocklist before navigation.
    * If no browser session exists, one is lazily created.
    *
-   * @param params - Navigation parameters
+   * Session options (headless, viewport) only take effect when creating a new session.
+   * If a session already exists, they are stored for the next session creation.
+   *
+   * @param params - Navigation parameters and optional session configuration
    * @returns Navigation result with URL and page title
    */
   navigate(params: {
     url: string;
     waitForLoad?: boolean;
+    /** Run browser in headless mode (default: false — visible browser window) */
+    headless?: boolean;
+    /** Viewport dimensions (default: 1920x1080 — desktop). Common presets: desktop 1920x1080, tablet 768x1024, mobile 375x812 */
+    viewport?: ViewportDimensions;
   }): Promise<BrowserNavigateResult>;
 
   /**
@@ -597,6 +667,41 @@ export interface BrowserNamespace {
    * @returns Status result with connection state, URL, title, and timing
    */
   status(): Promise<BrowserStatusResult>;
+
+  /**
+   * Start recording the browser session as a GIF.
+   * Uses CDP Page.startScreencast to capture frames.
+   * (TASK_2025_254)
+   *
+   * @param params - Optional recording configuration
+   * @returns Start result
+   */
+  recordStart(params?: {
+    maxFrames?: number;
+    frameDelay?: number;
+  }): Promise<BrowserRecordStartResult>;
+
+  /**
+   * Stop recording and assemble captured frames into a GIF file.
+   * (TASK_2025_254)
+   *
+   * @returns Stop result with file path and recording stats
+   */
+  recordStop(): Promise<BrowserRecordStopResult>;
+
+  /**
+   * Pause the agent and wait for the user to perform manual actions
+   * in the visible browser window (login, 2FA, CAPTCHA, etc.).
+   * Requires visible browser mode (headless=false).
+   * (TASK_2025_254)
+   *
+   * @param params - Wait configuration (message to user, timeout)
+   * @returns Wait result with readiness status
+   */
+  waitForUser(params: {
+    message: string;
+    timeout?: number;
+  }): Promise<BrowserWaitForUserResult>;
 }
 
 // ========================================

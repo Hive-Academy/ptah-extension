@@ -4,12 +4,15 @@
 #
 # Workflow:
 #   1. Push to release/electron branch OR trigger manually with bump type
-#   2. Auto-bumps the version in apps/ptah-electron/package.json
+#   2. Auto-bumps the version (computed in prepare, patched locally in build jobs)
 #   3. Checks if the version tag already exists (prevents duplicate releases)
 #   4. Builds for all 3 platforms in parallel
 #   5. Creates git tag + GitHub Release with all installers
 #   6. Opens a PR to merge the version bump into main
-#      Commit message filter on the prepare job prevents infinite retrigger
+#
+# Version bump goes to a chore/ branch with a PR to main — never pushes back
+# to release/electron (which would re-trigger this workflow in an infinite loop).
+# A commit message filter provides extra safety.
 #
 # Phase 1: Unsigned builds — no code signing secrets configured.
 # Users will see platform warnings ("unidentified developer") until
@@ -107,15 +110,9 @@ jobs:
         if: steps.check.outputs.should_release != 'true'
         run: exit 1
 
-      - name: Commit version bump
-        env:
-          HUSKY: '0'
-        run: |
-          # Push to release/electron so build jobs see the bumped version.
-          # The commit message filter on the prepare job prevents infinite retrigger.
-          git add apps/ptah-electron/package.json
-          git commit --no-verify -m "chore(release): electron v${{ steps.bump.outputs.new_version }}"
-          git push origin HEAD
+      # Version bump is NOT pushed back to release/electron (that would
+      # re-trigger this workflow in an infinite loop). Build jobs receive the
+      # new version via the prepare.outputs.version output and patch locally.
 
   build:
     needs: prepare
@@ -136,6 +133,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
+
+      - name: Patch version from prepare output
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('apps/ptah-electron/package.json', 'utf8'));
+            pkg.version = '${{ needs.prepare.outputs.version }}';
+            fs.writeFileSync('apps/ptah-electron/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "Patched electron version to ${{ needs.prepare.outputs.version }}"
 
       - uses: actions/setup-node@v4
         with:
@@ -179,7 +186,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: electron-${{ matrix.os }}
-          path: dist/release/
+          path: |
+            dist/release/
+            !dist/release/win-unpacked/
+            !dist/release/linux-unpacked/
+            !dist/release/mac/
+            !dist/release/mac-arm64/
           retention-days: 30
 
   release:
@@ -254,7 +266,7 @@ jobs:
           draft: false
           generate_release_notes: true
           files: |
-            artifacts/**/*.exe
+            artifacts/**/Ptah*.exe
             artifacts/**/*.dmg
             artifacts/**/*.zip
             artifacts/**/*.AppImage

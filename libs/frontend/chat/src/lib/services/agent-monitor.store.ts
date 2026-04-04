@@ -80,6 +80,16 @@ export class AgentMonitorStore implements OnDestroy {
   private _expandOrder = 0;
 
   /**
+   * Buffer for permission requests that arrive before the agent spawn event.
+   * Keyed by agentId. Replayed in onAgentSpawned() when the agent card is created.
+   * Prevents silent permission loss due to message ordering (TASK_2025_255).
+   */
+  private _pendingPermissionBuffer = new Map<
+    string,
+    AgentPermissionRequest[]
+  >();
+
+  /**
    * TASK_2025_211: Tracks agent descriptions (tasks) that have been resumed.
    * Used by inline-agent-bubble to upgrade 'interrupted' → 'resumed' visuals.
    * Key: `${parentSessionId}::${task}` for scoped matching (CLI agent case).
@@ -154,6 +164,7 @@ export class AgentMonitorStore implements OnDestroy {
 
   ngOnDestroy(): void {
     this.stopTick();
+    this._pendingPermissionBuffer.clear();
   }
 
   private startTick(): void {
@@ -246,10 +257,13 @@ export class AgentMonitorStore implements OnDestroy {
     this._agents.update((map) => {
       const next = new Map(map);
 
-      // If this is a resumed agent, replace the old card in-place
-      // instead of creating a new one (avoids flicker and duplicate cards)
-      if (info.resumedFromAgentId && next.has(info.resumedFromAgentId)) {
-        const oldCard = next.get(info.resumedFromAgentId)!;
+      // Strategy 1: Replace by resumedFromAgentId (explicit resume from sidebar button)
+      // Strategy 2: Replace by cliSessionId (MCP-triggered respawn during session resume —
+      //   resumedFromAgentId is unavailable because the MCP spawn path doesn't know the old card ID)
+      const oldCardEntry = this.findReplacementCard(next, info);
+
+      if (oldCardEntry) {
+        const [oldId, oldCard] = oldCardEntry;
 
         // TASK_2025_211: Track this agent as resumed so inline bubbles can
         // show 'Resumed' badge instead of 'Interrupted'.
@@ -260,7 +274,7 @@ export class AgentMonitorStore implements OnDestroy {
             return next;
           });
         }
-        next.delete(info.resumedFromAgentId);
+        next.delete(oldId);
         next.set(info.agentId, {
           agentId: info.agentId,
           cli: info.cli,
@@ -306,6 +320,20 @@ export class AgentMonitorStore implements OnDestroy {
 
       return next;
     });
+
+    // TASK_2025_255: Replay any buffered permission requests that arrived before spawn.
+    const buffered = this._pendingPermissionBuffer.get(info.agentId);
+    if (buffered && buffered.length > 0) {
+      this._pendingPermissionBuffer.delete(info.agentId);
+      console.log(
+        '[AgentMonitorStore] Replaying buffered permissions:',
+        info.agentId,
+        buffered.length,
+      );
+      for (const req of buffered) {
+        this.onPermissionRequest(req);
+      }
+    }
 
     // Auto-open panel on 0→1 agent transition (unless user explicitly closed)
     if (!hadAgents && !this._userExplicitlyClosed) {
@@ -401,11 +429,23 @@ export class AgentMonitorStore implements OnDestroy {
     this.syncTick();
   }
 
-  /** Handle incoming permission request from Copilot SDK agent */
+  /** Handle incoming permission request from CLI agent (Copilot SDK or Ptah CLI) */
   onPermissionRequest(request: AgentPermissionRequest): void {
     this._agents.update((map) => {
       const agent = map.get(request.agentId);
-      if (!agent) return map;
+      if (!agent) {
+        // Agent not yet in store (spawn event hasn't arrived yet).
+        // Buffer the request — it will be replayed in onAgentSpawned().
+        // TASK_2025_255: Prevents silent permission loss from message ordering.
+        console.warn(
+          '[AgentMonitorStore] Permission buffered — agent not yet spawned:',
+          request.agentId,
+        );
+        const buf = this._pendingPermissionBuffer.get(request.agentId) ?? [];
+        buf.push(request);
+        this._pendingPermissionBuffer.set(request.agentId, buf);
+        return map;
+      }
       const next = new Map(map);
 
       // Auto-expand the card so the user can see and respond to the permission
@@ -463,6 +503,39 @@ export class AgentMonitorStore implements OnDestroy {
 
       return next;
     });
+  }
+
+  /**
+   * Find an existing agent card that the new agent should replace.
+   *
+   * Strategy 1: Match by resumedFromAgentId (explicit resume from sidebar button).
+   * Strategy 2: Match by cliSessionId (MCP-triggered respawn during session resume —
+   *   the MCP spawn path doesn't know the old card's agentId, but the same CLI session
+   *   ID is reused). Only matches non-running agents in the same parent session.
+   */
+  private findReplacementCard(
+    map: Map<string, MonitoredAgent>,
+    info: AgentProcessInfo,
+  ): [string, MonitoredAgent] | null {
+    // Strategy 1: explicit resumedFromAgentId
+    if (info.resumedFromAgentId && map.has(info.resumedFromAgentId)) {
+      return [info.resumedFromAgentId, map.get(info.resumedFromAgentId)!];
+    }
+
+    // Strategy 2: match by cliSessionId within the same parent session
+    if (info.cliSessionId) {
+      for (const [id, agent] of map) {
+        if (
+          agent.cliSessionId === info.cliSessionId &&
+          agent.parentSessionId === info.parentSessionId &&
+          agent.status !== 'running'
+        ) {
+          return [id, agent];
+        }
+      }
+    }
+
+    return null;
   }
 
   /**

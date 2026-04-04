@@ -68,11 +68,11 @@ export class PaddleWebhookService {
   private readonly MAX_PROCESSED_EVENTS = 10000;
 
   constructor(
-    private readonly paddleService: PaddleService,
-    private readonly prisma: PrismaService,
-    private readonly configService: ConfigService,
+    @Inject(PaddleService) private readonly paddleService: PaddleService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
     @Inject(PADDLE_CLIENT)
-    private readonly paddle: PaddleClient
+    private readonly paddle: PaddleClient,
   ) {
     this.logger.log('PaddleWebhookService initialized');
   }
@@ -92,14 +92,14 @@ export class PaddleWebhookService {
    */
   async processWebhook(
     rawBody: Buffer,
-    signature: string
+    signature: string,
   ): Promise<WebhookResponse> {
     const secretKey = this.configService.get<string>('PADDLE_WEBHOOK_SECRET');
 
     if (!secretKey) {
       this.logger.error('PADDLE_WEBHOOK_SECRET not configured');
       throw new UnauthorizedException(
-        'Webhook secret not configured - cannot verify signature'
+        'Webhook secret not configured - cannot verify signature',
       );
     }
 
@@ -110,14 +110,14 @@ export class PaddleWebhookService {
       event = await this.paddle.webhooks.unmarshal(
         rawBody.toString(),
         secretKey,
-        signature
+        signature,
       );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       this.logger.warn(`Webhook verification failed: ${errorMessage}`);
       throw new UnauthorizedException(
-        `Invalid webhook signature: ${errorMessage}`
+        `Invalid webhook signature: ${errorMessage}`,
       );
     }
 
@@ -126,7 +126,7 @@ export class PaddleWebhookService {
     // Idempotency check: skip events that have already been processed
     if (this.isEventAlreadyProcessed(event.eventId)) {
       this.logger.log(
-        `Duplicate webhook detected: ${event.eventId} (${event.eventType}) - skipping`
+        `Duplicate webhook detected: ${event.eventId} (${event.eventType}) - skipping`,
       );
       return { received: true, duplicate: true };
     }
@@ -145,12 +145,12 @@ export class PaddleWebhookService {
       await this.storeFailedWebhook(event, error);
 
       this.logger.error(
-        `Webhook processing failed for ${event.eventType} (${event.eventId}) - stored for recovery`
+        `Webhook processing failed for ${event.eventType} (${event.eventId}) - stored for recovery`,
       );
 
       // Throw 500 so Paddle knows delivery failed and will retry
       throw new InternalServerErrorException(
-        'Webhook processing failed - stored for recovery'
+        'Webhook processing failed - stored for recovery',
       );
     }
   }
@@ -169,27 +169,27 @@ export class PaddleWebhookService {
       // Subscription lifecycle events
       case EventName.SubscriptionCreated:
         return this.handleSubscriptionCreated(
-          event as SubscriptionCreatedEvent
+          event as SubscriptionCreatedEvent,
         );
 
       case EventName.SubscriptionActivated:
         return this.handleSubscriptionActivated(
-          event as SubscriptionActivatedEvent
+          event as SubscriptionActivatedEvent,
         );
 
       case EventName.SubscriptionUpdated:
         return this.handleSubscriptionUpdated(
-          event as SubscriptionUpdatedEvent
+          event as SubscriptionUpdatedEvent,
         );
 
       case EventName.SubscriptionCanceled:
         return this.handleSubscriptionCanceled(
-          event as SubscriptionCanceledEvent
+          event as SubscriptionCanceledEvent,
         );
 
       case EventName.SubscriptionPastDue:
         return this.handleSubscriptionPastDue(
-          event as SubscriptionPastDueEvent
+          event as SubscriptionPastDueEvent,
         );
 
       case EventName.SubscriptionPaused:
@@ -197,13 +197,13 @@ export class PaddleWebhookService {
 
       case EventName.SubscriptionResumed:
         return this.handleSubscriptionResumed(
-          event as SubscriptionResumedEvent
+          event as SubscriptionResumedEvent,
         );
 
       // Transaction events
       case EventName.TransactionCompleted:
         return this.handleTransactionCompleted(
-          event as TransactionCompletedEvent
+          event as TransactionCompletedEvent,
         );
 
       default:
@@ -219,21 +219,21 @@ export class PaddleWebhookService {
    * Resolves customer email from Paddle API and delegates to PaddleService.
    */
   private async handleSubscriptionCreated(
-    event: SubscriptionCreatedEvent
+    event: SubscriptionCreatedEvent,
   ): Promise<WebhookResponse> {
     const data = event.data;
     const email = await this.resolveCustomerEmail(data);
 
     if (!email) {
       throw new Error(
-        `Could not resolve customer email for subscription ${data.id}`
+        `Could not resolve customer email for subscription ${data.id}`,
       );
     }
 
     const result = await this.paddleService.handleSubscriptionCreatedEvent(
       data,
       email,
-      event.eventId
+      event.eventId,
     );
     return { received: true, ...result };
   }
@@ -245,21 +245,21 @@ export class PaddleWebhookService {
    * For trials, this fires when trial ends and first payment succeeds.
    */
   private async handleSubscriptionActivated(
-    event: SubscriptionActivatedEvent
+    event: SubscriptionActivatedEvent,
   ): Promise<WebhookResponse> {
     const data = event.data;
     const email = await this.resolveCustomerEmail(data);
 
     if (!email) {
       throw new Error(
-        `Could not resolve customer email for subscription ${data.id}`
+        `Could not resolve customer email for subscription ${data.id}`,
       );
     }
 
     const result = await this.paddleService.handleSubscriptionActivatedEvent(
       data,
       email,
-      event.eventId
+      event.eventId,
     );
     return { received: true, ...result };
   }
@@ -270,21 +270,21 @@ export class PaddleWebhookService {
    * Updates license plan and expiration based on subscription changes.
    */
   private async handleSubscriptionUpdated(
-    event: SubscriptionUpdatedEvent
+    event: SubscriptionUpdatedEvent,
   ): Promise<WebhookResponse> {
     const data = event.data;
     const email = await this.resolveCustomerEmail(data);
 
     if (!email) {
       throw new Error(
-        `Could not resolve customer email for subscription ${data.id}`
+        `Could not resolve customer email for subscription ${data.id}`,
       );
     }
 
     const result = await this.paddleService.handleSubscriptionUpdatedEvent(
       data,
       email,
-      event.eventId
+      event.eventId,
     );
     return { received: true, ...result };
   }
@@ -295,21 +295,21 @@ export class PaddleWebhookService {
    * Sets license expiration to end of current billing period.
    */
   private async handleSubscriptionCanceled(
-    event: SubscriptionCanceledEvent
+    event: SubscriptionCanceledEvent,
   ): Promise<WebhookResponse> {
     const data = event.data;
     const email = await this.resolveCustomerEmail(data);
 
     if (!email) {
       throw new Error(
-        `Could not resolve customer email for subscription ${data.id}`
+        `Could not resolve customer email for subscription ${data.id}`,
       );
     }
 
     const result = await this.paddleService.handleSubscriptionCanceledEvent(
       data,
       email,
-      event.eventId
+      event.eventId,
     );
     return { received: true, ...result };
   }
@@ -320,21 +320,21 @@ export class PaddleWebhookService {
    * Payment failed but subscription not yet canceled (dunning period).
    */
   private async handleSubscriptionPastDue(
-    event: SubscriptionPastDueEvent
+    event: SubscriptionPastDueEvent,
   ): Promise<WebhookResponse> {
     const data = event.data;
     const email = await this.resolveCustomerEmail(data);
 
     if (!email) {
       throw new Error(
-        `Could not resolve customer email for subscription ${data.id}`
+        `Could not resolve customer email for subscription ${data.id}`,
       );
     }
 
     const result = await this.paddleService.handleSubscriptionPastDueEvent(
       data,
       email,
-      event.eventId
+      event.eventId,
     );
     return { received: true, ...result };
   }
@@ -345,21 +345,21 @@ export class PaddleWebhookService {
    * User has paused their subscription - lose access to premium features.
    */
   private async handleSubscriptionPaused(
-    event: SubscriptionPausedEvent
+    event: SubscriptionPausedEvent,
   ): Promise<WebhookResponse> {
     const data = event.data;
     const email = await this.resolveCustomerEmail(data);
 
     if (!email) {
       throw new Error(
-        `Could not resolve customer email for subscription ${data.id}`
+        `Could not resolve customer email for subscription ${data.id}`,
       );
     }
 
     const result = await this.paddleService.handleSubscriptionPausedEvent(
       data,
       email,
-      event.eventId
+      event.eventId,
     );
     return { received: true, ...result };
   }
@@ -370,21 +370,21 @@ export class PaddleWebhookService {
    * User has resumed their paused subscription - regain access.
    */
   private async handleSubscriptionResumed(
-    event: SubscriptionResumedEvent
+    event: SubscriptionResumedEvent,
   ): Promise<WebhookResponse> {
     const data = event.data;
     const email = await this.resolveCustomerEmail(data);
 
     if (!email) {
       throw new Error(
-        `Could not resolve customer email for subscription ${data.id}`
+        `Could not resolve customer email for subscription ${data.id}`,
       );
     }
 
     const result = await this.paddleService.handleSubscriptionResumedEvent(
       data,
       email,
-      event.eventId
+      event.eventId,
     );
     return { received: true, ...result };
   }
@@ -395,13 +395,13 @@ export class PaddleWebhookService {
    * Fires on successful payment - extends license for subscription renewals.
    */
   private async handleTransactionCompleted(
-    event: TransactionCompletedEvent
+    event: TransactionCompletedEvent,
   ): Promise<WebhookResponse> {
     const data = event.data;
 
     const result = await this.paddleService.handleTransactionCompletedEvent(
       data,
-      event.eventId
+      event.eventId,
     );
     return { received: true, ...result };
   }
@@ -416,7 +416,7 @@ export class PaddleWebhookService {
    * @returns Customer email address or null if not found
    */
   private async resolveCustomerEmail(
-    data: SubscriptionNotification | SubscriptionCreatedNotification
+    data: SubscriptionNotification | SubscriptionCreatedNotification,
   ): Promise<string | null> {
     const customerId = data.customerId;
 
@@ -481,7 +481,7 @@ export class PaddleWebhookService {
    */
   private async storeFailedWebhook(
     event: EventEntity,
-    error: unknown
+    error: unknown,
   ): Promise<void> {
     try {
       const errorMessage =
@@ -499,13 +499,13 @@ export class PaddleWebhookService {
       });
 
       this.logger.log(
-        `Stored failed webhook: ${event.eventId} (${event.eventType}) - ${errorMessage}`
+        `Stored failed webhook: ${event.eventId} (${event.eventType}) - ${errorMessage}`,
       );
     } catch (storeError) {
       // Log but don't throw - we don't want storage failure to affect response
       this.logger.error(
         `Failed to store failed webhook ${event.eventId}:`,
-        storeError instanceof Error ? storeError.message : 'Unknown error'
+        storeError instanceof Error ? storeError.message : 'Unknown error',
       );
     }
   }

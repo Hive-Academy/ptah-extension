@@ -22,6 +22,10 @@ import type {
   BrowserContentResult,
   BrowserNetworkResult,
   BrowserStatusResult,
+  BrowserRecordStartResult,
+  BrowserRecordStopResult,
+  BrowserWaitForUserResult,
+  ViewportDimensions,
 } from '../types';
 
 // ========================================
@@ -41,7 +45,29 @@ import type {
  * In standalone/fallback mode, this interface is NOT provided, and
  * buildBrowserNamespace() returns graceful degradation stubs instead.
  */
+/**
+ * Session options that the agent can configure before a browser session is created.
+ * These only take effect when creating a NEW session — if a session already exists,
+ * they are stored for the next session creation.
+ */
+export interface BrowserSessionOptions {
+  /** Whether to run in headless mode (default: false — visible browser) */
+  headless?: boolean;
+  /** Viewport dimensions (default: 1920x1080 — desktop) */
+  viewport?: ViewportDimensions;
+}
+
 export interface IBrowserCapabilities {
+  /**
+   * Configure session options for the next browser session creation.
+   * These options are consumed by ensureSession()/createSession() when
+   * a new session is lazily started (e.g., on first navigate call).
+   *
+   * If a session already exists, the options are stored and will apply
+   * when the current session is closed and a new one is created.
+   */
+  configureSession(options: BrowserSessionOptions): void;
+
   navigate(
     url: string,
     waitForLoad?: boolean,
@@ -88,9 +114,35 @@ export interface IBrowserCapabilities {
     title?: string;
     uptimeMs?: number;
     autoCloseInMs?: number;
+    headless?: boolean;
+    recording?: boolean;
+    viewport?: ViewportDimensions;
   }>;
 
   isConnected(): boolean;
+
+  // Recording methods (TASK_2025_254)
+
+  /** Start recording browser session frames for GIF assembly */
+  startRecording(options?: {
+    maxFrames?: number;
+    frameDelay?: number;
+  }): Promise<{ success: boolean; error?: string }>;
+
+  /** Stop recording and assemble captured frames into a GIF file */
+  stopRecording(): Promise<{
+    filePath: string;
+    frameCount: number;
+    durationMs: number;
+    fileSizeBytes: number;
+    truncated: boolean;
+    error?: string;
+  }>;
+
+  /** Pause inactivity timer (during wait-for-user). Optional -- only needed for TASK_2025_254. */
+  pauseInactivityTimer?(): void;
+  /** Resume inactivity timer (after wait-for-user). Optional -- only needed for TASK_2025_254. */
+  resumeInactivityTimer?(): void;
 }
 
 // ========================================
@@ -167,6 +219,18 @@ const BROWSER_NOT_AVAILABLE_MSG =
 export interface BrowserNamespaceDependencies {
   capabilities?: IBrowserCapabilities;
   getAllowLocalhost?: () => boolean;
+  // Note: recordingDir is configured via the capabilities constructor, not here.
+  // Note: headless and viewport are agent-controlled via navigate params, not settings.
+  /**
+   * Wait-for-user implementation (TASK_2025_254).
+   * In VS Code: uses WebviewManager + PermissionPromptService.
+   * In Electron: uses dialog.showMessageBox.
+   * Returns { ready, reason?, waitDurationMs }.
+   */
+  waitForUser?: (params: {
+    message: string;
+    timeout?: number;
+  }) => Promise<BrowserWaitForUserResult>;
 }
 
 // ========================================
@@ -188,13 +252,17 @@ export interface BrowserNamespaceDependencies {
 export function buildBrowserNamespace(
   deps: BrowserNamespaceDependencies,
 ): BrowserNamespace {
-  const { capabilities, getAllowLocalhost } = deps;
+  const { capabilities, getAllowLocalhost, waitForUser } = deps;
 
   if (!capabilities) {
     return buildGracefulBrowserNamespace();
   }
 
-  return buildCapabilityBackedBrowserNamespace(capabilities, getAllowLocalhost);
+  return buildCapabilityBackedBrowserNamespace(
+    capabilities,
+    getAllowLocalhost,
+    waitForUser,
+  );
 }
 
 // ========================================
@@ -204,6 +272,10 @@ export function buildBrowserNamespace(
 function buildCapabilityBackedBrowserNamespace(
   capabilities: IBrowserCapabilities,
   getAllowLocalhost?: () => boolean,
+  waitForUser?: (params: {
+    message: string;
+    timeout?: number;
+  }) => Promise<BrowserWaitForUserResult>,
 ): BrowserNamespace {
   return {
     navigate: async (params): Promise<BrowserNavigateResult> => {
@@ -219,7 +291,37 @@ function buildCapabilityBackedBrowserNamespace(
         };
       }
 
+      // Validate viewport dimensions if provided
+      if (params.viewport) {
+        const { width, height } = params.viewport;
+        if (
+          !Number.isInteger(width) ||
+          !Number.isInteger(height) ||
+          width < 1 ||
+          height < 1 ||
+          width > 7680 ||
+          height > 7680
+        ) {
+          return {
+            success: false,
+            url: params.url,
+            title: '',
+            error:
+              'Invalid viewport dimensions. Width and height must be positive integers between 1 and 7680.',
+          };
+        }
+      }
+
       try {
+        // Pass agent-controlled session options (headless, viewport) to capabilities.
+        // These only take effect when creating a NEW session.
+        if (params.headless !== undefined || params.viewport) {
+          capabilities.configureSession({
+            ...(params.headless !== undefined && { headless: params.headless }),
+            ...(params.viewport && { viewport: params.viewport }),
+          });
+        }
+
         return await capabilities.navigate(
           params.url,
           params.waitForLoad ?? true,
@@ -346,6 +448,72 @@ function buildCapabilityBackedBrowserNamespace(
         };
       }
     },
+
+    recordStart: async (params): Promise<BrowserRecordStartResult> => {
+      try {
+        return await capabilities.startRecording(params);
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+
+    recordStop: async (): Promise<BrowserRecordStopResult> => {
+      try {
+        return await capabilities.stopRecording();
+      } catch (error) {
+        return {
+          filePath: '',
+          frameCount: 0,
+          durationMs: 0,
+          fileSizeBytes: 0,
+          truncated: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+
+    waitForUser: async (params): Promise<BrowserWaitForUserResult> => {
+      // Require active session
+      if (!capabilities.isConnected()) {
+        return {
+          ready: false,
+          waitDurationMs: 0,
+          error: 'No active browser session. Navigate to a page first.',
+        };
+      }
+
+      // Check the session's actual headless state
+      const statusResult = await capabilities.status();
+      if (statusResult.headless) {
+        return {
+          ready: false,
+          waitDurationMs: 0,
+          error:
+            'Wait-for-user requires visible browser mode. Close the current session and start a new one with headless=false in ptah_browser_navigate.',
+        };
+      }
+
+      // Delegate to platform-specific implementation
+      if (!waitForUser) {
+        return {
+          ready: false,
+          waitDurationMs: 0,
+          error: 'Wait-for-user not available on this platform.',
+        };
+      }
+
+      // Pause inactivity timer during user interaction
+      capabilities.pauseInactivityTimer?.();
+      try {
+        return await waitForUser(params);
+      } finally {
+        // Resume inactivity timer after user interaction completes
+        capabilities.resumeInactivityTimer?.();
+      }
+    },
   };
 }
 
@@ -394,6 +562,23 @@ function buildGracefulBrowserNamespace(): BrowserNamespace {
     }),
     status: async () => ({
       connected: false,
+    }),
+    recordStart: async () => ({
+      success: false,
+      error: BROWSER_NOT_AVAILABLE_MSG,
+    }),
+    recordStop: async () => ({
+      filePath: '',
+      frameCount: 0,
+      durationMs: 0,
+      fileSizeBytes: 0,
+      truncated: false,
+      error: BROWSER_NOT_AVAILABLE_MSG,
+    }),
+    waitForUser: async () => ({
+      ready: false,
+      waitDurationMs: 0,
+      error: BROWSER_NOT_AVAILABLE_MSG,
     }),
   };
 }

@@ -40,8 +40,16 @@ Validate and repair a JSON file. Extracts JSON from agent output (strips markdow
 
 You have browser automation tools that let you navigate web pages, take screenshots, execute JavaScript, interact with elements, and monitor network requests. A browser session starts lazily on first use and auto-closes after 5 minutes of inactivity or 30 minutes total.
 
-### ptah_browser_navigate { url, waitForLoad? }
+You control the browser mode and viewport at session creation time via ptah_browser_navigate parameters:
+- **headless** (default: false) — set to true for background scraping/testing, false for visible browser
+- **viewport** (default: 1920x1080 desktop) — set dimensions for responsive testing (e.g., 768x1024 tablet, 375x812 mobile)
+
+These settings apply when creating a NEW session. To change them, close the current session first.
+
+### ptah_browser_navigate { url, waitForLoad?, headless?, viewport? }
 Navigate to a URL (http/https only). Starts browser session if none exists. Returns final URL and page title.
+- headless: false (default) = visible browser, true = no window
+- viewport: { width, height } — default 1920x1080
 
 ### ptah_browser_screenshot { format?, quality?, fullPage? }
 Capture a screenshot. Returns base64-encoded image data. Use for visual verification.
@@ -65,16 +73,70 @@ Read captured network requests (URL, method, status, type, size).
 Close the browser session and release resources.
 
 ### ptah_browser_status (no parameters)
-Check if a browser session is active, current URL, uptime, auto-close countdown.
+Check if a browser session is active, current URL, uptime, auto-close countdown, headless mode, viewport.
 
 ### Browser Workflow Example
 
-1. **Navigate**: \`ptah_browser_navigate { url: "https://example.com" }\`
+1. **Navigate**: \`ptah_browser_navigate { url: "https://example.com" }\` — visible desktop browser
 2. **Read page**: \`ptah_browser_content {}\` — understand the page structure
 3. **Interact**: \`ptah_browser_click { selector: "#login-btn" }\` or \`ptah_browser_type { selector: "#email", text: "user@example.com" }\`
 4. **Verify**: \`ptah_browser_screenshot {}\` — visual confirmation
 5. **Check API calls**: \`ptah_browser_network {}\` — inspect requests made
 6. **Done**: \`ptah_browser_close {}\` — release resources (or let it auto-close)
+
+### Responsive Testing Example
+\`\`\`
+ptah_browser_navigate { url: "https://example.com", viewport: { width: 375, height: 812 } }
+ptah_browser_screenshot {} — mobile layout verification
+ptah_browser_close {}
+ptah_browser_navigate { url: "https://example.com", viewport: { width: 768, height: 1024 } }
+ptah_browser_screenshot {} — tablet layout verification
+\`\`\`
+
+### ptah_browser_record_start { maxFrames?, frameDelay? }
+Start recording the browser session as a GIF. Frames captured via CDP. Stop with ptah_browser_record_stop.
+
+### ptah_browser_record_stop (no parameters)
+Stop recording. Assembles frames into GIF file. Returns file path, frame count, duration, file size.
+
+### ptah_browser_wait_for_user { message, timeout? }
+Pause and prompt the user to perform manual actions in the visible browser (login, 2FA, CAPTCHA). Requires headless=false (the default). Resumes when user clicks Ready.
+
+### Browser Recording
+Use recording for audit trails, debugging, and demonstrating steps to users:
+1. \`ptah_browser_record_start {}\` — start capturing
+2. Perform navigation, clicks, form fills
+3. \`ptah_browser_record_stop {}\` — save GIF file
+
+### Collaborative Browser Workflow
+For tasks requiring human authentication (login, 2FA, CAPTCHA, OAuth consent), use the collaborative pattern:
+- **Agent** handles navigation, clicking, data extraction
+- **Human** handles authentication, authorization, CAPTCHA solving
+- **Trust boundary**: Agent controls navigation; human controls credential entry
+
+#### When to Pause for Human Interaction
+- Login pages with username/password fields requiring real credentials
+- Two-factor authentication (2FA/MFA) prompts
+- CAPTCHA challenges
+- OAuth consent screens
+- Cookie consent dialogs requiring human judgment
+
+#### Example 1: Sentry API Token Creation
+1. \`ptah_browser_navigate { url: "https://sentry.io/settings/account/api/auth-tokens/new-token/" }\`
+2. \`ptah_browser_wait_for_user { message: "Please log in to Sentry in the browser window, then click Ready when done" }\`
+3. \`ptah_browser_navigate { url: "https://sentry.io/settings/account/api/auth-tokens/new-token/" }\`
+4. \`ptah_browser_wait_for_user { message: "Please create an API token with the required scopes, then click Ready" }\`
+5. \`ptah_browser_content { selector: ".token-value" }\` — extract the token value
+
+#### Example 2: GitHub Personal Access Token
+1. \`ptah_browser_navigate { url: "https://github.com/settings/tokens/new" }\`
+2. \`ptah_browser_wait_for_user { message: "Please log in to GitHub and complete 2FA if prompted, then click Ready" }\`
+3. \`ptah_browser_type { selector: "#description", text: "Ptah integration token" }\`
+4. \`ptah_browser_click { selector: "#generate-token-button" }\`
+5. \`ptah_browser_wait_for_user { message: "Please review and confirm the token generation, then click Ready" }\`
+6. \`ptah_browser_content { selector: ".token" }\` — extract the generated token
+
+**Important**: The browser defaults to visible mode (headless=false). For wait-for-user workflows, ensure you did NOT set headless=true when starting the session.
 
 ## IDE Access via execute_code
 

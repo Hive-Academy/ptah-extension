@@ -37,12 +37,12 @@ export class PaddleService {
   private readonly logger = new Logger(PaddleService.name);
 
   constructor(
-    private readonly configService: ConfigService,
-    private readonly prisma: PrismaService,
-    private readonly emailService: EmailService,
-    private readonly eventsService: EventsService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EmailService) private readonly emailService: EmailService,
+    @Inject(EventsService) private readonly eventsService: EventsService,
     @Inject(PADDLE_CLIENT)
-    private readonly paddle: PaddleClient
+    private readonly paddle: PaddleClient,
   ) {
     this.logger.log('Paddle service initialized');
   }
@@ -69,7 +69,7 @@ export class PaddleService {
     } catch (error) {
       this.logger.error(
         `Failed to fetch customer ${customerId}`,
-        error instanceof Error ? error.message : 'Unknown error'
+        error instanceof Error ? error.message : 'Unknown error',
       );
       return null;
     }
@@ -94,10 +94,10 @@ export class PaddleService {
   async handleSubscriptionCreatedEvent(
     data: SubscriptionCreatedNotification,
     email: string,
-    eventId: string
+    eventId: string,
   ): Promise<{ success: boolean; duplicate?: boolean; licenseId?: string }> {
     this.logger.log(
-      `Processing subscription.created event: ${eventId} for customer: ${email}, status: ${data.status}`
+      `Processing subscription.created event: ${eventId} for customer: ${email}, status: ${data.status}`,
     );
 
     const subscriptionId = data.id;
@@ -111,7 +111,7 @@ export class PaddleService {
 
     if (existingSubscription) {
       this.logger.log(
-        `Subscription ${subscriptionId} already exists (event: ${eventId}) - skipping duplicate`
+        `Subscription ${subscriptionId} already exists (event: ${eventId}) - skipping duplicate`,
       );
       return { success: true, duplicate: true };
     }
@@ -147,7 +147,7 @@ export class PaddleService {
       this.logger.log(
         `Subscription ${subscriptionId} is in trial period until ${
           trialEnd?.toISOString() || 'unknown'
-        }`
+        }`,
       );
     }
 
@@ -169,7 +169,7 @@ export class PaddleService {
           data: { paddleCustomerId: customerId },
         });
         this.logger.log(
-          `Saved Paddle customer ID ${customerId} to user: ${normalizedEmail}`
+          `Saved Paddle customer ID ${customerId} to user: ${normalizedEmail}`,
         );
       }
 
@@ -185,7 +185,7 @@ export class PaddleService {
       });
       if (revokedCount.count > 0) {
         this.logger.log(
-          `Revoked ${revokedCount.count} existing license(s) for user: ${normalizedEmail}`
+          `Revoked ${revokedCount.count} existing license(s) for user: ${normalizedEmail}`,
         );
       }
 
@@ -202,7 +202,7 @@ export class PaddleService {
       });
       if (expiredTrials.count > 0) {
         this.logger.log(
-          `Expired ${expiredTrials.count} internal trial subscription(s) for user: ${normalizedEmail}`
+          `Expired ${expiredTrials.count} internal trial subscription(s) for user: ${normalizedEmail}`,
         );
       }
 
@@ -220,7 +220,7 @@ export class PaddleService {
       this.logger.log(
         `Created license: ${newLicense.id} for plan: ${licensePlan}${
           isInTrial ? ' (trial)' : ''
-        }`
+        }`,
       );
 
       // Step 6: Create subscription record
@@ -236,7 +236,7 @@ export class PaddleService {
         },
       });
       this.logger.log(
-        `Created subscription record: ${subscriptionId}, status: ${data.status}`
+        `Created subscription record: ${subscriptionId}, status: ${data.status}`,
       );
 
       return newLicense;
@@ -254,7 +254,7 @@ export class PaddleService {
     } catch (error) {
       this.logger.error(
         `Failed to send license email to ${normalizedEmail}:`,
-        error instanceof Error ? error.message : 'Unknown error'
+        error instanceof Error ? error.message : 'Unknown error',
       );
     }
 
@@ -283,10 +283,10 @@ export class PaddleService {
   async handleSubscriptionActivatedEvent(
     data: SubscriptionNotification,
     email: string,
-    eventId: string
+    eventId: string,
   ): Promise<{ success: boolean; duplicate?: boolean; licenseId?: string }> {
     this.logger.log(
-      `Processing subscription.activated event: ${eventId} for customer: ${email}`
+      `Processing subscription.activated event: ${eventId} for customer: ${email}`,
     );
 
     const normalizedEmail = email.toLowerCase();
@@ -306,7 +306,7 @@ export class PaddleService {
     if (existingSubscription) {
       // Subscription exists - this is a trial-to-active transition
       this.logger.log(
-        `Trial-to-active transition for subscription ${subscriptionId}`
+        `Trial-to-active transition for subscription ${subscriptionId}`,
       );
 
       // Update subscription status to active and clear trial end
@@ -333,7 +333,7 @@ export class PaddleService {
       });
 
       this.logger.log(
-        `Updated ${updateResult.count} license(s) from trial to ${basePlan}`
+        `Updated ${updateResult.count} license(s) from trial to ${basePlan}`,
       );
 
       // Emit SSE events for trial-to-active transition
@@ -358,7 +358,7 @@ export class PaddleService {
     return this.handleSubscriptionCreatedEvent(
       data as unknown as SubscriptionCreatedNotification,
       email,
-      eventId
+      eventId,
     );
   }
 
@@ -375,10 +375,10 @@ export class PaddleService {
   async handleSubscriptionUpdatedEvent(
     data: SubscriptionNotification,
     email: string,
-    eventId: string
+    eventId: string,
   ): Promise<{ success: boolean; error?: string }> {
     this.logger.log(
-      `Processing subscription.updated event: ${eventId} for customer: ${email}`
+      `Processing subscription.updated event: ${eventId} for customer: ${email}`,
     );
 
     const normalizedEmail = email.toLowerCase();
@@ -425,7 +425,7 @@ export class PaddleService {
     this.logger.log(
       `Updated ${
         updateResult.count
-      } license(s) to plan: ${newPlan}, expires: ${periodEnd.toISOString()}`
+      } license(s) to plan: ${newPlan}, expires: ${periodEnd.toISOString()}`,
     );
 
     // Emit SSE event for real-time frontend updates
@@ -452,10 +452,10 @@ export class PaddleService {
   async handleSubscriptionCanceledEvent(
     data: SubscriptionNotification,
     email: string,
-    eventId: string
+    eventId: string,
   ): Promise<{ success: boolean; error?: string }> {
     this.logger.log(
-      `Processing subscription.canceled event: ${eventId} for customer: ${email}`
+      `Processing subscription.canceled event: ${eventId} for customer: ${email}`,
     );
 
     const normalizedEmail = email.toLowerCase();
@@ -499,7 +499,7 @@ export class PaddleService {
     this.logger.log(
       `Updated ${
         updateResult.count
-      } license(s) with cancellation expiry: ${periodEnd.toISOString()}`
+      } license(s) with cancellation expiry: ${periodEnd.toISOString()}`,
     );
 
     // Get current plan for the notification
@@ -531,10 +531,10 @@ export class PaddleService {
   async handleSubscriptionPastDueEvent(
     data: SubscriptionNotification,
     email: string,
-    eventId: string
+    eventId: string,
   ): Promise<{ success: boolean }> {
     this.logger.log(
-      `Processing subscription.past_due event: ${eventId} for customer: ${email}`
+      `Processing subscription.past_due event: ${eventId} for customer: ${email}`,
     );
 
     const normalizedEmail = email.toLowerCase();
@@ -547,7 +547,7 @@ export class PaddleService {
     });
 
     this.logger.warn(
-      `Subscription ${subscriptionId} is past due for ${normalizedEmail} - payment retry in progress`
+      `Subscription ${subscriptionId} is past due for ${normalizedEmail} - payment retry in progress`,
     );
 
     // Get current license plan for the notification
@@ -584,10 +584,10 @@ export class PaddleService {
   async handleSubscriptionPausedEvent(
     data: SubscriptionNotification,
     email: string,
-    eventId: string
+    eventId: string,
   ): Promise<{ success: boolean }> {
     this.logger.log(
-      `Processing subscription.paused event: ${eventId} for customer: ${email}`
+      `Processing subscription.paused event: ${eventId} for customer: ${email}`,
     );
 
     const subscriptionId = data.id;
@@ -614,7 +614,7 @@ export class PaddleService {
         data: { status: 'paused' },
       });
       this.logger.log(
-        `License(s) paused for user ${normalizedEmail} - subscription ${subscriptionId}`
+        `License(s) paused for user ${normalizedEmail} - subscription ${subscriptionId}`,
       );
 
       // Emit SSE event for paused status
@@ -625,12 +625,12 @@ export class PaddleService {
       });
     } else {
       this.logger.warn(
-        `User not found for email: ${normalizedEmail} during pause event`
+        `User not found for email: ${normalizedEmail} during pause event`,
       );
     }
 
     this.logger.log(
-      `Subscription ${subscriptionId} paused for ${normalizedEmail}`
+      `Subscription ${subscriptionId} paused for ${normalizedEmail}`,
     );
     return { success: true };
   }
@@ -648,10 +648,10 @@ export class PaddleService {
   async handleSubscriptionResumedEvent(
     data: SubscriptionNotification,
     email: string,
-    eventId: string
+    eventId: string,
   ): Promise<{ success: boolean }> {
     this.logger.log(
-      `Processing subscription.resumed event: ${eventId} for customer: ${email}`
+      `Processing subscription.resumed event: ${eventId} for customer: ${email}`,
     );
 
     const subscriptionId = data.id;
@@ -681,7 +681,7 @@ export class PaddleService {
         data: { status: 'active', expiresAt: periodEnd },
       });
       this.logger.log(
-        `License(s) reactivated for user ${normalizedEmail} - expires ${periodEnd.toISOString()}`
+        `License(s) reactivated for user ${normalizedEmail} - expires ${periodEnd.toISOString()}`,
       );
 
       // Emit SSE events for resumed status
@@ -699,12 +699,12 @@ export class PaddleService {
       });
     } else {
       this.logger.warn(
-        `User not found for email: ${normalizedEmail} during resume event`
+        `User not found for email: ${normalizedEmail} during resume event`,
       );
     }
 
     this.logger.log(
-      `Subscription ${subscriptionId} resumed for ${normalizedEmail}`
+      `Subscription ${subscriptionId} resumed for ${normalizedEmail}`,
     );
     return { success: true };
   }
@@ -720,23 +720,23 @@ export class PaddleService {
    */
   async handleTransactionCompletedEvent(
     data: TransactionNotification,
-    eventId: string
+    eventId: string,
   ): Promise<{ success: boolean; skipped?: boolean; error?: string }> {
     this.logger.log(
-      `Processing transaction.completed event: ${eventId}, transaction: ${data.id}`
+      `Processing transaction.completed event: ${eventId}, transaction: ${data.id}`,
     );
 
     // Step 1: Check if this is a subscription transaction
     if (!data.subscriptionId) {
       // Check if this is a session payment (one-time $100 purchase)
       const sessionPriceId = this.configService.get<string>(
-        'PADDLE_PRICE_ID_SESSION'
+        'PADDLE_PRICE_ID_SESSION',
       );
       const transactionPriceId = data.items?.[0]?.price?.id;
 
       if (sessionPriceId && transactionPriceId === sessionPriceId) {
         this.logger.log(
-          `Transaction ${data.id} is a session payment - updating session request`
+          `Transaction ${data.id} is a session payment - updating session request`,
         );
         await this.prisma.sessionRequest.updateMany({
           where: { paddleTransactionId: data.id, paymentStatus: 'pending' },
@@ -746,20 +746,20 @@ export class PaddleService {
       }
 
       this.logger.log(
-        `Transaction ${data.id} is not a subscription transaction (one-time purchase) - skipping`
+        `Transaction ${data.id} is not a subscription transaction (one-time purchase) - skipping`,
       );
       return { success: true, skipped: true };
     }
 
     const subscriptionId = data.subscriptionId;
     this.logger.log(
-      `Transaction ${data.id} is for subscription ${subscriptionId}`
+      `Transaction ${data.id} is for subscription ${subscriptionId}`,
     );
 
     // Step 2: Verify billing period exists (required for renewals)
     if (!data.billingPeriod) {
       this.logger.warn(
-        `Transaction ${data.id} has subscriptionId but no billingPeriod - cannot extend license`
+        `Transaction ${data.id} has subscriptionId but no billingPeriod - cannot extend license`,
       );
       return {
         success: false,
@@ -778,7 +778,7 @@ export class PaddleService {
     if (!subscription) {
       this.logger.warn(
         `No local subscription found for Paddle subscription ${subscriptionId} - ` +
-          `this may be a new subscription not yet processed by subscription.created`
+          `this may be a new subscription not yet processed by subscription.created`,
       );
       return {
         success: false,
@@ -797,7 +797,7 @@ export class PaddleService {
       },
     });
     this.logger.log(
-      `Updated subscription ${subscriptionId} period end to ${newPeriodEnd.toISOString()}`
+      `Updated subscription ${subscriptionId} period end to ${newPeriodEnd.toISOString()}`,
     );
 
     // Step 5: Update license expiresAt
@@ -814,7 +814,7 @@ export class PaddleService {
     this.logger.log(
       `Extended ${
         updateResult.count
-      } license(s) for user ${email} to ${newPeriodEnd.toISOString()}`
+      } license(s) for user ${email} to ${newPeriodEnd.toISOString()}`,
     );
 
     // Step 6: Get current license plan for SSE event
@@ -832,7 +832,7 @@ export class PaddleService {
     });
 
     this.logger.log(
-      `Renewal processed successfully for subscription ${subscriptionId}, user ${email}`
+      `Renewal processed successfully for subscription ${subscriptionId}, user ${email}`,
     );
 
     return { success: true };
@@ -855,10 +855,10 @@ export class PaddleService {
 
     // Pro plan price IDs (only paid plan in freemium model)
     const proMonthlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_PRO_MONTHLY'
+      'PADDLE_PRICE_ID_PRO_MONTHLY',
     );
     const proYearlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_PRO_YEARLY'
+      'PADDLE_PRICE_ID_PRO_YEARLY',
     );
 
     // Map to pro plan
@@ -871,7 +871,7 @@ export class PaddleService {
         `Expected Pro price IDs: ${
           [proMonthlyPriceId, proYearlyPriceId].filter(Boolean).join(', ') ||
           'no Pro price IDs configured'
-        }`
+        }`,
     );
     return 'expired';
   }

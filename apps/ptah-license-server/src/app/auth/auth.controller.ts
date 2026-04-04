@@ -106,12 +106,13 @@ export class AuthController {
   private readonly VALID_PLAN_KEYS = ['pro-monthly', 'pro-yearly'];
 
   constructor(
-    private readonly authService: AuthService,
-    private readonly ticketService: TicketService,
+    @Inject(AuthService) private readonly authService: AuthService,
+    @Inject(TicketService) private readonly ticketService: TicketService,
+    @Inject(MagicLinkService)
     private readonly magicLinkService: MagicLinkService,
-    private readonly prisma: PrismaService,
-    private readonly emailService: EmailService,
-    private readonly configService: ConfigService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EmailService) private readonly emailService: EmailService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
     @Inject(forwardRef(() => LicenseService))
     private readonly licenseService: LicenseService,
   ) {

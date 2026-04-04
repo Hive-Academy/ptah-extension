@@ -65,6 +65,7 @@ import type {
   IOutputChannel,
   IStateStorage,
   ISecretStorage,
+  IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 
 // vscode-core: TOKENS + service classes (LicenseService & AuthSecretsService
@@ -700,9 +701,23 @@ export class ElectronDIContainer {
     // Phase 4.0.1: Browser capabilities (TASK_2025_244)
     // ElectronBrowserCapabilities uses Electron's native BrowserWindow + webContents.debugger
     // for CDP browser automation. Zero external dependencies.
-    container.register(BROWSER_CAPABILITIES_TOKEN, {
-      useValue: new ElectronBrowserCapabilities(),
-    });
+    // Headless/viewport are agent-controlled via ptah_browser_navigate params.
+    {
+      const workspaceProvider = container.resolve<IWorkspaceProvider>(
+        PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      );
+      container.register(BROWSER_CAPABILITIES_TOKEN, {
+        useValue: new ElectronBrowserCapabilities(
+          // getRecordingDir
+          () =>
+            workspaceProvider.getConfiguration<string>(
+              'ptah.browser',
+              'recordingDir',
+              '',
+            ) ?? '',
+        ),
+      });
+    }
 
     // ========================================
     // PHASE 4.1: Shared RPC Handler Classes (TASK_2025_203 Batch 5, TASK_2025_209, TASK_2025_241)

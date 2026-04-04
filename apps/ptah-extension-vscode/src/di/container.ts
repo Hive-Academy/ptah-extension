@@ -90,8 +90,14 @@ import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction'
 
 import { registerTemplateGenerationServices } from '@ptah-extension/template-generation';
 
-import { registerPlatformVscodeServices } from '@ptah-extension/platform-vscode';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  registerPlatformVscodeServices,
+  VscodeWorkspaceProvider,
+} from '@ptah-extension/platform-vscode';
+import {
+  PLATFORM_TOKENS,
+  FILE_BASED_SETTINGS_KEYS,
+} from '@ptah-extension/platform-core';
 
 // Platform abstraction implementations (TASK_2025_203)
 import {
@@ -241,6 +247,23 @@ export class DIContainer {
 
     // PHASE 1.5: Register remaining vscode-core infrastructure services
     registerVsCodeCoreServices(container, context, logger);
+
+    // PHASE 1.5.0: Wire file-based settings into ConfigManager (TASK_2025_253)
+    // ConfigManager must route FILE_BASED_SETTINGS_KEYS to PtahFileSettingsManager
+    // (~/.ptah/settings.json) instead of VS Code workspace config. These keys were
+    // removed from package.json contributes.configuration (TASK_2025_247).
+    {
+      const configManager = container.resolve<ConfigManager>(
+        TOKENS.CONFIG_MANAGER,
+      );
+      const workspaceProvider = container.resolve(
+        PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      ) as VscodeWorkspaceProvider;
+      configManager.setFileSettingsStore(
+        FILE_BASED_SETTINGS_KEYS,
+        workspaceProvider.fileSettings,
+      );
+    }
 
     // PHASE 1.5.1: Subagent Registry Service (TASK_2025_103)
     // Must be registered AFTER vscode-core (Logger dependency) but BEFORE RPC handlers
@@ -405,9 +428,16 @@ export class DIContainer {
 
     // TASK_2025_244: Register browser capabilities for PtahAPIBuilder.
     // ChromeLauncherBrowserCapabilities uses chrome-launcher + chrome-remote-interface
-    // to launch and control a headless Chrome for browser automation tools.
+    // to launch and control Chrome for browser automation tools.
+    // Headless/viewport are agent-controlled via ptah_browser_navigate params.
     container.register(BROWSER_CAPABILITIES_TOKEN, {
-      useValue: new ChromeLauncherBrowserCapabilities(),
+      useValue: new ChromeLauncherBrowserCapabilities(
+        // getRecordingDir
+        () =>
+          vscode.workspace
+            .getConfiguration('ptah.browser')
+            .get<string>('recordingDir', '') ?? '',
+      ),
     });
 
     // ========================================

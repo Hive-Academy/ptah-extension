@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  Inject,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -36,7 +37,7 @@ import { AuthService } from '../services/auth.service';
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly authService: AuthService) {}
+  constructor(@Inject(AuthService) private readonly authService: AuthService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
@@ -46,7 +47,7 @@ export class JwtAuthGuard implements CanActivate {
 
     if (!token) {
       throw new UnauthorizedException(
-        'No authentication token provided. Please login.'
+        'No authentication token provided. Please login.',
       );
     }
 
@@ -64,7 +65,7 @@ export class JwtAuthGuard implements CanActivate {
       return true;
     } catch (error: any) {
       throw new UnauthorizedException(
-        `Authentication failed: ${error.message}`
+        `Authentication failed: ${error.message}`,
       );
     }
   }

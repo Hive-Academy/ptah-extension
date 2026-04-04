@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 
@@ -46,7 +46,7 @@ export class MagicLinkService {
   private readonly tokens = new Map<string, MagicLinkToken>();
   private readonly ttlMs: number;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(@Inject(ConfigService) private readonly config: ConfigService) {
     // Default: 2 minutes (120000ms) - enough time to open email and click link
     this.ttlMs = this.config.get<number>('MAGIC_LINK_TTL_MS') || 120000;
     this.logger.log(`MagicLinkService initialized with TTL: ${this.ttlMs}ms`);
@@ -67,7 +67,7 @@ export class MagicLinkService {
    */
   async createMagicLink(
     email: string,
-    options?: MagicLinkOptions
+    options?: MagicLinkOptions,
   ): Promise<string> {
     // Step 1: Generate 64-char hex token (256-bit entropy via crypto.randomBytes)
     const token = randomBytes(32).toString('hex');
@@ -87,12 +87,12 @@ export class MagicLinkService {
 
     this.logger.log(
       `Magic link CREATED: token=${token.substring(0, 8)}...${token.substring(
-        token.length - 8
+        token.length - 8,
       )} (length: ${token.length}), expires in ${
         this.ttlMs
       }ms, total tokens in storage: ${this.tokens.size}${
         options?.returnUrl ? `, returnUrl=${options.returnUrl}` : ''
-      }${options?.plan ? `, plan=${options.plan}` : ''}`
+      }${options?.plan ? `, plan=${options.plan}` : ''}`,
     );
 
     // Step 4: Build full magic link URL
@@ -128,10 +128,10 @@ export class MagicLinkService {
       `Magic link LOOKUP: searching for token=${
         token
           ? `${token.substring(0, 8)}...${token.substring(
-              token.length - 8
+              token.length - 8,
             )} (length: ${token.length})`
           : 'EMPTY'
-      }, tokens in storage: ${this.tokens.size}`
+      }, tokens in storage: ${this.tokens.size}`,
     );
 
     // Step 1: Retrieve token from storage
@@ -145,8 +145,8 @@ export class MagicLinkService {
       this.logger.warn(
         `Token validation failed: token not found. Received: ${token?.substring(
           0,
-          8
-        )}..., Stored tokens: [${storedTokenPrefixes || 'none'}]`
+          8,
+        )}..., Stored tokens: [${storedTokenPrefixes || 'none'}]`,
       );
       return {
         valid: false,

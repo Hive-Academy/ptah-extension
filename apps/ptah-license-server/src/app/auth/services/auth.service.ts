@@ -1,4 +1,9 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { RequestUser } from '../interfaces/request-user.interface';
 import { JwtTokenService, PkceService } from './token';
@@ -25,11 +30,12 @@ export class AuthService {
   private readonly redirectUri: string;
 
   constructor(
-    private readonly configService: ConfigService,
-    private readonly pkceService: PkceService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    @Inject(PkceService) private readonly pkceService: PkceService,
+    @Inject(WorkosUserService)
     private readonly workosUserService: WorkosUserService,
-    private readonly jwtTokenService: JwtTokenService,
-    private readonly userSyncService: UserSyncService
+    @Inject(JwtTokenService) private readonly jwtTokenService: JwtTokenService,
+    @Inject(UserSyncService) private readonly userSyncService: UserSyncService,
   ) {
     this.redirectUri =
       this.configService.get<string>('WORKOS_REDIRECT_URI') || '';
@@ -49,7 +55,7 @@ export class AuthService {
     const url = this.workosUserService.getAuthorizationUrl(
       this.redirectUri,
       state,
-      codeChallenge
+      codeChallenge,
     );
 
     return { url, state };
@@ -65,7 +71,7 @@ export class AuthService {
   async getOAuthAuthorizationUrl(
     provider: OAuthProvider,
     returnUrl?: string,
-    plan?: string
+    plan?: string,
   ): Promise<{ url: string; state: string }> {
     const { codeChallenge, state } = this.pkceService.generatePkceParams({
       returnUrl,
@@ -76,7 +82,7 @@ export class AuthService {
       provider,
       this.redirectUri,
       state,
-      codeChallenge
+      codeChallenge,
     );
 
     return { url, state };
@@ -93,7 +99,7 @@ export class AuthService {
    */
   async authenticateWithCode(
     code: string,
-    state: string
+    state: string,
   ): Promise<{
     token: string;
     user: RequestUser;
@@ -104,14 +110,14 @@ export class AuthService {
     const pkceResult = this.pkceService.consumeVerifier(state);
     if (!pkceResult) {
       throw new UnauthorizedException(
-        'Invalid or expired state. Please try again.'
+        'Invalid or expired state. Please try again.',
       );
     }
 
     // Authenticate with WorkOS
     const result = await this.workosUserService.authenticateWithCode(
       code,
-      pkceResult.verifier
+      pkceResult.verifier,
     );
 
     // Sync user to database and get database user ID (NOT WorkOS ID)
@@ -122,12 +128,12 @@ export class AuthService {
     const token = await this.jwtTokenService.generateToken(
       dbUser.id,
       result.user,
-      result.organizationId
+      result.organizationId,
     );
     const user = await this.jwtTokenService.mapWorkOSUserToRequestUser(
       result.user,
       result.organizationId,
-      dbUser.id
+      dbUser.id,
     );
 
     return {
@@ -145,11 +151,11 @@ export class AuthService {
    */
   async authenticateWithPassword(
     email: string,
-    password: string
+    password: string,
   ): Promise<{ token: string; user: RequestUser }> {
     const result = await this.workosUserService.authenticateWithPassword(
       email,
-      password
+      password,
     );
 
     // Check if email verification is required
@@ -164,12 +170,12 @@ export class AuthService {
     const token = await this.jwtTokenService.generateToken(
       dbUser.id,
       result.user,
-      result.organizationId
+      result.organizationId,
     );
     const user = await this.jwtTokenService.mapWorkOSUserToRequestUser(
       result.user,
       result.organizationId,
-      dbUser.id
+      dbUser.id,
     );
 
     this.logger.log(`User authenticated: ${email}`);
@@ -191,13 +197,13 @@ export class AuthService {
     email: string,
     password: string,
     firstName?: string,
-    lastName?: string
+    lastName?: string,
   ): Promise<{ userId: string; email: string; pendingVerification: boolean }> {
     const user = await this.workosUserService.createUser(
       email,
       password,
       firstName,
-      lastName
+      lastName,
     );
 
     await this.userSyncService.syncUser(user);
@@ -217,7 +223,7 @@ export class AuthService {
    */
   async verifyEmailCode(
     userId: string,
-    code: string
+    code: string,
   ): Promise<{ token: string; user: RequestUser }> {
     const workosUser = await this.workosUserService.verifyEmail(userId, code);
 
@@ -227,12 +233,12 @@ export class AuthService {
     // Generate JWT using DATABASE user ID (not WorkOS user ID)
     const token = await this.jwtTokenService.generateToken(
       dbUser.id,
-      workosUser
+      workosUser,
     );
     const user = await this.jwtTokenService.mapWorkOSUserToRequestUser(
       workosUser,
       undefined,
-      dbUser.id
+      dbUser.id,
     );
 
     return { token, user };
@@ -279,7 +285,7 @@ export class AuthService {
         email: result.email,
         message:
           'Please verify your email before signing in. A verification code has been sent.',
-      })
+      }),
     );
   }
 }

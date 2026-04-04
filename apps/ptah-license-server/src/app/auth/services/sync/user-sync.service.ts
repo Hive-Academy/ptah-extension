@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { User } from '@workos-inc/node';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { User as PrismaUser } from '../../../../generated-prisma-client/client';
@@ -25,7 +25,7 @@ export interface SyncedUser {
 export class UserSyncService {
   private readonly logger = new Logger(UserSyncService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   /**
    * Sync WorkOS user to local database
@@ -86,7 +86,7 @@ export class UserSyncService {
       this.logger.warn(
         `Failed to sync user to database: ${
           error instanceof Error ? error.message : 'Unknown error'
-        }`
+        }`,
       );
       // Return WorkOS data as fallback (queries will fail but auth won't break completely)
       return { id: workosUser.id, email: workosUser.email };
@@ -106,7 +106,7 @@ export class UserSyncService {
       this.logger.warn(
         `Failed to update email verified status: ${
           error instanceof Error ? error.message : 'Unknown'
-        }`
+        }`,
       );
     }
   }

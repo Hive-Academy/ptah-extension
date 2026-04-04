@@ -42,7 +42,8 @@ COPY apps/ptah-license-server ./apps/ptah-license-server/
 COPY libs ./libs/
 
 # Install ALL dependencies (including devDependencies for build)
-RUN npm ci
+# --ignore-scripts: skip native module compilation (e.g., node-pty is Electron-only)
+RUN npm ci --ignore-scripts
 
 # Generate Prisma client
 RUN cd apps/ptah-license-server && npx prisma generate
@@ -69,7 +70,8 @@ COPY --from=builder /app/dist/apps/ptah-license-server/package-lock.json ./
 COPY package-lock.json ./root-package-lock.json
 
 # Install production dependencies
-# Note: We add the external packages that webpack excludes but are needed at runtime
+# Note: We add the external packages that esbuild excludes but are needed at runtime
+# @sentry/nestjs: error tracking and performance monitoring (TASK_2025_251)
 RUN npm install --omit=dev \
     @workos-inc/node \
     @nestjs/config \
@@ -77,7 +79,8 @@ RUN npm install --omit=dev \
     @paddle/paddle-node-sdk \
     resend \
     pg \
-    prisma
+    prisma \
+    @sentry/nestjs
 
 # -----------------------------------------------------------------------------
 # Stage 3: Production - Minimal runtime image
@@ -123,6 +126,10 @@ EXPOSE 3000
 ENV NODE_ENV=production
 ENV PORT=3000
 
+# Sentry DSN for error tracking (set via docker-compose or deployment config)
+# When empty, Sentry initialization is skipped gracefully
+ENV SENTRY_DSN=""
+
 # Memory optimization for 512MB container
 ENV NODE_OPTIONS="--max-old-space-size=450"
 
@@ -132,4 +139,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 
 # Run migrations and start server
 # Note: Prisma migrate deploy is safe for production (only applies pending migrations)
-CMD ["sh", "-c", "npx prisma migrate deploy && node main.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node main.cjs"]

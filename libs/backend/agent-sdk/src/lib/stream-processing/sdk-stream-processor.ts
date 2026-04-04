@@ -52,7 +52,7 @@ export class SdkStreamProcessor {
    * and returns the structured_output from the result message.
    */
   async process(
-    stream: AsyncIterable<SDKMessage>
+    stream: AsyncIterable<SDKMessage>,
   ): Promise<StreamProcessorResult> {
     const { emitter, timeout, phaseTracker, logger, serviceTag } = this.config;
     const toolCallIdFactory =
@@ -120,7 +120,7 @@ export class SdkStreamProcessor {
             // Fallback: parse from result text
             if (message.result) {
               logger.warn(
-                `${serviceTag} No structured_output, falling back to text parsing`
+                `${serviceTag} No structured_output, falling back to text parsing`,
               );
               try {
                 return {
@@ -129,7 +129,7 @@ export class SdkStreamProcessor {
                 };
               } catch {
                 logger.warn(
-                  `${serviceTag} Could not parse result text as JSON`
+                  `${serviceTag} Could not parse result text as JSON`,
                 );
               }
             }
@@ -206,7 +206,7 @@ export class SdkStreamProcessor {
             const toolCallId = toolCallIdFactory(
               event.content_block.name,
               event.index,
-              event.content_block.id
+              event.content_block.id,
             );
             activeToolBlocks.set(event.index, {
               name: event.content_block.name,
@@ -231,12 +231,12 @@ export class SdkStreamProcessor {
             if (completedBlock) {
               phaseTracker?.onToolStop(
                 completedBlock.toolCallId,
-                completedBlock.inputBuffer
+                completedBlock.inputBuffer,
               );
 
               this.safeEmit(emitter, {
                 kind: 'tool_input',
-                content: completedBlock.inputBuffer.substring(0, 2000),
+                content: completedBlock.inputBuffer,
                 toolName: completedBlock.name,
                 toolCallId: completedBlock.toolCallId,
                 timestamp: Date.now(),
@@ -244,7 +244,7 @@ export class SdkStreamProcessor {
 
               completedToolNames.set(
                 completedBlock.toolCallId,
-                completedBlock.name
+                completedBlock.name,
               );
               activeToolBlocks.delete(event.index);
             }
@@ -274,8 +274,8 @@ export class SdkStreamProcessor {
                 const resultBlock = block as ToolResultBlock;
                 const resultContent =
                   typeof resultBlock.content === 'string'
-                    ? resultBlock.content.substring(0, 2000)
-                    : JSON.stringify(resultBlock.content).substring(0, 2000);
+                    ? resultBlock.content
+                    : JSON.stringify(resultBlock.content);
                 this.safeEmit(emitter, {
                   kind: 'tool_result',
                   content: resultContent,
@@ -303,7 +303,7 @@ export class SdkStreamProcessor {
    */
   private safeEmit(
     emitter: SdkStreamProcessorConfig['emitter'],
-    event: Parameters<SdkStreamProcessorConfig['emitter']['emit']>[0]
+    event: Parameters<SdkStreamProcessorConfig['emitter']['emit']>[0],
   ): void {
     try {
       emitter.emit(event);

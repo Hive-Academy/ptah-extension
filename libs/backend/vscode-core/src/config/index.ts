@@ -4,7 +4,10 @@
  */
 
 export { ConfigManager } from './config-manager';
-export type { ConfigurationChangeEvent } from './config-manager';
+export type {
+  ConfigurationChangeEvent,
+  IFileSettingsStore,
+} from './config-manager';
 export type {
   ConfigWatcher,
   ConfigurationSchema,

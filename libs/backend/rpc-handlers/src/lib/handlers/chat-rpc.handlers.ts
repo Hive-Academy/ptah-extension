@@ -97,7 +97,7 @@ export class ChatRpcHandlers {
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
 
   /**
@@ -111,6 +111,51 @@ export class ChatRpcHandlers {
   }
 
   /**
+   * Detect clear stop/cancel intent in a user message.
+   *
+   * Used in autopilot mode to decide whether to interrupt the current turn.
+   * Conservative matching — only triggers on unambiguous stop phrases to avoid
+   * false positives on steering messages like "stop using semicolons" or
+   * "cancel the old approach and try X instead".
+   *
+   * Patterns matched:
+   * - Standalone commands: "stop", "cancel", "abort", "halt", "quit"
+   * - Polite variants: "please stop", "stop please", "stop now"
+   * - Targeted: "stop it", "stop this", "stop that", "stop execution"
+   * - Descriptive: "stop what you're doing", "don't continue"
+   */
+  static hasStopIntent(message: string): boolean {
+    const trimmed = message.trim().toLowerCase();
+
+    // Standalone stop words (entire message is just a stop command)
+    // [.!]* allows multiple punctuation: "stop!!!", "cancel!!", "abort."
+    if (
+      /^(stop|cancel|abort|halt|quit|enough|nevermind|nvm)[.!]*$/.test(trimmed)
+    ) {
+      return true;
+    }
+
+    // Short messages (≤60 chars) with clear stop phrases.
+    // Length gate avoids false positives in longer steering messages like
+    // "stop using semicolons and switch to the new API pattern".
+    if (trimmed.length <= 60) {
+      const stopPhrases = [
+        // "stop", "please stop", "stop now", "stop it", etc. — must be at end of message
+        /\b(please\s+)?(stop|cancel|abort|halt)\s*(please|now|it|this|that|execution|running|everything|immediately)?[.!]*$/,
+        // "stop what you're doing"
+        /\bstop\s+what\s+you'?re?\s+(doing|running)/,
+        // "don't continue" — must be at end to avoid "don't continue with X, do Y instead"
+        /\bdon'?t\s+continue[.!]*$/,
+        // "stop the execution/agent/process"
+        /\bstop\s+the\s+(execution|agent|process|task)/,
+      ];
+      return stopPhrases.some((pattern) => pattern.test(trimmed));
+    }
+
+    return false;
+  }
+
+  /**
    * Check if a subagent's transcript file exists on disk.
    * Without a transcript, the SDK cannot resume the subagent.
    *
@@ -119,7 +164,7 @@ export class ChatRpcHandlers {
   private async hasSubagentTranscript(
     workspacePath: string,
     parentSessionId: string,
-    agentId: string
+    agentId: string,
   ): Promise<boolean> {
     try {
       const homeDir = os.homedir();
@@ -144,7 +189,7 @@ export class ChatRpcHandlers {
         projectDir,
         parentSessionId,
         'subagents',
-        `agent-${agentId}.jsonl`
+        `agent-${agentId}.jsonl`,
       );
 
       await fs.access(transcriptPath);
@@ -166,7 +211,7 @@ export class ChatRpcHandlers {
    */
   private async resolveEnhancedPromptsContent(
     workspacePath: string | undefined,
-    isPremium: boolean
+    isPremium: boolean,
   ): Promise<string | undefined> {
     if (!isPremium || !workspacePath) {
       return undefined;
@@ -175,7 +220,7 @@ export class ChatRpcHandlers {
     try {
       const content =
         await this.enhancedPromptsService.getEnhancedPromptContent(
-          workspacePath
+          workspacePath,
         );
       return content ?? undefined;
     } catch (error) {
@@ -183,7 +228,7 @@ export class ChatRpcHandlers {
         'Failed to resolve enhanced prompts content, using fallback',
         {
           error: error instanceof Error ? error.message : String(error),
-        }
+        },
       );
       return undefined;
     }
@@ -209,7 +254,7 @@ export class ChatRpcHandlers {
         return undefined;
       }
       const paths = this.pluginLoader.resolvePluginPaths(
-        config.enabledPluginIds
+        config.enabledPluginIds,
       );
       if (paths.length === 0) {
         return undefined;
@@ -254,7 +299,7 @@ export class ChatRpcHandlers {
    * as the main SdkAgentAdapter.
    */
   private async handlePtahCliStart(
-    params: ChatStartParams
+    params: ChatStartParams,
   ): Promise<ChatStartResult> {
     const { prompt, tabId, workspacePath, options, name } = params;
     const agentId = params.ptahCliId as string; // Guaranteed non-null by caller
@@ -295,7 +340,7 @@ export class ChatRpcHandlers {
     // Resolve enhanced prompts and plugins for premium users
     const enhancedPromptsContent = await this.resolveEnhancedPromptsContent(
       workspacePath,
-      isPremium
+      isPremium,
     );
     const pluginPaths = this.resolvePluginPaths(isPremium);
 
@@ -343,7 +388,7 @@ export class ChatRpcHandlers {
    * message sending to the correct adapter.
    */
   private async handlePtahCliContinue(
-    params: ChatContinueParams
+    params: ChatContinueParams,
   ): Promise<ChatContinueResult> {
     const { prompt, sessionId, tabId } = params;
     const ptahCliAgentId =
@@ -364,7 +409,7 @@ export class ChatRpcHandlers {
     const adapter = await this.ptahCliRegistry.getAdapter(ptahCliAgentId);
     if (!adapter) {
       this.logger.error(
-        `[RPC] Ptah CLI adapter not found for continue: ${ptahCliAgentId}`
+        `[RPC] Ptah CLI adapter not found for continue: ${ptahCliAgentId}`,
       );
       return {
         success: false,
@@ -385,7 +430,7 @@ export class ChatRpcHandlers {
     if (health.status !== 'available') {
       this.logger.warn(
         `[RPC] Ptah CLI adapter not available for continue: ${ptahCliAgentId}`,
-        { status: health.status }
+        { status: health.status },
       );
       return {
         success: false,
@@ -406,7 +451,7 @@ export class ChatRpcHandlers {
    * Handle chat:abort for Ptah CLI sessions.
    */
   private async handlePtahCliAbort(
-    params: ChatAbortParams
+    params: ChatAbortParams,
   ): Promise<ChatAbortResult> {
     const { sessionId } = params;
     const ptahCliAgentId = this.ptahCliSessions.get(sessionId as string);
@@ -528,7 +573,7 @@ export class ChatRpcHandlers {
                   tabId,
                   command: 'clear',
                   message: 'Starting fresh conversation.',
-                }
+                },
               );
               return { success: true };
             }
@@ -540,7 +585,7 @@ export class ChatRpcHandlers {
                 tabId,
                 command: interceptResult.commandName,
                 message: `No session data available yet for /${interceptResult.commandName}.`,
-              }
+              },
             );
             return { success: true };
           }
@@ -628,14 +673,14 @@ export class ChatRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: chat:start failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -670,10 +715,13 @@ export class ChatRpcHandlers {
             }
           }
 
+          // Track whether we just resumed — if so, there's no active turn to interrupt
+          let justResumed = false;
+
           // Check if session is active in memory
           if (!this.sdkAdapter.isSessionActive(sessionId)) {
             this.logger.info(
-              `[RPC] Session ${sessionId} not active, attempting resume...`
+              `[RPC] Session ${sessionId} not active, attempting resume...`,
             );
 
             // TASK_2025_108: Get license status for premium feature gating in resumed sessions
@@ -689,14 +737,14 @@ export class ChatRpcHandlers {
                 mcpServerRunning,
                 mcpPort: this.codeExecutionMcp.getPort(),
                 sessionId,
-              }
+              },
             );
 
             // TASK_2025_151: Resolve enhanced prompt content for premium users
             const enhancedPromptsContent =
               await this.resolveEnhancedPromptsContent(
                 workspacePath,
-                isPremium
+                isPremium,
               );
 
             // TASK_2025_153: Resolve plugin paths for premium users
@@ -708,7 +756,7 @@ export class ChatRpcHandlers {
                 hasEnhancedPrompts: !!enhancedPromptsContent,
                 enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
                 pluginCount: pluginPaths?.length ?? 0,
-              }
+              },
             );
 
             // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
@@ -716,7 +764,7 @@ export class ChatRpcHandlers {
               params.model ||
               this.configManager.getWithDefault<string>(
                 'model.selected',
-                'sonnet'
+                'sonnet',
               );
 
             // Resume the session to reconnect to Claude's conversation context
@@ -740,6 +788,7 @@ export class ChatRpcHandlers {
             this.streamExecutionNodesToWebview(sessionId, stream, tabId);
 
             this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
+            justResumed = true;
           }
 
           // Extract files from params for debugging (Phase 2)
@@ -765,7 +814,7 @@ export class ChatRpcHandlers {
             sessionId,
             tabId,
             workspacePath,
-            params
+            params,
           );
           if (slashResult) {
             return slashResult;
@@ -795,7 +844,7 @@ export class ChatRpcHandlers {
                 parentSessionId: s.parentSessionId,
               })),
               workspacePath,
-            }
+            },
           );
 
           // Filter to only agents whose transcript files exist on disk.
@@ -806,7 +855,7 @@ export class ChatRpcHandlers {
               ? await this.hasSubagentTranscript(
                   workspacePath,
                   sessionId,
-                  s.agentId
+                  s.agentId,
                 )
               : false;
             if (hasTranscript) {
@@ -814,7 +863,7 @@ export class ChatRpcHandlers {
             } else {
               this.logger.warn(
                 'RPC: chat:continue - skipping agent without transcript on disk',
-                { agentId: s.agentId, agentType: s.agentType, sessionId }
+                { agentId: s.agentId, agentType: s.agentType, sessionId },
               );
               // Remove from registry — can't resume without transcript
               this.subagentRegistry.remove(s.toolCallId);
@@ -833,7 +882,7 @@ export class ChatRpcHandlers {
                   sessionId,
                   workspacePath,
                   subagent.agentType,
-                  subagent.toolCallId
+                  subagent.toolCallId,
                 );
               } catch (err) {
                 this.logger.warn(
@@ -841,7 +890,7 @@ export class ChatRpcHandlers {
                   {
                     agentId: subagent.agentId,
                     error: err instanceof Error ? err.message : String(err),
-                  }
+                  },
                 );
               }
             }
@@ -900,7 +949,39 @@ IMPORTANT INSTRUCTIONS:
             }
           }
 
-          // Default: passthrough — send as regular message (existing flow)
+          // AUTOPILOT STOP-INTENT INTERRUPT: In yolo/auto-edit mode, tool calls are
+          // auto-approved so the user has no checkpoint to stop the agent via tool denial.
+          // When the user sends a message with clear stop intent (e.g., "stop", "cancel"),
+          // interrupt the current turn so the SDK actually stops.
+          // Regular steering messages ("also update tests") pass through normally via
+          // streamInput() without interrupting — preserving the steering workflow.
+          // Skip if we just resumed — there's no active turn to interrupt.
+          if (!justResumed && ChatRpcHandlers.hasStopIntent(prompt)) {
+            const autopilotEnabled = this.configManager.getWithDefault<boolean>(
+              'autopilot.enabled',
+              false,
+            );
+            const permissionLevel = this.configManager.getWithDefault<string>(
+              'autopilot.permissionLevel',
+              'ask',
+            );
+            if (
+              autopilotEnabled &&
+              (permissionLevel === 'yolo' || permissionLevel === 'auto-edit')
+            ) {
+              this.logger.info(
+                'RPC: chat:continue - stop intent detected, interrupting current turn',
+                { sessionId, permissionLevel, prompt: prompt.substring(0, 80) },
+              );
+              await this.sdkAdapter.interruptCurrentTurn(sessionId);
+            }
+          }
+
+          // Send the message to the session (existing flow).
+          // Even after an interrupt, we still send the message: the interrupt stops the
+          // current assistant turn, and this message starts a new turn. The agent sees
+          // the user's "stop" message and can respond acknowledging it, rather than
+          // leaving the session in an ambiguous state with no user context.
           const images = params.images ?? [];
           await this.sdkAdapter.sendMessageToSession(
             sessionId,
@@ -908,21 +989,21 @@ IMPORTANT INSTRUCTIONS:
             {
               files,
               images,
-            }
+            },
           );
 
           return { success: true, sessionId };
         } catch (error) {
           this.logger.error(
             'RPC: chat:continue failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -939,7 +1020,7 @@ IMPORTANT INSTRUCTIONS:
     sessionId: SessionId,
     tabId: string,
     workspacePath: string | undefined,
-    params: ChatContinueParams
+    params: ChatContinueParams,
   ): Promise<ChatContinueResult | null> {
     const interceptResult = this.slashCommandInterceptor.intercept(prompt);
 
@@ -967,7 +1048,7 @@ IMPORTANT INSTRUCTIONS:
             command: 'clear',
             message:
               'Conversation cleared. Start a new message to begin fresh.',
-          }
+          },
         );
         return { success: true, sessionId };
       }
@@ -988,7 +1069,7 @@ IMPORTANT INSTRUCTIONS:
         {
           command: interceptResult.rawCommand,
           sessionId,
-        }
+        },
       );
 
       // Resolve premium config for the new query
@@ -997,7 +1078,7 @@ IMPORTANT INSTRUCTIONS:
       const mcpServerRunning = this.isMcpServerRunning();
       const enhancedPromptsContent = await this.resolveEnhancedPromptsContent(
         workspacePath,
-        isPremium
+        isPremium,
       );
       const pluginPaths = this.resolvePluginPaths(isPremium);
 
@@ -1015,7 +1096,7 @@ IMPORTANT INSTRUCTIONS:
               params.model ||
               this.configManager.getWithDefault<string>(
                 'model.selected',
-                'sonnet'
+                'sonnet',
               ),
             projectPath: workspacePath,
           } as AISessionConfig,
@@ -1024,7 +1105,7 @@ IMPORTANT INSTRUCTIONS:
           enhancedPromptsContent,
           pluginPaths,
           tabId,
-        }
+        },
       );
 
       // Reconnect streaming to the frontend
@@ -1076,13 +1157,13 @@ IMPORTANT INSTRUCTIONS:
           // Also includes aggregated usage stats from JSONL
           const { events, stats } = await this.historyReader.readSessionHistory(
             sessionId,
-            resolvedWorkspacePath
+            resolvedWorkspacePath,
           );
 
           // Also read simple messages for backward compatibility
           const messages = await this.historyReader.readHistoryAsMessages(
             sessionId,
-            resolvedWorkspacePath
+            resolvedWorkspacePath,
           );
 
           // TASK_2025_109: Register interrupted agents from history into SubagentRegistryService
@@ -1098,7 +1179,7 @@ IMPORTANT INSTRUCTIONS:
               {
                 sessionId,
                 registeredCount: registeredFromHistory,
-              }
+              },
             );
           }
 
@@ -1148,14 +1229,14 @@ IMPORTANT INSTRUCTIONS:
         } catch (error) {
           this.logger.error(
             'RPC: chat:resume failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -1187,14 +1268,14 @@ IMPORTANT INSTRUCTIONS:
         } catch (error) {
           this.logger.error(
             'RPC: chat:abort failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -1214,7 +1295,7 @@ IMPORTANT INSTRUCTIONS:
         this.logger.debug('RPC: chat:running-agents called', { sessionId });
 
         const running = this.subagentRegistry.getRunningBySession(
-          sessionId as string
+          sessionId as string,
         );
 
         return {
@@ -1226,7 +1307,7 @@ IMPORTANT INSTRUCTIONS:
       } catch (error) {
         this.logger.error(
           'RPC: chat:running-agents failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return { agents: [] };
       }
@@ -1283,10 +1364,10 @@ IMPORTANT INSTRUCTIONS:
           .catch((err) => {
             this.logger.error(
               '[RPC] Failed to broadcast background agent completed event',
-              err instanceof Error ? err : new Error(String(err))
+              err instanceof Error ? err : new Error(String(err)),
             );
           });
-      }
+      },
     );
   }
 
@@ -1323,7 +1404,7 @@ IMPORTANT INSTRUCTIONS:
       } catch (error) {
         this.logger.error(
           'RPC: agent:backgroundList failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return { agents: [] };
       }
@@ -1349,10 +1430,10 @@ IMPORTANT INSTRUCTIONS:
   private async streamExecutionNodesToWebview(
     sessionId: SessionId,
     stream: AsyncIterable<FlatStreamEventUnion>,
-    tabId: string
+    tabId: string,
   ): Promise<void> {
     this.logger.info(
-      `[RPC] streamExecutionNodesToWebview STARTED for session ${sessionId}, tabId ${tabId}`
+      `[RPC] streamExecutionNodesToWebview STARTED for session ${sessionId}, tabId ${tabId}`,
     );
     let eventCount = 0;
 
@@ -1377,7 +1458,7 @@ IMPORTANT INSTRUCTIONS:
             tabId,
             eventType: event.eventType,
             messageId: event.messageId,
-          }
+          },
         );
 
         // Save child session metadata for Ptah CLI sessions once the real
@@ -1401,7 +1482,7 @@ IMPORTANT INSTRUCTIONS:
             await this.sessionMetadataStore.createChild(
               event.sessionId,
               workspacePath,
-              sessionName
+              sessionName,
             );
             // Track SDK UUID for cross-referencing in CliSessionReference.
             // Store by both tabId and agentId so persistCliSessionReference
@@ -1412,12 +1493,12 @@ IMPORTANT INSTRUCTIONS:
             }
             this.logger.info(
               '[RPC] Child session metadata saved for Ptah CLI session',
-              { sessionId: event.sessionId, tabId, agentId: ptahCliAgentId }
+              { sessionId: event.sessionId, tabId, agentId: ptahCliAgentId },
             );
           } catch (err: unknown) {
             this.logger.warn(
               '[RPC] Failed to save child session metadata — session may appear in sidebar',
-              { error: err instanceof Error ? err.message : String(err) }
+              { error: err instanceof Error ? err.message : String(err) },
             );
           }
         }
@@ -1455,7 +1536,7 @@ IMPORTANT INSTRUCTIONS:
               {
                 toolCallId: bgEvent.toolCallId,
                 agentId: bgEvent.agentId,
-              }
+              },
             );
           }
         }
@@ -1464,7 +1545,7 @@ IMPORTANT INSTRUCTIONS:
           turnCompleteSent = true;
           this.logger.info(
             `[RPC] Turn complete - sending chat:complete for session ${sessionId}, tabId ${tabId}`,
-            { eventCount }
+            { eventCount },
           );
           await this.webviewManager.broadcastMessage(
             MESSAGE_TYPES.CHAT_COMPLETE,
@@ -1472,7 +1553,7 @@ IMPORTANT INSTRUCTIONS:
               tabId,
               sessionId,
               code: 0,
-            }
+            },
           );
         }
       }
@@ -1484,7 +1565,7 @@ IMPORTANT INSTRUCTIONS:
             tabId,
             sessionId,
             code: 0,
-          }
+          },
         );
       }
     } catch (error) {
@@ -1502,13 +1583,13 @@ IMPORTANT INSTRUCTIONS:
       if (isUserAbort) {
         // User aborts are expected behavior, log at INFO level
         this.logger.info(
-          `[RPC] Session ${sessionId} aborted by user after ${eventCount} events`
+          `[RPC] Session ${sessionId} aborted by user after ${eventCount} events`,
         );
       } else {
         // Real errors should be logged at ERROR level
         this.logger.error(
           `[RPC] Error streaming flat events for session ${sessionId}, tabId ${tabId} after ${eventCount} events`,
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
       }
 
@@ -1518,7 +1599,7 @@ IMPORTANT INSTRUCTIONS:
       const isCorruptedResume = eventCount === 0 && !isUserAbort;
       if (isCorruptedResume) {
         this.logger.warn(
-          `[RPC] Session ${sessionId} failed during resume (0 events), cleaning up dead session. Original error: ${errorMessage}`
+          `[RPC] Session ${sessionId} failed during resume (0 events), cleaning up dead session. Original error: ${errorMessage}`,
         );
         try {
           await this.sdkAdapter.endSession(sessionId);
@@ -1527,7 +1608,7 @@ IMPORTANT INSTRUCTIONS:
             `[RPC] Failed to clean up corrupted session ${sessionId}`,
             cleanupErr instanceof Error
               ? cleanupErr
-              : new Error(String(cleanupErr))
+              : new Error(String(cleanupErr)),
           );
         }
       }

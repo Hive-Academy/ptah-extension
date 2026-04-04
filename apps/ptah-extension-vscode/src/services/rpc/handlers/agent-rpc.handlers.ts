@@ -9,7 +9,7 @@
  * TASK_2025_157: Agent Orchestration Settings UI
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import {
   CliDetectionService,
@@ -29,6 +29,8 @@ import type {
   AgentListCliModelsResult,
   CliModelOption,
   AgentPermissionDecision,
+  ISdkPermissionHandler,
+  PermissionResponse,
 } from '@ptah-extension/shared';
 import type { CliDetectionResult, CliType } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
@@ -547,13 +549,17 @@ export class AgentRpcHandlers {
   }
 
   /**
-   * agent:permissionResponse - Route user's permission decision to Copilot SDK bridge
+   * agent:permissionResponse - Route user's permission decision to handlers
    *
-   * Called by the webview when the user clicks Allow/Deny on a permission dialog.
-   * Resolves the pending permission Promise in the CopilotPermissionBridge, which
-   * unblocks the SDK's onPreToolUse hook.
+   * Called by the webview when the user clicks Allow/Deny on a permission dialog
+   * in the agent monitor panel. Tries both:
+   * 1. SdkPermissionHandler (Ptah CLI agent permissions) - via lazy container resolution
+   * 2. CopilotPermissionBridge (Copilot SDK permissions) - via CLI adapter
+   *
+   * Both handlers silently ignore unknown requestIds, so trying both is safe.
    *
    * TASK_2025_162: Copilot SDK Integration
+   * TASK_2025_255: Extended to also route to SdkPermissionHandler for Ptah CLI agents
    */
   private registerPermissionResponse(): void {
     this.rpcHandler.registerMethod<
@@ -566,16 +572,41 @@ export class AgentRpcHandlers {
           decision: params.decision,
         });
 
+        let handled = false;
+
+        // Try SdkPermissionHandler first (handles Ptah CLI agent permissions)
+        // Uses lazy container resolution (same pattern as webview-message-handler.service.ts:464)
+        if (container.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)) {
+          const permissionHandler = container.resolve<ISdkPermissionHandler>(
+            SDK_TOKENS.SDK_PERMISSION_HANDLER,
+          );
+          const response: PermissionResponse = {
+            id: params.requestId,
+            decision: params.decision,
+            reason: params.reason,
+          };
+          permissionHandler.handleResponse(params.requestId, response);
+          handled = true;
+        }
+
+        // Also try Copilot bridge (existing flow, idempotent for unknown requestIds)
         const copilotAdapter = this.cliDetection.getAdapter('copilot');
         if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
           const bridge = (
             copilotAdapter as { permissionBridge: CopilotPermissionBridge }
           ).permissionBridge;
           bridge.resolvePermission(params.requestId, params);
+          handled = true;
+        }
+
+        if (handled) {
           return { success: true };
         }
 
-        return { success: false, error: 'Copilot SDK adapter not active' };
+        return {
+          success: false,
+          error: 'No permission handler available (neither SDK nor Copilot)',
+        };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -776,15 +807,24 @@ export class AgentRpcHandlers {
       });
     }
 
-    return this.agentProcessManager.spawnFromSdkHandle(spawnResult.handle, {
-      task: params.task,
-      cli: 'ptah-cli',
-      workingDirectory: workspaceRoot,
-      parentSessionId: params.parentSessionId,
-      ptahCliName: spawnResult.agentName,
-      ptahCliId: params.ptahCliId,
-      resumedFromAgentId: params.previousAgentId,
-    });
+    const result = await this.agentProcessManager.spawnFromSdkHandle(
+      spawnResult.handle,
+      {
+        task: params.task,
+        cli: 'ptah-cli',
+        workingDirectory: workspaceRoot,
+        parentSessionId: params.parentSessionId,
+        ptahCliName: spawnResult.agentName,
+        ptahCliId: params.ptahCliId,
+        resumedFromAgentId: params.previousAgentId,
+        resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
+      },
+    );
+
+    // TASK_2025_255: Wire agentId so CLI permission requests route to agent monitor panel
+    spawnResult.setAgentId(result.agentId);
+
+    return result;
   }
 
   /**

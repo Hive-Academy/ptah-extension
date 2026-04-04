@@ -12,11 +12,6 @@ dependencies: []
 
 name: devops-engineer
 description: DevOps Engineer for CI/CD, containerization, infrastructure-as-code, and deployment automation
-generated: true
-sourceTemplate: devops-engineer-v1
-sourceTemplateVersion: 1.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
 
 ---
 

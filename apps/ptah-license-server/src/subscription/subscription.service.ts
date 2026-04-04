@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
@@ -42,10 +42,11 @@ export class SubscriptionService {
   private readonly logger = new Logger(SubscriptionService.name);
 
   constructor(
-    private readonly configService: ConfigService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    @Inject(SubscriptionDbService)
     private readonly dbService: SubscriptionDbService,
-    private readonly paddleSync: PaddleSyncService,
-    private readonly eventEmitter: EventEmitter2
+    @Inject(PaddleSyncService) private readonly paddleSync: PaddleSyncService,
+    @Inject(EventEmitter2) private readonly eventEmitter: EventEmitter2,
   ) {
     this.logger.log('SubscriptionService initialized');
   }
@@ -77,7 +78,7 @@ export class SubscriptionService {
     // that are not real Paddle resources - querying Paddle with them causes 400 errors.
     if (this.isInternalTrial(localSubscription)) {
       this.logger.debug(
-        `Skipping Paddle API for internal trial user: ${userId}`
+        `Skipping Paddle API for internal trial user: ${userId}`,
       );
       const result = this.buildStatusFromLocal(localSubscription);
       // Internal trials are self-contained - no Paddle sync needed
@@ -89,7 +90,7 @@ export class SubscriptionService {
     // Otherwise fall back to email lookup
     const paddleResult = localSubscription?.paddleCustomerId
       ? await this.paddleSync.findSubscriptionByCustomerId(
-          localSubscription.paddleCustomerId
+          localSubscription.paddleCustomerId,
         )
       : await this.paddleSync.findSubscriptionByEmail(userData.email);
 
@@ -98,13 +99,13 @@ export class SubscriptionService {
       return this.buildStatusFromPaddle(
         paddleResult.data,
         localSubscription,
-        userId
+        userId,
       );
     }
 
     if (paddleResult.status === 'error') {
       this.logger.warn(
-        `Paddle API error for user ${userId}: ${paddleResult.reason}`
+        `Paddle API error for user ${userId}: ${paddleResult.reason}`,
       );
       // Fall through to local data
     }
@@ -118,10 +119,10 @@ export class SubscriptionService {
    */
   async validateCheckout(
     userId: string,
-    priceId: string
+    priceId: string,
   ): Promise<ValidateCheckoutResponseDto> {
     this.logger.debug(
-      `Validating checkout for user: ${userId}, priceId: ${priceId}`
+      `Validating checkout for user: ${userId}, priceId: ${priceId}`,
     );
 
     const status = await this.getStatus(userId);
@@ -205,14 +206,13 @@ export class SubscriptionService {
    */
   async reconcile(
     userId: string,
-    email: string
+    email: string,
   ): Promise<ReconcileResponseDto> {
     this.logger.log(`Starting reconciliation for user: ${userId}`);
 
     // Step 1: Get user and local data
-    const userData = await this.dbService.findUserWithSubscriptionAndLicense(
-      userId
-    );
+    const userData =
+      await this.dbService.findUserWithSubscriptionAndLicense(userId);
 
     if (!userData) {
       return {
@@ -236,7 +236,7 @@ export class SubscriptionService {
     // Internal trials use synthetic Paddle IDs that would cause 400 errors
     if (this.isInternalTrial(localSubscription)) {
       this.logger.debug(
-        `Skipping reconcile for internal trial user: ${userId}`
+        `Skipping reconcile for internal trial user: ${userId}`,
       );
       return {
         success: true,
@@ -255,7 +255,7 @@ export class SubscriptionService {
     // Otherwise fall back to email lookup
     const paddleResult = localSubscription?.paddleCustomerId
       ? await this.paddleSync.findSubscriptionByCustomerId(
-          localSubscription.paddleCustomerId
+          localSubscription.paddleCustomerId,
         )
       : await this.paddleSync.findSubscriptionByEmail(email);
 
@@ -318,7 +318,7 @@ export class SubscriptionService {
     if (!localSubscription) {
       // CREATE: Paddle has subscription but local doesn't
       this.logger.log(
-        `Creating local records from Paddle subscription ${paddleData.id}`
+        `Creating local records from Paddle subscription ${paddleData.id}`,
       );
 
       await this.dbService.createSubscriptionAndLicense(
@@ -336,7 +336,7 @@ export class SubscriptionService {
           plan: licensePlan,
           expiresAt: newPeriodEnd,
           createdBy: `paddle_reconcile_${paddleData.id}`,
-        }
+        },
       );
 
       subscriptionUpdated = true;
@@ -394,7 +394,7 @@ export class SubscriptionService {
           licenseUpdated,
           statusBefore,
           statusAfter: newStatus,
-        }
+        },
       );
     }
 
@@ -421,7 +421,7 @@ export class SubscriptionService {
    * Create customer portal session
    */
   async createPortalSession(
-    userId: string
+    userId: string,
   ): Promise<PortalSessionResponseDto | PortalSessionErrorDto> {
     this.logger.debug(`Creating portal session for user: ${userId}`);
 
@@ -445,7 +445,7 @@ export class SubscriptionService {
 
     const result = await this.paddleSync.createPortalSession(
       subscription.paddleCustomerId,
-      [subscription.paddleSubscriptionId]
+      [subscription.paddleSubscriptionId],
     );
 
     if (!result) {
@@ -472,7 +472,7 @@ export class SubscriptionService {
    * preventing duplicate customers when re-subscribing.
    */
   async getCheckoutInfo(
-    userId: string
+    userId: string,
   ): Promise<{ email: string; paddleCustomerId?: string }> {
     this.logger.debug(`Getting checkout info for user: ${userId}`);
 
@@ -503,7 +503,7 @@ export class SubscriptionService {
       priceId: string;
       currentPeriodEnd: Date;
     } | null,
-    userId: string
+    userId: string,
   ): Promise<SubscriptionStatusResponseDto> {
     const plan = this.mapPriceIdToPlan(paddleData.priceId);
     const billingCycle = this.getBillingCycle(paddleData.priceId);
@@ -553,14 +553,14 @@ export class SubscriptionService {
       currentPeriodEnd: Date;
       canceledAt: Date | null;
       trialEnd: Date | null;
-    } | null
+    } | null,
   ): SubscriptionStatusResponseDto {
     if (!localSubscription) {
       return { hasSubscription: false, source: 'local' };
     }
 
     const isValidStatus = ['active', 'trialing', 'past_due'].includes(
-      localSubscription.status
+      localSubscription.status,
     );
     const isNotExpired = localSubscription.currentPeriodEnd > new Date();
 
@@ -602,7 +602,7 @@ export class SubscriptionService {
       licenseUpdated: boolean;
       statusBefore: string;
       statusAfter: string;
-    }
+    },
   ): void {
     // License updated event
     this.eventEmitter.emit(
@@ -615,8 +615,8 @@ export class SubscriptionService {
           | 'expired'
           | 'revoked'
           | 'trialing',
-        expiresAt.toISOString()
-      )
+        expiresAt.toISOString(),
+      ),
     );
 
     // Status changed event
@@ -625,14 +625,14 @@ export class SubscriptionService {
       new SubscriptionStatusChangedEvent(
         email,
         status as 'trialing' | 'active' | 'past_due' | 'paused' | 'canceled',
-        plan
-      )
+        plan,
+      ),
     );
 
     // Reconciliation completed event (for audit)
     this.eventEmitter.emit(
       SUBSCRIPTION_EVENTS.RECONCILIATION_COMPLETED,
-      new ReconciliationCompletedEvent(email, userId, subscriptionId, changes)
+      new ReconciliationCompletedEvent(email, userId, subscriptionId, changes),
     );
   }
 
@@ -645,7 +645,7 @@ export class SubscriptionService {
       paddleCustomerId: string;
       status: string;
       priceId: string;
-    } | null
+    } | null,
   ): boolean {
     if (!subscription) return false;
     return (
@@ -665,10 +665,10 @@ export class SubscriptionService {
     if (priceId === 'auto_trial_pro') return 'pro';
 
     const proMonthlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_PRO_MONTHLY'
+      'PADDLE_PRICE_ID_PRO_MONTHLY',
     );
     const proYearlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_PRO_YEARLY'
+      'PADDLE_PRICE_ID_PRO_YEARLY',
     );
 
     if (priceId === proMonthlyPriceId || priceId === proYearlyPriceId)
@@ -696,7 +696,7 @@ export class SubscriptionService {
    */
   private checkRequiresSync(
     local: { status: string; priceId: string; currentPeriodEnd: Date },
-    paddle: PaddleSubscriptionData
+    paddle: PaddleSubscriptionData,
   ): boolean {
     if (local.status !== paddle.status) return true;
     if (local.priceId !== paddle.priceId) return true;

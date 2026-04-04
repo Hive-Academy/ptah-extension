@@ -52,9 +52,9 @@
   <!-- Chat (default): Sidebar + Header + Chat layout -->
   @default {
     <div class="flex h-full">
-      <!-- Session Sidebar (always visible, fixed width) -->
+      <!-- Session Sidebar (toggleable width, no border — tab provides visual edge) -->
       <aside
-        class="flex flex-col bg-base-200 border-r border-base-content/5 transition-all duration-300"
+        class="flex flex-col bg-base-200 transition-all duration-300"
         [class.w-0]="!sidebarOpen()"
         [class.w-56]="sidebarOpen()"
         [class.overflow-hidden]="!sidebarOpen()"
@@ -167,60 +167,93 @@
           <ul class="flex flex-col gap-0.5 p-0" role="list">
             @for (session of filteredSessions(); track session.id) {
               <li class="group relative" role="listitem">
-                <button
-                  type="button"
-                  class="flex flex-col items-start gap-1 py-2.5 px-3 pr-8 w-full text-left rounded-md transition-all duration-200 border-l-2 border-transparent hover:bg-base-300/50"
-                  [class.sidebar-item-active]="
-                    session.id === chatStore.currentSession()?.id
-                  "
-                  [class.sidebar-item-open-tab]="
-                    isSessionOpen(session.id) &&
-                    session.id !== chatStore.currentSession()?.id
-                  "
-                  [attr.aria-current]="
-                    session.id === chatStore.currentSession()?.id
-                      ? 'true'
-                      : null
-                  "
-                  (click)="chatStore.switchSession(session.id)"
-                >
-                  <!-- Session name -->
-                  <span
-                    class="font-medium text-sm truncate w-full leading-snug"
-                    [class.text-primary]="
-                      session.id === chatStore.currentSession()?.id ||
-                      isSessionOpen(session.id)
+                @if (editingSessionId() === session.id) {
+                  <!-- Inline edit mode -->
+                  <div class="flex items-center gap-1 py-2.5 px-3 w-full">
+                    <input
+                      #editSessionInput
+                      type="text"
+                      class="input input-xs input-bordered flex-1 text-sm bg-base-100"
+                      maxlength="200"
+                      aria-label="Edit session name"
+                      [ngModel]="editingSessionName()"
+                      (ngModelChange)="editingSessionName.set($event)"
+                      (keydown.enter)="saveSessionName($event, session)"
+                      (keydown.escape)="cancelEditingSession()"
+                      (blur)="saveSessionName($event, session)"
+                    />
+                  </div>
+                } @else {
+                  <button
+                    type="button"
+                    class="flex flex-col items-start gap-1 py-2.5 px-3 pr-16 w-full text-left rounded-md transition-all duration-200 border-l-2 border-transparent hover:bg-base-300/50"
+                    [class.sidebar-item-active]="
+                      session.id === chatStore.currentSession()?.id
                     "
-                    [title]="session.name"
+                    [class.sidebar-item-open-tab]="
+                      isSessionOpen(session.id) &&
+                      session.id !== chatStore.currentSession()?.id
+                    "
+                    [attr.aria-current]="
+                      session.id === chatStore.currentSession()?.id
+                        ? 'true'
+                        : null
+                    "
+                    (click)="chatStore.switchSession(session.id)"
                   >
-                    {{ getSessionDisplayName(session) }}
-                  </span>
-                  <!-- Session metadata row -->
-                  <span
-                    class="text-xs text-base-content/50 flex items-center gap-2 w-full"
+                    <!-- Session name -->
+                    <span
+                      class="font-medium text-sm truncate w-full leading-snug"
+                      [class.text-primary]="
+                        session.id === chatStore.currentSession()?.id ||
+                        isSessionOpen(session.id)
+                      "
+                      [title]="session.name"
+                    >
+                      {{ getSessionDisplayName(session) }}
+                    </span>
+                    <!-- Session metadata row -->
+                    <span
+                      class="text-xs text-base-content/50 flex items-center gap-2 w-full"
+                    >
+                      <span>{{
+                        formatRelativeDate(session.lastActivityAt)
+                      }}</span>
+                      @if (session.messageCount > 0) {
+                        <span class="text-base-content/40"
+                          >{{ session.messageCount }} msgs</span
+                        >
+                      }
+                    </span>
+                  </button>
+                  <!-- Action buttons (hover reveal) -->
+                  <div
+                    class="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                   >
-                    <span>{{
-                      formatRelativeDate(session.lastActivityAt)
-                    }}</span>
-                    @if (session.messageCount > 0) {
-                      <span class="text-base-content/40"
-                        >{{ session.messageCount }} msgs</span
-                      >
-                    }
-                  </span>
-                </button>
-                <!-- Delete button (hover reveal) -->
-                <button
-                  type="button"
-                  class="absolute right-1.5 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-square rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-base-content/40 hover:text-error hover:bg-error/10"
-                  title="Delete session"
-                  [attr.aria-label]="
-                    'Delete session: ' + getSessionDisplayName(session)
-                  "
-                  (click)="deleteSession($event, session)"
-                >
-                  <lucide-angular [img]="Trash2Icon" class="w-3.5 h-3.5" />
-                </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs btn-square rounded text-base-content/40 hover:text-primary hover:bg-primary/10"
+                      title="Rename session"
+                      [attr.aria-label]="
+                        'Rename session: ' + getSessionDisplayName(session)
+                      "
+                      (click)="startEditingSession($event, session)"
+                    >
+                      <lucide-angular [img]="PencilIcon" class="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs btn-square rounded text-base-content/40 hover:text-error hover:bg-error/10"
+                      title="Delete session"
+                      [attr.aria-label]="
+                        'Delete session: ' + getSessionDisplayName(session)
+                      "
+                      (click)="deleteSession($event, session)"
+                    >
+                      <lucide-angular [img]="Trash2Icon" class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                }
               </li>
             } @empty {
               <li
@@ -296,27 +329,35 @@
         </div>
       </aside>
 
+      <!-- Sessions vertical tab (always visible — primary toggle for session panel) -->
+      <ptah-sidebar-tab
+        label="Sessions"
+        side="left"
+        [isOpen]="sidebarOpen()"
+        [size]="isElectron ? 'default' : 'sm'"
+        (toggled)="toggleSidebar()"
+      />
+
       <!-- Main Content -->
       <div class="flex-1 flex flex-col min-w-0">
         <!-- Header -->
         <div
           class="navbar bg-base-100 border-b border-base-300 min-h-[40px] px-2 gap-2"
         >
-          <!-- Sidebar toggle (gold accent) -->
-          <button
-            class="btn btn-gold btn-xs gap-1"
-            aria-label="Toggle sidebar"
-            title="Sessions"
-            (click)="toggleSidebar()"
-          >
-            <lucide-angular
-              [img]="sidebarOpen() ? PanelLeftCloseIcon : PanelLeftOpenIcon"
-              class="w-4 h-4"
-            />
-            <span class="icon-btn-label text-xs">Sessions</span>
-          </button>
+          <!-- Dashboard (gold accent, VS Code only — Electron has it in global navbar) -->
+          @if (!isElectron) {
+            <button
+              class="btn btn-gold btn-xs gap-1"
+              aria-label="Dashboard"
+              title="Session Analytics"
+              (click)="openDashboard()"
+            >
+              <lucide-angular [img]="BarChart3Icon" class="w-4 h-4" />
+              <span class="icon-btn-label text-xs">Dashboard</span>
+            </button>
+          }
 
-          <!-- Tab bar (relocated from below) -->
+          <!-- Tab bar -->
           <div class="flex-1 min-w-0">
             <ptah-tab-bar />
           </div>
@@ -440,17 +481,6 @@
               <!-- Theme toggle -->
               <ptah-theme-toggle />
 
-              <!-- Dashboard -->
-              <button
-                class="btn btn-ghost btn-xs gap-1"
-                aria-label="Dashboard"
-                title="Session Analytics"
-                (click)="openDashboard()"
-              >
-                <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
-                <span class="icon-btn-label text-xs">Dashboard</span>
-              </button>
-
               <button
                 class="btn btn-ghost btn-xs gap-1"
                 aria-label="Settings"
@@ -484,6 +514,7 @@
         side="right"
         [isOpen]="agentMonitorStore.panelOpen()"
         [badgeType]="agentBadgeType()"
+        [size]="isElectron ? 'default' : 'sm'"
         (toggled)="agentMonitorStore.togglePanel()"
       />
     </div>

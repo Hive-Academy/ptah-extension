@@ -68,8 +68,12 @@ interface PtahCliRegistryLike {
       projectGuidance?: string;
       workingDirectory?: string;
       resumeSessionId?: string;
+      parentSessionId?: string;
     },
-  ): Promise<{ handle: SdkHandle; agentName: string } | SpawnAgentFailure>;
+  ): Promise<
+    | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
+    | SpawnAgentFailure
+  >;
 }
 
 /**
@@ -142,6 +146,7 @@ export function buildAgentNamespace(
             projectGuidance,
             workingDirectory,
             resumeSessionId: request.resumeSessionId,
+            parentSessionId: activeSessionId,
           },
         );
         if ('status' in result) {
@@ -151,16 +156,25 @@ export function buildAgentNamespace(
           );
         }
 
-        return agentProcessManager.spawnFromSdkHandle(result.handle, {
-          task: request.task,
-          cli: 'ptah-cli',
-          workingDirectory,
-          taskFolder: request.taskFolder,
-          parentSessionId: activeSessionId,
-          ptahCliName: result.agentName,
-          ptahCliId: request.ptahCliId,
-          timeout: request.timeout,
-        });
+        const spawnResult = await agentProcessManager.spawnFromSdkHandle(
+          result.handle,
+          {
+            task: request.task,
+            cli: 'ptah-cli',
+            workingDirectory,
+            taskFolder: request.taskFolder,
+            parentSessionId: activeSessionId,
+            ptahCliName: result.agentName,
+            ptahCliId: request.ptahCliId,
+            timeout: request.timeout,
+            resumeSessionId: request.resumeSessionId,
+          },
+        );
+
+        // TASK_2025_255: Wire agentId so CLI permission requests route to agent monitor panel
+        result.setAgentId(spawnResult.agentId);
+
+        return spawnResult;
       }
 
       // Check if the requested CLI type is disabled by the user

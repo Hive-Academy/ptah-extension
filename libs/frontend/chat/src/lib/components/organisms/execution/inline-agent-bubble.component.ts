@@ -78,7 +78,7 @@ import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
         'border-dashed': isBackground() || isResumed(),
         'ring-info/20': isBackground() && !isInterrupted() && !isResumed(),
         'bg-success/5': isResumed(),
-        'ring-success/30': isResumed()
+        'ring-success/30': isResumed(),
       }"
       [style.border-left-color]="
         isInterrupted() ? null : isResumed() ? null : agentColor()
@@ -108,128 +108,162 @@ import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
           </span>
         </div>
 
-        <!-- Agent type + description -->
+        <!-- Agent type + description (inline only when expanded) -->
         <div class="flex-1 min-w-0 flex items-center gap-2">
           <span class="text-[11px] font-semibold text-base-content/80">
             {{ node().agentType }}
           </span>
-          @if (node().agentDescription) {
-          <span
-            class="text-[10px] text-base-content/50 truncate"
-            [title]="node().agentDescription"
-          >
-            {{ node().agentDescription }}
-          </span>
+          @if (!isCollapsed() && node().agentDescription) {
+            <span
+              class="text-[10px] text-base-content/50 truncate"
+              [title]="node().agentDescription"
+            >
+              {{ node().agentDescription }}
+            </span>
           }
         </div>
 
         <!-- Streaming/Interrupted/Background badge or stats -->
         @if (isBackground() && isStreaming()) {
-        <span class="badge badge-xs badge-info gap-1 flex-shrink-0">
-          <lucide-angular [img]="LoaderIcon" class="w-2.5 h-2.5 animate-spin" />
-          <span class="text-[9px]">Background</span>
-        </span>
+          <span class="badge badge-xs badge-info gap-1 flex-shrink-0">
+            <lucide-angular
+              [img]="LoaderIcon"
+              class="w-2.5 h-2.5 animate-spin"
+            />
+            <span class="text-[9px]">Background</span>
+          </span>
         } @else if (isBackground() && !isInterrupted() && !isStreaming()) {
-        <span
-          class="badge badge-xs badge-outline badge-info gap-1 flex-shrink-0"
-        >
-          <span class="text-[9px]">Background</span>
-        </span>
+          <span
+            class="badge badge-xs badge-outline badge-info gap-1 flex-shrink-0"
+          >
+            <span class="text-[9px]">Background</span>
+          </span>
         } @else if (isStreaming()) {
-        <span class="badge badge-xs badge-info gap-1 flex-shrink-0">
-          <lucide-angular [img]="LoaderIcon" class="w-2.5 h-2.5 animate-spin" />
-          <span class="text-[9px]">Streaming</span>
-        </span>
+          <span class="badge badge-xs badge-info gap-1 flex-shrink-0">
+            <lucide-angular
+              [img]="LoaderIcon"
+              class="w-2.5 h-2.5 animate-spin"
+            />
+            <span class="text-[9px]">Streaming</span>
+          </span>
         } @else if (isResumed()) {
-        <!-- TASK_2025_211: Resumed indicator — agent was interrupted then continued -->
-        <span
-          class="badge badge-sm badge-success gap-1 flex-shrink-0"
-          title="This agent was resumed in a new session."
-        >
-          <span class="text-[10px] font-medium">Resumed</span>
-        </span>
+          <!-- TASK_2025_211: Resumed indicator — agent was interrupted then continued -->
+          <span
+            class="badge badge-sm badge-success gap-1 flex-shrink-0"
+            title="This agent was resumed in a new session."
+          >
+            <span class="text-[10px] font-medium">Resumed</span>
+          </span>
         } @else if (isInterrupted()) {
-        <!-- TASK_2025_109: Enhanced interrupted indicator with auto-resume hint -->
-        <span
-          class="badge badge-sm badge-warning gap-1 flex-shrink-0"
-          title="This agent was interrupted. It will auto-resume when you send a message."
-        >
-          <lucide-angular [img]="StopCircleIcon" class="w-3 h-3" />
-          <span class="text-[10px] font-medium">Interrupted</span>
-        </span>
+          <!-- TASK_2025_109: Enhanced interrupted indicator with auto-resume hint -->
+          <span
+            class="badge badge-sm badge-warning gap-1 flex-shrink-0"
+            title="This agent was interrupted. It will auto-resume when you send a message."
+          >
+            <lucide-angular [img]="StopCircleIcon" class="w-3 h-3" />
+            <span class="text-[10px] font-medium">Interrupted</span>
+          </span>
         } @else if (hasChildren()) {
-        <span class="badge badge-xs badge-ghost text-[9px] flex-shrink-0">
-          {{ childStats() }}
-        </span>
+          <span class="badge badge-xs badge-ghost text-[9px] flex-shrink-0">
+            {{ childStats() }}
+          </span>
         }
       </button>
 
+      <!-- Card description (visible when collapsed for card-like appearance) -->
+      @if (isCollapsed() && node().agentDescription) {
+        <button
+          type="button"
+          class="w-full text-left px-3 pb-2 cursor-pointer hover:bg-base-300/30 transition-colors"
+          aria-label="Expand agent"
+          (click)="toggleCollapse()"
+        >
+          <p
+            class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2"
+          >
+            {{ node().agentDescription }}
+          </p>
+        </button>
+      }
+
       <!-- Collapsible Content: INTERLEAVED TIMELINE (text + tools in order) -->
       @if (!isCollapsed()) {
-      <div
-        #contentContainer
-        class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
-      >
-        <!-- TASK_2025_102 FIX: summaryContent is now rendered as a text child node
+        <div
+          #contentContainer
+          class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
+        >
+          <!-- TASK_2025_102 FIX: summaryContent is now rendered as a text child node
              instead of a separate block. This ensures agent text is properly
              interleaved with tool calls in chronological order. -->
-        @if (hasChildren()) {
-        <!-- Render all children in chronological order (text + tools interleaved) -->
-        @for (child of node().children; track child.id) {
-        <ptah-execution-node
-          [node]="child"
-          [isStreaming]="isStreaming()"
-          [getPermissionForTool]="getPermissionForTool()"
-          (permissionResponded)="permissionResponded.emit($event)"
-        />
-        } @if (isStreaming()) {
-        <div
-          class="flex items-center gap-1 text-[10px] text-base-content/40 mt-2"
-        >
-          <lucide-angular [img]="LoaderIcon" class="w-3 h-3 animate-spin" />
-          <span>Agent working</span>
-          <ptah-typing-cursor colorClass="text-base-content/40" />
+          @if (hasChildren()) {
+            <!-- Render all children in chronological order (text + tools interleaved) -->
+            @for (child of node().children; track child.id) {
+              <ptah-execution-node
+                [node]="child"
+                [isStreaming]="isStreaming()"
+                [getPermissionForTool]="getPermissionForTool()"
+                (permissionResponded)="permissionResponded.emit($event)"
+              />
+            }
+            @if (isStreaming()) {
+              <div
+                class="flex items-center gap-1 text-[10px] text-base-content/40 mt-2"
+              >
+                <lucide-angular
+                  [img]="LoaderIcon"
+                  class="w-3 h-3 animate-spin"
+                />
+                <span>Agent working</span>
+                <ptah-typing-cursor colorClass="text-base-content/40" />
+              </div>
+            }
+          } @else {
+            <!-- No children yet -->
+            @if (isStreaming()) {
+              <div
+                class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
+              >
+                <lucide-angular
+                  [img]="LoaderIcon"
+                  class="w-3 h-3 animate-spin"
+                />
+                <span>Starting agent execution</span>
+                <ptah-typing-cursor colorClass="text-base-content/40" />
+              </div>
+            } @else {
+              <div class="text-[10px] text-base-content/40 py-2">
+                No execution data
+              </div>
+            }
+          }
         </div>
-        } } @else {
-        <!-- No children yet -->
-        @if (isStreaming()) {
-        <div
-          class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
-        >
-          <lucide-angular [img]="LoaderIcon" class="w-3 h-3 animate-spin" />
-          <span>Starting agent execution</span>
-          <ptah-typing-cursor colorClass="text-base-content/40" />
-        </div>
-        } @else {
-        <div class="text-[10px] text-base-content/40 py-2">
-          No execution data
-        </div>
-        } }
-      </div>
       }
 
       <!-- Agent Stats Footer (shown when stats available and not streaming) -->
       @if (hasStats() && !isStreaming()) {
-      <div
-        class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content/70 rounded-b-lg"
-        [style.background-color]="footerBgColor()"
-      >
-        @if (modelDisplayName()) {
-        <span
-          class="badge badge-xs text-[9px] font-medium flex-shrink-0 border-white/20 text-white/80"
-          [style.background-color]="agentColor()"
-          [title]="rawModelId() || ''"
+        <div
+          class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content/70 rounded-b-lg"
+          [style.background-color]="footerBgColor()"
         >
-          {{ modelDisplayName() }}
-        </span>
-        } @if (agentTokenUsage()) {
-        <ptah-token-badge [tokens]="agentTokenUsage()!" />
-        } @if (agentCost() > 0) {
-        <ptah-cost-badge [cost]="agentCost()" />
-        } @if (agentDuration()) {
-        <ptah-duration-badge [durationMs]="agentDuration()!" />
-        }
-      </div>
+          @if (modelDisplayName()) {
+            <span
+              class="badge badge-xs text-[9px] font-medium flex-shrink-0 border-white/20 text-white/80"
+              [style.background-color]="agentColor()"
+              [title]="rawModelId() || ''"
+            >
+              {{ modelDisplayName() }}
+            </span>
+          }
+          @if (agentTokenUsage()) {
+            <ptah-token-badge [tokens]="agentTokenUsage()!" />
+          }
+          @if (agentCost() > 0) {
+            <ptah-cost-badge [cost]="agentCost()" />
+          }
+          @if (agentDuration()) {
+            <ptah-duration-badge [durationMs]="agentDuration()!" />
+          }
+        </div>
       }
     </div>
   `,
@@ -322,7 +356,7 @@ export class InlineAgentBubbleComponent {
       () => {
         this.setupMutationObserver();
       },
-      { injector: this.injector }
+      { injector: this.injector },
     );
 
     // Re-setup observer when component expands (container re-enters DOM)
@@ -339,7 +373,7 @@ export class InlineAgentBubbleComponent {
             this.setupMutationObserver();
             this.observerSetupPending = false;
           },
-          { injector: this.injector }
+          { injector: this.injector },
         );
       }
     });
@@ -450,7 +484,7 @@ export class InlineAgentBubbleComponent {
       return this.agentMonitorStore.isAgentResumed(
         node.id,
         node.toolCallId ?? undefined,
-        description
+        description,
       );
     }
     return false;
@@ -563,7 +597,7 @@ export class InlineAgentBubbleComponent {
    * Used for both display name formatting and tooltip.
    */
   readonly rawModelId = computed(
-    () => this.node().agentModel || this.node().model || null
+    () => this.node().agentModel || this.node().model || null,
   );
 
   /**

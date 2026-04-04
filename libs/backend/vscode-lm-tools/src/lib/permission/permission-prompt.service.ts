@@ -62,7 +62,7 @@ export class PermissionPromptService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
-    private readonly workspaceState: IStateStorage
+    private readonly workspaceState: IStateStorage,
   ) {}
 
   /**
@@ -74,7 +74,7 @@ export class PermissionPromptService {
    */
   checkRules(
     toolName: string,
-    toolInput: Record<string, unknown>
+    toolInput: Record<string, unknown>,
   ): 'allow' | 'deny' | 'ask' {
     const rules = this.getRules();
 
@@ -115,7 +115,7 @@ export class PermissionPromptService {
     // Build human-readable description
     const description = this.buildDescription(
       params.tool_name,
-      params.input as Record<string, unknown>
+      params.input as Record<string, unknown>,
     );
 
     const request: PermissionRequest = {
@@ -150,12 +150,31 @@ export class PermissionPromptService {
   setPendingResolver(
     id: string,
     resolve: (response: PermissionResponse) => void,
-    request: PermissionRequest
+    request: PermissionRequest,
   ): void {
     // Store resolver (no timeout -- blocks until user responds or cleanup)
     this.pendingRequests.set(id, { resolve, request });
 
     this.logger.debug('Pending resolver stored (blocks indefinitely)', { id });
+  }
+
+  /**
+   * Remove a pending resolver without resolving it.
+   *
+   * Used for cleanup when a request times out or is cancelled
+   * before the user responds. Prevents stale entries from
+   * accumulating in the pending map.
+   *
+   * @param id - Request ID to remove
+   * @returns true if the entry was found and removed, false if not found
+   */
+  removePendingResolver(id: string): boolean {
+    const existed = this.pendingRequests.has(id);
+    if (existed) {
+      this.pendingRequests.delete(id);
+      this.logger.debug('Pending resolver removed (cleanup)', { id });
+    }
+    return existed;
   }
 
   /**
@@ -300,7 +319,7 @@ export class PermissionPromptService {
       toolName: request.toolName,
       action: 'allow',
       description: `Auto-generated from request at ${new Date(
-        request.timestamp
+        request.timestamp,
       ).toISOString()}`,
     });
   }
@@ -314,7 +333,7 @@ export class PermissionPromptService {
    */
   private buildDescription(
     toolName: string,
-    toolInput: Record<string, unknown>
+    toolInput: Record<string, unknown>,
   ): string {
     // Extract key parameters for common tools
     switch (toolName) {

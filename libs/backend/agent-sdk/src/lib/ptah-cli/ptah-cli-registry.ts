@@ -489,7 +489,10 @@ export class PtahCliRegistry {
        *  will be scoped to this session for cleanup purposes. */
       parentSessionId?: string;
     },
-  ): Promise<{ handle: SdkHandle; agentName: string } | SpawnAgentFailure> {
+  ): Promise<
+    | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
+    | SpawnAgentFailure
+  > {
     // Find config
     const configs = this.configPersistence.loadConfigs();
     const agentConfig = configs.find((c) => c.id === id);
@@ -535,6 +538,13 @@ export class PtahCliRegistry {
       };
     }
 
+    // TASK_2025_255: Create mutable holder for agentId.
+    // The agentId is not available until after spawnFromSdkHandle() returns,
+    // but the permission callback (canUseTool) is created before that.
+    // The resolver closure captures this holder; the caller populates it
+    // via setAgentId() after spawn completes.
+    const agentIdHolder: { value?: string } = {};
+
     // Build isolated AuthEnv
     const authEnv = this.buildAuthEnv(agentConfig, provider, apiKey);
     seedStaticModelPricing(agentConfig.providerId);
@@ -569,6 +579,10 @@ export class PtahCliRegistry {
       {
         cwd,
         resumeSessionId: options?.resumeSessionId ?? null,
+        isPremium: assembly.isPremium,
+        pluginCount: assembly.plugins?.length ?? 0,
+        mcpEnabled: Object.keys(assembly.mcpServers).length > 0,
+        hasSystemPrompt: !!assembly.systemPromptContent,
       },
     );
 
@@ -607,6 +621,7 @@ export class PtahCliRegistry {
           options?.resumeSessionId ??
             options?.parentSessionId ??
             `ptah-cli:${id}`,
+          () => agentIdHolder.value,
         ),
         settingSources: ['user', 'project', 'local'] as const,
         includePartialMessages: true,
@@ -672,7 +687,16 @@ export class PtahCliRegistry {
       `[PtahCliRegistry] Spawned headless agent "${agentConfig.name}" (${id}) with model ${providerModel} (SDK model: ${model})`,
     );
 
-    return { handle, agentName: agentConfig.name };
+    return {
+      handle,
+      agentName: agentConfig.name,
+      /** Call this AFTER spawnFromSdkHandle() returns with the agentId.
+       *  Populates the lazy resolver used by SdkPermissionHandler to route
+       *  CLI agent permissions to the agent monitor panel. */
+      setAgentId: (agentId: string) => {
+        agentIdHolder.value = agentId;
+      },
+    };
   }
 
   /**
@@ -707,7 +731,10 @@ export class PtahCliRegistry {
    * For other modes ('ask', 'auto-edit'), we keep `default` and provide
    * the canUseTool callback so the user sees permission prompts.
    */
-  private resolvePermissionOptions(sessionId?: string): {
+  private resolvePermissionOptions(
+    sessionId?: string,
+    cliAgentResolver?: () => string | undefined,
+  ): {
     permissionMode: string;
     canUseTool?: ReturnType<SdkPermissionHandler['createCallback']>;
     allowDangerouslySkipPermissions?: boolean;
@@ -737,10 +764,14 @@ export class PtahCliRegistry {
 
     this.logger.info(
       `[PtahCliRegistry] Permission mode for subagent: ${sdkMode} (level: ${level})`,
+      { sessionId, hasCanUseTool: true },
     );
     return {
       permissionMode: sdkMode,
-      canUseTool: this.permissionHandler.createCallback(sessionId),
+      canUseTool: this.permissionHandler.createCallback(
+        sessionId,
+        cliAgentResolver,
+      ),
     };
   }
 

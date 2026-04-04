@@ -42,6 +42,12 @@ export class StreamingHandlerService {
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
 
+  /**
+   * Tracks session IDs that have already been warned about missing target tab
+   * to avoid repeated console.warn spam during streaming rebuilds.
+   */
+  private readonly warnedNoTargetSessions = new Set<string>();
+
   // Child services
   private readonly deduplication = inject(EventDeduplicationService);
   private readonly batchedUpdate = inject(BatchedUpdateService);
@@ -71,6 +77,7 @@ export class StreamingHandlerService {
     this.deduplication.cleanupSession(sessionId);
     this.pendingTextClear.clear();
     this.pendingThinkingClear.clear();
+    this.warnedNoTargetSessions.delete(sessionId);
   }
 
   /**
@@ -142,10 +149,13 @@ export class StreamingHandlerService {
         }
 
         if (!targetTab) {
-          console.warn(
-            '[StreamingHandlerService] No target tab for event',
-            event.sessionId,
-          );
+          if (!this.warnedNoTargetSessions.has(event.sessionId)) {
+            this.warnedNoTargetSessions.add(event.sessionId);
+            console.warn(
+              '[StreamingHandlerService] No target tab for event',
+              event.sessionId,
+            );
+          }
           return null;
         }
       }
