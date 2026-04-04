@@ -65,12 +65,49 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="px-3 py-4">
-      <div class="mb-4">
-        <h2 class="text-base font-semibold mb-2">Select Agents to Generate</h2>
-        <p class="text-xs text-base-content/60">
-          Based on your project analysis, we've scored each agent's relevance.
-          Highly recommended agents (score >= 80) are auto-selected.
-        </p>
+      <!-- Tab bar -->
+      <div class="flex items-center gap-0 border-b border-base-300/30 mb-4">
+        <button
+          class="px-4 py-2 text-xs font-medium transition-colors relative"
+          [class.text-primary]="activeTab() === 'project'"
+          [class.text-base-content/50]="activeTab() !== 'project'"
+          (click)="activeTab.set('project')"
+        >
+          <lucide-angular
+            [img]="UsersIcon"
+            class="h-3.5 w-3.5 inline-block mr-1 -mt-0.5"
+          />
+          Project Agents
+          @if (activeTab() === 'project') {
+            <div
+              class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t"
+            ></div>
+          }
+        </button>
+        <button
+          class="px-4 py-2 text-xs font-medium transition-colors relative"
+          [class.text-primary]="activeTab() === 'community'"
+          [class.text-base-content/50]="activeTab() !== 'community'"
+          (click)="onSwitchToCommunityTab()"
+        >
+          <lucide-angular
+            [img]="GlobeIcon"
+            class="h-3.5 w-3.5 inline-block mr-1 -mt-0.5"
+          />
+          Community Packs
+          @if (installedCommunityCount() > 0) {
+            <span
+              class="ml-1 text-[9px] px-1 py-0.5 rounded bg-success/20 text-success"
+            >
+              {{ installedCommunityCount() }}
+            </span>
+          }
+          @if (activeTab() === 'community') {
+            <div
+              class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t"
+            ></div>
+          }
+        </button>
       </div>
 
       @if (errorMessage(); as error) {
@@ -80,355 +117,336 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
         </div>
       }
 
-      <!-- Selection controls and count -->
-      <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
-        <div class="flex flex-wrap gap-1.5">
-          <button
-            class="btn btn-outline btn-xs"
-            (click)="onSelectAllRecommended()"
-            [disabled]="allRecommendedSelected()"
-          >
-            <lucide-angular [img]="CheckIcon" class="h-3 w-3" />
-            Select Recommended
-          </button>
-          <button
-            class="btn btn-ghost btn-xs"
-            (click)="onDeselectAll()"
-            [disabled]="noneSelected()"
-          >
-            Deselect All
-          </button>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <div class="badge badge-primary badge-sm gap-1">
-            <lucide-angular [img]="CheckIcon" class="h-3 w-3" />
-            {{ selectedCount() }} selected
-          </div>
-          <div class="badge badge-outline badge-sm">
-            {{ recommendedCount() }} recommended
-          </div>
-        </div>
-      </div>
-
-      @if (sortedRecommendations().length === 0) {
-        <!-- No recommendations available -->
-        <div
-          class="border border-base-300/30 rounded-md bg-base-200/20 p-6 text-center"
-        >
-          <lucide-angular
-            [img]="UsersIcon"
-            class="h-8 w-8 text-base-content/30 mb-2 mx-auto"
-          />
-          <h3 class="text-sm font-semibold mb-1">No Agent Recommendations</h3>
-          <p class="text-xs text-base-content/50">
-            Unable to load agent recommendations. Please go back and restart the
-            analysis.
-          </p>
-        </div>
-      } @else {
-        <!-- Agent categories -->
-        @for (category of categoryOrder; track category) {
-          @if (getAgentsByCategory(category).length > 0) {
-            <div class="mb-5">
-              <!-- Category header matching settings section style -->
-              <div class="flex items-center gap-2 mb-2.5">
-                <lucide-angular
-                  [img]="getCategoryLucideIcon(category)"
-                  class="h-3.5 w-3.5 text-base-content/50"
-                />
-                <span
-                  class="text-[10px] font-medium text-base-content/50 uppercase tracking-wide"
-                >
-                  {{ getCategoryLabel(category) }}
-                </span>
-                <span class="text-[10px] text-base-content/30">
-                  {{ getAgentsByCategory(category).length }}
-                </span>
-              </div>
-
-              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                @for (
-                  agent of getAgentsByCategory(category);
-                  track agent.agentId
-                ) {
-                  <div
-                    class="border rounded-md p-2.5 cursor-pointer transition-all"
-                    [class.border-primary/50]="isSelected(agent.agentId)"
-                    [class.bg-primary/5]="isSelected(agent.agentId)"
-                    [class.border-base-300/40]="!isSelected(agent.agentId)"
-                    [class.bg-base-200/20]="!isSelected(agent.agentId)"
-                    [class.hover:border-primary/30]="!isSelected(agent.agentId)"
-                    (click)="onToggleAgent(agent.agentId)"
-                    (keydown.enter)="onToggleAgent(agent.agentId)"
-                    (keydown.space)="
-                      onToggleAgent(agent.agentId); $event.preventDefault()
-                    "
-                    tabindex="0"
-                    role="checkbox"
-                    [attr.aria-checked]="isSelected(agent.agentId)"
-                    [attr.aria-label]="
-                      'Select ' +
-                      agent.agentName +
-                      ' agent, relevance score ' +
-                      agent.relevanceScore +
-                      ' percent'
-                    "
-                  >
-                    <!-- Header: checkbox + name -->
-                    <div class="flex items-center gap-2 mb-1.5">
-                      <input
-                        type="checkbox"
-                        class="checkbox checkbox-primary checkbox-xs shrink-0"
-                        [checked]="isSelected(agent.agentId)"
-                        (click)="$event.stopPropagation()"
-                        (change)="onToggleAgent(agent.agentId)"
-                        [attr.aria-label]="'Select ' + agent.agentName"
-                      />
-                      <span class="text-xs font-medium flex-1 truncate">{{
-                        agent.agentName
-                      }}</span>
-                      <!-- Score pill -->
-                      <span
-                        class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0"
-                        [class.bg-success/20]="agent.relevanceScore >= 80"
-                        [class.text-success]="agent.relevanceScore >= 80"
-                        [class.bg-warning/20]="
-                          agent.relevanceScore >= 60 &&
-                          agent.relevanceScore < 80
-                        "
-                        [class.text-warning]="
-                          agent.relevanceScore >= 60 &&
-                          agent.relevanceScore < 80
-                        "
-                        [class.bg-error/20]="agent.relevanceScore < 60"
-                        [class.text-error]="agent.relevanceScore < 60"
-                      >
-                        {{ agent.relevanceScore }}%
-                      </span>
-                    </div>
-
-                    <!-- Description -->
-                    <p
-                      class="text-[11px] text-base-content/60 leading-relaxed mb-2 pl-6"
-                    >
-                      {{ agent.description }}
-                    </p>
-
-                    <!-- Matched criteria -->
-                    @if (agent.matchedCriteria?.length) {
-                      <div class="flex flex-wrap gap-1 pl-6">
-                        @for (
-                          criteria of agent.matchedCriteria;
-                          track criteria
-                        ) {
-                          <span
-                            class="text-[9px] px-1.5 py-0.5 rounded bg-base-300/30 text-base-content/40"
-                          >
-                            {{ criteria }}
-                          </span>
-                        }
-                      </div>
-                    }
-                  </div>
-                }
-              </div>
-            </div>
-          }
-        }
-
-        <!-- Community Agent Packs Section (TASK_2025_258) -->
-        @if (sortedRecommendations().length > 0) {
-          <div class="mt-6 pt-4 border-t border-base-300/30">
+      <!-- ═══ PROJECT AGENTS TAB ═══ -->
+      @if (activeTab() === 'project') {
+        <!-- Selection controls and count -->
+        <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+          <div class="flex flex-wrap gap-1.5">
             <button
-              class="flex items-center gap-2 mb-3 w-full text-left"
-              (click)="onToggleCommunitySection()"
+              class="btn btn-outline btn-xs"
+              (click)="onSelectAllRecommended()"
+              [disabled]="allRecommendedSelected()"
             >
-              <lucide-angular
-                [img]="GlobeIcon"
-                class="h-3.5 w-3.5 text-base-content/50"
-              />
-              <span
-                class="text-[10px] font-medium text-base-content/50 uppercase tracking-wide"
-              >
-                Community Agent Packs
-              </span>
-              <lucide-angular
-                [img]="communityExpanded() ? ChevronDownIcon : ChevronRightIcon"
-                class="h-3 w-3 text-base-content/30"
-              />
-              @if (installedCommunityCount() > 0) {
-                <span
-                  class="text-[9px] px-1.5 py-0.5 rounded bg-success/20 text-success ml-auto"
-                >
-                  {{ installedCommunityCount() }} installed
-                </span>
-              }
+              <lucide-angular [img]="CheckIcon" class="h-3 w-3" />
+              Select Recommended
             </button>
+            <button
+              class="btn btn-ghost btn-xs"
+              (click)="onDeselectAll()"
+              [disabled]="noneSelected()"
+            >
+              Deselect All
+            </button>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <div class="badge badge-primary badge-sm gap-1">
+              <lucide-angular [img]="CheckIcon" class="h-3 w-3" />
+              {{ selectedCount() }} selected
+            </div>
+            <div class="badge badge-outline badge-sm">
+              {{ recommendedCount() }} recommended
+            </div>
+          </div>
+        </div>
 
-            @if (communityExpanded()) {
-              @if (communityPacksLoading()) {
-                <div class="flex items-center gap-2 py-4 justify-center">
+        @if (sortedRecommendations().length === 0) {
+          <!-- No recommendations available -->
+          <div
+            class="border border-base-300/30 rounded-md bg-base-200/20 p-6 text-center"
+          >
+            <lucide-angular
+              [img]="UsersIcon"
+              class="h-8 w-8 text-base-content/30 mb-2 mx-auto"
+            />
+            <h3 class="text-sm font-semibold mb-1">No Agent Recommendations</h3>
+            <p class="text-xs text-base-content/50">
+              Unable to load agent recommendations. Please go back and restart
+              the analysis.
+            </p>
+          </div>
+        } @else {
+          <!-- Agent categories -->
+          @for (category of categoryOrder; track category) {
+            @if (getAgentsByCategory(category).length > 0) {
+              <div class="mb-5">
+                <!-- Category header matching settings section style -->
+                <div class="flex items-center gap-2 mb-2.5">
+                  <lucide-angular
+                    [img]="getCategoryLucideIcon(category)"
+                    class="h-3.5 w-3.5 text-base-content/50"
+                  />
                   <span
-                    class="loading loading-spinner loading-sm text-base-content/40"
-                  ></span>
-                  <span class="text-xs text-base-content/40"
-                    >Loading community packs...</span
+                    class="text-[10px] font-medium text-base-content/50 uppercase tracking-wide"
                   >
+                    {{ getCategoryLabel(category) }}
+                  </span>
+                  <span class="text-[10px] text-base-content/30">
+                    {{ getAgentsByCategory(category).length }}
+                  </span>
                 </div>
-              } @else if (communityPacks().length === 0) {
+
                 <div
-                  class="border border-base-300/30 rounded-md bg-base-200/20 p-4 text-center"
+                  class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"
                 >
-                  <p class="text-xs text-base-content/50">
-                    No community packs available.
-                  </p>
-                </div>
-              } @else {
-                @for (pack of communityPacks(); track pack.source) {
-                  <div
-                    class="border border-base-300/40 bg-base-200/20 rounded-md mb-2"
-                  >
-                    <button
-                      class="flex items-center gap-2 p-2.5 w-full text-left"
-                      (click)="onTogglePackExpand(pack.source)"
+                  @for (
+                    agent of getAgentsByCategory(category);
+                    track agent.agentId
+                  ) {
+                    <div
+                      class="border rounded-md p-2.5 cursor-pointer transition-all"
+                      [class.border-primary/50]="isSelected(agent.agentId)"
+                      [class.bg-primary/5]="isSelected(agent.agentId)"
+                      [class.border-base-300/40]="!isSelected(agent.agentId)"
+                      [class.bg-base-200/20]="!isSelected(agent.agentId)"
+                      [class.hover:border-primary/30]="
+                        !isSelected(agent.agentId)
+                      "
+                      (click)="onToggleAgent(agent.agentId)"
+                      (keydown.enter)="onToggleAgent(agent.agentId)"
+                      (keydown.space)="
+                        onToggleAgent(agent.agentId); $event.preventDefault()
+                      "
+                      tabindex="0"
+                      role="checkbox"
+                      [attr.aria-checked]="isSelected(agent.agentId)"
+                      [attr.aria-label]="
+                        'Select ' +
+                        agent.agentName +
+                        ' agent, relevance score ' +
+                        agent.relevanceScore +
+                        ' percent'
+                      "
                     >
-                      <lucide-angular
-                        [img]="PackageIcon"
-                        class="h-3.5 w-3.5 text-base-content/50 shrink-0"
-                      />
-                      <div class="flex-1 min-w-0">
-                        <div class="text-xs font-medium truncate">
-                          {{ pack.name }}
-                        </div>
-                        <div class="text-[10px] text-base-content/50">
-                          {{ pack.description }}
-                        </div>
-                      </div>
-                      <span class="text-[10px] text-base-content/40 shrink-0">
-                        {{ pack.agents.length }} agents
-                      </span>
-                      <lucide-angular
-                        [img]="
-                          isPackExpanded(pack.source)
-                            ? ChevronDownIcon
-                            : ChevronRightIcon
-                        "
-                        class="h-3 w-3 text-base-content/30 shrink-0"
-                      />
-                    </button>
-
-                    @if (isPackExpanded(pack.source)) {
-                      <div class="px-2.5 pb-2.5">
-                        <div class="flex justify-end mb-2">
-                          <button
-                            class="btn btn-outline btn-xs"
-                            [disabled]="allPackAgentsInstalled(pack)"
-                            (click)="
-                              onInstallAllAgents(pack); $event.stopPropagation()
-                            "
-                          >
-                            @if (isPackInstalling(pack)) {
-                              <span
-                                class="loading loading-spinner loading-xs"
-                              ></span>
-                            }
-                            {{
-                              allPackAgentsInstalled(pack)
-                                ? 'All Installed'
-                                : 'Install All'
-                            }}
-                          </button>
-                        </div>
-
-                        <div
-                          class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"
+                      <!-- Header: checkbox + name -->
+                      <div class="flex items-center gap-2 mb-1.5">
+                        <input
+                          type="checkbox"
+                          class="checkbox checkbox-primary checkbox-xs shrink-0"
+                          [checked]="isSelected(agent.agentId)"
+                          (click)="$event.stopPropagation()"
+                          (change)="onToggleAgent(agent.agentId)"
+                          [attr.aria-label]="'Select ' + agent.agentName"
+                        />
+                        <span class="text-xs font-medium flex-1 truncate">{{
+                          agent.agentName
+                        }}</span>
+                        <!-- Score pill -->
+                        <span
+                          class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0"
+                          [class.bg-success/20]="agent.relevanceScore >= 80"
+                          [class.text-success]="agent.relevanceScore >= 80"
+                          [class.bg-warning/20]="
+                            agent.relevanceScore >= 60 &&
+                            agent.relevanceScore < 80
+                          "
+                          [class.text-warning]="
+                            agent.relevanceScore >= 60 &&
+                            agent.relevanceScore < 80
+                          "
+                          [class.bg-error/20]="agent.relevanceScore < 60"
+                          [class.text-error]="agent.relevanceScore < 60"
                         >
-                          @for (agent of pack.agents; track agent.file) {
-                            <div
-                              class="border rounded-md p-2.5"
-                              [class.border-success/30]="
-                                getAgentStatus(pack.source, agent.file) ===
-                                'installed'
-                              "
-                              [class.bg-success/5]="
-                                getAgentStatus(pack.source, agent.file) ===
-                                'installed'
-                              "
-                              [class.border-base-300/40]="
-                                getAgentStatus(pack.source, agent.file) !==
-                                'installed'
-                              "
-                              [class.bg-base-200/20]="
-                                getAgentStatus(pack.source, agent.file) !==
-                                'installed'
-                              "
+                          {{ agent.relevanceScore }}%
+                        </span>
+                      </div>
+
+                      <!-- Description -->
+                      <p
+                        class="text-[11px] text-base-content/60 leading-relaxed mb-2 pl-6"
+                      >
+                        {{ agent.description }}
+                      </p>
+
+                      <!-- Matched criteria -->
+                      @if (agent.matchedCriteria?.length) {
+                        <div class="flex flex-wrap gap-1 pl-6">
+                          @for (
+                            criteria of agent.matchedCriteria;
+                            track criteria
+                          ) {
+                            <span
+                              class="text-[9px] px-1.5 py-0.5 rounded bg-base-300/30 text-base-content/40"
                             >
-                              <div class="flex items-center gap-2 mb-1.5">
-                                <span
-                                  class="text-xs font-medium flex-1 truncate"
-                                  >{{ agent.name }}</span
-                                >
-                                @if (
-                                  getAgentStatus(pack.source, agent.file) ===
-                                  'installed'
-                                ) {
-                                  <span
-                                    class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-success/20 text-success shrink-0"
-                                  >
-                                    Installed
-                                  </span>
-                                } @else if (
-                                  getAgentStatus(pack.source, agent.file) ===
-                                  'installing'
-                                ) {
-                                  <span
-                                    class="loading loading-spinner loading-xs text-primary shrink-0"
-                                  ></span>
-                                } @else if (
-                                  getAgentStatus(pack.source, agent.file) ===
-                                  'error'
-                                ) {
-                                  <button
-                                    class="btn btn-ghost btn-xs text-error"
-                                    (click)="
-                                      onInstallAgent(pack.source, agent.file);
-                                      $event.stopPropagation()
-                                    "
-                                  >
-                                    Retry
-                                  </button>
-                                } @else {
-                                  <button
-                                    class="btn btn-ghost btn-xs"
-                                    (click)="
-                                      onInstallAgent(pack.source, agent.file);
-                                      $event.stopPropagation()
-                                    "
-                                  >
-                                    Install
-                                  </button>
-                                }
-                              </div>
-                              <p
-                                class="text-[11px] text-base-content/60 leading-relaxed mb-1.5"
-                              >
-                                {{ agent.description }}
-                              </p>
-                              <span
-                                class="text-[9px] px-1.5 py-0.5 rounded bg-base-300/30 text-base-content/40"
-                              >
-                                {{ agent.category }}
-                              </span>
-                            </div>
+                              {{ criteria }}
+                            </span>
                           }
                         </div>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+          }
+        }
+        <!-- /project agents tab -->
+
+        <!-- ═══ COMMUNITY PACKS TAB ═══ -->
+      } @else {
+        @if (communityPacksLoading()) {
+          <div class="flex items-center gap-2 py-8 justify-center">
+            <span
+              class="loading loading-spinner loading-sm text-base-content/40"
+            ></span>
+            <span class="text-xs text-base-content/40"
+              >Loading community packs...</span
+            >
+          </div>
+        } @else if (communityPacks().length === 0) {
+          <div
+            class="border border-base-300/30 rounded-md bg-base-200/20 p-6 text-center"
+          >
+            <lucide-angular
+              [img]="GlobeIcon"
+              class="h-8 w-8 text-base-content/30 mb-2 mx-auto"
+            />
+            <h3 class="text-sm font-semibold mb-1">No Community Packs</h3>
+            <p class="text-xs text-base-content/50">
+              No community agent packs are available at the moment.
+            </p>
+          </div>
+        } @else {
+          <p class="text-xs text-base-content/50 mb-3">
+            Browse and install pre-built agent packs from the community.
+          </p>
+          @for (pack of communityPacks(); track pack.source) {
+            <div
+              class="border border-base-300/40 bg-base-200/20 rounded-md mb-2"
+            >
+              <button
+                class="flex items-center gap-2 p-2.5 w-full text-left"
+                (click)="onTogglePackExpand(pack.source)"
+              >
+                <lucide-angular
+                  [img]="PackageIcon"
+                  class="h-3.5 w-3.5 text-base-content/50 shrink-0"
+                />
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs font-medium truncate">
+                    {{ pack.name }}
+                  </div>
+                  <div class="text-[10px] text-base-content/50">
+                    {{ pack.description }}
+                  </div>
+                </div>
+                <span class="text-[10px] text-base-content/40 shrink-0">
+                  {{ pack.agents.length }} agents
+                </span>
+                <lucide-angular
+                  [img]="
+                    isPackExpanded(pack.source)
+                      ? ChevronDownIcon
+                      : ChevronRightIcon
+                  "
+                  class="h-3 w-3 text-base-content/30 shrink-0"
+                />
+              </button>
+
+              @if (isPackExpanded(pack.source)) {
+                <div class="px-2.5 pb-2.5">
+                  <div class="flex justify-end mb-2">
+                    <button
+                      class="btn btn-outline btn-xs"
+                      [disabled]="allPackAgentsInstalled(pack)"
+                      (click)="
+                        onInstallAllAgents(pack); $event.stopPropagation()
+                      "
+                    >
+                      @if (isPackInstalling(pack)) {
+                        <span class="loading loading-spinner loading-xs"></span>
+                      }
+                      {{
+                        allPackAgentsInstalled(pack)
+                          ? 'All Installed'
+                          : 'Install All'
+                      }}
+                    </button>
+                  </div>
+
+                  <div
+                    class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"
+                  >
+                    @for (agent of pack.agents; track agent.file) {
+                      <div
+                        class="border rounded-md p-2.5"
+                        [class.border-success/30]="
+                          getAgentStatus(pack.source, agent.file) ===
+                          'installed'
+                        "
+                        [class.bg-success/5]="
+                          getAgentStatus(pack.source, agent.file) ===
+                          'installed'
+                        "
+                        [class.border-base-300/40]="
+                          getAgentStatus(pack.source, agent.file) !==
+                          'installed'
+                        "
+                        [class.bg-base-200/20]="
+                          getAgentStatus(pack.source, agent.file) !==
+                          'installed'
+                        "
+                      >
+                        <div class="flex items-center gap-2 mb-1.5">
+                          <span class="text-xs font-medium flex-1 truncate">{{
+                            agent.name
+                          }}</span>
+                          @if (
+                            getAgentStatus(pack.source, agent.file) ===
+                            'installed'
+                          ) {
+                            <span
+                              class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-success/20 text-success shrink-0"
+                            >
+                              Installed
+                            </span>
+                          } @else if (
+                            getAgentStatus(pack.source, agent.file) ===
+                            'installing'
+                          ) {
+                            <span
+                              class="loading loading-spinner loading-xs text-primary shrink-0"
+                            ></span>
+                          } @else if (
+                            getAgentStatus(pack.source, agent.file) === 'error'
+                          ) {
+                            <button
+                              class="btn btn-ghost btn-xs text-error"
+                              (click)="
+                                onInstallAgent(pack.source, agent.file);
+                                $event.stopPropagation()
+                              "
+                            >
+                              Retry
+                            </button>
+                          } @else {
+                            <button
+                              class="btn btn-ghost btn-xs"
+                              (click)="
+                                onInstallAgent(pack.source, agent.file);
+                                $event.stopPropagation()
+                              "
+                            >
+                              Install
+                            </button>
+                          }
+                        </div>
+                        <p
+                          class="text-[11px] text-base-content/60 leading-relaxed mb-1.5"
+                        >
+                          {{ agent.description }}
+                        </p>
+                        <span
+                          class="text-[9px] px-1.5 py-0.5 rounded bg-base-300/30 text-base-content/40"
+                        >
+                          {{ agent.category }}
+                        </span>
                       </div>
                     }
                   </div>
-                }
+                </div>
               }
-            }
-          </div>
+            </div>
+          }
         }
       }
 
@@ -494,6 +512,7 @@ export class AgentSelectionComponent {
   // === Community Agent Pack State (TASK_2025_258) ===
 
   /** Local signal controlling community section expand/collapse. */
+  protected readonly activeTab = signal<'project' | 'community'>('project');
   protected readonly communityExpanded = signal(false);
 
   /** Delegated signals from state service. */
@@ -720,6 +739,13 @@ export class AgentSelectionComponent {
    * Toggle community section visibility.
    * Lazy-loads community packs on first expansion.
    */
+  protected onSwitchToCommunityTab(): void {
+    this.activeTab.set('community');
+    if (this.communityPacks().length === 0 && !this.communityPacksLoading()) {
+      this.loadCommunityPacks();
+    }
+  }
+
   protected onToggleCommunitySection(): void {
     this.communityExpanded.update((v) => !v);
     if (this.communityExpanded() && this.communityPacks().length === 0) {
