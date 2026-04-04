@@ -153,6 +153,10 @@ import type {
   EnhancedPromptsSetEnabledResponse,
   EnhancedPromptsRegenerateParams,
   EnhancedPromptsRegenerateResponse,
+  WizardListAgentPacksParams,
+  WizardListAgentPacksResult,
+  WizardInstallPackAgentsParams,
+  WizardInstallPackAgentsResult,
 } from './rpc/rpc-setup.types';
 
 import type {
@@ -409,6 +413,15 @@ export interface RpcMethodRegistry {
   'wizard:load-analysis': {
     params: { filename: string };
     result: MultiPhaseAnalysisResponse;
+  };
+  // Agent Pack Browser Methods (TASK_2025_258)
+  'wizard:list-agent-packs': {
+    params: WizardListAgentPacksParams;
+    result: WizardListAgentPacksResult;
+  };
+  'wizard:install-pack-agents': {
+    params: WizardInstallPackAgentsParams;
+    result: WizardInstallPackAgentsResult;
   };
 
   // ---- License Methods ----
@@ -917,6 +930,9 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // Wizard Analysis History Methods (v2 Multi-Phase)
   'wizard:list-analyses',
   'wizard:load-analysis',
+  // Agent Pack Browser Methods (TASK_2025_258)
+  'wizard:list-agent-packs',
+  'wizard:install-pack-agents',
 
   // License Methods
   'license:getStatus',

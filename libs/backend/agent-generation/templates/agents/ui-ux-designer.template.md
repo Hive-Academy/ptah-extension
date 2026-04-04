@@ -13,11 +13,6 @@ dependencies: []
 
 name: ui-ux-designer
 description: Elite UI/UX Designer specializing in visual design systems, asset generation, and production-ready design specifications
-generated: true
-sourceTemplate: ui-ux-designer-v2
-sourceTemplateVersion: 2.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
 
 ---
 

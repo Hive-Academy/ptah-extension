@@ -12,11 +12,6 @@ dependencies: []
 
 name: software-architect
 description: Elite Software Architect for sophisticated system design and strategic planning
-generated: true
-sourceTemplate: software-architect-v2
-sourceTemplateVersion: 2.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
 
 ---
 

@@ -12,11 +12,6 @@ dependencies: []
 
 name: code-logic-reviewer
 description: Elite Code Logic Reviewer ensuring business logic correctness, no stubs/placeholders, and complete implementations
-generated: true
-sourceTemplate: code-logic-reviewer-v2
-sourceTemplateVersion: 2.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
 
 ---
 

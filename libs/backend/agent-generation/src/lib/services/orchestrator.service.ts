@@ -644,7 +644,7 @@ export class AgentGenerationOrchestratorService {
   ): Promise<
     Result<
       Array<{
-        template: any;
+        template: AgentTemplate;
         relevanceScore: number;
         matchedCriteria: string[];
       }>,
@@ -808,11 +808,13 @@ export class AgentGenerationOrchestratorService {
           // Strip any template output frontmatter from the generated content
           // and replace with properly constructed frontmatter from actual data.
           // This ensures correctness regardless of template processing or LLM behavior.
-          const rawContent = contentResult.value!;
+          const { content: rawContent, description: llmDescription } =
+            contentResult.value!;
           const finalContent = this.buildAgentFileContent(
             rawContent,
             template,
             context,
+            llmDescription,
           );
 
           // Construct GeneratedAgent object with absolute workspace path.
@@ -879,6 +881,7 @@ export class AgentGenerationOrchestratorService {
     rawContent: string,
     template: AgentTemplate,
     context: AgentProjectContext,
+    llmDescription?: string,
   ): string {
     // Strip leading template output frontmatter if present.
     // The template content starts with \n---\n...---\n (the second YAML block
@@ -889,19 +892,87 @@ export class AgentGenerationOrchestratorService {
       '',
     );
 
-    // Build frontmatter with only the fields Claude recognizes
-    const frameworkName =
-      context.frameworks[0]?.toString() || context.projectType.toString();
+    // Triple fallback chain for description:
+    // 1. LLM-generated description (project-specific, best quality)
+    // 2. Template's static description from its second frontmatter block
+    // 3. Humanized formula as last resort
+    const description =
+      (llmDescription && llmDescription.trim()) ||
+      this.extractTemplateDescription(template) ||
+      `${this.humanizeName(template.name)} for ${context.projectType} projects`;
 
+    // Cap at 120 characters
+    const cappedDescription =
+      description.length > 120
+        ? description.substring(0, 117) + '...'
+        : description;
+
+    // Sanitize description for YAML safety (escape quotes, strip newlines)
+    const safeDescription = cappedDescription
+      .replace(/\n/g, ' ')
+      .replace(/"/g, '\\"');
+
+    // Build frontmatter with only the fields Claude recognizes: name and description
     const frontmatter = [
       '---',
       `name: ${template.name}`,
-      `description: ${template.name} focused on ${context.projectType} with ${frameworkName}`,
+      `description: "${safeDescription}"`,
       '---',
       '',
     ].join('\n');
 
     return frontmatter + strippedContent.trimStart();
+  }
+
+  /**
+   * Convert kebab-case template name to Title Case.
+   * e.g., "backend-developer" -> "Backend Developer"
+   */
+  private humanizeName(name: string): string {
+    return name
+      .split('-')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+
+  /**
+   * Extract the description from a template's content second frontmatter block.
+   *
+   * Templates have a dual-frontmatter format:
+   *   First block: template metadata (parsed by gray-matter, not in content)
+   *   Second block: output frontmatter (included in template.content)
+   *
+   * This method reads the second frontmatter block from the template content
+   * and extracts the description field value.
+   *
+   * @returns The description string, or undefined if not found
+   */
+  private extractTemplateDescription(
+    template: AgentTemplate,
+  ): string | undefined {
+    // Match the second frontmatter block at the start of template.content
+    const frontmatterMatch = template.content.match(
+      /^\s*---\s*\n([\s\S]*?)\n---/,
+    );
+    if (!frontmatterMatch) {
+      return undefined;
+    }
+
+    // Extract the description field from the frontmatter YAML
+    const descriptionMatch = frontmatterMatch[1].match(
+      /^description:\s*(.+)$/m,
+    );
+    if (!descriptionMatch) {
+      return undefined;
+    }
+
+    const desc = descriptionMatch[1].trim();
+    // Skip descriptions that contain template variables -- they are not useful as fallbacks
+    if (desc.includes('{{')) {
+      return undefined;
+    }
+
+    return desc;
   }
 
   /**

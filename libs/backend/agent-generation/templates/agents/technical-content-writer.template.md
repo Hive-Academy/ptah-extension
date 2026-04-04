@@ -12,11 +12,6 @@ dependencies: []
 
 name: technical-content-writer
 description: Technical Content Writer for marketing pages, blogs, documentation, and video scripts
-generated: true
-sourceTemplate: technical-content-writer-v1
-sourceTemplateVersion: 1.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
 
 ---
 

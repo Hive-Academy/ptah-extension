@@ -623,6 +623,33 @@ export class MultiPhaseAnalysisService {
 
     const result = await processor.process(wrappedStream);
 
+    // Emit synthetic tool_result for any tool still in-flight (e.g., StructuredOutput).
+    // The SDK's outputFormat uses an internal StructuredOutput tool that never receives
+    // a tool_result event — the result arrives via message.structured_output instead.
+    // Without this, the ExecutionTreeBuilder leaves the tool stuck in "Executing..." state.
+    if (convCtx.activeToolCallId) {
+      const syntheticToolResult: FlatStreamEventUnion = {
+        id: `${phaseId}-tool-result-${convCtx.counter++}`,
+        eventType: 'tool_result',
+        timestamp: Date.now(),
+        sessionId: convCtx.sessionId,
+        messageId: convCtx.messageId,
+        toolCallId: convCtx.activeToolCallId,
+        output: capturedResultText ?? '(completed)',
+        isError: false,
+      } as ToolResultEvent;
+
+      this.broadcastStreamMessage({
+        kind: 'tool_result',
+        content: capturedResultText ?? '(completed)',
+        toolCallId: convCtx.activeToolCallId,
+        timestamp: Date.now(),
+        flatEvent: syntheticToolResult,
+      });
+
+      convCtx.activeToolCallId = null;
+    }
+
     // TASK_2025_229: Emit message_complete after processing finishes
     this.broadcastStreamMessage({
       kind: 'status',
@@ -809,15 +836,20 @@ export class MultiPhaseAnalysisService {
           delta: event.content,
         } as ToolDeltaEvent;
 
-      case 'tool_result':
+      case 'tool_result': {
+        const toolResultId =
+          event.toolCallId ?? ctx.activeToolCallId ?? `${phaseId}-tool-unk`;
+        // Clear active tool so the post-stream synthetic tool_result
+        // check doesn't double-fire for tools that already received a real result.
+        ctx.activeToolCallId = null;
         return {
           ...baseFields,
           eventType: 'tool_result',
-          toolCallId:
-            event.toolCallId ?? ctx.activeToolCallId ?? `${phaseId}-tool-unk`,
+          toolCallId: toolResultId,
           output: event.content,
           isError: event.isError ?? false,
         } as ToolResultEvent;
+      }
 
       case 'error':
       case 'status':
