@@ -88,6 +88,13 @@ export interface CopilotAuthState {
 export interface ICopilotAuthService {
   /** Initiate GitHub OAuth login and exchange for Copilot bearer token */
   login(): Promise<boolean>;
+  /**
+   * Attempt to restore authentication silently from persisted tokens.
+   * Tries file-based token reading and VS Code auth (if available) but
+   * does NOT trigger the interactive device code flow.
+   * Used during startup to avoid blocking the UI with auth dialogs.
+   */
+  tryRestoreAuth(): Promise<boolean>;
   /** Check whether a valid (non-expired) Copilot bearer token is available */
   isAuthenticated(): Promise<boolean>;
   /** Get the current auth state, or null if not authenticated */
