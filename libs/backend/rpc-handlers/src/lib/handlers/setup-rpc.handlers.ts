@@ -723,6 +723,18 @@ export class SetupRpcHandlers {
         agentFileCount: params.agentFiles.length,
       });
 
+      // Validate source URL against curated pack list to prevent arbitrary downloads
+      const packService = this.getAgentPackService();
+      const curatedPacks = await packService.listCuratedPacks();
+      const isAllowedSource = curatedPacks.some(
+        (pack) => pack.source === params.source,
+      );
+      if (!isAllowedSource) {
+        throw new Error(
+          `Untrusted agent pack source: "${params.source}". Only curated sources are allowed.`,
+        );
+      }
+
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
         throw new Error('No workspace folder open.');
@@ -731,7 +743,7 @@ export class SetupRpcHandlers {
       const path = await import('path');
       const targetDir = path.join(workspaceRoot, '.claude', 'agents');
 
-      return this.getAgentPackService().downloadAgents(
+      return packService.downloadAgents(
         params.source,
         params.agentFiles,
         targetDir,

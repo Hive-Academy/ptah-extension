@@ -75,8 +75,8 @@ export interface IContentGenerationService {
    *   return;
    * }
    *
-   * const content = result.value;
-   * console.log(`Generated ${content.length} characters of content`);
+   * const { content, description } = result.value;
+   * console.log(`Generated ${content.length} characters, description: ${description}`);
    * ```
    */
   generateContent(

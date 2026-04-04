@@ -55,5 +55,6 @@ export type {
 export { AgentPackDownloadService } from './agent-pack-download.service';
 export type {
   AgentPackInfo,
+  AgentPackEntry,
   AgentPackDownloadResult,
 } from './agent-pack-download.service';

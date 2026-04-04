@@ -37,7 +37,7 @@ interface AgentPackManifest {
 }
 
 /** A single agent entry within a pack manifest */
-interface AgentPackEntry {
+export interface AgentPackEntry {
   file: string;
   name: string;
   description: string;
@@ -525,7 +525,7 @@ export class AgentPackDownloadService {
   private buildCacheKey(manifestUrl: string, agentFiles: string[]): string {
     const filesHash = crypto
       .createHash('sha256')
-      .update(agentFiles.sort().join('|'))
+      .update([...agentFiles].sort().join('|'))
       .digest('hex')
       .substring(0, 12);
     return `${manifestUrl}::${filesHash}`;

@@ -73,9 +73,6 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
 
   // CLI agent configurations
   'ptahCliAgents',
-
-  // Agent pack sources (TASK_2025_257)
-  'agentPacks.sources',
 ]);
 
 /**
@@ -143,7 +140,4 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
 
   // CLI agent configurations
   ptahCliAgents: [],
-
-  // Agent pack sources (TASK_2025_257)
-  'agentPacks.sources': [],
 };

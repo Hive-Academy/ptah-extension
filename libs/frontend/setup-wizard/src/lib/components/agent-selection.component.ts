@@ -511,9 +511,8 @@ export class AgentSelectionComponent {
 
   // === Community Agent Pack State (TASK_2025_258) ===
 
-  /** Local signal controlling community section expand/collapse. */
+  /** Local signal controlling the active agent source tab. */
   protected readonly activeTab = signal<'project' | 'community'>('project');
-  protected readonly communityExpanded = signal(false);
 
   /** Delegated signals from state service. */
   protected readonly communityPacks = this.wizardState.communityPacks;
@@ -742,13 +741,6 @@ export class AgentSelectionComponent {
   protected onSwitchToCommunityTab(): void {
     this.activeTab.set('community');
     if (this.communityPacks().length === 0 && !this.communityPacksLoading()) {
-      this.loadCommunityPacks();
-    }
-  }
-
-  protected onToggleCommunitySection(): void {
-    this.communityExpanded.update((v) => !v);
-    if (this.communityExpanded() && this.communityPacks().length === 0) {
       this.loadCommunityPacks();
     }
   }
