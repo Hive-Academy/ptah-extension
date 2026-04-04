@@ -80,7 +80,7 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
       const session = await this.getVscodeGitHubSession(false);
       if (session) {
         this.logger.info(
-          `[VscodeCopilotAuth] Silent restore via VS Code GitHub session (account: ${session.account.label})`,
+          '[VscodeCopilotAuth] Silent restore via VS Code GitHub session',
         );
         const exchanged = await this.exchangeToken(session.accessToken);
         if (exchanged) return true;

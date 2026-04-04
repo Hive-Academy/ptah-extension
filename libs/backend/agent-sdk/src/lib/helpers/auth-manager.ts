@@ -158,6 +158,11 @@ export class AuthManager {
         this.logEnvSummary();
         return { configured: true, details: authDetails };
       }
+      // When provider was explicitly selected (not auto), surface its error directly
+      if (authMethod === 'openrouter' && providerResult.errorMessage) {
+        this.logEnvSummary();
+        return providerResult;
+      }
     }
 
     // Priority 2: OAuth token (from Claude Max/Pro subscription)
@@ -234,12 +239,11 @@ export class AuthManager {
     const details: string[] = [];
 
     if (oauthToken?.trim()) {
-      const tokenPrefix = oauthToken.substring(0, 15);
       const tokenLength = oauthToken.length;
       const isOAuthFormat = oauthToken.startsWith('sk-ant-oat01-');
 
       this.logger.info(
-        `[AuthManager] Found OAuth token in SecretStorage (length: ${tokenLength}, prefix: ${tokenPrefix}..., OAuth format: ${isOAuthFormat})`,
+        `[AuthManager] Found OAuth token in SecretStorage (length: ${tokenLength}, OAuth format: ${isOAuthFormat})`,
       );
 
       if (!isOAuthFormat) {
@@ -330,7 +334,6 @@ export class AuthManager {
       const authEnvVar = getProviderAuthEnvVar(providerId);
 
       const keyLength = providerKey.length;
-      const keyPrefix = providerKey.substring(0, 10);
 
       // Validate key format if provider has expected prefix
       const hasExpectedPrefix = provider?.keyPrefix
@@ -338,7 +341,7 @@ export class AuthManager {
         : true;
 
       this.logger.info(
-        `[AuthManager] Found provider key in SecretStorage (provider: ${providerName}, length: ${keyLength}, prefix: ${keyPrefix}..., valid format: ${hasExpectedPrefix})`,
+        `[AuthManager] Found provider key in SecretStorage (provider: ${providerName}, length: ${keyLength}, valid format: ${hasExpectedPrefix})`,
       );
 
       if (!hasExpectedPrefix && provider?.keyPrefix) {

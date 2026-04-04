@@ -190,8 +190,8 @@ export class CopilotAuthService implements ICopilotAuthService {
       );
       return await this.tryFileBasedAuth(SILENT_RESTORE_TIMEOUT_MS);
     } catch (error) {
-      this.logger.warn(
-        `[CopilotAuth] Silent auth restore failed: ${error instanceof Error ? error.message : String(error)}`,
+      this.logger.info(
+        `[CopilotAuth] Silent auth restore unavailable: ${error instanceof Error ? error.message : String(error)}`,
       );
       return false;
     }
