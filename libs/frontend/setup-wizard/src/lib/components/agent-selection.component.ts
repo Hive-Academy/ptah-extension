@@ -19,6 +19,9 @@ import {
   Check,
   Users,
   ChevronLeft,
+  ChevronDown,
+  ChevronRight,
+  Globe,
   Zap,
   LayoutDashboard,
   Code,
@@ -27,6 +30,7 @@ import {
   Palette,
   Package,
 } from 'lucide-angular';
+import type { AgentPackInfoDto } from '@ptah-extension/shared';
 
 /**
  * AgentSelectionComponent - Agent selection with relevance scores and recommendations
@@ -231,6 +235,188 @@ import {
             </div>
           }
         }
+
+        <!-- Community Agent Packs Section (TASK_2025_258) -->
+        @if (sortedRecommendations().length > 0) {
+          <div class="mt-6 pt-4 border-t border-base-300/30">
+            <button
+              class="flex items-center gap-2 mb-3 w-full text-left"
+              (click)="onToggleCommunitySection()"
+            >
+              <lucide-angular
+                [img]="GlobeIcon"
+                class="h-3.5 w-3.5 text-base-content/50"
+              />
+              <span
+                class="text-[10px] font-medium text-base-content/50 uppercase tracking-wide"
+              >
+                Community Agent Packs
+              </span>
+              <lucide-angular
+                [img]="communityExpanded() ? ChevronDownIcon : ChevronRightIcon"
+                class="h-3 w-3 text-base-content/30"
+              />
+              @if (installedCommunityCount() > 0) {
+                <span
+                  class="text-[9px] px-1.5 py-0.5 rounded bg-success/20 text-success ml-auto"
+                >
+                  {{ installedCommunityCount() }} installed
+                </span>
+              }
+            </button>
+
+            @if (communityExpanded()) {
+              @if (communityPacksLoading()) {
+                <div class="flex items-center gap-2 py-4 justify-center">
+                  <span
+                    class="loading loading-spinner loading-sm text-base-content/40"
+                  ></span>
+                  <span class="text-xs text-base-content/40"
+                    >Loading community packs...</span
+                  >
+                </div>
+              } @else if (communityPacks().length === 0) {
+                <div
+                  class="border border-base-300/30 rounded-md bg-base-200/20 p-4 text-center"
+                >
+                  <p class="text-xs text-base-content/50">
+                    No community packs available.
+                  </p>
+                </div>
+              } @else {
+                @for (pack of communityPacks(); track pack.source) {
+                  <div
+                    class="border border-base-300/40 bg-base-200/20 rounded-md mb-2"
+                  >
+                    <button
+                      class="flex items-center gap-2 p-2.5 w-full text-left"
+                      (click)="onTogglePackExpand(pack.source)"
+                    >
+                      <lucide-angular
+                        [img]="PackageIcon"
+                        class="h-3.5 w-3.5 text-base-content/50 shrink-0"
+                      />
+                      <div class="flex-1 min-w-0">
+                        <div class="text-xs font-medium truncate">
+                          {{ pack.name }}
+                        </div>
+                        <div class="text-[10px] text-base-content/50">
+                          {{ pack.description }}
+                        </div>
+                      </div>
+                      <span class="text-[10px] text-base-content/40 shrink-0">
+                        {{ pack.agents.length }} agents
+                      </span>
+                      <lucide-angular
+                        [img]="
+                          isPackExpanded(pack.source)
+                            ? ChevronDownIcon
+                            : ChevronRightIcon
+                        "
+                        class="h-3 w-3 text-base-content/30 shrink-0"
+                      />
+                    </button>
+
+                    @if (isPackExpanded(pack.source)) {
+                      <div class="px-2.5 pb-2.5">
+                        <div class="flex justify-end mb-2">
+                          <button
+                            class="btn btn-outline btn-xs"
+                            [disabled]="allPackAgentsInstalled(pack)"
+                            (click)="
+                              onInstallAllAgents(pack); $event.stopPropagation()
+                            "
+                          >
+                            @if (isPackInstalling(pack)) {
+                              <span
+                                class="loading loading-spinner loading-xs"
+                              ></span>
+                            }
+                            {{
+                              allPackAgentsInstalled(pack)
+                                ? 'All Installed'
+                                : 'Install All'
+                            }}
+                          </button>
+                        </div>
+
+                        <div
+                          class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"
+                        >
+                          @for (agent of pack.agents; track agent.file) {
+                            <div
+                              class="border rounded-md p-2.5"
+                              [class.border-success/30]="
+                                getAgentStatus(pack.source, agent.file) ===
+                                'installed'
+                              "
+                              [class.bg-success/5]="
+                                getAgentStatus(pack.source, agent.file) ===
+                                'installed'
+                              "
+                              [class.border-base-300/40]="
+                                getAgentStatus(pack.source, agent.file) !==
+                                'installed'
+                              "
+                              [class.bg-base-200/20]="
+                                getAgentStatus(pack.source, agent.file) !==
+                                'installed'
+                              "
+                            >
+                              <div class="flex items-center gap-2 mb-1.5">
+                                <span
+                                  class="text-xs font-medium flex-1 truncate"
+                                  >{{ agent.name }}</span
+                                >
+                                @if (
+                                  getAgentStatus(pack.source, agent.file) ===
+                                  'installed'
+                                ) {
+                                  <span
+                                    class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-success/20 text-success shrink-0"
+                                  >
+                                    Installed
+                                  </span>
+                                } @else if (
+                                  getAgentStatus(pack.source, agent.file) ===
+                                  'installing'
+                                ) {
+                                  <span
+                                    class="loading loading-spinner loading-xs text-primary shrink-0"
+                                  ></span>
+                                } @else {
+                                  <button
+                                    class="btn btn-ghost btn-xs"
+                                    (click)="
+                                      onInstallAgent(pack.source, agent.file);
+                                      $event.stopPropagation()
+                                    "
+                                  >
+                                    Install
+                                  </button>
+                                }
+                              </div>
+                              <p
+                                class="text-[11px] text-base-content/60 leading-relaxed mb-1.5"
+                              >
+                                {{ agent.description }}
+                              </p>
+                              <span
+                                class="text-[9px] px-1.5 py-0.5 rounded bg-base-300/30 text-base-content/40"
+                              >
+                                {{ agent.category }}
+                              </span>
+                            </div>
+                          }
+                        </div>
+                      </div>
+                    }
+                  </div>
+                }
+              }
+            }
+          </div>
+        }
       }
 
       <!-- Action buttons -->
@@ -288,6 +474,21 @@ export class AgentSelectionComponent {
   protected readonly SettingsIcon = Settings;
   protected readonly PaletteIcon = Palette;
   protected readonly PackageIcon = Package;
+  protected readonly GlobeIcon = Globe;
+  protected readonly ChevronDownIcon = ChevronDown;
+  protected readonly ChevronRightIcon = ChevronRight;
+
+  // === Community Agent Pack State (TASK_2025_258) ===
+
+  /** Local signal controlling community section expand/collapse. */
+  protected readonly communityExpanded = signal(false);
+
+  /** Delegated signals from state service. */
+  protected readonly communityPacks = this.wizardState.communityPacks;
+  protected readonly communityPacksLoading =
+    this.wizardState.communityPacksLoading;
+  protected readonly installedCommunityCount =
+    this.wizardState.installedCommunityAgentCount;
 
   /**
    * Known agent categories for filtering.
@@ -484,6 +685,122 @@ export class AgentSelectionComponent {
    */
   protected onBack(): void {
     this.wizardState.setCurrentStep('analysis');
+  }
+
+  // === Community Agent Pack Methods (TASK_2025_258) ===
+
+  /**
+   * Check if a pack is currently expanded.
+   */
+  protected isPackExpanded(source: string): boolean {
+    return this.wizardState.expandedPackSource() === source;
+  }
+
+  /**
+   * Toggle pack expansion.
+   */
+  protected onTogglePackExpand(source: string): void {
+    this.wizardState.toggleExpandedPack(source);
+  }
+
+  /**
+   * Toggle community section visibility.
+   * Lazy-loads community packs on first expansion.
+   */
+  protected onToggleCommunitySection(): void {
+    this.communityExpanded.update((v) => !v);
+    if (this.communityExpanded() && this.communityPacks().length === 0) {
+      this.loadCommunityPacks();
+    }
+  }
+
+  /**
+   * Fetch community agent packs from backend.
+   */
+  private async loadCommunityPacks(): Promise<void> {
+    this.wizardState.setCommunityPacksLoading(true);
+    try {
+      const packs = await this.wizardRpc.listAgentPacks();
+      this.wizardState.setCommunityPacks(packs);
+    } catch (error) {
+      console.error('Failed to load community packs:', error);
+    } finally {
+      this.wizardState.setCommunityPacksLoading(false);
+    }
+  }
+
+  /**
+   * Install a single agent from a community pack.
+   */
+  protected async onInstallAgent(source: string, file: string): Promise<void> {
+    const key = `${source}::${file}`;
+    this.wizardState.setAgentInstallStatus(key, 'installing');
+    try {
+      const result = await this.wizardRpc.installPackAgents(source, [file]);
+      this.wizardState.setAgentInstallStatus(
+        key,
+        result.success ? 'installed' : 'error',
+      );
+    } catch {
+      this.wizardState.setAgentInstallStatus(key, 'error');
+    }
+  }
+
+  /**
+   * Install all agents from a community pack.
+   */
+  protected async onInstallAllAgents(pack: AgentPackInfoDto): Promise<void> {
+    const files = pack.agents.map((a) => a.file);
+    for (const file of files) {
+      const key = `${pack.source}::${file}`;
+      if (this.getAgentStatus(pack.source, file) !== 'installed') {
+        this.wizardState.setAgentInstallStatus(key, 'installing');
+      }
+    }
+    try {
+      const result = await this.wizardRpc.installPackAgents(pack.source, files);
+      const status = result.success ? 'installed' : 'error';
+      for (const file of files) {
+        this.wizardState.setAgentInstallStatus(
+          `${pack.source}::${file}`,
+          status,
+        );
+      }
+    } catch {
+      for (const file of files) {
+        this.wizardState.setAgentInstallStatus(
+          `${pack.source}::${file}`,
+          'error',
+        );
+      }
+    }
+  }
+
+  /**
+   * Get the install status for a specific agent in a pack.
+   */
+  protected getAgentStatus(source: string, file: string): string {
+    return (
+      this.wizardState.agentInstallStatus()[`${source}::${file}`] ?? 'idle'
+    );
+  }
+
+  /**
+   * Check if all agents in a pack are installed.
+   */
+  protected allPackAgentsInstalled(pack: AgentPackInfoDto): boolean {
+    return pack.agents.every(
+      (a) => this.getAgentStatus(pack.source, a.file) === 'installed',
+    );
+  }
+
+  /**
+   * Check if any agent in a pack is currently installing.
+   */
+  protected isPackInstalling(pack: AgentPackInfoDto): boolean {
+    return pack.agents.some(
+      (a) => this.getAgentStatus(pack.source, a.file) === 'installing',
+    );
   }
 
   /**

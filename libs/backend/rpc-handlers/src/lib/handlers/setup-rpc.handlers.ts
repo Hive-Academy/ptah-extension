@@ -24,7 +24,10 @@ import {
   ConfigManager,
 } from '@ptah-extension/vscode-core';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  AgentPackDownloadService,
+} from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
   AgentRecommendation,
@@ -129,6 +132,8 @@ export class SetupRpcHandlers {
     this.registerCancelAnalysis();
     this.registerListAnalyses();
     this.registerLoadAnalysis();
+    this.registerListAgentPacks();
+    this.registerInstallPackAgents();
 
     this.logger.debug('Setup RPC handlers registered', {
       methods: [
@@ -139,6 +144,8 @@ export class SetupRpcHandlers {
         'wizard:cancel-analysis',
         'wizard:list-analyses',
         'wizard:load-analysis',
+        'wizard:list-agent-packs',
+        'wizard:install-pack-agents',
       ],
     });
   }
@@ -671,6 +678,57 @@ export class SetupRpcHandlers {
       );
 
       return storageService.loadMultiPhase(workspaceRoot, params.filename);
+    });
+  }
+
+  /**
+   * wizard:list-agent-packs - List available community agent packs
+   */
+  private registerListAgentPacks(): void {
+    this.rpcHandler.registerMethod<Record<string, never>, { packs: unknown[] }>(
+      'wizard:list-agent-packs',
+      async () => {
+        this.logger.debug('RPC: wizard:list-agent-packs called');
+
+        const service = new AgentPackDownloadService();
+        const packs = await service.listCuratedPacks();
+        return { packs };
+      },
+    );
+  }
+
+  /**
+   * wizard:install-pack-agents - Install agents from a community pack
+   */
+  private registerInstallPackAgents(): void {
+    this.rpcHandler.registerMethod<
+      { source: string; agentFiles: string[] },
+      {
+        success: boolean;
+        agentsDownloaded: number;
+        fromCache: boolean;
+        error?: string;
+      }
+    >('wizard:install-pack-agents', async (params) => {
+      this.logger.debug('RPC: wizard:install-pack-agents called', {
+        source: params.source,
+        agentFileCount: params.agentFiles.length,
+      });
+
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      if (!workspaceRoot) {
+        throw new Error('No workspace folder open.');
+      }
+
+      const path = await import('path');
+      const targetDir = path.join(workspaceRoot, '.claude', 'agents');
+
+      const service = new AgentPackDownloadService();
+      return service.downloadAgents(
+        params.source,
+        params.agentFiles,
+        targetDir,
+      );
     });
   }
 }
