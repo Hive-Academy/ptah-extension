@@ -114,7 +114,7 @@ export class ContentGenerationService implements IContentGenerationService {
     template: AgentTemplate,
     context: AgentProjectContext,
     sdkConfig?: ContentGenerationSdkConfig,
-  ): Promise<Result<string, Error>> {
+  ): Promise<Result<{ content: string; description: string }, Error>> {
     try {
       this.logger.info('Starting LLM-driven content generation', {
         templateId: template.id,
@@ -122,6 +122,7 @@ export class ContentGenerationService implements IContentGenerationService {
       });
 
       let content = template.content;
+      let description = '';
 
       // 1. Extract dynamic sections (LLM and VAR markers)
       const dynamicSections = this.extractDynamicSections(content);
@@ -134,13 +135,15 @@ export class ContentGenerationService implements IContentGenerationService {
 
       // 2. Generate content for dynamic sections via SDK
       if (dynamicSections.length > 0) {
-        content = await this.fillDynamicSections(
+        const fillResult = await this.fillDynamicSections(
           content,
           dynamicSections,
           context,
           template.name,
           sdkConfig,
         );
+        content = fillResult.content;
+        description = fillResult.description;
       }
 
       // 3. Final pass: substitute remaining {{VARS}} outside section markers
@@ -151,9 +154,10 @@ export class ContentGenerationService implements IContentGenerationService {
         templateId: template.id,
         contentLength: content.length,
         dynamicSectionsProcessed: dynamicSections.length,
+        hasLlmDescription: description.length > 0,
       });
 
-      return Result.ok(content);
+      return Result.ok({ content, description });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -209,7 +213,7 @@ export class ContentGenerationService implements IContentGenerationService {
     context: AgentProjectContext,
     templateName: string,
     sdkConfig?: ContentGenerationSdkConfig,
-  ): Promise<string> {
+  ): Promise<{ content: string; description: string }> {
     try {
       // Build the prompt describing all sections to fill
       const prompt = this.buildAllSectionsPrompt(
@@ -218,7 +222,7 @@ export class ContentGenerationService implements IContentGenerationService {
         templateName,
       );
 
-      // Build JSON Schema for structured output: { sections: { [sectionId]: string } }
+      // Build JSON Schema for structured output: { description: string, sections: { [sectionId]: string } }
       const sectionIds = sections.map((s) => s.id);
       const sectionProperties: Record<string, unknown> = {};
       for (const section of sections) {
@@ -234,13 +238,18 @@ export class ContentGenerationService implements IContentGenerationService {
       const outputSchema: Record<string, unknown> = {
         type: 'object',
         properties: {
+          description: {
+            type: 'string',
+            description:
+              'A concise 1-sentence agent description (max 120 chars) specific to this project. Example: "Backend developer specializing in NestJS microservices with PostgreSQL and Redis"',
+          },
           sections: {
             type: 'object',
             properties: sectionProperties,
             required: sectionIds,
           },
         },
-        required: ['sections'],
+        required: ['description', 'sections'],
       };
 
       // Resolve model from config
@@ -310,9 +319,15 @@ OUTPUT FORMAT:
         typeof structuredOutput === 'object' &&
         'sections' in structuredOutput
       ) {
-        const generatedSections = (
-          structuredOutput as { sections: Record<string, string> }
-        ).sections;
+        const typedOutput = structuredOutput as {
+          description?: string;
+          sections: Record<string, string>;
+        };
+        const generatedSections = typedOutput.sections;
+        const llmDescription =
+          typeof typedOutput.description === 'string'
+            ? typedOutput.description.trim()
+            : '';
 
         // Inject results into template content
         let processed = content;
@@ -333,10 +348,10 @@ OUTPUT FORMAT:
             );
           }
 
-          processed = processed.replace(section.fullMatch, replacement);
+          processed = processed.replace(section.fullMatch, () => replacement);
         }
 
-        return processed;
+        return { content: processed, description: llmDescription };
       }
 
       // Structured output not available — fall through to fallback
@@ -352,12 +367,13 @@ OUTPUT FORMAT:
       );
     }
 
-    // Fallback: strip section markers but keep original template content
+    // Fallback: strip section markers but keep original template content.
+    // Return empty description so the orchestrator uses its own fallback chain.
     let processed = content;
     for (const section of sections) {
       processed = processed.replace(section.fullMatch, section.content);
     }
-    return processed;
+    return { content: processed, description: '' };
   }
 
   /**
@@ -408,8 +424,9 @@ ${sectionDescriptions}
 4. Use the template blueprint as guidance for the KIND and STRUCTURE of content expected, but tailor all details to the analysis data.
 5. Reference concrete details from the analysis: specific framework names, file paths, architecture patterns, testing frameworks, and conventions.
 6. Keep each section under 500 words.
+7. Also generate a "description" field: a concise 1-sentence agent description (max 120 chars) specific to THIS project. Do NOT include the agent name. Focus on what this agent does for this specific project.
 
-Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... } }`;
+Return a JSON object: { "description": "<concise description>", "sections": { "<sectionId>": "<markdown content>", ... } }`;
   }
 
   /**

@@ -20,6 +20,7 @@ import {
   WizardMessage,
   WizardMessageType,
 } from '@ptah-extension/shared';
+import type { AgentPackInfoDto } from '@ptah-extension/shared';
 import type {
   EnhancedPromptsSummary,
   FlatStreamEventUnion,
@@ -387,6 +388,33 @@ export class SetupWizardStateService {
    */
   private readonly analysisLoadedFromHistorySignal = signal(false);
 
+  // === Community Agent Pack State (TASK_2025_258) ===
+
+  /**
+   * Private writable signal for available community agent packs.
+   * Populated from backend via wizard:list-agent-packs RPC.
+   */
+  private readonly communityPacksSignal = signal<AgentPackInfoDto[]>([]);
+
+  /**
+   * Private writable signal for community packs loading state.
+   */
+  private readonly communityPacksLoadingSignal = signal(false);
+
+  /**
+   * Private writable signal for per-agent install status.
+   * Key format: "{source}::{file}" for unique identification across packs.
+   */
+  private readonly agentInstallStatusSignal = signal<
+    Record<string, 'idle' | 'installing' | 'installed' | 'error'>
+  >({});
+
+  /**
+   * Private writable signal for currently expanded pack source.
+   * Only one pack can be expanded at a time.
+   */
+  private readonly expandedPackSourceSignal = signal<string | null>(null);
+
   /**
    * Public readonly signal for current wizard step
    */
@@ -529,6 +557,39 @@ export class SetupWizardStateService {
    */
   public readonly analysisLoadedFromHistory =
     this.analysisLoadedFromHistorySignal.asReadonly();
+
+  // === Community Agent Pack Public Signals (TASK_2025_258) ===
+
+  /**
+   * Public readonly signal for available community agent packs.
+   */
+  public readonly communityPacks = this.communityPacksSignal.asReadonly();
+
+  /**
+   * Public readonly signal for community packs loading state.
+   */
+  public readonly communityPacksLoading =
+    this.communityPacksLoadingSignal.asReadonly();
+
+  /**
+   * Public readonly signal for per-agent install status map.
+   */
+  public readonly agentInstallStatus =
+    this.agentInstallStatusSignal.asReadonly();
+
+  /**
+   * Public readonly signal for currently expanded pack source.
+   */
+  public readonly expandedPackSource =
+    this.expandedPackSourceSignal.asReadonly();
+
+  /**
+   * Computed signal for count of installed community agents.
+   */
+  public readonly installedCommunityAgentCount = computed(() => {
+    const statuses = this.agentInstallStatusSignal();
+    return Object.values(statuses).filter((s) => s === 'installed').length;
+  });
 
   // === Multi-Phase Analysis Public Signals (TASK_2025_154) ===
 
@@ -823,6 +884,61 @@ export class SetupWizardStateService {
     this.multiPhaseResultSignal.set(null);
     // Reset analysis history state (keep savedAnalyses list intact)
     this.analysisLoadedFromHistorySignal.set(false);
+    // Reset community agent pack state (TASK_2025_258)
+    this.communityPacksSignal.set([]);
+    this.communityPacksLoadingSignal.set(false);
+    this.agentInstallStatusSignal.set({});
+    this.expandedPackSourceSignal.set(null);
+  }
+
+  // === Community Agent Pack State Mutations (TASK_2025_258) ===
+
+  /**
+   * Set available community agent packs.
+   * Called after fetching pack manifests from backend.
+   *
+   * @param packs - Array of community agent pack info DTOs
+   */
+  public setCommunityPacks(packs: AgentPackInfoDto[]): void {
+    this.communityPacksSignal.set(packs);
+  }
+
+  /**
+   * Set community packs loading state.
+   *
+   * @param loading - Whether packs are currently being fetched
+   */
+  public setCommunityPacksLoading(loading: boolean): void {
+    this.communityPacksLoadingSignal.set(loading);
+  }
+
+  /**
+   * Set install status for a specific agent.
+   * Key format: "{source}::{file}" for unique identification across packs.
+   *
+   * @param key - Unique key identifying the agent ({source}::{file})
+   * @param status - Current install status
+   */
+  public setAgentInstallStatus(
+    key: string,
+    status: 'idle' | 'installing' | 'installed' | 'error',
+  ): void {
+    this.agentInstallStatusSignal.update((map) => ({
+      ...map,
+      [key]: status,
+    }));
+  }
+
+  /**
+   * Toggle expanded pack source.
+   * Collapses if the same source is already expanded, otherwise expands.
+   *
+   * @param source - Pack source URL to toggle
+   */
+  public toggleExpandedPack(source: string): void {
+    this.expandedPackSourceSignal.update((current) =>
+      current === source ? null : source,
+    );
   }
 
   // === Deep Analysis State Mutations (TASK_2025_111) ===

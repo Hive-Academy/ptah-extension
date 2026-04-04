@@ -75,15 +75,15 @@ export interface IContentGenerationService {
    *   return;
    * }
    *
-   * const content = result.value;
-   * console.log(`Generated ${content.length} characters of content`);
+   * const { content, description } = result.value;
+   * console.log(`Generated ${content.length} characters, description: ${description}`);
    * ```
    */
   generateContent(
     template: AgentTemplate,
     context: AgentProjectContext,
-    sdkConfig?: ContentGenerationSdkConfig
-  ): Promise<Result<string, Error>>;
+    sdkConfig?: ContentGenerationSdkConfig,
+  ): Promise<Result<{ content: string; description: string }, Error>>;
 
   /**
    * Generate LLM customizations for template sections.
@@ -115,6 +115,6 @@ export interface IContentGenerationService {
    */
   generateLlmSections(
     template: AgentTemplate,
-    context: AgentProjectContext
+    context: AgentProjectContext,
   ): Promise<Result<LlmCustomization[], Error>>;
 }

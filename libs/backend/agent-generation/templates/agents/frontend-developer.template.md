@@ -14,13 +14,7 @@ dependencies: []
 ---
 
 name: frontend-developer
-description: Frontend Developer focused on {{PROJECT_TYPE}} user interface design and best practices
-generated: true
-sourceTemplate: frontend-developer-v2
-sourceTemplateVersion: 2.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
-techStack: {{TECH_STACK}}
+description: Frontend developer specializing in modern UI frameworks, component design, and responsive interfaces
 
 ---
 

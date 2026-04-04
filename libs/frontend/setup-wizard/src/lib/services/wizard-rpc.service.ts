@@ -1,11 +1,13 @@
 import { Injectable, inject } from '@angular/core';
 import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
 import type {
+  AgentPackInfoDto,
   AgentRecommendation,
   EnhancedPromptsRunWizardResponse,
   EnhancedPromptsGetStatusResponse,
   MultiPhaseAnalysisResponse,
   SavedAnalysisMetadata,
+  WizardInstallPackAgentsResult,
 } from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
 
@@ -393,5 +395,57 @@ export class WizardRpcService {
     }
 
     throw new Error(result.error || 'Failed to load analysis');
+  }
+
+  // === Community Agent Pack Methods (TASK_2025_258) ===
+
+  /**
+   * List available community agent packs.
+   * Calls the wizard:list-agent-packs backend handler to fetch curated pack manifests.
+   *
+   * @returns Array of agent pack info DTOs, or empty array on failure
+   */
+  public async listAgentPacks(): Promise<AgentPackInfoDto[]> {
+    const result = await this.rpcService.call(
+      'wizard:list-agent-packs',
+      {},
+      { timeout: 30_000 },
+    );
+
+    if (result.isSuccess() && result.data) {
+      return (result.data as { packs: AgentPackInfoDto[] }).packs;
+    }
+
+    return [];
+  }
+
+  /**
+   * Install agents from a community pack into the workspace.
+   * Downloads specified agent files from the pack source to .claude/agents/.
+   *
+   * @param source - Manifest URL of the pack to install from
+   * @param agentFiles - Agent file names to install (must match manifest entries)
+   * @returns Install result with success status and download count
+   */
+  public async installPackAgents(
+    source: string,
+    agentFiles: string[],
+  ): Promise<WizardInstallPackAgentsResult> {
+    const result = await this.rpcService.call(
+      'wizard:install-pack-agents',
+      { source, agentFiles },
+      { timeout: 60_000 },
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data as WizardInstallPackAgentsResult;
+    }
+
+    return {
+      success: false,
+      agentsDownloaded: 0,
+      fromCache: false,
+      error: result.error || 'Failed to install agents',
+    };
   }
 }

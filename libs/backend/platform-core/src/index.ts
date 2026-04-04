@@ -50,3 +50,11 @@ export type {
   ContentDownloadResult,
   ContentProgressCallback,
 } from './content-download.service';
+
+// Agent Pack Download (TASK_2025_257)
+export { AgentPackDownloadService } from './agent-pack-download.service';
+export type {
+  AgentPackInfo,
+  AgentPackEntry,
+  AgentPackDownloadResult,
+} from './agent-pack-download.service';

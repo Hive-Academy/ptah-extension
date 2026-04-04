@@ -12,11 +12,6 @@ dependencies: []
 
 name: senior-tester
 description: Elite Senior Tester for comprehensive quality assurance and test mastery
-generated: true
-sourceTemplate: senior-tester-v2
-sourceTemplateVersion: 2.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
 
 ---
 
