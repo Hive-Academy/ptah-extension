@@ -86,7 +86,7 @@ export class AuthManager {
     @inject(SDK_TOKENS.SDK_CODEX_AUTH)
     private codexAuth: ICodexAuthService,
     @inject(SDK_TOKENS.SDK_CODEX_PROXY)
-    private codexProxy: ITranslationProxy
+    private codexProxy: ITranslationProxy,
   ) {}
 
   /**
@@ -103,7 +103,7 @@ export class AuthManager {
     // Concurrency guard: if a configuration is already in progress, await it
     if (this.configInProgress) {
       this.logger.debug(
-        '[AuthManager] configureAuthentication already in progress, awaiting existing call'
+        '[AuthManager] configureAuthentication already in progress, awaiting existing call',
       );
       return this.configInProgress;
     }
@@ -120,7 +120,7 @@ export class AuthManager {
    * Internal implementation of configureAuthentication (guarded by concurrency mutex above)
    */
   private async doConfigureAuthentication(
-    rawAuthMethod: string
+    rawAuthMethod: string,
   ): Promise<AuthResult> {
     // Normalize: treat unknown/legacy values (e.g. 'vscode-lm') as 'auto'
     const validMethods = new Set(['oauth', 'apiKey', 'openrouter', 'auto']);
@@ -128,7 +128,7 @@ export class AuthManager {
 
     if (rawAuthMethod !== authMethod) {
       this.logger.warn(
-        `[AuthManager] Unknown auth method '${rawAuthMethod}', falling back to 'auto'`
+        `[AuthManager] Unknown auth method '${rawAuthMethod}', falling back to 'auto'`,
       );
     }
 
@@ -153,10 +153,15 @@ export class AuthManager {
         authDetails.push(...providerResult.details);
         // Skip OAuth and API key when provider is configured
         this.logger.info(
-          `[AuthManager] Authentication configured: ${authDetails.join(', ')}`
+          `[AuthManager] Authentication configured: ${authDetails.join(', ')}`,
         );
         this.logEnvSummary();
         return { configured: true, details: authDetails };
+      }
+      // When provider was explicitly selected (not auto), surface its error directly
+      if (authMethod === 'openrouter' && providerResult.errorMessage) {
+        this.logEnvSummary();
+        return providerResult;
       }
     }
 
@@ -184,7 +189,7 @@ export class AuthManager {
       }
     } else if (hasOAuthToken && authMethod === 'auto') {
       this.logger.info(
-        '[AuthManager] Skipping API key check - using OAuth token from subscription'
+        '[AuthManager] Skipping API key check - using OAuth token from subscription',
       );
     }
 
@@ -194,13 +199,13 @@ export class AuthManager {
         'No authentication configured yet. Configure in Ptah Settings > Authentication tab.';
       this.logger.info(`[AuthManager] ${infoMsg}`);
       this.logger.debug(
-        '[AuthManager] Option 1 (Provider): Configure in Settings > Authentication > Provider tab'
+        '[AuthManager] Option 1 (Provider): Configure in Settings > Authentication > Provider tab',
       );
       this.logger.debug(
-        '[AuthManager] Option 2 (Subscription): Run "claude setup-token" and paste the token'
+        '[AuthManager] Option 2 (Subscription): Run "claude setup-token" and paste the token',
       );
       this.logger.debug(
-        '[AuthManager] Option 3 (API Key): Get from https://console.anthropic.com/settings/keys'
+        '[AuthManager] Option 3 (API Key): Get from https://console.anthropic.com/settings/keys',
       );
       this.logEnvSummary();
       return {
@@ -212,7 +217,7 @@ export class AuthManager {
 
     // Log summary
     this.logger.info(
-      `[AuthManager] Authentication configured: ${authDetails.join(', ')}`
+      `[AuthManager] Authentication configured: ${authDetails.join(', ')}`,
     );
     this.logEnvSummary();
 
@@ -227,37 +232,36 @@ export class AuthManager {
    * Reads from SecretStorage (primary) or env snapshot (fallback)
    */
   private async configureOAuthToken(
-    envSnapshot: EnvSnapshot
+    envSnapshot: EnvSnapshot,
   ): Promise<AuthResult> {
     const oauthToken = await this.authSecrets.getCredential('oauthToken');
     const envOAuthToken = envSnapshot.CLAUDE_CODE_OAUTH_TOKEN;
     const details: string[] = [];
 
     if (oauthToken?.trim()) {
-      const tokenPrefix = oauthToken.substring(0, 15);
       const tokenLength = oauthToken.length;
       const isOAuthFormat = oauthToken.startsWith('sk-ant-oat01-');
 
       this.logger.info(
-        `[AuthManager] Found OAuth token in SecretStorage (length: ${tokenLength}, prefix: ${tokenPrefix}..., OAuth format: ${isOAuthFormat})`
+        `[AuthManager] Found OAuth token in SecretStorage (length: ${tokenLength}, OAuth format: ${isOAuthFormat})`,
       );
 
       if (!isOAuthFormat) {
         this.logger.warn(
-          '[AuthManager] WARNING: OAuth token does not start with "sk-ant-oat01-". Get token via: claude setup-token'
+          '[AuthManager] WARNING: OAuth token does not start with "sk-ant-oat01-". Get token via: claude setup-token',
         );
       }
 
       this.authEnv.CLAUDE_CODE_OAUTH_TOKEN = oauthToken.trim();
 
       this.logger.info(
-        '[AuthManager] Using OAuth token from Claude Max/Pro subscription'
+        '[AuthManager] Using OAuth token from Claude Max/Pro subscription',
       );
 
       details.push(
         `OAuth token from SecretStorage (subscription mode${
           !isOAuthFormat ? ', format may be invalid' : ''
-        })`
+        })`,
       );
       return { configured: true, details };
     } else if (envOAuthToken) {
@@ -265,25 +269,25 @@ export class AuthManager {
       const isOAuthFormat = envOAuthToken.startsWith('sk-ant-oat01-');
 
       this.logger.info(
-        `[AuthManager] Found OAuth token in environment (length: ${tokenLength}, OAuth format: ${isOAuthFormat})`
+        `[AuthManager] Found OAuth token in environment (length: ${tokenLength}, OAuth format: ${isOAuthFormat})`,
       );
 
       // Restore the token from snapshot (it was cleared in clean slate)
       this.authEnv.CLAUDE_CODE_OAUTH_TOKEN = envOAuthToken;
 
       this.logger.info(
-        '[AuthManager] Using OAuth token from environment (subscription mode)'
+        '[AuthManager] Using OAuth token from environment (subscription mode)',
       );
 
       details.push(
         `OAuth token from environment (subscription mode${
           !isOAuthFormat ? ', format may be invalid' : ''
-        })`
+        })`,
       );
       return { configured: true, details };
     } else {
       this.logger.debug(
-        '[AuthManager] No OAuth token found in SecretStorage or environment'
+        '[AuthManager] No OAuth token found in SecretStorage or environment',
       );
       return { configured: false, details: [] };
     }
@@ -309,7 +313,7 @@ export class AuthManager {
     // Read selected provider from config (default: openrouter for backward compat)
     const providerId = this.config.getWithDefault<string>(
       'anthropicProviderId',
-      DEFAULT_PROVIDER_ID
+      DEFAULT_PROVIDER_ID,
     );
 
     const provider = getAnthropicProvider(providerId);
@@ -330,7 +334,6 @@ export class AuthManager {
       const authEnvVar = getProviderAuthEnvVar(providerId);
 
       const keyLength = providerKey.length;
-      const keyPrefix = providerKey.substring(0, 10);
 
       // Validate key format if provider has expected prefix
       const hasExpectedPrefix = provider?.keyPrefix
@@ -338,15 +341,15 @@ export class AuthManager {
         : true;
 
       this.logger.info(
-        `[AuthManager] Found provider key in SecretStorage (provider: ${providerName}, length: ${keyLength}, prefix: ${keyPrefix}..., valid format: ${hasExpectedPrefix})`
+        `[AuthManager] Found provider key in SecretStorage (provider: ${providerName}, length: ${keyLength}, valid format: ${hasExpectedPrefix})`,
       );
 
       if (!hasExpectedPrefix && provider?.keyPrefix) {
         this.logger.warn(
-          `[AuthManager] WARNING: Key does not start with "${provider.keyPrefix}". Expected format for ${providerName}.`
+          `[AuthManager] WARNING: Key does not start with "${provider.keyPrefix}". Expected format for ${providerName}.`,
         );
         this.logger.warn(
-          `[AuthManager] Get valid keys from: ${provider.helpUrl}`
+          `[AuthManager] Get valid keys from: ${provider.helpUrl}`,
         );
       }
 
@@ -365,10 +368,10 @@ export class AuthManager {
       seedStaticModelPricing(providerId);
 
       this.logger.info(
-        `[AuthManager] Using ${providerName} (routing via ${baseUrl})`
+        `[AuthManager] Using ${providerName} (routing via ${baseUrl})`,
       );
       this.logger.info(
-        `[AuthManager] Set ANTHROPIC_BASE_URL=${baseUrl}, ${authEnvVar}=<set>`
+        `[AuthManager] Set ANTHROPIC_BASE_URL=${baseUrl}, ${authEnvVar}=<set>`,
       );
 
       details.push(
@@ -376,7 +379,7 @@ export class AuthManager {
           !hasExpectedPrefix && provider?.keyPrefix
             ? ', format may be invalid'
             : ''
-        })`
+        })`,
       );
       return { configured: true, details };
     } else {
@@ -417,11 +420,11 @@ export class AuthManager {
    */
   private async stopProxyIfRunning(
     proxy: { isRunning(): boolean; stop(): Promise<void> },
-    name: string
+    name: string,
   ): Promise<void> {
     if (proxy.isRunning()) {
       this.logger.info(
-        `[AuthManager] Stopping ${name} proxy (switching to different provider)`
+        `[AuthManager] Stopping ${name} proxy (switching to different provider)`,
       );
       try {
         await proxy.stop();
@@ -429,7 +432,7 @@ export class AuthManager {
         this.logger.warn(
           `[AuthManager] Failed to stop ${name} proxy: ${
             error instanceof Error ? error.message : String(error)
-          }`
+          }`,
         );
       }
     }
@@ -447,21 +450,30 @@ export class AuthManager {
     const providerName = provider.name;
 
     this.logger.info(
-      `[AuthManager] Configuring OAuth provider: ${providerName}`
+      `[AuthManager] Configuring OAuth provider: ${providerName}`,
     );
 
-    // Step 1: Check if already authenticated, if not try login
+    // Step 1: Check if already authenticated, if not try silent restore
+    // IMPORTANT: Do NOT call copilotAuth.login() here. The full login()
+    // triggers an interactive device code flow (dialog + 5-minute polling)
+    // which blocks startup and prevents the window from being created.
+    // Instead, try silent file-based token restoration. If that fails,
+    // the user can manually trigger login from the Settings UI.
     const isAuthed = await this.copilotAuth.isAuthenticated();
     if (!isAuthed) {
       this.logger.info(
-        `[AuthManager] ${providerName} not authenticated, initiating login...`
+        `[AuthManager] ${providerName} not authenticated, attempting silent restore...`,
       );
-      const loginSuccess = await this.copilotAuth.login();
-      if (!loginSuccess) {
-        this.logger.warn(
-          `[AuthManager] ${providerName} login failed or was cancelled`
+      const restored = await this.copilotAuth.tryRestoreAuth();
+      if (!restored) {
+        this.logger.info(
+          `[AuthManager] ${providerName} silent restore failed — user can connect via Settings`,
         );
-        return { configured: false, details: [] };
+        return {
+          configured: false,
+          details: [],
+          errorMessage: `${providerName} is not authenticated. Connect via Settings > Authentication.`,
+        };
       }
     }
 
@@ -471,20 +483,20 @@ export class AuthManager {
       if (this.copilotProxy.isRunning()) {
         proxyUrl = this.copilotProxy.getUrl()!;
         this.logger.info(
-          `[AuthManager] Translation proxy already running at ${proxyUrl}`
+          `[AuthManager] Translation proxy already running at ${proxyUrl}`,
         );
       } else {
         const result = await this.copilotProxy.start();
         proxyUrl = result.url;
         this.logger.info(
-          `[AuthManager] Translation proxy started at ${proxyUrl}`
+          `[AuthManager] Translation proxy started at ${proxyUrl}`,
         );
       }
     } catch (error) {
       this.logger.error(
         `[AuthManager] Failed to start translation proxy: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return { configured: false, details: [] };
     }
@@ -501,10 +513,10 @@ export class AuthManager {
     seedStaticModelPricing(provider.id);
 
     this.logger.info(
-      `[AuthManager] Using ${providerName} via translation proxy (${proxyUrl})`
+      `[AuthManager] Using ${providerName} via translation proxy (${proxyUrl})`,
     );
     this.logger.info(
-      `[AuthManager] Set ANTHROPIC_BASE_URL=${proxyUrl}, ANTHROPIC_AUTH_TOKEN=<proxy-managed>`
+      `[AuthManager] Set ANTHROPIC_BASE_URL=${proxyUrl}, ANTHROPIC_AUTH_TOKEN=<proxy-managed>`,
     );
 
     return {
@@ -525,14 +537,14 @@ export class AuthManager {
     const providerName = provider.name;
 
     this.logger.info(
-      `[AuthManager] Configuring OAuth provider: ${providerName}`
+      `[AuthManager] Configuring OAuth provider: ${providerName}`,
     );
 
     // Step 1: Verify Codex auth and ensure tokens are fresh
     const isAuthed = await this.codexAuth.isAuthenticated();
     if (!isAuthed) {
       this.logger.warn(
-        `[AuthManager] ${providerName} not authenticated. Run \`codex login\` to authenticate.`
+        `[AuthManager] ${providerName} not authenticated. Run \`codex login\` to authenticate.`,
       );
       return {
         configured: false,
@@ -544,7 +556,7 @@ export class AuthManager {
     const tokensFresh = await this.codexAuth.ensureTokensFresh();
     if (!tokensFresh) {
       this.logger.warn(
-        `[AuthManager] ${providerName} token refresh failed. Run \`codex login\` to re-authenticate.`
+        `[AuthManager] ${providerName} token refresh failed. Run \`codex login\` to re-authenticate.`,
       );
       return {
         configured: false,
@@ -559,20 +571,20 @@ export class AuthManager {
       if (this.codexProxy.isRunning()) {
         proxyUrl = this.codexProxy.getUrl()!;
         this.logger.info(
-          `[AuthManager] Codex translation proxy already running at ${proxyUrl}`
+          `[AuthManager] Codex translation proxy already running at ${proxyUrl}`,
         );
       } else {
         const result = await this.codexProxy.start();
         proxyUrl = result.url;
         this.logger.info(
-          `[AuthManager] Codex translation proxy started at ${proxyUrl}`
+          `[AuthManager] Codex translation proxy started at ${proxyUrl}`,
         );
       }
     } catch (error) {
       this.logger.error(
         `[AuthManager] Failed to start Codex translation proxy: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return { configured: false, details: [] };
     }
@@ -589,10 +601,10 @@ export class AuthManager {
     seedStaticModelPricing(provider.id);
 
     this.logger.info(
-      `[AuthManager] Using ${providerName} via translation proxy (${proxyUrl})`
+      `[AuthManager] Using ${providerName} via translation proxy (${proxyUrl})`,
     );
     this.logger.info(
-      `[AuthManager] Set ANTHROPIC_BASE_URL=${proxyUrl}, ANTHROPIC_AUTH_TOKEN=<proxy-managed>`
+      `[AuthManager] Set ANTHROPIC_BASE_URL=${proxyUrl}, ANTHROPIC_AUTH_TOKEN=<proxy-managed>`,
     );
 
     return {
@@ -616,15 +628,15 @@ export class AuthManager {
       const isValidFormat = apiKey.startsWith('sk-ant-api');
 
       this.logger.info(
-        `[AuthManager] Found API key in SecretStorage (length: ${keyLength}, prefix: ${keyPrefix}..., valid format: ${isValidFormat})`
+        `[AuthManager] Found API key in SecretStorage (length: ${keyLength}, prefix: ${keyPrefix}..., valid format: ${isValidFormat})`,
       );
 
       if (!isValidFormat) {
         this.logger.warn(
-          '[AuthManager] WARNING: API key does not start with "sk-ant-api". Expected format: sk-ant-api03-...'
+          '[AuthManager] WARNING: API key does not start with "sk-ant-api". Expected format: sk-ant-api03-...',
         );
         this.logger.warn(
-          '[AuthManager] Get valid API keys from: https://console.anthropic.com/settings/keys'
+          '[AuthManager] Get valid API keys from: https://console.anthropic.com/settings/keys',
         );
       }
 
@@ -634,7 +646,7 @@ export class AuthManager {
       details.push(
         `API key from SecretStorage (pay-per-token, format ${
           isValidFormat ? 'valid' : 'INVALID'
-        })`
+        })`,
       );
       return { configured: true, details };
     } else if (envApiKey) {
@@ -642,12 +654,12 @@ export class AuthManager {
       const isValidFormat = envApiKey.startsWith('sk-ant-api');
 
       this.logger.info(
-        `[AuthManager] Found API key in environment (length: ${keyLength}, valid format: ${isValidFormat})`
+        `[AuthManager] Found API key in environment (length: ${keyLength}, valid format: ${isValidFormat})`,
       );
 
       if (!isValidFormat) {
         this.logger.warn(
-          '[AuthManager] WARNING: Environment API key format may be invalid'
+          '[AuthManager] WARNING: Environment API key format may be invalid',
         );
       }
 
@@ -657,12 +669,12 @@ export class AuthManager {
       details.push(
         `API key from environment (pay-per-token, format ${
           isValidFormat ? 'valid' : 'INVALID'
-        })`
+        })`,
       );
       return { configured: true, details };
     } else {
       this.logger.debug(
-        '[AuthManager] No API key found in SecretStorage or environment'
+        '[AuthManager] No API key found in SecretStorage or environment',
       );
       return { configured: false, details: [] };
     }
@@ -682,7 +694,7 @@ export class AuthManager {
         this.logger.warn(
           `[AuthManager] Failed to stop Copilot proxy during cleanup: ${
             err instanceof Error ? err.message : String(err)
-          }`
+          }`,
         );
       });
     }
@@ -693,7 +705,7 @@ export class AuthManager {
         this.logger.warn(
           `[AuthManager] Failed to stop Codex proxy during cleanup: ${
             err instanceof Error ? err.message : String(err)
-          }`
+          }`,
         );
       });
     }
@@ -702,7 +714,7 @@ export class AuthManager {
     this.codexAuth.clearCache();
 
     this.logger.debug(
-      '[AuthManager] Cleared authentication environment variables'
+      '[AuthManager] Cleared authentication environment variables',
     );
   }
 
@@ -738,7 +750,7 @@ export class AuthManager {
    */
   private logEnvSummary(): void {
     const authSummary = AUTH_ENV_VARS.map(
-      (v) => `${v}=${this.authEnv[v as keyof AuthEnv] ? 'set' : 'unset'}`
+      (v) => `${v}=${this.authEnv[v as keyof AuthEnv] ? 'set' : 'unset'}`,
     ).join(', ');
 
     this.logger.debug(`[AuthManager] Env summary: ${authSummary}`);
