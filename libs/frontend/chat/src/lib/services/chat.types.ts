@@ -270,6 +270,12 @@ export interface TabState {
   preset?: 'claude_code' | 'enhanced';
 
   /**
+   * Number of context compactions that occurred during this session.
+   * Incremented on each compaction_complete event.
+   */
+  compactionCount?: number;
+
+  /**
    * Full per-model usage breakdown for collapsible display.
    * Contains all models used in the session with their individual stats.
    */
