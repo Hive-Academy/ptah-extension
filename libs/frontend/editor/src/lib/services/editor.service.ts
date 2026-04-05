@@ -71,6 +71,9 @@ export class EditorService {
    */
   private _activeWorkspacePath: string | null = null;
 
+  /** Counter for stale-response protection in loadFileTree(). */
+  private _loadFileTreeRequestId = 0;
+
   // ============================================================================
   // SIGNAL STATE
   // ============================================================================
@@ -153,7 +156,7 @@ export class EditorService {
       });
 
       // Fetch file tree for the new workspace via RPC
-      this.loadFileTree();
+      this.loadFileTree(workspacePath);
     }
   }
 
@@ -190,34 +193,52 @@ export class EditorService {
   /**
    * Load the file tree from the backend.
    * Sends an RPC message to the main process to scan the workspace directory.
+   * @param rootPath - Optional explicit root path. If omitted, uses the active workspace path.
    */
-  async loadFileTree(): Promise<void> {
+  async loadFileTree(rootPath?: string): Promise<void> {
+    const requestId = ++this._loadFileTreeRequestId;
+    const targetWorkspace = rootPath || this._activeWorkspacePath;
+
+    // No workspace path available — nothing to load
+    if (!targetWorkspace) return;
+
     this._isLoading.set(true);
     this.clearError();
 
-    const result = await rpcCall<{ tree: FileTreeNode[] }>(
-      this.vscodeService,
-      'editor:getFileTree',
-      {},
-    );
+    try {
+      const result = await rpcCall<{ tree: FileTreeNode[] }>(
+        this.vscodeService,
+        'editor:getFileTree',
+        { rootPath: targetWorkspace },
+      );
 
-    if (result.success && result.data) {
-      const tree = result.data.tree ?? [];
-      this._fileTree.set(tree);
+      // Stale-response guard: discard if a newer request was issued
+      // or if the active workspace changed since this request was fired
+      if (
+        this._loadFileTreeRequestId !== requestId ||
+        this._activeWorkspacePath !== targetWorkspace
+      ) {
+        return;
+      }
 
-      // Update cached state if workspace is active
-      if (this._activeWorkspacePath) {
-        const cached = this._workspaceEditorState.get(
-          this._activeWorkspacePath,
-        );
+      if (result.success && result.data) {
+        const tree = result.data.tree ?? [];
+        this._fileTree.set(tree);
+
+        // Update cached state for the target workspace
+        const cached = this._workspaceEditorState.get(targetWorkspace);
         if (cached) {
           cached.fileTree = tree;
         }
+      } else {
+        this.showError(result.error ?? 'Failed to load file tree');
       }
-    } else {
-      this.showError(result.error ?? 'Failed to load file tree');
+    } finally {
+      // Only reset loading if this is still the active request
+      if (this._loadFileTreeRequestId === requestId) {
+        this._isLoading.set(false);
+      }
     }
-    this._isLoading.set(false);
   }
 
   /**

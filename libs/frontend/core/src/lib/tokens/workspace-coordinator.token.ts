@@ -26,10 +26,10 @@ export interface ConfirmDialogOptions {
  */
 export interface IWorkspaceCoordinator {
   /** Coordinate tab and editor state after a workspace switch. */
-  switchWorkspace(newPath: string): void;
+  switchWorkspace(newPath: string): void | Promise<void>;
 
   /** Clean up tab and editor state for a removed workspace. */
-  removeWorkspaceState(workspacePath: string): void;
+  removeWorkspaceState(workspacePath: string): void | Promise<void>;
 
   /** Get session IDs of actively streaming tabs in a workspace. */
   getStreamingSessionIds(workspacePath: string): SessionId[];
@@ -39,5 +39,5 @@ export interface IWorkspaceCoordinator {
 }
 
 export const WORKSPACE_COORDINATOR = new InjectionToken<IWorkspaceCoordinator>(
-  'WORKSPACE_COORDINATOR'
+  'WORKSPACE_COORDINATOR',
 );

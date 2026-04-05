@@ -183,27 +183,6 @@ export class StreamingHandlerService {
 
       const state = targetTab.streamingState as StreamingState;
 
-      // DIAGNOSTIC: Log all events with source and messageId for debugging
-      if (
-        event.eventType === 'message_start' ||
-        event.eventType === 'text_delta' ||
-        event.eventType === 'thinking_delta' ||
-        event.eventType === 'message_complete'
-      ) {
-        console.log(`[StreamingHandler] Event: ${event.eventType}`, {
-          source: event.source,
-          messageId: event.messageId?.substring(0, 30),
-          blockIndex: 'blockIndex' in event ? event.blockIndex : undefined,
-          deltaLen:
-            'delta' in event && typeof event.delta === 'string'
-              ? event.delta.length
-              : undefined,
-          accumulatorCount: state.textAccumulators.size,
-          pendingTextClears: this.pendingTextClear.size,
-          pendingThinkingClears: this.pendingThinkingClear.size,
-        });
-      }
-
       // Handle by event type
       switch (event.eventType) {
         case 'message_start': {
@@ -418,14 +397,6 @@ export class StreamingHandlerService {
             );
 
           if (existingByAgentId) {
-            console.log(
-              '[StreamingHandler] Skipping duplicate agent_start (by agentId):',
-              {
-                agentId: event.agentId,
-                toolCallId: event.toolCallId,
-                source: event.source,
-              },
-            );
             return null;
           }
 
@@ -439,13 +410,6 @@ export class StreamingHandlerService {
             );
 
           if (existingByToolCallId) {
-            console.log(
-              '[StreamingHandler] Skipping duplicate agent_start (by toolCallId):',
-              {
-                toolCallId: event.toolCallId,
-                source: event.source,
-              },
-            );
             return null;
           }
 
@@ -466,14 +430,6 @@ export class StreamingHandlerService {
             isCollapsed: false,
           };
 
-          console.log('[StreamingHandler] Registering agent node:', {
-            eventType: event.eventType,
-            eventSource: event.source,
-            toolCallId: event.toolCallId,
-            agentId: event.agentId,
-            agentType: event.agentType,
-          });
-
           // TASK_2025_211: Detect SDK subagent resume — if a new agent of the
           // same type as a previously interrupted agent is spawned, mark the old
           // agent type as "resumed" so inline bubbles update their badge.
@@ -493,10 +449,6 @@ export class StreamingHandlerService {
               summaryContent,
             };
             this.sessionManager.registerAgent(event.toolCallId, updatedNode);
-            console.log(
-              `[StreamingHandler] Applied ${pendingDeltas.length} pending chunks to agent:`,
-              event.toolCallId,
-            );
           }
           break;
         }
@@ -539,26 +491,10 @@ export class StreamingHandlerService {
           // TASK_2025_098: Unified compaction flow
           // Compaction events now flow through CHAT_CHUNK (same as all streaming events)
           // Return compaction info so ChatStore can call handleCompactionStart()
-          console.log(
-            '[StreamingHandlerService] Compaction event received via streaming path',
-            { sessionId: event.sessionId, trigger: event.trigger },
-          );
-
-          // Return compaction info for ChatStore to handle (avoid circular dependency)
           return { tabId: targetTab.id, compactionSessionId: event.sessionId };
         }
 
         case 'compaction_complete': {
-          // Compaction finished: reset streaming state and deduplication for clean slate
-          console.log(
-            '[StreamingHandlerService] Compaction complete, resetting streaming state',
-            {
-              sessionId: event.sessionId,
-              trigger: event.trigger,
-              preTokens: event.preTokens,
-            },
-          );
-
           // Reset streaming state to fresh - pre-compaction events are stale
           this.tabManager.updateTab(targetTab.id, {
             streamingState: createEmptyStreamingState(),
@@ -661,14 +597,6 @@ export class StreamingHandlerService {
         };
         state.events.set(eventId, updatedEvent as FlatStreamEventUnion);
 
-        console.log(
-          '[StreamingHandler] Backfilled agent_start with toolu_* ID:',
-          {
-            agentId: (evt as { agentId?: string }).agentId,
-            oldToolCallId: evt.toolCallId,
-            newToolCallId: tooluParentToolUseId,
-          },
-        );
         return; // Only backfill one agent_start per message_start
       }
     }
@@ -765,8 +693,6 @@ export class StreamingHandlerService {
     tokens: { input: number; output: number };
     duration: number;
   }): { tabId: string; queuedContent: string | null } | null {
-    console.log('[StreamingHandlerService] Session stats received:', stats);
-
     let targetTab = this.tabManager.findTabBySessionId(stats.sessionId);
 
     // Fallback to active tab if no tab found
@@ -823,11 +749,6 @@ export class StreamingHandlerService {
       const hardDenyToolUseIds =
         this.permissionHandler.consumeHardDenyToolUseIds();
 
-      console.log(
-        '[StreamingHandlerService] Finalizing streaming on stats received for tab:',
-        targetTabId,
-        { hardDenyToolUseIds: [...hardDenyToolUseIds] },
-      );
       this.finalization.finalizeCurrentMessage(targetTabId);
 
       // For hard deny: the SDK sends all completion events before exiting,
@@ -870,16 +791,10 @@ export class StreamingHandlerService {
         duration: stats.duration,
       };
       this.batchedUpdate.scheduleUpdate(targetTab.id, state);
-      console.log(
-        '[StreamingHandlerService] Stats stored as pendingStats (tab has streamingState but no messages)',
-      );
       return null;
     }
 
     if (messages.length === 0) {
-      console.log(
-        '[StreamingHandlerService] No messages in tab, stats discarded',
-      );
       return null;
     }
 
@@ -893,9 +808,6 @@ export class StreamingHandlerService {
     }
 
     if (lastAssistantIndex === -1) {
-      console.log(
-        '[StreamingHandlerService] No assistant message found, stats discarded',
-      );
       return null;
     }
 
@@ -912,9 +824,6 @@ export class StreamingHandlerService {
       messages: updatedMessages,
     });
 
-    console.log(
-      '[StreamingHandlerService] Stats applied to last assistant message',
-    );
     return null;
   }
 

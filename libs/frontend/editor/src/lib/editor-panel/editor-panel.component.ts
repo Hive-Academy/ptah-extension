@@ -37,7 +37,7 @@ import { TerminalPanelComponent } from '../terminal/terminal-panel.component';
  * 5. Terminal panel (terminalHeight px, conditional on terminal visible)
  *
  * Communication flow:
- * 1. Component initializes -> EditorService.loadFileTree() -> RPC to backend
+ * 1. Workspace switch coordination -> EditorService.switchWorkspace() -> loadFileTree() -> RPC to backend
  * 2. Backend responds -> EditorService updates signals internally
  * 3. User clicks file -> EditorService.openFile() -> RPC to backend
  * 4. User presses Ctrl+S -> EditorService.saveFile() -> RPC to backend
@@ -235,7 +235,6 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   private _resizeMouseUp: (() => void) | null = null;
 
   ngOnInit(): void {
-    void this.editorService.loadFileTree();
     this.gitStatus.startPolling();
   }
 

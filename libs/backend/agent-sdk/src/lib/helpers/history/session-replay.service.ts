@@ -396,6 +396,55 @@ export class SessionReplayService {
                       currentMessageTimestamp + messageSequence++ * 0.001,
                     ),
                   );
+                } else if (
+                  agentData &&
+                  agentData.executionMessages.length > 0
+                ) {
+                  // FIX: Agent session data exists (agent JSONL found with messages)
+                  // but the parent session JSONL is missing the tool_result.
+                  // This happens when the JSONL was compacted, not fully flushed,
+                  // or the SDK didn't write an explicit tool_result for the Task tool.
+                  // Without this synthetic tool_result, registerFromHistoryEvents()
+                  // would falsely mark the agent as "interrupted" because it only
+                  // checks for tool_result events matching agent_start events.
+                  this.logger.info(
+                    '[SessionReplay] Creating synthetic tool_result for agent with session data but missing parent tool_result',
+                    {
+                      toolCallId,
+                      agentId,
+                      agentMessageCount: agentData.executionMessages.length,
+                    },
+                  );
+                  // Extract the agent's last response as the synthetic result content.
+                  let lastAgentResponse: SessionHistoryMessage | undefined;
+                  for (
+                    let i = agentData.executionMessages.length - 1;
+                    i >= 0;
+                    i--
+                  ) {
+                    const m = agentData.executionMessages[i];
+                    if (m.type === 'assistant' && m.message?.content) {
+                      lastAgentResponse = m;
+                      break;
+                    }
+                  }
+                  const syntheticContent = lastAgentResponse
+                    ? this.eventFactory.extractTextContent(
+                        lastAgentResponse.message?.content,
+                      )
+                    : '';
+
+                  events.push(
+                    this.eventFactory.createToolResult(
+                      sessionId,
+                      currentMessageId,
+                      toolCallId,
+                      syntheticContent || '[Agent completed]',
+                      false,
+                      eventIndex++,
+                      currentMessageTimestamp + messageSequence++ * 0.001,
+                    ),
+                  );
                 }
               } else {
                 // Regular tool (not Agent/Task)
