@@ -447,7 +447,16 @@ export class ElectronLayoutService {
   ): void {
     try {
       if (this.coordinator) {
-        this.coordinator.switchWorkspace(newPath);
+        const result = this.coordinator.switchWorkspace(newPath);
+        // Handle async coordinator (returns Promise<void> after TASK_2025_259)
+        if (result instanceof Promise) {
+          result.catch((error) => {
+            console.error(
+              '[ElectronLayout] Async workspace coordination failed:',
+              error,
+            );
+          });
+        }
       }
 
       // Update VSCodeService config so all consumers see the new workspaceRoot
@@ -487,7 +496,16 @@ export class ElectronLayoutService {
   private cleanupWorkspaceState(workspacePath: string): void {
     if (this.coordinator) {
       try {
-        this.coordinator.removeWorkspaceState(workspacePath);
+        const result = this.coordinator.removeWorkspaceState(workspacePath);
+        // Handle async coordinator (returns Promise<void> after TASK_2025_259)
+        if (result instanceof Promise) {
+          result.catch((error) => {
+            console.error(
+              '[ElectronLayout] Async workspace cleanup failed:',
+              error,
+            );
+          });
+        }
       } catch (error) {
         console.error(
           '[ElectronLayout] Failed to clean up workspace state:',

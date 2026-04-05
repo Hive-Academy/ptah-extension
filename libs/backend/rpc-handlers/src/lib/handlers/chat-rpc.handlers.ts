@@ -578,15 +578,10 @@ export class ChatRpcHandlers {
               return { success: true };
             }
 
-            // For /context and /cost on a new session, there's nothing to show
-            await this.webviewManager.broadcastMessage(
-              MESSAGE_TYPES.CHAT_COMPLETE,
-              {
-                tabId,
-                command: interceptResult.commandName,
-                message: `No session data available yet for /${interceptResult.commandName}.`,
-              },
-            );
+            // Other native commands — no-op on fresh session
+            this.logger.warn('[RPC] chat:start - unrecognized native command', {
+              command: interceptResult.commandName,
+            });
             return { success: true };
           }
 
@@ -1053,12 +1048,10 @@ IMPORTANT INSTRUCTIONS:
         return { success: true, sessionId };
       }
 
-      // /context and /cost — feature not yet available
-      await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_COMPLETE, {
-        tabId,
-        sessionId,
+      // Other native commands — not yet implemented
+      this.logger.warn('[RPC] chat:continue - unrecognized native command', {
         command: interceptResult.commandName,
-        message: `/${interceptResult.commandName} is not yet available in Ptah. This feature is coming in a future update.`,
+        sessionId,
       });
       return { success: true, sessionId };
     }
