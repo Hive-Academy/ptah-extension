@@ -15,6 +15,7 @@ import {
   X,
   Terminal as TermIcon,
 } from 'lucide-angular';
+import { VSCodeService } from '@ptah-extension/core';
 import { FileTreeComponent } from '../file-tree/file-tree.component';
 import { CodeEditorComponent } from '../code-editor/code-editor.component';
 import { EditorService } from '../services/editor.service';
@@ -215,6 +216,7 @@ import { TerminalPanelComponent } from '../terminal/terminal-panel.component';
 export class EditorPanelComponent implements OnInit, OnDestroy {
   protected readonly editorService = inject(EditorService);
   private readonly gitStatus = inject(GitStatusService);
+  private readonly vscodeService = inject(VSCodeService);
   private readonly ngZone = inject(NgZone);
   protected readonly explorerVisible = signal(true);
 
@@ -235,6 +237,14 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   private _resizeMouseUp: (() => void) | null = null;
 
   ngOnInit(): void {
+    // Bootstrap file tree if a workspace is already active.
+    // When the editor chunk loads after workspace coordination has already
+    // fired, switchWorkspace() would never be called, leaving the explorer empty.
+    const workspaceRoot = this.vscodeService.config().workspaceRoot;
+    if (workspaceRoot) {
+      this.editorService.switchWorkspace(workspaceRoot);
+    }
+
     this.gitStatus.startPolling();
   }
 

@@ -196,11 +196,13 @@ export class EditorService {
    * @param rootPath - Optional explicit root path. If omitted, uses the active workspace path.
    */
   async loadFileTree(rootPath?: string): Promise<void> {
-    const requestId = ++this._loadFileTreeRequestId;
     const targetWorkspace = rootPath || this._activeWorkspacePath;
 
-    // No workspace path available — nothing to load
+    // No workspace path available — nothing to load.
+    // Guard before incrementing requestId to avoid invalidating in-flight requests.
     if (!targetWorkspace) return;
+
+    const requestId = ++this._loadFileTreeRequestId;
 
     this._isLoading.set(true);
     this.clearError();
