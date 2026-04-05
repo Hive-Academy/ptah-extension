@@ -48,7 +48,9 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
    * Returns empty array if editor library hasn't been loaded yet.
    */
   private async resolveEditorServices(): Promise<WorkspaceAwareService[]> {
-    if (this.editorServices) return this.editorServices;
+    if (this.editorServices !== null && this.editorServices.length > 0) {
+      return this.editorServices;
+    }
 
     try {
       const editorModule = await import('@ptah-extension/editor/services');
@@ -57,36 +59,48 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
         this.injector.get(editorModule.GitStatusService),
         this.injector.get(editorModule.TerminalService),
       ];
-    } catch {
-      // Editor library not available (e.g. VS Code sidebar where editor is not loaded)
-      this.editorServices = [];
+      return this.editorServices;
+    } catch (error) {
+      console.warn(
+        '[WorkspaceCoordinator] Editor services not available yet (editor chunk may not be loaded):',
+        error instanceof Error ? error.message : String(error),
+      );
+      return [];
     }
-
-    return this.editorServices;
   }
 
-  switchWorkspace(newPath: string): void {
+  async switchWorkspace(newPath: string): Promise<void> {
     this.tabManager.switchWorkspace(newPath);
     this.sessionLoader.switchWorkspace(newPath);
 
-    // Fire-and-forget: editor services resolved async but operations are non-blocking
-    void this.resolveEditorServices().then((services) => {
+    try {
+      const services = await this.resolveEditorServices();
       for (const svc of services) {
         svc.switchWorkspace(newPath);
       }
-    });
+    } catch (error) {
+      console.error(
+        '[WorkspaceCoordinator] Failed to switch editor services workspace:',
+        error,
+      );
+    }
   }
 
-  removeWorkspaceState(workspacePath: string): void {
+  async removeWorkspaceState(workspacePath: string): Promise<void> {
     this.tabManager.removeWorkspaceState(workspacePath);
     this.sessionLoader.removeWorkspaceCache(workspacePath);
 
-    // Fire-and-forget: editor services resolved async but operations are non-blocking
-    void this.resolveEditorServices().then((services) => {
+    try {
+      const services = await this.resolveEditorServices();
       for (const svc of services) {
         svc.removeWorkspaceState(workspacePath);
       }
-    });
+    } catch (error) {
+      console.error(
+        '[WorkspaceCoordinator] Failed to remove editor services workspace state:',
+        error,
+      );
+    }
   }
 
   getStreamingSessionIds(workspacePath: string): SessionId[] {

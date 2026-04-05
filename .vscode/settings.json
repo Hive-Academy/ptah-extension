@@ -3,5 +3,5 @@
   "ptah.model.selected": "opus",
   "ptah.reasoningEffort": "high",
   "ptah.autopilot.enabled": false,
-  "ptah.autopilot.permissionLevel": "yolo"
+  "ptah.autopilot.permissionLevel": "default"
 }
