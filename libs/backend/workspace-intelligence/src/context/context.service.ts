@@ -130,7 +130,7 @@ export class ContextService {
     @inject(PLATFORM_TOKENS.EDITOR_PROVIDER)
     private readonly editorProvider: IEditorProvider,
     @inject(PLATFORM_TOKENS.COMMAND_REGISTRY)
-    private readonly commandRegistry: ICommandRegistry
+    private readonly commandRegistry: ICommandRegistry,
   ) {
     this.loadFromWorkspaceState();
   }
@@ -221,7 +221,7 @@ export class ContextService {
       } catch (error) {
         this.logger.warn(
           `Failed to read file for token estimation: ${filePath}`,
-          error
+          error,
         );
       }
     }
@@ -407,7 +407,7 @@ export class ContextService {
     }
 
     this.logger.info(
-      `Applied ${projectType} project template: ${this.includedFiles.size} files included`
+      `Applied ${projectType} project template: ${this.includedFiles.size} files included`,
     );
 
     await this.saveToWorkspaceState();
@@ -456,7 +456,7 @@ export class ContextService {
           this.debounceState.pendingResolvers = [];
 
           this.logger.debug(
-            `File search completed: ${results.length} results for "${options.query}"`
+            `File search completed: ${results.length} results for "${options.query}"`,
           );
         } catch (error) {
           this.logger.error('File search failed', error);
@@ -480,7 +480,7 @@ export class ContextService {
   async getAllFiles(
     includeImages = false,
     offset = 0,
-    limit = this.MAX_SEARCH_RESULTS
+    limit = this.MAX_SEARCH_RESULTS,
   ): Promise<FileSearchResult[]> {
     // Check if cached data is still fresh
     const now = Date.now();
@@ -492,7 +492,7 @@ export class ContextService {
         this.allFilesCache,
         offset,
         limit,
-        includeImages
+        includeImages,
       );
     }
 
@@ -523,34 +523,42 @@ export class ContextService {
       const filePaths = await this.fsProvider.findFiles(
         '**/*',
         `{${excludePatterns.join(',')}}`,
-        this.MAX_SEARCH_RESULTS * 2
+        this.MAX_SEARCH_RESULTS * 2,
       );
 
       const results: FileSearchResult[] = [];
       // Use first workspace folder as base for relative paths (for display)
       const primaryWorkspacePath = workspaceFolders[0];
 
-      // Process files
-      for (const filePath of filePaths) {
-        try {
-          const stat = await this.fsProvider.stat(filePath);
-          // Calculate relative path from primary workspace root
-          const relativePath = path.relative(primaryWorkspacePath, filePath);
-          const fileName = path.basename(filePath);
-          const fileType = this.detectFileType(fileName);
+      // Process files — batch stat calls in parallel for performance
+      // Sequential stat calls on 2000+ files can take 10-30s and cause RPC timeouts
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < filePaths.length; i += BATCH_SIZE) {
+        const batch = filePaths.slice(i, i + BATCH_SIZE);
+        const statResults = await Promise.allSettled(
+          batch.map(async (filePath) => {
+            const stat = await this.fsProvider.stat(filePath);
+            const relativePath = path.relative(primaryWorkspacePath, filePath);
+            const fileName = path.basename(filePath);
+            const fileType = this.detectFileType(fileName);
 
-          results.push({
-            path: filePath,
-            relativePath,
-            fileName,
-            fileType,
-            size: stat.size,
-            lastModified: stat.mtime,
-            isDirectory: stat.type === FileType.Directory,
-          });
-        } catch {
-          // Skip files that can't be accessed
-          this.logger.debug(`Skipping inaccessible file: ${filePath}`);
+            return {
+              path: filePath,
+              relativePath,
+              fileName,
+              fileType,
+              size: stat.size,
+              lastModified: stat.mtime,
+              isDirectory: stat.type === FileType.Directory,
+            } as FileSearchResult;
+          }),
+        );
+
+        for (const result of statResults) {
+          if (result.status === 'fulfilled') {
+            results.push(result.value);
+          }
+          // Skip inaccessible files silently
         }
       }
 
@@ -559,7 +567,7 @@ export class ContextService {
         const directories = await this.discoverDirectories(
           folder,
           primaryWorkspacePath,
-          excludePatterns
+          excludePatterns,
         );
         results.push(...directories);
       }
@@ -572,7 +580,7 @@ export class ContextService {
       this.allFilesCacheTimestamp = now;
 
       this.logger.info(
-        `Cached ${results.length} workspace files and directories from ${workspaceFolders.length} folder(s)`
+        `Cached ${results.length} workspace files and directories from ${workspaceFolders.length} folder(s)`,
       );
 
       return this.paginateResults(results, offset, limit, includeImages);
@@ -589,8 +597,8 @@ export class ContextService {
   private async discoverDirectories(
     rootPath: string,
     workspacePath: string,
-    excludePatterns: string[],
-    maxDepth = 4
+    _excludePatterns: string[],
+    maxDepth = 4,
   ): Promise<FileSearchResult[]> {
     const directories: FileSearchResult[] = [];
     const excludeSet = new Set([
@@ -603,39 +611,50 @@ export class ContextService {
 
     const processDirectory = async (
       dirPath: string,
-      depth: number
+      depth: number,
     ): Promise<void> => {
       if (depth > maxDepth) return;
 
       try {
         const entries = await this.fsProvider.readDirectory(dirPath);
+        const dirEntries = entries.filter(
+          (e) =>
+            e.type === FileType.Directory &&
+            !excludeSet.has(e.name) &&
+            !e.name.startsWith('.'),
+        );
 
-        for (const entry of entries) {
-          if (entry.type !== FileType.Directory) continue;
-          if (excludeSet.has(entry.name) || entry.name.startsWith('.'))
-            continue;
+        // Batch stat calls for all directories at this level
+        const statResults = await Promise.allSettled(
+          dirEntries.map(async (entry) => {
+            const subPath = path.join(dirPath, entry.name);
+            const stat = await this.fsProvider.stat(subPath);
+            return { entry, subPath, stat };
+          }),
+        );
 
-          const subPath = path.join(dirPath, entry.name);
+        const subDirs: string[] = [];
+        for (const result of statResults) {
+          if (result.status !== 'fulfilled') continue;
+          const { entry, subPath, stat } = result.value;
           const relativePath = path.relative(workspacePath, subPath);
 
-          try {
-            const stat = await this.fsProvider.stat(subPath);
+          directories.push({
+            path: subPath,
+            relativePath,
+            fileName: entry.name,
+            fileType: 'unknown',
+            size: 0,
+            lastModified: stat.mtime,
+            isDirectory: true,
+          });
 
-            directories.push({
-              path: subPath,
-              relativePath,
-              fileName: entry.name,
-              fileType: 'unknown',
-              size: 0,
-              lastModified: stat.mtime,
-              isDirectory: true,
-            });
+          subDirs.push(subPath);
+        }
 
-            // Recurse into subdirectory
-            await processDirectory(subPath, depth + 1);
-          } catch {
-            // Skip inaccessible directories
-          }
+        // Recurse into subdirectories
+        for (const subDir of subDirs) {
+          await processDirectory(subDir, depth + 1);
         }
       } catch {
         // Skip if directory listing fails
@@ -675,7 +694,7 @@ export class ContextService {
    */
   async getFileSuggestions(
     query: string,
-    limit = 20
+    limit = 20,
   ): Promise<FileSearchResult[]> {
     if (!query || query.length < 2) {
       // For short queries, return recently modified files
@@ -718,7 +737,7 @@ export class ContextService {
     const config = this.workspaceProvider.getConfiguration<boolean>(
       'ptah',
       'autoIncludeOpenFiles',
-      true
+      true,
     );
     const autoInclude = config ?? true;
 
@@ -731,7 +750,7 @@ export class ContextService {
           if (event.filePath) {
             await this.includeFile(event.filePath);
           }
-        })
+        }),
       );
 
       // Include files when they are opened
@@ -741,7 +760,7 @@ export class ContextService {
           if (event.filePath && !event.filePath.includes('://')) {
             await this.includeFile(event.filePath);
           }
-        })
+        }),
       );
     }
 
@@ -850,19 +869,19 @@ export class ContextService {
       const includedFiles = this.workspaceProvider.getConfiguration<string[]>(
         'ptah',
         'context.includedFiles',
-        []
+        [],
       );
       const excludedFiles = this.workspaceProvider.getConfiguration<string[]>(
         'ptah',
         'context.excludedFiles',
-        []
+        [],
       );
 
       this.includedFiles = new Set(includedFiles || []);
       this.excludedFiles = new Set(excludedFiles || []);
 
       this.logger.info(
-        `Loaded context state: ${this.includedFiles.size} included, ${this.excludedFiles.size} excluded`
+        `Loaded context state: ${this.includedFiles.size} included, ${this.excludedFiles.size} excluded`,
       );
     } catch (error) {
       this.logger.error('Failed to load context state', error);
@@ -886,7 +905,7 @@ export class ContextService {
       await this.commandRegistry.executeCommand(
         'setContext',
         'ptah.contextFilesCount',
-        this.includedFiles.size
+        this.includedFiles.size,
       );
     } catch {
       // Command may not be available in all contexts
@@ -894,7 +913,7 @@ export class ContextService {
   }
 
   private async performFileSearch(
-    options: FileSearchOptions
+    options: FileSearchOptions,
   ): Promise<FileSearchResult[]> {
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
     if (!workspaceRoot) {
@@ -912,7 +931,7 @@ export class ContextService {
     let searchPattern = `**/*${query}*`;
     if (fileTypes.length > 0) {
       const extensions = fileTypes.map((ext) =>
-        ext.startsWith('.') ? ext.slice(1) : ext
+        ext.startsWith('.') ? ext.slice(1) : ext,
       );
       searchPattern = `**/*${query}*.{${extensions.join(',')}}`;
     }
@@ -936,7 +955,7 @@ export class ContextService {
     const filePaths = await this.fsProvider.findFiles(
       searchPattern,
       excludePattern,
-      maxResults
+      maxResults,
     );
 
     const results: FileSearchResult[] = [];
@@ -952,7 +971,7 @@ export class ContextService {
         const relevanceScore = this.calculateRelevanceScore(
           fileName,
           relativePath,
-          query
+          query,
         );
 
         results.push({
@@ -1034,7 +1053,7 @@ export class ContextService {
   private calculateRelevanceScore(
     fileName: string,
     relativePath: string,
-    query: string
+    query: string,
   ): number {
     let score = 0;
     const queryLower = query.toLowerCase();
@@ -1101,7 +1120,7 @@ export class ContextService {
 
   private addToDebounceQueue(
     resolve: (results: FileSearchResult[]) => void,
-    reject: (error: Error) => void
+    reject: (error: Error) => void,
   ): void {
     this.debounceState.pendingResolvers.push({ resolve, reject });
   }
@@ -1110,7 +1129,7 @@ export class ContextService {
     results: FileSearchResult[],
     offset: number,
     limit: number,
-    includeImages: boolean
+    includeImages: boolean,
   ): FileSearchResult[] {
     let filteredResults = results;
 

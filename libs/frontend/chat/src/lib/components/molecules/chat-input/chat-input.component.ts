@@ -210,6 +210,7 @@ interface PastedImage {
               [overlayOrigin]="textareaOrigin()!"
               [suggestions]="filteredSuggestions()"
               [isLoading]="isLoadingSuggestions()"
+              [errorMessage]="filePickerError()"
               (suggestionSelected)="handleSuggestionSelected($event)"
               (closed)="closeSuggestions()"
             />
@@ -373,6 +374,13 @@ export class ChatInputComponent implements OnInit {
     () =>
       this.currentMessage().trim().length > 0 ||
       this._pastedImages().length > 0,
+  );
+
+  /** Expose fetch error only when in @ mode (not stale from previous mode) */
+  readonly filePickerError = computed(() =>
+    this._suggestionMode() === 'at-trigger'
+      ? this.filePicker.fetchError()
+      : null,
   );
 
   /**
