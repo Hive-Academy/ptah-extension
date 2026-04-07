@@ -92,10 +92,6 @@ export class PermissionHandlerService {
         .map((r) => r.id);
 
       if (expiredIds.length > 0) {
-        console.log(
-          '[PermissionHandlerService] Cleaning up expired question requests:',
-          expiredIds,
-        );
         this._questionRequests.update((reqs) =>
           reqs.filter((r) => r.timeoutAt <= 0 || r.timeoutAt > now),
         );
@@ -241,16 +237,6 @@ export class PermissionHandlerService {
     const latencyMs =
       request.timestamp !== undefined ? receiveTime - request.timestamp : null;
 
-    console.log('[PermissionHandlerService] Permission request received:', {
-      requestId: request.id,
-      toolName: request.toolName,
-      toolUseId: request.toolUseId,
-      receiveTime,
-      backendTimestamp: request.timestamp ?? 'N/A',
-      latencyMs: latencyMs !== null ? `${latencyMs}ms` : 'N/A',
-      timeoutAt: request.timeoutAt,
-    });
-
     // Performance warning if latency exceeds expected threshold (100ms)
     if (latencyMs !== null && latencyMs > 100) {
       console.warn(
@@ -274,10 +260,6 @@ export class PermissionHandlerService {
     id: string;
     toolName: string;
   }): void {
-    console.log(
-      '[PermissionHandlerService] Permission auto-resolved:',
-      payload,
-    );
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.id !== payload.id),
     );
@@ -291,8 +273,6 @@ export class PermissionHandlerService {
    * Extracted from chat.store.ts:1344-1364
    */
   handlePermissionResponse(response: PermissionResponse): void {
-    console.log('[PermissionHandlerService] Permission response:', response);
-
     // Track hard deny IDs for targeted interrupted badge display.
     // TASK_2025_213: Prefer agentToolCallId (the parent Task tool's ID) over
     // toolUseId (the denied tool's own ID). The frontend's markAgentsAsInterruptedByToolCallIds
@@ -361,17 +341,6 @@ export class PermissionHandlerService {
 
     const permission = this.getPermissionByToolId(toolCallId);
 
-    // Debug logging for ID correlation issues
-    if (!permission && this._permissionRequests().length > 0) {
-      console.debug('[PermissionHandlerService] Permission lookup miss:', {
-        lookupKey: toolCallId,
-        availableToolUseIds: this._permissionRequests()
-          .map((req) => req.toolUseId)
-          .filter(Boolean),
-        pendingCount: this._permissionRequests().length,
-      });
-    }
-
     return permission ?? null;
   }
 
@@ -396,16 +365,6 @@ export class PermissionHandlerService {
     const latencyMs =
       request.timestamp !== undefined ? receiveTime - request.timestamp : null;
 
-    console.log('[PermissionHandlerService] Question request received:', {
-      id: request.id,
-      questionCount: request.questions.length,
-      toolUseId: request.toolUseId,
-      receiveTime,
-      backendTimestamp: request.timestamp ?? 'N/A',
-      latencyMs: latencyMs !== null ? `${latencyMs}ms` : 'N/A',
-      timeoutAt: request.timeoutAt,
-    });
-
     // Performance warning if latency exceeds expected threshold (100ms)
     if (latencyMs !== null && latencyMs > 100) {
       console.warn(
@@ -428,11 +387,6 @@ export class PermissionHandlerService {
    * @param response The user's answers to the questions
    */
   handleQuestionResponse(response: AskUserQuestionResponse): void {
-    console.log('[PermissionHandlerService] Question response sent:', {
-      id: response.id,
-      answerCount: Object.keys(response.answers).length,
-    });
-
     // Remove from pending requests
     this._questionRequests.update((requests) =>
       requests.filter((r) => r.id !== response.id),
@@ -469,8 +423,6 @@ export class PermissionHandlerService {
    * Prevents stale permission/question cards from lingering in the UI.
    */
   cleanupSession(sessionId: string): void {
-    console.log('[PermissionHandlerService] Session cleanup:', sessionId);
-
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.sessionId !== sessionId),
     );

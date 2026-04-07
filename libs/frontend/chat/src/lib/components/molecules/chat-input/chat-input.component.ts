@@ -1139,10 +1139,6 @@ export class ChatInputComponent implements OnInit {
           if (this._lastSessionId !== null && currentSessionId !== null) {
             // Clear command autocomplete cache on session switch
             this.commandDiscovery.clearCache();
-            console.log('[ChatInputComponent] Session changed, cache cleared', {
-              from: this._lastSessionId,
-              to: currentSessionId,
-            });
           }
           this._lastSessionId = currentSessionId;
         }

@@ -29,19 +29,13 @@ export class AgentDiscoveryFacade {
   async fetchAgents(): Promise<void> {
     // Cache check - skip RPC if already cached
     if (this._isCached()) {
-      console.log('[AgentDiscoveryFacade] Cache hit, skipping RPC');
       return;
     }
 
     // Prevent duplicate in-flight requests
     if (this._isLoading()) {
-      console.log(
-        '[AgentDiscoveryFacade] Request in-flight, skipping duplicate'
-      );
       return;
     }
-
-    console.log('[AgentDiscoveryFacade] fetchAgents called');
     this._isLoading.set(true);
     this._error.set(null);
 
@@ -59,9 +53,9 @@ export class AgentDiscoveryFacade {
               a.scope === 'builtin'
                 ? '🤖'
                 : a.scope === 'project'
-                ? '🛠️'
-                : '👤',
-          }))
+                  ? '🛠️'
+                  : '👤',
+          })),
         );
         // Only mark cache as valid when we have actual data
         if (result.data.agents.length > 0) {
@@ -87,29 +81,17 @@ export class AgentDiscoveryFacade {
    */
   searchAgents(query: string): AgentSuggestion[] {
     const allAgents = this._agents();
-    console.log('[AgentDiscoveryFacade] searchAgents called', {
-      query,
-      totalAgents: allAgents.length,
-    });
 
     if (!query) {
-      console.log('[AgentDiscoveryFacade] Returning all agents', {
-        count: allAgents.length,
-      });
       return allAgents;
     }
 
     const lowerQuery = query.toLowerCase();
-    const results = allAgents.filter(
+    return allAgents.filter(
       (a) =>
         a.name.toLowerCase().includes(lowerQuery) ||
-        a.description.toLowerCase().includes(lowerQuery)
+        a.description.toLowerCase().includes(lowerQuery),
     );
-
-    console.log('[AgentDiscoveryFacade] Filtered results', {
-      count: results.length,
-    });
-    return results;
   }
 
   /**
@@ -119,6 +101,5 @@ export class AgentDiscoveryFacade {
     this._isCached.set(false);
     this._agents.set([]);
     this._error.set(null);
-    console.log('[AgentDiscoveryFacade] Cache cleared');
   }
 }

@@ -39,10 +39,6 @@ export class MessageRouterService {
         }
       }
     }
-
-    console.log(
-      `[MessageRouterService] Registered ${this.handlers.length} handlers for ${this.handlerMap.size} message types`
-    );
   }
 
   /**
@@ -69,7 +65,7 @@ export class MessageRouterService {
  * so the message listener is active before any components render.
  */
 export function initializeMessageRouter(
-  _router: MessageRouterService
+  _router: MessageRouterService,
 ): () => void {
   return () => {
     // Service is already initialized in constructor
