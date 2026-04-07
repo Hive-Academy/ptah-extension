@@ -167,9 +167,28 @@ interface PastedImage {
       <div class="flex items-end gap-2">
         <!-- Textarea + Suggestions Dropdown -->
         <div class="relative flex-1">
+          <!-- Attachment buttons overlaid at top-right of textarea -->
+          <div class="absolute top-1.5 right-2 z-10 flex items-center gap-0.5">
+            <button
+              class="btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content/80"
+              (click)="handleAttachFiles()"
+              title="Attach files"
+              type="button"
+            >
+              <lucide-angular [img]="PaperclipIcon" class="w-3.5 h-3.5" />
+            </button>
+            <button
+              class="btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content/80"
+              (click)="handleAttachImages()"
+              title="Attach images"
+              type="button"
+            >
+              <lucide-angular [img]="ImagePlusIcon" class="w-3.5 h-3.5" />
+            </button>
+          </div>
           <textarea
             #inputElement
-            class="textarea textarea-bordered flex-1 min-h-[2.5rem] max-h-[10rem] resize-none transition-colors w-full"
+            class="textarea textarea-bordered flex-1 min-h-[2.5rem] max-h-[10rem] resize-none transition-colors w-full pr-16"
             [class.border-info]="
               autopilotState.agentPlanMode() ||
               autopilotState.permissionLevel() === 'plan'
@@ -270,26 +289,6 @@ interface PastedImage {
               <span class="text-[10px]">{{ authMethodLabel() }}</span>
             </div>
           }
-
-          <!-- Attach Files Button -->
-          <button
-            class="btn btn-ghost btn-xs btn-square"
-            (click)="handleAttachFiles()"
-            title="Attach files"
-            type="button"
-          >
-            <lucide-angular [img]="PaperclipIcon" class="w-3.5 h-3.5" />
-          </button>
-
-          <!-- Attach Images Button -->
-          <button
-            class="btn btn-ghost btn-xs btn-square"
-            (click)="handleAttachImages()"
-            title="Attach images"
-            type="button"
-          >
-            <lucide-angular [img]="ImagePlusIcon" class="w-3.5 h-3.5" />
-          </button>
 
           <!-- Model Selector Component -->
           <ptah-model-selector />
