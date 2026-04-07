@@ -21,10 +21,12 @@ import { Injectable, inject } from '@angular/core';
 import { type MessageHandler } from '@ptah-extension/core';
 import { FlatStreamEventUnion, MESSAGE_TYPES } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
+import { AgentMonitorStore } from './agent-monitor.store';
 
 @Injectable({ providedIn: 'root' })
 export class ChatMessageHandler implements MessageHandler {
   private readonly chatStore = inject(ChatStore);
+  private readonly agentMonitorStore = inject(AgentMonitorStore);
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
@@ -163,6 +165,14 @@ export class ChatMessageHandler implements MessageHandler {
         tabId: tabId as string,
         realSessionId: realSessionId as string,
       });
+
+      // Update parentSessionId on any agents spawned with the tab ID before
+      // the real SDK UUID was resolved. Without this, agents spawned early in
+      // the session lifecycle have a stale tab ID that never matches the tab's
+      // claudeSessionId, making them invisible in the filtered agent panel.
+      if (tabId) {
+        this.agentMonitorStore.resolveParentSessionId(tabId, realSessionId);
+      }
     } else {
       console.warn(
         '[ChatMessageHandler] session:id-resolved received but realSessionId is undefined!',

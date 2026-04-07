@@ -1,10 +1,12 @@
 /**
  * File RPC Handlers
  *
- * Handles file-related RPC methods: file:open
+ * Handles file-related RPC methods: file:open, file:pick, file:pick-images
  * Opens files in VS Code editor with optional line navigation.
+ * Provides native file picker dialogs for attaching files and images.
  *
  * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
+ * TASK_2025_262: Added file:pick and file:pick-images for attachment buttons
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -12,6 +14,8 @@ import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import { FileOpenParams, FileOpenResult } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as path from 'path';
+
 /**
  * RPC handlers for file operations
  */
@@ -19,7 +23,7 @@ import * as fs from 'fs';
 export class FileRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler
+    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
   ) {}
 
   /**
@@ -27,9 +31,11 @@ export class FileRpcHandlers {
    */
   register(): void {
     this.registerFileOpen();
+    this.registerPick();
+    this.registerPickImages();
 
     this.logger.debug('File RPC handlers registered', {
-      methods: ['file:open'],
+      methods: ['file:open', 'file:pick', 'file:pick-images'],
     });
   }
 
@@ -69,7 +75,7 @@ export class FileRpcHandlers {
             editor.selection = new vscode.Selection(position, position);
             editor.revealRange(
               new vscode.Range(position, position),
-              vscode.TextEditorRevealType.InCenter
+              vscode.TextEditorRevealType.InCenter,
             );
           }
 
@@ -77,14 +83,122 @@ export class FileRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: file:open failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
+    );
+  }
+
+  /**
+   * file:pick - Open native file picker for workspace files
+   * Returns selected file paths without reading content.
+   */
+  private registerPick(): void {
+    this.rpcHandler.registerMethod(
+      'file:pick',
+      async (params: { multiple?: boolean } | undefined) => {
+        try {
+          this.logger.debug('RPC: file:pick called', {
+            multiple: params?.multiple,
+          });
+
+          const fileUris = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: params?.multiple !== false,
+            defaultUri: vscode.workspace.workspaceFolders?.[0]?.uri,
+            title: 'Attach Files',
+          });
+
+          if (!fileUris || fileUris.length === 0) {
+            return { paths: [] };
+          }
+
+          return { paths: fileUris.map((uri) => uri.fsPath) };
+        } catch (error) {
+          this.logger.error(
+            'RPC: file:pick failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          return { paths: [] };
+        }
+      },
+    );
+  }
+
+  /**
+   * file:pick-images - Open native file picker for images, returns base64 data
+   * Filters to common image formats and reads selected files as base64.
+   */
+  private registerPickImages(): void {
+    this.rpcHandler.registerMethod(
+      'file:pick-images',
+      async (params: { multiple?: boolean } | undefined) => {
+        try {
+          this.logger.debug('RPC: file:pick-images called', {
+            multiple: params?.multiple,
+          });
+
+          const imageUris = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: params?.multiple !== false,
+            defaultUri: vscode.workspace.workspaceFolders?.[0]?.uri,
+            title: 'Attach Images',
+            filters: {
+              Images: [
+                'png',
+                'jpg',
+                'jpeg',
+                'gif',
+                'webp',
+                'svg',
+                'bmp',
+                'ico',
+              ],
+            },
+          });
+
+          if (!imageUris || imageUris.length === 0) {
+            return { images: [] };
+          }
+
+          const images: Array<{
+            data: string;
+            mediaType: string;
+            name: string;
+          }> = [];
+
+          for (const uri of imageUris) {
+            const data = await fs.promises.readFile(uri.fsPath);
+            const base64 = data.toString('base64');
+            const ext = path.extname(uri.fsPath).toLowerCase().slice(1);
+            const mediaType =
+              ext === 'svg'
+                ? 'image/svg+xml'
+                : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+
+            images.push({
+              data: base64,
+              mediaType,
+              name: path.basename(uri.fsPath),
+            });
+          }
+
+          return { images };
+        } catch (error) {
+          this.logger.error(
+            'RPC: file:pick-images failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          return { images: [] };
+        }
+      },
     );
   }
 }

@@ -498,10 +498,10 @@ export class SessionStatsSummaryComponent {
     );
   });
 
-  /** Total token count (input + output) */
+  /** Total token count (input + cache-read + output) */
   readonly totalTokenCount = computed(() => {
     const tokens = this.summary().totalTokens;
-    return tokens.input + tokens.output;
+    return tokens.input + (tokens.cacheRead ?? 0) + tokens.output;
   });
 
   /** Tooltip with detailed token breakdown */

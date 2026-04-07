@@ -46,8 +46,10 @@ export interface MonitoredAgent {
   segments: CliOutputSegment[];
   /** Rich streaming events from Ptah CLI adapter. Enables ExecutionNode rendering. */
   streamEvents: FlatStreamEventUnion[];
-  /** Parent Ptah Claude SDK session that spawned this agent */
-  readonly parentSessionId?: string;
+  /** Parent Ptah Claude SDK session that spawned this agent.
+   * Mutable: initially set to tab ID, resolved to real SDK UUID
+   * when SESSION_ID_RESOLVED fires. */
+  parentSessionId?: string;
   /**
    * CLI-native session ID (e.g., Gemini UUID). Enables resume.
    * Mutable because the session ID is often late-captured: it arrives via the
@@ -155,9 +157,23 @@ export class AgentMonitorStore implements OnDestroy {
 
   readonly agentCount = computed(() => this._agents().size);
 
-  /** Agents that currently have a pending permission request (global — all tabs) */
+  /** Whether the active tab's session has running agents (session-scoped) */
+  readonly hasActiveTabRunningAgents = computed(() =>
+    this.activeTabAgents().some((a) => a.status === 'running'),
+  );
+
+  /** Count of agents belonging to the active tab's session */
+  readonly activeTabAgentCount = computed(() => this.activeTabAgents().length);
+
+  /** Agents that currently have a pending permission request (global — all tabs).
+   * Permissions are global because the user should always see them regardless of active tab. */
   readonly pendingPermissions = computed(() =>
     this.agents().filter((a) => a.permissionQueue.length > 0),
+  );
+
+  /** Pending permissions scoped to the active tab's session */
+  readonly activeTabPendingPermissions = computed(() =>
+    this.activeTabAgents().filter((a) => a.permissionQueue.length > 0),
   );
 
   readonly panelOpen = computed(() => this._panelOpen());
@@ -651,6 +667,26 @@ export class AgentMonitorStore implements OnDestroy {
       const next = new Map(map);
       next.delete(agentId);
       return next;
+    });
+  }
+
+  /**
+   * Update parentSessionId for all agents that were spawned with a tab ID
+   * before the real SDK session UUID was resolved.
+   * Called when SESSION_ID_RESOLVED fires, mirroring the backend's
+   * AgentProcessManager.resolveParentSessionId().
+   */
+  resolveParentSessionId(tabId: string, realSessionId: string): void {
+    this._agents.update((map) => {
+      let changed = false;
+      const next = new Map(map);
+      for (const [id, agent] of next) {
+        if (agent.parentSessionId === tabId) {
+          next.set(id, { ...agent, parentSessionId: realSessionId });
+          changed = true;
+        }
+      }
+      return changed ? next : map;
     });
   }
 

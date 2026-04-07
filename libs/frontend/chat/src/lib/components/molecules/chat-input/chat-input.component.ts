@@ -17,6 +17,8 @@ import {
   Clock,
   X,
   ImageIcon,
+  Paperclip,
+  ImagePlus,
 } from 'lucide-angular';
 import {
   InlineImageAttachment,
@@ -269,6 +271,26 @@ interface PastedImage {
             </div>
           }
 
+          <!-- Attach Files Button -->
+          <button
+            class="btn btn-ghost btn-xs btn-square"
+            (click)="handleAttachFiles()"
+            title="Attach files"
+            type="button"
+          >
+            <lucide-angular [img]="PaperclipIcon" class="w-3.5 h-3.5" />
+          </button>
+
+          <!-- Attach Images Button -->
+          <button
+            class="btn btn-ghost btn-xs btn-square"
+            (click)="handleAttachImages()"
+            title="Attach images"
+            type="button"
+          >
+            <lucide-angular [img]="ImagePlusIcon" class="w-3.5 h-3.5" />
+          </button>
+
           <!-- Model Selector Component -->
           <ptah-model-selector />
         </div>
@@ -340,6 +362,8 @@ export class ChatInputComponent implements OnInit {
   readonly ClockIcon = Clock;
   readonly XIcon = X;
   readonly ImageIconRef = ImageIcon;
+  readonly PaperclipIcon = Paperclip;
+  readonly ImagePlusIcon = ImagePlus;
 
   // Session tracking for proper change detection (avoid clearing cache on every stream event)
   private _lastSessionId: string | null = null;
@@ -502,6 +526,69 @@ export class ChatInputComponent implements OnInit {
    */
   removePastedImage(id: string): void {
     this._pastedImages.update((imgs) => imgs.filter((img) => img.id !== id));
+  }
+
+  /**
+   * Open native file picker to attach workspace files.
+   * Uses RPC to bypass webview sandbox limitation.
+   */
+  async handleAttachFiles(): Promise<void> {
+    try {
+      const result = await this.rpcService.call('file:pick', {
+        multiple: true,
+      });
+      if (!result.success || !result.data?.paths?.length) return;
+
+      for (const filePath of result.data.paths) {
+        // Skip if already attached
+        if (this._selectedFiles().some((f) => f.path === filePath)) continue;
+
+        // Extract file info
+        const name = filePath.replace(/\\/g, '/').split('/').pop() || filePath;
+        const dotIndex = name.lastIndexOf('.');
+        const ext = dotIndex > 0 ? name.substring(dotIndex).toLowerCase() : '';
+
+        const chatFile: ChatFile = {
+          path: filePath,
+          name,
+          size: 0,
+          type: this.filePicker.isFileSupported(filePath) ? 'text' : 'binary',
+          isLarge: false,
+          tokenEstimate: 0,
+        };
+
+        this._selectedFiles.update((files) => [...files, chatFile]);
+      }
+    } catch (error) {
+      console.error('[ChatInput] Failed to pick files:', error);
+    }
+  }
+
+  /**
+   * Open native file picker to attach images.
+   * Uses RPC to bypass webview sandbox limitation - reads images as base64.
+   */
+  async handleAttachImages(): Promise<void> {
+    try {
+      const result = await this.rpcService.call('file:pick-images', {
+        multiple: true,
+      });
+      if (!result.success || !result.data?.images?.length) return;
+
+      for (const img of result.data.images) {
+        const pastedImage: PastedImage = {
+          id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          data: img.data,
+          mediaType: img.mediaType,
+          dataUrl: `data:${img.mediaType};base64,${img.data}`,
+          name: img.name,
+        };
+
+        this._pastedImages.update((imgs) => [...imgs, pastedImage]);
+      }
+    } catch (error) {
+      console.error('[ChatInput] Failed to pick images:', error);
+    }
   }
 
   /**

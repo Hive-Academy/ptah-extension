@@ -132,7 +132,7 @@ export class ConversationService {
    */
   public queueOrAppendMessage(
     content: string,
-    options?: SendMessageOptions
+    options?: SendMessageOptions,
   ): void {
     const activeTabId = this.tabManager.activeTabId();
     if (!activeTabId) return;
@@ -141,7 +141,7 @@ export class ConversationService {
     const validation = this.validator.validate(content);
     if (!validation.valid) {
       console.warn(
-        `[ConversationService] Invalid queue content: ${validation.reason}`
+        `[ConversationService] Invalid queue content: ${validation.reason}`,
       );
       return;
     }
@@ -229,7 +229,7 @@ export class ConversationService {
    */
   async sendOrQueueMessage(
     content: string,
-    filePaths?: string[]
+    filePaths?: string[],
   ): Promise<void> {
     if (this.isStreaming()) {
       // Queue the message instead of sending
@@ -256,14 +256,14 @@ export class ConversationService {
       const ready = await this.waitForServices(5000);
       if (!ready) {
         console.error(
-          '[ConversationService] startNewConversation: Services initialization timeout'
+          '[ConversationService] startNewConversation: Services initialization timeout',
         );
         return;
       }
 
       if (!this.claudeRpcService || !this.vscodeService) {
         console.error(
-          '[ConversationService] Services not available after initialization'
+          '[ConversationService] Services not available after initialization',
         );
         return;
       }
@@ -286,7 +286,13 @@ export class ConversationService {
 
       // Update tab with draft status (claudeSessionId stays null until SDK responds)
       // TASK_2025_192: Auto-name session from first message content (not "New Chat")
-      const autoName = content.substring(0, 50).trim() || 'New Chat';
+      // Only auto-name if user hasn't already set a custom name (preserve user renames)
+      const currentTab = this.tabManager.activeTab();
+      const currentName = currentTab?.name;
+      const hasUserName = currentName && currentName !== 'New Chat';
+      const autoName = hasUserName
+        ? currentName
+        : content.substring(0, 50).trim() || 'New Chat';
       this.tabManager.updateTab(activeTabId, {
         name: autoName,
         title: autoName,
@@ -329,7 +335,7 @@ export class ConversationService {
       if (!result.success) {
         console.error(
           '[ConversationService] Failed to start chat:',
-          result.error
+          result.error,
         );
         // Update tab status to loaded (failed)
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
@@ -345,7 +351,7 @@ export class ConversationService {
     } catch (error) {
       console.error(
         '[ConversationService] Failed to start new conversation:',
-        error
+        error,
       );
 
       // Update tab status to loaded (error)
@@ -369,14 +375,14 @@ export class ConversationService {
       const ready = await this.waitForServices(5000);
       if (!ready) {
         console.error(
-          '[ConversationService] continueConversation: Services initialization timeout'
+          '[ConversationService] continueConversation: Services initialization timeout',
         );
         return;
       }
 
       if (!this.claudeRpcService || !this.vscodeService) {
         console.error(
-          '[ConversationService] Services not available after initialization'
+          '[ConversationService] Services not available after initialization',
         );
         return;
       }
@@ -393,7 +399,7 @@ export class ConversationService {
       const sessionId = activeTab?.claudeSessionId;
       if (!sessionId) {
         console.warn(
-          '[ConversationService] No Claude session ID on active tab - starting new conversation'
+          '[ConversationService] No Claude session ID on active tab - starting new conversation',
         );
         return this.startNewConversation(content, files);
       }
@@ -402,7 +408,7 @@ export class ConversationService {
       const activeTabId = this.tabManager.activeTabId();
       if (!activeTabId) {
         console.warn(
-          '[ConversationService] No active tab for continuing conversation'
+          '[ConversationService] No active tab for continuing conversation',
         );
         return this.startNewConversation(content, files);
       }
@@ -456,7 +462,7 @@ export class ConversationService {
       if (!result.success) {
         console.error(
           '[ConversationService] Failed to continue chat:',
-          result.error
+          result.error,
         );
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
       } else {
@@ -466,7 +472,7 @@ export class ConversationService {
     } catch (error) {
       console.error(
         '[ConversationService] Failed to continue conversation:',
-        error
+        error,
       );
       const activeTabId = this.tabManager.activeTabId();
       if (activeTabId) {
@@ -527,7 +533,7 @@ export class ConversationService {
       // Call RPC to abort
       console.log(
         '[ConversationService] Calling chat:abort RPC for session:',
-        sessionId
+        sessionId,
       );
       const result = await this.claudeRpcService.call('chat:abort', {
         sessionId: sessionId as SessionId,
@@ -536,12 +542,12 @@ export class ConversationService {
       if (result.success) {
         console.log(
           '[ConversationService] chat:abort succeeded for session:',
-          sessionId
+          sessionId,
         );
       } else {
         console.error(
           '[ConversationService] Failed to abort chat:',
-          result.error
+          result.error,
         );
       }
 
@@ -600,7 +606,7 @@ export class ConversationService {
       if (!sessionId) {
         // No session — abort immediately without confirmation
         console.log(
-          '[ConversationService] abortWithConfirmation: no session, aborting immediately'
+          '[ConversationService] abortWithConfirmation: no session, aborting immediately',
         );
         await this.abortCurrentMessage();
         return true;
@@ -621,7 +627,7 @@ export class ConversationService {
         // RPC failed — fail-safe: abort immediately without confirmation
         console.warn(
           '[ConversationService] abortWithConfirmation: RPC failed, falling back to immediate abort',
-          rpcError
+          rpcError,
         );
         await this.abortCurrentMessage();
         return true;
@@ -630,7 +636,7 @@ export class ConversationService {
       if (agentCount === 0) {
         // No running agents — abort immediately
         console.log(
-          '[ConversationService] abortWithConfirmation: no running agents, aborting immediately'
+          '[ConversationService] abortWithConfirmation: no running agents, aborting immediately',
         );
         await this.abortCurrentMessage();
         return true;
@@ -640,7 +646,7 @@ export class ConversationService {
       console.log(
         '[ConversationService] abortWithConfirmation: showing confirmation for',
         agentCount,
-        'running agents'
+        'running agents',
       );
 
       const confirmationDialog = this.injector.get(ConfirmationDialogService);
@@ -654,21 +660,21 @@ export class ConversationService {
 
       if (confirmed) {
         console.log(
-          '[ConversationService] abortWithConfirmation: user confirmed, aborting'
+          '[ConversationService] abortWithConfirmation: user confirmed, aborting',
         );
         await this.abortCurrentMessage();
         return true;
       }
 
       console.log(
-        '[ConversationService] abortWithConfirmation: user cancelled, keeping agents running'
+        '[ConversationService] abortWithConfirmation: user cancelled, keeping agents running',
       );
       return false;
     } catch (error) {
       // Unexpected error — fail-safe: abort immediately
       console.error(
         '[ConversationService] abortWithConfirmation failed, falling back to immediate abort:',
-        error
+        error,
       );
       await this.abortCurrentMessage();
       return true;

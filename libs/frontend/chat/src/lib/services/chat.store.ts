@@ -960,10 +960,13 @@ export class ChatStore {
           : stats.modelUsage.reduce((best, current) =>
               current.outputTokens > best.outputTokens ? current : best,
             );
-      // Context usage = input + output tokens only.
-      // Cache-read tokens are NOT included: they represent prompt cache hits (a billing/perf metric)
-      // and do NOT consume additional context window space beyond the original input tokens.
-      const contextUsed = primaryModel.inputTokens + primaryModel.outputTokens;
+      // Context usage = input + cache-read + output tokens.
+      // Cache-read tokens represent cached prompt content that still occupies context window space.
+      // They're cheaper to process (billing), but count toward the context window limit.
+      const contextUsed =
+        primaryModel.inputTokens +
+        (primaryModel.cacheReadInputTokens ?? 0) +
+        primaryModel.outputTokens;
       const contextPercent =
         primaryModel.contextWindow > 0
           ? Math.round((contextUsed / primaryModel.contextWindow) * 1000) / 10
