@@ -633,7 +633,7 @@ export class ElectronSkillsShRpcHandlers {
     const skills: SkillShEntry[] = [];
 
     // Strip ANSI escape codes — the CLI ignores NO_COLOR and always emits them
-     
+
     const stripped = output.replace(
       new RegExp(String.fromCharCode(0x1b) + '\\[[0-9;]*m', 'g'),
       '',
