@@ -14,7 +14,13 @@ import {
   OnInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { LucideAngularModule, Plug, Check, AlertCircle } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  Plug,
+  Check,
+  AlertCircle,
+  Wrench,
+} from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 
 @Component({
@@ -79,6 +85,56 @@ import { ClaudeRpcService } from '@ptah-extension/core';
         </div>
       </div>
     </div>
+
+    <!-- Tool Namespace Toggles -->
+    <div class="border border-secondary/30 rounded-md bg-secondary/5 mt-3">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <lucide-angular [img]="WrenchIcon" class="w-4 h-4 text-secondary" />
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            MCP Tool Namespaces
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          Enable or disable tool groups exposed to AI agents. Disabling unused
+          namespaces reduces context window usage.
+        </p>
+
+        <div class="space-y-2">
+          @for (ns of namespaceOptions; track ns.id) {
+            <div
+              class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-base-200/50 transition-colors"
+            >
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs font-medium">{{ ns.label }}</span>
+                  <span class="text-[10px] text-base-content/40"
+                    >({{ ns.toolCount }} tools)</span
+                  >
+                </div>
+                <p class="text-[10px] text-base-content/50 truncate">
+                  {{ ns.description }}
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                class="toggle toggle-xs toggle-primary"
+                [checked]="isNamespaceEnabled(ns.id)"
+                (change)="toggleNamespace(ns.id)"
+                [disabled]="namespaceSaving()"
+                [attr.aria-label]="'Toggle ' + ns.label + ' namespace'"
+              />
+            </div>
+          }
+        </div>
+
+        @if (namespaceSaveSuccess()) {
+          <div class="text-[10px] text-success mt-2">
+            Tool namespaces updated. Changes take effect on next MCP connection.
+          </div>
+        }
+      </div>
+    </div>
   `,
 })
 export class McpPortConfigComponent implements OnInit {
@@ -87,6 +143,7 @@ export class McpPortConfigComponent implements OnInit {
   readonly PlugIcon = Plug;
   readonly CheckIcon = Check;
   readonly AlertCircleIcon = AlertCircle;
+  readonly WrenchIcon = Wrench;
 
   readonly portValue = signal<number>(51820);
   readonly savedPort = signal<number>(51820);
@@ -95,6 +152,45 @@ export class McpPortConfigComponent implements OnInit {
   readonly validationError = signal<string | null>(null);
   readonly saveSuccess = signal(false);
 
+  /** Namespace toggle state */
+  readonly disabledNamespaces = signal<string[]>([]);
+  readonly savedDisabledNamespaces = signal<string[]>([]);
+  readonly namespaceSaving = signal(false);
+  readonly namespaceSaveSuccess = signal(false);
+
+  readonly namespaceOptions = [
+    {
+      id: 'browser',
+      label: 'Browser Automation',
+      description: 'Navigate, screenshot, click, type, evaluate',
+      toolCount: 12,
+    },
+    {
+      id: 'agent',
+      label: 'CLI Agents',
+      description: 'Spawn, monitor, and control CLI agents',
+      toolCount: 6,
+    },
+    {
+      id: 'git',
+      label: 'Git Worktree',
+      description: 'Create and manage git worktrees',
+      toolCount: 3,
+    },
+    {
+      id: 'ide',
+      label: 'IDE / LSP',
+      description: 'Symbol references, definitions, dirty files',
+      toolCount: 3,
+    },
+    {
+      id: 'json',
+      label: 'JSON Validation',
+      description: 'Validate and repair JSON files',
+      toolCount: 1,
+    },
+  ] as const;
+
   async ngOnInit(): Promise<void> {
     await this.loadCurrentPort();
   }
@@ -102,9 +198,15 @@ export class McpPortConfigComponent implements OnInit {
   private async loadCurrentPort(): Promise<void> {
     try {
       const result = await this.rpcService.call('agent:getConfig', undefined);
-      if (result.isSuccess() && result.data.mcpPort) {
-        this.portValue.set(result.data.mcpPort);
-        this.savedPort.set(result.data.mcpPort);
+      if (result.isSuccess()) {
+        if (result.data.mcpPort) {
+          this.portValue.set(result.data.mcpPort);
+          this.savedPort.set(result.data.mcpPort);
+        }
+        if (result.data.disabledMcpNamespaces) {
+          this.disabledNamespaces.set(result.data.disabledMcpNamespaces);
+          this.savedDisabledNamespaces.set(result.data.disabledMcpNamespaces);
+        }
       }
     } catch {
       // Use default if load fails
@@ -153,6 +255,38 @@ export class McpPortConfigComponent implements OnInit {
       this.validationError.set('Failed to save port');
     } finally {
       this.isSaving.set(false);
+    }
+  }
+
+  isNamespaceEnabled(id: string): boolean {
+    return !this.disabledNamespaces().includes(id);
+  }
+
+  async toggleNamespace(id: string): Promise<void> {
+    const current = this.disabledNamespaces();
+    const updated = current.includes(id)
+      ? current.filter((n) => n !== id)
+      : [...current, id];
+
+    this.disabledNamespaces.set(updated);
+    this.namespaceSaving.set(true);
+    this.namespaceSaveSuccess.set(false);
+
+    try {
+      const result = await this.rpcService.call('agent:setConfig', {
+        disabledMcpNamespaces: updated,
+      });
+      if (result.isSuccess()) {
+        this.savedDisabledNamespaces.set(updated);
+        this.namespaceSaveSuccess.set(true);
+        setTimeout(() => this.namespaceSaveSuccess.set(false), 2000);
+      } else {
+        this.disabledNamespaces.set(this.savedDisabledNamespaces());
+      }
+    } catch {
+      this.disabledNamespaces.set(this.savedDisabledNamespaces());
+    } finally {
+      this.namespaceSaving.set(false);
     }
   }
 }

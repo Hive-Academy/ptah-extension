@@ -171,6 +171,10 @@ export class AgentRpcHandlers {
               '',
             ),
             disabledClis: getCfg<string[]>('disabledClis', []),
+            disabledMcpNamespaces: getCfg<string[]>(
+              'disabledMcpNamespaces',
+              [],
+            ),
             // MCP port is under ptah namespace (not agentOrchestration), non-file-based
             mcpPort:
               this.workspaceProvider.getConfiguration<number>(
@@ -375,6 +379,15 @@ export class AgentRpcHandlers {
       await setCfg(
         'disabledClis',
         params.disabledClis.length > 0 ? params.disabledClis : undefined,
+      );
+    }
+
+    if (params.disabledMcpNamespaces !== undefined) {
+      await setCfg(
+        'disabledMcpNamespaces',
+        params.disabledMcpNamespaces.length > 0
+          ? params.disabledMcpNamespaces
+          : undefined,
       );
     }
 
