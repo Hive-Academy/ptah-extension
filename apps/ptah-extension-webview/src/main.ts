@@ -15,10 +15,6 @@ declare global {
   }
 }
 
-bootstrapApplication(App, appConfig)
-  .then(() => {
-    console.log('=== PTAH WEBVIEW BOOTSTRAP COMPLETE ===');
-  })
-  .catch((err) => {
-    console.error('=== PTAH WEBVIEW BOOTSTRAP FAILED ===', err);
-  });
+bootstrapApplication(App, appConfig).catch((err) => {
+  console.error('=== PTAH WEBVIEW BOOTSTRAP FAILED ===', err);
+});

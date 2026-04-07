@@ -35,7 +35,7 @@ const isMac = process.platform === 'darwin';
  */
 export function createApplicationMenu(
   container: DependencyContainer,
-  getWindow: () => BrowserWindow | null
+  getWindow: () => BrowserWindow | null,
 ): void {
   const template: MenuItemConstructorOptions[] = [];
 
@@ -182,13 +182,13 @@ export function createApplicationMenu(
       {
         label: 'Open Website',
         click: async () => {
-          await shell.openExternal('https://ptah.dev');
+          await shell.openExternal('https://ptah.live');
         },
       },
       {
         label: 'Documentation',
         click: async () => {
-          await shell.openExternal('https://ptah.dev/docs');
+          await shell.openExternal('https://ptah.live/docs');
         },
       },
       { type: 'separator' },
@@ -224,7 +224,7 @@ export function createApplicationMenu(
  */
 async function handleOpenFolder(
   container: DependencyContainer,
-  getWindow: () => BrowserWindow | null
+  getWindow: () => BrowserWindow | null,
 ): Promise<void> {
   const win = getWindow();
   const dialogOptions = {
@@ -245,7 +245,7 @@ async function handleOpenFolder(
 
   try {
     const workspaceProvider = container.resolve<IWorkspaceProvider>(
-      PLATFORM_TOKENS.WORKSPACE_PROVIDER
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
     );
 
     // ElectronWorkspaceProvider has setWorkspaceFolders()
@@ -269,7 +269,7 @@ async function handleOpenFolder(
   } catch (error) {
     console.error(
       '[ApplicationMenu] Failed to set workspace folder:',
-      error instanceof Error ? error.message : String(error)
+      error instanceof Error ? error.message : String(error),
     );
   }
 }
@@ -282,7 +282,7 @@ async function handleOpenFolder(
 function sendRendererMessage(
   getWindow: () => BrowserWindow | null,
   type: string,
-  payload?: unknown
+  payload?: unknown,
 ): void {
   const win = getWindow();
   if (win) {

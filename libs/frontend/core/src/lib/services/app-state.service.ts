@@ -50,9 +50,6 @@ export class AppStateManager implements MessageHandler {
       'welcome',
     ];
     if (view && validViews.includes(view as ViewType)) {
-      console.log(
-        `[AppStateManager] Backend requested view switch to: ${view}`,
-      );
       this.handleViewSwitch(view as ViewType);
     } else {
       console.warn(
@@ -169,11 +166,6 @@ export class AppStateManager implements MessageHandler {
     }
 
     const initialView = windowWithState.initialView || 'chat';
-    console.log(
-      `[AppStateManager] Initializing with view: ${initialView}, isLicensed: ${isLicensed}, workspace: ${
-        workspaceRoot || 'none'
-      }`,
-    );
     this._currentView.set(initialView);
     if (initialView !== 'chat' && initialView !== 'welcome') {
       this._openViews.update((views) => {

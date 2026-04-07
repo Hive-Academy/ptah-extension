@@ -15,7 +15,7 @@
 import type { AuthEnv } from '@ptah-extension/shared';
 
 export function buildSafeEnv(
-  authEnv: AuthEnv
+  authEnv: AuthEnv,
 ): Record<string, string | undefined> {
   return {
     // Platform essentials for process execution
@@ -61,5 +61,13 @@ export function buildSafeEnv(
     SHELL: process.env['SHELL'],
     // Provider-specific auth and config (e.g., ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL)
     ...authEnv,
+    // Disable experimental betas for any non-Anthropic base URL — prevents the SDK
+    // from enabling context-management-2025-06-27 which third-party endpoints don't support
+    ...(() => {
+      const baseUrl = authEnv.ANTHROPIC_BASE_URL?.trim();
+      return baseUrl && !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
+        ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
+        : {};
+    })(),
   };
 }

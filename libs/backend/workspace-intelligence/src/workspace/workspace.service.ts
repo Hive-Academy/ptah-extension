@@ -202,7 +202,6 @@ export class WorkspaceService implements IDisposable {
 
     if (!workspaceRoot) {
       this.currentAnalysis = undefined;
-      console.info('No workspace folder detected');
       return undefined;
     }
 
@@ -271,12 +270,6 @@ export class WorkspaceService implements IDisposable {
         totalFiles,
         hasGitRepository,
       };
-
-      console.info(
-        `Workspace analyzed: ${workspaceName} (${projectType}${
-          framework ? ` - ${framework}` : ''
-        })`,
-      );
 
       return this.currentAnalysis;
     } catch (error) {
@@ -792,7 +785,6 @@ export class WorkspaceService implements IDisposable {
    * Dispose service and cleanup resources
    */
   dispose(): void {
-    console.info('Disposing WorkspaceService...');
     this.disposables.forEach((d) => d.dispose());
     this.disposables = [];
   }
