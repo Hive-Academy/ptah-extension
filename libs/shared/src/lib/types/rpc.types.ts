@@ -308,7 +308,7 @@ export interface RpcMethodRegistry {
   'file:open': { params: FileOpenParams; result: FileOpenResult };
   'file:pick': {
     params: { multiple?: boolean };
-    result: { paths: string[] };
+    result: { files: Array<{ path: string; size: number }> };
   };
   'file:pick-images': {
     params: { multiple?: boolean };
