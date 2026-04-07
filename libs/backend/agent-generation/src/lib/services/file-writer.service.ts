@@ -105,8 +105,8 @@ export class AgentFileWriterService implements IAgentFileWriterService {
             'Agent content cannot be empty',
             agent.filePath,
             'write',
-            { templateId: agent.sourceTemplateId }
-          )
+            { templateId: agent.sourceTemplateId },
+          ),
         );
       }
 
@@ -150,7 +150,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
           error,
           agent.filePath,
           'write',
-          'Failed to write agent file'
+          'Failed to write agent file',
         );
       }
 
@@ -161,8 +161,8 @@ export class AgentFileWriterService implements IAgentFileWriterService {
         new FileWriteError(
           `Unexpected error writing agent: ${(error as Error).message}`,
           agent.filePath,
-          'write'
-        )
+          'write',
+        ),
       );
     }
   }
@@ -198,7 +198,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
    * ```
    */
   async writeAgentsBatch(
-    agents: GeneratedAgent[]
+    agents: GeneratedAgent[],
   ): Promise<Result<string[], Error>> {
     // Handle empty array
     if (agents.length === 0) {
@@ -221,8 +221,8 @@ export class AgentFileWriterService implements IAgentFileWriterService {
               `Agent content cannot be empty: ${agent.filePath}`,
               agent.filePath,
               'write',
-              { templateId: agent.sourceTemplateId }
-            )
+              { templateId: agent.sourceTemplateId },
+            ),
           );
         }
 
@@ -235,7 +235,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
 
       // Phase 2: Create all directories
       const absolutePaths = agents.map((agent) =>
-        this.resolveAbsolutePath(agent.filePath)
+        this.resolveAbsolutePath(agent.filePath),
       );
 
       for (const absolutePath of absolutePaths) {
@@ -278,14 +278,14 @@ export class AgentFileWriterService implements IAgentFileWriterService {
           // Rollback: restore all backups and delete all written files
           await this.rollbackTransaction(
             Array.from(backupPaths.entries()),
-            writtenPaths
+            writtenPaths,
           );
 
           return this.handleFileSystemError(
             error,
             agent.filePath,
             'write',
-            `Failed to write agent file in batch (index ${i})`
+            `Failed to write agent file in batch (index ${i})`,
           );
         }
       }
@@ -301,15 +301,15 @@ export class AgentFileWriterService implements IAgentFileWriterService {
       this.logger.error('Unexpected error in batch write', error as Error);
       await this.rollbackTransaction(
         Array.from(backupPaths.entries()),
-        writtenPaths
+        writtenPaths,
       );
 
       return Result.err(
         new FileWriteError(
           `Unexpected error writing agents batch: ${(error as Error).message}`,
           agents[0]?.filePath || 'unknown',
-          'write'
-        )
+          'write',
+        ),
       );
     }
   }
@@ -368,7 +368,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
           error,
           filePath,
           'backup',
-          'Failed to create backup file'
+          'Failed to create backup file',
         );
       }
     } catch (error) {
@@ -377,8 +377,8 @@ export class AgentFileWriterService implements IAgentFileWriterService {
         new FileWriteError(
           `Unexpected error creating backup: ${(error as Error).message}`,
           filePath,
-          'backup'
-        )
+          'backup',
+        ),
       );
     }
   }
@@ -407,8 +407,8 @@ export class AgentFileWriterService implements IAgentFileWriterService {
             'Path traversal detected: file path contains ".."',
             filePath,
             'write',
-            { securityViolation: true }
-          )
+            { securityViolation: true },
+          ),
         );
       }
 
@@ -423,8 +423,8 @@ export class AgentFileWriterService implements IAgentFileWriterService {
             'Security violation: file path must be within .claude/ directory',
             filePath,
             'write',
-            { securityViolation: true }
-          )
+            { securityViolation: true },
+          ),
         );
       }
 
@@ -435,8 +435,8 @@ export class AgentFileWriterService implements IAgentFileWriterService {
             `File path exceeds maximum length (${this.MAX_PATH_LENGTH} characters)`,
             filePath,
             'write',
-            { pathLength: normalizedPath.length }
-          )
+            { pathLength: normalizedPath.length },
+          ),
         );
       }
 
@@ -446,8 +446,8 @@ export class AgentFileWriterService implements IAgentFileWriterService {
         new FileWriteError(
           `Failed to validate file path: ${(error as Error).message}`,
           filePath,
-          'write'
-        )
+          'write',
+        ),
       );
     }
   }
@@ -465,9 +465,12 @@ export class AgentFileWriterService implements IAgentFileWriterService {
       return normalize(filePath);
     }
 
-    // Otherwise, resolve relative to current working directory
-    // In production, this would be workspace root
-    return normalize(join(process.cwd(), filePath));
+    // Otherwise, resolve relative to home directory as safe fallback.
+    // In production, filePath should already be absolute (orchestrator uses context.rootPath).
+    this.logger.warn(
+      `[FileWriter] Relative path "${filePath}" — resolving against homedir. Caller should provide absolute path.`,
+    );
+    return normalize(join(require('os').homedir(), filePath));
   }
 
   /**
@@ -477,7 +480,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
    * @returns Result.ok() if directory exists or created, Result.err() on failure
    */
   private async ensureDirectoryExists(
-    filePath: string
+    filePath: string,
   ): Promise<Result<void, Error>> {
     try {
       const dir = dirname(filePath);
@@ -489,7 +492,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
         error,
         filePath,
         'mkdir',
-        'Failed to create directory'
+        'Failed to create directory',
       );
     }
   }
@@ -549,7 +552,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
    */
   private async restoreBackup(
     backupPath: string,
-    originalPath: string
+    originalPath: string,
   ): Promise<void> {
     try {
       await copyFile(backupPath, originalPath);
@@ -567,7 +570,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
    */
   private async rollbackTransaction(
     backups: Array<[string, string]>,
-    writtenPaths: string[]
+    writtenPaths: string[],
   ): Promise<void> {
     this.logger.warn('Rolling back transaction', {
       backupCount: backups.length,
@@ -582,7 +585,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
       } catch (error) {
         this.logger.error(
           'Failed to restore backup during rollback',
-          error as Error
+          error as Error,
         );
       }
     }
@@ -597,7 +600,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
       } catch (error) {
         this.logger.error(
           'Failed to delete partial write during rollback',
-          error as Error
+          error as Error,
         );
       }
     }
@@ -618,7 +621,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
     error: unknown,
     filePath: string,
     operation: 'write' | 'backup' | 'mkdir',
-    message: string
+    message: string,
   ): Result<never, Error> {
     const nodeError = error as NodeJS.ErrnoException;
 
@@ -656,7 +659,7 @@ export class AgentFileWriterService implements IAgentFileWriterService {
     this.logger.error(errorMessage, nodeError);
 
     return Result.err(
-      new FileWriteError(errorMessage, filePath, operation, context)
+      new FileWriteError(errorMessage, filePath, operation, context),
     );
   }
 }

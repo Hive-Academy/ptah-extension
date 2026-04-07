@@ -68,7 +68,8 @@ export class TemplateStorageService implements ITemplateStorageService {
     // In production, templatesPath is always injected by the DI container
     // (resolved from extensionPath). The fallback is only for standalone testing.
     this.templatesPath =
-      templatesPath || join(process.cwd(), 'templates', 'agents');
+      templatesPath ||
+      join(require('os').homedir(), '.ptah', 'templates', 'agents');
 
     this.logger.debug('TemplateStorageService initialized', {
       templatesPath: this.templatesPath,
