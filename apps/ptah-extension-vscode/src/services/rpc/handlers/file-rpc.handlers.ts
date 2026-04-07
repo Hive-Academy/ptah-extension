@@ -177,6 +177,14 @@ export class FileRpcHandlers {
             return { images: [] };
           }
 
+          const MAX_IMAGE_COUNT = 10;
+          if (imageUris.length > MAX_IMAGE_COUNT) {
+            return {
+              images: [],
+              error: `Too many images selected (${imageUris.length}). Maximum is ${MAX_IMAGE_COUNT}.`,
+            };
+          }
+
           const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
           const MIME_MAP: Record<string, string> = {
             png: 'image/png',

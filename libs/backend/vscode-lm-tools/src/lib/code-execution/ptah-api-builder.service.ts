@@ -25,6 +25,7 @@
  * TASK_2025_244: Added browser namespace (15 total)
  */
 
+import * as os from 'os';
 import { injectable, inject, container } from 'tsyringe';
 import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
@@ -614,8 +615,8 @@ export class PtahAPIBuilder {
       return workspaceRoot;
     }
 
-    // 3. Empty string — callers handle this gracefully
-    return '';
+    // 3. Safe fallback — never process.cwd() (that's the app install directory)
+    return os.homedir();
   }
 
   /**

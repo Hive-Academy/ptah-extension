@@ -132,7 +132,7 @@ describe('SessionLifecycleManager', () => {
       expect(ids[0]).toBe('tab_2');
     });
 
-    it('should update ordering when sendMessage marks a different session active', async () => {
+    it('should default to registration order (last registered is most recent)', async () => {
       const config1 = createSessionConfig({ projectPath: '/workspace/a' });
       const config2 = createSessionConfig({ projectPath: '/workspace/b' });
 
@@ -147,11 +147,8 @@ describe('SessionLifecycleManager', () => {
         new AbortController(),
       );
 
-      // Simulate sending a message to tab_1 — this should bump it to most recent
-      // We can't actually call sendMessage without a full query, but we can test
-      // the ordering after endSession cleanup
       const ids = manager.getActiveSessionIds();
-      // tab_2 was registered last
+      // tab_2 was registered last, so it should be first
       expect(ids[0]).toBe('tab_2');
     });
   });

@@ -244,9 +244,7 @@ export class CopilotAuthService implements ICopilotAuthService {
         // Copy device code to clipboard and open browser for the user
         try {
           await this.userInteraction.writeToClipboard(userCode);
-          this.logger.info(
-            `[CopilotAuth] Device code ${userCode} copied to clipboard`,
-          );
+          this.logger.info('[CopilotAuth] Device code copied to clipboard');
         } catch {
           // Clipboard write is best-effort
         }

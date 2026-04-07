@@ -221,7 +221,7 @@ export class FilePickerService {
 
         this._workspaceFiles.set(suggestions);
         this._lastUpdate.set(Date.now());
-        console.log(
+        console.debug(
           `[FilePickerService] Loaded ${suggestions.length} workspace files`,
         );
       } else {
@@ -239,7 +239,7 @@ export class FilePickerService {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       console.error(
         '[FilePickerService] Failed to fetch workspace files:',
-        errorMsg,
+        error,
       );
       this._fetchError.set(errorMsg);
     } finally {

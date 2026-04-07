@@ -82,7 +82,8 @@ export class ElectronUserInteraction implements IUserInteraction {
   }
 
   async writeToClipboard(text: string): Promise<void> {
-    this.shellApi?.writeToClipboard(text);
+    if (!this.shellApi) return;
+    await this.shellApi.writeToClipboard(text);
   }
 
   async showErrorMessage(

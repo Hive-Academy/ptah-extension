@@ -67,9 +67,17 @@ export function buildGitNamespace(
   function execGit(
     args: string[],
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    const cwd = getWorkspaceRoot();
+    if (!cwd) {
+      return Promise.reject(
+        new Error(
+          'Cannot run git: workspace root is not resolved. Open a workspace folder first.',
+        ),
+      );
+    }
     return new Promise((resolve, reject) => {
       const child = crossSpawn('git', args, {
-        cwd: getWorkspaceRoot(),
+        cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 

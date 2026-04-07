@@ -244,6 +244,14 @@ export class ElectronFileRpcHandlers {
             return { images: [] };
           }
 
+          const MAX_IMAGE_COUNT = 10;
+          if (result.filePaths.length > MAX_IMAGE_COUNT) {
+            return {
+              images: [],
+              error: `Too many images selected (${result.filePaths.length}). Maximum is ${MAX_IMAGE_COUNT}.`,
+            };
+          }
+
           const images: Array<{
             data: string;
             mediaType: string;
