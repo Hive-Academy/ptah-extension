@@ -8,9 +8,10 @@
  * CLI fallback: codex --quiet "task description"
  * SDK path: Codex SDK thread.runStreamed() for in-process execution
  */
+import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { homedir } from 'os';
-import { join } from 'path';
+import path, { join } from 'path';
 import type {
   CliDetectionResult,
   CliOutputSegment,
@@ -151,6 +152,128 @@ async function getCodexSdk(): Promise<CodexSdkModule> {
   const mod = (await import('@openai/codex-sdk')) as unknown as CodexSdkModule;
   codexSdkModule = mod;
   return mod;
+}
+
+/**
+ * Platform binary package names used by the Codex SDK.
+ * Maps target triple to npm package name (mirrors PLATFORM_PACKAGE_BY_TARGET in codex-sdk).
+ */
+const CODEX_PLATFORM_PACKAGES: Record<string, string> = {
+  'x86_64-unknown-linux-musl': '@openai/codex-linux-x64',
+  'aarch64-unknown-linux-musl': '@openai/codex-linux-arm64',
+  'x86_64-apple-darwin': '@openai/codex-darwin-x64',
+  'aarch64-apple-darwin': '@openai/codex-darwin-arm64',
+  'x86_64-pc-windows-msvc': '@openai/codex-win32-x64',
+  'aarch64-pc-windows-msvc': '@openai/codex-win32-arm64',
+};
+
+/**
+ * Resolve the target triple for the current platform.
+ * Returns the Rust-style target triple used by the Codex SDK binary packages.
+ */
+function getTargetTriple(): string | undefined {
+  const { platform, arch } = process;
+  if (platform === 'win32') {
+    return arch === 'arm64'
+      ? 'aarch64-pc-windows-msvc'
+      : 'x86_64-pc-windows-msvc';
+  }
+  if (platform === 'darwin') {
+    return arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
+  }
+  if (platform === 'linux') {
+    return arch === 'arm64'
+      ? 'aarch64-unknown-linux-musl'
+      : 'x86_64-unknown-linux-musl';
+  }
+  return undefined;
+}
+
+/**
+ * TASK_2025_261: Resolve Codex binary path for Electron ASAR-packed environments.
+ *
+ * When running inside Electron, the SDK's `findCodexPath()` resolves the binary
+ * inside `app.asar` via `createRequire(import.meta.url)`. Since executables cannot
+ * be spawned from inside an ASAR archive, this results in ENOENT.
+ *
+ * The `asarUnpack` config in electron-builder.yml extracts platform binaries to
+ * `app.asar.unpacked/`. This function locates the unpacked binary by:
+ * 1. Detecting Electron context via `process.versions['electron']`
+ * 2. Finding the `@openai/codex-sdk` module path (inside app.asar)
+ * 3. Computing the `app.asar.unpacked` equivalent for the platform binary
+ */
+function resolveCodexBinaryForElectron(): string | undefined {
+  // Only apply in Electron context (not VS Code extension host)
+  if (!process.versions['electron']) return undefined;
+
+  try {
+    const targetTriple = getTargetTriple();
+    if (!targetTriple) return undefined;
+
+    const platformPkg = CODEX_PLATFORM_PACKAGES[targetTriple];
+    if (!platformPkg) return undefined;
+
+    // Resolve the SDK package root via package.json (immune to entry point changes).
+    // package.json always sits at the package root, so we only need 3 levels of '..'
+    // to reach node_modules/, regardless of how the SDK's main export is structured.
+    let sdkPkgJsonPath: string;
+    try {
+      sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
+    } catch {
+      return undefined;
+    }
+
+    if (!sdkPkgJsonPath.includes('app.asar')) return undefined;
+
+    // Navigate from codex-sdk/package.json to node_modules/ base directory
+    // sdkPkgJsonPath: .../app.asar/node_modules/@openai/codex-sdk/package.json
+    // We need:        .../app.asar.unpacked/node_modules/@openai/<platform-pkg>/vendor/<triple>/codex/<binary>
+    const nodeModulesOpenai = path.resolve(
+      sdkPkgJsonPath,
+      '..', // codex-sdk/
+      '..', // @openai/
+      '..', // node_modules/
+    );
+
+    const binaryName = process.platform === 'win32' ? 'codex.exe' : 'codex';
+
+    // Platform package name without scope: e.g., "@openai/codex-win32-x64" -> "codex-win32-x64"
+    const pkgDir = platformPkg.split('/')[1];
+
+    // Build path inside app.asar, then replace with app.asar.unpacked
+    const asarBinaryPath = path.join(
+      nodeModulesOpenai,
+      '@openai',
+      pkgDir,
+      'vendor',
+      targetTriple,
+      'codex',
+      binaryName,
+    );
+
+    // Replace app.asar with app.asar.unpacked (only first occurrence)
+    const unpackedBinaryPath = asarBinaryPath.replace(
+      /app\.asar(?!\.unpacked)/,
+      'app.asar.unpacked',
+    );
+
+    if (existsSync(unpackedBinaryPath)) {
+      return unpackedBinaryPath;
+    }
+
+    // ASAR environment detected but unpacked binary not found — likely asarUnpack
+    // config is missing or the Codex platform package wasn't installed.
+    console.warn(
+      `[CodexAdapter] Electron ASAR detected but unpacked binary not found at: ${unpackedBinaryPath}`,
+    );
+    return undefined;
+  } catch (err) {
+    console.warn(
+      `[CodexAdapter] Failed to resolve Codex binary for Electron:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return undefined;
+  }
 }
 
 /** Shape of ~/.codex/auth.json (both snake_case and SCREAMING_CASE variants exist across CLI versions) */
@@ -358,11 +481,14 @@ export class CodexCliAdapter implements CliAdapter {
       };
     }
     codexOptions.config = config;
-    // Only set codexPathOverride for non-.cmd paths. On Windows, npm-installed
-    // CLIs are .cmd wrappers that the SDK's internal spawn() cannot execute
-    // (causes EINVAL). The SDK can resolve 'codex' from PATH on its own,
-    // so we skip the override when the path is a .cmd file.
-    if (
+    // TASK_2025_261: Resolve Codex binary path with Electron ASAR awareness.
+    // Priority: 1) Electron ASAR unpacked binary, 2) Non-.cmd global CLI path
+    // In Electron, the SDK's internal findCodexPath() resolves inside app.asar
+    // which can't be spawned. We pre-resolve from app.asar.unpacked instead.
+    const electronBinaryPath = resolveCodexBinaryForElectron();
+    if (electronBinaryPath) {
+      codexOptions.codexPathOverride = electronBinaryPath;
+    } else if (
       options.binaryPath &&
       !options.binaryPath.toLowerCase().endsWith('.cmd')
     ) {

@@ -82,8 +82,8 @@ interface PtahCliRegistryLike {
 export interface AgentNamespaceDependencies {
   agentProcessManager: AgentProcessManager;
   cliDetectionService: CliDetectionService;
-  /** Workspace root path for working directory fallback. Preferred over process.cwd(). */
-  workspaceRoot?: string;
+  /** Lazy getter for workspace root path. Called at spawn time to get the current workspace root. */
+  getWorkspaceRoot: () => string;
   /** Function that returns the currently active SDK session ID. Called at spawn time to link CLI agents to their parent session. */
   getActiveSessionId?: () => string | undefined;
   /** Returns project-specific guidance from enhanced prompts (async). Called at spawn time to inject project context into CLI agents. */
@@ -109,7 +109,7 @@ export function buildAgentNamespace(
   const {
     agentProcessManager,
     cliDetectionService,
-    workspaceRoot,
+    getWorkspaceRoot,
     getActiveSessionId,
     getProjectGuidance,
     getSystemPrompt,
@@ -136,8 +136,7 @@ export function buildAgentNamespace(
 
         // Resolve working directory early — passed to both SDK (for cwd/sandbox)
         // and AgentProcessManager (for metadata tracking)
-        const workingDirectory =
-          request.workingDirectory ?? workspaceRoot ?? process.cwd();
+        const workingDirectory = request.workingDirectory ?? getWorkspaceRoot();
 
         const result = await registry.spawnAgent(
           request.ptahCliId,

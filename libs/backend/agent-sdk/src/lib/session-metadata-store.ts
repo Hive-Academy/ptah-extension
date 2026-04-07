@@ -342,14 +342,26 @@ export class SessionMetadataStore {
   }
 
   /**
-   * Create initial metadata for a new session
-   * Called when SDK returns the real session ID from system 'init' message
+   * Create initial metadata for a new session.
+   * Called when SDK returns the real session ID from system 'init' message.
+   * If metadata already exists (e.g., from a user rename), preserves the existing name.
    */
   async create(
     sessionId: string,
     workspaceId: string,
     name: string,
   ): Promise<SessionMetadata> {
+    // Check if metadata already exists — preserve user-renamed name
+    const existing = await this.get(sessionId);
+    if (existing) {
+      this.logger.info(
+        `[SessionMetadataStore] Metadata already exists for ${sessionId}, preserving name "${existing.name}"`,
+      );
+      const updated = { ...existing, lastActiveAt: Date.now() };
+      await this.save(updated);
+      return updated;
+    }
+
     const now = Date.now();
     const metadata: SessionMetadata = {
       sessionId,

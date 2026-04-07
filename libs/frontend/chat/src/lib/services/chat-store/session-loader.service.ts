@@ -563,7 +563,10 @@ export class SessionLoaderService {
         // During live streaming this comes from SDK's modelUsage, but when loading
         // from JSONL we compute it from aggregate stats + known context window sizes.
         if (stats.model) {
-          const contextUsed = stats.tokens.input + stats.tokens.output;
+          const contextUsed =
+            stats.tokens.input +
+            (stats.tokens.cacheRead ?? 0) +
+            stats.tokens.output;
           const contextWindow = getModelContextWindow(stats.model);
           const contextPercent =
             contextWindow > 0

@@ -1,7 +1,15 @@
 // CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
 
-import { app, BrowserWindow, safeStorage, dialog, ipcMain } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  safeStorage,
+  dialog,
+  ipcMain,
+  shell,
+  clipboard,
+} from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { createMainWindow } from './windows/main-window';
@@ -89,11 +97,17 @@ if (!gotLock) {
           safeStorage.decryptString(encrypted),
       },
       dialog: {
-        showMessageBox: (win: unknown, options: unknown) =>
-          dialog.showMessageBox(
-            win as Electron.BaseWindow,
-            options as Electron.MessageBoxOptions,
-          ),
+        // TASK_2025_261: Electron's dialog.showMessageBox checks `instanceof BrowserWindow`.
+        // Duck-typed objects from getWindow() fail this check and are re-interpreted
+        // as options, silently dropping the actual message/buttons.
+        // Use the passed window if it's a real BrowserWindow, otherwise fall back to mainWindow.
+        showMessageBox: (win: unknown, options: unknown) => {
+          const opts = options as Electron.MessageBoxOptions;
+          const targetWin = win instanceof BrowserWindow ? win : mainWindow;
+          return targetWin
+            ? dialog.showMessageBox(targetWin, opts)
+            : dialog.showMessageBox(opts);
+        },
       },
       getWindow: () => {
         const win = mainWindow;
@@ -104,6 +118,10 @@ if (!gotLock) {
               win.webContents.send(channel, ...args),
           },
         };
+      },
+      shell: {
+        openExternal: (url: string) => shell.openExternal(url),
+        writeToClipboard: (text: string) => clipboard.writeText(text),
       },
       ipcMain,
       initialFolders,

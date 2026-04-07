@@ -7,6 +7,7 @@ import {
   ElementRef,
   ChangeDetectionStrategy,
   afterNextRender,
+  effect,
   Injector,
   DestroyRef,
 } from '@angular/core';
@@ -102,6 +103,9 @@ export class ChatViewComponent {
    */
   private readonly userScrolledUp = signal(false);
 
+  /** Track message count to detect new user messages */
+  private lastMessageCount = 0;
+
   /**
    * Ptah icon URI for skeleton avatar placeholder
    */
@@ -164,6 +168,21 @@ export class ChatViewComponent {
   });
 
   constructor() {
+    // Reset auto-scroll when a new user message is sent.
+    // This ensures the view scrolls to show the user's message even if
+    // they had scrolled up to read earlier content before sending.
+    effect(() => {
+      const messages = this.chatStore.messages();
+      const count = messages.length;
+      if (count > this.lastMessageCount) {
+        const lastMsg = messages[count - 1];
+        if (lastMsg?.role === 'user') {
+          this.userScrolledUp.set(false);
+        }
+      }
+      this.lastMessageCount = count;
+    });
+
     // Setup MutationObserver after initial render to watch for DOM changes
     // This replaces the effect-based approach for more reliable scroll timing
     afterNextRender(

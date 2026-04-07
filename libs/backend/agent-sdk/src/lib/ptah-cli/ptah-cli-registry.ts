@@ -551,7 +551,10 @@ export class PtahCliRegistry {
 
     // SDK model name (env vars route to actual provider model)
     const model = 'claude-sonnet-4-20250514';
-    const cwd = options?.workingDirectory || process.cwd();
+    // workingDirectory should be resolved by the caller (agent-namespace.builder).
+    // os.homedir() is a safer fallback than process.cwd() which returns the
+    // app installation directory in VS Code extension host / Electron.
+    const cwd = options?.workingDirectory || require('os').homedir();
 
     // Assemble premium spawn options via dedicated service
     const assembly = await this.spawnOptionsService.assembleSpawnOptions(

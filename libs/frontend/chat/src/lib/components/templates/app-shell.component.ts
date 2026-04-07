@@ -148,13 +148,16 @@ export class AppShellComponent {
   readonly editingSessionId = signal<string | null>(null);
   readonly editingSessionName = signal('');
 
-  // Agent monitor badge type for the sidebar tab
+  // Agent monitor badge type for the sidebar tab (session-scoped).
+  // Uses activeTab-filtered signals so the badge reflects only agents
+  // belonging to the currently viewed session, matching the panel content.
+  // Permission warnings remain global — the user should always see them.
   readonly agentBadgeType = computed<'warning' | 'info' | 'neutral' | null>(
     () => {
       if (this.agentMonitorStore.pendingPermissions().length > 0)
         return 'warning';
-      if (this.agentMonitorStore.hasRunningAgents()) return 'info';
-      if (this.agentMonitorStore.agentCount() > 0) return 'neutral';
+      if (this.agentMonitorStore.hasActiveTabRunningAgents()) return 'info';
+      if (this.agentMonitorStore.activeTabAgentCount() > 0) return 'neutral';
       return null;
     },
   );
@@ -580,10 +583,10 @@ export class AppShellComponent {
       if (result.isSuccess() && result.data?.success) {
         this.chatStore.updateSessionName(session.id as SessionId, newName);
 
-        // Update open tab title if this session has one
+        // Update open tab name and title if this session has one
         const tab = this.tabManager.findTabBySessionId(session.id);
         if (tab) {
-          this.tabManager.updateTab(tab.id, { title: newName });
+          this.tabManager.updateTab(tab.id, { name: newName, title: newName });
         }
       } else {
         console.error(

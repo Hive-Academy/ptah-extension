@@ -794,7 +794,9 @@ export class PtahCliAdapter implements IAIProvider {
       effort,
     } = input;
 
-    const cwd = projectPath || process.cwd();
+    // projectPath should be resolved by the caller. os.homedir() is a safer
+    // fallback than process.cwd() (app installation dir in VS Code/Electron).
+    const cwd = projectPath || require('os').homedir();
 
     // Resolve permission mode based on user's autopilot setting.
     // Propagate the same permission policy to interactive sessions.

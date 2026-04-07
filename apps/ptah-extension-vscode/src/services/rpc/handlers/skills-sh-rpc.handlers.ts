@@ -245,7 +245,7 @@ export class SkillsShRpcHandlers {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler
+    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
   ) {}
 
   /**
@@ -299,7 +299,7 @@ export class SkillsShRpcHandlers {
         const result = await this.runSkillsCli(
           ['find', sanitizedQuery],
           workspaceRoot,
-          15000
+          15000,
         );
 
         if (result.exitCode !== 0) {
@@ -324,7 +324,7 @@ export class SkillsShRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: skillsSh:search failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { skills: [], error: errorMessage };
       }
@@ -353,7 +353,7 @@ export class SkillsShRpcHandlers {
           const projectResult = await this.runSkillsCli(
             ['list', '--json'],
             workspaceRoot,
-            10000
+            10000,
           );
           if (projectResult.exitCode === 0 && projectResult.stdout.trim()) {
             const parsed = JSON.parse(projectResult.stdout) as Array<{
@@ -378,7 +378,7 @@ export class SkillsShRpcHandlers {
           if (workspaceRoot) {
             const projectSkills = await this.scanSkillsDirectory(
               path.join(workspaceRoot, '.claude', 'skills'),
-              'project'
+              'project',
             );
             skills.push(...projectSkills);
           }
@@ -389,7 +389,7 @@ export class SkillsShRpcHandlers {
           const globalResult = await this.runSkillsCli(
             ['list', '--json', '-g'],
             workspaceRoot,
-            10000
+            10000,
           );
           if (globalResult.exitCode === 0 && globalResult.stdout.trim()) {
             const parsed = JSON.parse(globalResult.stdout) as Array<{
@@ -413,7 +413,7 @@ export class SkillsShRpcHandlers {
           // CLI unavailable, fall back to filesystem scanning
           const globalSkills = await this.scanSkillsDirectory(
             path.join(os.homedir(), '.claude', 'skills'),
-            'global'
+            'global',
           );
           skills.push(...globalSkills);
         }
@@ -428,7 +428,7 @@ export class SkillsShRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: skillsSh:listInstalled failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return { skills: [] };
       }
@@ -504,7 +504,7 @@ export class SkillsShRpcHandlers {
         const result = await this.runSkillsCli(
           args,
           workspaceRoot || os.homedir(),
-          30000
+          30000,
         );
 
         if (result.exitCode !== 0) {
@@ -536,7 +536,7 @@ export class SkillsShRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: skillsSh:install failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
       }
@@ -584,7 +584,7 @@ export class SkillsShRpcHandlers {
         const result = await this.runSkillsCli(
           args,
           workspaceRoot || os.homedir(),
-          15000
+          15000,
         );
 
         if (result.exitCode !== 0) {
@@ -614,7 +614,7 @@ export class SkillsShRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: skillsSh:uninstall failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
       }
@@ -658,7 +658,7 @@ export class SkillsShRpcHandlers {
           const result = await this.runSkillsCli(
             ['find', '""'],
             workspaceRoot,
-            15000
+            15000,
           );
 
           if (result.exitCode === 0 && result.stdout.trim().length > 0) {
@@ -670,14 +670,14 @@ export class SkillsShRpcHandlers {
             {
               error:
                 cliError instanceof Error ? cliError.message : String(cliError),
-            }
+            },
           );
         }
 
         // Tier 2: Fall back to curated list
         if (skills.length === 0) {
           skills = await this.enrichWithInstallStatus(
-            CURATED_POPULAR_SKILLS.map((s) => ({ ...s }))
+            CURATED_POPULAR_SKILLS.map((s) => ({ ...s })),
           );
         }
 
@@ -692,7 +692,7 @@ export class SkillsShRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: skillsSh:getPopular failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         // Return curated as ultimate fallback
         return { skills: CURATED_POPULAR_SKILLS };
@@ -730,9 +730,8 @@ export class SkillsShRpcHandlers {
 
           const detected = await this.detectTechnologies(workspaceRoot);
           const recommendedSkills = this.matchSkillsToTechnologies(detected);
-          const enriched = await this.enrichWithInstallStatus(
-            recommendedSkills
-          );
+          const enriched =
+            await this.enrichWithInstallStatus(recommendedSkills);
 
           this.logger.debug('RPC: skillsSh:detectRecommended success', {
             frameworks: detected.frameworks,
@@ -748,7 +747,7 @@ export class SkillsShRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: skillsSh:detectRecommended failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return {
             detectedTechnologies: {
@@ -759,7 +758,7 @@ export class SkillsShRpcHandlers {
             recommendedSkills: [],
           };
         }
-      }
+      },
     );
   }
 
@@ -774,7 +773,7 @@ export class SkillsShRpcHandlers {
   private runSkillsCli(
     args: string[],
     cwd: string,
-    timeout = 15000
+    timeout = 15000,
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -856,70 +855,47 @@ export class SkillsShRpcHandlers {
   /**
    * Parse the text output from `npx skills find` into SkillShEntry objects.
    *
-   * Expected CLI output format (lines with skill info):
-   *   source/repo  skill-id  Skill Name  Description  12345
+   * Actual CLI output format (with ANSI codes):
+   *   owner/repo@skill-id  N installs
+   *   └ https://skills.sh/owner/repo/skill-id
    *
-   * Falls back to line-by-line heuristic parsing for varying formats.
+   * The CLI ignores FORCE_COLOR/NO_COLOR env vars and always outputs ANSI escape codes.
    */
   private parseSkillsOutput(output: string): SkillShEntry[] {
     const skills: SkillShEntry[] = [];
-    const lines = output.split('\n').filter((line) => line.trim().length > 0);
+
+    // Strip ANSI escape codes — the CLI ignores NO_COLOR and always emits them
+
+    const stripped = output.replace(
+      new RegExp(String.fromCharCode(0x1b) + '\\[[0-9;]*m', 'g'),
+      '',
+    );
+    const lines = stripped.split('\n').filter((line) => line.trim().length > 0);
 
     if (lines.length === 0) return skills;
 
+    // Match the actual CLI format: "owner/repo@skill-id  N installs"
+    // Examples:
+    //   msmps/opentui-skill@opentui 1.8K installs
+    //   vercel-labs/agent-skills@vercel-react-best-practices 261.1K installs
+    //   google-labs-code/stitch-skills@react:components 25.7K installs
+    const skillLineRegex =
+      /^([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)@([a-zA-Z0-9_.:/-]+)\s+([0-9,.]+[kKmM]?)\s+installs?$/;
+
     for (const line of lines) {
       const trimmed = line.trim();
-
-      // Skip header/separator/decorative lines
-      if (
-        trimmed.startsWith('#') ||
-        trimmed.startsWith('-') ||
-        trimmed.startsWith('=') ||
-        trimmed.startsWith('Found') ||
-        trimmed.startsWith('Searching') ||
-        trimmed.startsWith('No ') ||
-        trimmed.length < 10
-      ) {
-        continue;
-      }
-
-      // Try to parse tab-separated or multi-space-separated fields
-      // Expected: source  skillId  name  description  installs
-      const parts = trimmed.split(/\t+|\s{2,}/);
-      if (parts.length >= 3) {
-        const source = parts[0] || '';
-        const skillIdOrName = parts[1] || '';
-
-        // Detect if first field looks like an owner/repo source
-        if (source.includes('/') && source.split('/').length === 2) {
-          const description =
-            parts.length >= 4 ? parts.slice(2, -1).join(' ') : parts[2] || '';
-          const installsStr = parts[parts.length - 1] || '0';
-          const installs = this.parseInstallCount(installsStr);
-
-          skills.push({
-            source,
-            skillId: skillIdOrName,
-            name: this.formatSkillName(skillIdOrName),
-            description,
-            installs,
-            isInstalled: false,
-          });
-          continue;
-        }
-      }
-
-      // Fallback: try matching "owner/repo:skill-id - Description (N installs)"
-      const match = trimmed.match(
-        /^([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)(?::([a-zA-Z0-9_.-]+))?\s*[-–]\s*(.+?)(?:\s*\(([0-9,.kKmM]+)\s*installs?\))?$/
-      );
+      const match = trimmed.match(skillLineRegex);
       if (match) {
+        const source = match[1];
+        const skillId = match[2];
+        const installs = this.parseInstallCount(match[3]);
+
         skills.push({
-          source: match[1],
-          skillId: match[2] || '',
-          name: this.formatSkillName(match[2] || match[1].split('/')[1] || ''),
-          description: match[3].trim(),
-          installs: this.parseInstallCount(match[4] || '0'),
+          source,
+          skillId,
+          name: this.formatSkillName(skillId),
+          description: '',
+          installs,
           isInstalled: false,
         });
       }
@@ -931,7 +907,7 @@ export class SkillsShRpcHandlers {
         {
           lineCount: lines.length,
           firstLine: lines[0]?.substring(0, 100),
-        }
+        },
       );
     }
 
@@ -972,7 +948,7 @@ export class SkillsShRpcHandlers {
    */
   private async scanSkillsDirectory(
     dirPath: string,
-    scope: 'project' | 'global'
+    scope: 'project' | 'global',
   ): Promise<InstalledSkill[]> {
     const skills: InstalledSkill[] = [];
 
@@ -1231,7 +1207,7 @@ export class SkillsShRpcHandlers {
     }
 
     return CURATED_POPULAR_SKILLS.filter((skill) =>
-      matchedSkillIds.has(skill.skillId)
+      matchedSkillIds.has(skill.skillId),
     ).map((skill) => ({ ...skill }));
   }
 
@@ -1242,7 +1218,7 @@ export class SkillsShRpcHandlers {
    * currently installed skills (both project and global).
    */
   private async enrichWithInstallStatus(
-    skills: SkillShEntry[]
+    skills: SkillShEntry[],
   ): Promise<SkillShEntry[]> {
     try {
       const installed = await this.getInstalledSkillNames();
@@ -1291,9 +1267,9 @@ export class SkillsShRpcHandlers {
 
   /**
    * Get the current workspace root path.
-   * Returns the first workspace folder's fsPath, or process.cwd() if none.
+   * Returns the first workspace folder's fsPath, or empty string if none.
    */
   private getWorkspaceRoot(): string {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
   }
 }

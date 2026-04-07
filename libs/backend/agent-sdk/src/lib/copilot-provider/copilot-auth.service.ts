@@ -240,14 +240,27 @@ export class CopilotAuthService implements ICopilotAuthService {
     const clientId = configured || DEFAULT_COPILOT_CLIENT_ID;
 
     const callbacks: DeviceCodeCallbacks = {
-      onUserCode: (userCode, verificationUri) => {
-        // Return value intentionally discarded: IUserInteraction has no clipboard
-        // method, so we cannot copy the code even if the user clicks "Copy Code".
-        // The button still serves as visual acknowledgement of the code display.
+      onUserCode: async (userCode, verificationUri) => {
+        // Copy device code to clipboard and open browser for the user
+        try {
+          await this.userInteraction.writeToClipboard(userCode);
+          this.logger.info('[CopilotAuth] Device code copied to clipboard');
+        } catch {
+          // Clipboard write is best-effort
+        }
+
+        // Show dialog with the code (in case clipboard didn't work)
         void this.userInteraction.showInformationMessage(
-          `GitHub Copilot: Enter code ${userCode} at ${verificationUri}`,
-          'Copy Code',
+          `Code "${userCode}" copied to clipboard.\nPaste it at ${verificationUri} to complete authentication.`,
+          'OK',
         );
+
+        // Open the verification URL in the default browser
+        try {
+          await this.userInteraction.openExternal(verificationUri);
+        } catch {
+          // Browser open is best-effort — user can navigate manually
+        }
       },
     };
 

@@ -1440,7 +1440,7 @@ export class AgentProcessManager {
   }
 
   private getWorkspaceRoot(): string {
-    return this.workspace.getWorkspaceRoot() ?? process.cwd();
+    return this.workspace.getWorkspaceRoot() ?? '';
   }
 
   /**

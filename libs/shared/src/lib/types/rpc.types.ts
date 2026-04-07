@@ -306,6 +306,20 @@ export interface RpcMethodRegistry {
 
   // ---- File Methods ----
   'file:open': { params: FileOpenParams; result: FileOpenResult };
+  'file:pick': {
+    params: { multiple?: boolean };
+    result: { files: Array<{ path: string; size: number }> };
+  };
+  'file:pick-images': {
+    params: { multiple?: boolean };
+    result: {
+      images: Array<{
+        data: string;
+        mediaType: string;
+        name: string;
+      }>;
+    };
+  };
 
   // ---- Config Methods ----
   'config:model-switch': {
@@ -897,6 +911,8 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
 
   // File Methods
   'file:open',
+  'file:pick',
+  'file:pick-images',
 
   // Config Methods
   'config:model-switch',
