@@ -536,10 +536,17 @@ export class SdkQueryOptionsBuilder {
           : ['user', 'project', 'local'],
         // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
         // Set NO_PROXY to prevent corporate proxy interception of localhost requests
+        // Disable experimental betas for third-party providers — the SDK classifies
+        // non-Bedrock/Vertex/Foundry providers as "firstParty" and enables the
+        // context-management-2025-06-27 beta header, which third-party providers
+        // (OpenRouter, Moonshot, etc.) don't support, causing 400 errors.
         env: {
           ...process.env,
           ...this.authEnv,
           NO_PROXY: '127.0.0.1,localhost',
+          ...(getActiveProviderId(this.authEnv)
+            ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
+            : {}),
         } as Record<string, string | undefined>,
         // Capture stderr — the SDK writes debug/info/warn/error to stderr;
         // parse the level and route to the appropriate logger method

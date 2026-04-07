@@ -13,9 +13,10 @@
  * @returns Minimal env safe for custom agent processes
  */
 import type { AuthEnv } from '@ptah-extension/shared';
+import { getActiveProviderId } from './sdk-query-options-builder';
 
 export function buildSafeEnv(
-  authEnv: AuthEnv
+  authEnv: AuthEnv,
 ): Record<string, string | undefined> {
   return {
     // Platform essentials for process execution
@@ -61,5 +62,10 @@ export function buildSafeEnv(
     SHELL: process.env['SHELL'],
     // Provider-specific auth and config (e.g., ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL)
     ...authEnv,
+    // Disable experimental betas for third-party providers — prevents the SDK from
+    // enabling context-management-2025-06-27 which non-Anthropic endpoints don't support
+    ...(getActiveProviderId(authEnv)
+      ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
+      : {}),
   };
 }
