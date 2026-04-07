@@ -50,7 +50,7 @@ export interface IUserInteraction {
    */
   showQuickPick(
     items: QuickPickItem[],
-    options?: QuickPickOptions
+    options?: QuickPickOptions,
   ): Promise<QuickPickItem | undefined>;
 
   /**
@@ -65,6 +65,20 @@ export interface IUserInteraction {
    */
   withProgress<T>(
     options: ProgressOptions,
-    task: (progress: IProgress, token: ICancellationToken) => Promise<T>
+    task: (progress: IProgress, token: ICancellationToken) => Promise<T>,
   ): Promise<T>;
+
+  /**
+   * Open a URL in the user's default browser.
+   * Replaces: vscode.env.openExternal()
+   *
+   * @returns true if the URL was opened successfully
+   */
+  openExternal(url: string): Promise<boolean>;
+
+  /**
+   * Write text to the system clipboard.
+   * Replaces: vscode.env.clipboard.writeText()
+   */
+  writeToClipboard(text: string): Promise<void>;
 }

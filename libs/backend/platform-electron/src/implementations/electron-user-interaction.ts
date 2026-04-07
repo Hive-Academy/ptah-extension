@@ -32,7 +32,7 @@ export interface ElectronDialogApi {
       message: string;
       buttons: string[];
       title?: string;
-    }
+    },
   ): Promise<{ response: number }>;
 }
 
@@ -47,19 +47,42 @@ export interface ElectronBrowserWindowApi {
 interface IpcMainLike {
   once(
     channel: string,
-    listener: (event: unknown, ...args: unknown[]) => void
+    listener: (event: unknown, ...args: unknown[]) => void,
   ): void;
+}
+
+/** Functions for opening URLs and clipboard access — injected to avoid top-level 'electron' imports */
+export interface ElectronShellApi {
+  openExternal(url: string): Promise<void>;
+  writeToClipboard(text: string): void | Promise<void>;
 }
 
 export class ElectronUserInteraction implements IUserInteraction {
   private readonly ipcMain: IpcMainLike | null;
+  private readonly shellApi: ElectronShellApi | null;
 
   constructor(
     private readonly dialog: ElectronDialogApi,
     private readonly getWindow: () => ElectronBrowserWindowApi | null,
-    ipcMain?: IpcMainLike | null
+    ipcMain?: IpcMainLike | null,
+    shellApi?: ElectronShellApi | null,
   ) {
     this.ipcMain = ipcMain ?? null;
+    this.shellApi = shellApi ?? null;
+  }
+
+  async openExternal(url: string): Promise<boolean> {
+    if (!this.shellApi) return false;
+    try {
+      await this.shellApi.openExternal(url);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async writeToClipboard(text: string): Promise<void> {
+    this.shellApi?.writeToClipboard(text);
   }
 
   async showErrorMessage(
@@ -103,7 +126,7 @@ export class ElectronUserInteraction implements IUserInteraction {
 
   async showQuickPick(
     items: QuickPickItem[],
-    options?: QuickPickOptions
+    options?: QuickPickOptions,
   ): Promise<QuickPickItem | undefined> {
     // Delegate to renderer via IPC — renderer shows Angular-based quick pick
     const win = this.getWindow();
@@ -157,7 +180,7 @@ export class ElectronUserInteraction implements IUserInteraction {
 
   async withProgress<T>(
     options: ProgressOptions,
-    task: (progress: IProgress, token: ICancellationToken) => Promise<T>
+    task: (progress: IProgress, token: ICancellationToken) => Promise<T>,
   ): Promise<T> {
     const win = this.getWindow();
     const progressId = `progress-${randomUUID()}`;

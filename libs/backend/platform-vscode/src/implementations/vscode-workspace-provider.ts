@@ -66,6 +66,15 @@ export class VscodeWorkspaceProvider implements IWorkspaceProvider {
   }
 
   getWorkspaceRoot(): string | undefined {
+    // Use the workspace folder containing the active editor's file,
+    // falling back to the first workspace folder if no editor is active
+    const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor) {
+      const folder = vscode.workspace.getWorkspaceFolder(
+        activeEditor.document.uri,
+      );
+      if (folder) return folder.uri.fsPath;
+    }
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   }
 
