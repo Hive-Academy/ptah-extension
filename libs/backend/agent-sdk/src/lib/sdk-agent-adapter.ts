@@ -16,6 +16,7 @@
  */
 
 import * as path from 'path';
+import * as os from 'os';
 import { existsSync } from 'fs';
 import { injectable, inject } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -482,9 +483,13 @@ export class SdkAgentAdapter implements IAIProvider {
       },
     );
 
-    // Create callback that saves metadata AND notifies webview
+    // Create callback that saves metadata AND notifies webview.
+    // projectPath should always be resolved by the caller (ChatRpcHandlers).
+    // os.homedir() is a safer fallback than process.cwd() which returns the
+    // app installation directory in VS Code extension host / Electron.
+    const resolvedProjectPath = config?.projectPath || os.homedir();
     const sessionIdCallback = this.createSessionIdCallback(
-      config?.projectPath || process.cwd(),
+      resolvedProjectPath,
       config?.name || `Session ${new Date().toLocaleDateString()}`,
       config?.tabId,
     );

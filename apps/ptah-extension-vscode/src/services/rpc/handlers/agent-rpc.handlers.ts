@@ -707,8 +707,7 @@ export class AgentRpcHandlers {
         } else {
           // Real CLIs: route through AgentProcessManager.spawn()
           // Validate session file exists before resume to avoid "No conversation found" errors
-          const workspaceRoot =
-            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+          const workspaceRoot = this.workspaceProvider.getWorkspaceRoot() ?? '';
           const cliSessionExists = await this.sessionFileExists(
             params.cliSessionId,
             workspaceRoot,
@@ -761,8 +760,7 @@ export class AgentRpcHandlers {
     ptahCliId: string;
     previousAgentId?: string;
   }): Promise<import('@ptah-extension/shared').SpawnAgentResult> {
-    const workspaceRoot =
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot() ?? '';
 
     // Validate session file exists before attempting resume.
     // Ptah CLI sessions (third-party providers) may not persist a .jsonl file,
