@@ -220,7 +220,7 @@ export type ProfileTab = 'account' | 'sessions' | 'contact';
                   }}
                 </a>
                 <a
-                  href="https://docs.ptah.live"
+                  href="https://ptah.live/docs"
                   target="_blank"
                   rel="noopener"
                   class="btn btn-ghost"

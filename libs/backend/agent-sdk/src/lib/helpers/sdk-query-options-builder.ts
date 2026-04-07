@@ -536,17 +536,22 @@ export class SdkQueryOptionsBuilder {
           : ['user', 'project', 'local'],
         // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
         // Set NO_PROXY to prevent corporate proxy interception of localhost requests
-        // Disable experimental betas for third-party providers — the SDK classifies
-        // non-Bedrock/Vertex/Foundry providers as "firstParty" and enables the
-        // context-management-2025-06-27 beta header, which third-party providers
-        // (OpenRouter, Moonshot, etc.) don't support, causing 400 errors.
+        // Disable experimental betas for any non-Anthropic base URL — the SDK
+        // enables context-management-2025-06-27 for "firstParty" providers, which
+        // third-party endpoints (OpenRouter, Moonshot, unknown proxies, etc.)
+        // don't support, causing 400 errors. Check the URL directly instead of
+        // relying on provider registry detection, which misses unknown providers.
         env: {
           ...process.env,
           ...this.authEnv,
           NO_PROXY: '127.0.0.1,localhost',
-          ...(getActiveProviderId(this.authEnv)
-            ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
-            : {}),
+          ...(() => {
+            const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+            return baseUrl &&
+              !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
+              ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
+              : {};
+          })(),
         } as Record<string, string | undefined>,
         // Capture stderr — the SDK writes debug/info/warn/error to stderr;
         // parse the level and route to the appropriate logger method

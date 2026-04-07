@@ -951,10 +951,11 @@ export class ChatStore {
 
     // Process modelUsage to update liveModelStats for context display
     if (stats.modelUsage && stats.modelUsage.length > 0) {
-      // Use the model with the highest cost (the user's primary model).
-      // Backend sorts modelUsage[0] by costUSD descending, but as a safety net
-      // we verify by selecting the highest-cost model. This ensures the user's
-      // main model (e.g. Opus) is shown even when a cheaper subagent (e.g. Haiku)
+      // Select the model with the highest cost as the user's primary model.
+      // The live stream path sorts modelUsage[0] by initialModel match then
+      // outputTokens, while the history path sorts by costUSD. As a unified
+      // safety net we pick the highest-cost model, ensuring the user's main
+      // model (e.g. Opus) is shown even when a cheaper subagent (e.g. Haiku)
       // produces more output tokens.
       const primaryModel =
         stats.modelUsage.length === 1
