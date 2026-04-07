@@ -12,7 +12,7 @@ export const environment = {
   /**
    * API base URL
    * - Development: Empty string (same origin, proxy handles routing)
-   * - Production: Full URL to license server (e.g., https://api.ptah.dev)
+   * - Production: Full URL to license server (e.g., https://api.ptah.live)
    */
   apiBaseUrl: '',
 

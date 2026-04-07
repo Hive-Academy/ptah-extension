@@ -9,7 +9,7 @@ import { environment } from '../../environments/environment';
  * 2. Sets withCredentials: true for cookie-based authentication
  *
  * Why needed:
- * - Production deployment uses separate domains (e.g., ptah.dev vs api.ptah.dev)
+ * - Production deployment uses separate domains (e.g., ptah.live vs api.ptah.live)
  * - Auth cookies (ptah_auth) must be sent with cross-origin requests
  * - Without withCredentials, cookies are not sent on cross-origin requests
  *

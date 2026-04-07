@@ -30,19 +30,13 @@ export class CommandDiscoveryFacade {
   async fetchCommands(): Promise<void> {
     // Cache check - skip RPC if already cached
     if (this._isCached()) {
-      console.log('[CommandDiscoveryFacade] Cache hit, skipping RPC');
       return;
     }
 
     // Prevent duplicate in-flight requests
     if (this._isLoading()) {
-      console.log(
-        '[CommandDiscoveryFacade] Request in-flight, skipping duplicate'
-      );
       return;
     }
-
-    console.log('[CommandDiscoveryFacade] fetchCommands called');
     this._isLoading.set(true);
     this._error.set(null);
 
@@ -57,7 +51,7 @@ export class CommandDiscoveryFacade {
           result.data.commands.map((c) => ({
             ...c,
             icon: this.getCommandIcon(c.scope),
-          }))
+          })),
         );
         // Only mark cache as valid when we have actual data
         if (result.data.commands.length > 0) {
@@ -66,7 +60,7 @@ export class CommandDiscoveryFacade {
       } else if (result.error) {
         console.warn(
           '[CommandDiscoveryFacade] Discovery failed:',
-          result.error
+          result.error,
         );
         this._commands.set([]);
       }
@@ -76,7 +70,7 @@ export class CommandDiscoveryFacade {
       this._error.set(message);
       console.error(
         '[CommandDiscoveryFacade] Failed to fetch commands:',
-        error
+        error,
       );
       this._commands.set([]);
     } finally {
@@ -89,29 +83,17 @@ export class CommandDiscoveryFacade {
    */
   searchCommands(query: string): CommandSuggestion[] {
     const allCommands = this._commands();
-    console.log('[CommandDiscoveryFacade] searchCommands called', {
-      query,
-      totalCommands: allCommands.length,
-    });
 
     if (!query) {
-      console.log('[CommandDiscoveryFacade] Returning all commands', {
-        count: allCommands.length,
-      });
       return allCommands;
     }
 
     const lowerQuery = query.toLowerCase();
-    const results = allCommands.filter(
+    return allCommands.filter(
       (c) =>
         c.name.toLowerCase().includes(lowerQuery) ||
-        c.description.toLowerCase().includes(lowerQuery)
+        c.description.toLowerCase().includes(lowerQuery),
     );
-
-    console.log('[CommandDiscoveryFacade] Filtered results', {
-      count: results.length,
-    });
-    return results;
   }
 
   private getCommandIcon(scope: string): string {
@@ -138,6 +120,5 @@ export class CommandDiscoveryFacade {
     this._isCached.set(false);
     this._commands.set([]);
     this._error.set(null);
-    console.log('[CommandDiscoveryFacade] Cache cleared');
   }
 }

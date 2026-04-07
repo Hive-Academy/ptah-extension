@@ -951,14 +951,17 @@ export class ChatStore {
 
     // Process modelUsage to update liveModelStats for context display
     if (stats.modelUsage && stats.modelUsage.length > 0) {
-      // Use the model with the highest output tokens (the one that did the most work).
-      // Backend sorts modelUsage[0] to be the primary model, but as a safety net
-      // we also verify by selecting the highest-output model if there are multiple.
+      // Select the model with the highest cost as the user's primary model.
+      // The live stream path sorts modelUsage[0] by initialModel match then
+      // outputTokens, while the history path sorts by costUSD. As a unified
+      // safety net we pick the highest-cost model, ensuring the user's main
+      // model (e.g. Opus) is shown even when a cheaper subagent (e.g. Haiku)
+      // produces more output tokens.
       const primaryModel =
         stats.modelUsage.length === 1
           ? stats.modelUsage[0]
           : stats.modelUsage.reduce((best, current) =>
-              current.outputTokens > best.outputTokens ? current : best,
+              current.costUSD > best.costUSD ? current : best,
             );
       // Context usage = input + cache-read + output tokens.
       // Cache-read tokens represent cached prompt content that still occupies context window space.

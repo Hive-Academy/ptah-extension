@@ -44,7 +44,7 @@ export class WebviewHtmlGenerator {
           initialSessionId?: string;
           initialSessionName?: string;
         }
-      | Record<string, unknown>
+      | Record<string, unknown>,
   ): string {
     try {
       // Support both new options object and legacy workspaceInfo object
@@ -87,7 +87,7 @@ export class WebviewHtmlGenerator {
         isLicensed,
         panelId,
         initialSessionId,
-        initialSessionName
+        initialSessionName,
       );
       return htmlContent;
     } catch (error) {
@@ -95,7 +95,7 @@ export class WebviewHtmlGenerator {
       // Fallback to basic HTML
       return this.generateFallbackHtml(
         webview,
-        options as Record<string, unknown>
+        options as Record<string, unknown>,
       );
     }
   }
@@ -111,7 +111,7 @@ export class WebviewHtmlGenerator {
     isLicensed = true,
     panelId?: string,
     initialSessionId?: string,
-    initialSessionName?: string
+    initialSessionName?: string,
   ): string {
     // CRITICAL: Validate initialView to prevent invalid views from crashing navigation
     const VALID_VIEWS = [
@@ -127,8 +127,8 @@ export class WebviewHtmlGenerator {
     if (initialView && !VALID_VIEWS.includes(initialView)) {
       throw new Error(
         `Invalid initialView: "${initialView}". Valid values are: ${VALID_VIEWS.join(
-          ', '
-        )}`
+          ', ',
+        )}`,
       );
     }
     // Path to Angular dist folder (browser build output)
@@ -136,7 +136,7 @@ export class WebviewHtmlGenerator {
     const appDistPath = path.join(
       this.context.extensionPath,
       'webview',
-      'browser'
+      'browser',
     );
     const appDistPathUri = vscode.Uri.file(appDistPath);
 
@@ -164,7 +164,7 @@ export class WebviewHtmlGenerator {
     indexHtml = indexHtml.replace(
       '<meta charset="utf-8">',
       `<meta charset="utf-8">
-        <meta http-equiv="Content-Security-Policy" content="${cspContent}">`
+        <meta http-equiv="Content-Security-Policy" content="${cspContent}">`,
     );
 
     // Add VS Code integration and theme support
@@ -177,7 +177,7 @@ export class WebviewHtmlGenerator {
       isLicensed,
       panelId,
       initialSessionId,
-      initialSessionName
+      initialSessionName,
     );
     const themeStyles = this.getThemeStyles();
 
@@ -187,13 +187,13 @@ export class WebviewHtmlGenerator {
       `  <style nonce="${nonce}">
           ${themeStyles}
         </style>
-      </head>`
+      </head>`,
     );
 
     // Add VS Code theme class to body
     indexHtml = indexHtml.replace(
       '<body>',
-      `<body class="vscode-body ${this.getThemeClass(theme)}">`
+      `<body class="vscode-body ${this.getThemeClass(theme)}">`,
     );
 
     // Inject VS Code integration script before closing body
@@ -205,7 +205,7 @@ export class WebviewHtmlGenerator {
         <script nonce="${nonce}">
           ${this.getStartupScript()}
         </script>
-      </body>`
+      </body>`,
     );
 
     // Transform all asset URIs (styles.css, main.js, polyfills.js) to webview URIs
@@ -233,13 +233,10 @@ export class WebviewHtmlGenerator {
 
         // Transform relative URIs to webview URIs
         const fullUri = webview.asWebviewUri(
-          vscode.Uri.joinPath(appDistPathUri, uri)
-        );
-        console.log(
-          `[WebviewHtmlGenerator] Transforming ${attribute}="${uri}" -> "${fullUri}"`
+          vscode.Uri.joinPath(appDistPathUri, uri),
         );
         return `${attribute}="${fullUri}"`;
-      }
+      },
     );
 
     // Add nonce to inline styles (Angular critical CSS)
@@ -263,11 +260,6 @@ export class WebviewHtmlGenerator {
         return match;
       });
 
-    console.log('[WebviewHtmlGenerator] Base URI set to:', String(baseUri));
-    console.log(
-      '[WebviewHtmlGenerator] All assets transformed to webview URIs'
-    );
-
     return indexHtml;
   }
 
@@ -280,7 +272,7 @@ export class WebviewHtmlGenerator {
     html: string,
     webview: vscode.Webview,
     baseUri: vscode.Uri,
-    nonce: string
+    nonce: string,
   ): string {
     // Transform all src and href attributes using the specified regex pattern
     const transformedHtml = html.replace(
@@ -301,11 +293,8 @@ export class WebviewHtmlGenerator {
 
         // Transform relative URIs to webview URIs
         const fullUri = webview.asWebviewUri(vscode.Uri.joinPath(baseUri, uri));
-        console.log(
-          `[WebviewHtmlGenerator] Transforming ${attribute}="${uri}" -> "${fullUri}"`
-        );
         return `${attribute}="${fullUri}"`;
-      }
+      },
     );
 
     // Add nonce to script and link tags that don't have it
@@ -349,7 +338,7 @@ export class WebviewHtmlGenerator {
    */
   private generateFallbackHtml(
     webview: vscode.Webview,
-    workspaceInfo?: Record<string, unknown>
+    workspaceInfo?: Record<string, unknown>,
   ): string {
     const { scriptUri, stylesUri } = this.getAssetUris(webview);
     const nonce = this.generateNonce();
@@ -362,12 +351,12 @@ export class WebviewHtmlGenerator {
         <meta charset="utf-8">
         <title>Ptah - AI Coding Orchestra</title>
         <base href="${webview.asWebviewUri(
-          vscode.Uri.joinPath(this.context.extensionUri, 'webview', 'browser')
+          vscode.Uri.joinPath(this.context.extensionUri, 'webview', 'browser'),
         )}/">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta http-equiv="Content-Security-Policy" content="${this.getImprovedCSP(
           webview,
-          nonce
+          nonce,
         )}">
 
         <!-- Angular Styles -->
@@ -404,15 +393,15 @@ export class WebviewHtmlGenerator {
     const angularDistPath = vscode.Uri.joinPath(
       this.context.extensionUri,
       'webview',
-      'browser'
+      'browser',
     );
 
     return {
       scriptUri: webview.asWebviewUri(
-        vscode.Uri.joinPath(angularDistPath, 'main.js')
+        vscode.Uri.joinPath(angularDistPath, 'main.js'),
       ),
       stylesUri: webview.asWebviewUri(
-        vscode.Uri.joinPath(angularDistPath, 'styles.css')
+        vscode.Uri.joinPath(angularDistPath, 'styles.css'),
       ),
     };
   }
@@ -440,26 +429,26 @@ export class WebviewHtmlGenerator {
     isLicensed = true,
     panelId?: string,
     initialSessionId?: string,
-    initialSessionName?: string
+    initialSessionName?: string,
   ): string {
     // Generate proper webview URIs for assets
     const appDistPath = path.join(
       this.context.extensionPath,
       'webview',
-      'browser'
+      'browser',
     );
     const appDistPathUri = vscode.Uri.file(appDistPath);
     const baseUri = webview?.asWebviewUri(appDistPathUri).toString() || '';
     const iconUri =
       webview
         ?.asWebviewUri(
-          vscode.Uri.joinPath(appDistPathUri, 'images', 'ptah-icon.png')
+          vscode.Uri.joinPath(appDistPathUri, 'images', 'ptah-icon.png'),
         )
         .toString() || '';
     const userIconUri =
       webview
         ?.asWebviewUri(
-          vscode.Uri.joinPath(appDistPathUri, 'images', 'user-icon.png')
+          vscode.Uri.joinPath(appDistPathUri, 'images', 'user-icon.png'),
         )
         .toString() || '';
 
@@ -474,10 +463,10 @@ export class WebviewHtmlGenerator {
         isLicensed: ${isLicensed},
         theme: '${this.getThemeString(theme)}',
         workspaceRoot: '${this.escapeJsString(
-          String(workspaceInfo?.['path'] || '')
+          String(workspaceInfo?.['path'] || ''),
         )}',
         workspaceName: '${this.escapeJsString(
-          String(workspaceInfo?.['name'] || '')
+          String(workspaceInfo?.['name'] || ''),
         )}',
         extensionUri: '${this.context.extensionUri.toString()}',
         baseUri: '${baseUri}',
@@ -521,23 +510,14 @@ export class WebviewHtmlGenerator {
         }
       });
 
-      console.log('Ptah WebView: VS Code API initialized', window.ptahConfig);
     `;
   }
 
   private getStartupScript(): string {
     return `
-      // DIAGNOSTIC: Log to confirm script execution
-      console.log('===================================================');
-      console.log('PTAH STARTUP SCRIPT EXECUTING');
-      console.log('window.vscode exists:', !!window.vscode);
-      console.log('window.ptahConfig exists:', !!window.ptahConfig);
-      console.log('===================================================');
-
       // Notify extension that webview is ready
       setTimeout(() => {
         if (window.vscode) {
-          console.log('Sending webview-ready message to extension...');
           window.vscode.postMessage({ type: '${MESSAGE_TYPES.WEBVIEW_READY}' });
         } else {
           console.error('CRITICAL: window.vscode is not available!');
