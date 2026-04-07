@@ -459,8 +459,7 @@ export class ElectronAgentRpcHandlers {
         });
 
         let result: SpawnAgentResult;
-        const workspaceRoot =
-          this.workspace.getWorkspaceRoot() ?? process.cwd();
+        const workspaceRoot = this.workspace.getWorkspaceRoot() ?? '';
 
         let ptahCliId = params.ptahCliId;
         if (params.cli === 'ptah-cli' && !ptahCliId) {

@@ -440,7 +440,16 @@ export class SdkQueryOptionsBuilder {
     }
 
     const model = sessionConfig.model;
-    const cwd = sessionConfig?.projectPath || process.cwd();
+    const cwd = sessionConfig?.projectPath || require('os').homedir();
+
+    // Warn when falling back to os.homedir() — callers (ChatRpcHandlers)
+    // should always resolve projectPath from IWorkspaceProvider before reaching here.
+    if (!sessionConfig?.projectPath) {
+      this.logger.warn(
+        `[SdkQueryOptionsBuilder] projectPath not provided — falling back to os.homedir(): ${cwd}. ` +
+          'Subagents will inherit this cwd. Ensure ChatRpcHandlers resolves workspace path.',
+      );
+    }
 
     // Log resolved model and tier env vars for debugging (TASK_2025_132, TASK_2025_164: reads from AuthEnv)
     this.logger.info(`[SdkQueryOptionsBuilder] SDK call with model: ${model}`, {

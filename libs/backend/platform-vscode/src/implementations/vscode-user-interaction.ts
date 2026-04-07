@@ -38,7 +38,7 @@ export class VscodeUserInteraction implements IUserInteraction {
 
   async showQuickPick(
     items: QuickPickItem[],
-    options?: QuickPickOptions
+    options?: QuickPickOptions,
   ): Promise<QuickPickItem | undefined> {
     const vsItems: vscode.QuickPickItem[] = items.map((item) => ({
       label: item.label,
@@ -81,9 +81,17 @@ export class VscodeUserInteraction implements IUserInteraction {
     });
   }
 
+  async openExternal(url: string): Promise<boolean> {
+    return vscode.env.openExternal(vscode.Uri.parse(url));
+  }
+
+  async writeToClipboard(text: string): Promise<void> {
+    await vscode.env.clipboard.writeText(text);
+  }
+
   async withProgress<T>(
     options: ProgressOptions,
-    task: (progress: IProgress, token: ICancellationToken) => Promise<T>
+    task: (progress: IProgress, token: ICancellationToken) => Promise<T>,
   ): Promise<T> {
     const locationMap: Record<string, vscode.ProgressLocation> = {
       notification: vscode.ProgressLocation.Notification,
@@ -103,7 +111,7 @@ export class VscodeUserInteraction implements IUserInteraction {
         // Wrap VS Code CancellationToken into platform ICancellationToken
         const [onCancellationRequested, fireCancellation] = createEvent<void>();
         const tokenDisposable = vsToken.onCancellationRequested(() =>
-          fireCancellation(undefined as unknown as void)
+          fireCancellation(undefined as unknown as void),
         );
 
         const token: ICancellationToken = {
@@ -116,12 +124,12 @@ export class VscodeUserInteraction implements IUserInteraction {
         try {
           return await task(
             { report: (value) => vsProgress.report(value) },
-            token
+            token,
           );
         } finally {
           tokenDisposable.dispose();
         }
-      }
+      },
     );
   }
 }

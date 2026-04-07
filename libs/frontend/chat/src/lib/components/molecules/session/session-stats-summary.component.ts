@@ -67,36 +67,111 @@ export interface ModelUsageEntry {
             class="flex items-center gap-2 bg-base-200/50 rounded px-2 py-1 border border-base-content/10"
           >
             <div
-              class="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto text-xs"
+              class="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto text-xs"
             >
               @if (liveModelStats()) {
-                <span class="text-purple-400 font-semibold whitespace-nowrap">{{
-                  formatModelName(liveModelStats()!.model)
-                }}</span>
-                <span class="text-base-content/20">|</span>
-                <span class="text-cyan-400 whitespace-nowrap"
-                  >{{ liveModelStats()!.contextPercent }}%</span
+                <span
+                  class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
                 >
-                <span class="text-base-content/20">|</span>
+                  <span class="text-[10px] uppercase text-base-content/50"
+                    >Model</span
+                  >
+                  <span class="text-purple-400 font-semibold">{{
+                    formatModelName(liveModelStats()!.model)
+                  }}</span>
+                </span>
+                <span
+                  class="inline-flex items-center gap-1 bg-cyan-600/15 border border-cyan-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
+                  [title]="contextTooltip()"
+                >
+                  <span class="text-[10px] uppercase text-base-content/50"
+                    >Ctx</span
+                  >
+                  <span class="text-cyan-400"
+                    >{{ liveModelStats()!.contextPercent }}%</span
+                  >
+                </span>
               }
-              <span class="tabular-nums whitespace-nowrap">{{
-                formatTokens(totalTokenCount())
-              }}</span>
-              <span class="text-base-content/20">|</span>
-              <span class="text-success tabular-nums whitespace-nowrap">{{
-                formatCost(summary().totalCost)
-              }}</span>
-              @if (summary().totalDuration > 0) {
-                <span class="text-base-content/20">|</span>
-                <span class="tabular-nums whitespace-nowrap">{{
-                  formatDuration(summary().totalDuration)
+              <span
+                class="inline-flex items-center gap-1 bg-base-content/5 border border-base-content/10 rounded px-1.5 py-0.5 whitespace-nowrap"
+                [title]="tokenTooltip()"
+              >
+                <span class="text-[10px] uppercase text-base-content/50"
+                  >Tokens</span
+                >
+                <span class="tabular-nums">{{
+                  formatTokens(totalTokenCount())
                 }}</span>
+              </span>
+              <span
+                class="inline-flex items-center gap-1 bg-success/10 border border-success/20 rounded px-1.5 py-0.5 whitespace-nowrap"
+              >
+                <span class="text-[10px] uppercase text-base-content/50"
+                  >Cost</span
+                >
+                <span class="text-success tabular-nums">{{
+                  formatCost(summary().totalCost)
+                }}</span>
+              </span>
+              @if (summary().totalDuration > 0) {
+                <span
+                  class="inline-flex items-center gap-1 bg-base-content/5 border border-base-content/10 rounded px-1.5 py-0.5 whitespace-nowrap"
+                >
+                  <span class="text-[10px] uppercase text-base-content/50"
+                    >Time</span
+                  >
+                  <span class="tabular-nums">{{
+                    formatDuration(summary().totalDuration)
+                  }}</span>
+                </span>
+              }
+              @if (summary().agentCount > 0) {
+                <span
+                  class="inline-flex items-center gap-1 bg-info/10 border border-info/20 rounded px-1.5 py-0.5 whitespace-nowrap"
+                >
+                  <span class="text-[10px] uppercase text-base-content/50"
+                    >Agents</span
+                  >
+                  <span class="text-info tabular-nums">{{
+                    summary().agentCount
+                  }}</span>
+                </span>
               }
               @if (compactionCount() > 0) {
-                <span class="text-base-content/20">|</span>
-                <span class="text-warning whitespace-nowrap"
-                  >{{ compactionCount() }}x compacted</span
+                <span
+                  class="inline-flex items-center gap-1 bg-warning/10 border border-warning/20 rounded px-1.5 py-0.5 whitespace-nowrap"
                 >
+                  <span class="text-[10px] uppercase text-base-content/50"
+                    >Compactions</span
+                  >
+                  <span class="text-warning tabular-nums">{{
+                    compactionCount()
+                  }}</span>
+                </span>
+              }
+              @if (hasMultipleModels()) {
+                <button
+                  class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap cursor-pointer hover:bg-purple-600/25 transition-colors"
+                  (click)="
+                    isExpanded.set(!isExpanded()); $event.stopPropagation()
+                  "
+                  type="button"
+                  [title]="
+                    isExpanded()
+                      ? 'Hide per-model breakdown'
+                      : 'Show per-model breakdown'
+                  "
+                >
+                  <span class="text-[10px] uppercase text-base-content/50"
+                    >Models</span
+                  >
+                  <span class="text-purple-400 font-semibold"
+                    >{{ modelUsageList()!.length }}
+                    <span class="text-[10px] font-normal">{{
+                      isExpanded() ? '▲' : '▼'
+                    }}</span></span
+                  >
+                </button>
               }
             </div>
             <button
@@ -120,6 +195,79 @@ export interface ModelUsageEntry {
               </svg>
             </button>
           </div>
+
+          <!-- Per-model breakdown (visible in collapsed mode too) -->
+          @if (isExpanded() && hasMultipleModels()) {
+            <div
+              class="mt-1.5 bg-base-200/50 rounded border border-purple-600/20 overflow-hidden"
+            >
+              <div
+                class="grid grid-cols-4 gap-1 px-2 py-1 border-b border-base-content/10"
+              >
+                <div
+                  class="text-[10px] uppercase tracking-wider text-base-content/50"
+                >
+                  Model
+                </div>
+                <div
+                  class="text-[10px] uppercase tracking-wider text-base-content/50 text-right"
+                >
+                  In
+                </div>
+                <div
+                  class="text-[10px] uppercase tracking-wider text-base-content/50 text-right"
+                >
+                  Out
+                </div>
+                <div
+                  class="text-[10px] uppercase tracking-wider text-base-content/50 text-right"
+                >
+                  Cost
+                </div>
+              </div>
+              @for (usage of modelUsageList()!; track usage.model) {
+                <div
+                  class="grid grid-cols-4 gap-1 px-2 py-1.5 border-b border-base-content/5 last:border-b-0"
+                >
+                  <div
+                    class="text-xs font-semibold text-purple-400 truncate"
+                    [title]="usage.model"
+                  >
+                    {{ formatModelName(usage.model) }}
+                  </div>
+                  <div
+                    class="text-xs text-right tabular-nums text-base-content/70"
+                  >
+                    {{ formatTokens(usage.inputTokens) }}
+                  </div>
+                  <div
+                    class="text-xs text-right tabular-nums text-base-content/70"
+                  >
+                    {{ formatTokens(usage.outputTokens) }}
+                  </div>
+                  <div class="text-xs text-right tabular-nums text-success">
+                    {{ formatCost(usage.costUSD) }}
+                  </div>
+                </div>
+              }
+              <div
+                class="grid grid-cols-4 gap-1 px-2 py-1.5 border-t border-base-content/10 bg-base-300/30"
+              >
+                <div class="text-xs font-semibold">Total</div>
+                <div class="text-xs text-right tabular-nums font-semibold">
+                  {{ formatTokens(totalModelInputTokens()) }}
+                </div>
+                <div class="text-xs text-right tabular-nums font-semibold">
+                  {{ formatTokens(totalModelOutputTokens()) }}
+                </div>
+                <div
+                  class="text-xs text-right tabular-nums font-semibold text-success"
+                >
+                  {{ formatCost(totalModelCost()) }}
+                </div>
+              </div>
+            </div>
+          }
         } @else {
           <!-- Expanded: full card grid with inline collapse button -->
           <div class="grid grid-cols-2 gap-1.5">
@@ -440,7 +588,7 @@ export class SessionStatsSummaryComponent {
   readonly compactionCount = input<number>(0);
 
   /** Whether the stats section is collapsed to a compact bar */
-  readonly isStatsCollapsed = signal(false);
+  readonly isStatsCollapsed = signal(true);
 
   /** Whether the per-model breakdown table is expanded */
   readonly isExpanded = signal(false);
@@ -498,10 +646,10 @@ export class SessionStatsSummaryComponent {
     );
   });
 
-  /** Total token count (input + output) */
+  /** Total token count (input + cache-read + output) */
   readonly totalTokenCount = computed(() => {
     const tokens = this.summary().totalTokens;
-    return tokens.input + tokens.output;
+    return tokens.input + (tokens.cacheRead ?? 0) + tokens.output;
   });
 
   /** Tooltip with detailed token breakdown */

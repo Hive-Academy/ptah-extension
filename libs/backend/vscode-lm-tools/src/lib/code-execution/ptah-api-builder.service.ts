@@ -25,6 +25,7 @@
  * TASK_2025_244: Added browser namespace (15 total)
  */
 
+import * as os from 'os';
 import { injectable, inject, container } from 'tsyringe';
 import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
@@ -267,10 +268,13 @@ export class PtahAPIBuilder {
       workspaceProvider: this.workspaceProvider,
     };
 
-    // Get workspace root for orchestration namespace
-    const workspaceRoot = this.getWorkspaceRoot();
+    // Lazy workspace root for orchestration namespace — resolved at call time
+    // so it stays current when the user switches workspace folders.
+    const getWorkspaceRootLazy = () => this.getWorkspaceRoot();
     const orchestrationDeps = {
-      workspaceRoot,
+      get workspaceRoot() {
+        return getWorkspaceRootLazy();
+      },
     };
 
     return {
@@ -326,7 +330,7 @@ export class PtahAPIBuilder {
         buildAgentNamespace({
           agentProcessManager: this.agentProcessManager,
           cliDetectionService: this.cliDetectionService,
-          workspaceRoot,
+          getWorkspaceRoot: () => this.getWorkspaceRoot(),
           getActiveSessionId: () => {
             // SessionLifecycleManager.getActiveSessionIds() returns all active sessions.
             // In single-session mode (current), there's at most one.
@@ -485,7 +489,7 @@ export class PtahAPIBuilder {
       // to the frontend when MCP tools create/remove worktrees.
       git: this.buildNamespaceSafe('git', () =>
         buildGitNamespace({
-          workspaceRoot,
+          getWorkspaceRoot: getWorkspaceRootLazy,
           onWorktreeChanged: this.buildWorktreeChangeHandler(),
         }),
       ),
@@ -578,16 +582,41 @@ export class PtahAPIBuilder {
   }
 
   /**
-   * Get the workspace root path
-   * Falls back to current working directory if no workspace is open
+   * Get workspace root, preferring the active SDK session's projectPath.
+   *
+   * Resolution order:
+   * 1. Active session's projectPath (per-session accuracy for multi-workspace)
+   * 2. IWorkspaceProvider.getWorkspaceRoot() (platform-level: active editor folder or Electron active folder)
+   * 3. Empty string (never process.cwd() — that's the app installation directory)
+   *
+   * This ensures MCP tools (ptah_agent_spawn, git worktrees, orchestration) operate
+   * in the correct project directory even when multiple workspaces are open in Electron
+   * or multiple sessions target different workspace folders.
    */
   private getWorkspaceRoot(): string {
+    // 1. Try the active SDK session's workspace (most accurate in multi-session scenarios)
+    try {
+      if (container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
+        const manager = container.resolve<{
+          getActiveSessionWorkspace(): string | undefined;
+        }>(SDK_SESSION_LIFECYCLE_MANAGER);
+        const sessionWorkspace = manager.getActiveSessionWorkspace();
+        if (sessionWorkspace) {
+          return sessionWorkspace;
+        }
+      }
+    } catch {
+      // SessionLifecycleManager not available yet — fall through
+    }
+
+    // 2. Platform workspace provider (active editor folder in VS Code, active folder in Electron)
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
     if (workspaceRoot) {
       return workspaceRoot;
     }
-    // Fallback to current working directory
-    return process.cwd();
+
+    // 3. Safe fallback — never process.cwd() (that's the app install directory)
+    return os.homedir();
   }
 
   /**

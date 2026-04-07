@@ -131,7 +131,7 @@ export class ElectronSkillsShRpcHandlers {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspace: IWorkspaceProvider
+    private readonly workspace: IWorkspaceProvider,
   ) {}
 
   register(): void {
@@ -173,7 +173,7 @@ export class ElectronSkillsShRpcHandlers {
         const result = await this.runSkillsCli(
           ['find', sanitizedQuery],
           workspaceRoot,
-          15000
+          15000,
         );
 
         if (result.exitCode !== 0) {
@@ -198,7 +198,7 @@ export class ElectronSkillsShRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: skillsSh:search failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { skills: [], error: errorMessage };
       }
@@ -221,7 +221,7 @@ export class ElectronSkillsShRpcHandlers {
           const projectResult = await this.runSkillsCli(
             ['list', '--json'],
             workspaceRoot,
-            10000
+            10000,
           );
           if (projectResult.exitCode === 0 && projectResult.stdout.trim()) {
             const parsed = JSON.parse(projectResult.stdout) as Array<{
@@ -245,7 +245,7 @@ export class ElectronSkillsShRpcHandlers {
           if (workspaceRoot) {
             const projectSkills = await this.scanSkillsDirectory(
               path.join(workspaceRoot, '.claude', 'skills'),
-              'project'
+              'project',
             );
             skills.push(...projectSkills);
           }
@@ -256,7 +256,7 @@ export class ElectronSkillsShRpcHandlers {
           const globalResult = await this.runSkillsCli(
             ['list', '--json', '-g'],
             workspaceRoot,
-            10000
+            10000,
           );
           if (globalResult.exitCode === 0 && globalResult.stdout.trim()) {
             const parsed = JSON.parse(globalResult.stdout) as Array<{
@@ -279,7 +279,7 @@ export class ElectronSkillsShRpcHandlers {
         } catch {
           const globalSkills = await this.scanSkillsDirectory(
             path.join(os.homedir(), '.claude', 'skills'),
-            'global'
+            'global',
           );
           skills.push(...globalSkills);
         }
@@ -292,7 +292,7 @@ export class ElectronSkillsShRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: skillsSh:listInstalled failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return { skills: [] };
       }
@@ -351,7 +351,7 @@ export class ElectronSkillsShRpcHandlers {
         const result = await this.runSkillsCli(
           args,
           workspaceRoot || os.homedir(),
-          30000
+          30000,
         );
 
         if (result.exitCode !== 0) {
@@ -374,7 +374,7 @@ export class ElectronSkillsShRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: skillsSh:install failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
       }
@@ -415,7 +415,7 @@ export class ElectronSkillsShRpcHandlers {
         const result = await this.runSkillsCli(
           args,
           workspaceRoot || os.homedir(),
-          15000
+          15000,
         );
 
         if (result.exitCode !== 0) {
@@ -438,7 +438,7 @@ export class ElectronSkillsShRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: skillsSh:uninstall failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
       }
@@ -467,7 +467,7 @@ export class ElectronSkillsShRpcHandlers {
           const result = await this.runSkillsCli(
             ['find', '""'],
             workspaceRoot,
-            15000
+            15000,
           );
 
           if (result.exitCode === 0 && result.stdout.trim().length > 0) {
@@ -475,13 +475,13 @@ export class ElectronSkillsShRpcHandlers {
           }
         } catch {
           this.logger.debug(
-            'RPC: skillsSh:getPopular CLI unavailable, using curated fallback'
+            'RPC: skillsSh:getPopular CLI unavailable, using curated fallback',
           );
         }
 
         if (skills.length === 0) {
           skills = await this.enrichWithInstallStatus(
-            CURATED_POPULAR_SKILLS.map((s) => ({ ...s }))
+            CURATED_POPULAR_SKILLS.map((s) => ({ ...s })),
           );
         }
 
@@ -490,7 +490,7 @@ export class ElectronSkillsShRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: skillsSh:getPopular failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return { skills: CURATED_POPULAR_SKILLS };
       }
@@ -518,9 +518,8 @@ export class ElectronSkillsShRpcHandlers {
 
           const detected = await this.detectTechnologies(workspaceRoot);
           const recommendedSkills = this.matchSkillsToTechnologies(detected);
-          const enriched = await this.enrichWithInstallStatus(
-            recommendedSkills
-          );
+          const enriched =
+            await this.enrichWithInstallStatus(recommendedSkills);
 
           this.logger.debug('RPC: skillsSh:detectRecommended success', {
             frameworks: detected.frameworks,
@@ -534,7 +533,7 @@ export class ElectronSkillsShRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: skillsSh:detectRecommended failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return {
             detectedTechnologies: {
@@ -545,7 +544,7 @@ export class ElectronSkillsShRpcHandlers {
             recommendedSkills: [],
           };
         }
-      }
+      },
     );
   }
 
@@ -554,7 +553,7 @@ export class ElectronSkillsShRpcHandlers {
   private runSkillsCli(
     args: string[],
     cwd: string,
-    timeout = 15000
+    timeout = 15000,
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -621,57 +620,46 @@ export class ElectronSkillsShRpcHandlers {
     });
   }
 
+  /**
+   * Parse the text output from `npx skills find` into SkillShEntry objects.
+   *
+   * Actual CLI output format (with ANSI codes):
+   *   owner/repo@skill-id  N installs
+   *   └ https://skills.sh/owner/repo/skill-id
+   *
+   * The CLI ignores FORCE_COLOR/NO_COLOR env vars and always outputs ANSI escape codes.
+   */
   private parseSkillsOutput(output: string): SkillShEntry[] {
     const skills: SkillShEntry[] = [];
-    const lines = output.split('\n').filter((line) => line.trim().length > 0);
+
+    // Strip ANSI escape codes — the CLI ignores NO_COLOR and always emits them
+
+    const stripped = output.replace(
+      new RegExp(String.fromCharCode(0x1b) + '\\[[0-9;]*m', 'g'),
+      '',
+    );
+    const lines = stripped.split('\n').filter((line) => line.trim().length > 0);
+
+    if (lines.length === 0) return skills;
+
+    // Match the actual CLI format: "owner/repo@skill-id  N installs"
+    const skillLineRegex =
+      /^([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)@([a-zA-Z0-9_.:/-]+)\s+([0-9,.]+[kKmM]?)\s+installs?$/;
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if (
-        trimmed.startsWith('#') ||
-        trimmed.startsWith('-') ||
-        trimmed.startsWith('=') ||
-        trimmed.startsWith('Found') ||
-        trimmed.startsWith('Searching') ||
-        trimmed.startsWith('No ') ||
-        trimmed.length < 10
-      ) {
-        continue;
-      }
-
-      const parts = trimmed.split(/\t+|\s{2,}/);
-      if (parts.length >= 3) {
-        const source = parts[0] || '';
-        const skillIdOrName = parts[1] || '';
-
-        if (source.includes('/') && source.split('/').length === 2) {
-          const description =
-            parts.length >= 4 ? parts.slice(2, -1).join(' ') : parts[2] || '';
-          const installsStr = parts[parts.length - 1] || '0';
-          const installs = this.parseInstallCount(installsStr);
-
-          skills.push({
-            source,
-            skillId: skillIdOrName,
-            name: this.formatSkillName(skillIdOrName),
-            description,
-            installs,
-            isInstalled: false,
-          });
-          continue;
-        }
-      }
-
-      const match = trimmed.match(
-        /^([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)(?::([a-zA-Z0-9_.-]+))?\s*[-–]\s*(.+?)(?:\s*\(([0-9,.kKmM]+)\s*installs?\))?$/
-      );
+      const match = trimmed.match(skillLineRegex);
       if (match) {
+        const source = match[1];
+        const skillId = match[2];
+        const installs = this.parseInstallCount(match[3]);
+
         skills.push({
-          source: match[1],
-          skillId: match[2] || '',
-          name: this.formatSkillName(match[2] || match[1].split('/')[1] || ''),
-          description: match[3].trim(),
-          installs: this.parseInstallCount(match[4] || '0'),
+          source,
+          skillId,
+          name: this.formatSkillName(skillId),
+          description: '',
+          installs,
           isInstalled: false,
         });
       }
@@ -701,7 +689,7 @@ export class ElectronSkillsShRpcHandlers {
 
   private async scanSkillsDirectory(
     dirPath: string,
-    scope: 'project' | 'global'
+    scope: 'project' | 'global',
   ): Promise<InstalledSkill[]> {
     const skills: InstalledSkill[] = [];
     try {
@@ -869,12 +857,12 @@ export class ElectronSkillsShRpcHandlers {
     }
 
     return CURATED_POPULAR_SKILLS.filter((skill) =>
-      matchedSkillIds.has(skill.skillId)
+      matchedSkillIds.has(skill.skillId),
     ).map((skill) => ({ ...skill }));
   }
 
   private async enrichWithInstallStatus(
-    skills: SkillShEntry[]
+    skills: SkillShEntry[],
   ): Promise<SkillShEntry[]> {
     try {
       const installed = await this.getInstalledSkillNames();
@@ -911,6 +899,6 @@ export class ElectronSkillsShRpcHandlers {
   }
 
   private getWorkspaceRoot(): string {
-    return this.workspace.getWorkspaceRoot() ?? process.cwd();
+    return this.workspace.getWorkspaceRoot() ?? '';
   }
 }

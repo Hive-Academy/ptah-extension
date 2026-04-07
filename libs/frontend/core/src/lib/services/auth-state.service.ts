@@ -103,6 +103,18 @@ export class AuthStateService {
   /** Whether Codex CLI auth token is stale/expired (TASK_2025_199) */
   private readonly _codexTokenStale = signal(false);
 
+  /**
+   * Persisted auth method — the last value successfully saved to/loaded from the backend.
+   * Unlike _authMethod (which changes on tile click), this only updates on load or successful save.
+   */
+  private readonly _persistedAuthMethod = signal<AuthMethod>('auto');
+
+  /**
+   * Persisted provider ID — the last value successfully saved to/loaded from the backend.
+   * Unlike _selectedProviderId (which changes on tile click), this only updates on load or successful save.
+   */
+  private readonly _persistedProviderId = signal('openrouter');
+
   /** Guard to ensure loadAuthStatus only fetches once unless refreshed */
   private _isLoaded = false;
 
@@ -156,6 +168,27 @@ export class AuthStateService {
   /** Whether Codex CLI auth token is stale/expired (TASK_2025_199) */
   readonly codexTokenStale = this._codexTokenStale.asReadonly();
 
+  /** Persisted auth method (last loaded/saved from backend) */
+  readonly persistedAuthMethod = this._persistedAuthMethod.asReadonly();
+
+  /** Persisted provider ID (last loaded/saved from backend) */
+  readonly persistedProviderId = this._persistedProviderId.asReadonly();
+
+  /**
+   * The tile ID of the currently active (persisted) provider.
+   * Returns 'claude' when persisted method is apiKey/oauth, otherwise the persisted provider ID.
+   * Used to show an "Active" indicator on the correct tile, separate from the viewed tile.
+   */
+  readonly persistedTileId = computed(() => {
+    // Return null while loading to avoid flashing the wrong tile as active
+    if (this._isLoading()) return null;
+    const method = this._persistedAuthMethod();
+    if (method === 'apiKey' || method === 'oauth') {
+      return 'claude';
+    }
+    return this._persistedProviderId();
+  });
+
   // --- Computed signals ---
 
   /**
@@ -178,7 +211,7 @@ export class AuthStateService {
       this._hasOAuthToken() ||
       this._hasApiKey() ||
       this.hasProviderKey() ||
-      this._copilotAuthenticated()
+      this._copilotAuthenticated(),
   );
 
   /**
@@ -300,7 +333,7 @@ export class AuthStateService {
     } catch (error) {
       console.error(
         '[AuthStateService] Error checking provider key status:',
-        error
+        error,
       );
       return false;
     }
@@ -351,10 +384,16 @@ export class AuthStateService {
     // Concurrent guard: prevent double-click or rapid re-invocation
     if (this._isSaving()) {
       console.warn(
-        '[AuthStateService] Save already in progress, ignoring duplicate call'
+        '[AuthStateService] Save already in progress, ignoring duplicate call',
       );
       return;
     }
+
+    // Capture values at invocation time — if the user clicks a different tile
+    // while the save is in-flight, these snapshots ensure we update persisted
+    // state to what was actually saved, not the new UI-local selection.
+    const savedAuthMethod = this._authMethod();
+    const savedProviderId = this._selectedProviderId();
 
     this._isSaving.set(true);
     this._connectionStatus.set('saving');
@@ -380,12 +419,16 @@ export class AuthStateService {
 
       const testResult = await this.rpc.call(
         'auth:testConnection',
-        {} as Record<string, never>
+        {} as Record<string, never>,
       );
 
       if (testResult.isSuccess() && testResult.data?.success) {
         this._connectionStatus.set('success');
         this._successMessage.set('Connection successful! Settings saved.');
+
+        // Update persisted state using the captured snapshots from invocation time
+        this._persistedAuthMethod.set(savedAuthMethod);
+        this._persistedProviderId.set(savedProviderId);
 
         // Refresh auth status and model list in isolated try-catch so
         // failures don't overwrite the successful save+test status
@@ -395,7 +438,7 @@ export class AuthStateService {
         } catch (refreshError) {
           console.warn(
             '[AuthStateService] Post-save refresh failed (credentials saved successfully):',
-            refreshError
+            refreshError,
           );
         }
       } else {
@@ -410,7 +453,7 @@ export class AuthStateService {
       console.error('[AuthStateService] saveAndTest error:', error);
       this._connectionStatus.set('error');
       this._errorMessage.set(
-        error instanceof Error ? error.message : 'An unexpected error occurred'
+        error instanceof Error ? error.message : 'An unexpected error occurred',
       );
     } finally {
       this._isSaving.set(false);
@@ -434,14 +477,14 @@ export class AuthStateService {
       } else {
         console.error(
           '[AuthStateService] Failed to delete OAuth token:',
-          result.error
+          result.error,
         );
         this._errorMessage.set(result.error || 'Failed to delete OAuth token');
       }
     } catch (error) {
       console.error('[AuthStateService] deleteOAuthToken error:', error);
       this._errorMessage.set(
-        error instanceof Error ? error.message : 'Failed to delete OAuth token'
+        error instanceof Error ? error.message : 'Failed to delete OAuth token',
       );
     }
   }
@@ -463,14 +506,14 @@ export class AuthStateService {
       } else {
         console.error(
           '[AuthStateService] Failed to delete API key:',
-          result.error
+          result.error,
         );
         this._errorMessage.set(result.error || 'Failed to delete API key');
       }
     } catch (error) {
       console.error('[AuthStateService] deleteApiKey error:', error);
       this._errorMessage.set(
-        error instanceof Error ? error.message : 'Failed to delete API key'
+        error instanceof Error ? error.message : 'Failed to delete API key',
       );
     }
   }
@@ -505,14 +548,16 @@ export class AuthStateService {
       } else {
         console.error(
           '[AuthStateService] Failed to delete provider key:',
-          result.error
+          result.error,
         );
         this._errorMessage.set(result.error || 'Failed to delete provider key');
       }
     } catch (error) {
       console.error('[AuthStateService] deleteProviderKey error:', error);
       this._errorMessage.set(
-        error instanceof Error ? error.message : 'Failed to delete provider key'
+        error instanceof Error
+          ? error.message
+          : 'Failed to delete provider key',
       );
     }
   }
@@ -535,7 +580,7 @@ export class AuthStateService {
       const result = await this.rpc.call(
         'auth:copilotLogin',
         {} as Record<string, never>,
-        { timeout: 120000 }
+        { timeout: 120000 },
       );
 
       if (result.isSuccess() && result.data?.success) {
@@ -545,7 +590,7 @@ export class AuthStateService {
         this._successMessage.set(
           `Connected to GitHub Copilot${
             result.data.username ? ` as ${result.data.username}` : ''
-          }`
+          }`,
         );
 
         // Save the provider selection so the backend knows to use Copilot
@@ -554,10 +599,14 @@ export class AuthStateService {
           anthropicProviderId: 'github-copilot',
         });
 
-        if (!saveResult.isSuccess()) {
+        if (saveResult.isSuccess()) {
+          // Update persisted state — Copilot is now the active provider
+          this._persistedAuthMethod.set(this._authMethod());
+          this._persistedProviderId.set('github-copilot');
+        } else {
           console.warn(
             '[AuthStateService] Post-login saveSettings failed:',
-            saveResult.error
+            saveResult.error,
           );
         }
 
@@ -567,20 +616,20 @@ export class AuthStateService {
         } catch (refreshError) {
           console.warn(
             '[AuthStateService] Post-login model refresh failed:',
-            refreshError
+            refreshError,
           );
         }
       } else {
         this._connectionStatus.set('error');
         this._errorMessage.set(
-          result.data?.error ?? result.error ?? 'GitHub Copilot login failed'
+          result.data?.error ?? result.error ?? 'GitHub Copilot login failed',
         );
       }
     } catch (error) {
       console.error('[AuthStateService] copilotLogin error:', error);
       this._connectionStatus.set('error');
       this._errorMessage.set(
-        error instanceof Error ? error.message : 'GitHub Copilot login failed'
+        error instanceof Error ? error.message : 'GitHub Copilot login failed',
       );
     } finally {
       this._copilotLoggingIn.set(false);
@@ -645,22 +694,22 @@ export class AuthStateService {
       } else {
         console.error(
           '[AuthStateService] Failed to fetch auth status:',
-          result.error
+          result.error,
         );
         this._errorMessage.set(
-          result.error || 'Failed to load authentication status'
+          result.error || 'Failed to load authentication status',
         );
         return false;
       }
     } catch (error) {
       console.error(
         '[AuthStateService] fetchAndPopulateAuthStatus error:',
-        error
+        error,
       );
       this._errorMessage.set(
         error instanceof Error
           ? error.message
-          : 'Failed to load authentication status'
+          : 'Failed to load authentication status',
       );
       return false;
     } finally {
@@ -681,11 +730,15 @@ export class AuthStateService {
     this._selectedProviderId.set(response.anthropicProviderId);
     this._availableProviders.set(response.availableProviders);
 
+    // Update persisted state to match backend truth
+    this._persistedAuthMethod.set(response.authMethod);
+    this._persistedProviderId.set(response.anthropicProviderId);
+
     // Reset provider key map to only contain the current provider's status.
     // Clears stale entries from previously checked providers that may
     // have changed via backend or another client since last check.
     this._providerKeyMap.set(
-      new Map([[response.anthropicProviderId, response.hasOpenRouterKey]])
+      new Map([[response.anthropicProviderId, response.hasOpenRouterKey]]),
     );
 
     // Populate Copilot auth status (TASK_2025_191)
