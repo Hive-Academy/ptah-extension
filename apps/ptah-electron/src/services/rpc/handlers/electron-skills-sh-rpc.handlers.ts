@@ -620,57 +620,46 @@ export class ElectronSkillsShRpcHandlers {
     });
   }
 
+  /**
+   * Parse the text output from `npx skills find` into SkillShEntry objects.
+   *
+   * Actual CLI output format (with ANSI codes):
+   *   owner/repo@skill-id  N installs
+   *   └ https://skills.sh/owner/repo/skill-id
+   *
+   * The CLI ignores FORCE_COLOR/NO_COLOR env vars and always outputs ANSI escape codes.
+   */
   private parseSkillsOutput(output: string): SkillShEntry[] {
     const skills: SkillShEntry[] = [];
-    const lines = output.split('\n').filter((line) => line.trim().length > 0);
+
+    // Strip ANSI escape codes — the CLI ignores NO_COLOR and always emits them
+     
+    const stripped = output.replace(
+      new RegExp(String.fromCharCode(0x1b) + '\\[[0-9;]*m', 'g'),
+      '',
+    );
+    const lines = stripped.split('\n').filter((line) => line.trim().length > 0);
+
+    if (lines.length === 0) return skills;
+
+    // Match the actual CLI format: "owner/repo@skill-id  N installs"
+    const skillLineRegex =
+      /^([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)@([a-zA-Z0-9_.:/-]+)\s+([0-9,.]+[kKmM]?)\s+installs?$/;
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if (
-        trimmed.startsWith('#') ||
-        trimmed.startsWith('-') ||
-        trimmed.startsWith('=') ||
-        trimmed.startsWith('Found') ||
-        trimmed.startsWith('Searching') ||
-        trimmed.startsWith('No ') ||
-        trimmed.length < 10
-      ) {
-        continue;
-      }
-
-      const parts = trimmed.split(/\t+|\s{2,}/);
-      if (parts.length >= 3) {
-        const source = parts[0] || '';
-        const skillIdOrName = parts[1] || '';
-
-        if (source.includes('/') && source.split('/').length === 2) {
-          const description =
-            parts.length >= 4 ? parts.slice(2, -1).join(' ') : parts[2] || '';
-          const installsStr = parts[parts.length - 1] || '0';
-          const installs = this.parseInstallCount(installsStr);
-
-          skills.push({
-            source,
-            skillId: skillIdOrName,
-            name: this.formatSkillName(skillIdOrName),
-            description,
-            installs,
-            isInstalled: false,
-          });
-          continue;
-        }
-      }
-
-      const match = trimmed.match(
-        /^([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)(?::([a-zA-Z0-9_.-]+))?\s*[-–]\s*(.+?)(?:\s*\(([0-9,.kKmM]+)\s*installs?\))?$/,
-      );
+      const match = trimmed.match(skillLineRegex);
       if (match) {
+        const source = match[1];
+        const skillId = match[2];
+        const installs = this.parseInstallCount(match[3]);
+
         skills.push({
-          source: match[1],
-          skillId: match[2] || '',
-          name: this.formatSkillName(match[2] || match[1].split('/')[1] || ''),
-          description: match[3].trim(),
-          installs: this.parseInstallCount(match[4] || '0'),
+          source,
+          skillId,
+          name: this.formatSkillName(skillId),
+          description: '',
+          installs,
           isInstalled: false,
         });
       }
