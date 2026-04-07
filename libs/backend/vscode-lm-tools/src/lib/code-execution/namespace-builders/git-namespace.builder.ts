@@ -32,10 +32,11 @@ export type WorktreeChangeCallback = (event: {
 
 /**
  * Dependencies required to build the git namespace.
- * workspaceRoot is the absolute path to the current workspace directory.
+ * getWorkspaceRoot is a lazy getter called at invocation time to get the current workspace.
  */
 export interface GitNamespaceDependencies {
-  workspaceRoot: string;
+  /** Lazy getter for workspace root path. Called at each git operation to get the current workspace. */
+  getWorkspaceRoot: () => string;
   /** Optional callback fired after worktree add/remove to notify frontend */
   onWorktreeChanged?: WorktreeChangeCallback;
 }
@@ -53,7 +54,7 @@ export interface GitNamespaceDependencies {
 export function buildGitNamespace(
   deps: GitNamespaceDependencies,
 ): GitNamespace {
-  const { workspaceRoot, onWorktreeChanged } = deps;
+  const { getWorkspaceRoot, onWorktreeChanged } = deps;
 
   /**
    * Execute a git command and return stdout/stderr/exitCode.
@@ -66,9 +67,17 @@ export function buildGitNamespace(
   function execGit(
     args: string[],
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    const cwd = getWorkspaceRoot();
+    if (!cwd) {
+      return Promise.reject(
+        new Error(
+          'Cannot run git: workspace root is not resolved. Open a workspace folder first.',
+        ),
+      );
+    }
     return new Promise((resolve, reject) => {
       const child = crossSpawn('git', args, {
-        cwd: workspaceRoot,
+        cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
@@ -144,7 +153,8 @@ export function buildGitNamespace(
     }): Promise<{ success: boolean; worktreePath?: string; error?: string }> {
       try {
         const worktreePath =
-          params.path || path.join(path.dirname(workspaceRoot), params.branch);
+          params.path ||
+          path.join(path.dirname(getWorkspaceRoot()), params.branch);
 
         const args = ['worktree', 'add'];
         if (params.createBranch) {

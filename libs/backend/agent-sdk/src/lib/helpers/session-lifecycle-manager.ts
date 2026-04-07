@@ -188,6 +188,15 @@ export class SessionLifecycleManager {
    */
   private tabIdToRealId = new Map<string, string>();
 
+  /**
+   * Tracks the most recently active tab ID.
+   * Updated on session registration and message send.
+   * Used by getActiveSessionIds() to return the most recently active
+   * session first, so MCP tool calls (e.g., ptah_agent_spawn) attribute
+   * agents to the correct session in multi-session scenarios.
+   */
+  private _lastActiveTabId: string | null = null;
+
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
@@ -225,6 +234,7 @@ export class SessionLifecycleManager {
     };
 
     this.activeSessions.set(sessionId as string, session);
+    this._lastActiveTabId = sessionId as string;
     this.logger.info(
       `[SessionLifecycle] Pre-registered active session: ${sessionId}`,
     );
@@ -266,6 +276,7 @@ export class SessionLifecycleManager {
     };
 
     this.activeSessions.set(sessionId as string, session);
+    this._lastActiveTabId = sessionId as string;
     this.logger.info(
       `[SessionLifecycle] Registered active session: ${sessionId}`,
     );
@@ -293,13 +304,48 @@ export class SessionLifecycleManager {
   }
 
   /**
-   * Get all active session IDs.
+   * Get all active session IDs, most recently active first.
    * Returns real SDK UUIDs when resolved, tab IDs otherwise.
+   * The ordering ensures that getActiveSessionIds()[0] returns the session
+   * the user most recently interacted with, which is critical for MCP tools
+   * like ptah_agent_spawn that pick ids[0] as the parentSessionId.
    */
   getActiveSessionIds(): SessionId[] {
-    return Array.from(this.activeSessions.keys()).map(
-      (key) => (this.tabIdToRealId.get(key) || key) as SessionId,
-    );
+    const keys = Array.from(this.activeSessions.keys());
+
+    // Sort so that the most recently active tab ID comes first
+    if (this._lastActiveTabId && keys.length > 1) {
+      const idx = keys.indexOf(this._lastActiveTabId);
+      if (idx > 0) {
+        keys.splice(idx, 1);
+        keys.unshift(this._lastActiveTabId);
+      }
+    }
+
+    return keys.map((key) => (this.tabIdToRealId.get(key) || key) as SessionId);
+  }
+
+  /**
+   * Get the workspace root (projectPath) for the most recently active session.
+   * Used by MCP tools to resolve workspace per-session instead of globally.
+   * In multi-workspace scenarios (e.g., Electron with multiple folders open),
+   * this ensures CLI agents and subagents inherit the correct workspace
+   * from the session that spawned them, not whichever workspace is globally active.
+   */
+  getActiveSessionWorkspace(): string | undefined {
+    if (this._lastActiveTabId) {
+      const session = this.activeSessions.get(this._lastActiveTabId);
+      if (session?.config?.projectPath) {
+        return session.config.projectPath;
+      }
+    }
+    // Fallback: check any active session
+    for (const session of this.activeSessions.values()) {
+      if (session.config?.projectPath) {
+        return session.config.projectPath;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -470,6 +516,14 @@ export class SessionLifecycleManager {
     // Remove from active sessions and clean up tab-to-real mapping
     this.activeSessions.delete(sessionId as string);
     this.tabIdToRealId.delete(sessionId as string);
+
+    // Clear last-active tracker if the ended session was the most recent
+    if (this._lastActiveTabId === (sessionId as string)) {
+      // Fall back to the next available active session (if any)
+      const remaining = Array.from(this.activeSessions.keys());
+      this._lastActiveTabId =
+        remaining.length > 0 ? remaining[remaining.length - 1] : null;
+    }
 
     this.logger.info(`[SessionLifecycle] Session ended: ${sessionId}`);
   }
@@ -828,6 +882,10 @@ export class SessionLifecycleManager {
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
+
+    // Mark this session as the most recently active so MCP tool calls
+    // (e.g., ptah_agent_spawn) attribute agents to the correct session.
+    this._lastActiveTabId = sessionId as string;
 
     this.logger.info(`[SessionLifecycle] Sending message to ${sessionId}`, {
       contentLength: content.length,

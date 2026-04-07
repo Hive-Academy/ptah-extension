@@ -122,6 +122,12 @@ export class CodeExecutionMCP implements IDisposable {
           logger: this.logger,
           onToolResult: this.toolResultCallback,
           hasIDECapabilities: this.hasIDECapabilities,
+          disabledMcpNamespaces:
+            this.workspaceProvider.getConfiguration<string[]>(
+              'ptah',
+              'agentOrchestration.disabledMcpNamespaces',
+              [],
+            ) ?? [],
         }),
     });
 

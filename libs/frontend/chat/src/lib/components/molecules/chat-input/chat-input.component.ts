@@ -17,6 +17,8 @@ import {
   Clock,
   X,
   ImageIcon,
+  Paperclip,
+  ImagePlus,
 } from 'lucide-angular';
 import {
   InlineImageAttachment,
@@ -210,6 +212,7 @@ interface PastedImage {
               [overlayOrigin]="textareaOrigin()!"
               [suggestions]="filteredSuggestions()"
               [isLoading]="isLoadingSuggestions()"
+              [errorMessage]="filePickerError()"
               (suggestionSelected)="handleSuggestionSelected($event)"
               (closed)="closeSuggestions()"
             />
@@ -267,6 +270,26 @@ interface PastedImage {
               <span class="text-[10px]">{{ authMethodLabel() }}</span>
             </div>
           }
+
+          <!-- Attach Files Button -->
+          <button
+            class="btn btn-ghost btn-xs btn-square"
+            (click)="handleAttachFiles()"
+            title="Attach files"
+            type="button"
+          >
+            <lucide-angular [img]="PaperclipIcon" class="w-3.5 h-3.5" />
+          </button>
+
+          <!-- Attach Images Button -->
+          <button
+            class="btn btn-ghost btn-xs btn-square"
+            (click)="handleAttachImages()"
+            title="Attach images"
+            type="button"
+          >
+            <lucide-angular [img]="ImagePlusIcon" class="w-3.5 h-3.5" />
+          </button>
 
           <!-- Model Selector Component -->
           <ptah-model-selector />
@@ -339,6 +362,8 @@ export class ChatInputComponent implements OnInit {
   readonly ClockIcon = Clock;
   readonly XIcon = X;
   readonly ImageIconRef = ImageIcon;
+  readonly PaperclipIcon = Paperclip;
+  readonly ImagePlusIcon = ImagePlus;
 
   // Session tracking for proper change detection (avoid clearing cache on every stream event)
   private _lastSessionId: string | null = null;
@@ -359,6 +384,8 @@ export class ChatInputComponent implements OnInit {
   private readonly _pastedImages = signal<PastedImage[]>([]);
   private readonly _isDraggingOver = signal(false);
   private readonly _isLoadingSuggestions = signal(false);
+  private readonly _isPickingFiles = signal(false);
+  private readonly _isPickingImages = signal(false);
 
   // Public signals
   readonly currentMessage = this._currentMessage.asReadonly();
@@ -372,7 +399,15 @@ export class ChatInputComponent implements OnInit {
   readonly canSend = computed(
     () =>
       this.currentMessage().trim().length > 0 ||
-      this._pastedImages().length > 0,
+      this._pastedImages().length > 0 ||
+      this._selectedFiles().length > 0,
+  );
+
+  /** Expose fetch error only when in @ mode (not stale from previous mode) */
+  readonly filePickerError = computed(() =>
+    this._suggestionMode() === 'at-trigger'
+      ? this.filePicker.fetchError()
+      : null,
   );
 
   /**
@@ -494,6 +529,77 @@ export class ChatInputComponent implements OnInit {
    */
   removePastedImage(id: string): void {
     this._pastedImages.update((imgs) => imgs.filter((img) => img.id !== id));
+  }
+
+  /**
+   * Open native file picker to attach workspace files.
+   * Uses RPC to bypass webview sandbox limitation.
+   */
+  async handleAttachFiles(): Promise<void> {
+    if (this._isPickingFiles()) return;
+    this._isPickingFiles.set(true);
+    try {
+      const result = await this.rpcService.call('file:pick', {
+        multiple: true,
+      });
+      if (!result.success || !result.data?.files?.length) return;
+
+      for (const file of result.data.files) {
+        // Skip if already attached
+        if (this._selectedFiles().some((f) => f.path === file.path)) continue;
+
+        const name =
+          file.path.replace(/\\/g, '/').split('/').pop() || file.path;
+        const isLarge = file.size > 1024 * 1024; // > 1MB
+        const isText = this.filePicker.isFileSupported(file.path);
+
+        const chatFile: ChatFile = {
+          path: file.path,
+          name,
+          size: file.size,
+          type: isText ? 'text' : 'binary',
+          isLarge,
+          tokenEstimate: isText ? Math.ceil(file.size / 4) : 0,
+        };
+
+        this._selectedFiles.update((files) => [...files, chatFile]);
+      }
+    } catch (error) {
+      console.error('[ChatInput] Failed to pick files:', error);
+    } finally {
+      this._isPickingFiles.set(false);
+    }
+  }
+
+  /**
+   * Open native file picker to attach images.
+   * Uses RPC to bypass webview sandbox limitation - reads images as base64.
+   */
+  async handleAttachImages(): Promise<void> {
+    if (this._isPickingImages()) return;
+    this._isPickingImages.set(true);
+    try {
+      const result = await this.rpcService.call('file:pick-images', {
+        multiple: true,
+      });
+      if (!result.success || !result.data?.images?.length) return;
+
+      for (const img of result.data.images) {
+        const pastedImage: PastedImage = {
+          id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          data: img.data,
+          mediaType: img.mediaType,
+          dataUrl: `data:${img.mediaType};base64,${img.data}`,
+          name: img.name,
+        };
+
+        this._pastedImages.update((imgs) => [...imgs, pastedImage]);
+      }
+    } catch (error) {
+      console.error('[ChatInput] Failed to pick images:', error);
+    } finally {
+      this._isPickingImages.set(false);
+    }
   }
 
   /**

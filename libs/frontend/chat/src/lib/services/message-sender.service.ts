@@ -265,7 +265,12 @@ export class MessageSenderService {
       // TASK_2025_086: Changed from 'draft' to 'streaming' so UI shows content as it arrives
       // Previously, isStreaming() returned false until session:id-resolved, hiding all streaming content
       // TASK_2025_192: Auto-name session from first message content (not "New Chat")
-      const autoName = content.substring(0, 50).trim() || 'New Chat';
+      // Only auto-name if user hasn't already set a custom name (preserve user renames)
+      const currentName = activeTab?.name;
+      const hasUserName = currentName && currentName !== 'New Chat';
+      const autoName = hasUserName
+        ? currentName
+        : content.substring(0, 50).trim() || 'New Chat';
       this.tabManager.updateTab(activeTabId, {
         name: autoName,
         title: autoName,

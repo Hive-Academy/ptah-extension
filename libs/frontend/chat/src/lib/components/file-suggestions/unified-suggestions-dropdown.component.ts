@@ -76,33 +76,45 @@ export type { SuggestionItem } from './suggestion-option.component';
 
       <!-- Loading State -->
       @if (isLoading()) {
-      <div class="flex items-center justify-center gap-2 p-3">
-        <span class="loading loading-spinner loading-xs"></span>
-        <span class="text-xs text-base-content/70">Loading...</span>
-      </div>
+        <div class="flex items-center justify-center gap-2 p-3">
+          <span class="loading loading-spinner loading-xs"></span>
+          <span class="text-xs text-base-content/70">Loading...</span>
+        </div>
+      }
+
+      <!-- Error State -->
+      @else if (errorMessage()) {
+        <div class="flex items-center justify-center p-3">
+          <span class="text-xs text-error">{{ errorMessage() }}</span>
+        </div>
       }
 
       <!-- Empty State -->
       @else if (suggestions().length === 0) {
-      <div class="flex items-center justify-center p-3">
-        <span class="text-xs text-base-content/60">No matches found</span>
-      </div>
+        <div class="flex items-center justify-center p-3">
+          <span class="text-xs text-base-content/60">No matches found</span>
+        </div>
       }
 
       <!-- Suggestions List -->
       @else {
-      <div class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1">
-        @for ( suggestion of suggestions(); track trackBy($index, suggestion);
-        let i = $index ) {
-        <ptah-suggestion-option
-          [suggestion]="suggestion"
-          [optionId]="'suggestion-' + i"
-          [isActive]="i === activeIndex()"
-          (selected)="handleSelection($event)"
-          (hovered)="handleHover(i)"
-        />
-        }
-      </div>
+        <div
+          class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1"
+        >
+          @for (
+            suggestion of suggestions();
+            track trackBy($index, suggestion);
+            let i = $index
+          ) {
+            <ptah-suggestion-option
+              [suggestion]="suggestion"
+              [optionId]="'suggestion-' + i"
+              [isActive]="i === activeIndex()"
+              (selected)="handleSelection($event)"
+              (hovered)="handleHover(i)"
+            />
+          }
+        </div>
       }
     </div>
   `,
@@ -116,6 +128,7 @@ export class UnifiedSuggestionsDropdownComponent implements OnDestroy {
   readonly overlayOrigin = input.required<{ elementRef: ElementRef }>(); // Origin element (textarea) from parent
   readonly suggestions = input.required<SuggestionItem[]>();
   readonly isLoading = input(false);
+  readonly errorMessage = input<string | null>(null);
 
   // Outputs
   readonly suggestionSelected = output<SuggestionItem>();

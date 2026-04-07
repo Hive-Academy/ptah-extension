@@ -133,9 +133,10 @@ export class AuthConfigComponent implements OnInit {
   });
 
   /**
-   * Computed: which tile is currently active in the provider tile grid.
-   * Claude tile is active when authMethod is 'apiKey' or 'oauth'.
-   * Provider tiles are active when authMethod is 'openrouter' or 'auto'.
+   * Computed: which tile is currently being VIEWED in the provider tile grid.
+   * This controls which provider's config form is shown, NOT which provider is active.
+   * Claude tile is viewed when authMethod is 'apiKey' or 'oauth'.
+   * Provider tiles are viewed when authMethod is 'openrouter' or 'auto'.
    */
   readonly selectedTileId = computed(() => {
     const method = this.authState.authMethod();
@@ -143,6 +144,28 @@ export class AuthConfigComponent implements OnInit {
       return 'claude';
     }
     return this.authState.selectedProviderId();
+  });
+
+  /**
+   * Computed: which tile is the currently ACTIVE (persisted/saved) provider.
+   * This delegates to AuthStateService.persistedTileId which only updates
+   * on initial load or after a successful save/test.
+   * Used to show a distinct "Active" indicator on the saved provider tile.
+   */
+  readonly activeTileId = this.authState.persistedTileId;
+
+  /**
+   * Computed: display name of the currently active (persisted) provider.
+   * Used to show "Active: [name]" label below the tile grid.
+   */
+  readonly activeProviderName = computed(() => {
+    const tileId = this.activeTileId();
+    if (!tileId) return '';
+    if (tileId === 'claude') return 'Claude';
+    const provider = this.authState
+      .availableProviders()
+      .find((p) => p.id === tileId);
+    return provider?.name ?? tileId;
   });
 
   /**
@@ -233,7 +256,7 @@ export class AuthConfigComponent implements OnInit {
     } catch (error) {
       console.error(
         '[AuthConfigComponent] Failed to initialize auth status:',
-        error
+        error,
       );
     }
   }
