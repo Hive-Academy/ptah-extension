@@ -70,16 +70,18 @@ export interface ModelUsageEntry {
               class="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto text-xs"
             >
               @if (liveModelStats()) {
-                <span
-                  class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
-                >
-                  <span class="text-[10px] uppercase text-base-content/50"
-                    >Model</span
+                @if (!hasMultipleModels()) {
+                  <span
+                    class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
                   >
-                  <span class="text-purple-400 font-semibold">{{
-                    formatModelName(liveModelStats()!.model)
-                  }}</span>
-                </span>
+                    <span class="text-[10px] uppercase text-base-content/50"
+                      >Model</span
+                    >
+                    <span class="text-purple-400 font-semibold">{{
+                      formatModelName(liveModelStats()!.model)
+                    }}</span>
+                  </span>
+                }
                 <span
                   class="inline-flex items-center gap-1 bg-cyan-600/15 border border-cyan-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
                   [title]="contextTooltip()"

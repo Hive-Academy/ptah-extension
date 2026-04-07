@@ -638,8 +638,6 @@ export class AppShellComponent {
         if (tab) {
           this.tabManager.closeTab(tab.id);
         }
-
-        console.log(`[AppShell] Session ${session.id} deleted successfully`);
       } else {
         console.error(
           '[AppShell] Failed to delete session:',
