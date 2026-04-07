@@ -384,6 +384,8 @@ export class ChatInputComponent implements OnInit {
   private readonly _pastedImages = signal<PastedImage[]>([]);
   private readonly _isDraggingOver = signal(false);
   private readonly _isLoadingSuggestions = signal(false);
+  private readonly _isPickingFiles = signal(false);
+  private readonly _isPickingImages = signal(false);
 
   // Public signals
   readonly currentMessage = this._currentMessage.asReadonly();
@@ -397,7 +399,8 @@ export class ChatInputComponent implements OnInit {
   readonly canSend = computed(
     () =>
       this.currentMessage().trim().length > 0 ||
-      this._pastedImages().length > 0,
+      this._pastedImages().length > 0 ||
+      this._selectedFiles().length > 0,
   );
 
   /** Expose fetch error only when in @ mode (not stale from previous mode) */
@@ -533,34 +536,38 @@ export class ChatInputComponent implements OnInit {
    * Uses RPC to bypass webview sandbox limitation.
    */
   async handleAttachFiles(): Promise<void> {
+    if (this._isPickingFiles()) return;
+    this._isPickingFiles.set(true);
     try {
       const result = await this.rpcService.call('file:pick', {
         multiple: true,
       });
-      if (!result.success || !result.data?.paths?.length) return;
+      if (!result.success || !result.data?.files?.length) return;
 
-      for (const filePath of result.data.paths) {
+      for (const file of result.data.files) {
         // Skip if already attached
-        if (this._selectedFiles().some((f) => f.path === filePath)) continue;
+        if (this._selectedFiles().some((f) => f.path === file.path)) continue;
 
-        // Extract file info
-        const name = filePath.replace(/\\/g, '/').split('/').pop() || filePath;
-        const dotIndex = name.lastIndexOf('.');
-        const ext = dotIndex > 0 ? name.substring(dotIndex).toLowerCase() : '';
+        const name =
+          file.path.replace(/\\/g, '/').split('/').pop() || file.path;
+        const isLarge = file.size > 1024 * 1024; // > 1MB
+        const isText = this.filePicker.isFileSupported(file.path);
 
         const chatFile: ChatFile = {
-          path: filePath,
+          path: file.path,
           name,
-          size: 0,
-          type: this.filePicker.isFileSupported(filePath) ? 'text' : 'binary',
-          isLarge: false,
-          tokenEstimate: 0,
+          size: file.size,
+          type: isText ? 'text' : 'binary',
+          isLarge,
+          tokenEstimate: isText ? Math.ceil(file.size / 4) : 0,
         };
 
         this._selectedFiles.update((files) => [...files, chatFile]);
       }
     } catch (error) {
       console.error('[ChatInput] Failed to pick files:', error);
+    } finally {
+      this._isPickingFiles.set(false);
     }
   }
 
@@ -569,6 +576,8 @@ export class ChatInputComponent implements OnInit {
    * Uses RPC to bypass webview sandbox limitation - reads images as base64.
    */
   async handleAttachImages(): Promise<void> {
+    if (this._isPickingImages()) return;
+    this._isPickingImages.set(true);
     try {
       const result = await this.rpcService.call('file:pick-images', {
         multiple: true,
@@ -588,6 +597,8 @@ export class ChatInputComponent implements OnInit {
       }
     } catch (error) {
       console.error('[ChatInput] Failed to pick images:', error);
+    } finally {
+      this._isPickingImages.set(false);
     }
   }
 

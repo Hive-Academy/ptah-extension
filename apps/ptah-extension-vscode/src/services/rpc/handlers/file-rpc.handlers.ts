@@ -96,7 +96,7 @@ export class FileRpcHandlers {
 
   /**
    * file:pick - Open native file picker for workspace files
-   * Returns selected file paths without reading content.
+   * Returns selected file paths with size metadata.
    */
   private registerPick(): void {
     this.rpcHandler.registerMethod(
@@ -116,16 +116,25 @@ export class FileRpcHandlers {
           });
 
           if (!fileUris || fileUris.length === 0) {
-            return { paths: [] };
+            return { files: [] };
           }
 
-          return { paths: fileUris.map((uri) => uri.fsPath) };
+          const files: Array<{ path: string; size: number }> = [];
+          for (const uri of fileUris) {
+            const stat = await fs.promises.stat(uri.fsPath).catch(() => null);
+            files.push({
+              path: uri.fsPath,
+              size: stat?.size ?? 0,
+            });
+          }
+
+          return { files };
         } catch (error) {
           this.logger.error(
             'RPC: file:pick failed',
             error instanceof Error ? error : new Error(String(error)),
           );
-          return { paths: [] };
+          return { files: [] };
         }
       },
     );
@@ -168,6 +177,18 @@ export class FileRpcHandlers {
             return { images: [] };
           }
 
+          const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
+          const MIME_MAP: Record<string, string> = {
+            png: 'image/png',
+            jpg: 'image/jpeg',
+            jpeg: 'image/jpeg',
+            gif: 'image/gif',
+            webp: 'image/webp',
+            svg: 'image/svg+xml',
+            bmp: 'image/bmp',
+            ico: 'image/x-icon',
+          };
+
           const images: Array<{
             data: string;
             mediaType: string;
@@ -175,13 +196,22 @@ export class FileRpcHandlers {
           }> = [];
 
           for (const uri of imageUris) {
+            const stat = await fs.promises.stat(uri.fsPath);
+            if (stat.size > MAX_IMAGE_SIZE) {
+              this.logger.warn(
+                'RPC: file:pick-images skipping oversized file',
+                {
+                  path: uri.fsPath,
+                  size: stat.size,
+                } as unknown as Error,
+              );
+              continue;
+            }
+
             const data = await fs.promises.readFile(uri.fsPath);
             const base64 = data.toString('base64');
             const ext = path.extname(uri.fsPath).toLowerCase().slice(1);
-            const mediaType =
-              ext === 'svg'
-                ? 'image/svg+xml'
-                : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+            const mediaType = MIME_MAP[ext] || `image/${ext}`;
 
             images.push({
               data: base64,

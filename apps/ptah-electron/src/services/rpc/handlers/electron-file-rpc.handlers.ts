@@ -33,6 +33,16 @@ export class ElectronFileRpcHandlers {
     this.registerSaveDialog();
     this.registerPick();
     this.registerPickImages();
+
+    this.logger.debug('Electron File RPC handlers registered', {
+      methods: [
+        'file:read',
+        'file:exists',
+        'file:save-dialog',
+        'file:pick',
+        'file:pick-images',
+      ],
+    } as unknown as Error);
   }
 
   private registerRead(): void {
@@ -130,7 +140,12 @@ export class ElectronFileRpcHandlers {
       'file:pick',
       async (params: { multiple?: boolean } | undefined) => {
         try {
+          this.logger.debug('RPC: file:pick called', {
+            multiple: params?.multiple,
+          } as unknown as Error);
+
           const { dialog: electronDialog } = await import('electron');
+          const fsModule = await import('node:fs/promises');
 
           const properties: Array<'openFile' | 'multiSelections'> = [
             'openFile' as const,
@@ -145,16 +160,25 @@ export class ElectronFileRpcHandlers {
           });
 
           if (result.canceled || result.filePaths.length === 0) {
-            return { paths: [] };
+            return { files: [] };
           }
 
-          return { paths: result.filePaths };
+          const files: Array<{ path: string; size: number }> = [];
+          for (const filePath of result.filePaths) {
+            const stat = await fsModule.stat(filePath).catch(() => null);
+            files.push({
+              path: filePath,
+              size: stat?.size ?? 0,
+            });
+          }
+
+          return { files };
         } catch (error) {
           this.logger.error(
             '[Electron RPC] file:pick failed',
             error instanceof Error ? error : new Error(String(error)),
           );
-          return { paths: [] };
+          return { files: [] };
         }
       },
     );
@@ -169,9 +193,25 @@ export class ElectronFileRpcHandlers {
       'file:pick-images',
       async (params: { multiple?: boolean } | undefined) => {
         try {
+          this.logger.debug('RPC: file:pick-images called', {
+            multiple: params?.multiple,
+          } as unknown as Error);
+
           const { dialog: electronDialog } = await import('electron');
           const fsModule = await import('node:fs/promises');
           const pathModule = await import('node:path');
+
+          const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
+          const MIME_MAP: Record<string, string> = {
+            png: 'image/png',
+            jpg: 'image/jpeg',
+            jpeg: 'image/jpeg',
+            gif: 'image/gif',
+            webp: 'image/webp',
+            svg: 'image/svg+xml',
+            bmp: 'image/bmp',
+            ico: 'image/x-icon',
+          };
 
           const properties: Array<'openFile' | 'multiSelections'> = [
             'openFile' as const,
@@ -211,13 +251,22 @@ export class ElectronFileRpcHandlers {
           }> = [];
 
           for (const filePath of result.filePaths) {
+            const stat = await fsModule.stat(filePath);
+            if (stat.size > MAX_IMAGE_SIZE) {
+              this.logger.warn(
+                'RPC: file:pick-images skipping oversized file',
+                {
+                  path: filePath,
+                  size: stat.size,
+                } as unknown as Error,
+              );
+              continue;
+            }
+
             const data = await fsModule.readFile(filePath);
             const base64 = data.toString('base64');
             const ext = pathModule.extname(filePath).toLowerCase().slice(1);
-            const mediaType =
-              ext === 'svg'
-                ? 'image/svg+xml'
-                : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+            const mediaType = MIME_MAP[ext] || `image/${ext}`;
 
             images.push({
               data: base64,
