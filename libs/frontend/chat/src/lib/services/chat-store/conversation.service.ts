@@ -53,6 +53,15 @@ export class ConversationService {
   } | null>(null);
   readonly queueRestoreSignal = this._queueRestoreSignal.asReadonly();
 
+  /**
+   * Clear the queue restore signal after content has been consumed by ChatInputComponent.
+   * Must be called after restoration to prevent the effect from re-firing
+   * on every activeTab() change.
+   */
+  clearQueueRestoreSignal(): void {
+    this._queueRestoreSignal.set(null);
+  }
+
   // ============================================================================
   // CALLBACK PATTERN REMOVED (TASK_2025_054 Batch 3)
   // ============================================================================

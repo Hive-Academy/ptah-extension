@@ -18,6 +18,10 @@ import type {
   IFileSystemProvider,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import type { FileOpenParams } from '@ptah-extension/shared';
+
+/** Extends FileOpenParams with legacy 'filePath' for backward compatibility. */
+type FileOpenCompatParams = FileOpenParams & { filePath?: string };
 
 interface FileTreeEntry {
   name: string;
@@ -65,83 +69,68 @@ export class ElectronEditorRpcHandlers {
   }
 
   /**
-   * Register file:open (standard registry name used by the frontend).
-   * In VS Code this opens the file in the editor; in Electron it reads file content
-   * and notifies the editor provider (same as editor:openFile).
+   * Register file:open (standard registry name used by the frontend)
+   * and editor:openFile (Electron-specific alias). Both delegate to handleFileOpen.
    */
   private registerFileOpen(): void {
     this.rpcHandler.registerMethod(
       'file:open',
-      async (params: { filePath: string; line?: number } | undefined) => {
-        if (!params?.filePath) {
-          return { success: false, error: 'filePath is required' };
-        }
-        const pathError = this.validatePathInWorkspace(params.filePath);
-        if (pathError) {
-          return { success: false, error: pathError };
-        }
-        try {
-          const content = await this.fs.readFile(params.filePath);
-          try {
-            const editorProvider = this.container.resolve<{
-              notifyFileOpened(filePath: string): void;
-            }>(PLATFORM_TOKENS.EDITOR_PROVIDER);
-            editorProvider.notifyFileOpened(params.filePath);
-          } catch {
-            // Editor provider may not be registered
-          }
-          return { success: true, content, filePath: params.filePath };
-        } catch (error) {
-          this.logger.error('[Electron RPC] file:open failed', {
-            filePath: params.filePath,
-            error: error instanceof Error ? error.message : String(error),
-          } as unknown as Error);
-          return {
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
-      },
+      (params: FileOpenCompatParams | undefined) =>
+        this.handleFileOpen(params, 'file:open'),
     );
   }
 
   private registerOpenFile(): void {
     this.rpcHandler.registerMethod(
       'editor:openFile',
-      async (params: { filePath: string } | undefined) => {
-        if (!params?.filePath) {
-          return { success: false, error: 'filePath is required' };
-        }
-        const pathError = this.validatePathInWorkspace(params.filePath);
-        if (pathError) {
-          return { success: false, error: pathError };
-        }
-        try {
-          const content = await this.fs.readFile(params.filePath);
-
-          // Notify editor provider of file open (best-effort)
-          try {
-            const editorProvider = this.container.resolve<{
-              notifyFileOpened(filePath: string): void;
-            }>(PLATFORM_TOKENS.EDITOR_PROVIDER);
-            editorProvider.notifyFileOpened(params.filePath);
-          } catch {
-            // Editor provider may not be registered
-          }
-
-          return { success: true, content, filePath: params.filePath };
-        } catch (error) {
-          this.logger.error('[Electron RPC] editor:openFile failed', {
-            filePath: params.filePath,
-            error: error instanceof Error ? error.message : String(error),
-          } as unknown as Error);
-          return {
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
-      },
+      (params: FileOpenCompatParams | undefined) =>
+        this.handleFileOpen(params, 'editor:openFile'),
     );
+  }
+
+  /**
+   * Shared implementation for file:open and editor:openFile.
+   * Reads file content and notifies the editor provider.
+   * Accepts both 'path' (FileOpenParams standard) and 'filePath' (legacy).
+   */
+  private async handleFileOpen(
+    params: FileOpenCompatParams | undefined,
+    methodName: string,
+  ): Promise<{
+    success: boolean;
+    content?: string;
+    filePath?: string;
+    error?: string;
+  }> {
+    const filePath = params?.path ?? params?.filePath;
+    if (!filePath) {
+      return { success: false, error: 'filePath is required' };
+    }
+    const pathError = this.validatePathInWorkspace(filePath);
+    if (pathError) {
+      return { success: false, error: pathError };
+    }
+    try {
+      const content = await this.fs.readFile(filePath);
+      try {
+        const editorProvider = this.container.resolve<{
+          notifyFileOpened(filePath: string): void;
+        }>(PLATFORM_TOKENS.EDITOR_PROVIDER);
+        editorProvider.notifyFileOpened(filePath);
+      } catch {
+        // Editor provider may not be registered
+      }
+      return { success: true, content, filePath };
+    } catch (error) {
+      this.logger.error(`[Electron RPC] ${methodName} failed`, {
+        filePath,
+        error: error instanceof Error ? error.message : String(error),
+      } as unknown as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   private registerSaveFile(): void {
