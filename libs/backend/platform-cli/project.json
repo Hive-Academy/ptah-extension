@@ -1,0 +1,16 @@
+{
+  "name": "platform-cli",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "libs/backend/platform-cli/src",
+  "tags": ["scope:backend", "type:lib"],
+  "targets": {
+    "lint": { "executor": "@nx/eslint:lint" },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/platform-cli/tsconfig.lib.json"
+      }
+    }
+  }
+}
