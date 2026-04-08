@@ -96,9 +96,93 @@ export class TabManagerService {
   // ============================================================================
 
   readonly activeTab = computed(
-    () => this._tabs().find((t) => t.id === this._activeTabId()) ?? null
+    () => this._tabs().find((t) => t.id === this._activeTabId()) ?? null,
   );
   readonly tabCount = computed(() => this._tabs().length);
+
+  // ============================================================================
+  // FINE-GRAINED SELECTORS (STREAMING PERFORMANCE OPTIMIZATION)
+  // ============================================================================
+  //
+  // When updateTab() runs during streaming (~16ms interval), it creates a new
+  // tabs array + new tab object via spread: { ...existingTab, ...updates }.
+  // Properties NOT in `updates` retain their original reference, e.g.,
+  // newTab.messages === oldTab.messages when only streamingState changed.
+  //
+  // These selectors use `{ equal: (a, b) => a === b }` (reference equality)
+  // to suppress false notifications. Downstream computed signals that depend
+  // on e.g. activeTabMessages won't re-evaluate during streaming when only
+  // streamingState is being updated.
+  // ============================================================================
+
+  /** Messages array for active tab. Stable during streaming (only changes on finalization). */
+  readonly activeTabMessages = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.messages ?? [],
+    { equal: (a, b) => a === b },
+  );
+
+  /** Tab status string. Only changes on start/stop streaming, not during. */
+  readonly activeTabStatus = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.status ?? null,
+    { equal: (a, b) => a === b },
+  );
+
+  /** Claude session ID. Only changes on session creation. */
+  readonly activeTabSessionId = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.claudeSessionId ??
+      null,
+    { equal: (a, b) => a === b },
+  );
+
+  /** Streaming state. Changes every tick during streaming (this is expected and desired). */
+  readonly activeTabStreamingState = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.streamingState ??
+      null,
+  );
+
+  /** Preloaded stats. Only changes on session load. */
+  readonly activeTabPreloadedStats = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.preloadedStats ??
+      null,
+    { equal: (a, b) => a === b },
+  );
+
+  /** Live model stats. Changes only at end of turn. */
+  readonly activeTabLiveModelStats = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.liveModelStats ??
+      null,
+    { equal: (a, b) => a === b },
+  );
+
+  /** Model usage list. Changes only at end of turn. */
+  readonly activeTabModelUsageList = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.modelUsageList ??
+      null,
+    { equal: (a, b) => a === b },
+  );
+
+  /** Compaction count. Rarely changes. */
+  readonly activeTabCompactionCount = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.compactionCount ??
+      0,
+    { equal: (a, b) => a === b },
+  );
+
+  /** Queued content. Changes only when user queues/clears. */
+  readonly activeTabQueuedContent = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.queuedContent ??
+      null,
+    { equal: (a, b) => a === b },
+  );
 
   // ============================================================================
   // TAB LOOKUP
@@ -123,7 +207,7 @@ export class TabManagerService {
     // TASK_2025_208: Delegate cross-workspace search to partition service
     const result = this.workspacePartition.findTabBySessionIdAcrossWorkspaces(
       sessionId,
-      this._tabs()
+      this._tabs(),
     );
     return result?.tab ?? null;
   }
@@ -136,11 +220,11 @@ export class TabManagerService {
    * Delegates to TabWorkspacePartitionService for O(1) lookup via reverse index.
    */
   findTabBySessionIdAcrossWorkspaces(
-    sessionId: string
+    sessionId: string,
   ): TabLookupResult | null {
     return this.workspacePartition.findTabBySessionIdAcrossWorkspaces(
       sessionId,
-      this._tabs()
+      this._tabs(),
     );
   }
 
@@ -182,7 +266,7 @@ export class TabManagerService {
       this._tabs.set([]);
       this.openSessionTab(
         initialSessionId,
-        ptahConfig?.initialSessionName || undefined
+        ptahConfig?.initialSessionName || undefined,
       );
 
       // Signal that a session needs loading. SessionLoaderService listens to this
@@ -215,7 +299,7 @@ export class TabManagerService {
     const result = this.workspacePartition.switchWorkspace(
       workspacePath,
       this._tabs(),
-      this._activeTabId()
+      this._activeTabId(),
     );
 
     // null means already on this workspace (no-op)
@@ -251,7 +335,7 @@ export class TabManagerService {
   getWorkspaceTabs(workspacePath: string): TabState[] {
     return this.workspacePartition.getWorkspaceTabs(
       workspacePath,
-      this._tabs()
+      this._tabs(),
     );
   }
 
@@ -284,7 +368,7 @@ export class TabManagerService {
   openSessionTab(claudeSessionId: string, title?: string): string {
     // Check if tab already exists for this session (active workspace only)
     const existingTab = this._tabs().find(
-      (t) => t.claudeSessionId === claudeSessionId
+      (t) => t.claudeSessionId === claudeSessionId,
     );
 
     if (existingTab) {
@@ -316,7 +400,7 @@ export class TabManagerService {
     if (this.workspacePartition.activeWorkspacePath) {
       this.workspacePartition.registerSessionForWorkspace(
         claudeSessionId,
-        this.workspacePartition.activeWorkspacePath
+        this.workspacePartition.activeWorkspacePath,
       );
     }
 
@@ -521,7 +605,7 @@ export class TabManagerService {
         ) {
           this.workspacePartition.registerSessionForWorkspace(
             updates.claudeSessionId,
-            this.workspacePartition.activeWorkspacePath
+            this.workspacePartition.activeWorkspacePath,
           );
         }
 
@@ -713,7 +797,7 @@ export class TabManagerService {
       // Also keep the partition service's in-memory map in sync with the signal
       this.workspacePartition.syncActiveWorkspaceState(
         this._tabs(),
-        this._activeTabId()
+        this._activeTabId(),
       );
     } catch (error) {
       console.warn('[TabManager] Failed to save tab state:', error);

@@ -28,6 +28,11 @@ const MAX_EXPANDED_AGENTS = 2;
 /** Maximum streamEvents buffer per agent (prevents unbounded memory growth) */
 const MAX_STREAM_EVENTS = 2000;
 
+/** TASK_2025_264 P6: Maximum completed/failed agents retained in the store.
+ * Only agents with status 'completed' or 'failed' are evicted; 'running' and
+ * 'interrupted' agents are always preserved. */
+const MAX_COMPLETED_AGENTS = 20;
+
 export interface MonitoredAgent {
   readonly agentId: string;
   readonly cli: CliType;
@@ -115,11 +120,17 @@ export class AgentMonitorStore implements OnDestroy {
   /**
    * Whether the "pop out to editor" button should be highlighted.
    * True when agents are actively running and we're in the narrow sidebar.
+   * Reads _agents() directly (not the sorted agents() array) to avoid cascade.
    */
   readonly shouldSuggestEditorPanel = computed(
-    () =>
-      this.isSidebar &&
-      Array.from(this._agents().values()).some((a) => a.status === 'running'),
+    () => {
+      if (!this.isSidebar) return false;
+      for (const a of this._agents().values()) {
+        if (a.status === 'running') return true;
+      }
+      return false;
+    },
+    { equal: (a, b) => a === b },
   );
 
   /**
@@ -143,7 +154,7 @@ export class AgentMonitorStore implements OnDestroy {
    */
   readonly activeTabAgents = computed(() => {
     const all = this.agents();
-    const activeSessionId = this.tabManager.activeTab()?.claudeSessionId;
+    const activeSessionId = this.tabManager.activeTabSessionId();
 
     if (!activeSessionId) return all;
     return all.filter(
@@ -151,19 +162,34 @@ export class AgentMonitorStore implements OnDestroy {
     );
   });
 
-  readonly hasRunningAgents = computed(() =>
-    this.agents().some((a) => a.status === 'running'),
+  /** Whether any agent is running. Reads _agents() directly with primitive equality
+   * to avoid re-evaluation cascade through the sorted agents() array. */
+  readonly hasRunningAgents = computed(
+    () => {
+      for (const a of this._agents().values()) {
+        if (a.status === 'running') return true;
+      }
+      return false;
+    },
+    { equal: (a, b) => a === b },
   );
 
-  readonly agentCount = computed(() => this._agents().size);
+  readonly agentCount = computed(() => this._agents().size, {
+    equal: (a, b) => a === b,
+  });
 
-  /** Whether the active tab's session has running agents (session-scoped) */
-  readonly hasActiveTabRunningAgents = computed(() =>
-    this.activeTabAgents().some((a) => a.status === 'running'),
+  /** Whether the active tab's session has running agents (session-scoped).
+   * Primitive equality suppresses false notifications when the boolean doesn't change. */
+  readonly hasActiveTabRunningAgents = computed(
+    () => this.activeTabAgents().some((a) => a.status === 'running'),
+    { equal: (a, b) => a === b },
   );
 
-  /** Count of agents belonging to the active tab's session */
-  readonly activeTabAgentCount = computed(() => this.activeTabAgents().length);
+  /** Count of agents belonging to the active tab's session.
+   * Primitive equality prevents re-renders when the count stays the same. */
+  readonly activeTabAgentCount = computed(() => this.activeTabAgents().length, {
+    equal: (a, b) => a === b,
+  });
 
   /** Agents that currently have a pending permission request (global — all tabs).
    * Permissions are global because the user should always see them regardless of active tab. */
@@ -176,7 +202,7 @@ export class AgentMonitorStore implements OnDestroy {
     this.activeTabAgents().filter((a) => a.permissionQueue.length > 0),
   );
 
-  readonly panelOpen = computed(() => this._panelOpen());
+  readonly panelOpen = this._panelOpen.asReadonly();
 
   ngOnDestroy(): void {
     this.stopTick();
@@ -199,9 +225,13 @@ export class AgentMonitorStore implements OnDestroy {
 
   /** Start or stop tick based on whether any agents are running */
   private syncTick(): void {
-    const hasRunning = Array.from(this._agents().values()).some(
-      (a) => a.status === 'running',
-    );
+    let hasRunning = false;
+    for (const a of this._agents().values()) {
+      if (a.status === 'running') {
+        hasRunning = true;
+        break;
+      }
+    }
     if (hasRunning) {
       this.startTick();
     } else {
@@ -439,10 +469,37 @@ export class AgentMonitorStore implements OnDestroy {
         completedAt,
         permissionQueue: [],
       });
+
+      // TASK_2025_264 P6: Evict oldest completed/failed agents beyond the limit.
+      // NEVER evict 'running' or 'interrupted' agents.
+      this.evictOldCompletedAgents(next);
+
       return next;
     });
 
     this.syncTick();
+  }
+
+  /**
+   * TASK_2025_264 P6: Evict the oldest completed/failed agents when count exceeds
+   * MAX_COMPLETED_AGENTS. Preserves 'running' and 'interrupted' agents.
+   * Mutates the provided map in place (caller creates the new Map).
+   */
+  private evictOldCompletedAgents(map: Map<string, MonitoredAgent>): void {
+    const completedAgents = Array.from(map.values()).filter(
+      (a) => a.status === 'completed' || a.status === 'failed',
+    );
+
+    if (completedAgents.length <= MAX_COMPLETED_AGENTS) return;
+
+    // Sort by completedAt ascending — oldest first
+    completedAgents.sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));
+
+    // Evict oldest until at the limit
+    const toEvict = completedAgents.length - MAX_COMPLETED_AGENTS;
+    for (let i = 0; i < toEvict; i++) {
+      map.delete(completedAgents[i].agentId);
+    }
   }
 
   /** Handle incoming permission request from CLI agent (Copilot SDK or Ptah CLI) */

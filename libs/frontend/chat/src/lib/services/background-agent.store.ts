@@ -35,7 +35,7 @@ const MAX_COMPLETED_AGENTS = 50;
 @Injectable({ providedIn: 'root' })
 export class BackgroundAgentStore implements OnDestroy {
   private readonly _agents = signal<Map<string, BackgroundAgentEntry>>(
-    new Map()
+    new Map(),
   );
 
   /** Shared tick signal incremented every 1s while agents are running. */
@@ -49,27 +49,49 @@ export class BackgroundAgentStore implements OnDestroy {
   });
 
   readonly runningAgents = computed(() =>
-    this.agents().filter((a) => a.status === 'running')
+    this.agents().filter((a) => a.status === 'running'),
   );
 
   readonly completedAgents = computed(() =>
-    this.agents().filter((a) => a.status !== 'running')
+    this.agents().filter((a) => a.status !== 'running'),
   );
 
-  readonly runningCount = computed(() => this.runningAgents().length);
+  /** Running count derived directly from _agents Map with primitive equality.
+   * Avoids cascading through agents() -> runningAgents() intermediate arrays. */
+  readonly runningCount = computed(
+    () => {
+      let count = 0;
+      for (const a of this._agents().values()) {
+        if (a.status === 'running') count++;
+      }
+      return count;
+    },
+    { equal: (a, b) => a === b },
+  );
 
-  readonly totalCount = computed(() => this._agents().size);
-
-  readonly hasRunningAgents = computed(() => this.runningCount() > 0);
-
-  /** Set of toolCallIds for background agents — used by tree builder to mark nodes */
-  readonly backgroundToolCallIds = computed(() => {
-    const ids = new Set<string>();
-    for (const agent of this._agents().values()) {
-      ids.add(agent.toolCallId);
-    }
-    return ids;
+  readonly totalCount = computed(() => this._agents().size, {
+    equal: (a, b) => a === b,
   });
+
+  /** Derived from runningCount with primitive equality to prevent cascade. */
+  readonly hasRunningAgents = computed(() => this.runningCount() > 0, {
+    equal: (a, b) => a === b,
+  });
+
+  /** Set of toolCallIds for background agents — used by tree builder to mark nodes.
+   * Custom equality suppresses notifications when the same IDs are present. */
+  readonly backgroundToolCallIds = computed(
+    () => {
+      const ids = new Set<string>();
+      for (const agent of this._agents().values()) {
+        ids.add(agent.toolCallId);
+      }
+      return ids;
+    },
+    {
+      equal: (a, b) => a.size === b.size && [...a].every((id) => b.has(id)),
+    },
+  );
 
   ngOnDestroy(): void {
     this.stopTick();
@@ -210,13 +232,13 @@ export class BackgroundAgentStore implements OnDestroy {
   }
 
   private evictOldCompleted(
-    map: Map<string, BackgroundAgentEntry>
+    map: Map<string, BackgroundAgentEntry>,
   ): Map<string, BackgroundAgentEntry> {
     const finished = Array.from(map.values()).filter(
       (a) =>
         a.status === 'completed' ||
         a.status === 'stopped' ||
-        a.status === 'error'
+        a.status === 'error',
     );
 
     if (finished.length <= MAX_COMPLETED_AGENTS) {
@@ -224,12 +246,12 @@ export class BackgroundAgentStore implements OnDestroy {
     }
 
     finished.sort(
-      (a, b) => (a.completedAt ?? a.startedAt) - (b.completedAt ?? b.startedAt)
+      (a, b) => (a.completedAt ?? a.startedAt) - (b.completedAt ?? b.startedAt),
     );
 
     const toEvict = finished.length - MAX_COMPLETED_AGENTS;
     const evictIds = new Set(
-      finished.slice(0, toEvict).map((a) => a.toolCallId)
+      finished.slice(0, toEvict).map((a) => a.toolCallId),
     );
 
     for (const id of evictIds) {

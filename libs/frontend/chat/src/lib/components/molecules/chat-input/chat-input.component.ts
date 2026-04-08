@@ -332,8 +332,8 @@ export class ChatInputComponent implements OnInit {
    * tab shows streaming spinner. Now both use the visual streaming indicator.
    */
   readonly isActiveTabStreaming = computed(() => {
-    const activeTab = this.chatStore.activeTab();
-    return activeTab ? this.tabManager.isTabStreaming(activeTab.id) : false;
+    const tabId = this.tabManager.activeTabId();
+    return tabId ? this.tabManager.isTabStreaming(tabId) : false;
   });
 
   // Signal-based viewChild references (Angular 20+ pattern)
@@ -418,8 +418,8 @@ export class ChatInputComponent implements OnInit {
 
   // Check if there's queued content waiting to be sent
   readonly hasQueuedContent = computed(() => {
-    const tab = this.chatStore.activeTab();
-    return !!tab?.queuedContent?.trim();
+    const queued = this.tabManager.activeTabQueuedContent();
+    return !!queued?.trim();
   });
 
   /**
@@ -1073,13 +1073,6 @@ export class ChatInputComponent implements OnInit {
   restoreContentToInput(content: string): void {
     // FIX #2: Only restore if current message is empty (prevent overwriting user typing)
     if (this._currentMessage().trim()) {
-      console.log(
-        '[ChatInputComponent] Skipping restoration - input not empty',
-        {
-          currentLength: this._currentMessage().length,
-          queueLength: content.length,
-        },
-      );
       return;
     }
 
@@ -1092,55 +1085,41 @@ export class ChatInputComponent implements OnInit {
       textarea.style.height = 'auto';
       textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
     }
-
-    console.log('[ChatInputComponent] Content restored to input', {
-      length: content.length,
-    });
   }
 
   constructor() {
     // Listen for queue-to-input restoration signal
-    // FIX #3: Validate tab ID to ensure content goes to correct tab
-    effect(() => {
-      const restoreData = this.chatStore.queueRestoreContent();
-      if (restoreData) {
-        // FIX #3: Verify tab ID matches active tab
-        const activeTab = this.chatStore.activeTab();
-        if (activeTab && activeTab.id === restoreData.tabId) {
-          this.restoreContentToInput(restoreData.content);
-          console.log('[ChatInputComponent] Queue restored to correct tab', {
-            tabId: restoreData.tabId,
-          });
-        } else {
-          console.log(
-            '[ChatInputComponent] Skipping restoration - tab mismatch',
-            {
-              restoreTabId: restoreData.tabId,
-              activeTabId: activeTab?.id,
-            },
-          );
-        }
-        // Clear signal after restoration (or rejection)
-        this.chatStore.clearQueueRestoreSignal();
-      }
-    });
-
-    // Session change monitoring - clear command cache on session change
-    // FIX: Track session ID (primitive) to avoid clearing cache on every stream event
-    // Previously, watching activeTab() cleared cache 220+ times per streaming session
-    // because updateTab() causes activeTab() to return a new object reference
+    // Validate tab ID to ensure content goes to correct tab
     effect(
       () => {
-        const activeTab = this.chatStore.activeTab();
-        const currentSessionId = activeTab?.id ?? null;
+        const restoreData = this.chatStore.queueRestoreContent();
+        if (restoreData) {
+          // Verify tab ID matches active tab before restoring
+          const activeTabId = this.tabManager.activeTabId();
+          if (activeTabId && activeTabId === restoreData.tabId) {
+            this.restoreContentToInput(restoreData.content);
+          }
+          // Clear signal after processing to prevent re-firing on activeTab() changes
+          this.chatStore.clearQueueRestoreSignal();
+        }
+      },
+      { allowSignalWrites: true },
+    );
 
-        // Only clear cache when session ID actually changes
-        if (currentSessionId !== this._lastSessionId) {
-          if (this._lastSessionId !== null && currentSessionId !== null) {
+    // Session change monitoring - clear command cache on session change
+    // Uses activeTabId() fine-grained selector so this effect only re-runs
+    // when the active tab actually changes, not on every streaming tick.
+    effect(
+      () => {
+        const currentTabId = this.tabManager.activeTabId();
+
+        // Only clear cache when tab ID actually changes
+        if (currentTabId !== this._lastSessionId) {
+          if (this._lastSessionId !== null && currentTabId !== null) {
             // Clear command autocomplete cache on session switch
             this.commandDiscovery.clearCache();
           }
-          this._lastSessionId = currentSessionId;
+          this._lastSessionId = currentTabId;
         }
       },
       { allowSignalWrites: true },

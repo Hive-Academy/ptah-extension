@@ -203,13 +203,11 @@ export class ChatStore {
   // Active tab accessor (delegated to TabManager)
   readonly activeTab = computed(() => this.tabManager.activeTab());
 
-  // Computed from active tab (delegated to TabManager)
-  readonly currentSessionId = computed(
-    () => this.tabManager.activeTab()?.claudeSessionId ?? null,
-  );
-  readonly messages = computed(
-    () => this.tabManager.activeTab()?.messages ?? [],
-  );
+  // Computed from active tab (delegated to TabManager fine-grained selectors)
+  // These use reference-equality selectors so they don't re-notify during
+  // streaming when only streamingState changes.
+  readonly currentSessionId = this.tabManager.activeTabSessionId;
+  readonly messages = this.tabManager.activeTabMessages;
   /**
    * PERFORMANCE OPTIMIZATION: Computed signal for current execution tree
    *
@@ -231,13 +229,14 @@ export class ChatStore {
    * Now we return ALL root nodes so they can all be rendered.
    */
   readonly currentExecutionTrees = computed((): ExecutionNode[] => {
-    const activeTab = this.tabManager.activeTab();
-    if (!activeTab?.streamingState) return [];
+    const streamingState = this.tabManager.activeTabStreamingState();
+    if (!streamingState) return [];
 
     // PERFORMANCE: Use tab-specific cache key for memoization
     // This allows the tree builder to skip rebuilding when data hasn't changed
-    const cacheKey = `tab-${activeTab.id}`;
-    return this.treeBuilder.buildTree(activeTab.streamingState, cacheKey);
+    const tabId = this.tabManager.activeTabId();
+    const cacheKey = `tab-${tabId}`;
+    return this.treeBuilder.buildTree(streamingState, cacheKey);
   });
 
   /**
@@ -249,39 +248,37 @@ export class ChatStore {
     return trees.length > 0 ? trees[0] : null;
   });
   readonly isStreaming = computed(() => {
-    const tab = this.tabManager.activeTab();
-    return tab?.status === 'streaming' || tab?.status === 'resuming';
+    const status = this.tabManager.activeTabStatus();
+    return status === 'streaming' || status === 'resuming';
   });
 
   /**
    * Preloaded stats for old sessions (loaded from JSONL history)
    * Used by SessionStatsSummaryComponent to display cost/tokens without recalculation
    */
-  readonly preloadedStats = computed(
-    () => this.tabManager.activeTab()?.preloadedStats ?? null,
-  );
+  readonly preloadedStats = this.tabManager.activeTabPreloadedStats;
 
   /**
    * Live model stats for current session (updated after each turn completion)
    * Includes context window info for percentage display and model name
    * Used by SessionStatsSummaryComponent to display context usage
    */
-  readonly liveModelStats = computed(
-    () => this.tabManager.activeTab()?.liveModelStats ?? null,
-  );
+  readonly liveModelStats = this.tabManager.activeTabLiveModelStats;
 
   /**
    * Full per-model usage breakdown for collapsible display in session stats.
    * Contains all models used in the session with their individual cost/token stats.
    */
-  readonly modelUsageList = computed(
-    () => this.tabManager.activeTab()?.modelUsageList ?? null,
-  );
+  readonly modelUsageList = this.tabManager.activeTabModelUsageList;
 
   /** Number of context compactions in the active session */
-  readonly compactionCount = computed(
-    () => this.tabManager.activeTab()?.compactionCount ?? 0,
-  );
+  readonly compactionCount = this.tabManager.activeTabCompactionCount;
+
+  /** Queued content for the active tab. Uses fine-grained selector. */
+  readonly queuedContent = this.tabManager.activeTabQueuedContent;
+
+  /** Active tab's streaming state. Changes every tick during streaming (expected). */
+  readonly activeStreamingState = this.tabManager.activeTabStreamingState;
 
   /**
    * Get permission request for a specific tool by its toolCallId
@@ -314,9 +311,10 @@ export class ChatStore {
    * to ensure correct behavior in multi-tab scenarios
    */
   readonly hasExistingSession = computed(() => {
-    const tab = this.tabManager.activeTab();
+    const sessionId = this.tabManager.activeTabSessionId();
+    const status = this.tabManager.activeTabStatus();
     // Has existing session if tab has a real Claude session ID and is in 'loaded' state
-    return tab?.claudeSessionId !== null && tab?.status === 'loaded';
+    return sessionId !== null && status === 'loaded';
   });
 
   // ============================================================================
@@ -403,10 +401,9 @@ export class ChatStore {
     content: string,
     options?: SendMessageOptions,
   ): Promise<void> {
-    // Check if streaming via active tab status
-    const activeTab = this.tabManager.activeTab();
-    const isStreaming =
-      activeTab?.status === 'streaming' || activeTab?.status === 'resuming';
+    // Check if streaming via active tab status (fine-grained selector)
+    const status = this.tabManager.activeTabStatus();
+    const isStreaming = status === 'streaming' || status === 'resuming';
 
     if (isStreaming) {
       // Auto-deny active permissions with the user's message as context.
@@ -679,13 +676,11 @@ export class ChatStore {
   }
 
   /**
-   * Clear the queue restore signal after content has been restored to input
-   * This is a no-op now since queueRestoreSignal is exposed directly from ConversationService
-   * Kept for backward compatibility
+   * Clear the queue restore signal after content has been restored to input.
+   * Delegates to ConversationService to actually set the signal to null.
    */
   clearQueueRestoreSignal(): void {
-    // No-op: components should read queueRestoreSignal directly
-    // This method exists for backward compatibility only
+    this.conversation.clearQueueRestoreSignal();
   }
 
   /**
@@ -929,6 +924,7 @@ export class ChatStore {
       contextWindow: number;
       costUSD: number;
       cacheReadInputTokens?: number;
+      lastTurnContextTokens?: number;
     }>;
   }): void {
     // TASK_2025_098: Clear compaction state when new message finishes
@@ -963,13 +959,18 @@ export class ChatStore {
           : stats.modelUsage.reduce((best, current) =>
               current.costUSD > best.costUSD ? current : best,
             );
-      // Context usage = input + cache-read + output tokens.
-      // Cache-read tokens represent cached prompt content that still occupies context window space.
-      // They're cheaper to process (billing), but count toward the context window limit.
+      // Context usage: use last turn's actual prompt size (= real context fill),
+      // NOT cumulative tokens across all turns. The SDK's modelUsage tokens are
+      // summed across all API calls, but the context window only holds the current
+      // conversation state. lastTurnContextTokens captures the last message_start's
+      // input + cache_read, which IS the real context window fill level.
+      // Falls back to cumulative tokens for backward compat (loaded sessions).
       const contextUsed =
-        primaryModel.inputTokens +
-        (primaryModel.cacheReadInputTokens ?? 0) +
-        primaryModel.outputTokens;
+        primaryModel.lastTurnContextTokens != null
+          ? primaryModel.lastTurnContextTokens
+          : primaryModel.inputTokens +
+            (primaryModel.cacheReadInputTokens ?? 0) +
+            primaryModel.outputTokens;
       const contextPercent =
         primaryModel.contextWindow > 0
           ? Math.round((contextUsed / primaryModel.contextWindow) * 1000) / 10

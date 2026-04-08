@@ -1,0 +1,111 @@
+{
+  "name": "ptah-tui",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/ptah-tui/src",
+  "tags": ["scope:cli", "type:app"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "outputPath": "dist/apps/ptah-tui",
+        "main": "apps/ptah-tui/src/main.tsx",
+        "outputFileName": "main.mjs",
+        "tsConfig": "apps/ptah-tui/tsconfig.build.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": true,
+        "esbuildOptions": {
+          "outExtension": { ".js": ".mjs" },
+          "banner": {
+            "js": "import { createRequire } from 'module'; import { fileURLToPath as __esm_fileURLToPath } from 'url'; import { dirname as __esm_dirname } from 'path'; const require = createRequire(import.meta.url); const __filename = __esm_fileURLToPath(import.meta.url); const __dirname = __esm_dirname(__filename);"
+          },
+          "jsx": "automatic"
+        },
+        "external": [
+          "react-devtools-core",
+          "@anthropic-ai/claude-agent-sdk",
+          "@github/copilot-sdk",
+          "@openai/codex-sdk",
+          "reflect-metadata",
+          "tsyringe",
+          "async-mutex",
+          "cross-spawn",
+          "eventemitter3",
+          "gray-matter",
+          "json2md",
+          "jsonrepair",
+          "minimatch",
+          "picomatch",
+          "rxjs",
+          "uuid",
+          "which",
+          "zod",
+          "tslib",
+          "chokidar",
+          "fast-glob",
+          "p-limit",
+          "p-queue",
+          "axios",
+          "exa-js",
+          "gpt-tokenizer",
+          "web-tree-sitter",
+          "@tavily/core",
+          "ink",
+          "react",
+          "ink-text-input",
+          "ink-select-input",
+          "ink-spinner",
+          "marked",
+          "marked-terminal",
+          "cli-highlight"
+        ],
+        "assets": [
+          {
+            "glob": "package.json",
+            "input": "apps/ptah-tui",
+            "output": "."
+          }
+        ]
+      },
+      "configurations": {
+        "production": {
+          "sourcemap": false,
+          "minify": true
+        },
+        "development": {
+          "sourcemap": true,
+          "minify": false
+        }
+      }
+    },
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx tsx apps/ptah-tui/src/main.tsx"
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "command": "node dist/apps/ptah-tui/main.mjs"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project apps/ptah-tui/tsconfig.app.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}

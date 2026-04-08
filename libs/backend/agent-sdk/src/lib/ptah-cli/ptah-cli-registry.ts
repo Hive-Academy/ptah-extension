@@ -575,6 +575,7 @@ export class PtahCliRegistry {
       emitOutput,
       onStreamEvent,
       emitStreamEvent,
+      dispose: disposeCallbacks,
     } = this.createCallbackInfrastructure();
 
     this.logger.info(
@@ -664,7 +665,17 @@ export class PtahCliRegistry {
         }
       },
     });
-    const done = streamLoop.run(sdkQuery);
+    // Chain dispose after stream loop exits to release callback/buffer references.
+    // The stream loop's run() returns the exit code; we preserve it after cleanup.
+    const done = streamLoop.run(sdkQuery).then((exitCode) => {
+      try {
+        disposeCallbacks();
+        sessionResolvedCallbacks.length = 0;
+      } catch {
+        // Cleanup errors must not break the promise chain or mask the exit code
+      }
+      return exitCode;
+    });
 
     const handle: SdkHandle = {
       abort: abortController,
@@ -877,6 +888,19 @@ export class PtahCliRegistry {
       }
     };
 
+    /**
+     * Dispose all callback arrays and buffers.
+     * Idempotent — safe to call multiple times.
+     * Called after the stream loop exits to release references held by closures.
+     */
+    const dispose = (): void => {
+      outputCallbacks.length = 0;
+      segmentBuffer.length = 0;
+      segmentCallbacks.length = 0;
+      streamEventBuffer.length = 0;
+      streamEventCallbacks.length = 0;
+    };
+
     return {
       outputCallbacks,
       segmentBuffer,
@@ -888,6 +912,7 @@ export class PtahCliRegistry {
       emitOutput,
       onStreamEvent,
       emitStreamEvent,
+      dispose,
     };
   }
 

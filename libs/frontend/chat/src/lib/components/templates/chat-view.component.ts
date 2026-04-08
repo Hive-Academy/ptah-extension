@@ -133,9 +133,9 @@ export class ChatViewComponent {
     const trees = this.chatStore.currentExecutionTrees();
     if (trees.length === 0) return [];
 
-    // Get pendingStats from the active tab's streamingState
-    const activeTab = this.chatStore.activeTab();
-    const pendingStats = activeTab?.streamingState?.pendingStats;
+    // Get pendingStats from the active tab's streamingState (fine-grained selector)
+    const streamingState = this.chatStore.activeStreamingState();
+    const pendingStats = streamingState?.pendingStats;
 
     // DEDUPLICATION: Get IDs of already finalized messages to filter out.
     // CRITICAL: Finalized messages now use tree.id (message_start event id),
@@ -297,10 +297,12 @@ export class ChatViewComponent {
     });
 
     // Watch for any DOM changes in the container subtree
+    // TASK_2025_264 P5: Removed characterData (fired on every text node change during
+    // streaming, causing excessive scroll callbacks). childList + subtree is sufficient
+    // because Angular's change detection adds new DOM elements for streaming content.
     this.observer.observe(container, {
       childList: true, // New nodes added/removed
       subtree: true, // Watch entire subtree (recursive components)
-      characterData: true, // Text content changes (streaming text)
     });
   }
 

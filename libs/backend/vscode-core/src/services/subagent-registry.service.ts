@@ -72,9 +72,13 @@ export class SubagentRegistryService {
    * from re-registering these agents on session reload, breaking the cycle:
    * inject context -> remove from registry -> reload session -> re-register -> inject again.
    *
+   * TASK_2025_264: Changed from Set<string> to Map<string, number> where value
+   * is the timestamp when the ID was added. Entries older than TTL_MS are pruned
+   * during the lazy cleanup sweep to prevent unbounded growth.
+   *
    * Typical size: 0-5 entries per extension session. Cleared on clear().
    */
-  private readonly clearedToolCallIds = new Set<string>();
+  private readonly clearedToolCallIds = new Map<string, number>();
 
   /**
    * TASK_2025_217: Tracks toolCallIds that have been detected as background
@@ -587,10 +591,10 @@ export class SubagentRegistryService {
    * @param toolCallId - The toolCallId that was injected into context
    */
   markAsInjected(toolCallId: string): void {
-    this.clearedToolCallIds.add(toolCallId);
+    this.clearedToolCallIds.set(toolCallId, Date.now());
     this.logger.debug(
       '[SubagentRegistryService.markAsInjected] Marked toolCallId as injected',
-      { toolCallId, clearedSetSize: this.clearedToolCallIds.size },
+      { toolCallId, clearedMapSize: this.clearedToolCallIds.size },
     );
   }
 
@@ -700,7 +704,7 @@ export class SubagentRegistryService {
   }
 
   /**
-   * Remove all expired records from the registry.
+   * Remove all expired records from the registry and clearedToolCallIds map.
    */
   private cleanupExpired(): void {
     const toRemove: string[] = [];
@@ -711,19 +715,35 @@ export class SubagentRegistryService {
       }
     }
 
-    if (toRemove.length === 0) {
-      return;
-    }
-
     for (const toolCallId of toRemove) {
       this.registry.delete(toolCallId);
+    }
+
+    // TASK_2025_264: Also prune expired entries from clearedToolCallIds.
+    // Uses the same TTL_MS (24h) as the registry records.
+    const now = Date.now();
+    const clearedToRemove: string[] = [];
+    for (const [toolCallId, timestamp] of this.clearedToolCallIds) {
+      if (now - timestamp > SubagentRegistryService.TTL_MS) {
+        clearedToRemove.push(toolCallId);
+      }
+    }
+    for (const toolCallId of clearedToRemove) {
+      this.clearedToolCallIds.delete(toolCallId);
+    }
+
+    const totalRemoved = toRemove.length + clearedToRemove.length;
+    if (totalRemoved === 0) {
+      return;
     }
 
     this.logger.info(
       '[SubagentRegistryService.cleanupExpired] Expired records removed',
       {
-        removedCount: toRemove.length,
-        remainingCount: this.registry.size,
+        registryRemoved: toRemove.length,
+        clearedIdsRemoved: clearedToRemove.length,
+        remainingRegistry: this.registry.size,
+        remainingClearedIds: this.clearedToolCallIds.size,
       },
     );
   }

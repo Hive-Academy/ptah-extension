@@ -33,7 +33,8 @@
         "scripts",
         "landing",
         "license-server",
-        "electron"
+        "electron",
+        "cli"
       ]
     ],
     "scope-case": [2, "always", "lower-case"],

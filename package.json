@@ -67,7 +67,10 @@
     "electron:build": "nx build ptah-electron",
     "electron:build:dev": "nx build-dev ptah-electron",
     "electron:package": "nx package ptah-electron",
-    "electron:rebuild": "electron-rebuild -f -w node-pty"
+    "electron:rebuild": "electron-rebuild -f -w node-pty",
+    "tui:build": "nx build ptah-tui",
+    "tui:dev": "nx dev ptah-tui",
+    "tui:serve": "nx serve ptah-tui"
   },
   "private": true,
   "dependencies": {
@@ -102,6 +105,7 @@
     "@xterm/xterm": "^5.5.0",
     "axios": "1.13.6",
     "chokidar": "^5.0.0",
+    "cli-highlight": "^2.1.11",
     "chrome-launcher": "^1.2.1",
     "chrome-remote-interface": "^0.34.0",
     "class-transformer": "^0.5.1",
@@ -116,11 +120,17 @@
     "fast-glob": "^3.3.0",
     "gifenc": "^1.0.3",
     "gpt-tokenizer": "^3.4.0",
+    "ink": "^6.8.0",
+    "ink-select-input": "^6.0.0",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0",
     "gray-matter": "^4.0.3",
     "helmet": "^8.1.0",
     "jpeg-js": "^0.4.4",
     "json2md": "^2.0.3",
     "jsonrepair": "^3.13.1",
+    "marked": "^17.0.0",
+    "marked-terminal": "^7.3.0",
     "lucide-angular": "^1.0.0",
     "monaco-editor": "^0.55.1",
     "ngx-monaco-editor-v2": "^21.1.4",
@@ -128,6 +138,7 @@
     "p-limit": "^7.1.1",
     "p-queue": "^8.1.0",
     "pg": "^8.20.0",
+    "react": "^19.2.0",
     "reflect-metadata": "^0.2.2",
     "resend": "^6.9.0",
     "rxjs": "~7.8.0",
@@ -170,6 +181,7 @@
     "@types/jest": "^30.0.0",
     "@types/json2md": "^1.5.4",
     "@types/node": "^22.15.0",
+    "@types/react": "^19.0.0",
     "@types/pg": "^8.20.0",
     "@types/picomatch": "^4.0.2",
     "@types/three": "^0.183.0",
@@ -208,6 +220,9 @@
   "overrides": {
     "@anthropic-ai/claude-agent-sdk": {
       "zod": "^4.1.12"
+    },
+    "marked-terminal": {
+      "marked": "^17.0.0"
     }
   }
 }
