@@ -72,6 +72,12 @@ export class SessionLoaderService {
   // Page size constant
   private static readonly SESSIONS_PAGE_SIZE = 30;
 
+  /**
+   * TASK_2025_264 P7f: Maximum workspace entries in sessionCache.
+   * LRU eviction: oldest by Map insertion order, but never evict the currentWorkspacePath.
+   */
+  private static readonly MAX_CACHED_WORKSPACES = 10;
+
   // Debounce timer for coalescing rapid loadSessions() calls
   private loadSessionsTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly LOAD_SESSIONS_DEBOUNCE_MS = 300;
@@ -130,19 +136,21 @@ export class SessionLoaderService {
     // This means the backend registry is empty and resumableSubagents is never
     // populated. This one-shot effect fires chat:resume in the background to
     // populate the signal without reloading messages (those are already cached).
+    // Use fine-grained selectors instead of activeTab() to avoid re-evaluating
+    // ~60 times/sec during streaming (only streamingState changes, not sessionId/status).
     effect(() => {
-      const activeTab = this.tabManager.activeTab();
+      const sessionId = this.tabManager.activeTabSessionId();
+      const status = this.tabManager.activeTabStatus();
+      const tabId = this.tabManager.activeTabId();
       if (
         !this.restoredSessionChecked &&
-        activeTab?.claudeSessionId &&
-        activeTab.status === 'loaded'
+        sessionId &&
+        status === 'loaded' &&
+        tabId
       ) {
         this.restoredSessionChecked = true;
         untracked(() =>
-          this.refreshResumableSubagentsForSession(
-            activeTab.claudeSessionId!,
-            activeTab.id,
-          ),
+          this.refreshResumableSubagentsForSession(sessionId, tabId),
         );
       }
     });
@@ -369,6 +377,10 @@ export class SessionLoaderService {
     // Check cache for the target workspace
     const cached = this.sessionCache.get(normalizedNew);
     if (cached) {
+      // TASK_2025_264 P7f: LRU refresh — move entry to end of Map insertion order
+      this.sessionCache.delete(normalizedNew);
+      this.sessionCache.set(normalizedNew, cached);
+
       // Cache hit — restore instantly without RPC
       this._sessions.set(cached.sessions);
       this._totalSessions.set(cached.totalSessions);
@@ -410,17 +422,37 @@ export class SessionLoaderService {
   /**
    * Snapshot current signal values into the cache for the given workspace path.
    * The path is normalized before use as a cache key.
+   *
+   * TASK_2025_264 P7f: Enforces LRU eviction when cache exceeds MAX_CACHED_WORKSPACES.
+   * The currentWorkspacePath is never evicted. On cache hit (re-insert), the entry
+   * is moved to the end of Map insertion order (most recently used).
    */
   private updateCache(workspacePath: string): void {
-    this.sessionCache.set(
-      SessionLoaderService.normalizeCacheKey(workspacePath),
-      {
-        sessions: this._sessions(),
-        totalSessions: this._totalSessions(),
-        hasMoreSessions: this._hasMoreSessions(),
-        sessionsOffset: this._sessionsOffset(),
-      },
-    );
+    const key = SessionLoaderService.normalizeCacheKey(workspacePath);
+
+    // Delete-then-set moves the entry to the end of Map insertion order (LRU refresh)
+    this.sessionCache.delete(key);
+    this.sessionCache.set(key, {
+      sessions: this._sessions(),
+      totalSessions: this._totalSessions(),
+      hasMoreSessions: this._hasMoreSessions(),
+      sessionsOffset: this._sessionsOffset(),
+    });
+
+    // Evict oldest entries beyond the limit (never evict currentWorkspacePath)
+    while (
+      this.sessionCache.size > SessionLoaderService.MAX_CACHED_WORKSPACES
+    ) {
+      let evicted = false;
+      for (const candidateKey of this.sessionCache.keys()) {
+        if (candidateKey !== this.currentWorkspacePath) {
+          this.sessionCache.delete(candidateKey);
+          evicted = true;
+          break;
+        }
+      }
+      if (!evicted) break; // All remaining entries are protected
+    }
   }
 
   /**

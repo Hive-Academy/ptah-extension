@@ -475,6 +475,7 @@ export class ElectronRpcMethodRegistrationService {
         contextWindow: number;
         costUSD: number;
         cacheReadInputTokens?: number;
+        lastTurnContextTokens?: number;
       }>;
     },
   ): Promise<void> {

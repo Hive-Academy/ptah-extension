@@ -417,10 +417,12 @@ export class InlineAgentBubbleComponent {
     });
 
     // Watch for any DOM changes in the container subtree
+    // TASK_2025_264 P5: Removed characterData (fired on every text node change during
+    // streaming, causing excessive scroll callbacks). childList + subtree is sufficient
+    // because Angular's change detection adds new DOM elements for streaming content.
     this.observer.observe(container, {
       childList: true, // New nodes added/removed
       subtree: true, // Watch entire subtree (recursive components)
-      characterData: true, // Text content changes (streaming text)
     });
   }
 

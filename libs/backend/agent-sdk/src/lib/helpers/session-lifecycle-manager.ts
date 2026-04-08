@@ -20,7 +20,10 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
+import type {
+  SubagentRegistryService,
+  AgentSessionWatcherService,
+} from '@ptah-extension/vscode-core';
 import {
   SessionId,
   AISessionConfig,
@@ -211,6 +214,9 @@ export class SessionLifecycleManager {
     // TASK_2025_103: SubagentRegistryService for marking subagents as interrupted
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private subagentRegistry: SubagentRegistryService,
+    // TASK_2025_264: AgentSessionWatcherService for stopping file watchers on session end
+    @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
+    private agentSessionWatcher: AgentSessionWatcherService,
   ) {}
 
   /**
@@ -476,8 +482,13 @@ export class SessionLifecycleManager {
       this.tabIdToRealId.get(sessionId as string) || (sessionId as string);
     this.subagentRegistry.markAllInterrupted(registrySessionId);
 
+    // TASK_2025_264: Stop all agent session file watchers for this session.
+    // Prevents background agent watchers from tailing files and emitting
+    // events to a dead session after abort.
+    this.agentSessionWatcher.stopAllForSession(registrySessionId);
+
     this.logger.info(
-      `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`,
+      `[SessionLifecycle] Marked running subagents as interrupted and stopped watchers for session: ${sessionId}`,
     );
 
     // TASK_2025_175: Await interrupt() with timeout BEFORE abort()
@@ -549,6 +560,9 @@ export class SessionLifecycleManager {
       // TASK_2025_186: Use real UUID if resolved
       const registryId = this.tabIdToRealId.get(sessionId) || sessionId;
       this.subagentRegistry.markAllInterrupted(registryId);
+
+      // TASK_2025_264: Stop all agent session file watchers for this session
+      this.agentSessionWatcher.stopAllForSession(registryId);
 
       // TASK_2025_175: Interrupt BEFORE abort, with timeout
       if (session.query) {

@@ -34,6 +34,9 @@
       "@ptah-extension/llm-abstraction/vscode-lm": [
         "libs/backend/llm-abstraction/src/vscode-lm.ts"
       ],
+      "@ptah-extension/platform-cli": [
+        "libs/backend/platform-cli/src/index.ts"
+      ],
       "@ptah-extension/platform-core": [
         "libs/backend/platform-core/src/index.ts"
       ],

@@ -1,16 +1,16 @@
 /**
  * Skill Junction Service (TASK_2025_201)
  *
- * Creates filesystem junctions from {workspace}/.ptah/skills/{skillName}/
+ * Creates filesystem junctions from {workspace}/.claude/skills/{skillName}/
  * to {pluginsBasePath}/{pluginId}/skills/{skillName}/.
  *
- * Uses .ptah/ instead of .claude/ to avoid:
- * - Skill/command duplication (SDK's plugins option already loads skills for Claude)
- * - Polluting the user's .claude/ folder with extension-managed junctions
+ * Uses .claude/ because Claude Code's native skill discovery only looks in
+ * {workspace}/.claude/skills/ and {workspace}/.claude/commands/. The SDK's
+ * `plugins` option does NOT reliably load skills — filesystem junctions in
+ * .claude/ are the proven mechanism (same approach used for CLI tool skills).
  *
- * This makes plugin skills discoverable by third-party AI providers (Codex, Copilot)
- * that search the workspace via MCP tools. Claude's native provider already resolves
- * these paths via the SDK's internal plugin mapping, so junctions are complementary.
+ * Also migrates stale junctions from .ptah/ (previous approach that didn't work
+ * because Claude Code doesn't discover skills from .ptah/).
  *
  * Platform handling (OS-level, not IPlatformInfo which tracks host environment):
  * - Windows: NTFS junctions (fs.symlinkSync with 'junction' type, no admin required)
@@ -36,6 +36,8 @@ import { join, basename } from 'path';
 import {
   mkdirSync,
   readdirSync,
+  readFileSync,
+  writeFileSync,
   lstatSync,
   statSync,
   accessSync,
@@ -46,6 +48,27 @@ import {
   constants as fsConstants,
 } from 'fs';
 import type { Stats } from 'fs';
+
+/**
+ * Manifest file name stored in .claude/commands/ to track which command files
+ * were copied by Ptah (vs user-created). On Windows, command files are copies
+ * (not symlinks), so without a manifest the service can't distinguish its own
+ * files from user files after a restart (the in-memory managedJunctions set is lost).
+ */
+const COMMANDS_MANIFEST = '.ptah-managed.json';
+
+/** Entry in the command manifest tracking a Ptah-managed command file. */
+interface CommandManifestEntry {
+  /** Absolute path to the source file in the plugin directory. */
+  source: string;
+  /** File size in bytes (fast check). */
+  size: number;
+  /** Source file mtime in ms (catches same-size content changes). */
+  mtimeMs: number;
+}
+
+/** Manifest mapping command filename to its tracking entry. */
+type CommandManifest = Record<string, CommandManifestEntry>;
 
 /**
  * Result of junction creation/cleanup operations
@@ -66,14 +89,19 @@ const IS_WINDOWS = process.platform === 'win32';
 
 /**
  * Workspace subdirectory for Ptah-managed junctions.
- * Uses .ptah/ instead of .claude/ to avoid:
- * - Skill/command duplication (SDK's plugins option already loads skills for Claude)
- * - Polluting the user's .claude/ folder with extension-managed content
+ * Uses .claude/ because Claude Code's native skill/command discovery
+ * only looks in {workspace}/.claude/skills/ and .claude/commands/.
  */
-const PTAH_WORKSPACE_DIR = '.ptah';
+const CLAUDE_WORKSPACE_DIR = '.claude';
 
 /**
- * Manages workspace .ptah/skills/ junctions pointing to extension plugin skill directories.
+ * Old workspace directory used by previous versions.
+ * Kept only for migration/cleanup purposes.
+ */
+const LEGACY_PTAH_WORKSPACE_DIR = '.ptah';
+
+/**
+ * Manages workspace .claude/skills/ junctions pointing to extension plugin skill directories.
  *
  * Uses a late-initialized singleton pattern: `initialize()` must be called from
  * main.ts after DI setup to provide the plugins base path. Workspace root is resolved
@@ -132,8 +160,8 @@ export class SkillJunctionService {
   /**
    * Create junctions for skills and copy command files from all enabled plugins.
    *
-   * Skills: Junctions in {workspace}/.ptah/skills/{skillName}/ -> plugin skills dir
-   * Commands: Copies to {workspace}/.ptah/commands/{commandName}.md (file symlinks
+   * Skills: Junctions in {workspace}/.claude/skills/{skillName}/ -> plugin skills dir
+   * Commands: Copies to {workspace}/.claude/commands/{commandName}.md (file symlinks
    *           require Developer Mode on Windows, so we copy instead)
    *
    * @param pluginPaths - Absolute paths to enabled plugin directories
@@ -154,9 +182,9 @@ export class SkillJunctionService {
       return result;
     }
 
-    // One-time migration: remove orphaned junctions from old .claude/skills/ and .claude/commands/
-    // (previous versions created junctions there; we now use .ptah/ to avoid duplication)
-    this.migrateFromClaudeDir(result);
+    // One-time migration: move junctions from old .ptah/skills/ to .claude/skills/
+    // (previous versions used .ptah/ which Claude Code doesn't discover)
+    this.migrateFromPtahDir(result);
 
     // Build skills map: skillName -> source absolute path
     const skillsMap = this.buildSkillsMap(pluginPaths);
@@ -167,13 +195,13 @@ export class SkillJunctionService {
       return result;
     }
 
-    // Ensure .ptah/skills/ directory exists
-    const skillsDir = join(this.workspaceRoot, PTAH_WORKSPACE_DIR, 'skills');
+    // Ensure .claude/skills/ directory exists
+    const skillsDir = join(this.workspaceRoot, CLAUDE_WORKSPACE_DIR, 'skills');
     try {
       mkdirSync(skillsDir, { recursive: true });
     } catch (error) {
       result.errors.push(
-        `Failed to create .ptah/skills/ directory: ${
+        `Failed to create .claude/skills/ directory: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
@@ -317,10 +345,30 @@ export class SkillJunctionService {
     this.workspaceFolderDisposer?.();
     this.workspaceFolderDisposer = null;
 
-    // Remove all managed junctions
+    // Remove all managed junctions and clean up the manifest
     this.removeAllManagedJunctions();
+    this.cleanupManifest();
 
     this.logger.debug('[SkillJunctionService] Deactivated');
+  }
+
+  /**
+   * Remove the command manifest file from .claude/commands/.
+   * Called on deactivation to prevent stale entries from persisting.
+   */
+  private cleanupManifest(): void {
+    if (!this.workspaceRoot) return;
+    const manifestPath = join(
+      this.workspaceRoot,
+      CLAUDE_WORKSPACE_DIR,
+      'commands',
+      COMMANDS_MANIFEST,
+    );
+    try {
+      unlinkSync(manifestPath);
+    } catch {
+      // Manifest may not exist — non-fatal
+    }
   }
 
   // ============================================================
@@ -378,16 +426,16 @@ export class SkillJunctionService {
 
   /**
    * Sync command .md files from plugin commands/ directories into
-   * {workspace}/.ptah/commands/.
+   * {workspace}/.claude/commands/.
    *
-   * These command files are for third-party provider discoverability via MCP
-   * workspace search only. Ptah's own CommandDiscoveryService discovers plugin
-   * commands directly via plugin paths (scanPluginDirectories), not from this
-   * directory. Claude's SDK loads commands via the plugins option.
+   * Claude Code discovers slash commands from .claude/commands/ in the workspace.
+   * This is the primary command discovery mechanism — the SDK's `plugins` option
+   * does not reliably load commands.
    *
-   * On Linux/macOS: creates file symlinks (no restrictions).
-   * On Windows: copies files (file symlinks require Developer Mode,
-   * unlike directory junctions which work without admin).
+   * On Linux/macOS: creates file symlinks (updates flow through automatically).
+   * On Windows: copies files (file symlinks require Developer Mode). A manifest
+   * file (.ptah-managed.json) tracks which files Ptah owns so they can be
+   * distinguished from user-created commands and re-copied when the source updates.
    *
    * Tracks created entries in managedJunctions for cleanup on deactivation.
    */
@@ -399,132 +447,210 @@ export class SkillJunctionService {
 
     const commandsDir = join(
       this.workspaceRoot,
-      PTAH_WORKSPACE_DIR,
+      CLAUDE_WORKSPACE_DIR,
       'commands',
     );
     try {
       mkdirSync(commandsDir, { recursive: true });
     } catch (error) {
       result.errors.push(
-        `Failed to create .ptah/commands/ directory: ${
+        `Failed to create .claude/commands/ directory: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
       return;
     }
 
-    // Clean up stale command files (from previously enabled but now disabled plugins)
-    try {
-      const existingEntries = readdirSync(commandsDir);
-      for (const entry of existingEntries) {
-        const entryPath = join(commandsDir, entry);
-        // Only remove entries we manage (symlinks pointing to our extension, or files we track)
-        if (
-          this.managedJunctions.has(entryPath) ||
-          this.isExtensionJunction(entryPath)
-        ) {
-          // Check if this command still exists in any enabled plugin
-          const commandExists = pluginPaths.some((pp) => {
-            try {
-              accessSync(join(pp, 'commands', entry), fsConstants.R_OK);
-              return true;
-            } catch {
-              return false;
-            }
-          });
-          if (!commandExists) {
-            try {
-              unlinkSync(entryPath);
-              this.managedJunctions.delete(entryPath);
-              result.removed++;
-            } catch {
-              /* non-fatal */
-            }
-          }
-        }
-      }
-    } catch {
-      /* commandsDir may not exist yet */
+    // Load the manifest of Ptah-managed command files.
+    // On Windows, copies lose their identity after restart (in-memory set is gone).
+    // The manifest persists ownership so we know which files to update/remove.
+    const manifest = this.loadCommandManifest(commandsDir);
+
+    // Rebuild the managedJunctions set from the manifest (restores state after restart)
+    for (const filename of Object.keys(manifest)) {
+      this.managedJunctions.add(join(commandsDir, filename));
     }
 
+    // Build a set of all command filenames from currently enabled plugins
+    const currentCommandSources = new Map<string, string>(); // filename -> sourcePath
     for (const pluginPath of pluginPaths) {
       const pluginCommandsDir = join(pluginPath, 'commands');
       let entries: string[];
       try {
         entries = readdirSync(pluginCommandsDir);
       } catch {
-        continue; // No commands/ directory in this plugin
+        continue;
       }
-
       for (const entry of entries) {
         if (!entry.endsWith('.md')) continue;
-
-        const sourcePath = join(pluginCommandsDir, entry);
-        const targetPath = join(commandsDir, entry);
-
-        try {
-          // Check if something already exists at the target
-          let existingStat: Stats | null = null;
-          try {
-            existingStat = lstatSync(targetPath);
-          } catch {
-            // Doesn't exist — will create
-          }
-
-          if (existingStat) {
-            if (existingStat.isSymbolicLink()) {
-              // Symlink exists — check if correct
-              const existingTarget = readlinkSync(targetPath);
-              if (this.pathsEqual(existingTarget, sourcePath)) {
-                this.managedJunctions.add(targetPath);
-                continue; // Already correct
-              }
-              // Symlink points elsewhere — check if it resolves to a valid file (e.g., SDK-created)
-              try {
-                const resolvedStat = statSync(targetPath); // follows symlink
-                if (resolvedStat.isFile()) {
-                  this.logger.debug(
-                    `[SkillJunctionService] Skipping command ${entry}: valid symlink already exists (likely SDK-created)`,
-                    { targetPath, existingTarget },
-                  );
-                  result.skipped++;
-                  continue;
-                }
-              } catch {
-                // Symlink is broken (dangling) — remove and recreate
-              }
-              unlinkSync(targetPath);
-            } else if (!this.managedJunctions.has(targetPath)) {
-              // Real file exists that we didn't create — don't overwrite (likely SDK-created)
-              this.logger.debug(
-                `[SkillJunctionService] Skipping command ${entry}: file already exists (likely SDK-created)`,
-                { targetPath },
-              );
-              result.skipped++;
-              continue;
-            } else {
-              // We created this file (copy) previously — remove and recreate
-              unlinkSync(targetPath);
-            }
-          }
-
-          if (IS_WINDOWS) {
-            // Windows: copy file (file symlinks require Developer Mode)
-            copyFileSync(sourcePath, targetPath);
-          } else {
-            // Unix: file symlink (no restrictions)
-            symlinkSync(sourcePath, targetPath, 'file');
-          }
-          this.managedJunctions.add(targetPath);
-          result.created++;
-        } catch (error) {
-          result.errors.push(
-            `Failed to sync command ${entry}: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
+        if (currentCommandSources.has(entry)) {
+          const pluginId = basename(pluginPath);
+          this.logger.warn(
+            `[SkillJunctionService] Command name collision: "${entry}" already registered, skipping from ${pluginId}`,
           );
+        } else {
+          currentCommandSources.set(entry, join(pluginCommandsDir, entry));
         }
       }
+    }
+
+    // Clean up stale command files (from previously enabled but now disabled plugins)
+    for (const [filename] of Object.entries(manifest)) {
+      if (!currentCommandSources.has(filename)) {
+        const entryPath = join(commandsDir, filename);
+        try {
+          unlinkSync(entryPath);
+          this.managedJunctions.delete(entryPath);
+          delete manifest[filename];
+          result.removed++;
+        } catch {
+          /* non-fatal */
+        }
+      }
+    }
+    // Also clean symlink-based entries we detect as ours (Unix path, or previous runs)
+    try {
+      const existingEntries = readdirSync(commandsDir);
+      for (const entry of existingEntries) {
+        if (entry === COMMANDS_MANIFEST) continue;
+        const entryPath = join(commandsDir, entry);
+        if (
+          !currentCommandSources.has(entry) &&
+          this.isExtensionJunction(entryPath)
+        ) {
+          try {
+            unlinkSync(entryPath);
+            this.managedJunctions.delete(entryPath);
+            result.removed++;
+          } catch {
+            /* non-fatal */
+          }
+        }
+      }
+    } catch {
+      /* commandsDir listing failed — non-fatal */
+    }
+
+    // Sync each command from enabled plugins
+    let manifestDirty = false;
+    for (const [filename, sourcePath] of currentCommandSources) {
+      const targetPath = join(commandsDir, filename);
+
+      try {
+        // Get source file stats for change detection (size + mtime)
+        const sourceStat = statSync(sourcePath);
+        const sourceEntry: CommandManifestEntry = {
+          source: sourcePath,
+          size: sourceStat.size,
+          mtimeMs: sourceStat.mtimeMs,
+        };
+
+        // Check if something already exists at the target
+        let existingStat: Stats | null = null;
+        try {
+          existingStat = lstatSync(targetPath);
+        } catch {
+          // Doesn't exist — will create
+        }
+
+        if (existingStat) {
+          if (existingStat.isSymbolicLink()) {
+            // Symlink exists — check if it points to the correct source
+            const existingTarget = readlinkSync(targetPath);
+            if (this.pathsEqual(existingTarget, sourcePath)) {
+              this.managedJunctions.add(targetPath);
+              manifest[filename] = sourceEntry;
+              manifestDirty = true;
+              continue; // Already correct
+            }
+            // Broken or wrong-target symlink — remove and recreate
+            try {
+              const resolvedStat = statSync(targetPath);
+              if (resolvedStat.isFile()) {
+                // Valid symlink to a different source — skip (likely user-created)
+                result.skipped++;
+                continue;
+              }
+            } catch {
+              // Broken symlink — remove
+            }
+            unlinkSync(targetPath);
+          } else if (manifest[filename]) {
+            // We own this file (per manifest). Check if source changed.
+            const prev = manifest[filename];
+            if (
+              prev.size === sourceEntry.size &&
+              prev.mtimeMs === sourceEntry.mtimeMs
+            ) {
+              this.managedJunctions.add(targetPath);
+              continue; // Unchanged, skip re-copy
+            }
+            // Source changed — re-copy
+            unlinkSync(targetPath);
+          } else {
+            // Real file exists that we don't own — user-created, never touch it
+            this.logger.debug(
+              `[SkillJunctionService] Skipping command ${filename}: user-created file exists`,
+              { targetPath },
+            );
+            result.skipped++;
+            continue;
+          }
+        }
+
+        // Create the command file
+        if (IS_WINDOWS) {
+          copyFileSync(sourcePath, targetPath);
+        } else {
+          symlinkSync(sourcePath, targetPath, 'file');
+        }
+        this.managedJunctions.add(targetPath);
+        manifest[filename] = sourceEntry;
+        manifestDirty = true;
+        result.created++;
+      } catch (error) {
+        result.errors.push(
+          `Failed to sync command ${filename}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    // Persist the manifest if anything changed
+    if (manifestDirty || result.removed > 0) {
+      this.saveCommandManifest(commandsDir, manifest);
+    }
+  }
+
+  /**
+   * Load the Ptah command manifest from .claude/commands/.ptah-managed.json.
+   * Returns an empty object if the manifest doesn't exist or is corrupt.
+   */
+  private loadCommandManifest(commandsDir: string): CommandManifest {
+    try {
+      const raw = readFileSync(join(commandsDir, COMMANDS_MANIFEST), 'utf-8');
+      return JSON.parse(raw) as CommandManifest;
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Persist the Ptah command manifest to .claude/commands/.ptah-managed.json.
+   */
+  private saveCommandManifest(
+    commandsDir: string,
+    manifest: CommandManifest,
+  ): void {
+    try {
+      writeFileSync(
+        join(commandsDir, COMMANDS_MANIFEST),
+        JSON.stringify(manifest, null, 2),
+        'utf-8',
+      );
+    } catch {
+      // Non-fatal — manifest is an optimization, not a hard requirement
     }
   }
 
@@ -628,19 +754,26 @@ export class SkillJunctionService {
   }
 
   /**
-   * One-time migration: remove orphaned junctions/copies from old .claude/skills/
-   * and .claude/commands/ directories that were created by previous extension versions.
+   * One-time migration: remove orphaned junctions from old .ptah/skills/ and
+   * .ptah/commands/ directories that were created by previous extension versions.
    *
-   * Detects:
-   * - Symlinks/junctions pointing to current ~/.ptah/plugins (isExtensionJunction)
-   * - Symlinks/junctions pointing to the old extension install path (assets/plugins)
-   * - On Windows: copied .md command files (old versions copied instead of symlinking)
+   * Previous versions created junctions in .ptah/ instead of .claude/, but
+   * Claude Code only discovers skills from .claude/. This migrates by removing
+   * the old .ptah/ junctions (new ones are created in .claude/ by createJunctions).
    */
-  private migrateFromClaudeDir(result: SkillJunctionResult): void {
+  private migrateFromPtahDir(result: SkillJunctionResult): void {
     if (!this.workspaceRoot) return;
 
-    const oldSkillsDir = join(this.workspaceRoot, '.claude', 'skills');
-    const oldCommandsDir = join(this.workspaceRoot, '.claude', 'commands');
+    const oldSkillsDir = join(
+      this.workspaceRoot,
+      LEGACY_PTAH_WORKSPACE_DIR,
+      'skills',
+    );
+    const oldCommandsDir = join(
+      this.workspaceRoot,
+      LEGACY_PTAH_WORKSPACE_DIR,
+      'commands',
+    );
 
     for (const dir of [oldSkillsDir, oldCommandsDir]) {
       let entries: string[];
@@ -660,7 +793,7 @@ export class SkillJunctionService {
             unlinkSync(entryPath);
             result.removed++;
             this.logger.debug(
-              `[SkillJunctionService] Migrated old .claude/ entry: ${entry}`,
+              `[SkillJunctionService] Migrated old .ptah/ entry: ${entry}`,
             );
           } catch {
             // Non-fatal — old entry may be locked or already removed
@@ -673,8 +806,11 @@ export class SkillJunctionService {
   /**
    * Detect entries created by old extension versions that pointed to
    * the extension install path (e.g., .../assets/plugins/...) rather
-   * than ~/.ptah/plugins. Also detects Windows-copied .md command files
-   * that contain the Ptah plugin header marker.
+   * than ~/.ptah/plugins.
+   *
+   * On Windows, old command files were copied (not symlinked). We identify
+   * them via the old .ptah-managed.json manifest. Only files listed there
+   * are treated as ours — user-created .md files are never touched.
    */
   private isOldExtensionEntry(entryPath: string): boolean {
     try {
@@ -690,10 +826,12 @@ export class SkillJunctionService {
         );
       }
 
-      // On Windows, old command files were copied (not symlinked).
-      // Detect by checking if it's a small .md file in the commands dir.
+      // On Windows, old command files were copies. Check the old manifest
+      // to confirm ownership rather than deleting all .md files blindly.
       if (IS_WINDOWS && stat.isFile() && basename(entryPath).endsWith('.md')) {
-        return true;
+        const dir = join(entryPath, '..');
+        const oldManifest = this.loadCommandManifest(dir);
+        return basename(entryPath) in oldManifest;
       }
 
       return false;
