@@ -116,12 +116,13 @@ export class PermissionHandlerService {
   /**
    * Cache keys for toolIdsInExecutionTree memoization.
    * The computed re-evaluates on every activeTab() change (frequent during streaming).
-   * By tracking message count and toolCallMap size, we can skip the full traversal
-   * when nothing relevant has changed.
+   * We track message count and a fingerprint of toolCallMap keys to skip the full
+   * traversal when nothing relevant has changed. Using a key fingerprint (sorted+joined)
+   * instead of just `.size` avoids stale cache when keys change but size stays the same.
    */
   private _lastToolIdsTabId: string | null = null;
   private _lastToolIdsMsgCount = -1;
-  private _lastToolIdsToolCallMapSize = -1;
+  private _lastToolIdsKeyFingerprint = '';
   private _cachedToolIds = new Set<string>();
 
   /**
@@ -183,16 +184,21 @@ export class PermissionHandlerService {
     const streamingState = this.tabManager.activeTabStreamingState();
 
     const msgCount = messages.length;
-    const toolCallMapSize = streamingState?.toolCallMap?.size ?? 0;
+    const toolCallMap = streamingState?.toolCallMap;
+    // Build fingerprint from actual keys — catches cases where size stays the
+    // same but keys differ (e.g., one tool removed + another added simultaneously).
+    const keyFingerprint = toolCallMap
+      ? Array.from(toolCallMap.keys()).sort().join(',')
+      : '';
 
-    // TASK_2025_264 P3: Memoize by message count + toolCallMap size.
+    // TASK_2025_264 P3: Memoize by message count + toolCallMap key fingerprint.
     // These are the two inputs that change the result. When both are stable
     // (e.g., during streaming text deltas that don't add new tools),
     // we skip the full O(messages * children) traversal.
     if (
       tabId === this._lastToolIdsTabId &&
       msgCount === this._lastToolIdsMsgCount &&
-      toolCallMapSize === this._lastToolIdsToolCallMapSize
+      keyFingerprint === this._lastToolIdsKeyFingerprint
     ) {
       return this._cachedToolIds;
     }
@@ -219,7 +225,7 @@ export class PermissionHandlerService {
     // Update cache keys
     this._lastToolIdsTabId = tabId;
     this._lastToolIdsMsgCount = msgCount;
-    this._lastToolIdsToolCallMapSize = toolCallMapSize;
+    this._lastToolIdsKeyFingerprint = keyFingerprint;
     this._cachedToolIds = toolIds;
 
     return toolIds;
