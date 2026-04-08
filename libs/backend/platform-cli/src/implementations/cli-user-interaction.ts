@@ -20,26 +20,35 @@ import type {
   ICancellationToken,
 } from '@ptah-extension/platform-core';
 import { createEvent } from '@ptah-extension/platform-core';
-import { exec } from 'child_process';
+import { spawn } from 'child_process';
 
 export class CliUserInteraction implements IUserInteraction {
   async openExternal(url: string): Promise<boolean> {
-    // Attempt to open URL in the default browser using platform-specific commands
+    // Validate URL scheme to prevent arbitrary command execution
+    try {
+      const parsed = new URL(url);
+      if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+
+    // Use spawn with argument arrays (no shell interpolation) to prevent injection
     return new Promise<boolean>((resolve) => {
       const platform = process.platform;
-      let command: string;
+      let child;
 
       if (platform === 'win32') {
-        command = `start "" "${url}"`;
+        child = spawn('cmd', ['/c', 'start', '', url], { stdio: 'ignore' });
       } else if (platform === 'darwin') {
-        command = `open "${url}"`;
+        child = spawn('open', [url], { stdio: 'ignore' });
       } else {
-        command = `xdg-open "${url}"`;
+        child = spawn('xdg-open', [url], { stdio: 'ignore' });
       }
 
-      exec(command, (error) => {
-        resolve(!error);
-      });
+      child.on('close', (code) => resolve(code === 0));
+      child.on('error', () => resolve(false));
     });
   }
 
