@@ -3,7 +3,7 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
   "sourceRoot": "libs/backend/platform-cli/src",
-  "tags": ["scope:backend", "type:lib"],
+  "tags": ["scope:cli", "type:feature"],
   "targets": {
     "lint": { "executor": "@nx/eslint:lint" },
     "typecheck": {
