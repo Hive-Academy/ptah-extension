@@ -109,6 +109,21 @@ export class PermissionHandlerService {
     node.children?.forEach((child) => this.extractToolIds(child, set));
   }
 
+  // ============================================================================
+  // MEMOIZATION CACHE for toolIdsInExecutionTree (TASK_2025_264 P3)
+  // ============================================================================
+
+  /**
+   * Cache keys for toolIdsInExecutionTree memoization.
+   * The computed re-evaluates on every activeTab() change (frequent during streaming).
+   * By tracking message count and toolCallMap size, we can skip the full traversal
+   * when nothing relevant has changed.
+   */
+  private _lastToolIdsTabId: string | null = null;
+  private _lastToolIdsMsgCount = -1;
+  private _lastToolIdsToolCallMapSize = -1;
+  private _cachedToolIds = new Set<string>();
+
   /**
    * Check if a request should be visible in the UI.
    * Always returns true — permissions/questions must always be shown regardless
@@ -156,13 +171,35 @@ export class PermissionHandlerService {
    * Pattern source: chat.store.ts:180-188 (currentExecutionTrees computed signal)
    */
   readonly toolIdsInExecutionTree = computed(() => {
-    const activeTab = this.tabManager.activeTab();
-    if (!activeTab) return new Set<string>();
+    // Use fine-grained selectors instead of activeTab() to avoid re-evaluation
+    // when unrelated tab fields (e.g., liveModelStats) change during streaming.
+    const tabId = this.tabManager.activeTabId();
+    if (!tabId) return new Set<string>();
+
+    // activeTabMessages uses reference equality -- won't re-notify during streaming
+    // when only streamingState changes (messages reference stays the same).
+    const messages = this.tabManager.activeTabMessages();
+    // activeTabStreamingState changes every tick during streaming (desired).
+    const streamingState = this.tabManager.activeTabStreamingState();
+
+    const msgCount = messages.length;
+    const toolCallMapSize = streamingState?.toolCallMap?.size ?? 0;
+
+    // TASK_2025_264 P3: Memoize by message count + toolCallMap size.
+    // These are the two inputs that change the result. When both are stable
+    // (e.g., during streaming text deltas that don't add new tools),
+    // we skip the full O(messages * children) traversal.
+    if (
+      tabId === this._lastToolIdsTabId &&
+      msgCount === this._lastToolIdsMsgCount &&
+      toolCallMapSize === this._lastToolIdsToolCallMapSize
+    ) {
+      return this._cachedToolIds;
+    }
 
     const toolIds = new Set<string>();
 
     // 1. Extract from finalized messages (historical tool IDs)
-    const messages = activeTab.messages ?? [];
     messages.forEach((msg) => {
       if (msg.streamingState) {
         this.extractToolIds(msg.streamingState, toolIds);
@@ -173,12 +210,17 @@ export class PermissionHandlerService {
     // This is what eliminates the race condition: toolCallMap is updated
     // immediately when tool_start events arrive via streaming-handler,
     // so permissions can match within 1 frame instead of waiting for tab change.
-    const streamingState = activeTab.streamingState;
     if (streamingState?.toolCallMap) {
       for (const toolCallId of streamingState.toolCallMap.keys()) {
         toolIds.add(toolCallId);
       }
     }
+
+    // Update cache keys
+    this._lastToolIdsTabId = tabId;
+    this._lastToolIdsMsgCount = msgCount;
+    this._lastToolIdsToolCallMapSize = toolCallMapSize;
+    this._cachedToolIds = toolIds;
 
     return toolIds;
   });

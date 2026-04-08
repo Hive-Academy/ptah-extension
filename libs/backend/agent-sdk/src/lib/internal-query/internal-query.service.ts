@@ -55,7 +55,6 @@ import type {
   HookEvent,
   HookCallbackMatcher,
   McpHttpServerConfig,
-  SdkPluginConfig,
 } from '../types/sdk-types/claude-sdk.types';
 import type {
   InternalQueryConfig,
@@ -334,8 +333,7 @@ export class InternalQueryService {
       // Lifecycle hooks (subagent + compaction)
       hooks,
 
-      // Plugins (loaded from workspace plugin directories)
-      plugins: this.buildPlugins(config.pluginPaths),
+      // Plugins disabled — skills loaded via .claude/skills/ junctions (SkillJunctionService)
     };
 
     // Structured output format (JSON Schema) — constrains the agent's final response
@@ -344,14 +342,6 @@ export class InternalQueryService {
     }
 
     return options;
-  }
-
-  /**
-   * Build plugin configuration from resolved plugin paths.
-   */
-  private buildPlugins(pluginPaths?: string[]): SdkPluginConfig[] | undefined {
-    if (!pluginPaths || pluginPaths.length === 0) return undefined;
-    return pluginPaths.map((p) => ({ type: 'local' as const, path: p }));
   }
 
   /**

@@ -696,6 +696,7 @@ export class RpcMethodRegistrationService {
       contextWindow: number;
       costUSD: number;
       cacheReadInputTokens?: number;
+      lastTurnContextTokens?: number;
     }>;
   }): Promise<void> {
     try {

@@ -3,6 +3,7 @@ import {
   inject,
   signal,
   computed,
+  effect,
   ChangeDetectionStrategy,
   ElementRef,
 } from '@angular/core';
@@ -18,8 +19,10 @@ import {
 } from 'lucide-angular';
 import { ElectronLayoutService } from '@ptah-extension/core';
 import { GitStatusService } from '../services/git-status.service';
+import { EditorService } from '../services/editor.service';
 import { WorktreeService } from '../services/worktree.service';
 import { AddWorktreeDialogComponent } from '../worktree/add-worktree-dialog.component';
+import { GitChangedFilesComponent } from './git-changed-files.component';
 import type { GitWorktreeInfo } from '@ptah-extension/shared';
 
 /**
@@ -41,7 +44,11 @@ import type { GitWorktreeInfo } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-git-status-bar',
   standalone: true,
-  imports: [LucideAngularModule, AddWorktreeDialogComponent],
+  imports: [
+    LucideAngularModule,
+    AddWorktreeDialogComponent,
+    GitChangedFilesComponent,
+  ],
   template: `
     @if (gitStatus.isGitRepo()) {
       <div
@@ -175,11 +182,20 @@ import type { GitWorktreeInfo } from '@ptah-extension/shared';
           }
         }
 
-        <!-- Changed files count -->
+        <!-- Changed files count (clickable to toggle changed files panel) -->
         @if (gitStatus.hasChanges()) {
-          <div
-            class="flex items-center gap-1 ml-auto opacity-80"
-            [title]="gitStatus.changedFileCount() + ' changed file(s)'"
+          <button
+            type="button"
+            class="flex items-center gap-1 ml-auto opacity-80 hover:opacity-100
+                   cursor-pointer transition-opacity"
+            [class.text-primary]="showChangedFiles()"
+            [title]="
+              gitStatus.changedFileCount() +
+              ' changed file(s) — click to browse'
+            "
+            aria-label="Toggle changed files panel"
+            [attr.aria-expanded]="showChangedFiles()"
+            (click)="toggleChangedFiles()"
           >
             <lucide-angular
               [img]="FileEditIcon"
@@ -187,7 +203,7 @@ import type { GitWorktreeInfo } from '@ptah-extension/shared';
               aria-hidden="true"
             />
             <span>{{ gitStatus.changedFileCount() }}</span>
-          </div>
+          </button>
         }
 
         <!-- Add Worktree button (pushed to the right if no changed files) -->
@@ -208,6 +224,14 @@ import type { GitWorktreeInfo } from '@ptah-extension/shared';
         </button>
       </div>
 
+      <!-- Changed files panel (below status bar) -->
+      @if (showChangedFiles()) {
+        <ptah-git-changed-files
+          [files]="gitStatus.files()"
+          (fileClicked)="onChangedFileClick($event)"
+        />
+      }
+
       <!-- Add Worktree Dialog (conditionally rendered) -->
       @if (showAddWorktreeDialog()) {
         <ptah-add-worktree-dialog
@@ -223,18 +247,19 @@ import type { GitWorktreeInfo } from '@ptah-extension/shared';
 export class GitStatusBarComponent {
   protected readonly gitStatus = inject(GitStatusService);
   protected readonly worktreeService = inject(WorktreeService);
+  private readonly editorService = inject(EditorService);
   private readonly layoutService = inject(ElectronLayoutService);
   private readonly elementRef = inject(ElementRef);
 
-  /** Close the worktree dropdown when clicking outside the component. */
+  /** Close dropdowns/panels when clicking outside the component. */
   onDocumentClick(event: MouseEvent): void {
     const target = event.target;
     if (
-      this.showWorktreeList() &&
       target instanceof Node &&
       !this.elementRef.nativeElement.contains(target)
     ) {
-      this.showWorktreeList.set(false);
+      if (this.showWorktreeList()) this.showWorktreeList.set(false);
+      if (this.showChangedFiles()) this.showChangedFiles.set(false);
     }
   }
 
@@ -254,6 +279,9 @@ export class GitStatusBarComponent {
   // WORKTREE STATE
   // ============================================================================
 
+  /** Whether the changed files panel is visible. */
+  protected readonly showChangedFiles = signal(false);
+
   /** Whether the add-worktree dialog is visible. */
   protected readonly showAddWorktreeDialog = signal(false);
 
@@ -268,6 +296,16 @@ export class GitStatusBarComponent {
   constructor() {
     // Load worktrees on init so the count indicator is populated
     this.worktreeService.loadWorktrees();
+
+    // Auto-close changed files panel when all changes are resolved
+    effect(
+      () => {
+        if (!this.gitStatus.hasChanges()) {
+          this.showChangedFiles.set(false);
+        }
+      },
+      { allowSignalWrites: true },
+    );
   }
 
   // ============================================================================
@@ -299,6 +337,36 @@ export class GitStatusBarComponent {
   protected extractBranchName(branch: string | undefined): string {
     if (!branch) return '(detached)';
     return branch;
+  }
+
+  // ============================================================================
+  // CHANGED FILES PANEL ACTIONS
+  // ============================================================================
+
+  /** Toggle the changed files panel visibility. */
+  protected toggleChangedFiles(): void {
+    this.showChangedFiles.update((v) => !v);
+  }
+
+  /**
+   * Handle file click from the changed files panel.
+   * Converts relative git path to absolute path and opens in the editor.
+   */
+  protected onChangedFileClick(relativePath: string): void {
+    const workspaceRoot = this.gitStatus.activeWorkspacePath;
+    if (!workspaceRoot) return;
+
+    // Guard against path traversal (git status paths should never contain these)
+    if (relativePath.startsWith('/') || relativePath.includes('..')) return;
+
+    // Build absolute path from workspace root + relative path
+    const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
+    const root = normalizedRoot.endsWith('/')
+      ? normalizedRoot
+      : normalizedRoot + '/';
+    const absolutePath = root + relativePath;
+
+    void this.editorService.openFile(absolutePath);
   }
 
   // ============================================================================
