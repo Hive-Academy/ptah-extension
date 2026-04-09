@@ -38,6 +38,7 @@ import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
 import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
 import { SessionAnalyticsDashboardViewComponent } from '@ptah-extension/dashboard';
+import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
@@ -100,6 +101,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     ResizeHandleComponent,
     SidebarTabComponent,
     SessionAnalyticsDashboardViewComponent,
+    OrchestraCanvasComponent,
   ],
   templateUrl: './app-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,

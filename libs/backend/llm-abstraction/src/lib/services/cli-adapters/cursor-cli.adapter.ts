@@ -171,6 +171,15 @@ export class CursorCliAdapter implements CliAdapter {
 
       const mcpServers =
         (config['mcpServers'] as Record<string, unknown>) || {};
+
+      // Idempotency: skip write if already configured with the same port
+      const existing = mcpServers['ptah'] as
+        | Record<string, unknown>
+        | undefined;
+      if (existing?.['url'] === `http://localhost:${port}`) {
+        return;
+      }
+
       mcpServers['ptah'] = {
         url: `http://localhost:${port}`,
       };
@@ -237,7 +246,7 @@ export class CursorCliAdapter implements CliAdapter {
       '--trust', // Bypass workspace confirmation prompts
       '--force', // Force non-interactive execution
       '-p',
-      taskPrompt,
+      '', // Prompt delivered via stdin — avoids Windows 8191-char argument limit
     ];
 
     // Resume mode: pass --resume <id> to load prior session context
@@ -309,6 +318,18 @@ export class CursorCliAdapter implements CliAdapter {
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
 
+    // Deliver prompt via stdin then close (avoids Windows 8191-char argument limit).
+    // Resume mode: Cursor loads session context via --resume; send a short continuation
+    // prompt to avoid re-triggering the full original task.
+    if (options.resumeSessionId) {
+      child.stdin?.write(
+        'Continue working on the previous task. Pick up where you left off.\n',
+      );
+    } else {
+      child.stdin?.write(taskPrompt + '\n');
+    }
+    child.stdin?.end();
+
     // Abort handler: kill the child process
     const onAbort = (): void => {
       if (!child.killed) {
@@ -379,11 +400,15 @@ export class CursorCliAdapter implements CliAdapter {
     });
 
     // Clean up workspace MCP config after process exits
-    done.then(() => {
-      if (options.mcpPort && options.workingDirectory) {
-        this.cleanupMcpEntry(options.workingDirectory);
-      }
-    });
+    done
+      .then(() => {
+        if (options.mcpPort && options.workingDirectory) {
+          void this.cleanupMcpEntry(options.workingDirectory);
+        }
+      })
+      .catch(() => {
+        /* non-fatal */
+      });
 
     return {
       abort: abortController,
@@ -421,11 +446,11 @@ export class CursorCliAdapter implements CliAdapter {
     switch (event.type) {
       case 'init': {
         let sessionId: string | undefined;
-        if (event?.model) {
+        if (event.model) {
           emitOutput(`[Model: ${event.model}]\n`);
           emitSegment({ type: 'info', content: `Model: ${event.model}` });
         }
-        if (event?.session_id && typeof event.session_id === 'string') {
+        if (event.session_id && typeof event.session_id === 'string') {
           const trimmed = event.session_id.trim();
           if (trimmed) {
             sessionId = trimmed;
@@ -438,7 +463,7 @@ export class CursorCliAdapter implements CliAdapter {
 
       case 'assistant':
         // Main text output from the model
-        if (event?.content) {
+        if (event.content) {
           emitOutput(event.content);
           emitSegment({ type: 'text', content: event.content });
         }
@@ -446,16 +471,16 @@ export class CursorCliAdapter implements CliAdapter {
 
       case 'thinking':
         // Reasoning delta — emit as faint info (not surfaced as primary text)
-        if (event?.delta) {
+        if (event.delta) {
           emitSegment({ type: 'info', content: `[thinking] ${event.delta}` });
         }
         break;
 
       case 'tool_call':
         // Tool invocation — handles both in_progress and completed phases
-        if (event?.name) {
-          if (event?.status === 'in_progress' || event?.status === undefined) {
-            const inputSummary = event?.input
+        if (event.name) {
+          if (event.status === 'in_progress' || event.status === undefined) {
+            const inputSummary = event.input
               ? ` ${this.summarizeToolInput(event.name, event.input)}`
               : '';
             emitOutput(`\n**Tool:** \`${event.name}\`${inputSummary}\n`);
@@ -463,17 +488,17 @@ export class CursorCliAdapter implements CliAdapter {
               type: 'tool-call',
               content: '',
               toolName: event.name,
-              toolArgs: event?.input
+              toolArgs: event.input
                 ? this.summarizeToolInput(event.name, event.input)
                 : undefined,
               toolInput:
-                event?.input && typeof event.input === 'object'
+                event.input && typeof event.input === 'object'
                   ? (event.input as Record<string, unknown>)
                   : undefined,
-              toolCallId: event?.id,
+              toolCallId: event.id,
             });
-          } else if (event?.status === 'completed') {
-            if (event?.output) {
+          } else if (event.status === 'completed') {
+            if (event.output) {
               const output =
                 event.output.length > 2000
                   ? event.output.substring(0, 2000) + '\n... [truncated]'
@@ -482,23 +507,24 @@ export class CursorCliAdapter implements CliAdapter {
                 `\n<details><summary>Tool result</summary>\n\n\`\`\`\n${output}\n\`\`\`\n</details>\n\n`,
               );
               emitSegment({
-                type: event?.error ? 'tool-result-error' : 'tool-result',
+                type: event.error ? 'tool-result-error' : 'tool-result',
                 content: output,
-                toolCallId: event?.id,
+                toolCallId: event.id,
               });
             }
           }
+          // Unknown status values are silently ignored
         }
         break;
 
       case 'error':
-        if (event?.message) {
+        if (event.message) {
           emitOutput(
-            `\n**Error${event?.code ? ` (${event.code})` : ''}:** ${event.message}\n`,
+            `\n**Error${event.code ? ` (${event.code})` : ''}:** ${event.message}\n`,
           );
           emitSegment({
             type: 'error',
-            content: event?.code
+            content: event.code
               ? `Error (${event.code}): ${event.message}`
               : event.message,
           });
@@ -506,8 +532,13 @@ export class CursorCliAdapter implements CliAdapter {
         break;
 
       case 'result':
+        // Some Cursor versions emit direct text content on the result event
+        if (event.content) {
+          emitOutput(event.content);
+          emitSegment({ type: 'text', content: event.content });
+        }
         // Final result with stats
-        if (event?.stats) {
+        if (event.stats) {
           const { input_tokens, output_tokens, duration_ms } = event.stats;
           const parts: string[] = [];
           if (input_tokens) parts.push(`${input_tokens} input`);

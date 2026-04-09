@@ -202,19 +202,30 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
 
   async uninstall(): Promise<void> {
     try {
+      // Remove ptah- skill folders
       const basePath = this.getSkillsBasePath();
-      let entries;
       try {
-        entries = await readdir(basePath);
+        const entries = await readdir(basePath);
+        for (const entry of entries) {
+          if (entry.startsWith('ptah-')) {
+            await rm(join(basePath, entry), { recursive: true, force: true });
+          }
+        }
       } catch {
-        return; // Skills directory doesn't exist
+        // Skills directory doesn't exist — continue to commands cleanup
       }
 
-      for (const entry of entries) {
-        if (entry.startsWith('ptah-')) {
-          const entryPath = join(basePath, entry);
-          await rm(entryPath, { recursive: true, force: true });
+      // Remove ptah- command files
+      const commandsPath = this.getCommandsBasePath();
+      try {
+        const commandEntries = await readdir(commandsPath);
+        for (const entry of commandEntries) {
+          if (entry.startsWith('ptah-') && entry.endsWith('.md')) {
+            await rm(join(commandsPath, entry), { force: true });
+          }
         }
+      } catch {
+        // Commands directory doesn't exist — nothing to clean
       }
     } catch {
       // Non-fatal: best-effort cleanup

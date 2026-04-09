@@ -6,7 +6,7 @@
  * TASK_2025_169: Removed Copilot CLI fallback, SDK is the only adapter
  *
  * Detects on first call and caches results.
- * Registered adapters: Gemini CLI, Codex CLI, Copilot SDK.
+ * Registered adapters: Gemini CLI, Codex CLI, Copilot SDK, Cursor CLI.
  * Exposes detection results for MCP tools and namespace.
  */
 import { injectable, inject } from 'tsyringe';

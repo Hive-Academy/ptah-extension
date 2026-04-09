@@ -49,6 +49,13 @@
     </div>
   }
 
+  <!-- Orchestra Canvas: Full-width, standalone layout (no sidebar) -->
+  @case ('orchestra-canvas') {
+    <div class="h-full w-full overflow-hidden">
+      <ptah-orchestra-canvas />
+    </div>
+  }
+
   <!-- Chat (default): Sidebar + Header + Chat layout -->
   @default {
     <div class="flex h-full">
