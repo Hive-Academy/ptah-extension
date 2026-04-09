@@ -729,6 +729,140 @@ export async function activate(
         'CLI skill sync skipped (Community tier - Pro feature only)',
       );
     }
+    // Step 7.1.7: CLI Agent Sync on Activation (TASK_2025_268)
+    // Distribute existing .claude/agents/*.md to all installed CLI targets.
+    // Ensures agents are present after fresh install without re-running the wizard.
+    // Premium-only, non-blocking, fire-and-forget. Uses content-hash dedup to avoid
+    // redundant writes when agent files have not changed since last activation.
+    if (licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro') {
+      const agentSyncWorkspaceRoot =
+        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (agentSyncWorkspaceRoot) {
+        (async () => {
+          const { readdir, readFile } = await import('fs/promises');
+          const { join } = await import('path');
+          const { createHash } = await import('crypto');
+          const { AGENT_GENERATION_TOKENS } = await import(
+            '@ptah-extension/agent-generation'
+          );
+
+          const agentsDir = join(agentSyncWorkspaceRoot, '.claude', 'agents');
+          let agentFileNames: string[];
+          try {
+            const entries = await readdir(agentsDir);
+            agentFileNames = entries.filter(
+              (f) => f.endsWith('.md') && !f.startsWith('.backup-'),
+            );
+          } catch {
+            logger.debug(
+              'CLI agent sync skipped (no .claude/agents/ directory)',
+            );
+            return;
+          }
+          if (agentFileNames.length === 0) {
+            logger.debug('CLI agent sync skipped (no agent files found)');
+            return;
+          }
+
+          const agentFiles = await Promise.all(
+            agentFileNames.map(async (name) => {
+              const filePath = join(agentsDir, name);
+              const content = await readFile(filePath, 'utf8');
+              return { name, filePath, content };
+            }),
+          );
+
+          const combinedContent = agentFiles
+            .map((f) => f.content)
+            .join('\n---\n');
+          const contentHash = createHash('sha1')
+            .update(combinedContent)
+            .digest('hex');
+
+          const cliDetection = DIContainer.getContainer().resolve(
+            TOKENS.CLI_DETECTION_SERVICE,
+          ) as {
+            detectAll: () => Promise<
+              Array<{ cli: string; installed: boolean }>
+            >;
+          };
+          const installedClis = await cliDetection.detectAll();
+          const targetClis = installedClis
+            .filter(
+              (c) =>
+                (c.cli === 'copilot' ||
+                  c.cli === 'gemini' ||
+                  c.cli === 'codex' ||
+                  c.cli === 'cursor') &&
+                c.installed,
+            )
+            .map((c) => c.cli);
+
+          if (targetClis.length === 0) {
+            logger.debug('CLI agent sync skipped (no CLI targets installed)');
+            return;
+          }
+
+          const globalStateStorage = DIContainer.resolve<IStateStorage>(
+            PLATFORM_TOKENS.STATE_STORAGE,
+          );
+
+          const staleTargets = targetClis.filter(
+            (cli) =>
+              globalStateStorage.get<string>(
+                `cli_agent_sync_hash_${cli}`,
+              ) !== contentHash,
+          );
+
+          if (staleTargets.length === 0) {
+            logger.debug('CLI agent sync skipped (all CLIs up-to-date)');
+            return;
+          }
+
+          const agents = agentFiles.map((f) => ({
+            sourceTemplateId: f.name.replace(/\.md$/, ''),
+            sourceTemplateVersion: 'unknown',
+            content: f.content,
+            variables: {} as Record<string, string>,
+            customizations: [] as never[],
+            generatedAt: new Date(),
+            filePath: f.filePath,
+          }));
+
+          const multiCliWriter = DIContainer.getContainer().resolve(
+            AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE,
+          ) as {
+            writeForClis: (
+              agents: unknown[],
+              targetClis: string[],
+            ) => Promise<unknown[]>;
+          };
+
+          await multiCliWriter.writeForClis(agents, staleTargets);
+
+          await Promise.all(
+            staleTargets.map((cli) =>
+              globalStateStorage.update(
+                `cli_agent_sync_hash_${cli}`,
+                contentHash,
+              ),
+            ),
+          );
+
+          logger.info('CLI agent sync complete', {
+            targets: staleTargets,
+            agents: agents.length,
+          });
+        })().catch((agentSyncError) => {
+          logger.debug('CLI agent sync failed (non-blocking)', {
+            error:
+              agentSyncError instanceof Error
+                ? agentSyncError.message
+                : String(agentSyncError),
+          });
+        });
+      }
+    }
     // Step 7.2: Pre-fetch model pricing from OpenRouter (non-blocking, no auth needed)
     // OpenRouter's /api/v1/models endpoint is publicly accessible and returns
     // pricing data for 200+ models. This replaces hardcoded pricing with live data.

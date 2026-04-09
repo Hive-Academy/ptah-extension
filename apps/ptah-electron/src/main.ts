@@ -690,6 +690,143 @@ if (!gotLock) {
     }
 
     // ========================================
+    // PHASE 4.566: CLI Agent Sync on Activation (TASK_2025_268)
+    // ========================================
+    // Distribute existing .claude/agents/*.md to all installed CLI targets.
+    // Ensures agents are present after fresh install without re-running the wizard.
+    // Mirrors VS Code extension Step 7.1.7 (main.ts). Premium-only, fire-and-forget.
+    if (startupLicenseTier === 'pro' || startupLicenseTier === 'trial_pro') {
+      const agentSyncRoot = startupWorkspaceRoot;
+      if (agentSyncRoot) {
+        (async () => {
+          const { readdir, readFile } = await import('fs/promises');
+          const { join } = await import('path');
+          const { createHash } = await import('crypto');
+
+          const agentsDir = join(agentSyncRoot, '.claude', 'agents');
+          let agentFileNames: string[];
+          try {
+            const entries = await readdir(agentsDir);
+            agentFileNames = entries.filter(
+              (f) => f.endsWith('.md') && !f.startsWith('.backup-'),
+            );
+          } catch {
+            console.log(
+              '[Ptah Electron] CLI agent sync skipped (no .claude/agents/)',
+            );
+            return;
+          }
+          if (agentFileNames.length === 0) {
+            console.log(
+              '[Ptah Electron] CLI agent sync skipped (no agent files)',
+            );
+            return;
+          }
+
+          const agentFiles = await Promise.all(
+            agentFileNames.map(async (name) => {
+              const filePath = join(agentsDir, name);
+              const content = await readFile(filePath, 'utf8');
+              return { name, filePath, content };
+            }),
+          );
+
+          const combinedContent = agentFiles
+            .map((f) => f.content)
+            .join('\n---\n');
+          const contentHash = createHash('sha1')
+            .update(combinedContent)
+            .digest('hex');
+
+          const cliDetection = container.resolve(
+            TOKENS.CLI_DETECTION_SERVICE,
+          ) as {
+            detectAll: () => Promise<
+              Array<{ cli: string; installed: boolean }>
+            >;
+          };
+          const installedClis = await cliDetection.detectAll();
+          const targetClis = installedClis
+            .filter(
+              (c) =>
+                (c.cli === 'copilot' ||
+                  c.cli === 'gemini' ||
+                  c.cli === 'codex' ||
+                  c.cli === 'cursor') &&
+                c.installed,
+            )
+            .map((c) => c.cli);
+
+          if (targetClis.length === 0) {
+            console.log(
+              '[Ptah Electron] CLI agent sync skipped (no CLI targets)',
+            );
+            return;
+          }
+
+          const globalStateForAgents = container.resolve<IStateStorage>(
+            PLATFORM_TOKENS.STATE_STORAGE,
+          );
+
+          const staleTargets = targetClis.filter(
+            (cli) =>
+              globalStateForAgents.get<string>(
+                `cli_agent_sync_hash_${cli}`,
+              ) !== contentHash,
+          );
+
+          if (staleTargets.length === 0) {
+            console.log(
+              '[Ptah Electron] CLI agent sync skipped (all CLIs up-to-date)',
+            );
+            return;
+          }
+
+          const agents = agentFiles.map((f) => ({
+            sourceTemplateId: f.name.replace(/\.md$/, ''),
+            sourceTemplateVersion: 'unknown',
+            content: f.content,
+            variables: {} as Record<string, string>,
+            customizations: [] as never[],
+            generatedAt: new Date(),
+            filePath: f.filePath,
+          }));
+
+          const multiCliWriter = container.resolve(
+            AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE,
+          ) as {
+            writeForClis: (
+              agents: unknown[],
+              targetClis: string[],
+            ) => Promise<unknown[]>;
+          };
+
+          await multiCliWriter.writeForClis(agents, staleTargets);
+
+          await Promise.all(
+            staleTargets.map((cli) =>
+              globalStateForAgents.update(
+                `cli_agent_sync_hash_${cli}`,
+                contentHash,
+              ),
+            ),
+          );
+
+          console.log(
+            `[Ptah Electron] CLI agent sync complete (${staleTargets.length} CLIs, ${agents.length} agents)`,
+          );
+        })().catch((agentSyncError) => {
+          console.warn(
+            '[Ptah Electron] CLI agent sync failed (non-blocking):',
+            agentSyncError instanceof Error
+              ? agentSyncError.message
+              : String(agentSyncError),
+          );
+        });
+      }
+    }
+
+    // ========================================
     // PHASE 4.57: Model Pricing Pre-fetch (TASK_2025_240)
     // ========================================
     // Pre-fetch model pricing from OpenRouter so cost calculations use live data.
