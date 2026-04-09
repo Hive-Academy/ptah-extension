@@ -57,7 +57,9 @@
               <lucide-angular [img]="GithubIcon" class="w-4 h-4" />
             } @else if (provider.id === 'openai-codex') {
               <lucide-angular [img]="TerminalIcon" class="w-4 h-4" />
-            } @else if (provider.id === 'ollama' || provider.id === 'lm-studio') {
+            } @else if (
+              provider.id === 'ollama' || provider.id === 'lm-studio'
+            ) {
               <lucide-angular [img]="ServerIcon" class="w-4 h-4" />
             } @else if (provider.id === 'moonshot') {
               <lucide-angular [img]="SparklesIcon" class="w-4 h-4" />
@@ -83,7 +85,10 @@
                 ></span>
               }
             } @else if (provider.authType === 'none') {
-              @if (authState.selectedProviderId() === provider.id && authState.hasProviderKey()) {
+              @if (
+                authState.selectedProviderId() === provider.id &&
+                authState.hasProviderKey()
+              ) {
                 <span
                   class="absolute -top-1 -right-1.5 badge badge-success badge-xs w-2 h-2 p-0"
                   aria-label="Connected"
@@ -528,7 +533,8 @@
 
         <div class="label flex-col items-start gap-0.5 py-1">
           <span class="label-text-alt text-[10px] opacity-70">
-            Make sure {{ selectedProvider()?.name }} is running before connecting.
+            Make sure {{ selectedProvider()?.name }} is running before
+            connecting.
           </span>
           <span class="label-text-alt text-[10px] opacity-70">
             Default endpoint:
