@@ -170,6 +170,11 @@ export class ElectronAgentRpcHandlers {
                 'agentOrchestration.disabledClis',
                 [],
               ) ?? [],
+            disabledMcpNamespaces:
+              this.stateStorage.get<string[]>(
+                'agentOrchestration.disabledMcpNamespaces',
+                [],
+              ) ?? [],
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
