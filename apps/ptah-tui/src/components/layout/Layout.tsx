@@ -8,6 +8,8 @@
 import React from 'react';
 import { Box } from 'ink';
 
+import { useTheme } from '../../hooks/use-theme.js';
+
 import { Header } from './Header.js';
 import { Sidebar } from '../sidebar/Sidebar.js';
 import { StatusBar } from './StatusBar.js';
@@ -29,6 +31,8 @@ export function Layout({
 }: LayoutProps): React.JSX.Element {
   void activeView;
 
+  const theme = useTheme();
+
   return (
     <Box flexDirection="column" width="100%" height="100%">
       <Header />
@@ -38,7 +42,7 @@ export function Layout({
             width="25%"
             minWidth={24}
             borderStyle="round"
-            borderColor="#374151"
+            borderColor={theme.ui.border}
             flexDirection="column"
           >
             <Sidebar modalActive={modalActive} />

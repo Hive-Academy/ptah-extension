@@ -33,6 +33,8 @@ export interface UseChatResult {
   isStreaming: boolean;
   startChat: (message: string, sessionId?: string) => Promise<void>;
   stopChat: () => Promise<void>;
+  clearMessages: () => void;
+  addSystemMessage: (text: string) => void;
 }
 
 /** Debounce interval for flushing accumulated chunk content to React state. */
@@ -362,5 +364,36 @@ export function useChat(): UseChatResult {
     };
   }, [pushAdapter, scheduleFlush, flushPendingContent, resetStreamingTimeout]);
 
-  return { messages, isStreaming, startChat, stopChat };
+  /**
+   * Clear all messages from the chat history.
+   * Used by the /clear command.
+   */
+  const clearMessages = useCallback((): void => {
+    setMessages([]);
+  }, []);
+
+  /**
+   * Append a system message to the chat history.
+   * Used by commands that return informational text (e.g., /help, /cost, /status).
+   */
+  const addSystemMessage = useCallback((text: string): void => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: randomUUID(),
+        role: 'system',
+        content: text,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+  }, []);
+
+  return {
+    messages,
+    isStreaming,
+    startChat,
+    stopChat,
+    clearMessages,
+    addSystemMessage,
+  };
 }

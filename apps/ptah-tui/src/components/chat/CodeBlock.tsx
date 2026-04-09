@@ -8,6 +8,8 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
+import { useTheme } from '../../hooks/use-theme.js';
+
 let highlightSync:
   | ((code: string, options?: { language?: string }) => string)
   | null = null;
@@ -30,6 +32,7 @@ export function CodeBlock({
   code,
   language,
 }: CodeBlockProps): React.JSX.Element {
+  const theme = useTheme();
   let displayCode = code;
 
   if (highlightSync && language) {
@@ -44,21 +47,21 @@ export function CodeBlock({
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="#374151"
+      borderColor={theme.ui.border}
       paddingX={1}
       marginY={0}
     >
       {language && (
         <Box
           borderStyle="single"
-          borderColor="#1f2937"
+          borderColor={theme.ui.borderSubtle}
           borderBottom
           borderTop={false}
           borderLeft={false}
           borderRight={false}
           marginBottom={0}
         >
-          <Text color="#7c3aed" bold>
+          <Text color={theme.ui.brand} bold>
             {language}
           </Text>
         </Box>

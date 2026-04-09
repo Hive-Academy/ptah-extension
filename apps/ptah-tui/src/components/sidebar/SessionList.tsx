@@ -9,6 +9,7 @@ import React, { useState, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
 
 import type { Session } from '../../hooks/use-sessions.js';
+import { useTheme } from '../../hooks/use-theme.js';
 import { Spinner } from '../common/Spinner.js';
 
 interface SessionListProps {
@@ -30,6 +31,7 @@ export function SessionList({
   onDelete,
   isFocused = true,
 }: SessionListProps): React.JSX.Element {
+  const theme = useTheme();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(
     null,
@@ -111,7 +113,7 @@ export function SessionList({
   if (sessions.length === 0) {
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Text color="#6b7280">No sessions yet</Text>
+        <Text color={theme.ui.dimmed}>No sessions yet</Text>
         <Text dimColor italic>
           Press N to create
         </Text>
@@ -129,14 +131,14 @@ export function SessionList({
         if (isConfirmingDelete) {
           return (
             <Box key={session.id} gap={1}>
-              <Text color="#ef4444" bold>
+              <Text color={theme.status.error} bold>
                 Delete?
               </Text>
-              <Text color="#f59e0b" bold>
+              <Text color={theme.status.warning} bold>
                 Y
               </Text>
-              <Text color="#6b7280">/</Text>
-              <Text color="#06b6d4" bold>
+              <Text color={theme.ui.dimmed}>/</Text>
+              <Text color={theme.ui.accent} bold>
                 N
               </Text>
             </Box>
@@ -144,12 +146,22 @@ export function SessionList({
         }
 
         const indicator = isActive ? '●' : isSelected ? '›' : ' ';
-        const color = isActive ? '#06b6d4' : isSelected ? '#ffffff' : '#9ca3af';
+        const color = isActive
+          ? theme.ui.accent
+          : isSelected
+            ? undefined
+            : theme.ui.muted;
 
         return (
           <Box key={session.id}>
             <Text
-              color={isActive ? '#06b6d4' : isSelected ? '#7c3aed' : '#6b7280'}
+              color={
+                isActive
+                  ? theme.ui.accent
+                  : isSelected
+                    ? theme.ui.brand
+                    : theme.ui.dimmed
+              }
             >
               {indicator}{' '}
             </Text>

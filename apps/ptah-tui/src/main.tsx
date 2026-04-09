@@ -1,68 +1,10 @@
 import 'reflect-metadata';
 
 import React from 'react';
-import { render, Box, Text } from 'ink';
+import { render } from 'ink';
 import { TuiDIContainer, type TuiBootstrapResult } from './di/container';
 import { TuiRpcMethodRegistrationService } from './services/tui-rpc-method-registration.service';
-import type { CliMessageTransport } from './transport/cli-message-transport';
-import type { CliWebviewManagerAdapter } from './transport/cli-webview-manager-adapter';
-import type { CliFireAndForgetHandler } from './transport/cli-fire-and-forget-handler';
-
-/**
- * TUI App root component.
- *
- * Receives the DI-bootstrapped transport objects as props.
- * Future batches will add full chat UI, session management, etc.
- */
-function App({
-  transport,
-  pushAdapter,
-  fireAndForget,
-}: {
-  transport: CliMessageTransport;
-  pushAdapter: CliWebviewManagerAdapter;
-  fireAndForget: CliFireAndForgetHandler;
-}) {
-  // Suppress unused variable warnings -- these will be used in future batches
-  void pushAdapter;
-  void fireAndForget;
-
-  const [status, setStatus] = React.useState<string>('Initializing...');
-
-  React.useEffect(() => {
-    // Smoke test: call session:list to verify RPC is working
-    transport
-      .call<Record<string, never>, unknown>('session:list', {})
-      .then((response) => {
-        if (response.success) {
-          setStatus('RPC connected. Backend ready.');
-        } else {
-          setStatus(`RPC error: ${response.error ?? 'Unknown error'}`);
-        }
-      })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        setStatus(`RPC failed: ${message}`);
-      });
-  }, [transport]);
-
-  return (
-    <Box flexDirection="column" padding={1}>
-      <Box borderStyle="round" borderColor="cyan" paddingX={2} paddingY={1}>
-        <Text bold color="cyan">
-          Ptah TUI
-        </Text>
-        <Text> — The Coding Orchestra</Text>
-      </Box>
-      <Box marginTop={1}>
-        <Text>{status}</Text>
-      </Box>
-      <Box marginTop={1}>
-        <Text dimColor>Press Ctrl+C to exit</Text>
-      </Box>
-    </Box>
-  );
-}
+import { App } from './components/App.js';
 
 /**
  * Bootstrap the TUI application.

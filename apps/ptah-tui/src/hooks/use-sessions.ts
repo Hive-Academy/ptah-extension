@@ -30,6 +30,10 @@ export interface SessionStats {
   inputTokens: number;
   outputTokens: number;
   model?: string;
+  costUSD: number;
+  contextUsagePercent: number;
+  contextWindow: number;
+  contextUsed: number;
 }
 
 export interface UseSessionsResult {
@@ -50,8 +54,12 @@ interface SessionStatsPayload {
     input?: number;
     output?: number;
   };
+  cost?: number;
   modelUsage?: Array<{
     model?: string;
+    contextWindow?: number;
+    lastTurnContextTokens?: number;
+    costUSD?: number;
   }>;
 }
 
@@ -212,11 +220,21 @@ export function useSessions(): UseSessionsResult {
           ? data.modelUsage[0].model
           : undefined;
 
+      const contextWindow = data.modelUsage?.[0]?.contextWindow ?? 0;
+      const contextUsed = data.modelUsage?.[0]?.lastTurnContextTokens ?? 0;
+
       setStats({
         sessionId: data.sessionId,
         inputTokens: data.tokens?.input ?? 0,
         outputTokens: data.tokens?.output ?? 0,
         model,
+        costUSD: data.cost ?? data.modelUsage?.[0]?.costUSD ?? 0,
+        contextWindow,
+        contextUsed,
+        contextUsagePercent:
+          contextWindow > 0
+            ? Math.round((contextUsed / contextWindow) * 100)
+            : 0,
       });
     };
 

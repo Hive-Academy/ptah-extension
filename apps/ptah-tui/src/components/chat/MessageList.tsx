@@ -12,6 +12,7 @@ import { Box, Text } from 'ink';
 import type { ChatMessage } from '../../hooks/use-chat.js';
 import { MessageBubble } from './MessageBubble.js';
 import { Spinner } from '../common/Spinner.js';
+import { useTheme } from '../../hooks/use-theme.js';
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -19,6 +20,8 @@ interface MessageListProps {
 }
 
 function WelcomeScreen(): React.JSX.Element {
+  const theme = useTheme();
+
   return (
     <Box
       flexDirection="column"
@@ -28,10 +31,10 @@ function WelcomeScreen(): React.JSX.Element {
       paddingY={2}
     >
       <Box flexDirection="column" alignItems="center" gap={1}>
-        <Text color="#7c3aed" bold>
+        <Text color={theme.ui.brand} bold>
           {'𓂀  Welcome to Ptah'}
         </Text>
-        <Text color="#6b7280">
+        <Text color={theme.ui.dimmed}>
           The Coding Orchestra — AI-powered development in your terminal
         </Text>
 
@@ -41,25 +44,25 @@ function WelcomeScreen(): React.JSX.Element {
 
         <Box marginTop={1} flexDirection="column" gap={0} paddingX={4}>
           <Box gap={1}>
-            <Text color="#06b6d4" bold>
+            <Text color={theme.ui.accent} bold>
               {'  Chat'}
             </Text>
             <Text dimColor> Type a message below to start a conversation</Text>
           </Box>
           <Box gap={1}>
-            <Text color="#10b981" bold>
+            <Text color={theme.status.success} bold>
               {'  Ctrl+S'}
             </Text>
             <Text dimColor>Configure API keys and provider settings</Text>
           </Box>
           <Box gap={1}>
-            <Text color="#f59e0b" bold>
+            <Text color={theme.status.warning} bold>
               {'  Ctrl+B'}
             </Text>
             <Text dimColor>Toggle the session sidebar</Text>
           </Box>
           <Box gap={1}>
-            <Text color="#ef4444" bold>
+            <Text color={theme.status.error} bold>
               {'  Ctrl+Q'}
             </Text>
             <Text dimColor>Quit the application</Text>
@@ -82,6 +85,7 @@ export function MessageList({
   messages,
   isStreaming,
 }: MessageListProps): React.JSX.Element {
+  const theme = useTheme();
   const lastMessage = messages[messages.length - 1];
   const showThinkingSpinner =
     isStreaming &&
@@ -105,7 +109,7 @@ export function MessageList({
       ))}
       {showThinkingSpinner && (
         <Box paddingX={1} marginBottom={1} gap={1}>
-          <Text color="#06b6d4">{'┃'}</Text>
+          <Text color={theme.ui.accent}>{'┃'}</Text>
           <Spinner label="Thinking..." />
         </Box>
       )}

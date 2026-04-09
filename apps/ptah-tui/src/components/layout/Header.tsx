@@ -8,17 +8,20 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
+import { useTheme } from '../../hooks/use-theme.js';
+
 interface HeaderProps {
   workspaceName?: string;
 }
 
 export function Header({ workspaceName }: HeaderProps): React.JSX.Element {
+  const theme = useTheme();
   const workspace = workspaceName ?? process.cwd().split(/[\\/]/).pop() ?? '';
 
   return (
     <Box
       borderStyle="bold"
-      borderColor="#7c3aed"
+      borderColor={theme.ui.brand}
       borderBottom
       borderTop={false}
       borderLeft={false}
@@ -27,10 +30,10 @@ export function Header({ workspaceName }: HeaderProps): React.JSX.Element {
       justifyContent="space-between"
     >
       <Box gap={1}>
-        <Text color="#7c3aed" bold>
+        <Text color={theme.ui.brand} bold>
           {'𓂀'}
         </Text>
-        <Text color="#7c3aed" bold>
+        <Text color={theme.ui.brand} bold>
           Ptah
         </Text>
         <Text dimColor>{'·'}</Text>
@@ -42,7 +45,7 @@ export function Header({ workspaceName }: HeaderProps): React.JSX.Element {
         {workspace && (
           <>
             <Text dimColor>{'📁'}</Text>
-            <Text color="#6b7280">{workspace}</Text>
+            <Text color={theme.ui.dimmed}>{workspace}</Text>
           </>
         )}
       </Box>

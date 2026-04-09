@@ -8,6 +8,8 @@
 import React, { useCallback } from 'react';
 import { Box, Text } from 'ink';
 
+import { useTheme } from '../../hooks/use-theme.js';
+
 import { useSessionContext } from '../../context/SessionContext.js';
 import { SessionList } from './SessionList.js';
 import { AgentMonitor } from './AgentMonitor.js';
@@ -46,13 +48,15 @@ export function Sidebar({
     [deleteSession],
   );
 
+  const theme = useTheme();
+
   return (
     <Box flexDirection="column" flexGrow={1}>
       <Box paddingX={1} marginBottom={0}>
-        <Text bold color="#7c3aed">
+        <Text bold color={theme.ui.brand}>
           {'◆ '}
         </Text>
-        <Text bold color="#7c3aed">
+        <Text bold color={theme.ui.brand}>
           Sessions
         </Text>
       </Box>
@@ -69,7 +73,7 @@ export function Sidebar({
       <Box
         marginTop={1}
         borderStyle="single"
-        borderColor="#1f2937"
+        borderColor={theme.ui.borderSubtle}
         borderTop
         borderBottom={false}
         borderLeft={false}
@@ -77,10 +81,10 @@ export function Sidebar({
       >
         <Box flexDirection="column" width="100%">
           <Box paddingX={1} marginBottom={0}>
-            <Text bold color="#7c3aed">
+            <Text bold color={theme.ui.brand}>
               {'◆ '}
             </Text>
-            <Text bold color="#7c3aed">
+            <Text bold color={theme.ui.brand}>
               Agents
             </Text>
           </Box>

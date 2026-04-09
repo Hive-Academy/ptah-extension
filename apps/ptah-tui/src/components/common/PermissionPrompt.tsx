@@ -16,6 +16,8 @@
 import React from 'react';
 import { Box, Text, useInput } from 'ink';
 
+import { useTheme } from '../../hooks/use-theme.js';
+
 type PermissionDecision = 'allow' | 'deny' | 'always_allow';
 
 interface PermissionPromptProps {
@@ -31,6 +33,7 @@ export function PermissionPrompt({
   input,
   onDecision,
 }: PermissionPromptProps): React.JSX.Element {
+  const theme = useTheme();
   // isActive: true is explicit to document that this modal's input handler
   // should always be active when rendered (ModalOverlay only renders when visible).
   useInput(
@@ -63,12 +66,12 @@ export function PermissionPrompt({
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text bold color="yellow">
+      <Text bold color={theme.status.warning}>
         Permission Request
       </Text>
       <Box marginTop={1}>
         <Text>Tool: </Text>
-        <Text bold color="cyan">
+        <Text bold color={theme.ui.accent}>
           {toolName}
         </Text>
       </Box>
@@ -82,22 +85,22 @@ export function PermissionPrompt({
           marginTop={1}
           flexDirection="column"
           borderStyle="single"
-          borderColor="gray"
+          borderColor={theme.ui.border}
           paddingX={1}
         >
           <Text dimColor>{inputDisplay}</Text>
         </Box>
       ) : null}
       <Box marginTop={1}>
-        <Text color="green" bold>
+        <Text color={theme.status.success} bold>
           [Y]
         </Text>
         <Text> Allow </Text>
-        <Text color="red" bold>
+        <Text color={theme.status.error} bold>
           [N]
         </Text>
         <Text> Deny </Text>
-        <Text color="blue" bold>
+        <Text color={theme.status.info} bold>
           [A]
         </Text>
         <Text> Always Allow</Text>

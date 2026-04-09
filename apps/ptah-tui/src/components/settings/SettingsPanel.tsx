@@ -1,12 +1,17 @@
 /**
- * SettingsPanel -- Three-section settings panel for the TUI.
+ * SettingsPanel -- Eight-section settings panel for the TUI.
  *
- * TASK_2025_263 Batch 4
+ * TASK_2025_263 Batch 4, TASK_2025_266 Batch 6-7
  *
  * Sections:
  *   0. API Keys      -- Shows key status per provider, allows entry via ink-text-input
  *   1. Provider       -- Lists available LLM providers, allows selection
  *   2. Model Config   -- Shows current model, allows switching from available models
+ *   3. License        -- View license status, enter/clear key
+ *   4. Behavior       -- Autopilot toggle and effort level configuration
+ *   5. Web Search     -- Web search API key management and testing
+ *   6. Plugins        -- Plugin list with enable/disable toggle
+ *   7. CLI Agents     -- CLI agent detection, testing, and model listing
  *
  * Navigation:
  *   - Tab:   Cycle between sections
@@ -23,6 +28,12 @@ import TextInput from 'ink-text-input';
 
 import { useRpc } from '../../hooks/use-rpc.js';
 import { Spinner } from '../common/Spinner.js';
+import { useTheme } from '../../hooks/use-theme.js';
+import { LicenseSection } from './LicenseSection.js';
+import { BehaviorSection } from './BehaviorSection.js';
+import { WebSearchSection } from './WebSearchSection.js';
+import { PluginsSection } from './PluginsSection.js';
+import { CliAgentsSection } from './CliAgentsSection.js';
 
 // ---------------------------------------------------------------------------
 // Types for RPC responses
@@ -66,15 +77,17 @@ function SectionBox({
   isActive,
   children,
 }: SectionBoxProps): React.JSX.Element {
+  const theme = useTheme();
+
   return (
     <Box
       flexDirection="column"
       borderStyle="single"
-      borderColor={isActive ? 'cyan' : 'gray'}
+      borderColor={isActive ? theme.ui.accent : theme.ui.border}
       paddingX={1}
       marginBottom={1}
     >
-      <Text bold color={isActive ? 'cyan' : 'white'}>
+      <Text bold color={isActive ? theme.ui.accent : undefined}>
         {isActive ? '> ' : '  '}
         {title}
       </Text>
@@ -94,6 +107,7 @@ interface ApiKeysSectionProps {
 }
 
 function ApiKeysSection({ isActive }: ApiKeysSectionProps): React.JSX.Element {
+  const theme = useTheme();
   const { call } = useRpc();
   const [statuses, setStatuses] = useState<ProviderStatus[]>([]);
   const [loading, setLoading] = useState(true);
@@ -225,18 +239,19 @@ function ApiKeysSection({ isActive }: ApiKeysSectionProps): React.JSX.Element {
               <Text
                 bold={isSelected}
                 inverse={isSelected && !isEditing}
-                color={isSelected ? 'white' : undefined}
                 dimColor={!isSelected}
               >
                 {isSelected ? '> ' : '  '}
                 {provider.label}:{' '}
               </Text>
               {status?.hasApiKey ? (
-                <Text color="green">Configured</Text>
+                <Text color={theme.status.success}>Configured</Text>
               ) : (
-                <Text color="red">Not configured</Text>
+                <Text color={theme.status.error}>Not configured</Text>
               )}
-              {status?.isDefault && <Text color="cyan"> (default)</Text>}
+              {status?.isDefault && (
+                <Text color={theme.ui.accent}> (default)</Text>
+              )}
             </Box>
             {isEditing && (
               <Box marginLeft={4} marginTop={0}>
@@ -244,7 +259,7 @@ function ApiKeysSection({ isActive }: ApiKeysSectionProps): React.JSX.Element {
                   <Spinner label="Saving..." />
                 ) : (
                   <Box>
-                    <Text color="yellow">Key: </Text>
+                    <Text color={theme.status.warning}>Key: </Text>
                     <TextInput
                       value={inputValue}
                       onChange={setInputValue}
@@ -282,6 +297,7 @@ interface ProviderSectionProps {
 function ProviderSection({
   isActive,
 }: ProviderSectionProps): React.JSX.Element {
+  const theme = useTheme();
   const { call } = useRpc();
   const [defaultProvider, setDefaultProvider] = useState<string>('anthropic');
   const [providers] = useState<Array<{ id: string; label: string }>>([
@@ -364,13 +380,13 @@ function ProviderSection({
             <Text
               bold={isSelected || isDefault}
               inverse={isSelected}
-              color={isDefault ? 'cyan' : isSelected ? 'white' : undefined}
+              color={isDefault ? theme.ui.accent : undefined}
               dimColor={!isSelected && !isDefault}
             >
               {isSelected ? '> ' : '  '}
               {provider.label}
             </Text>
-            {isDefault && <Text color="green"> [active]</Text>}
+            {isDefault && <Text color={theme.status.success}> [active]</Text>}
           </Box>
         );
       })}
@@ -392,6 +408,7 @@ interface ModelSectionProps {
 }
 
 function ModelSection({ isActive }: ModelSectionProps): React.JSX.Element {
+  const theme = useTheme();
   const { call } = useRpc();
   const [models, setModels] = useState<ModelEntry[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -471,7 +488,7 @@ function ModelSection({ isActive }: ModelSectionProps): React.JSX.Element {
   if (error) {
     return (
       <Box flexDirection="column">
-        <Text color="yellow">{error}</Text>
+        <Text color={theme.status.warning}>{error}</Text>
       </Box>
     );
   }
@@ -495,15 +512,15 @@ function ModelSection({ isActive }: ModelSectionProps): React.JSX.Element {
             <Text
               bold={isSelected || isCurrent}
               inverse={isSelected}
-              color={isCurrent ? 'cyan' : isSelected ? 'white' : undefined}
+              color={isCurrent ? theme.ui.accent : undefined}
               dimColor={!isSelected && !isCurrent}
             >
               {isSelected ? '> ' : '  '}
               {model.name || model.id}
             </Text>
-            {isCurrent && <Text color="green"> [current]</Text>}
+            {isCurrent && <Text color={theme.status.success}> [current]</Text>}
             {model.isRecommended && !isCurrent && (
-              <Text color="yellow"> *</Text>
+              <Text color={theme.status.warning}> *</Text>
             )}
             {model.description && <Text dimColor> - {model.description}</Text>}
           </Box>
@@ -522,7 +539,16 @@ function ModelSection({ isActive }: ModelSectionProps): React.JSX.Element {
 // Main SettingsPanel
 // ---------------------------------------------------------------------------
 
-const SECTION_TITLES = ['API Keys', 'Provider', 'Model Configuration'] as const;
+const SECTION_TITLES = [
+  'API Keys',
+  'Provider',
+  'Model Configuration',
+  'License',
+  'Behavior',
+  'Web Search',
+  'Plugins',
+  'CLI Agents',
+] as const;
 const SECTION_COUNT = SECTION_TITLES.length;
 
 interface SettingsPanelProps {
@@ -533,6 +559,7 @@ interface SettingsPanelProps {
 export function SettingsPanel({
   modalActive = false,
 }: SettingsPanelProps): React.JSX.Element {
+  const theme = useTheme();
   const [activeSection, setActiveSection] = useState(0);
 
   useInput(
@@ -547,7 +574,7 @@ export function SettingsPanel({
   return (
     <Box flexDirection="column" flexGrow={1} padding={1}>
       <Box marginBottom={1}>
-        <Text bold color="cyan">
+        <Text bold color={theme.ui.accent}>
           Settings
         </Text>
         <Text dimColor> (Tab to switch sections, Escape to return)</Text>
@@ -563,6 +590,26 @@ export function SettingsPanel({
 
       <SectionBox title={SECTION_TITLES[2]} isActive={activeSection === 2}>
         <ModelSection isActive={activeSection === 2 && !modalActive} />
+      </SectionBox>
+
+      <SectionBox title={SECTION_TITLES[3]} isActive={activeSection === 3}>
+        <LicenseSection isActive={activeSection === 3 && !modalActive} />
+      </SectionBox>
+
+      <SectionBox title={SECTION_TITLES[4]} isActive={activeSection === 4}>
+        <BehaviorSection isActive={activeSection === 4 && !modalActive} />
+      </SectionBox>
+
+      <SectionBox title={SECTION_TITLES[5]} isActive={activeSection === 5}>
+        <WebSearchSection isActive={activeSection === 5 && !modalActive} />
+      </SectionBox>
+
+      <SectionBox title={SECTION_TITLES[6]} isActive={activeSection === 6}>
+        <PluginsSection isActive={activeSection === 6 && !modalActive} />
+      </SectionBox>
+
+      <SectionBox title={SECTION_TITLES[7]} isActive={activeSection === 7}>
+        <CliAgentsSection isActive={activeSection === 7 && !modalActive} />
       </SectionBox>
     </Box>
   );

@@ -1,10 +1,12 @@
 /**
  * App -- Root Ink component for the TUI application.
  *
- * TASK_2025_263 Batch 3 + Batch 4
+ * TASK_2025_263 Batch 3 + Batch 4 + TASK_2025_266 Batch 5
  *
  * Wraps the component tree in TuiProvider and wires up:
  *   - Global keybindings (Ctrl+Q quit, Ctrl+B sidebar, Ctrl+S settings, Escape)
+ *   - Ctrl+K: Command Palette modal
+ *   - Ctrl+M: Model Selector modal
  *   - Layout with sidebar and status bar
  *   - MainPanel with ChatPanel
  *   - ModalOverlay with modal stack for permission/question prompts
@@ -15,7 +17,9 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useInput, useApp } from 'ink';
 
 import { TuiProvider } from '../context/TuiContext.js';
+import { ThemeProvider } from '../context/ThemeContext.js';
 import { SessionProvider } from '../context/SessionContext.js';
+import { ModeProvider } from '../context/ModeContext.js';
 import type { CliMessageTransport } from '../transport/cli-message-transport.js';
 import type { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
 import type { CliFireAndForgetHandler } from '../transport/cli-fire-and-forget-handler.js';
@@ -26,6 +30,8 @@ import { ChatPanel } from './chat/ChatPanel.js';
 import { ModalOverlay } from './common/ModalOverlay.js';
 import { PermissionPrompt } from './common/PermissionPrompt.js';
 import { UserQuestionPrompt } from './common/UserQuestionPrompt.js';
+import { CommandPalette } from './overlays/CommandPalette.js';
+import { ModelSelector } from './overlays/ModelSelector.js';
 
 interface AppProps {
   transport: CliMessageTransport;
@@ -142,7 +148,15 @@ export function App({
   // to prevent Y/N/D keypresses from leaking into SessionList, SettingsPanel, etc.
   const modalActive = modalStack.length > 0;
 
-  // Global keybindings (only active in real TTY environments and when no modal is open)
+  // Track inline overlay state (e.g., slash command overlay in ChatPanel).
+  // This is separate from modals -- overlays render inline, not stacked.
+  const [overlayActive, setOverlayActive] = useState(false);
+
+  const handleOverlayActiveChange = useCallback((active: boolean) => {
+    setOverlayActive(active);
+  }, []);
+
+  // Global keybindings (only active in real TTY environments and when no modal/overlay is open)
   useInput(
     (input, key) => {
       if (key.ctrl && input === 'q') {
@@ -157,11 +171,46 @@ export function App({
         setActiveView((prev) => (prev === 'chat' ? 'settings' : 'chat'));
       }
 
+      if (key.ctrl && input === 'k') {
+        const handleDismiss = (): void => {
+          setModalStack((prev) => prev.slice(0, -1));
+        };
+        const handleExecute = (name: string): void => {
+          handleDismiss();
+          // The command will be handled by ChatPanel's command system.
+          // For now, we just close the palette.
+          void name;
+        };
+        setModalStack((prev) => [
+          ...prev,
+          <CommandPalette
+            key={`palette-${Date.now()}`}
+            onExecute={handleExecute}
+            onDismiss={handleDismiss}
+          />,
+        ]);
+      }
+
+      if (key.ctrl && input === 'm') {
+        const handleDismiss = (): void => {
+          setModalStack((prev) => prev.slice(0, -1));
+        };
+        setModalStack((prev) => [
+          ...prev,
+          <ModelSelector
+            key={`model-${Date.now()}`}
+            onDismiss={handleDismiss}
+          />,
+        ]);
+      }
+
       if (key.escape) {
         setActiveView('chat');
       }
     },
-    { isActive: process.stdin.isTTY === true && !modalActive },
+    {
+      isActive: process.stdin.isTTY === true && !modalActive && !overlayActive,
+    },
   );
 
   // Top modal in the stack (if any)
@@ -173,27 +222,37 @@ export function App({
       pushAdapter={pushAdapter}
       fireAndForget={fireAndForget}
     >
-      <SessionProvider>
-        <ErrorBoundary>
-          <Layout
-            sidebarVisible={sidebarVisible}
-            activeView={activeView}
-            isStreaming={isStreaming}
-            modalActive={modalActive}
-          >
-            <MainPanel
-              activeView={activeView}
-              onSwitchView={handleSwitchView}
-              modalActive={modalActive}
-            >
-              <ChatPanel />
-            </MainPanel>
-          </Layout>
-          <ModalOverlay visible={modalStack.length > 0}>
-            {topModal}
-          </ModalOverlay>
-        </ErrorBoundary>
-      </SessionProvider>
+      <ThemeProvider>
+        <SessionProvider>
+          <ModeProvider>
+            <ErrorBoundary>
+              <Layout
+                sidebarVisible={sidebarVisible}
+                activeView={activeView}
+                isStreaming={isStreaming}
+                modalActive={modalActive || overlayActive}
+              >
+                <MainPanel
+                  activeView={activeView}
+                  onSwitchView={handleSwitchView}
+                  modalActive={modalActive}
+                >
+                  <ChatPanel
+                    modalActive={modalActive}
+                    onOverlayActiveChange={handleOverlayActiveChange}
+                    onSettings={() => setActiveView('settings')}
+                    onSessions={() => setSidebarVisible((prev) => !prev)}
+                    onQuit={() => exit()}
+                  />
+                </MainPanel>
+              </Layout>
+              <ModalOverlay visible={modalStack.length > 0}>
+                {topModal}
+              </ModalOverlay>
+            </ErrorBoundary>
+          </ModeProvider>
+        </SessionProvider>
+      </ThemeProvider>
     </TuiProvider>
   );
 }

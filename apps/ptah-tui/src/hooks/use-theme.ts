@@ -3,9 +3,13 @@
  *
  * Provides a centralized theme object so all components use consistent
  * colors for roles, status indicators, and UI chrome.
+ *
+ * Delegates to ThemeContext, which manages multi-theme switching and
+ * persistence. Components should continue to call useTheme() — the
+ * context wiring is an implementation detail.
  */
 
-import { useMemo } from 'react';
+import { useThemeContext } from '../context/ThemeContext.js';
 
 export interface TuiTheme {
   roles: {
@@ -31,29 +35,6 @@ export interface TuiTheme {
 }
 
 export function useTheme(): TuiTheme {
-  return useMemo<TuiTheme>(
-    () => ({
-      roles: {
-        user: '#10b981',
-        assistant: '#06b6d4',
-        system: '#f59e0b',
-      },
-      status: {
-        success: '#10b981',
-        error: '#ef4444',
-        warning: '#f59e0b',
-        info: '#3b82f6',
-      },
-      ui: {
-        border: '#374151',
-        borderActive: '#06b6d4',
-        borderSubtle: '#1f2937',
-        dimmed: '#6b7280',
-        accent: '#06b6d4',
-        muted: '#9ca3af',
-        brand: '#7c3aed',
-      },
-    }),
-    [],
-  );
+  const { theme } = useThemeContext();
+  return theme;
 }

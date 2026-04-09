@@ -20,6 +20,8 @@ import React, { useState, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 
+import { useTheme } from '../../hooks/use-theme.js';
+
 /** Simplified question shape matching QuestionItem from shared types */
 interface QuestionItemShape {
   question: string;
@@ -37,6 +39,7 @@ export function UserQuestionPrompt({
   questions,
   onAnswer,
 }: UserQuestionPromptProps): React.JSX.Element {
+  const theme = useTheme();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [selectedOptionIndex, setSelectedOptionIndex] = useState(0);
@@ -118,7 +121,7 @@ export function UserQuestionPrompt({
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text bold color="cyan">
+      <Text bold color={theme.ui.accent}>
         Question
         {questions.length > 1
           ? ` (${currentIndex + 1}/${questions.length})`
@@ -133,7 +136,10 @@ export function UserQuestionPrompt({
             const isSelected = idx === selectedOptionIndex;
             return (
               <Box key={opt.label}>
-                <Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+                <Text
+                  color={isSelected ? theme.ui.accent : undefined}
+                  bold={isSelected}
+                >
                   {isSelected ? '> ' : '  '}
                   {opt.label}
                 </Text>
@@ -152,7 +158,7 @@ export function UserQuestionPrompt({
       ) : (
         <Box marginTop={1} flexDirection="column">
           <Box>
-            <Text color="cyan" bold>
+            <Text color={theme.ui.accent} bold>
               {'> '}
             </Text>
             <TextInput

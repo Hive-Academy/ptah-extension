@@ -14,6 +14,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Text } from 'ink';
 
+import { useTheme } from '../../hooks/use-theme.js';
+
 import { useTuiContext } from '../../context/TuiContext.js';
 import { Spinner } from '../common/Spinner.js';
 
@@ -70,6 +72,7 @@ function extractLastLine(text: string): string {
 }
 
 export function AgentMonitor(): React.JSX.Element {
+  const theme = useTheme();
   const { pushAdapter } = useTuiContext();
   const [agents, setAgents] = useState<AgentProcess[]>([]);
 
@@ -160,22 +163,22 @@ export function AgentMonitor(): React.JSX.Element {
           <Box gap={1}>
             {agent.status === 'running' && <Spinner />}
             {agent.status === 'completed' && (
-              <Text color="green" bold>
+              <Text color={theme.status.success} bold>
                 {'✓'}
               </Text>
             )}
             {agent.status === 'error' && (
-              <Text color="red" bold>
+              <Text color={theme.status.error} bold>
                 {'✗'}
               </Text>
             )}
             <Text
               color={
                 agent.status === 'running'
-                  ? 'green'
+                  ? theme.status.success
                   : agent.status === 'error'
-                    ? 'red'
-                    : 'green'
+                    ? theme.status.error
+                    : theme.status.success
               }
             >
               {agent.name}

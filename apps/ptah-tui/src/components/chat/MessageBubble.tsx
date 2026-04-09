@@ -11,6 +11,9 @@
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 
+import { useTheme, type TuiTheme } from '../../hooks/use-theme.js';
+import { DiffViewer } from '../diff/DiffViewer.js';
+
 // marked + marked-terminal for rendering markdown in assistant responses
 let renderMarkdown: ((text: string) => string) | null = null;
 
@@ -45,34 +48,60 @@ try {
   // marked/marked-terminal not available -- fall back to plain text
 }
 
+/**
+ * Detect whether a text block is a unified diff.
+ *
+ * Checks for the standard `--- ` / `+++ ` header pair or a
+ * `diff --git` preamble line that git produces.
+ */
+function isDiffContent(text: string): boolean {
+  return (
+    (text.includes('--- ') && text.includes('+++ ')) ||
+    text.startsWith('diff --git ')
+  );
+}
+
 interface MessageBubbleProps {
   role: 'user' | 'assistant' | 'system';
   content: string;
   isStreaming?: boolean;
 }
 
-const ROLE_CONFIG: Record<
+function getRoleConfig(
+  theme: TuiTheme,
+): Record<
   MessageBubbleProps['role'],
   { label: string; color: string; gutter: string }
-> = {
-  user: { label: 'You', color: '#10b981', gutter: '┃' },
-  assistant: { label: 'Ptah', color: '#06b6d4', gutter: '┃' },
-  system: { label: 'System', color: '#f59e0b', gutter: '┃' },
-};
+> {
+  return {
+    user: { label: 'You', color: theme.roles.user, gutter: '┃' },
+    assistant: { label: 'Ptah', color: theme.roles.assistant, gutter: '┃' },
+    system: { label: 'System', color: theme.roles.system, gutter: '┃' },
+  };
+}
 
 export function MessageBubble({
   role,
   content,
   isStreaming,
 }: MessageBubbleProps): React.JSX.Element {
-  const config = ROLE_CONFIG[role];
+  const theme = useTheme();
+  const roleConfig = useMemo(() => getRoleConfig(theme), [theme]);
+  const config = roleConfig[role];
+
+  const showDiff = useMemo(
+    () => role === 'assistant' && !isStreaming && isDiffContent(content),
+    [role, isStreaming, content],
+  );
 
   const renderedContent = useMemo(() => {
+    // Skip markdown rendering when we will render with DiffViewer instead
+    if (showDiff) return content;
     if (role === 'assistant' && renderMarkdown && content.length > 0) {
       return renderMarkdown(content);
     }
     return content;
-  }, [role, content]);
+  }, [role, content, showDiff]);
 
   return (
     <Box flexDirection="row" marginBottom={1}>
@@ -85,16 +114,20 @@ export function MessageBubble({
             {config.label}
           </Text>
           {isStreaming && (
-            <Text color="#f59e0b" dimColor>
+            <Text color={theme.status.warning} dimColor>
               {'streaming...'}
             </Text>
           )}
         </Box>
         <Box paddingLeft={0}>
-          <Text wrap="wrap">
-            {renderedContent}
-            {isStreaming ? <Text color={config.color}>{'\u2588'}</Text> : ''}
-          </Text>
+          {showDiff ? (
+            <DiffViewer rawDiff={content} defaultCollapsed />
+          ) : (
+            <Text wrap="wrap">
+              {renderedContent}
+              {isStreaming ? <Text color={config.color}>{'\u2588'}</Text> : ''}
+            </Text>
+          )}
         </Box>
       </Box>
     </Box>
