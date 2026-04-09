@@ -531,7 +531,9 @@ async function handleIndividualTool(
           taskFolder,
           model,
           resumeSessionId: resume_session_id,
-          // parentSessionId is injected by buildAgentNamespace, not by MCP args
+          // parentSessionId from MCP URL path (session-specific endpoint)
+          // Falls back to getActiveSessionId() in buildAgentNamespace if not present
+          parentSessionId: request._callerSessionId,
         });
 
         logger.info('[MCP] ptah_agent_spawn result', 'CodeExecutionMCP', {

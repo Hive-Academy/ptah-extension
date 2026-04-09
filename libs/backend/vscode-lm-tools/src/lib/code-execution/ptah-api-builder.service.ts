@@ -349,6 +349,21 @@ export class PtahAPIBuilder {
               return undefined;
             }
           },
+          resolveSessionId: (tabIdOrSessionId: string) => {
+            // Resolve tab ID → real SDK UUID via SessionLifecycleManager.
+            // Used by MCP session threading to map tab_xxx → real-uuid.
+            if (!container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
+              return tabIdOrSessionId;
+            }
+            try {
+              const manager = container.resolve<{
+                getResolvedSessionId(id: string): string;
+              }>(SDK_SESSION_LIFECYCLE_MANAGER);
+              return manager.getResolvedSessionId(tabIdOrSessionId);
+            } catch {
+              return tabIdOrSessionId;
+            }
+          },
           getProjectGuidance: async () => {
             // Resolve EnhancedPromptsService lazily via DI (same pattern as SDK_SESSION_LIFECYCLE_MANAGER).
             // Avoids hard dependency from vscode-lm-tools -> agent-sdk.

@@ -9,13 +9,14 @@ import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { AgentMonitorStore, MonitoredAgent } from './agent-monitor.store';
 import { TabManagerService } from './tab-manager.service';
 import { VSCodeService } from '@ptah-extension/core';
-import { signal } from '@angular/core';
+import { signal, computed } from '@angular/core';
 
 // Mock TabManagerService with signal-based activeTab
 const mockActiveTab = signal<{ claudeSessionId?: string } | null>(null);
 
 const mockTabManager = {
   activeTab: mockActiveTab,
+  activeTabSessionId: computed(() => mockActiveTab()?.claudeSessionId ?? null),
   tabs: signal([]),
 };
 

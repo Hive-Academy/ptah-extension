@@ -522,7 +522,11 @@ export class SdkQueryOptionsBuilder {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
-        mcpServers: this.buildMcpServers(isPremium, mcpServerRunning),
+        mcpServers: this.buildMcpServers(
+          isPremium,
+          mcpServerRunning,
+          sessionId,
+        ),
         // Set SDK permission mode based on current autopilot config.
         // SDK evaluation order: Hooks → Rules → Permission Mode → canUseTool.
         // When 'default': all tools fall through to canUseTool callback.
@@ -705,6 +709,7 @@ export class SdkQueryOptionsBuilder {
   private buildMcpServers(
     isPremium: boolean,
     mcpServerRunning = true,
+    sessionId?: string,
   ): Record<string, McpHttpServerConfig> {
     // Free tier - disable MCP servers (TASK_2025_108)
     if (!isPremium) {
@@ -731,7 +736,9 @@ export class SdkQueryOptionsBuilder {
     const mcpConfig = {
       ptah: {
         type: 'http' as const,
-        url: `http://localhost:${PTAH_MCP_PORT}`,
+        url: sessionId
+          ? `http://localhost:${PTAH_MCP_PORT}/session/${encodeURIComponent(sessionId)}`
+          : `http://localhost:${PTAH_MCP_PORT}`,
       },
     };
     this.logger.info('[SdkQueryOptionsBuilder] MCP servers ENABLED', {

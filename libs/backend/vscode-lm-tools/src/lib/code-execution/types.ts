@@ -723,6 +723,9 @@ export interface MCPRequest {
 
   /** Method-specific parameters */
   params?: Record<string, unknown>;
+
+  /** Caller's SDK session ID extracted from MCP URL path (e.g., /session/{tabId}) */
+  _callerSessionId?: string;
 }
 
 /**

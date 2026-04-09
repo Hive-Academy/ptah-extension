@@ -162,6 +162,14 @@ export class AgentMonitorStore implements OnDestroy {
     );
   });
 
+  /**
+   * Get agents for a specific session (scoped accessor for canvas tiles).
+   * Unlike activeTabAgents, this doesn't depend on the global activeTab signal.
+   */
+  agentsForSession(sessionId: string): MonitoredAgent[] {
+    return this.agents().filter((a) => a.parentSessionId === sessionId);
+  }
+
   /** Whether any agent is running. Reads _agents() directly with primitive equality
    * to avoid re-evaluation cascade through the sorted agents() array. */
   readonly hasRunningAgents = computed(
