@@ -49,7 +49,6 @@ import {
   buildBrowserStatusTool,
   buildBrowserRecordStartTool,
   buildBrowserRecordStopTool,
-  buildBrowserWaitForUserTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -83,7 +82,6 @@ import {
   formatBrowserStatus,
   formatBrowserRecordStart,
   formatBrowserRecordStop,
-  formatBrowserWaitForUser,
 } from './mcp-response-formatter';
 
 /**
@@ -269,7 +267,6 @@ function handleToolsList(
           buildBrowserStatusTool(),
           buildBrowserRecordStartTool(),
           buildBrowserRecordStopTool(),
-          buildBrowserWaitForUserTool(),
         ]
       : []),
   ];
@@ -1016,39 +1013,6 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatBrowserRecordStop(recordStopResult),
-          deps,
-        );
-      }
-
-      case 'ptah_browser_wait_for_user': {
-        const { message, timeout } = args as {
-          message: string;
-          timeout?: number;
-        };
-
-        if (!message || typeof message !== 'string' || !message.trim()) {
-          return {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: 'Error: "message" is required and must be a non-empty string.',
-                },
-              ],
-              isError: true,
-            },
-          };
-        }
-
-        const waitResult = await ptahAPI.browser.waitForUser({
-          message: message.trim(),
-          timeout,
-        });
-        return createToolSuccessResponse(
-          request,
-          formatBrowserWaitForUser(waitResult),
           deps,
         );
       }
