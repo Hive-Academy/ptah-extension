@@ -391,6 +391,22 @@ export class TuiDIContainer {
     }
 
     // ========================================
+    // PHASE 1.6: Seed community license (CLI has no registration gate)
+    // ========================================
+    // Must be after Phase 1.5 (EXTENSION_CONTEXT + CONFIG_MANAGER are required by LicenseService)
+    try {
+      const licenseService = container.resolve<LicenseService>(
+        TOKENS.LICENSE_SERVICE,
+      );
+      licenseService.seedCommunityStatus();
+    } catch (error) {
+      logger.warn(
+        '[TUI DI] Failed to seed community license (non-fatal)',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+
+    // ========================================
     // PHASE 2: Library Services
     // ========================================
 

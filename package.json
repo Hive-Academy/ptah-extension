@@ -70,7 +70,7 @@
     "electron:rebuild": "electron-rebuild -f -w node-pty",
     "tui:build": "nx build ptah-tui",
     "tui:dev": "nx dev ptah-tui",
-    "tui:serve": "nx serve ptah-tui"
+    "tui:serve": "nx build ptah-tui && node dist/apps/ptah-tui/main.mjs"
   },
   "private": true,
   "dependencies": {

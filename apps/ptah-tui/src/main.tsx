@@ -7,6 +7,25 @@ import { TuiRpcMethodRegistrationService } from './services/tui-rpc-method-regis
 import { App } from './components/App.js';
 
 /**
+ * Check if stdin supports raw mode (required by Ink for keyboard input).
+ * nx run-commands pipes stdin instead of providing a real TTY, so
+ * `nx serve ptah-tui` won't work — the user must run the binary directly.
+ */
+function ensureRawModeSupport(): void {
+  if (process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
+    return; // Full TTY support — proceed normally
+  }
+
+  console.error(
+    '\n  Ptah TUI requires an interactive terminal (TTY with raw mode).\n' +
+      '  nx pipes stdin, so `nx serve` cannot provide this.\n\n' +
+      '  Build + run directly instead:\n\n' +
+      '    nx build ptah-tui && node dist/apps/ptah-tui/main.mjs\n',
+  );
+  process.exit(1);
+}
+
+/**
  * Bootstrap the TUI application.
  *
  * 1. Setup DI container (all backend services)
@@ -16,6 +35,9 @@ import { App } from './components/App.js';
  */
 async function main(): Promise<void> {
   let bootstrapResult: TuiBootstrapResult | undefined;
+
+  // Phase 0: Ensure terminal supports raw mode for Ink
+  ensureRawModeSupport();
 
   try {
     // Phase 1: Bootstrap DI container
