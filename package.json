@@ -122,6 +122,7 @@
     "gifenc": "^1.0.3",
     "gpt-tokenizer": "^3.4.0",
     "gray-matter": "^4.0.3",
+    "gridstack": "^12.5.0",
     "helmet": "^8.1.0",
     "ink": "^7.0.0",
     "ink-select-input": "^6.0.0",
