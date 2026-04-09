@@ -50,9 +50,16 @@
   }
 
   <!-- Orchestra Canvas: Full-width, standalone layout (no sidebar) -->
+  <!-- OrchestraCanvasComponent injected via DI token to break circular dep (canvas -> chat -> canvas) -->
   @case ('orchestra-canvas') {
     <div class="h-full w-full overflow-hidden">
-      <ptah-orchestra-canvas />
+      @if (orchestraCanvasComponent) {
+        <ng-container *ngComponentOutlet="orchestraCanvasComponent" />
+      } @else {
+        <div class="flex items-center justify-center h-full">
+          <span class="loading loading-spinner loading-md"></span>
+        </div>
+      }
     </div>
   }
 

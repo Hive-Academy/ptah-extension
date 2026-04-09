@@ -38,7 +38,6 @@ import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
 import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
 import { SessionAnalyticsDashboardViewComponent } from '@ptah-extension/dashboard';
-import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
@@ -48,6 +47,7 @@ import {
   VSCodeService,
   ClaudeRpcService,
   WIZARD_VIEW_COMPONENT,
+  ORCHESTRA_CANVAS_COMPONENT,
 } from '@ptah-extension/core';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
@@ -101,7 +101,6 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     ResizeHandleComponent,
     SidebarTabComponent,
     SessionAnalyticsDashboardViewComponent,
-    OrchestraCanvasComponent,
   ],
   templateUrl: './app-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -127,6 +126,14 @@ export class AppShellComponent {
    */
   readonly wizardComponent =
     inject(WIZARD_VIEW_COMPONENT, { optional: true }) ?? null;
+
+  /**
+   * OrchestraCanvasComponent provided via DI token — breaks circular dependency between chat and canvas.
+   * canvas imports from chat (TabManagerService), so chat cannot import canvas directly.
+   * Provided by the application bootstrapper (app.config.ts).
+   */
+  readonly orchestraCanvasComponent =
+    inject(ORCHESTRA_CANVAS_COMPONENT, { optional: true }) ?? null;
 
   // Sidebar state: default open in Electron (more space), hidden in VS Code sidebar
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
