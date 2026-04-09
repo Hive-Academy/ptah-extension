@@ -22,6 +22,8 @@ import { SessionStatsSummaryComponent } from '../molecules/session/session-stats
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { CompactionNotificationComponent } from '../molecules/notifications/compaction-notification.component';
 import { ChatStore } from '../../services/chat.store';
+import { TabManagerService } from '../../services/tab-manager.service';
+import { SESSION_CONTEXT } from '../../tokens/session-context.token';
 import { VSCodeService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
@@ -76,6 +78,13 @@ export class ChatViewComponent {
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
 
+  // CANVAS: Optional per-tile session context. When provided, all signals
+  // derive from this tabId instead of the global activeTabId.
+  private readonly _sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
+  private readonly _tabManager = inject(TabManagerService);
+
   /** Lucide icon reference for template binding */
   protected readonly BellIcon = Bell;
 
@@ -110,6 +119,55 @@ export class ChatViewComponent {
    * Ptah icon URI for skeleton avatar placeholder
    */
   readonly ptahIconUri = computed(() => this.vscodeService.getPtahIconUri());
+
+  /**
+   * Resolved session ID: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
+   * Used by canvas tiles to scope streaming messages to their per-tile session.
+   * TASK_2025_265
+   */
+  readonly resolvedSessionId = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (!tabId) return null;
+      const tab = this._tabManager.tabs().find((t) => t.id === tabId);
+      return tab?.claudeSessionId ?? null;
+    }
+    return this.chatStore.currentSessionId();
+  });
+
+  /**
+   * Resolved messages: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
+   * TASK_2025_265
+   */
+  readonly resolvedMessages = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (!tabId) return [];
+      return (
+        this._tabManager.tabs().find((t) => t.id === tabId)?.messages ?? []
+      );
+    }
+    return this.chatStore.messages();
+  });
+
+  /**
+   * Resolved streaming state: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
+   * TASK_2025_265
+   */
+  readonly resolvedIsStreaming = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (!tabId) return false;
+      const status = this._tabManager
+        .tabs()
+        .find((t) => t.id === tabId)?.status;
+      return status === 'streaming' || status === 'resuming';
+    }
+    return this.chatStore.isStreaming();
+  });
 
   /**
    * TASK_2025_096 FIX: Computed signal that creates ExecutionChatMessages
@@ -156,7 +214,7 @@ export class ChatViewComponent {
         id: tree.id,
         role: 'assistant',
         streamingState: tree,
-        sessionId: this.chatStore.currentSessionId() ?? undefined,
+        sessionId: this.resolvedSessionId() ?? undefined,
         // TASK_2025_100: Include pending stats in streaming message
         ...(pendingStats && {
           tokens: pendingStats.tokens,

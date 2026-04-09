@@ -1,0 +1,223 @@
+/**
+ * Cursor CLI Skill Installer
+ * TASK_2025_267: Copies Ptah plugin skills to ~/.cursor/skills/ptah-{skillName}/
+ *
+ * Cursor CLI discovers skills from ~/.cursor/skills/{skillName}/SKILL.md
+ * (flat structure, one level deep — same convention as Gemini CLI).
+ *
+ * Deployment: ~/.cursor/skills/ptah-{skillName}/SKILL.md
+ * Prefix "ptah-" enables cleanup via uninstall() without touching
+ * Cursor's built-in skills.
+ */
+
+import { mkdir, readdir, lstat, rm, readFile, writeFile } from 'fs/promises';
+import { homedir } from 'os';
+import { join, basename } from 'path';
+import type { CliSkillSyncStatus } from '@ptah-extension/shared';
+import type { ICliSkillInstaller } from './cli-skill-installer.interface';
+import { copyDirectoryRecursive } from './skill-sync-utils';
+
+/**
+ * Installs Ptah skills into Cursor CLI's user-level discovery directory.
+ *
+ * Target: ~/.cursor/skills/ptah-{skillName}/SKILL.md
+ * Cursor CLI auto-discovers skills from ~/.cursor/skills/ directory
+ * but only scans one level deep (no nested plugin directories).
+ */
+export class CursorSkillInstaller implements ICliSkillInstaller {
+  readonly target = 'cursor' as const;
+
+  getSkillsBasePath(): string {
+    return join(homedir(), '.cursor', 'skills');
+  }
+
+  getCommandsBasePath(): string {
+    return join(homedir(), '.cursor', 'commands');
+  }
+
+  async install(pluginPaths: string[]): Promise<CliSkillSyncStatus> {
+    let skillCount = 0;
+    const errors: string[] = [];
+
+    try {
+      const basePath = this.getSkillsBasePath();
+      await mkdir(basePath, { recursive: true });
+
+      // Track which ptah- skill folders are installed in this run
+      // so we can remove stale ones afterwards without a delete-all gap
+      const installedFolders = new Set<string>();
+
+      for (const pluginPath of pluginPaths) {
+        try {
+          const skillsSourceDir = join(pluginPath, 'skills');
+
+          // Check if skills/ directory exists in plugin (use lstat for symlink safety)
+          let skillsDirStat;
+          try {
+            skillsDirStat = await lstat(skillsSourceDir);
+          } catch {
+            continue; // No skills/ directory in this plugin, skip
+          }
+
+          if (!skillsDirStat.isDirectory() || skillsDirStat.isSymbolicLink()) {
+            continue;
+          }
+
+          // Copy each skill directory FLAT into ~/.cursor/skills/ptah-{skillName}/
+          const skillDirs = await readdir(skillsSourceDir);
+          for (const skillDirName of skillDirs) {
+            try {
+              const skillSourcePath = join(skillsSourceDir, skillDirName);
+              const skillSourceStat = await lstat(skillSourcePath);
+
+              if (
+                !skillSourceStat.isDirectory() ||
+                skillSourceStat.isSymbolicLink()
+              ) {
+                continue;
+              }
+
+              // Flat target: ~/.cursor/skills/ptah-{skillName}/
+              const skillFolderName = `ptah-${skillDirName}`;
+              const skillTargetPath = join(basePath, skillFolderName);
+              await mkdir(skillTargetPath, { recursive: true });
+
+              const copied = await copyDirectoryRecursive(
+                skillSourcePath,
+                skillTargetPath,
+                0,
+                skillFolderName,
+              );
+              skillCount += copied;
+              installedFolders.add(skillFolderName);
+            } catch (skillError) {
+              errors.push(
+                `Failed to copy skill ${skillDirName}: ${
+                  skillError instanceof Error
+                    ? skillError.message
+                    : String(skillError)
+                }`,
+              );
+            }
+          }
+        } catch (pluginError) {
+          const pluginId = basename(pluginPath);
+          errors.push(
+            `Failed to process plugin ${pluginId}: ${
+              pluginError instanceof Error
+                ? pluginError.message
+                : String(pluginError)
+            }`,
+          );
+        }
+      }
+
+      // Remove stale ptah- skill folders that were NOT part of this install
+      try {
+        const existingEntries = await readdir(basePath);
+        for (const entry of existingEntries) {
+          if (entry.startsWith('ptah-') && !installedFolders.has(entry)) {
+            const entryPath = join(basePath, entry);
+            await rm(entryPath, { recursive: true, force: true });
+          }
+        }
+      } catch {
+        // Non-fatal: best-effort cleanup of stale skills
+      }
+
+      // Sync command files from plugins
+      await this.syncCommands(pluginPaths, errors);
+
+      return {
+        cli: this.target,
+        synced: errors.length === 0,
+        skillCount,
+        lastSyncedAt: new Date().toISOString(),
+        error: errors.length > 0 ? errors.join('; ') : undefined,
+      };
+    } catch (error) {
+      return {
+        cli: this.target,
+        synced: false,
+        skillCount: 0,
+        error: `Cursor skill install failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+  }
+
+  private async syncCommands(
+    pluginPaths: string[],
+    errors: string[],
+  ): Promise<void> {
+    const commandsDir = this.getCommandsBasePath();
+    try {
+      await mkdir(commandsDir, { recursive: true });
+    } catch {
+      return;
+    }
+
+    // Clean up old ptah- prefixed command files
+    try {
+      const existing = await readdir(commandsDir);
+      for (const entry of existing) {
+        if (entry.startsWith('ptah-') && entry.endsWith('.md')) {
+          await rm(join(commandsDir, entry), { force: true });
+        }
+      }
+    } catch {
+      // Non-fatal
+    }
+
+    for (const pluginPath of pluginPaths) {
+      const commandsSourceDir = join(pluginPath, 'commands');
+      let entries: string[];
+      try {
+        entries = await readdir(commandsSourceDir);
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (!entry.endsWith('.md')) continue;
+        try {
+          const content = await readFile(
+            join(commandsSourceDir, entry),
+            'utf8',
+          );
+          // Prefix with ptah- for cleanup identification
+          const targetName = `ptah-${entry}`;
+          await writeFile(join(commandsDir, targetName), content, 'utf8');
+        } catch (err) {
+          errors.push(
+            `Failed to copy command ${entry}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+    }
+  }
+
+  async uninstall(): Promise<void> {
+    try {
+      const basePath = this.getSkillsBasePath();
+      let entries;
+      try {
+        entries = await readdir(basePath);
+      } catch {
+        return; // Skills directory doesn't exist
+      }
+
+      for (const entry of entries) {
+        if (entry.startsWith('ptah-')) {
+          const entryPath = join(basePath, entry);
+          await rm(entryPath, { recursive: true, force: true });
+        }
+      }
+    } catch {
+      // Non-fatal: best-effort cleanup
+    }
+  }
+}
