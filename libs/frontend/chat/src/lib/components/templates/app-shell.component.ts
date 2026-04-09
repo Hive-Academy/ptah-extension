@@ -16,6 +16,7 @@ import {
   Check,
   ChevronDown,
   ExternalLink,
+  LayoutGrid,
   MessageSquare,
   Pencil,
   Plus,
@@ -152,6 +153,7 @@ export class AppShellComponent {
   readonly XIcon = X;
   readonly ExternalLinkIcon = ExternalLink;
   readonly BarChart3Icon = BarChart3;
+  readonly LayoutGridIcon = LayoutGrid;
 
   // Inline edit state for session renaming
   readonly editingSessionId = signal<string | null>(null);
@@ -323,6 +325,13 @@ export class AppShellComponent {
    */
   openDashboard(): void {
     this.appState.setCurrentView('analytics');
+  }
+
+  /**
+   * Navigate to Orchestra Canvas view
+   */
+  openCanvas(): void {
+    this.appState.setCurrentView('orchestra-canvas');
   }
 
   /** Guard to prevent double-click opening multiple panels */

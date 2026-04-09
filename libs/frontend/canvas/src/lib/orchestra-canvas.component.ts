@@ -11,6 +11,8 @@ import {
   GridstackItemComponent,
   nodesCB,
 } from 'gridstack/dist/angular';
+import { LucideAngularModule, ArrowLeft } from 'lucide-angular';
+import { AppStateManager } from '@ptah-extension/core';
 import { CanvasStore } from './canvas.store';
 import { CanvasTileComponent } from './canvas-tile.component';
 
@@ -40,13 +42,27 @@ import { CanvasTileComponent } from './canvas-tile.component';
   selector: 'ptah-orchestra-canvas',
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [CanvasStore],
-  imports: [GridstackComponent, GridstackItemComponent, CanvasTileComponent],
+  imports: [
+    GridstackComponent,
+    GridstackItemComponent,
+    CanvasTileComponent,
+    LucideAngularModule,
+  ],
   template: `
     <div class="flex flex-col h-full bg-base-100">
       <!-- Toolbar -->
       <div
         class="flex items-center gap-2 px-3 py-2 border-b border-base-300 bg-base-200 shrink-0"
       >
+        <button
+          class="btn btn-ghost btn-xs gap-1.5"
+          (click)="backToChat()"
+          aria-label="Back to Chat"
+        >
+          <lucide-angular [img]="ArrowLeftIcon" class="w-3.5 h-3.5" />
+          <span class="text-xs">Back</span>
+        </button>
+        <div class="w-px h-4 bg-base-content/10"></div>
         <span class="font-semibold text-sm text-base-content"
           >Orchestra Canvas</span
         >
@@ -102,6 +118,9 @@ import { CanvasTileComponent } from './canvas-tile.component';
 })
 export class OrchestraCanvasComponent implements OnInit, OnDestroy {
   readonly canvasStore = inject(CanvasStore);
+  private readonly appState = inject(AppStateManager);
+
+  readonly ArrowLeftIcon = ArrowLeft;
 
   /**
    * Gridstack grid configuration.
@@ -133,6 +152,10 @@ export class OrchestraCanvasComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     const tiles = this.canvasStore.tiles();
     tiles.forEach((tile) => this.canvasStore.removeTile(tile.tabId));
+  }
+
+  backToChat(): void {
+    this.appState.setCurrentView('chat');
   }
 
   addSession(): void {
