@@ -17,7 +17,6 @@ import {
   TabManagerService,
   SESSION_CONTEXT,
 } from '@ptah-extension/chat';
-import { CanvasStore } from './canvas.store';
 
 /**
  * CanvasTileComponent — renders a single chat session tile within the Orchestra Canvas.
@@ -38,7 +37,6 @@ import { CanvasStore } from './canvas.store';
  */
 @Component({
   selector: 'ptah-canvas-tile',
-  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NgComponentOutlet],
   template: `
@@ -71,7 +69,8 @@ import { CanvasStore } from './canvas.store';
       @if (childInjector()) {
         <div class="flex-1 min-h-0 overflow-hidden">
           <ng-container
-            *ngComponentOutlet="chatViewComponent; injector: childInjector()!"
+            [ngComponentOutlet]="chatViewComponent"
+            [ngComponentOutletInjector]="childInjector()!"
           />
         </div>
       }
@@ -122,8 +121,10 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   /**
    * Child EnvironmentInjector providing SESSION_CONTEXT for this tile's ChatViewComponent.
    * Starts null; set in ngOnInit; destroyed in ngOnDestroy.
+   * Private mutable signal; exposed as readonly via childInjector.
    */
-  readonly childInjector = signal<EnvironmentInjector | null>(null);
+  private readonly _childInjector = signal<EnvironmentInjector | null>(null);
+  readonly childInjector = this._childInjector.asReadonly();
 
   /**
    * Expose ChatViewComponent class reference for NgComponentOutlet.
@@ -156,7 +157,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
     // and stays reactive if tabId ever changes (signal inputs are reactive).
     const tabIdSignal = computed<string | null>(() => this.tabId());
 
-    this.childInjector.set(
+    this._childInjector.set(
       createEnvironmentInjector(
         [{ provide: SESSION_CONTEXT, useValue: tabIdSignal }],
         this.parentEnvInjector,

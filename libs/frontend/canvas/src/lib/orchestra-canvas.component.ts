@@ -2,9 +2,10 @@ import {
   Component,
   ChangeDetectionStrategy,
   OnInit,
+  OnDestroy,
   inject,
 } from '@angular/core';
-import { GridStackOptions, GridStackNode } from 'gridstack';
+import { GridStackOptions } from 'gridstack';
 import {
   GridstackComponent,
   GridstackItemComponent,
@@ -37,7 +38,6 @@ import { CanvasTileComponent } from './canvas-tile.component';
  */
 @Component({
   selector: 'ptah-orchestra-canvas',
-  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [CanvasStore],
   imports: [GridstackComponent, GridstackItemComponent, CanvasTileComponent],
@@ -100,7 +100,7 @@ import { CanvasTileComponent } from './canvas-tile.component';
     `,
   ],
 })
-export class OrchestraCanvasComponent implements OnInit {
+export class OrchestraCanvasComponent implements OnInit, OnDestroy {
   readonly canvasStore = inject(CanvasStore);
 
   /**
@@ -124,6 +124,15 @@ export class OrchestraCanvasComponent implements OnInit {
     if (this.canvasStore.tileCount() === 0) {
       this.canvasStore.addTile();
     }
+  }
+
+  /**
+   * FIX 5: Close all tiles on destroy to prevent orphaned tabs in the root TabManagerService.
+   * CanvasStore is scoped per component instance, so its tabs must be cleaned up here.
+   */
+  ngOnDestroy(): void {
+    const tiles = this.canvasStore.tiles();
+    tiles.forEach((tile) => this.canvasStore.removeTile(tile.tabId));
   }
 
   addSession(): void {

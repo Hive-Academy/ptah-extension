@@ -247,6 +247,7 @@ export class AppStateManager implements MessageHandler {
   }
 
   handleViewSwitch(view: ViewType): void {
+    if (!this.canSwitchViews()) return;
     this._openViews.update((views) => {
       const next = new Set(views);
       next.add(view);
