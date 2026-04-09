@@ -780,9 +780,7 @@ export async function activate(
               }),
             )
           ).filter(
-            (
-              f,
-            ): f is { name: string; filePath: string; content: string } =>
+            (f): f is { name: string; filePath: string; content: string } =>
               f !== null,
           );
 
@@ -842,8 +840,7 @@ export async function activate(
             // Extract description from frontmatter for quality parity with wizard-generated agents
             const descMatch = /^description:\s*(.+)$/m.exec(f.content);
             const description =
-              descMatch?.[1]?.trim() ??
-              `${f.name.replace(/\.md$/, '')} agent`;
+              descMatch?.[1]?.trim() ?? `${f.name.replace(/\.md$/, '')} agent`;
             return {
               sourceTemplateId: f.name.replace(/\.md$/, ''),
               sourceTemplateVersion: 'unknown',
