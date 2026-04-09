@@ -256,29 +256,16 @@
 
     <!-- OAuth Token Input (shown when oauth mode selected) -->
     @if (claudeAuthMode() === 'oauth') {
-      <!-- OAuth Policy Warning -->
-      <div class="alert alert-warning py-2 px-3 text-[10px]" role="alert">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="w-3.5 h-3.5 shrink-0"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path
-            d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
-          />
-          <path d="M12 9v4" />
-          <path d="M12 17h.01" />
-        </svg>
-        <span>
-          <strong>Restricted:</strong> Anthropic blocks OAuth tokens from Claude
-          subscriptions in third-party tools (Feb 2026). Use
-          <strong>API Key</strong> or <strong>Provider</strong> instead.
-        </span>
+      <!-- Local execution note -->
+      <div
+        class="flex items-start gap-1.5 p-2 rounded bg-success/10 border border-success/20 mb-1"
+      >
+        <span class="text-success text-[10px] shrink-0 mt-0.5">●</span>
+        <p class="text-[10px] text-base-content/60 leading-relaxed">
+          <strong class="text-base-content/70">Runs 100% locally.</strong>
+          Your token goes directly from this machine to Anthropic — no proxies,
+          no Ptah servers involved.
+        </p>
       </div>
       <div class="form-control">
         <label class="label py-1 justify-start gap-2" for="oauthToken">
