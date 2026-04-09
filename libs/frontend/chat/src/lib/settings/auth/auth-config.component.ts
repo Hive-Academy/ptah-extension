@@ -24,6 +24,7 @@ import {
   Zap,
   Terminal,
   AlertTriangle,
+  Server,
 } from 'lucide-angular';
 import { AuthStateService, ClaudeRpcService } from '@ptah-extension/core';
 import type {
@@ -85,6 +86,7 @@ export class AuthConfigComponent implements OnInit {
   readonly ZapIcon = Zap;
   readonly TerminalIcon = Terminal;
   readonly AlertTriangleIcon = AlertTriangle;
+  readonly ServerIcon = Server;
 
   // --- Local form signals (text input values only) ---
 
@@ -130,6 +132,12 @@ export class AuthConfigComponent implements OnInit {
   /** Whether the selected provider is OpenAI Codex (uses file-based auth from ~/.codex/auth.json) */
   readonly isCodexProvider = computed(() => {
     return this.selectedProvider()?.id === 'openai-codex';
+  });
+
+  /** Whether the selected provider is a local model server (Ollama, LM Studio) (TASK_2025_265) */
+  readonly isLocalProvider = computed(() => {
+    const provider = this.selectedProvider();
+    return provider?.authType === 'none';
   });
 
   /**
@@ -207,6 +215,11 @@ export class AuthConfigComponent implements OnInit {
       return this.isCopilotProvider()
         ? this.authState.copilotAuthenticated()
         : true; // Codex uses file-based auth, always "ready" if selected
+    }
+
+    // Local providers (Ollama, LM Studio) are always ready -- no credentials needed
+    if (this.isLocalProvider()) {
+      return true;
     }
 
     switch (method) {
