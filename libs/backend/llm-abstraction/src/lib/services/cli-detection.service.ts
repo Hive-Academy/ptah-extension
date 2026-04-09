@@ -20,6 +20,7 @@ import { GeminiCliAdapter } from './cli-adapters/gemini-cli.adapter';
 import { CodexCliAdapter } from './cli-adapters/codex-cli.adapter';
 import { CopilotSdkAdapter } from './cli-adapters/copilot-sdk.adapter';
 import { CopilotPermissionBridge } from './cli-adapters/copilot-permission-bridge';
+import { CursorCliAdapter } from './cli-adapters/cursor-cli.adapter';
 
 @injectable()
 export class CliDetectionService {
@@ -38,8 +39,10 @@ export class CliDetectionService {
     const permissionBridge = new CopilotPermissionBridge();
     this.adapters.set('copilot', new CopilotSdkAdapter(permissionBridge));
 
+    this.adapters.set('cursor', new CursorCliAdapter());
+
     this.logger.info(
-      '[CliDetection] Service initialized with adapters: gemini, codex, copilot'
+      '[CliDetection] Service initialized with adapters: gemini, codex, copilot, cursor',
     );
   }
 
@@ -56,7 +59,7 @@ export class CliDetectionService {
     // Deduplicate concurrent calls: reuse in-flight detection promise
     if (this.detectionInFlight) {
       this.logger.debug(
-        '[CliDetection] Detection already in progress, reusing in-flight promise'
+        '[CliDetection] Detection already in progress, reusing in-flight promise',
       );
       return this.detectionInFlight;
     }
@@ -88,13 +91,13 @@ export class CliDetectionService {
           });
         } else {
           this.logger.debug(
-            `[CliDetection] ${adapter.displayName} not installed`
+            `[CliDetection] ${adapter.displayName} not installed`,
           );
         }
       } catch (error) {
         this.logger.error(
           `[CliDetection] Error detecting ${adapter.displayName}`,
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         results.set(name, {
           cli: name,
@@ -159,7 +162,7 @@ export class CliDetectionService {
       } catch (error) {
         this.logger.warn(
           `[CliDetection] Failed to list models for ${detection.cli}`,
-          { error: error instanceof Error ? error.message : String(error) }
+          { error: error instanceof Error ? error.message : String(error) },
         );
       }
     }
@@ -194,7 +197,7 @@ export class CliDetectionService {
       this.logger.info(
         `[CliDetection] Codex token refresh: ${
           fresh ? 'fresh' : 'stale/unavailable'
-        }`
+        }`,
       );
       // Invalidate model cache so next listModels() fetches with fresh token
       if (fresh) {
