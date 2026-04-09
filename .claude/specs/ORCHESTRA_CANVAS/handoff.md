@@ -38,12 +38,6 @@ Before: http://localhost:51820               (all sessions share one endpoint)
 After:  http://localhost:51820/session/tab_xxx  (each session has its own path)
 ```
 
-### Safety Hook Implemented
-
-Created `.claude/hooks/guard-dangerous-git.sh` — a PreToolUse hook that blocks dangerous git commands (`git reset --hard`, `git stash`, `git checkout .`, `git push --force`, `git clean -f`, `git branch -D`, `git revert`, `git restore .`). Configured in `.claude/settings.local.json`.
-
----
-
 ## Files Changed (10 files, 3 libraries + settings)
 
 ### `libs/backend/agent-sdk/` (2 files)

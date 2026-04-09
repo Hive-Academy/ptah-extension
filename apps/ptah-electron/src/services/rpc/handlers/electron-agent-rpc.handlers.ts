@@ -269,6 +269,12 @@ export class ElectronAgentRpcHandlers {
             params.disabledClis,
           );
         }
+        if (params.disabledMcpNamespaces !== undefined) {
+          await this.stateStorage.update(
+            'agentOrchestration.disabledMcpNamespaces',
+            params.disabledMcpNamespaces,
+          );
+        }
 
         this.logger.debug('RPC: agent:setConfig success');
         return { success: true };

@@ -190,9 +190,9 @@ export function useChat(): UseChatResult {
       } catch (err: unknown) {
         const errorText = err instanceof Error ? err.message : String(err);
 
-        // Add error as system message
+        // Remove empty assistant placeholder and add error as system message
         setMessages((prev) => [
-          ...prev,
+          ...prev.filter((m) => m.id !== assistantId),
           {
             id: randomUUID(),
             role: 'system',

@@ -14,6 +14,8 @@ export interface CheckoutOptions {
   customerEmail?: string;
   customerId?: string;
   successUrl?: string;
+  /** Optional Paddle discount code to pre-apply at checkout */
+  discountCode?: string;
   /** Optional callback invoked on checkout.completed instead of default license verify + navigate flow */
   onComplete?: (transactionId?: string) => void;
 }
@@ -99,7 +101,7 @@ export class PaddleCheckoutService {
 
   // Computed: Can checkout if ready and not loading
   public readonly canCheckout = computed(
-    () => this._isReady() && !this._isLoading()
+    () => this._isReady() && !this._isLoading(),
   );
 
   private initAttempts = 0;
@@ -157,7 +159,7 @@ export class PaddleCheckoutService {
       const paddle = await this.retryWithBackoff(
         () => this.doInitialize(),
         this.MAX_RETRY_ATTEMPTS,
-        this.paddleConfig.baseRetryDelay ?? 1000
+        this.paddleConfig.baseRetryDelay ?? 1000,
       );
 
       this.paddleInstance = paddle;
@@ -167,7 +169,7 @@ export class PaddleCheckoutService {
     } catch (err) {
       this._isLoading.set(false);
       this._error.set(
-        'Payment system temporarily unavailable. Please try again later.'
+        'Payment system temporarily unavailable. Please try again later.',
       );
       throw err;
     }
@@ -225,8 +227,8 @@ export class PaddleCheckoutService {
       const response = await firstValueFrom(
         this.http.post<ValidateCheckoutResponse>(
           '/api/v1/subscriptions/validate-checkout',
-          { priceId }
-        )
+          { priceId },
+        ),
       );
 
       this._isValidating.set(false);
@@ -245,7 +247,7 @@ export class PaddleCheckoutService {
         console.log(
           '[Paddle] Checkout blocked:',
           response.reason,
-          errorMessage
+          errorMessage,
         );
         return false;
       }
@@ -258,7 +260,7 @@ export class PaddleCheckoutService {
       // (fail-open approach - don't block checkout on validation API issues)
       console.error(
         '[Paddle] Checkout validation failed, proceeding anyway:',
-        error
+        error,
       );
       return true;
     }
@@ -274,8 +276,8 @@ export class PaddleCheckoutService {
     try {
       const response = await firstValueFrom(
         this.http.get<CheckoutInfoResponse>(
-          '/api/v1/subscriptions/checkout-info'
-        )
+          '/api/v1/subscriptions/checkout-info',
+        ),
       );
       return response;
     } catch (error) {
@@ -327,7 +329,7 @@ export class PaddleCheckoutService {
     // Set 5-minute timeout to prevent stuck checkout
     this.checkoutTimeoutId = setTimeout(() => {
       this._error.set(
-        'Checkout timed out after 5 minutes of inactivity. Please try again.'
+        'Checkout timed out after 5 minutes of inactivity. Please try again.',
       );
       this.closeCheckout();
     }, this.CHECKOUT_TIMEOUT);
@@ -346,13 +348,20 @@ export class PaddleCheckoutService {
       customerConfig = { email: options.customerEmail };
     }
 
-    const checkoutOptions = {
+    // Paddle requires a successUrl on the underlying transaction even in overlay mode.
+    // Use the provided URL, or fall back to the profile page on the current origin.
+    const successUrl =
+      options.successUrl ?? `${window.location.origin}/profile`;
+
+    const checkoutOptions: Parameters<Paddle['Checkout']['open']>[0] = {
       items: [{ priceId: options.priceId, quantity: 1 }],
       customer: customerConfig,
+      ...(options.discountCode ? { discountCode: options.discountCode } : {}),
       settings: {
         displayMode: 'overlay' as const,
         theme: 'dark' as const,
         locale: 'en',
+        successUrl,
       },
     };
 
@@ -363,7 +372,7 @@ export class PaddleCheckoutService {
     ) {
       console.log(
         '[Paddle] Opening checkout with options:',
-        JSON.stringify(checkoutOptions, null, 2)
+        JSON.stringify(checkoutOptions, null, 2),
       );
     }
 
@@ -426,7 +435,7 @@ export class PaddleCheckoutService {
     // Check token is configured and matches environment
     if (!token || token.includes('REPLACE')) {
       this._error.set(
-        'Paddle client-side token not configured. Please check environment configuration.'
+        'Paddle client-side token not configured. Please check environment configuration.',
       );
       return false;
     }
@@ -435,7 +444,7 @@ export class PaddleCheckoutService {
     const expectedPrefix = environment === 'sandbox' ? 'test_' : 'live_';
     if (!token.startsWith(expectedPrefix)) {
       this._error.set(
-        `Paddle token mismatch: ${environment} environment requires ${expectedPrefix} token`
+        `Paddle token mismatch: ${environment} environment requires ${expectedPrefix} token`,
       );
       return false;
     }
@@ -452,7 +461,7 @@ export class PaddleCheckoutService {
     const isPlaceholder = (priceId: string | undefined): boolean =>
       placeholderPatterns.some(
         (pattern) =>
-          !priceId || priceId.toLowerCase().includes(pattern.toLowerCase())
+          !priceId || priceId.toLowerCase().includes(pattern.toLowerCase()),
       );
 
     // TASK_2025_128: Only Pro plan price IDs (Community is free, no Paddle)
@@ -461,7 +470,7 @@ export class PaddleCheckoutService {
 
     if (hasPlaceholders) {
       this._error.set(
-        'Paddle price IDs not configured. Please check environment configuration.'
+        'Paddle price IDs not configured. Please check environment configuration.',
       );
       return false;
     }
@@ -480,7 +489,7 @@ export class PaddleCheckoutService {
   private async retryWithBackoff<T>(
     fn: () => Promise<T>,
     maxRetries: number,
-    baseDelay: number
+    baseDelay: number,
   ): Promise<T> {
     let lastError: Error | undefined;
 
@@ -524,8 +533,8 @@ export class PaddleCheckoutService {
               count: this.LICENSE_VERIFY_RETRIES,
               delay: this.LICENSE_VERIFY_DELAY,
             }),
-            catchError(() => of({ plan: 'trial', status: 'none' }))
-          )
+            catchError(() => of({ plan: 'trial', status: 'none' })),
+          ),
       );
 
       this._isVerifying.set(false);
@@ -570,7 +579,7 @@ export class PaddleCheckoutService {
               // License might not be ready yet (webhook delay) - navigate anyway
               // The profile page will show trial/pending status
               console.log(
-                '[Paddle] License not yet active, navigating to profile anyway'
+                '[Paddle] License not yet active, navigating to profile anyway',
               );
               this.router.navigate(['/profile']);
             }

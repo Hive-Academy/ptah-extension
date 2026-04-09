@@ -70,7 +70,7 @@ export function App({
           id: data.id,
           decision,
         });
-        setModalStack((prev) => prev.slice(1));
+        setModalStack((prev) => prev.slice(0, -1));
       };
       setModalStack((prev) => [
         ...prev,
@@ -99,7 +99,7 @@ export function App({
           id: data.id,
           answers,
         });
-        setModalStack((prev) => prev.slice(1));
+        setModalStack((prev) => prev.slice(0, -1));
       };
       setModalStack((prev) => [
         ...prev,
