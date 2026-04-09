@@ -29,6 +29,7 @@ import { DIContainer } from './di/container';
 import { LicenseCommands } from './commands/license-commands';
 import { SettingsCommands } from './commands/settings-commands';
 import { WebviewHtmlGenerator } from './services/webview-html-generator';
+import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 
 let ptahExtension: PtahExtension | undefined;
 
@@ -742,17 +743,15 @@ export async function activate(
           const { readdir, readFile } = await import('fs/promises');
           const { join } = await import('path');
           const { createHash } = await import('crypto');
-          const { AGENT_GENERATION_TOKENS } = await import(
-            '@ptah-extension/agent-generation'
-          );
 
           const agentsDir = join(agentSyncWorkspaceRoot, '.claude', 'agents');
           let agentFileNames: string[];
           try {
             const entries = await readdir(agentsDir);
-            agentFileNames = entries.filter(
-              (f) => f.endsWith('.md') && !f.startsWith('.backup-'),
-            );
+            // Sort for deterministic hash regardless of readdir order on non-NTFS filesystems
+            agentFileNames = entries
+              .filter((f) => f.endsWith('.md') && !f.startsWith('.backup-'))
+              .sort();
           } catch {
             logger.debug(
               'CLI agent sync skipped (no .claude/agents/ directory)',
@@ -764,13 +763,33 @@ export async function activate(
             return;
           }
 
-          const agentFiles = await Promise.all(
-            agentFileNames.map(async (name) => {
-              const filePath = join(agentsDir, name);
-              const content = await readFile(filePath, 'utf8');
-              return { name, filePath, content };
-            }),
+          // Read files individually — skip unreadable files rather than aborting all
+          const agentFiles = (
+            await Promise.all(
+              agentFileNames.map(async (name) => {
+                const filePath = join(agentsDir, name);
+                try {
+                  const content = await readFile(filePath, 'utf8');
+                  return { name, filePath, content };
+                } catch {
+                  logger.debug(
+                    `CLI agent sync: skipping unreadable file ${name}`,
+                  );
+                  return null;
+                }
+              }),
+            )
+          ).filter(
+            (
+              f,
+            ): f is { name: string; filePath: string; content: string } =>
+              f !== null,
           );
+
+          if (agentFiles.length === 0) {
+            logger.debug('CLI agent sync skipped (no readable agent files)');
+            return;
+          }
 
           const combinedContent = agentFiles
             .map((f) => f.content)
@@ -803,13 +822,13 @@ export async function activate(
             return;
           }
 
-          const globalStateStorage = DIContainer.resolve<IStateStorage>(
+          const agentSyncStateStorage = DIContainer.resolve<IStateStorage>(
             PLATFORM_TOKENS.STATE_STORAGE,
           );
 
           const staleTargets = targetClis.filter(
             (cli) =>
-              globalStateStorage.get<string>(
+              agentSyncStateStorage.get<string>(
                 `cli_agent_sync_hash_${cli}`,
               ) !== contentHash,
           );
@@ -819,15 +838,23 @@ export async function activate(
             return;
           }
 
-          const agents = agentFiles.map((f) => ({
-            sourceTemplateId: f.name.replace(/\.md$/, ''),
-            sourceTemplateVersion: 'unknown',
-            content: f.content,
-            variables: {} as Record<string, string>,
-            customizations: [] as never[],
-            generatedAt: new Date(),
-            filePath: f.filePath,
-          }));
+          const agents = agentFiles.map((f) => {
+            // Extract description from frontmatter for quality parity with wizard-generated agents
+            const descMatch = /^description:\s*(.+)$/m.exec(f.content);
+            const description =
+              descMatch?.[1]?.trim() ??
+              `${f.name.replace(/\.md$/, '')} agent`;
+            return {
+              sourceTemplateId: f.name.replace(/\.md$/, ''),
+              sourceTemplateVersion: 'unknown',
+              content: f.content,
+              variables: { description } as Record<string, string>,
+              customizations: [],
+              generatedAt: new Date(),
+              // filePath is the source path; transformers derive their own target paths via homedir()
+              filePath: f.filePath,
+            };
+          });
 
           const multiCliWriter = DIContainer.getContainer().resolve(
             AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE,
@@ -835,14 +862,29 @@ export async function activate(
             writeForClis: (
               agents: unknown[],
               targetClis: string[],
-            ) => Promise<unknown[]>;
+            ) => Promise<
+              Array<{
+                cli: string;
+                agentsWritten: number;
+                agentsFailed: number;
+              }>
+            >;
           };
 
-          await multiCliWriter.writeForClis(agents, staleTargets);
+          const writeResults = await multiCliWriter.writeForClis(
+            agents,
+            staleTargets,
+          );
+
+          // Only mark CLIs as up-to-date when all agents were written successfully.
+          // CLIs with write failures retain their stale hash so the next activation retries.
+          const successfulClis = writeResults
+            .filter((r) => r.agentsFailed === 0)
+            .map((r) => r.cli);
 
           await Promise.all(
-            staleTargets.map((cli) =>
-              globalStateStorage.update(
+            successfulClis.map((cli) =>
+              agentSyncStateStorage.update(
                 `cli_agent_sync_hash_${cli}`,
                 contentHash,
               ),
@@ -851,6 +893,7 @@ export async function activate(
 
           logger.info('CLI agent sync complete', {
             targets: staleTargets,
+            written: successfulClis,
             agents: agents.length,
           });
         })().catch((agentSyncError) => {
@@ -862,6 +905,10 @@ export async function activate(
           });
         });
       }
+    } else {
+      logger.debug(
+        'CLI agent sync skipped (Community tier - Pro feature only)',
+      );
     }
     // Step 7.2: Pre-fetch model pricing from OpenRouter (non-blocking, no auth needed)
     // OpenRouter's /api/v1/models endpoint is publicly accessible and returns

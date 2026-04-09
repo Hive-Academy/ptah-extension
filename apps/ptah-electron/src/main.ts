@@ -696,20 +696,20 @@ if (!gotLock) {
     // Ensures agents are present after fresh install without re-running the wizard.
     // Mirrors VS Code extension Step 7.1.7 (main.ts). Premium-only, fire-and-forget.
     if (startupLicenseTier === 'pro' || startupLicenseTier === 'trial_pro') {
-      const agentSyncRoot = startupWorkspaceRoot;
-      if (agentSyncRoot) {
+      if (startupWorkspaceRoot) {
         (async () => {
           const { readdir, readFile } = await import('fs/promises');
           const { join } = await import('path');
           const { createHash } = await import('crypto');
 
-          const agentsDir = join(agentSyncRoot, '.claude', 'agents');
+          const agentsDir = join(startupWorkspaceRoot, '.claude', 'agents');
           let agentFileNames: string[];
           try {
             const entries = await readdir(agentsDir);
-            agentFileNames = entries.filter(
-              (f) => f.endsWith('.md') && !f.startsWith('.backup-'),
-            );
+            // Sort for deterministic hash regardless of readdir order on non-NTFS filesystems
+            agentFileNames = entries
+              .filter((f) => f.endsWith('.md') && !f.startsWith('.backup-'))
+              .sort();
           } catch {
             console.log(
               '[Ptah Electron] CLI agent sync skipped (no .claude/agents/)',
@@ -723,13 +723,35 @@ if (!gotLock) {
             return;
           }
 
-          const agentFiles = await Promise.all(
-            agentFileNames.map(async (name) => {
-              const filePath = join(agentsDir, name);
-              const content = await readFile(filePath, 'utf8');
-              return { name, filePath, content };
-            }),
+          // Read files individually — skip unreadable files rather than aborting all
+          const agentFiles = (
+            await Promise.all(
+              agentFileNames.map(async (name) => {
+                const filePath = join(agentsDir, name);
+                try {
+                  const content = await readFile(filePath, 'utf8');
+                  return { name, filePath, content };
+                } catch {
+                  console.log(
+                    `[Ptah Electron] CLI agent sync: skipping unreadable file ${name}`,
+                  );
+                  return null;
+                }
+              }),
+            )
+          ).filter(
+            (
+              f,
+            ): f is { name: string; filePath: string; content: string } =>
+              f !== null,
           );
+
+          if (agentFiles.length === 0) {
+            console.log(
+              '[Ptah Electron] CLI agent sync skipped (no readable agent files)',
+            );
+            return;
+          }
 
           const combinedContent = agentFiles
             .map((f) => f.content)
@@ -764,13 +786,13 @@ if (!gotLock) {
             return;
           }
 
-          const globalStateForAgents = container.resolve<IStateStorage>(
+          const agentSyncStateStorage = container.resolve<IStateStorage>(
             PLATFORM_TOKENS.STATE_STORAGE,
           );
 
           const staleTargets = targetClis.filter(
             (cli) =>
-              globalStateForAgents.get<string>(
+              agentSyncStateStorage.get<string>(
                 `cli_agent_sync_hash_${cli}`,
               ) !== contentHash,
           );
@@ -782,15 +804,23 @@ if (!gotLock) {
             return;
           }
 
-          const agents = agentFiles.map((f) => ({
-            sourceTemplateId: f.name.replace(/\.md$/, ''),
-            sourceTemplateVersion: 'unknown',
-            content: f.content,
-            variables: {} as Record<string, string>,
-            customizations: [] as never[],
-            generatedAt: new Date(),
-            filePath: f.filePath,
-          }));
+          const agents = agentFiles.map((f) => {
+            // Extract description from frontmatter for quality parity with wizard-generated agents
+            const descMatch = /^description:\s*(.+)$/m.exec(f.content);
+            const description =
+              descMatch?.[1]?.trim() ??
+              `${f.name.replace(/\.md$/, '')} agent`;
+            return {
+              sourceTemplateId: f.name.replace(/\.md$/, ''),
+              sourceTemplateVersion: 'unknown',
+              content: f.content,
+              variables: { description } as Record<string, string>,
+              customizations: [],
+              generatedAt: new Date(),
+              // filePath is the source path; transformers derive their own target paths via homedir()
+              filePath: f.filePath,
+            };
+          });
 
           const multiCliWriter = container.resolve(
             AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE,
@@ -798,14 +828,29 @@ if (!gotLock) {
             writeForClis: (
               agents: unknown[],
               targetClis: string[],
-            ) => Promise<unknown[]>;
+            ) => Promise<
+              Array<{
+                cli: string;
+                agentsWritten: number;
+                agentsFailed: number;
+              }>
+            >;
           };
 
-          await multiCliWriter.writeForClis(agents, staleTargets);
+          const writeResults = await multiCliWriter.writeForClis(
+            agents,
+            staleTargets,
+          );
+
+          // Only mark CLIs as up-to-date when all agents were written successfully.
+          // CLIs with write failures retain their stale hash so the next activation retries.
+          const successfulClis = writeResults
+            .filter((r) => r.agentsFailed === 0)
+            .map((r) => r.cli);
 
           await Promise.all(
-            staleTargets.map((cli) =>
-              globalStateForAgents.update(
+            successfulClis.map((cli) =>
+              agentSyncStateStorage.update(
                 `cli_agent_sync_hash_${cli}`,
                 contentHash,
               ),
@@ -813,7 +858,7 @@ if (!gotLock) {
           );
 
           console.log(
-            `[Ptah Electron] CLI agent sync complete (${staleTargets.length} CLIs, ${agents.length} agents)`,
+            `[Ptah Electron] CLI agent sync complete (${successfulClis.length}/${staleTargets.length} CLIs, ${agents.length} agents)`,
           );
         })().catch((agentSyncError) => {
           console.warn(
@@ -824,6 +869,10 @@ if (!gotLock) {
           );
         });
       }
+    } else {
+      console.log(
+        `[Ptah Electron] CLI agent sync skipped (tier: ${startupLicenseTier ?? 'unknown'})`,
+      );
     }
 
     // ========================================
