@@ -139,6 +139,16 @@ export async function stopHttpServer(
 const MAX_BODY_SIZE = 1024 * 1024;
 
 /**
+ * Extract caller session ID from MCP URL path.
+ * URL format: /session/{tabId} — encoded by SdkQueryOptionsBuilder.buildMcpServers()
+ */
+function extractCallerSessionId(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const match = url.match(/^\/session\/([^/?]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+}
+
+/**
  * Handle incoming HTTP request with CORS support
  */
 async function handleHttpRequest(
@@ -212,6 +222,13 @@ async function handleHttpRequest(
       }
 
       const mcpRequest = parsed as unknown as MCPRequest;
+
+      // Stamp caller session ID from URL path onto the request
+      const callerSessionId = extractCallerSessionId(req.url);
+      if (callerSessionId) {
+        mcpRequest._callerSessionId = callerSessionId;
+      }
+
       const mcpResponse = await onMCPRequest(mcpRequest);
 
       res.writeHead(200, { 'Content-Type': 'application/json' });

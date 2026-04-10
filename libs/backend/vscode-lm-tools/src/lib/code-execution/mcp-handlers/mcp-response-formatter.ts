@@ -28,7 +28,6 @@ import type {
   BrowserStatusResult,
   BrowserRecordStartResult,
   BrowserRecordStopResult,
-  BrowserWaitForUserResult,
 } from '../types';
 
 // ============================================================
@@ -1201,44 +1200,6 @@ export function formatBrowserRecordStop(
     }
 
     return json2md(blocks);
-  } catch {
-    return fallbackJson(result);
-  }
-}
-
-/**
- * Format ptah_browser_wait_for_user result
- */
-export function formatBrowserWaitForUser(
-  result: BrowserWaitForUserResult,
-): string {
-  try {
-    if (result.error) {
-      return json2md([
-        { h2: 'Wait for User Failed' },
-        { p: `**Error:** ${result.error}` },
-      ]);
-    }
-
-    const waitSec = Math.round(result.waitDurationMs / 1000);
-
-    if (result.ready) {
-      return json2md([
-        { h2: 'User Ready' },
-        {
-          p: `The user has completed the requested action. Wait time: ${waitSec}s. You may now resume automated navigation.`,
-        },
-      ]);
-    }
-
-    return json2md([
-      { h2: 'User Not Ready' },
-      {
-        p:
-          `**Reason:** ${result.reason ?? 'Unknown'}  \n` +
-          `**Wait time:** ${waitSec}s`,
-      },
-    ]);
   } catch {
     return fallbackJson(result);
   }

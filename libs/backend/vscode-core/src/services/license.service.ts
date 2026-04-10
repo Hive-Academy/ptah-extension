@@ -742,6 +742,29 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   }
 
   /**
+   * Seed a valid community license status into the cache.
+   *
+   * Used by CLI/TUI platforms that have no registration gate on first boot.
+   * Only seeds if the cache is currently empty (does NOT overwrite existing
+   * verified statuses from verifyLicense()).
+   *
+   * @returns true if seeded, false if cache already populated
+   */
+  seedCommunityStatus(): boolean {
+    if (this.cache.status) {
+      return false; // Already has a cached status, don't overwrite
+    }
+    this.updateCache({
+      valid: true,
+      tier: 'community',
+    });
+    this.logger.info(
+      '[LicenseService.seedCommunityStatus] Seeded valid community status for CLI platform',
+    );
+    return true;
+  }
+
+  /**
    * Update cache with new license status and timestamp.
    *
    * @param status - License status to cache

@@ -355,6 +355,15 @@ export class SessionLifecycleManager {
   }
 
   /**
+   * Resolve a tab ID or session ID to the real SDK UUID.
+   * If the input is a known tab ID, returns the resolved real UUID.
+   * Otherwise returns the input as-is (it may already be a real UUID).
+   */
+  getResolvedSessionId(tabIdOrSessionId: string): string {
+    return this.tabIdToRealId.get(tabIdOrSessionId) ?? tabIdOrSessionId;
+  }
+
+  /**
    * Check if session is active
    */
   isSessionActive(sessionId: SessionId): boolean {

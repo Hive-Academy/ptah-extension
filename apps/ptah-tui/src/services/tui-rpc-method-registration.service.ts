@@ -51,6 +51,76 @@ import {
 } from '@ptah-extension/rpc-handlers';
 
 /**
+ * RPC methods not applicable in TUI — platform-specific (VS Code/Electron only).
+ * Excluded from RPC verification to prevent false CRITICAL errors.
+ */
+const TUI_EXCLUDED_RPC_METHODS: string[] = [
+  // File operations (VS Code/Electron file pickers & dialogs)
+  'file:open',
+  'file:pick',
+  'file:pick-images',
+  'file:read',
+  'file:exists',
+  'file:save-dialog',
+
+  // Command execution (VS Code command palette)
+  'command:execute',
+
+  // Agent orchestration (registered by platform-specific handlers)
+  'agent:getConfig',
+  'agent:setConfig',
+  'agent:detectClis',
+  'agent:listCliModels',
+  'agent:permissionResponse',
+  'agent:stop',
+  'agent:resumeCliSession',
+
+  // Skills.sh marketplace (not available in CLI v1)
+  'skillsSh:search',
+  'skillsSh:listInstalled',
+  'skillsSh:install',
+  'skillsSh:uninstall',
+  'skillsSh:getPopular',
+  'skillsSh:detectRecommended',
+
+  // Workspace management (Electron desktop only)
+  'workspace:getInfo',
+  'workspace:addFolder',
+  'workspace:removeFolder',
+  'workspace:switch',
+
+  // Layout persistence (Electron desktop only)
+  'layout:persist',
+  'layout:restore',
+
+  // Editor operations (Electron desktop only)
+  'editor:openFile',
+  'editor:saveFile',
+  'editor:getFileTree',
+  'editor:getDirectoryChildren',
+
+  // Extended config/auth (Electron desktop only)
+  'config:model-set',
+  'auth:setApiKey',
+  'auth:getStatus',
+  'auth:getApiKeyStatus',
+
+  // Settings import/export (Electron desktop only)
+  'settings:export',
+  'settings:import',
+
+  // Git operations (Electron desktop only)
+  'git:info',
+  'git:worktrees',
+  'git:addWorktree',
+  'git:removeWorktree',
+
+  // Terminal operations (Electron desktop only)
+  'terminal:create',
+  'terminal:kill',
+];
+
+/**
  * Orchestrates RPC method registration across all shared domain handlers.
  *
  * Unlike ElectronRpcMethodRegistrationService, this does NOT use @injectable()
@@ -86,7 +156,12 @@ export class TuiRpcMethodRegistrationService {
     this.setupAgentMonitorListeners();
 
     // Phase 5: Verify all expected RPC methods are registered
-    verifyRpcRegistration(this.rpcHandler, this.logger);
+    // Exclude platform-specific methods not applicable in TUI (VS Code/Electron only)
+    verifyRpcRegistration(
+      this.rpcHandler,
+      this.logger,
+      TUI_EXCLUDED_RPC_METHODS,
+    );
 
     this.logger.info('[TUI RPC] All RPC methods registered', {
       methods: this.rpcHandler.getRegisteredMethods(),

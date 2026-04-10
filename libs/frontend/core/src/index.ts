@@ -16,4 +16,7 @@ export {
   type ConfirmDialogOptions,
 } from './lib/tokens/workspace-coordinator.token';
 
-export { WIZARD_VIEW_COMPONENT } from './lib/tokens/lazy-view-components.token';
+export {
+  WIZARD_VIEW_COMPONENT,
+  ORCHESTRA_CANVAS_COMPONENT,
+} from './lib/tokens/lazy-view-components.token';

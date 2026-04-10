@@ -38,6 +38,7 @@ import {
   X,
   MessageSquare,
   Wand2,
+  LayoutGrid,
   type LucideIconData,
 } from 'lucide-angular';
 import {
@@ -551,6 +552,8 @@ export class ElectronShellComponent {
         return { label: 'Dashboard', icon: BarChart3 };
       case 'setup-wizard':
         return { label: 'Setup', icon: Wand2 };
+      case 'orchestra-canvas':
+        return { label: 'Canvas', icon: LayoutGrid };
       default:
         return { label: view, icon: MessageSquare };
     }

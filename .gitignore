@@ -117,5 +117,7 @@ ptah-settings-export.json
 .ptah/**
 .agent-legacy/**
 
-# Ptah command ownership manifest (machine-specific, created by SkillJunctionService)
-.claude/commands/.ptah-managed.json
+# ============================================
+# Claude Code configuration (local/developer-specific)
+# ============================================
+.claude/

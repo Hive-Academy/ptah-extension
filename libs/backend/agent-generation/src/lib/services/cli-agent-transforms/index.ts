@@ -7,3 +7,4 @@ export type { ICliAgentTransformer } from './cli-agent-transformer.interface';
 export { CopilotAgentTransformer } from './copilot-agent-transformer';
 export { GeminiAgentTransformer } from './gemini-agent-transformer';
 export { MultiCliAgentWriterService } from './multi-cli-agent-writer.service';
+export { CursorAgentTransformer } from './cursor-agent-transformer';

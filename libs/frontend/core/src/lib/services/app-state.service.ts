@@ -16,7 +16,8 @@ export type ViewType =
   | 'context-tree'
   | 'settings'
   | 'setup-wizard'
-  | 'welcome';
+  | 'welcome'
+  | 'orchestra-canvas';
 
 export interface AppState {
   currentView: ViewType;
@@ -48,6 +49,7 @@ export class AppStateManager implements MessageHandler {
       'settings',
       'setup-wizard',
       'welcome',
+      'orchestra-canvas',
     ];
     if (view && validViews.includes(view as ViewType)) {
       this.handleViewSwitch(view as ViewType);
@@ -245,6 +247,7 @@ export class AppStateManager implements MessageHandler {
   }
 
   handleViewSwitch(view: ViewType): void {
+    if (!this.canSwitchViews()) return;
     this._openViews.update((views) => {
       const next = new Set(views);
       next.add(view);

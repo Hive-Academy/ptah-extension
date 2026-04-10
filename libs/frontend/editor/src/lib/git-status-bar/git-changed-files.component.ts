@@ -24,7 +24,7 @@ import type { GitFileStatus } from '@ptah-extension/shared';
  * Renders below the git status bar when toggled. Shows changed files grouped as:
  * - Staged changes (index)
  * - Unstaged changes (worktree)
- * Clicking a file emits the absolute path for the parent to open in the editor.
+ * Clicking a file emits the relative git path for the parent to resolve and open.
  */
 @Component({
   selector: 'ptah-git-changed-files',

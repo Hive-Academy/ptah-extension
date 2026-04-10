@@ -22,6 +22,8 @@ import { SessionStatsSummaryComponent } from '../molecules/session/session-stats
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { CompactionNotificationComponent } from '../molecules/notifications/compaction-notification.component';
 import { ChatStore } from '../../services/chat.store';
+import { TabManagerService } from '../../services/tab-manager.service';
+import { SESSION_CONTEXT } from '../../tokens/session-context.token';
 import { VSCodeService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
@@ -76,6 +78,13 @@ export class ChatViewComponent {
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
 
+  // CANVAS: Optional per-tile session context. When provided, all signals
+  // derive from this tabId instead of the global activeTabId.
+  private readonly _sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
+  private readonly _tabManager = inject(TabManagerService);
+
   /** Lucide icon reference for template binding */
   protected readonly BellIcon = Bell;
 
@@ -112,6 +121,55 @@ export class ChatViewComponent {
   readonly ptahIconUri = computed(() => this.vscodeService.getPtahIconUri());
 
   /**
+   * Resolved session ID: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
+   * Used by canvas tiles to scope streaming messages to their per-tile session.
+   * TASK_2025_265
+   */
+  readonly resolvedSessionId = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (!tabId) return null;
+      const tab = this._tabManager.tabs().find((t) => t.id === tabId);
+      return tab?.claudeSessionId ?? null;
+    }
+    return this.chatStore.currentSessionId();
+  });
+
+  /**
+   * Resolved messages: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
+   * TASK_2025_265
+   */
+  readonly resolvedMessages = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (!tabId) return [];
+      return (
+        this._tabManager.tabs().find((t) => t.id === tabId)?.messages ?? []
+      );
+    }
+    return this.chatStore.messages();
+  });
+
+  /**
+   * Resolved streaming state: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
+   * TASK_2025_265
+   */
+  readonly resolvedIsStreaming = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (!tabId) return false;
+      const status = this._tabManager
+        .tabs()
+        .find((t) => t.id === tabId)?.status;
+      return status === 'streaming' || status === 'resuming';
+    }
+    return this.chatStore.isStreaming();
+  });
+
+  /**
    * TASK_2025_096 FIX: Computed signal that creates ExecutionChatMessages
    * from ALL currentExecutionTrees (not just the first one).
    *
@@ -130,6 +188,53 @@ export class ChatViewComponent {
    * so we can properly match and filter out already-finalized trees.
    */
   readonly streamingMessages = computed((): ExecutionChatMessage[] => {
+    // TASK_2025_265 FIX 2: When SESSION_CONTEXT is present, scope streaming trees to
+    // this tile's tab. currentExecutionTrees() always returns trees for the globally
+    // active tab. If the active tab is not this tile's tab, the trees belong to a
+    // different tile — return empty to prevent cross-tile streaming bleed.
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tileTabId = ctx();
+      if (!tileTabId) return [];
+      // Only show streaming trees when this tile's tab is the global active tab
+      const tileTab = this._tabManager.tabs().find((t) => t.id === tileTabId);
+      if (!tileTab) return [];
+      const resolvedId = this.resolvedSessionId();
+      const allTrees = this.chatStore.currentExecutionTrees();
+      // Trees are built from the active tab's streaming state. Filter to only trees
+      // whose session context matches this tile (via resolvedSessionId correlation).
+      // Since ExecutionNode has no sessionId field, we use the tab's claudeSessionId
+      // to confirm the active tab IS this tile before showing its trees.
+      const activeTabMatches =
+        allTrees.length === 0 ||
+        resolvedId === this.chatStore.currentSessionId();
+      const trees = activeTabMatches ? allTrees : [];
+      if (trees.length === 0) return [];
+
+      const streamingState = this.chatStore.activeStreamingState();
+      const pendingStats = streamingState?.pendingStats;
+      const finalizedMessageIds = new Set(
+        this.resolvedMessages().map((msg) => msg.id),
+      );
+      const nonFinalizedTrees = trees.filter(
+        (tree) => !finalizedMessageIds.has(tree.id),
+      );
+      if (nonFinalizedTrees.length === 0) return [];
+      return nonFinalizedTrees.map((tree) =>
+        createExecutionChatMessage({
+          id: tree.id,
+          role: 'assistant',
+          streamingState: tree,
+          sessionId: resolvedId ?? undefined,
+          ...(pendingStats && {
+            tokens: pendingStats.tokens,
+            cost: pendingStats.cost,
+            duration: pendingStats.duration,
+          }),
+        }),
+      );
+    }
+
     const trees = this.chatStore.currentExecutionTrees();
     if (trees.length === 0) return [];
 
@@ -156,7 +261,7 @@ export class ChatViewComponent {
         id: tree.id,
         role: 'assistant',
         streamingState: tree,
-        sessionId: this.chatStore.currentSessionId() ?? undefined,
+        sessionId: this.resolvedSessionId() ?? undefined,
         // TASK_2025_100: Include pending stats in streaming message
         ...(pendingStats && {
           tokens: pendingStats.tokens,
@@ -171,8 +276,10 @@ export class ChatViewComponent {
     // Reset auto-scroll when a new user message is sent.
     // This ensures the view scrolls to show the user's message even if
     // they had scrolled up to read earlier content before sending.
+    // TASK_2025_265 FIX 3: Use resolvedMessages() so canvas tiles track their own
+    // tab's messages rather than the global active-tab messages.
     effect(() => {
-      const messages = this.chatStore.messages();
+      const messages = this.resolvedMessages();
       const count = messages.length;
       if (count > this.lastMessageCount) {
         const lastMsg = messages[count - 1];

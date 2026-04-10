@@ -25,6 +25,7 @@ import type { ICliAgentTransformer } from './cli-agent-transformer.interface';
 import { CopilotAgentTransformer } from './copilot-agent-transformer';
 import { GeminiAgentTransformer } from './gemini-agent-transformer';
 import { CodexAgentTransformer } from './codex-agent-transformer';
+import { CursorAgentTransformer } from './cursor-agent-transformer';
 
 @injectable()
 export class MultiCliAgentWriterService {
@@ -37,6 +38,7 @@ export class MultiCliAgentWriterService {
     this.transformers.set('copilot', new CopilotAgentTransformer());
     this.transformers.set('gemini', new GeminiAgentTransformer());
     this.transformers.set('codex', new CodexAgentTransformer());
+    this.transformers.set('cursor', new CursorAgentTransformer());
 
     this.logger.debug('[MultiCliWriter] Service initialized');
   }
@@ -53,7 +55,7 @@ export class MultiCliAgentWriterService {
    */
   async writeForClis(
     agents: GeneratedAgent[],
-    targetClis: CliTarget[]
+    targetClis: CliTarget[],
   ): Promise<CliGenerationResult[]> {
     const results: CliGenerationResult[] = [];
 
@@ -84,7 +86,7 @@ export class MultiCliAgentWriterService {
   private async writeForSingleCli(
     agents: GeneratedAgent[],
     cli: CliTarget,
-    transformer: ICliAgentTransformer
+    transformer: ICliAgentTransformer,
   ): Promise<CliGenerationResult> {
     let agentsWritten = 0;
     let agentsFailed = 0;
@@ -92,7 +94,7 @@ export class MultiCliAgentWriterService {
     const errors: string[] = [];
 
     this.logger.info(
-      `[MultiCliWriter] Writing ${agents.length} agents for ${cli}`
+      `[MultiCliWriter] Writing ${agents.length} agents for ${cli}`,
     );
 
     for (const agent of agents) {
@@ -107,7 +109,7 @@ export class MultiCliAgentWriterService {
         await writeFile(
           transformResult.filePath,
           transformResult.content,
-          'utf8'
+          'utf8',
         );
 
         paths.push(transformResult.filePath);
@@ -115,7 +117,7 @@ export class MultiCliAgentWriterService {
 
         this.logger.debug(
           `[MultiCliWriter] Wrote ${transformResult.agentId} for ${cli}`,
-          { path: transformResult.filePath }
+          { path: transformResult.filePath },
         );
       } catch (error) {
         agentsFailed++;

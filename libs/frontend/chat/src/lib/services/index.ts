@@ -73,3 +73,6 @@ export {
   type WorkspaceTabSet,
   type TabLookupResult,
 } from './tab-workspace-partition.service';
+
+// SESSION_CONTEXT — optional per-tile session override for canvas tiles (TASK_2025_265)
+export { SESSION_CONTEXT } from '../tokens/session-context.token';
