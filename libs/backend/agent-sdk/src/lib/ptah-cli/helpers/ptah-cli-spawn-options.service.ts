@@ -65,7 +65,7 @@ export class PtahCliSpawnOptions {
     @inject(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE)
     private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
-    private readonly pluginLoader: PluginLoaderService
+    private readonly pluginLoader: PluginLoaderService,
   ) {}
 
   /**
@@ -79,7 +79,7 @@ export class PtahCliSpawnOptions {
   async assembleSpawnOptions(
     authEnv: AuthEnv,
     cwd: string,
-    projectGuidance?: string
+    projectGuidance?: string,
   ): Promise<PtahSpawnAssembly> {
     // ── Premium feature gating (Pro subscription required) ──
     let isPremium = false;
@@ -90,7 +90,7 @@ export class PtahCliSpawnOptions {
       this.logger.warn(
         `[PtahCliSpawnOptions] License verification failed, defaulting to non-premium: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
     }
 
@@ -99,7 +99,7 @@ export class PtahCliSpawnOptions {
     // Resolve enhanced prompts content (premium only)
     const enhancedPromptsContent = await this.resolveEnhancedPromptsContent(
       cwd,
-      isPremium
+      isPremium,
     );
 
     // Build system prompt with full premium capabilities
@@ -134,12 +134,8 @@ export class PtahCliSpawnOptions {
           }
         : {};
 
-    // Build plugins config (premium only)
-    const pluginPaths = this.resolvePluginPaths(isPremium);
-    const plugins: SdkPluginConfig[] | undefined =
-      pluginPaths && pluginPaths.length > 0
-        ? pluginPaths.map((p) => ({ type: 'local' as const, path: p }))
-        : undefined;
+    // Plugins disabled — skills loaded via .claude/skills/ junctions (SkillJunctionService).
+    // Passing plugins via SDK option caused duplication in slash command autocomplete.
 
     // Build hooks (subagent tracking + compaction lifecycle)
     let hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined;
@@ -171,7 +167,6 @@ export class PtahCliSpawnOptions {
       mcpServerRunning,
       mcpEnabled: Object.keys(mcpServers).length > 0,
       hasEnhancedPrompts: !!enhancedPromptsContent,
-      pluginCount: pluginPaths?.length ?? 0,
       hasHooks: !!hooks,
       compactionEnabled: compactionConfig?.enabled ?? false,
       hasIdentityPrompt: !!activeProviderId,
@@ -182,7 +177,7 @@ export class PtahCliSpawnOptions {
       systemPromptMode: promptResult.mode,
       systemPromptContent: fullSystemPromptContent,
       mcpServers,
-      plugins,
+      plugins: undefined,
       hooks,
       compactionControl,
     };
@@ -206,7 +201,7 @@ export class PtahCliSpawnOptions {
       this.logger.warn(
         `[PtahCliSpawnOptions] MCP server check failed: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return false;
     }
@@ -217,7 +212,7 @@ export class PtahCliSpawnOptions {
    */
   private async resolveEnhancedPromptsContent(
     workspacePath: string | undefined,
-    isPremium: boolean
+    isPremium: boolean,
   ): Promise<string | undefined> {
     if (!isPremium || !workspacePath) {
       return undefined;
@@ -225,14 +220,14 @@ export class PtahCliSpawnOptions {
     try {
       const content =
         await this.enhancedPromptsService.getProjectGuidanceContent(
-          workspacePath
+          workspacePath,
         );
       return content ?? undefined;
     } catch (error) {
       this.logger.warn(
         `[PtahCliSpawnOptions] Failed to resolve project guidance: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return undefined;
     }
@@ -251,14 +246,14 @@ export class PtahCliSpawnOptions {
         return undefined;
       }
       const paths = this.pluginLoader.resolvePluginPaths(
-        config.enabledPluginIds
+        config.enabledPluginIds,
       );
       return paths.length > 0 ? paths : undefined;
     } catch (error) {
       this.logger.warn(
         `[PtahCliSpawnOptions] Failed to resolve plugin paths: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return undefined;
     }

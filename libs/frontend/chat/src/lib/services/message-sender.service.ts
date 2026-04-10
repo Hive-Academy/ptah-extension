@@ -193,7 +193,6 @@ export class MessageSenderService {
     if (isStreaming) {
       // Queue for later - delegate to ConversationService via ChatStore
       // We don't queue directly to avoid circular dependency
-      console.log('[MessageSender] Streaming active, message will be queued');
       // Note: Queue handling is done by caller (ChatStore/ConversationService)
       // This method just checks the condition
       return;
@@ -265,7 +264,12 @@ export class MessageSenderService {
       // TASK_2025_086: Changed from 'draft' to 'streaming' so UI shows content as it arrives
       // Previously, isStreaming() returned false until session:id-resolved, hiding all streaming content
       // TASK_2025_192: Auto-name session from first message content (not "New Chat")
-      const autoName = content.substring(0, 50).trim() || 'New Chat';
+      // Only auto-name if user hasn't already set a custom name (preserve user renames)
+      const currentName = activeTab?.name;
+      const hasUserName = currentName && currentName !== 'New Chat';
+      const autoName = hasUserName
+        ? currentName
+        : content.substring(0, 50).trim() || 'New Chat';
       this.tabManager.updateTab(activeTabId, {
         name: autoName,
         title: autoName,
@@ -304,11 +308,6 @@ export class MessageSenderService {
       // Session ID will be initialized by StreamingHandler on first event
       // No tracking needed - removed PendingSessionManager
 
-      console.log('[MessageSender] Starting NEW conversation:', {
-        tabId: activeTabId,
-        // No placeholder sessionId - backend will use SDK's real UUID
-      });
-
       // Call RPC to start NEW chat
       // TASK_2025_092: Use tabId for frontend correlation instead of placeholder sessionId
       // TASK_2025_170: Pass ptahCliId if a Ptah CLI agent is selected
@@ -333,11 +332,6 @@ export class MessageSenderService {
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
         this.sessionManager.setStatus('loaded');
         this.sessionManager.failSession();
-      } else {
-        console.log('[MessageSender] New conversation started:', result.data);
-
-        // Note: Sessions list refresh moved to handleSessionIdResolved() in ChatStore
-        // At this point metadata doesn't exist yet, so loadSessions() would miss this session
       }
     } catch (error) {
       console.error('[MessageSender] Failed to start new conversation:', error);
@@ -455,11 +449,6 @@ export class MessageSenderService {
         messages: [...(activeTab?.messages ?? []), userMessage],
       });
 
-      console.log('[MessageSender] Continuing EXISTING session:', {
-        sessionId,
-        tabId: activeTabId,
-      });
-
       // Call RPC to CONTINUE existing chat (uses --resume flag)
       // TASK_2025_092: Include tabId for event routing
       const result = await this.claudeRpcService.call('chat:continue', {
@@ -480,7 +469,6 @@ export class MessageSenderService {
         this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');
       } else {
-        console.log('[MessageSender] Conversation continued:', result.data);
         this.sessionManager.setStatus('streaming');
         this.tabManager.updateTab(activeTabId, { status: 'streaming' });
         this.tabManager.markTabStreaming(activeTabId);

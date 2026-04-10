@@ -58,9 +58,9 @@ import type {
   Query,
   UserMessageContent,
   McpHttpServerConfig,
-  SdkPluginConfig,
   HookEvent,
   HookCallbackMatcher,
+  SdkBeta,
 } from '../types/sdk-types/claude-sdk.types';
 import {
   isResultMessage,
@@ -794,7 +794,9 @@ export class PtahCliAdapter implements IAIProvider {
       effort,
     } = input;
 
-    const cwd = projectPath || process.cwd();
+    // projectPath should be resolved by the caller. os.homedir() is a safer
+    // fallback than process.cwd() (app installation dir in VS Code/Electron).
+    const cwd = projectPath || require('os').homedir();
 
     // Resolve permission mode based on user's autopilot setting.
     // Propagate the same permission policy to interactive sessions.
@@ -847,11 +849,8 @@ export class PtahCliAdapter implements IAIProvider {
           }
         : {};
 
-    // Build plugins config
-    const plugins: SdkPluginConfig[] | undefined =
-      pluginPaths && pluginPaths.length > 0
-        ? pluginPaths.map((p) => ({ type: 'local' as const, path: p }))
-        : undefined;
+    // Plugins disabled — skills loaded via .claude/skills/ junctions (SkillJunctionService).
+    // Passing plugins via SDK option caused duplication in slash command autocomplete.
 
     // Build hooks (subagent + compaction) if handlers are available
     let hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined;
@@ -933,7 +932,6 @@ export class PtahCliAdapter implements IAIProvider {
           );
         },
         hooks,
-        plugins,
         compactionControl,
         // TASK_2025_184: Reasoning configuration passthrough
         thinking,
@@ -942,6 +940,17 @@ export class PtahCliAdapter implements IAIProvider {
         // Without this, the subprocess resolves to the build-time path
         // causing "process exited with code 1" in production.
         pathToClaudeCodeExecutable: this.resolvedCliJsPath ?? undefined,
+        // Enable 1M context window for direct Anthropic connections.
+        // Same logic as SdkQueryOptionsBuilder.buildBetas() — the SDK module
+        // doesn't auto-enable this beta like the CLI does.
+        betas: (() => {
+          const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+          const isFirstParty =
+            !baseUrl || /^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
+          return isFirstParty
+            ? (['context-1m-2025-08-07'] as SdkBeta[])
+            : undefined;
+        })(),
       },
       // TASK_2025_255: Expose setAgentId for callers to populate after spawn.
       // For interactive sessions this is typically never called (no spawn step),
@@ -967,6 +976,7 @@ export class PtahCliAdapter implements IAIProvider {
     const logger = this.logger;
     const messageTransformer = this.messageTransformer;
     const authEnv = this.authEnv;
+    const activeSessions = this.activeSessions;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -1071,6 +1081,11 @@ export class PtahCliAdapter implements IAIProvider {
 
           throw error;
         } finally {
+          // Clean up session from activeSessions map on stream completion
+          // (normal end, error, or abort) to prevent memory leaks.
+          if (activeSessions.has(sessionId as string)) {
+            activeSessions.delete(sessionId as string);
+          }
           logger.info(`[PtahCliAdapter] Session ${sessionId} stream ended`);
         }
       },

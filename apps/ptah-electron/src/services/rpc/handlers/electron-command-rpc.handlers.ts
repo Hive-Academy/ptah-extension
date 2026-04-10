@@ -17,7 +17,15 @@ import { injectable, inject } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import type { IPlatformCommands } from '@ptah-extension/rpc-handlers';
-import { resolveEnvironment } from '@ptah-extension/shared';
+import { resolveEnvironment, MESSAGE_TYPES } from '@ptah-extension/shared';
+
+/**
+ * Minimal interface for the WebviewManager's broadcast capability.
+ * Matches ElectronWebviewManagerAdapter.broadcastMessage() signature.
+ */
+interface WebviewBroadcaster {
+  broadcastMessage(type: string, payload: unknown): Promise<void>;
+}
 
 @injectable()
 export class ElectronCommandRpcHandlers {
@@ -31,6 +39,8 @@ export class ElectronCommandRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.PLATFORM_COMMANDS)
     private readonly platformCommands: IPlatformCommands,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: WebviewBroadcaster,
   ) {}
 
   register(): void {
@@ -91,6 +101,16 @@ export class ElectronCommandRpcHandlers {
         this.logger.debug('[Electron RPC] Opened signup page', {
           url: signupUrl,
         } as unknown as Error);
+        return { success: true };
+      }
+
+      case 'ptah.openOrchestraCanvas': {
+        await this.webviewManager.broadcastMessage(MESSAGE_TYPES.SWITCH_VIEW, {
+          view: 'orchestra-canvas',
+        });
+        this.logger.info(
+          '[Electron RPC] Orchestra Canvas opened via SWITCH_VIEW',
+        );
         return { success: true };
       }
 

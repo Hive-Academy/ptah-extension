@@ -45,14 +45,14 @@ export class ElectronTerminalRpcHandlers {
    * terminal:create - Spawn a new PTY session.
    *
    * Uses the workspace root as default cwd if no explicit cwd is provided.
-   * Falls back to process.cwd() if no workspace is open.
+   * Falls back to user home directory if no workspace is open.
    */
   private registerCreate(): void {
     this.rpcHandler.registerMethod<TerminalCreateParams, TerminalCreateResult>(
       'terminal:create',
       async (params) => {
         const wsRoot = this.workspace.getWorkspaceRoot();
-        const cwd = params?.cwd || wsRoot || process.cwd();
+        const cwd = params?.cwd || wsRoot || require('os').homedir();
 
         this.logger.info('[ElectronTerminalRpc] Creating terminal session', {
           cwd,

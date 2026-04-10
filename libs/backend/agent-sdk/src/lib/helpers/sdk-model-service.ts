@@ -122,7 +122,7 @@ export class SdkModelService {
       const tempQuery = query({
         prompt: emptyPrompt,
         options: {
-          cwd: process.cwd(),
+          cwd: require('os').homedir(),
           env: {
             ...process.env,
             ...this.authEnv,

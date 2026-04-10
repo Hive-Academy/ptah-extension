@@ -16,7 +16,8 @@ export type ViewType =
   | 'context-tree'
   | 'settings'
   | 'setup-wizard'
-  | 'welcome';
+  | 'welcome'
+  | 'orchestra-canvas';
 
 export interface AppState {
   currentView: ViewType;
@@ -48,11 +49,9 @@ export class AppStateManager implements MessageHandler {
       'settings',
       'setup-wizard',
       'welcome',
+      'orchestra-canvas',
     ];
     if (view && validViews.includes(view as ViewType)) {
-      console.log(
-        `[AppStateManager] Backend requested view switch to: ${view}`,
-      );
       this.handleViewSwitch(view as ViewType);
     } else {
       console.warn(
@@ -169,11 +168,6 @@ export class AppStateManager implements MessageHandler {
     }
 
     const initialView = windowWithState.initialView || 'chat';
-    console.log(
-      `[AppStateManager] Initializing with view: ${initialView}, isLicensed: ${isLicensed}, workspace: ${
-        workspaceRoot || 'none'
-      }`,
-    );
     this._currentView.set(initialView);
     if (initialView !== 'chat' && initialView !== 'welcome') {
       this._openViews.update((views) => {
@@ -253,6 +247,7 @@ export class AppStateManager implements MessageHandler {
   }
 
   handleViewSwitch(view: ViewType): void {
+    if (!this.canSwitchViews()) return;
     this._openViews.update((views) => {
       const next = new Set(views);
       next.add(view);

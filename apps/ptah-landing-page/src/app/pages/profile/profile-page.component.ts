@@ -80,170 +80,174 @@ export type ProfileTab = 'account' | 'sessions' | 'contact';
 
       <!-- Loading State -->
       @if (isLoading()) {
-      <div class="min-h-screen flex items-center justify-center">
-        <div class="text-center">
-          <span
-            class="loading loading-spinner loading-lg text-secondary"
-          ></span>
-          <p class="mt-4 text-neutral-content">Loading your account...</p>
+        <div class="min-h-screen flex items-center justify-center">
+          <div class="text-center">
+            <span
+              class="loading loading-spinner loading-lg text-secondary"
+            ></span>
+            <p class="mt-4 text-neutral-content">Loading your account...</p>
+          </div>
         </div>
-      </div>
       }
 
       <!-- Error State -->
       @if (errorMessage() && !isLoading()) {
-      <div class="min-h-screen flex items-center justify-center p-4">
-        <div
-          class="max-w-md w-full bg-base-200/95 backdrop-blur-xl border border-error/30 rounded-3xl p-8 shadow-2xl"
-        >
-          <div class="alert alert-error mb-4">
-            <h3 class="font-bold">Error Loading Account</h3>
-            <p>{{ errorMessage() }}</p>
+        <div class="min-h-screen flex items-center justify-center p-4">
+          <div
+            class="max-w-md w-full bg-base-200/95 backdrop-blur-xl border border-error/30 rounded-3xl p-8 shadow-2xl"
+          >
+            <div class="alert alert-error mb-4">
+              <h3 class="font-bold">Error Loading Account</h3>
+              <p>{{ errorMessage() }}</p>
+            </div>
+            <button class="btn btn-error w-full" (click)="loadLicense()">
+              Retry
+            </button>
           </div>
-          <button class="btn btn-error w-full" (click)="loadLicense()">
-            Retry
-          </button>
         </div>
-      </div>
       }
 
       <!-- Main Profile Content -->
       @if (license() && !isLoading()) {
-      <!-- Profile Header with Avatar, Stats, Badges -->
-      <ptah-profile-header [license]="license()" />
+        <!-- Profile Header with Avatar, Stats, Badges -->
+        <ptah-profile-header [license]="license()" />
 
-      <!-- Content Container -->
-      <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
-        <!-- Tab Navigation -->
-        <div
-          class="flex gap-1 bg-base-200/50 border border-white/10 rounded-xl p-1 mb-6"
-          role="tablist"
-        >
-          <button
-            type="button"
-            role="tab"
-            [attr.aria-selected]="activeTab() === 'account'"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
-            [class]="
-              activeTab() === 'account'
-                ? 'bg-base-300 text-amber-400 shadow-sm'
-                : 'text-white/50 hover:text-white/80 hover:bg-base-300/50'
-            "
-            (click)="activeTab.set('account')"
+        <!-- Content Container -->
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+          <!-- Tab Navigation -->
+          <div
+            class="flex gap-1 bg-base-200/50 border border-white/10 rounded-xl p-1 mb-6"
+            role="tablist"
           >
-            <lucide-angular
-              [img]="UserIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Account
-          </button>
-          <button
-            type="button"
-            role="tab"
-            [attr.aria-selected]="activeTab() === 'sessions'"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
-            [class]="
-              activeTab() === 'sessions'
-                ? 'bg-base-300 text-amber-400 shadow-sm'
-                : 'text-white/50 hover:text-white/80 hover:bg-base-300/50'
-            "
-            (click)="activeTab.set('sessions')"
-          >
-            <lucide-angular
-              [img]="GraduationCapIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Sessions
-          </button>
-          <button
-            type="button"
-            role="tab"
-            [attr.aria-selected]="activeTab() === 'contact'"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
-            [class]="
-              activeTab() === 'contact'
-                ? 'bg-base-300 text-amber-400 shadow-sm'
-                : 'text-white/50 hover:text-white/80 hover:bg-base-300/50'
-            "
-            (click)="activeTab.set('contact')"
-          >
-            <lucide-angular
-              [img]="MessageSquareIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Contact
-          </button>
-        </div>
+            <button
+              type="button"
+              role="tab"
+              [attr.aria-selected]="activeTab() === 'account'"
+              class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
+              [class]="
+                activeTab() === 'account'
+                  ? 'bg-base-300 text-amber-400 shadow-sm'
+                  : 'text-white/50 hover:text-white/80 hover:bg-base-300/50'
+              "
+              (click)="activeTab.set('account')"
+            >
+              <lucide-angular
+                [img]="UserIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+              Account
+            </button>
+            <button
+              type="button"
+              role="tab"
+              [attr.aria-selected]="activeTab() === 'sessions'"
+              class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
+              [class]="
+                activeTab() === 'sessions'
+                  ? 'bg-base-300 text-amber-400 shadow-sm'
+                  : 'text-white/50 hover:text-white/80 hover:bg-base-300/50'
+              "
+              (click)="activeTab.set('sessions')"
+            >
+              <lucide-angular
+                [img]="GraduationCapIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+              Sessions
+            </button>
+            <button
+              type="button"
+              role="tab"
+              [attr.aria-selected]="activeTab() === 'contact'"
+              class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
+              [class]="
+                activeTab() === 'contact'
+                  ? 'bg-base-300 text-amber-400 shadow-sm'
+                  : 'text-white/50 hover:text-white/80 hover:bg-base-300/50'
+              "
+              (click)="activeTab.set('contact')"
+            >
+              <lucide-angular
+                [img]="MessageSquareIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+              Contact
+            </button>
+          </div>
 
-        <!-- Tab Content -->
-        @switch (activeTab()) { @case ('account') {
-        <!-- Account Details & Upgrade CTA -->
-        <ptah-profile-details
-          [license]="license()"
-          [isSyncing]="isSyncing()"
-          [syncError]="syncError()"
-          [syncSuccess]="syncSuccess()"
-          [licenseKey]="licenseKey()"
-          [isRevealingKey]="isRevealingKey()"
-          [revealKeyError]="revealKeyError()"
-          (syncRequested)="handleSyncWithPaddle()"
-          (manageSubscriptionRequested)="handleManageSubscription()"
-          (revealKeyRequested)="handleRevealLicenseKey()"
-        />
+          <!-- Tab Content -->
+          @switch (activeTab()) {
+            @case ('account') {
+              <!-- Account Details & Upgrade CTA -->
+              <ptah-profile-details
+                [license]="license()"
+                [isSyncing]="isSyncing()"
+                [syncError]="syncError()"
+                [syncSuccess]="syncSuccess()"
+                [licenseKey]="licenseKey()"
+                [isRevealingKey]="isRevealingKey()"
+                [revealKeyError]="revealKeyError()"
+                (syncRequested)="handleSyncWithPaddle()"
+                (manageSubscriptionRequested)="handleManageSubscription()"
+                (revealKeyRequested)="handleRevealLicenseKey()"
+              />
 
-        <!-- Features Section -->
-        <div class="mt-6">
-          <ptah-profile-features [features]="license()?.features ?? []" />
-        </div>
+              <!-- Features Section -->
+              <div class="mt-6">
+                <ptah-profile-features [features]="license()?.features ?? []" />
+              </div>
 
-        <!-- Actions -->
-        <div
-          viewportAnimation
-          [viewportConfig]="actionsConfig"
-          class="mt-6 mb-12 grid grid-cols-1 sm:grid-cols-2 gap-4"
-        >
-          <a routerLink="/pricing" class="btn btn-outline btn-secondary">
-            <lucide-angular
-              [img]="SettingsIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            {{
-              license()?.plan === 'community' ||
-              license()?.plan?.startsWith('trial_')
-                ? 'View Pricing Plans'
-                : 'Manage Subscription'
-            }}
-          </a>
-          <a
-            href="https://docs.ptah.dev"
-            target="_blank"
-            rel="noopener"
-            class="btn btn-ghost"
-          >
-            <lucide-angular
-              [img]="ShieldIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Documentation
-          </a>
+              <!-- Actions -->
+              <div
+                viewportAnimation
+                [viewportConfig]="actionsConfig"
+                class="mt-6 mb-12 grid grid-cols-1 sm:grid-cols-2 gap-4"
+              >
+                <a routerLink="/pricing" class="btn btn-outline btn-secondary">
+                  <lucide-angular
+                    [img]="SettingsIcon"
+                    class="w-4 h-4"
+                    aria-hidden="true"
+                  />
+                  {{
+                    license()?.plan === 'community' ||
+                    license()?.plan?.startsWith('trial_')
+                      ? 'View Pricing Plans'
+                      : 'Manage Subscription'
+                  }}
+                </a>
+                <a
+                  href="https://ptah.live/docs"
+                  target="_blank"
+                  rel="noopener"
+                  class="btn btn-ghost"
+                >
+                  <lucide-angular
+                    [img]="ShieldIcon"
+                    class="w-4 h-4"
+                    aria-hidden="true"
+                  />
+                  Documentation
+                </a>
+              </div>
+            }
+            @case ('sessions') {
+              <!-- Sessions Tab -->
+              <div class="mb-8">
+                <ptah-sessions-grid />
+              </div>
+            }
+            @case ('contact') {
+              <!-- Contact Tab -->
+              <div class="mb-8">
+                <ptah-contact-form />
+              </div>
+            }
+          }
         </div>
-        } @case ('sessions') {
-        <!-- Sessions Tab -->
-        <div class="mb-8">
-          <ptah-sessions-grid />
-        </div>
-        } @case ('contact') {
-        <!-- Contact Tab -->
-        <div class="mb-8">
-          <ptah-contact-form />
-        </div>
-        } }
-      </div>
       }
     </div>
   `,
@@ -339,7 +343,7 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
       error: (error) => {
         this.isLoading.set(false);
         this.errorMessage.set(
-          error.error?.message || 'Failed to load account details'
+          error.error?.message || 'Failed to load account details',
         );
       },
     });
@@ -374,7 +378,7 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
       .subscribe((event) => {
         console.log(
           '[Profile] Reconciliation completed event received:',
-          event
+          event,
         );
         // Refresh license data to reflect synced state
         this.refreshLicenseData();
@@ -413,7 +417,7 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
         console.log(
           '[Profile] License data refreshed:',
           data.plan,
-          data.status
+          data.status,
         );
       },
       error: (error) => {
@@ -545,7 +549,7 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
             this.licenseKey.set(response.licenseKey);
           } else {
             this.revealKeyError.set(
-              response.message || 'Failed to retrieve license key'
+              response.message || 'Failed to retrieve license key',
             );
           }
         },
@@ -553,16 +557,16 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
           this.isRevealingKey.set(false);
           if (error.status === 429) {
             this.revealKeyError.set(
-              'Too many requests. Please wait a moment and try again.'
+              'Too many requests. Please wait a moment and try again.',
             );
           } else if (error.status === 401) {
             this.revealKeyError.set(
-              'Your session has expired. Please log in again.'
+              'Your session has expired. Please log in again.',
             );
           } else {
             this.revealKeyError.set(
               error.error?.message ||
-                'Failed to retrieve license key. Please try again.'
+                'Failed to retrieve license key. Please try again.',
             );
           }
         },

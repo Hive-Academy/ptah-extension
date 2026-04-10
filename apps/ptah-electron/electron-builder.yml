@@ -12,6 +12,18 @@ files:
   - '!**/*.map'
   - '!**/*.ts'
 
+# TASK_2025_261: Extract Codex native binaries from ASAR archive.
+# The Codex SDK resolves platform-specific binaries via require.resolve(),
+# but binaries inside app.asar cannot be spawned as executables.
+# asarUnpack places them under app.asar.unpacked/ where they are executable.
+asarUnpack:
+  - 'node_modules/@openai/codex-win32-x64/**'
+  - 'node_modules/@openai/codex-win32-arm64/**'
+  - 'node_modules/@openai/codex-linux-x64/**'
+  - 'node_modules/@openai/codex-linux-arm64/**'
+  - 'node_modules/@openai/codex-darwin-x64/**'
+  - 'node_modules/@openai/codex-darwin-arm64/**'
+
 extraResources:
   - from: 'renderer'
     to: 'renderer'

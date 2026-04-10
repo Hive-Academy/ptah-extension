@@ -6,8 +6,8 @@
  * This interceptor allows the application to detect follow-up slash commands
  * and route them appropriately:
  *
- * - 'native': Commands handled locally without SDK (/clear, /context, /cost)
- * - 'new-query': Commands requiring a new SDK query (/compact, /review, plugin commands)
+ * - 'native': Commands handled locally without SDK (/clear)
+ * - 'new-query': Commands requiring a new SDK query (/context, /cost, /compact, /review, plugin commands)
  * - 'passthrough': Not a slash command, send as regular message
  *
  * @see TASK_2025_184 - Follow-up slash command support
@@ -28,11 +28,10 @@ export type SlashCommandResult =
 
 @injectable()
 export class SlashCommandInterceptor {
-  private static readonly NATIVE_COMMANDS = new Set([
-    'clear',
-    'context',
-    'cost',
-  ]);
+  // Only /clear is handled natively (no SDK needed).
+  // /context, /cost, /compact, /review, and plugin commands are SDK built-ins
+  // parsed from the raw string prompt in query() — classified as 'new-query'.
+  private static readonly NATIVE_COMMANDS = new Set(['clear']);
 
   private static readonly SLASH_COMMAND_REGEX = /^\/[a-zA-Z]/;
 

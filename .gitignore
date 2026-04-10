@@ -116,3 +116,8 @@ ptah-settings-export.json
 # ============================================
 .ptah/**
 .agent-legacy/**
+
+# ============================================
+# Claude Code configuration (local/developer-specific)
+# ============================================
+.claude/

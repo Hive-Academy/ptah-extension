@@ -16,6 +16,7 @@ import {
   Check,
   ChevronDown,
   ExternalLink,
+  LayoutGrid,
   MessageSquare,
   Pencil,
   Plus,
@@ -47,6 +48,7 @@ import {
   VSCodeService,
   ClaudeRpcService,
   WIZARD_VIEW_COMPONENT,
+  ORCHESTRA_CANVAS_COMPONENT,
 } from '@ptah-extension/core';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
@@ -126,6 +128,14 @@ export class AppShellComponent {
   readonly wizardComponent =
     inject(WIZARD_VIEW_COMPONENT, { optional: true }) ?? null;
 
+  /**
+   * OrchestraCanvasComponent provided via DI token — breaks circular dependency between chat and canvas.
+   * canvas imports from chat (TabManagerService), so chat cannot import canvas directly.
+   * Provided by the application bootstrapper (app.config.ts).
+   */
+  readonly orchestraCanvasComponent =
+    inject(ORCHESTRA_CANVAS_COMPONENT, { optional: true }) ?? null;
+
   // Sidebar state: default open in Electron (more space), hidden in VS Code sidebar
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
@@ -143,18 +153,22 @@ export class AppShellComponent {
   readonly XIcon = X;
   readonly ExternalLinkIcon = ExternalLink;
   readonly BarChart3Icon = BarChart3;
+  readonly LayoutGridIcon = LayoutGrid;
 
   // Inline edit state for session renaming
   readonly editingSessionId = signal<string | null>(null);
   readonly editingSessionName = signal('');
 
-  // Agent monitor badge type for the sidebar tab
+  // Agent monitor badge type for the sidebar tab (session-scoped).
+  // Uses activeTab-filtered signals so the badge reflects only agents
+  // belonging to the currently viewed session, matching the panel content.
+  // Permission warnings remain global — the user should always see them.
   readonly agentBadgeType = computed<'warning' | 'info' | 'neutral' | null>(
     () => {
       if (this.agentMonitorStore.pendingPermissions().length > 0)
         return 'warning';
-      if (this.agentMonitorStore.hasRunningAgents()) return 'info';
-      if (this.agentMonitorStore.agentCount() > 0) return 'neutral';
+      if (this.agentMonitorStore.hasActiveTabRunningAgents()) return 'info';
+      if (this.agentMonitorStore.activeTabAgentCount() > 0) return 'neutral';
       return null;
     },
   );
@@ -311,6 +325,13 @@ export class AppShellComponent {
    */
   openDashboard(): void {
     this.appState.setCurrentView('analytics');
+  }
+
+  /**
+   * Navigate to Orchestra Canvas view
+   */
+  openCanvas(): void {
+    this.appState.setCurrentView('orchestra-canvas');
   }
 
   /** Guard to prevent double-click opening multiple panels */
@@ -580,10 +601,10 @@ export class AppShellComponent {
       if (result.isSuccess() && result.data?.success) {
         this.chatStore.updateSessionName(session.id as SessionId, newName);
 
-        // Update open tab title if this session has one
+        // Update open tab name and title if this session has one
         const tab = this.tabManager.findTabBySessionId(session.id);
         if (tab) {
-          this.tabManager.updateTab(tab.id, { title: newName });
+          this.tabManager.updateTab(tab.id, { name: newName, title: newName });
         }
       } else {
         console.error(
@@ -635,8 +656,6 @@ export class AppShellComponent {
         if (tab) {
           this.tabManager.closeTab(tab.id);
         }
-
-        console.log(`[AppShell] Session ${session.id} deleted successfully`);
       } else {
         console.error(
           '[AppShell] Failed to delete session:',

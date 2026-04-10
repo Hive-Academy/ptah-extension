@@ -41,7 +41,7 @@ import {
   HookEvent,
   HookCallbackMatcher,
   McpHttpServerConfig,
-  SdkPluginConfig,
+  type SdkBeta,
 } from '../types/sdk-types/claude-sdk.types';
 import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
@@ -342,8 +342,6 @@ export interface SdkQueryOptions {
   env?: Record<string, string | undefined>;
   stderr?: (data: string) => void;
   hooks?: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
-  /** Plugins to load for this session (TASK_2025_153) */
-  plugins?: SdkPluginConfig[];
   /** SDK compaction control configuration (TASK_2025_098) */
   compactionControl?: {
     enabled: boolean;
@@ -358,6 +356,12 @@ export interface SdkQueryOptions {
    * Overrides import.meta.url-based resolution in bundled SDK.
    */
   pathToClaudeCodeExecutable?: string;
+  /**
+   * Beta features to enable for the SDK query.
+   * The SDK sends these as `anthropic-beta` headers on API requests.
+   * Example: ['context-1m-2025-08-07'] enables 1M token context window.
+   */
+  betas?: SdkBeta[];
 }
 
 /**
@@ -440,7 +444,16 @@ export class SdkQueryOptionsBuilder {
     }
 
     const model = sessionConfig.model;
-    const cwd = sessionConfig?.projectPath || process.cwd();
+    const cwd = sessionConfig?.projectPath || require('os').homedir();
+
+    // Warn when falling back to os.homedir() — callers (ChatRpcHandlers)
+    // should always resolve projectPath from IWorkspaceProvider before reaching here.
+    if (!sessionConfig?.projectPath) {
+      this.logger.warn(
+        `[SdkQueryOptionsBuilder] projectPath not provided — falling back to os.homedir(): ${cwd}. ` +
+          'Subagents will inherit this cwd. Ensure ChatRpcHandlers resolves workspace path.',
+      );
+    }
 
     // Log resolved model and tier env vars for debugging (TASK_2025_132, TASK_2025_164: reads from AuthEnv)
     this.logger.info(`[SdkQueryOptionsBuilder] SDK call with model: ${model}`, {
@@ -509,7 +522,11 @@ export class SdkQueryOptionsBuilder {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
-        mcpServers: this.buildMcpServers(isPremium, mcpServerRunning),
+        mcpServers: this.buildMcpServers(
+          isPremium,
+          mcpServerRunning,
+          sessionId,
+        ),
         // Set SDK permission mode based on current autopilot config.
         // SDK evaluation order: Hooks → Rules → Permission Mode → canUseTool.
         // When 'default': all tools fall through to canUseTool callback.
@@ -527,10 +544,22 @@ export class SdkQueryOptionsBuilder {
           : ['user', 'project', 'local'],
         // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
         // Set NO_PROXY to prevent corporate proxy interception of localhost requests
+        // Disable experimental betas for any non-Anthropic base URL — the SDK
+        // enables context-management-2025-06-27 for "firstParty" providers, which
+        // third-party endpoints (OpenRouter, Moonshot, unknown proxies, etc.)
+        // don't support, causing 400 errors. Check the URL directly instead of
+        // relying on provider registry detection, which misses unknown providers.
         env: {
           ...process.env,
           ...this.authEnv,
           NO_PROXY: '127.0.0.1,localhost',
+          ...(() => {
+            const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+            return baseUrl &&
+              !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
+              ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
+              : {};
+          })(),
         } as Record<string, string | undefined>,
         // Capture stderr — the SDK writes debug/info/warn/error to stderr;
         // parse the level and route to the appropriate logger method
@@ -544,8 +573,9 @@ export class SdkQueryOptionsBuilder {
           }
         },
         hooks,
-        // Plugins for this session (TASK_2025_153)
-        plugins: this.buildPlugins(pluginPaths),
+        // Plugins disabled here — skills are loaded via .claude/skills/ junctions
+        // created by SkillJunctionService. Passing plugins via SDK option caused
+        // duplication in slash command autocomplete.
         // SDK compaction control (TASK_2025_098)
         // Only include when enabled to avoid sending unnecessary options
         compactionControl: compactionConfig.enabled
@@ -560,8 +590,47 @@ export class SdkQueryOptionsBuilder {
         effort: sessionConfig?.effort,
         // TASK_2025_194: Override baked-in import.meta.url path with runtime-resolved cli.js
         pathToClaudeCodeExecutable,
+        // Enable 1M context window for direct Anthropic connections.
+        // The SDK doesn't auto-enable this beta like the CLI does — we must
+        // pass it explicitly. Only for first-party (api.anthropic.com);
+        // third-party providers don't support this beta header.
+        betas: this.buildBetas(),
       },
     };
+  }
+
+  /**
+   * Build beta headers for SDK query.
+   *
+   * The Claude CLI automatically enables the `context-1m-2025-08-07` beta for
+   * first-party (api.anthropic.com) connections, unlocking 1M token context for
+   * Opus and Sonnet 4.6 models. The SDK module does NOT auto-enable this — we
+   * must pass it explicitly via the `betas` query option.
+   *
+   * Skipped for third-party providers (OpenRouter, Moonshot, Z.AI, proxies) as
+   * they don't support Anthropic beta headers and would return 400 errors.
+   *
+   * @returns Array of beta strings, or undefined if no betas should be sent
+   */
+  private buildBetas(): SdkBeta[] | undefined {
+    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+
+    // Only enable for direct Anthropic connections (no base URL, or explicitly api.anthropic.com)
+    const isFirstParty =
+      !baseUrl || /^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
+
+    if (!isFirstParty) {
+      this.logger.debug(
+        '[SdkQueryOptionsBuilder] Skipping 1M context beta for third-party provider',
+        { baseUrl },
+      );
+      return undefined;
+    }
+
+    this.logger.info(
+      '[SdkQueryOptionsBuilder] Enabling 1M context beta for Anthropic direct',
+    );
+    return ['context-1m-2025-08-07'];
   }
 
   /**
@@ -640,6 +709,7 @@ export class SdkQueryOptionsBuilder {
   private buildMcpServers(
     isPremium: boolean,
     mcpServerRunning = true,
+    sessionId?: string,
   ): Record<string, McpHttpServerConfig> {
     // Free tier - disable MCP servers (TASK_2025_108)
     if (!isPremium) {
@@ -666,7 +736,9 @@ export class SdkQueryOptionsBuilder {
     const mcpConfig = {
       ptah: {
         type: 'http' as const,
-        url: `http://localhost:${PTAH_MCP_PORT}`,
+        url: sessionId
+          ? `http://localhost:${PTAH_MCP_PORT}/session/${encodeURIComponent(sessionId)}`
+          : `http://localhost:${PTAH_MCP_PORT}`,
       },
     };
     this.logger.info('[SdkQueryOptionsBuilder] MCP servers ENABLED', {
@@ -687,23 +759,6 @@ export class SdkQueryOptionsBuilder {
       return Math.floor(sessionConfig.maxTokens / 1000);
     }
     return undefined;
-  }
-
-  /**
-   * Build SDK plugin configuration from resolved paths
-   *
-   * Converts absolute directory paths to SdkPluginConfig format expected by the SDK.
-   * Returns undefined (not empty array) when no plugins are configured,
-   * avoiding sending unnecessary empty arrays to the SDK.
-   *
-   * @param pluginPaths - Absolute paths to plugin directories (from PluginLoaderService)
-   * @returns Array of SdkPluginConfig for SDK, or undefined if no plugins
-   */
-  private buildPlugins(pluginPaths?: string[]): SdkPluginConfig[] | undefined {
-    if (!pluginPaths || pluginPaths.length === 0) {
-      return undefined;
-    }
-    return pluginPaths.map((p) => ({ type: 'local' as const, path: p }));
   }
 
   /**

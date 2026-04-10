@@ -54,13 +54,13 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   // Anthropic Claude Models
   // ============================================================================
 
-  // Claude 4.6 Opus (latest flagship)
+  // Claude 4.6 Opus (latest flagship — 1M context window)
   'claude-opus-4-6-20250623': {
     inputCostPerToken: 5e-6, // $5.00 per 1M tokens
     outputCostPerToken: 25e-6, // $25.00 per 1M tokens
     cacheReadCostPerToken: 5e-7, // $0.50 per 1M tokens
     cacheCreationCostPerToken: 6.25e-6, // $6.25 per 1M tokens
-    maxTokens: 200_000,
+    maxTokens: 1_000_000,
     provider: 'anthropic',
   },
 
@@ -70,7 +70,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 25e-6,
     cacheReadCostPerToken: 5e-7,
     cacheCreationCostPerToken: 6.25e-6,
-    maxTokens: 200_000,
+    maxTokens: 1_000_000,
     provider: 'anthropic',
   },
 

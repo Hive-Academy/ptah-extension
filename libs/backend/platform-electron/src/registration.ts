@@ -31,6 +31,7 @@ import {
   ElectronUserInteraction,
   type ElectronDialogApi,
   type ElectronBrowserWindowApi,
+  type ElectronShellApi,
 } from './implementations/electron-user-interaction';
 import { ElectronOutputChannel } from './implementations/electron-output-channel';
 import { ElectronCommandRegistry } from './implementations/electron-command-registry';
@@ -63,6 +64,8 @@ export interface ElectronPlatformOptions {
       listener: (event: unknown, ...args: unknown[]) => void,
     ): void;
   } | null;
+  /** Shell and clipboard APIs for opening URLs and copying text */
+  shell?: ElectronShellApi | null;
   /** Initial workspace folders (from command line or recent) */
   initialFolders?: string[];
 }
@@ -140,6 +143,7 @@ export function registerPlatformElectronServices(
       options.dialog,
       options.getWindow,
       options.ipcMain,
+      options.shell,
     ),
   });
 

@@ -63,7 +63,7 @@ export class MagicLinkService {
    *
    * @param email - User's email address
    * @param options - Optional returnUrl and plan for post-auth redirect
-   * @returns Full magic link URL (e.g., https://ptah.dev/api/auth/verify?token=abc123...)
+   * @returns Full magic link URL (e.g., https://ptah.live/api/auth/verify?token=abc123...)
    */
   async createMagicLink(
     email: string,

@@ -21,14 +21,16 @@ import { Injectable, inject } from '@angular/core';
 import { type MessageHandler } from '@ptah-extension/core';
 import { FlatStreamEventUnion, MESSAGE_TYPES } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
+import { AgentMonitorStore } from './agent-monitor.store';
 
 @Injectable({ providedIn: 'root' })
 export class ChatMessageHandler implements MessageHandler {
   private readonly chatStore = inject(ChatStore);
+  private readonly agentMonitorStore = inject(AgentMonitorStore);
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
-    MESSAGE_TYPES.CHAT_COMPLETE,
+    // CHAT_COMPLETE intentionally not registered — SESSION_STATS is authoritative (TASK_2025_101)
     MESSAGE_TYPES.CHAT_ERROR,
     MESSAGE_TYPES.PERMISSION_REQUEST,
     MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
@@ -43,9 +45,6 @@ export class ChatMessageHandler implements MessageHandler {
     switch (message.type) {
       case MESSAGE_TYPES.CHAT_CHUNK:
         this.handleChatChunk(message.payload);
-        break;
-      case MESSAGE_TYPES.CHAT_COMPLETE:
-        this.handleChatComplete(message.payload);
         break;
       case MESSAGE_TYPES.CHAT_ERROR:
         this.handleChatError(message.payload);
@@ -78,7 +77,7 @@ export class ChatMessageHandler implements MessageHandler {
   private handleChatChunk(payload: unknown): void {
     if (!payload) {
       console.warn(
-        '[ChatMessageHandler] chat:chunk received but payload is undefined!'
+        '[ChatMessageHandler] chat:chunk received but payload is undefined!',
       );
       return;
     }
@@ -90,22 +89,6 @@ export class ChatMessageHandler implements MessageHandler {
     };
 
     this.chatStore.processStreamEvent(event, tabId, sessionId);
-  }
-
-  // CHAT_COMPLETE: Chat completion signal
-  private handleChatComplete(payload: unknown): void {
-    const { tabId, sessionId, code } =
-      (payload as {
-        tabId?: string;
-        sessionId?: string;
-        code?: number;
-      }) ?? {};
-
-    this.chatStore.handleChatComplete({
-      tabId,
-      sessionId,
-      code: code ?? 0,
-    });
   }
 
   // CHAT_ERROR: Chat error signal
@@ -134,31 +117,25 @@ export class ChatMessageHandler implements MessageHandler {
   private handlePermissionRequest(payload: unknown): void {
     if (!payload) {
       console.warn(
-        '[ChatMessageHandler] permission:request received but payload is undefined!'
+        '[ChatMessageHandler] permission:request received but payload is undefined!',
       );
       return;
     }
     this.chatStore.handlePermissionRequest(
-      payload as Parameters<typeof this.chatStore.handlePermissionRequest>[0]
+      payload as Parameters<typeof this.chatStore.handlePermissionRequest>[0],
     );
   }
 
   // AGENT_SUMMARY_CHUNK: Real-time agent summary streaming
   private handleAgentSummaryChunk(payload: unknown): void {
-    console.log('[ChatMessageHandler] AGENT_SUMMARY_CHUNK received:', {
-      hasPayload: !!payload,
-      toolUseId: (payload as { toolUseId?: string })?.toolUseId,
-      deltaLength: (payload as { summaryDelta?: string })?.summaryDelta?.length,
-    });
-
     if (!payload) {
       console.warn(
-        '[ChatMessageHandler] agent:summary-chunk received but payload is undefined!'
+        '[ChatMessageHandler] agent:summary-chunk received but payload is undefined!',
       );
       return;
     }
     this.chatStore.handleAgentSummaryChunk(
-      payload as Parameters<typeof this.chatStore.handleAgentSummaryChunk>[0]
+      payload as Parameters<typeof this.chatStore.handleAgentSummaryChunk>[0],
     );
   }
 
@@ -166,12 +143,12 @@ export class ChatMessageHandler implements MessageHandler {
   private handleSessionStats(payload: unknown): void {
     if (!payload) {
       console.warn(
-        '[ChatMessageHandler] session:stats received but payload is undefined!'
+        '[ChatMessageHandler] session:stats received but payload is undefined!',
       );
       return;
     }
     this.chatStore.handleSessionStats(
-      payload as Parameters<typeof this.chatStore.handleSessionStats>[0]
+      payload as Parameters<typeof this.chatStore.handleSessionStats>[0],
     );
   }
 
@@ -183,37 +160,36 @@ export class ChatMessageHandler implements MessageHandler {
         realSessionId?: string;
       }) ?? {};
 
-    console.log('[ChatMessageHandler] Session ID resolved:', {
-      tabId,
-      realSessionId,
-    });
-
     if (realSessionId) {
       this.chatStore.handleSessionIdResolved({
         tabId: tabId as string,
         realSessionId: realSessionId as string,
       });
+
+      // Update parentSessionId on any agents spawned with the tab ID before
+      // the real SDK UUID was resolved. Without this, agents spawned early in
+      // the session lifecycle have a stale tab ID that never matches the tab's
+      // claudeSessionId, making them invisible in the filtered agent panel.
+      if (tabId) {
+        this.agentMonitorStore.resolveParentSessionId(tabId, realSessionId);
+      }
     } else {
       console.warn(
-        '[ChatMessageHandler] session:id-resolved received but realSessionId is undefined!'
+        '[ChatMessageHandler] session:id-resolved received but realSessionId is undefined!',
       );
     }
   }
 
   // ASK_USER_QUESTION_REQUEST: AskUserQuestion tool from SDK
   private handleAskUserQuestion(payload: unknown): void {
-    console.log(
-      '[ChatMessageHandler] AskUserQuestion request received:',
-      payload
-    );
     if (!payload) {
       console.warn(
-        '[ChatMessageHandler] ask-user-question:request received but payload is undefined!'
+        '[ChatMessageHandler] ask-user-question:request received but payload is undefined!',
       );
       return;
     }
     this.chatStore.handleQuestionRequest(
-      payload as import('@ptah-extension/shared').AskUserQuestionRequest
+      payload as import('@ptah-extension/shared').AskUserQuestionRequest,
     );
   }
 
@@ -221,7 +197,7 @@ export class ChatMessageHandler implements MessageHandler {
   private handlePermissionAutoResolved(payload: unknown): void {
     if (payload) {
       this.chatStore.handlePermissionAutoResolved(
-        payload as { id: string; toolName: string }
+        payload as { id: string; toolName: string },
       );
     }
   }
@@ -233,7 +209,7 @@ export class ChatMessageHandler implements MessageHandler {
       this.chatStore.cleanupPermissionSession(sessionId);
     } else {
       console.warn(
-        '[ChatMessageHandler] permission:session-cleanup received but sessionId is undefined!'
+        '[ChatMessageHandler] permission:session-cleanup received but sessionId is undefined!',
       );
     }
   }

@@ -73,7 +73,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
   constructor(
     protected readonly logger: Logger,
-    protected readonly config: TranslationProxyConfig
+    protected readonly config: TranslationProxyConfig,
   ) {
     this.logPrefix = `[${this.config.name}Proxy]`;
   }
@@ -128,14 +128,14 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           this.logger.error(
             `${this.logPrefix} Unhandled error: ${
               err instanceof Error ? err.message : String(err)
-            }`
+            }`,
           );
           if (!res.headersSent) {
             this.sendErrorResponse(
               res,
               500,
               'api_error',
-              'Internal proxy error'
+              'Internal proxy error',
             );
           }
         });
@@ -153,7 +153,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         const url = `http://127.0.0.1:${this.port}`;
 
         this.logger.info(
-          `${this.logPrefix} Translation proxy started at ${url}`
+          `${this.logPrefix} Translation proxy started at ${url}`,
         );
         resolve({ port: this.port, url });
       });
@@ -177,7 +177,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     return new Promise<void>((resolve) => {
       const forceTimeout = setTimeout(() => {
         this.logger.warn(
-          `${this.logPrefix} Graceful shutdown timed out, forcing close`
+          `${this.logPrefix} Graceful shutdown timed out, forcing close`,
         );
         try {
           const serverWithConnections = server as unknown as {
@@ -228,7 +228,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
    */
   private async handleRequest(
     req: http.IncomingMessage,
-    res: http.ServerResponse
+    res: http.ServerResponse,
   ): Promise<void> {
     const method = req.method?.toUpperCase() ?? '';
     const rawUrl = req.url ?? '/';
@@ -266,7 +266,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       res,
       404,
       'not_found_error',
-      `Unknown route: ${method} ${url}`
+      `Unknown route: ${method} ${url}`,
     );
   }
 
@@ -284,7 +284,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
    */
   private async handleMessages(
     req: http.IncomingMessage,
-    res: http.ServerResponse
+    res: http.ServerResponse,
   ): Promise<void> {
     const requestId = this.generateRequestId();
 
@@ -313,7 +313,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       `${this.logPrefix} [${requestId}] Translating request for model: ${anthropicRequest.model}, ` +
         `stream: ${!!anthropicRequest.stream}, messages: ${
           anthropicRequest.messages?.length ?? 0
-        }, api: ${useResponsesApi ? 'responses' : 'completions'}`
+        }, api: ${useResponsesApi ? 'responses' : 'completions'}`,
     );
 
     if (useResponsesApi) {
@@ -328,7 +328,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           anthropicRequest,
           res,
           requestId,
-          false
+          false,
         );
       } catch (error) {
         if (!res.headersSent) {
@@ -337,13 +337,13 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               this.logPrefix
             } [${requestId}] Forward to Responses API failed: ${
               error instanceof Error ? error.message : String(error)
-            }`
+            }`,
           );
           this.sendErrorResponse(
             res,
             500,
             'api_error',
-            `Failed to communicate with ${this.config.name} API`
+            `Failed to communicate with ${this.config.name} API`,
           );
         }
       }
@@ -359,20 +359,20 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           anthropicRequest,
           res,
           requestId,
-          false
+          false,
         );
       } catch (error) {
         if (!res.headersSent) {
           this.logger.error(
             `${this.logPrefix} [${requestId}] Forward failed: ${
               error instanceof Error ? error.message : String(error)
-            }`
+            }`,
           );
           this.sendErrorResponse(
             res,
             500,
             'api_error',
-            `Failed to communicate with ${this.config.name} API`
+            `Failed to communicate with ${this.config.name} API`,
           );
         }
       }
@@ -412,7 +412,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     originalRequest: AnthropicMessagesRequest,
     res: http.ServerResponse,
     requestId: string,
-    isRetry: boolean
+    isRetry: boolean,
   ): Promise<void> {
     return this.forwardToApi({
       requestBody: JSON.stringify(openaiRequest),
@@ -432,7 +432,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           originalRequest,
           res,
           requestId,
-          retry
+          retry,
         ),
     });
   }
@@ -446,7 +446,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     originalRequest: AnthropicMessagesRequest,
     res: http.ServerResponse,
     requestId: string,
-    isRetry: boolean
+    isRetry: boolean,
   ): Promise<void> {
     const responsesPath = this.config.responsesPath ?? '/responses';
 
@@ -463,14 +463,14 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           proxyRes,
           clientRes,
           model,
-          reqId
+          reqId,
         ),
       onNonStreamingSuccess: (proxyRes, clientRes, model, reqId) =>
         this.handleResponsesNonStreamingResponse(
           proxyRes,
           clientRes,
           model,
-          reqId
+          reqId,
         ),
       retryFn: (retry) =>
         this.forwardToResponsesApi(
@@ -478,7 +478,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           originalRequest,
           res,
           requestId,
-          retry
+          retry,
         ),
     });
   }
@@ -500,13 +500,13 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       proxyRes: http.IncomingMessage,
       res: http.ServerResponse,
       model: string,
-      requestId: string
+      requestId: string,
     ) => void;
     onNonStreamingSuccess: (
       proxyRes: http.IncomingMessage,
       res: http.ServerResponse,
       model: string,
-      requestId: string
+      requestId: string,
     ) => Promise<void>;
     retryFn: (isRetry: boolean) => Promise<void>;
   }): Promise<void> {
@@ -534,7 +534,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         'authentication_error',
         `${this.config.name} authentication failed: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return;
     }
@@ -544,11 +544,13 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     const targetUrl = this.buildUpstreamUrl(apiEndpoint, path);
 
     this.logger.info(
-      `${this.logPrefix} [${requestId}] Forwarding to ${apiLabel}: ${targetUrl.href}`
+      `${this.logPrefix} [${requestId}] Forwarding to ${apiLabel}: ${targetUrl.href}`,
     );
 
     return new Promise<void>((resolve, reject) => {
-      const proxyReq = https.request(
+      const requestFn =
+        targetUrl.protocol === 'http:' ? http.request : https.request;
+      const proxyReq = requestFn(
         targetUrl,
         {
           method: 'POST',
@@ -564,7 +566,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           // Handle 401 -- refresh token and retry once
           if (statusCode === 401 && !isRetry) {
             this.logger.warn(
-              `${this.logPrefix} [${requestId}] Got 401 from ${apiLabel}, attempting token refresh and retry...`
+              `${this.logPrefix} [${requestId}] Got 401 from ${apiLabel}, attempting token refresh and retry...`,
             );
             // Consume the response body to free the socket
             proxyRes.resume();
@@ -577,7 +579,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
                     res,
                     401,
                     'authentication_error',
-                    `${this.config.name} token refresh failed. Please re-authenticate.`
+                    `${this.config.name} token refresh failed. Please re-authenticate.`,
                   );
                   resolve();
                 }
@@ -589,7 +591,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
                   'authentication_error',
                   `Token refresh error: ${
                     err instanceof Error ? err.message : String(err)
-                  }`
+                  }`,
                 );
                 resolve();
               });
@@ -603,14 +605,14 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               ? ` Retry after ${retryAfter} seconds.`
               : '';
             this.logger.warn(
-              `${this.logPrefix} [${requestId}] Rate limited by ${this.config.name} ${apiLabel}${retryMsg}`
+              `${this.logPrefix} [${requestId}] Rate limited by ${this.config.name} ${apiLabel}${retryMsg}`,
             );
             proxyRes.resume();
             this.sendErrorResponse(
               res,
               529,
               'overloaded_error',
-              `${this.config.name} API rate limit exceeded.${retryMsg} Please wait and try again.`
+              `${this.config.name} API rate limit exceeded.${retryMsg} Please wait and try again.`,
             );
             resolve();
             return;
@@ -627,8 +629,8 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
                   this.config.name
                 } ${apiLabel} error ${statusCode}: ${errorBody.substring(
                   0,
-                  500
-                )}`
+                  500,
+                )}`,
               );
               this.sendErrorResponse(
                 res,
@@ -636,7 +638,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
                 'api_error',
                 `${
                   this.config.name
-                } API error (${statusCode}): ${errorBody.substring(0, 200)}`
+                } API error (${statusCode}): ${errorBody.substring(0, 200)}`,
               );
               resolve();
             });
@@ -653,17 +655,17 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               proxyRes,
               res,
               originalRequest.model,
-              requestId
+              requestId,
             )
               .then(resolve)
               .catch(reject);
           }
-        }
+        },
       );
 
       proxyReq.on('timeout', () => {
         this.logger.error(
-          `${this.logPrefix} [${requestId}] ${apiLabel} request timed out after 600s`
+          `${this.logPrefix} [${requestId}] ${apiLabel} request timed out after 600s`,
         );
         proxyReq.destroy();
         if (!res.headersSent) {
@@ -671,7 +673,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             res,
             504,
             'api_error',
-            `${this.config.name} API request timed out`
+            `${this.config.name} API request timed out`,
           );
         }
         resolve();
@@ -679,7 +681,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
       proxyReq.on('error', (err) => {
         this.logger.error(
-          `${this.logPrefix} [${requestId}] ${apiLabel} request error: ${err.message}`
+          `${this.logPrefix} [${requestId}] ${apiLabel} request error: ${err.message}`,
         );
         reject(err);
       });
@@ -701,7 +703,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     proxyRes: http.IncomingMessage,
     res: http.ServerResponse,
     model: string,
-    requestId: string
+    requestId: string,
   ): void {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -727,13 +729,13 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     proxyRes.on('end', () => {
       res.end();
       this.logger.debug(
-        `${this.logPrefix} [${requestId}] Responses API streaming response complete`
+        `${this.logPrefix} [${requestId}] Responses API streaming response complete`,
       );
     });
 
     proxyRes.on('error', (err) => {
       this.logger.error(
-        `${this.logPrefix} [${requestId}] Responses API stream error: ${err.message}`
+        `${this.logPrefix} [${requestId}] Responses API stream error: ${err.message}`,
       );
       res.end();
     });
@@ -747,7 +749,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     proxyRes: http.IncomingMessage,
     res: http.ServerResponse,
     model: string,
-    requestId: string
+    requestId: string,
   ): Promise<void> {
     const chunks: Buffer[] = [];
 
@@ -803,18 +805,18 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
           this.sendJson(res, 200, anthropicResponse);
           this.logger.debug(
-            `${this.logPrefix} [${requestId}] Responses API non-streaming response sent`
+            `${this.logPrefix} [${requestId}] Responses API non-streaming response sent`,
           );
         } catch (error) {
           this.logger.error(
             `${this.logPrefix} [${requestId}] Failed to translate Responses API non-streaming response: ` +
-              `${error instanceof Error ? error.message : String(error)}`
+              `${error instanceof Error ? error.message : String(error)}`,
           );
           this.sendErrorResponse(
             res,
             500,
             'api_error',
-            `Failed to translate ${this.config.name} response`
+            `Failed to translate ${this.config.name} response`,
           );
         }
         resolve();
@@ -822,14 +824,14 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
       proxyRes.on('error', (err) => {
         this.logger.error(
-          `${this.logPrefix} [${requestId}] Responses API response read error: ${err.message}`
+          `${this.logPrefix} [${requestId}] Responses API response read error: ${err.message}`,
         );
         if (!res.headersSent) {
           this.sendErrorResponse(
             res,
             500,
             'api_error',
-            `Error reading ${this.config.name} response`
+            `Error reading ${this.config.name} response`,
           );
         }
         resolve();
@@ -845,7 +847,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     proxyRes: http.IncomingMessage,
     res: http.ServerResponse,
     model: string,
-    requestId: string
+    requestId: string,
   ): void {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -899,8 +901,8 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               this.logPrefix
             } [${requestId}] Failed to parse SSE chunk: ${data.substring(
               0,
-              100
-            )}`
+              100,
+            )}`,
           );
         }
       }
@@ -925,13 +927,13 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
       res.end();
       this.logger.debug(
-        `${this.logPrefix} [${requestId}] Streaming response complete`
+        `${this.logPrefix} [${requestId}] Streaming response complete`,
       );
     });
 
     proxyRes.on('error', (err) => {
       this.logger.error(
-        `${this.logPrefix} [${requestId}] Stream error: ${err.message}`
+        `${this.logPrefix} [${requestId}] Stream error: ${err.message}`,
       );
       res.end();
     });
@@ -945,7 +947,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     proxyRes: http.IncomingMessage,
     res: http.ServerResponse,
     model: string,
-    requestId: string
+    requestId: string,
   ): Promise<void> {
     const chunks: Buffer[] = [];
 
@@ -1000,18 +1002,18 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
           this.sendJson(res, 200, anthropicResponse);
           this.logger.debug(
-            `${this.logPrefix} [${requestId}] Non-streaming response sent`
+            `${this.logPrefix} [${requestId}] Non-streaming response sent`,
           );
         } catch (error) {
           this.logger.error(
             `${this.logPrefix} [${requestId}] Failed to translate non-streaming response: ` +
-              `${error instanceof Error ? error.message : String(error)}`
+              `${error instanceof Error ? error.message : String(error)}`,
           );
           this.sendErrorResponse(
             res,
             500,
             'api_error',
-            `Failed to translate ${this.config.name} response`
+            `Failed to translate ${this.config.name} response`,
           );
         }
         resolve();
@@ -1019,14 +1021,14 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
       proxyRes.on('error', (err) => {
         this.logger.error(
-          `${this.logPrefix} [${requestId}] Response read error: ${err.message}`
+          `${this.logPrefix} [${requestId}] Response read error: ${err.message}`,
         );
         if (!res.headersSent) {
           this.sendErrorResponse(
             res,
             500,
             'api_error',
-            `Error reading ${this.config.name} response`
+            `Error reading ${this.config.name} response`,
           );
         }
         resolve();
@@ -1065,7 +1067,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   private sendJson(
     res: http.ServerResponse,
     statusCode: number,
-    body: Record<string, unknown>
+    body: Record<string, unknown>,
   ): void {
     const json = JSON.stringify(body);
     res.writeHead(statusCode, {
@@ -1082,7 +1084,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     res: http.ServerResponse,
     statusCode: number,
     errorType: string,
-    message: string
+    message: string,
   ): void {
     this.sendJson(res, statusCode, {
       type: 'error',

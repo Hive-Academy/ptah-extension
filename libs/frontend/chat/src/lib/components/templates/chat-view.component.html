@@ -7,6 +7,7 @@
         [preloadedStats]="chatStore.preloadedStats()"
         [liveModelStats]="chatStore.liveModelStats()"
         [modelUsageList]="chatStore.modelUsageList()"
+        [compactionCount]="chatStore.compactionCount()"
       />
     </div>
   }
@@ -100,7 +101,7 @@
   }
 
   <!-- Queued Content Indicator -->
-  @if (chatStore.activeTab()?.queuedContent) {
+  @if (chatStore.queuedContent()) {
     <div class="px-4 pb-2 border-t border-primary/20 bg-primary/5">
       <div class="flex items-center justify-between gap-2 py-2">
         <!-- Left: Queue icon and text -->
@@ -131,10 +132,9 @@
       <div
         class="text-xs text-base-content/70 bg-base-200 rounded px-2 py-1 max-h-12 overflow-hidden"
       >
-        {{ chatStore.activeTab()?.queuedContent?.substring(0, 100) }}
+        {{ chatStore.queuedContent()?.substring(0, 100) }}
         @if (
-          chatStore.activeTab()?.queuedContent &&
-          chatStore.activeTab()!.queuedContent!.length > 100
+          chatStore.queuedContent() && chatStore.queuedContent()!.length > 100
         ) {
           <span>...</span>
         }

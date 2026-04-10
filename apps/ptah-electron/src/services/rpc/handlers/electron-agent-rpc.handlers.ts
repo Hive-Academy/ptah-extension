@@ -170,6 +170,11 @@ export class ElectronAgentRpcHandlers {
                 'agentOrchestration.disabledClis',
                 [],
               ) ?? [],
+            disabledMcpNamespaces:
+              this.stateStorage.get<string[]>(
+                'agentOrchestration.disabledMcpNamespaces',
+                [],
+              ) ?? [],
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -262,6 +267,12 @@ export class ElectronAgentRpcHandlers {
           await this.stateStorage.update(
             'agentOrchestration.disabledClis',
             params.disabledClis,
+          );
+        }
+        if (params.disabledMcpNamespaces !== undefined) {
+          await this.stateStorage.update(
+            'agentOrchestration.disabledMcpNamespaces',
+            params.disabledMcpNamespaces,
           );
         }
 
@@ -459,8 +470,7 @@ export class ElectronAgentRpcHandlers {
         });
 
         let result: SpawnAgentResult;
-        const workspaceRoot =
-          this.workspace.getWorkspaceRoot() ?? process.cwd();
+        const workspaceRoot = this.workspace.getWorkspaceRoot() ?? '';
 
         let ptahCliId = params.ptahCliId;
         if (params.cli === 'ptah-cli' && !ptahCliId) {

@@ -49,7 +49,6 @@ import {
   buildBrowserStatusTool,
   buildBrowserRecordStartTool,
   buildBrowserRecordStopTool,
-  buildBrowserWaitForUserTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -83,7 +82,6 @@ import {
   formatBrowserStatus,
   formatBrowserRecordStart,
   formatBrowserRecordStop,
-  formatBrowserWaitForUser,
 } from './mcp-response-formatter';
 
 /**
@@ -113,6 +111,7 @@ export interface ProtocolHandlerDependencies {
   logger: Logger;
   onToolResult?: ToolResultCallback;
   hasIDECapabilities?: boolean;
+  disabledMcpNamespaces?: string[];
 }
 
 /**
@@ -188,67 +187,88 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
 
 /**
  * Handle tools/list request
- * Returns available tools, conditionally excluding VS Code-only tools on non-IDE platforms.
+ * Returns available tools, filtering by namespace toggles and platform capabilities.
  *
- * VS Code-only tools (excluded when hasIDECapabilities is false):
- * - ptah_lsp_references: Requires VS Code LSP executeReferenceProvider
- * - ptah_lsp_definitions: Requires VS Code LSP executeDefinitionProvider
- * - ptah_get_dirty_files: Requires VS Code editor state (unsaved file tracking)
+ * Always-on core tools (never disabled by namespace toggles):
+ * - workspace_analyze, search_files, get_diagnostics, count_tokens,
+ *   web_search, execute_code, approval_prompt
+ *
+ * Namespace-toggleable tool groups (disabled via disabledMcpNamespaces):
+ * - 'ide': ptah_lsp_references, ptah_lsp_definitions, ptah_get_dirty_files
+ *          (also requires hasIDECapabilities === true)
+ * - 'agent': ptah_agent_spawn/status/read/steer/stop/list
+ * - 'git': ptah_git_worktree_list/add/remove
+ * - 'json': ptah_json_validate
+ * - 'browser': all ptah_browser_* tools (12 tools)
  *
  * Platform-agnostic tools (always included):
  * - ptah_get_diagnostics: Uses IDiagnosticsProvider abstraction (works on both platforms)
- * - All other ptah_* tools, execute_code, approval_prompt
  */
 function handleToolsList(
   request: MCPRequest,
   deps: ProtocolHandlerDependencies,
 ): MCPResponse {
+  const disabled = new Set(deps.disabledMcpNamespaces ?? []);
+
   const tools = [
-    // Individual first-class tools (simple params, high discoverability)
+    // === Always-on core tools (not toggleable) ===
     buildWorkspaceAnalyzeTool(),
     buildSearchFilesTool(),
     buildGetDiagnosticsTool(),
-    // VS Code-only IDE tools — excluded on platforms without IDE capabilities (e.g. Electron)
-    ...(deps.hasIDECapabilities === true
+    buildCountTokensTool(),
+    buildWebSearchTool(),
+    buildExecuteCodeTool(),
+    buildApprovalPromptTool(),
+
+    // === IDE / LSP namespace (requires IDE capabilities AND not disabled) ===
+    ...(deps.hasIDECapabilities === true && !disabled.has('ide')
       ? [
           buildLspReferencesTool(),
           buildLspDefinitionsTool(),
           buildGetDirtyFilesTool(),
         ]
       : []),
-    buildCountTokensTool(),
-    // Agent orchestration tools (TASK_2025_157)
-    buildAgentSpawnTool(),
-    buildAgentStatusTool(),
-    buildAgentReadTool(),
-    buildAgentSteerTool(),
-    buildAgentStopTool(),
-    buildAgentListTool(),
-    // Web search tool (TASK_2025_189)
-    buildWebSearchTool(),
-    // Git worktree tools (TASK_2025_236)
-    buildWorktreeListTool(),
-    buildWorktreeAddTool(),
-    buildWorktreeRemoveTool(),
-    // JSON validation tool (TASK_2025_240)
-    buildJsonValidateTool(),
-    // Browser automation tools (TASK_2025_244)
-    buildBrowserNavigateTool(),
-    buildBrowserScreenshotTool(),
-    buildBrowserEvaluateTool(),
-    buildBrowserClickTool(),
-    buildBrowserTypeTool(),
-    buildBrowserContentTool(),
-    buildBrowserNetworkTool(),
-    buildBrowserCloseTool(),
-    buildBrowserStatusTool(),
-    // Browser enhancement tools (TASK_2025_254)
-    buildBrowserRecordStartTool(),
-    buildBrowserRecordStopTool(),
-    buildBrowserWaitForUserTool(),
-    // Power-user tools
-    buildExecuteCodeTool(),
-    buildApprovalPromptTool(),
+
+    // === Agent orchestration namespace ===
+    ...(!disabled.has('agent')
+      ? [
+          buildAgentSpawnTool(),
+          buildAgentStatusTool(),
+          buildAgentReadTool(),
+          buildAgentSteerTool(),
+          buildAgentStopTool(),
+          buildAgentListTool(),
+        ]
+      : []),
+
+    // === Git worktree namespace ===
+    ...(!disabled.has('git')
+      ? [
+          buildWorktreeListTool(),
+          buildWorktreeAddTool(),
+          buildWorktreeRemoveTool(),
+        ]
+      : []),
+
+    // === JSON validation namespace ===
+    ...(!disabled.has('json') ? [buildJsonValidateTool()] : []),
+
+    // === Browser automation namespace ===
+    ...(!disabled.has('browser')
+      ? [
+          buildBrowserNavigateTool(),
+          buildBrowserScreenshotTool(),
+          buildBrowserEvaluateTool(),
+          buildBrowserClickTool(),
+          buildBrowserTypeTool(),
+          buildBrowserContentTool(),
+          buildBrowserNetworkTool(),
+          buildBrowserCloseTool(),
+          buildBrowserStatusTool(),
+          buildBrowserRecordStartTool(),
+          buildBrowserRecordStopTool(),
+        ]
+      : []),
   ];
 
   return {
@@ -508,7 +528,9 @@ async function handleIndividualTool(
           taskFolder,
           model,
           resumeSessionId: resume_session_id,
-          // parentSessionId is injected by buildAgentNamespace, not by MCP args
+          // parentSessionId from MCP URL path (session-specific endpoint)
+          // Falls back to getActiveSessionId() in buildAgentNamespace if not present
+          parentSessionId: request._callerSessionId,
         });
 
         logger.info('[MCP] ptah_agent_spawn result', 'CodeExecutionMCP', {
@@ -991,39 +1013,6 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatBrowserRecordStop(recordStopResult),
-          deps,
-        );
-      }
-
-      case 'ptah_browser_wait_for_user': {
-        const { message, timeout } = args as {
-          message: string;
-          timeout?: number;
-        };
-
-        if (!message || typeof message !== 'string' || !message.trim()) {
-          return {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: 'Error: "message" is required and must be a non-empty string.',
-                },
-              ],
-              isError: true,
-            },
-          };
-        }
-
-        const waitResult = await ptahAPI.browser.waitForUser({
-          message: message.trim(),
-          timeout,
-        });
-        return createToolSuccessResponse(
-          request,
-          formatBrowserWaitForUser(waitResult),
           deps,
         );
       }

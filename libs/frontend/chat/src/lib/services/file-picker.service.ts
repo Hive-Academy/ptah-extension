@@ -65,6 +65,11 @@ export class FilePickerService {
   private readonly _includedFiles = signal<ChatFile[]>([]);
   private readonly _isLoading = signal(false);
   private readonly _lastUpdate = signal<number>(0);
+  private readonly _fetchError = signal<string | null>(null);
+  private _pendingFetch: Promise<void> | null = null;
+
+  /** Last error from file fetch, exposed for UI display */
+  readonly fetchError = this._fetchError.asReadonly();
 
   // === ANGULAR 20 PATTERN: Readonly signals for external access ===
   readonly workspaceFiles = this._workspaceFiles.asReadonly();
@@ -75,15 +80,18 @@ export class FilePickerService {
   readonly fileCount = computed(() => this._includedFiles().length);
 
   readonly totalSize = computed(() =>
-    this._includedFiles().reduce((total, file) => total + file.size, 0)
+    this._includedFiles().reduce((total, file) => total + file.size, 0),
   );
 
   readonly totalTokens = computed(() =>
-    this._includedFiles().reduce((total, file) => total + file.tokenEstimate, 0)
+    this._includedFiles().reduce(
+      (total, file) => total + file.tokenEstimate,
+      0,
+    ),
   );
 
   readonly hasLargeFiles = computed(() =>
-    this._includedFiles().some((file) => file.isLarge)
+    this._includedFiles().some((file) => file.isLarge),
   );
 
   readonly optimizationSuggestions = computed(() => {
@@ -102,7 +110,7 @@ export class FilePickerService {
     const largeFiles = files.filter((f) => f.isLarge);
     if (largeFiles.length > 0) {
       suggestions.push(
-        `${largeFiles.length} large files detected - consider file compression`
+        `${largeFiles.length} large files detected - consider file compression`,
       );
     }
 
@@ -153,71 +161,116 @@ export class FilePickerService {
    * TASK_2025_019 Phase 1: Populates _workspaceFiles signal for @ autocomplete
    */
   async fetchWorkspaceFiles(): Promise<void> {
-    if (this._isLoading()) return; // Prevent duplicate fetches
-    if (!this.rpcService) {
-      console.warn('[FilePickerService] ClaudeRpcService not initialized');
-      return;
+    // Deduplicate: if a fetch is already in-flight, await it instead of returning empty
+    if (this._isLoading() && this._pendingFetch) {
+      return this._pendingFetch;
     }
 
     this._isLoading.set(true);
+    this._fetchError.set(null);
 
+    this._pendingFetch = this._doFetchWorkspaceFiles();
     try {
-      // Call backend via RPC
+      await this._pendingFetch;
+    } finally {
+      this._pendingFetch = null;
+    }
+  }
+
+  private async _doFetchWorkspaceFiles(): Promise<void> {
+    try {
       const result = await this.rpcService.call('context:getAllFiles', {
         includeImages: false,
         limit: 500,
       });
 
-      if (result.success && result.data?.files) {
-        // Transform backend format to FileSuggestion format
-        const suggestions: FileSuggestion[] = result.data.files.map((file) => {
-          // Extract directory from relativePath (everything before the last /)
-          const lastSlashIndex = file.relativePath.lastIndexOf('/');
+      // Check both RPC-level success AND backend-level success (nested in data)
+      const backendData = result.data as
+        | { success?: boolean; error?: { message: string }; files?: unknown[] }
+        | undefined;
+      const backendFailed = backendData?.success === false;
+
+      if (result.success && !backendFailed && backendData?.files) {
+        const files = result.data!.files!;
+        const suggestions: FileSuggestion[] = files.map((file) => {
+          // Normalize Windows backslashes for directory extraction
+          const normalizedPath = file.relativePath.replace(/\\/g, '/');
+          const lastSlashIndex = normalizedPath.lastIndexOf('/');
           const directory =
             lastSlashIndex > 0
-              ? file.relativePath.substring(0, lastSlashIndex)
-              : file.relativePath; // Use full path if no slash or at root
+              ? normalizedPath.substring(0, lastSlashIndex)
+              : '';
+
+          // Extract actual file extension from fileName (not fileType category)
+          const dotIndex = file.fileName.lastIndexOf('.');
+          const ext =
+            dotIndex > 0 ? file.fileName.substring(dotIndex).toLowerCase() : '';
 
           return {
-            // FIXED: Use fsPath (actual file system path) instead of uri (file:///... string)
-            // The attachment processor needs a real file system path to read files
             path: file.fsPath || file.uri,
             name: file.fileName,
             directory,
             type: file.isDirectory ? 'directory' : 'file',
-            extension: file.fileType || undefined,
+            extension: ext || undefined,
             size: file.size,
             lastModified: file.lastModified,
-            isImage: this.imageExtensions.has(`.${file.fileType}`),
-            isText: this.textExtensions.has(`.${file.fileType}`),
+            isImage: this.imageExtensions.has(ext),
+            isText: this.textExtensions.has(ext),
           };
         });
 
         this._workspaceFiles.set(suggestions);
         this._lastUpdate.set(Date.now());
+        console.debug(
+          `[FilePickerService] Loaded ${suggestions.length} workspace files`,
+        );
+      } else {
+        // Extract error from nested backend response or RPC-level error
+        const errorMsg =
+          backendData?.error?.message ||
+          result.error ||
+          'No files returned from workspace';
+        console.warn(
+          `[FilePickerService] context:getAllFiles failed: ${errorMsg}`,
+        );
+        this._fetchError.set(errorMsg);
       }
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       console.error(
         '[FilePickerService] Failed to fetch workspace files:',
-        error
+        error,
       );
+      this._fetchError.set(errorMsg);
     } finally {
       this._isLoading.set(false);
     }
   }
 
   /**
-   * Ensure files are loaded before showing dropdown
-   * TASK_2025_019 Phase 1: Call this when @ is typed
+   * Ensure files are loaded before showing dropdown.
+   * Retries once with backoff for transient errors (skips retry on timeout).
    */
   async ensureFilesLoaded(): Promise<void> {
+    this._fetchError.set(null);
+
     const files = this._workspaceFiles();
     const lastUpdate = this._lastUpdate();
     const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
 
-    // Fetch if: no files OR last update > 5 minutes ago
     if (files.length === 0 || lastUpdate < fiveMinutesAgo) {
       await this.fetchWorkspaceFiles();
+
+      // Retry once with delay — skip if error was a timeout (would just timeout again)
+      const error = this._fetchError();
+      if (
+        this._workspaceFiles().length === 0 &&
+        error &&
+        !error.toLowerCase().includes('timeout')
+      ) {
+        await new Promise((r) => setTimeout(r, 1500));
+        await this.fetchWorkspaceFiles();
+      }
     }
   }
 
@@ -238,7 +291,7 @@ export class FilePickerService {
         (file) =>
           file.name.toLowerCase().includes(searchTerm) ||
           file.path.toLowerCase().includes(searchTerm) ||
-          file.directory.toLowerCase().includes(searchTerm)
+          file.directory.toLowerCase().includes(searchTerm),
       )
       .sort((a, b) => {
         // Sort by relevance - exact name match first
@@ -275,7 +328,7 @@ export class FilePickerService {
    */
   removeFile(filePath: string): void {
     this._includedFiles.update((files) =>
-      files.filter((f) => f.path !== filePath)
+      files.filter((f) => f.path !== filePath),
     );
   }
 

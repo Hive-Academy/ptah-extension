@@ -539,7 +539,14 @@ export class ChatRpcHandlers {
       'chat:start',
       async (params) => {
         try {
-          const { prompt, tabId, workspacePath, options, name } = params;
+          const { prompt, tabId, options, name } = params;
+          // Resolve workspace path: prefer frontend-provided value, fall back to
+          // IWorkspaceProvider (platform-aware). Never rely on process.cwd() which
+          // returns the app installation directory in VS Code/Electron.
+          const workspacePath =
+            params.workspacePath ||
+            this.workspaceProvider.getWorkspaceRoot() ||
+            '';
           this.logger.debug('RPC: chat:start called', {
             tabId,
             workspacePath,
@@ -578,15 +585,10 @@ export class ChatRpcHandlers {
               return { success: true };
             }
 
-            // For /context and /cost on a new session, there's nothing to show
-            await this.webviewManager.broadcastMessage(
-              MESSAGE_TYPES.CHAT_COMPLETE,
-              {
-                tabId,
-                command: interceptResult.commandName,
-                message: `No session data available yet for /${interceptResult.commandName}.`,
-              },
-            );
+            // Other native commands — no-op on fresh session
+            this.logger.warn('[RPC] chat:start - unrecognized native command', {
+              command: interceptResult.commandName,
+            });
             return { success: true };
           }
 
@@ -693,7 +695,13 @@ export class ChatRpcHandlers {
       'chat:continue',
       async (params) => {
         try {
-          const { prompt, sessionId, tabId, workspacePath, name } = params;
+          const { prompt, sessionId, tabId, name } = params;
+          // Resolve workspace path: prefer frontend-provided value, fall back to
+          // IWorkspaceProvider (platform-aware). Mirrors chat:start resolution.
+          const workspacePath =
+            params.workspacePath ||
+            this.workspaceProvider.getWorkspaceRoot() ||
+            '';
           this.logger.debug('RPC: chat:continue called', {
             sessionId,
             tabId,
@@ -1053,12 +1061,10 @@ IMPORTANT INSTRUCTIONS:
         return { success: true, sessionId };
       }
 
-      // /context and /cost — feature not yet available
-      await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_COMPLETE, {
-        tabId,
-        sessionId,
+      // Other native commands — not yet implemented
+      this.logger.warn('[RPC] chat:continue - unrecognized native command', {
         command: interceptResult.commandName,
-        message: `/${interceptResult.commandName} is not yet available in Ptah. This feature is coming in a future update.`,
+        sessionId,
       });
       return { success: true, sessionId };
     }
@@ -1134,13 +1140,18 @@ IMPORTANT INSTRUCTIONS:
       'chat:resume',
       async (params) => {
         try {
-          const { sessionId, workspacePath } = params;
-          const resolvedWorkspacePath = workspacePath || process.cwd();
+          const { sessionId } = params;
+          // Resolve workspace path: prefer frontend-provided, fall back to
+          // IWorkspaceProvider (platform-aware). Mirrors chat:start/continue.
+          const resolvedWorkspacePath =
+            params.workspacePath ||
+            this.workspaceProvider.getWorkspaceRoot() ||
+            '';
           this.logger.info('RPC: chat:resume called', {
             sessionId,
-            workspacePath: workspacePath || '(empty)',
+            workspacePath: params.workspacePath || '(empty)',
             resolvedWorkspacePath,
-            usedFallback: !workspacePath,
+            usedFallback: !params.workspacePath,
             ptahCliId: params.ptahCliId,
           });
 

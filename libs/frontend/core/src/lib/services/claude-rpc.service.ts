@@ -129,7 +129,6 @@ export class ClaudeRpcService implements MessageHandler {
   readonly handledMessageTypes = [MESSAGE_TYPES.RPC_RESPONSE] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
-    console.log('[ClaudeRpcService] Received RPC response:', message);
     this.handleResponse(message as unknown as RpcResponse);
   }
 
@@ -292,21 +291,11 @@ export class ClaudeRpcService implements MessageHandler {
     limit?: number,
     offset?: number,
   ): Promise<RpcResult<SessionListResult>> {
-    console.log(
-      '🔵 [ClaudeRpcService] listSessions() called - Sending RPC request...',
-    );
-    const result = await this.call('session:list', {
+    return this.call('session:list', {
       workspacePath,
       limit,
       offset,
     });
-    console.log('✅ [ClaudeRpcService] listSessions() response:', {
-      success: result.success,
-      sessionCount: result.data?.sessions?.length ?? 0,
-      total: result.data?.total ?? 0,
-      error: result.error,
-    });
-    return result;
   }
 
   /**
@@ -341,15 +330,7 @@ export class ClaudeRpcService implements MessageHandler {
   async deleteSession(
     sessionId: SessionId,
   ): Promise<RpcResult<{ success: boolean; error?: string }>> {
-    console.log(
-      '🗑️ [ClaudeRpcService] deleteSession() called - Sending RPC request...',
-    );
-    const result = await this.call('session:delete', { sessionId });
-    console.log('✅ [ClaudeRpcService] deleteSession() response:', {
-      success: result.success,
-      error: result.error,
-    });
-    return result;
+    return this.call('session:delete', { sessionId });
   }
 
   /**
@@ -379,15 +360,6 @@ export class ClaudeRpcService implements MessageHandler {
    * @returns Promise with array of SubagentRecord
    */
   async querySubagents(): Promise<RpcResult<SubagentQueryResult>> {
-    console.log(
-      '🔍 [ClaudeRpcService] querySubagents() called - Sending RPC request...',
-    );
-    const result = await this.call('chat:subagent-query', {});
-    console.log('✅ [ClaudeRpcService] querySubagents() response:', {
-      success: result.success,
-      count: result.data?.subagents?.length ?? 0,
-      error: result.error,
-    });
-    return result;
+    return this.call('chat:subagent-query', {});
   }
 }

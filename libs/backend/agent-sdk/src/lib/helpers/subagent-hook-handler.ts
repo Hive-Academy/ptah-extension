@@ -62,7 +62,7 @@ export class SubagentHookHandler {
     @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
     private readonly agentWatcher: AgentSessionWatcherService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
-    private readonly subagentRegistry: SubagentRegistryService
+    private readonly subagentRegistry: SubagentRegistryService,
   ) {}
 
   /**
@@ -90,7 +90,7 @@ export class SubagentHookHandler {
    */
   createHooks(
     workspacePath: string,
-    parentSessionId?: string
+    parentSessionId?: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     // FIX: Capture parentSessionId in closure instead of storing on instance
     // This prevents concurrent session corruption (multiple sessions would overwrite)
@@ -109,7 +109,7 @@ export class SubagentHookHandler {
             async (
               input: HookInput,
               toolUseId: string | undefined,
-              _options: { signal: AbortSignal }
+              _options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
               // DIAGNOSTIC: Log that the hook was actually invoked by SDK
               this.logger.info(
@@ -119,7 +119,7 @@ export class SubagentHookHandler {
                   toolUseId,
                   sessionId: input.session_id,
                   parentSessionId: capturedParentSessionId,
-                }
+                },
               );
 
               // Use type guard instead of type assertion for type safety
@@ -129,7 +129,7 @@ export class SubagentHookHandler {
                   {
                     expected: 'SubagentStart',
                     received: input.hook_event_name,
-                  }
+                  },
                 );
                 return { continue: true };
               }
@@ -138,7 +138,7 @@ export class SubagentHookHandler {
                 input,
                 toolUseId,
                 workspacePath,
-                capturedParentSessionId
+                capturedParentSessionId,
               );
             },
           ],
@@ -150,7 +150,7 @@ export class SubagentHookHandler {
             async (
               input: HookInput,
               toolUseId: string | undefined,
-              _options: { signal: AbortSignal }
+              _options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
               // DIAGNOSTIC: Log that the hook was actually invoked by SDK
               this.logger.info(
@@ -159,7 +159,7 @@ export class SubagentHookHandler {
                   hookEventName: input.hook_event_name,
                   toolUseId,
                   sessionId: input.session_id,
-                }
+                },
               );
 
               // Use type guard instead of type assertion for type safety
@@ -169,7 +169,7 @@ export class SubagentHookHandler {
                   {
                     expected: 'SubagentStop',
                     received: input.hook_event_name,
-                  }
+                  },
                 );
                 return { continue: true };
               }
@@ -209,7 +209,7 @@ export class SubagentHookHandler {
     input: SubagentStartHookInput,
     toolUseId: string | undefined,
     workspacePath: string,
-    parentSessionId?: string
+    parentSessionId?: string,
   ): Promise<HookJSONOutput> {
     try {
       this.logger.debug('[SubagentHookHandler] SubagentStart received', {
@@ -228,7 +228,7 @@ export class SubagentHookHandler {
         input.session_id,
         workspacePath,
         input.agent_type,
-        toolUseId
+        toolUseId,
       );
 
       // TASK_2025_103: Register subagent with registry for resumption tracking
@@ -253,7 +253,7 @@ export class SubagentHookHandler {
             sessionId: input.session_id,
             agentType: input.agent_type,
             parentSessionId,
-          }
+          },
         );
       } else {
         this.logger.debug(
@@ -261,7 +261,7 @@ export class SubagentHookHandler {
           {
             hasToolUseId: !!toolUseId,
             hasParentSessionId: !!parentSessionId,
-          }
+          },
         );
       }
 
@@ -269,13 +269,13 @@ export class SubagentHookHandler {
         '[SubagentHookHandler] SubagentStart processed successfully',
         {
           agentId: input.agent_id,
-        }
+        },
       );
     } catch (error) {
       // CRITICAL: Never throw from hooks - it would break SDK
       this.logger.error(
         '[SubagentHookHandler] Error in SubagentStart hook',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
 
@@ -303,7 +303,7 @@ export class SubagentHookHandler {
    */
   private async handleSubagentStop(
     input: SubagentStopHookInput,
-    toolUseId: string | undefined
+    toolUseId: string | undefined,
   ): Promise<HookJSONOutput> {
     try {
       this.logger.debug('[SubagentHookHandler] SubagentStop received', {
@@ -318,35 +318,61 @@ export class SubagentHookHandler {
         this.agentWatcher.setToolUseId(input.agent_id, toolUseId);
       }
 
-      // Check if this is a background agent
-      const record = toolUseId ? this.subagentRegistry.get(toolUseId) : null;
+      // FIX: Resolve the registry record using toolUseId first, then agentId fallback.
+      // The SDK may provide different toolUseId formats between SubagentStart (UUID)
+      // and SubagentStop (toolu_* format), causing registry.get(toolUseId) to miss.
+      // The agentId (short hex, e.g., "a329b32") is stable across both hooks.
+      let resolvedToolCallId = toolUseId ?? undefined;
+      let record = resolvedToolCallId
+        ? this.subagentRegistry.get(resolvedToolCallId)
+        : null;
+
+      if (!record && input.agent_id) {
+        const fallbackId = this.subagentRegistry.getToolCallIdByAgentId(
+          input.agent_id,
+        );
+        if (fallbackId) {
+          record = this.subagentRegistry.get(fallbackId);
+          if (record) {
+            this.logger.info(
+              '[SubagentHookHandler] Used agentId fallback to resolve registry record',
+              {
+                originalToolUseId: toolUseId,
+                resolvedToolCallId: fallbackId,
+                agentId: input.agent_id,
+              },
+            );
+            resolvedToolCallId = fallbackId;
+          }
+        }
+      }
+
       const isBackground = record?.isBackground === true;
 
-      if (isBackground) {
+      if (isBackground && resolvedToolCallId) {
         // Background agent completed - emit completion event via watcher
         // and mark as background_completed in registry
         this.logger.info(
           '[SubagentHookHandler] Background subagent completed',
           {
-            toolCallId: toolUseId,
+            toolCallId: resolvedToolCallId,
             agentId: input.agent_id,
             agentType: record?.agentType,
-          }
+          },
         );
 
         // Emit background agent completed event through watcher
-        // toolUseId is guaranteed non-null here because record was obtained via `this.subagentRegistry.get(toolUseId)` which requires toolUseId to be truthy
         this.agentWatcher.emitBackgroundAgentCompleted(
           input.agent_id,
-          toolUseId as string,
-          record?.agentType
+          resolvedToolCallId,
+          record?.agentType,
         );
 
         // Stop watching (now that completion event is emitted)
         this.agentWatcher.stopWatching(input.agent_id);
 
         // Mark as background_completed (deletes from registry)
-        this.subagentRegistry.update(toolUseId as string, {
+        this.subagentRegistry.update(resolvedToolCallId, {
           status: 'background_completed',
           completedAt: Date.now(),
         });
@@ -355,15 +381,18 @@ export class SubagentHookHandler {
         this.agentWatcher.stopWatching(input.agent_id);
 
         // TASK_2025_103: Mark subagent as completed in registry
-        if (toolUseId) {
-          this.subagentRegistry.update(toolUseId, { status: 'completed' });
+        if (resolvedToolCallId) {
+          this.subagentRegistry.update(resolvedToolCallId, {
+            status: 'completed',
+          });
 
           this.logger.info(
             '[SubagentHookHandler] Subagent marked as completed in registry',
             {
-              toolCallId: toolUseId,
+              toolCallId: resolvedToolCallId,
               agentId: input.agent_id,
-            }
+              usedFallback: resolvedToolCallId !== toolUseId,
+            },
           );
         }
       }
@@ -374,13 +403,13 @@ export class SubagentHookHandler {
           agentId: input.agent_id,
           toolUseId,
           isBackground,
-        }
+        },
       );
     } catch (error) {
       // CRITICAL: Never throw from hooks - it would break SDK
       this.logger.error(
         '[SubagentHookHandler] Error in SubagentStop hook',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
 

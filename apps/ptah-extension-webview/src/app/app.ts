@@ -53,27 +53,17 @@ export class App implements OnInit, OnDestroy {
 
   // ANGULAR 20 PATTERN: Computed signals for derived state
   public readonly isReady = computed(() => {
-    const status = this.initializationStatus();
-    const ready = status === 'ready';
-    console.log('🔍 [App] isReady computed:', {
-      initializationStatus: status,
-      isReady: ready,
-    });
-    return ready;
+    return this.initializationStatus() === 'ready';
   });
 
   public readonly hasError = computed(
-    () => this.initializationStatus() === 'error'
+    () => this.initializationStatus() === 'error',
   );
   public readonly isInitializing = computed(
-    () => this.initializationStatus() === 'initializing'
+    () => this.initializationStatus() === 'initializing',
   );
 
   public async ngOnInit(): Promise<void> {
-    console.log('=================================================');
-    console.log('PTAH APP NGONINIT STARTING');
-    console.log('=================================================');
-
     this.initializationStatus.set('initializing');
 
     try {
@@ -92,21 +82,16 @@ export class App implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    console.log('Ptah App - disposing...');
     this.destroy$.next();
     this.destroy$.complete();
     this.appState.setConnected(false);
   }
 
   public async onViewChanged(view: ViewType): Promise<void> {
-    console.log('Ptah App - View changed to:', view);
-
     // Use navigation service for reliable navigation
     const success = await this.navigationService.navigateToView(view);
 
-    if (success) {
-      console.log(`Ptah App - Navigation to ${view} completed successfully`);
-    } else {
+    if (!success) {
       console.error(`Ptah App - Navigation to ${view} failed`);
       // Show user-friendly error message
       this.appState.handleError(`Failed to navigate to ${view}`);
@@ -116,8 +101,6 @@ export class App implements OnInit, OnDestroy {
   // REMOVED: setupRouterLogging - no longer using Angular Router
 
   private async handleInitialView(): Promise<void> {
-    console.log('Setting up initial view with pure signal navigation');
-
     // Check for initialView in ptahConfig (set by extension for specific views like wizard)
     const ptahConfig = (
       window as unknown as { ptahConfig?: { initialView?: string } }
@@ -134,6 +117,7 @@ export class App implements OnInit, OnDestroy {
       'settings',
       'setup-wizard',
       'welcome',
+      'orchestra-canvas',
     ];
     const isValidView =
       rawInitialView && VALID_VIEWS.includes(rawInitialView as ViewType);
@@ -146,20 +130,15 @@ export class App implements OnInit, OnDestroy {
     if (rawInitialView && !isValidView) {
       console.warn(
         `Invalid initialView "${rawInitialView}" in ptahConfig. Valid values are: ${VALID_VIEWS.join(
-          ', '
-        )}. Defaulting to 'chat'.`
+          ', ',
+        )}. Defaulting to 'chat'.`,
       );
     }
-
-    console.log(`Initial view target: ${targetView}`, {
-      fromConfig: !!rawInitialView,
-      wasValid: isValidView,
-    });
 
     const success = await this.navigationService.navigateToView(targetView);
     if (!success) {
       console.warn(
-        `Initial navigation to ${targetView} failed, using fallback`
+        `Initial navigation to ${targetView} failed, using fallback`,
       );
       this.appState.setCurrentView(targetView);
     }

@@ -59,8 +59,6 @@ export class KeyboardShortcutsService {
             break;
         }
       });
-
-    console.log('[KeyboardShortcuts] Global shortcuts initialized');
   }
 
   /**
@@ -69,7 +67,6 @@ export class KeyboardShortcutsService {
   private createNewTab(): void {
     const newTabId = this.tabManager.createTab();
     this.tabManager.switchTab(newTabId);
-    console.log('[KeyboardShortcuts] New tab created via shortcut:', newTabId);
   }
 
   /**
@@ -79,10 +76,6 @@ export class KeyboardShortcutsService {
     const activeId = this.tabManager.activeTabId();
     if (activeId) {
       this.tabManager.closeTab(activeId);
-      console.log(
-        '[KeyboardShortcuts] Active tab closed via shortcut:',
-        activeId
-      );
     }
   }
 
@@ -102,10 +95,5 @@ export class KeyboardShortcutsService {
     // Wrap around using modulo
     const nextIndex = (currentIndex + direction + tabs.length) % tabs.length;
     this.tabManager.switchTab(tabs[nextIndex].id);
-    console.log(
-      '[KeyboardShortcuts] Cycled to tab:',
-      nextIndex,
-      direction === 1 ? '(next)' : '(previous)'
-    );
   }
 }

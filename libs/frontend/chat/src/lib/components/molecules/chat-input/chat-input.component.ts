@@ -17,6 +17,8 @@ import {
   Clock,
   X,
   ImageIcon,
+  Paperclip,
+  ImagePlus,
 } from 'lucide-angular';
 import {
   InlineImageAttachment,
@@ -165,9 +167,28 @@ interface PastedImage {
       <div class="flex items-end gap-2">
         <!-- Textarea + Suggestions Dropdown -->
         <div class="relative flex-1">
+          <!-- Attachment buttons overlaid at top-right of textarea -->
+          <div class="absolute top-1.5 right-2 z-10 flex items-center gap-0.5">
+            <button
+              class="btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content/80"
+              (click)="handleAttachFiles()"
+              title="Attach files"
+              type="button"
+            >
+              <lucide-angular [img]="PaperclipIcon" class="w-3.5 h-3.5" />
+            </button>
+            <button
+              class="btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content/80"
+              (click)="handleAttachImages()"
+              title="Attach images"
+              type="button"
+            >
+              <lucide-angular [img]="ImagePlusIcon" class="w-3.5 h-3.5" />
+            </button>
+          </div>
           <textarea
             #inputElement
-            class="textarea textarea-bordered flex-1 min-h-[2.5rem] max-h-[10rem] resize-none transition-colors w-full"
+            class="textarea textarea-bordered flex-1 min-h-[2.5rem] max-h-[10rem] resize-none transition-colors w-full pr-16"
             [class.border-info]="
               autopilotState.agentPlanMode() ||
               autopilotState.permissionLevel() === 'plan'
@@ -210,6 +231,7 @@ interface PastedImage {
               [overlayOrigin]="textareaOrigin()!"
               [suggestions]="filteredSuggestions()"
               [isLoading]="isLoadingSuggestions()"
+              [errorMessage]="filePickerError()"
               (suggestionSelected)="handleSuggestionSelected($event)"
               (closed)="closeSuggestions()"
             />
@@ -310,8 +332,8 @@ export class ChatInputComponent implements OnInit {
    * tab shows streaming spinner. Now both use the visual streaming indicator.
    */
   readonly isActiveTabStreaming = computed(() => {
-    const activeTab = this.chatStore.activeTab();
-    return activeTab ? this.tabManager.isTabStreaming(activeTab.id) : false;
+    const tabId = this.tabManager.activeTabId();
+    return tabId ? this.tabManager.isTabStreaming(tabId) : false;
   });
 
   // Signal-based viewChild references (Angular 20+ pattern)
@@ -339,6 +361,8 @@ export class ChatInputComponent implements OnInit {
   readonly ClockIcon = Clock;
   readonly XIcon = X;
   readonly ImageIconRef = ImageIcon;
+  readonly PaperclipIcon = Paperclip;
+  readonly ImagePlusIcon = ImagePlus;
 
   // Session tracking for proper change detection (avoid clearing cache on every stream event)
   private _lastSessionId: string | null = null;
@@ -359,6 +383,8 @@ export class ChatInputComponent implements OnInit {
   private readonly _pastedImages = signal<PastedImage[]>([]);
   private readonly _isDraggingOver = signal(false);
   private readonly _isLoadingSuggestions = signal(false);
+  private readonly _isPickingFiles = signal(false);
+  private readonly _isPickingImages = signal(false);
 
   // Public signals
   readonly currentMessage = this._currentMessage.asReadonly();
@@ -372,7 +398,15 @@ export class ChatInputComponent implements OnInit {
   readonly canSend = computed(
     () =>
       this.currentMessage().trim().length > 0 ||
-      this._pastedImages().length > 0,
+      this._pastedImages().length > 0 ||
+      this._selectedFiles().length > 0,
+  );
+
+  /** Expose fetch error only when in @ mode (not stale from previous mode) */
+  readonly filePickerError = computed(() =>
+    this._suggestionMode() === 'at-trigger'
+      ? this.filePicker.fetchError()
+      : null,
   );
 
   /**
@@ -384,8 +418,8 @@ export class ChatInputComponent implements OnInit {
 
   // Check if there's queued content waiting to be sent
   readonly hasQueuedContent = computed(() => {
-    const tab = this.chatStore.activeTab();
-    return !!tab?.queuedContent?.trim();
+    const queued = this.tabManager.activeTabQueuedContent();
+    return !!queued?.trim();
   });
 
   /**
@@ -494,6 +528,77 @@ export class ChatInputComponent implements OnInit {
    */
   removePastedImage(id: string): void {
     this._pastedImages.update((imgs) => imgs.filter((img) => img.id !== id));
+  }
+
+  /**
+   * Open native file picker to attach workspace files.
+   * Uses RPC to bypass webview sandbox limitation.
+   */
+  async handleAttachFiles(): Promise<void> {
+    if (this._isPickingFiles()) return;
+    this._isPickingFiles.set(true);
+    try {
+      const result = await this.rpcService.call('file:pick', {
+        multiple: true,
+      });
+      if (!result.success || !result.data?.files?.length) return;
+
+      for (const file of result.data.files) {
+        // Skip if already attached
+        if (this._selectedFiles().some((f) => f.path === file.path)) continue;
+
+        const name =
+          file.path.replace(/\\/g, '/').split('/').pop() || file.path;
+        const isLarge = file.size > 1024 * 1024; // > 1MB
+        const isText = this.filePicker.isFileSupported(file.path);
+
+        const chatFile: ChatFile = {
+          path: file.path,
+          name,
+          size: file.size,
+          type: isText ? 'text' : 'binary',
+          isLarge,
+          tokenEstimate: isText ? Math.ceil(file.size / 4) : 0,
+        };
+
+        this._selectedFiles.update((files) => [...files, chatFile]);
+      }
+    } catch (error) {
+      console.error('[ChatInput] Failed to pick files:', error);
+    } finally {
+      this._isPickingFiles.set(false);
+    }
+  }
+
+  /**
+   * Open native file picker to attach images.
+   * Uses RPC to bypass webview sandbox limitation - reads images as base64.
+   */
+  async handleAttachImages(): Promise<void> {
+    if (this._isPickingImages()) return;
+    this._isPickingImages.set(true);
+    try {
+      const result = await this.rpcService.call('file:pick-images', {
+        multiple: true,
+      });
+      if (!result.success || !result.data?.images?.length) return;
+
+      for (const img of result.data.images) {
+        const pastedImage: PastedImage = {
+          id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          data: img.data,
+          mediaType: img.mediaType,
+          dataUrl: `data:${img.mediaType};base64,${img.data}`,
+          name: img.name,
+        };
+
+        this._pastedImages.update((imgs) => [...imgs, pastedImage]);
+      }
+    } catch (error) {
+      console.error('[ChatInput] Failed to pick images:', error);
+    } finally {
+      this._isPickingImages.set(false);
+    }
   }
 
   /**
@@ -968,13 +1073,6 @@ export class ChatInputComponent implements OnInit {
   restoreContentToInput(content: string): void {
     // FIX #2: Only restore if current message is empty (prevent overwriting user typing)
     if (this._currentMessage().trim()) {
-      console.log(
-        '[ChatInputComponent] Skipping restoration - input not empty',
-        {
-          currentLength: this._currentMessage().length,
-          queueLength: content.length,
-        },
-      );
       return;
     }
 
@@ -987,59 +1085,41 @@ export class ChatInputComponent implements OnInit {
       textarea.style.height = 'auto';
       textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
     }
-
-    console.log('[ChatInputComponent] Content restored to input', {
-      length: content.length,
-    });
   }
 
   constructor() {
     // Listen for queue-to-input restoration signal
-    // FIX #3: Validate tab ID to ensure content goes to correct tab
-    effect(() => {
-      const restoreData = this.chatStore.queueRestoreContent();
-      if (restoreData) {
-        // FIX #3: Verify tab ID matches active tab
-        const activeTab = this.chatStore.activeTab();
-        if (activeTab && activeTab.id === restoreData.tabId) {
-          this.restoreContentToInput(restoreData.content);
-          console.log('[ChatInputComponent] Queue restored to correct tab', {
-            tabId: restoreData.tabId,
-          });
-        } else {
-          console.log(
-            '[ChatInputComponent] Skipping restoration - tab mismatch',
-            {
-              restoreTabId: restoreData.tabId,
-              activeTabId: activeTab?.id,
-            },
-          );
-        }
-        // Clear signal after restoration (or rejection)
-        this.chatStore.clearQueueRestoreSignal();
-      }
-    });
-
-    // Session change monitoring - clear command cache on session change
-    // FIX: Track session ID (primitive) to avoid clearing cache on every stream event
-    // Previously, watching activeTab() cleared cache 220+ times per streaming session
-    // because updateTab() causes activeTab() to return a new object reference
+    // Validate tab ID to ensure content goes to correct tab
     effect(
       () => {
-        const activeTab = this.chatStore.activeTab();
-        const currentSessionId = activeTab?.id ?? null;
+        const restoreData = this.chatStore.queueRestoreContent();
+        if (restoreData) {
+          // Verify tab ID matches active tab before restoring
+          const activeTabId = this.tabManager.activeTabId();
+          if (activeTabId && activeTabId === restoreData.tabId) {
+            this.restoreContentToInput(restoreData.content);
+          }
+          // Clear signal after processing to prevent re-firing on activeTab() changes
+          this.chatStore.clearQueueRestoreSignal();
+        }
+      },
+      { allowSignalWrites: true },
+    );
 
-        // Only clear cache when session ID actually changes
-        if (currentSessionId !== this._lastSessionId) {
-          if (this._lastSessionId !== null && currentSessionId !== null) {
+    // Session change monitoring - clear command cache on session change
+    // Uses activeTabId() fine-grained selector so this effect only re-runs
+    // when the active tab actually changes, not on every streaming tick.
+    effect(
+      () => {
+        const currentTabId = this.tabManager.activeTabId();
+
+        // Only clear cache when tab ID actually changes
+        if (currentTabId !== this._lastSessionId) {
+          if (this._lastSessionId !== null && currentTabId !== null) {
             // Clear command autocomplete cache on session switch
             this.commandDiscovery.clearCache();
-            console.log('[ChatInputComponent] Session changed, cache cleared', {
-              from: this._lastSessionId,
-              to: currentSessionId,
-            });
           }
-          this._lastSessionId = currentSessionId;
+          this._lastSessionId = currentTabId;
         }
       },
       { allowSignalWrites: true },

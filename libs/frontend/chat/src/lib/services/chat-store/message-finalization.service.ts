@@ -65,21 +65,6 @@ export class MessageFinalizationService {
     // Deep-copy state to prevent race condition (TASK_2025_084 Batch 1 Task 1.3)
     const stateCopy = this.deepCopyStreamingState(streamingState);
 
-    // DIAGNOSTIC: Log accumulator state at finalization time
-    const textKeys = [...stateCopy.textAccumulators.keys()].filter((k) =>
-      k.includes('-block-'),
-    );
-    const thinkKeys = [...stateCopy.textAccumulators.keys()].filter((k) =>
-      k.includes('-thinking-'),
-    );
-    console.log('[Finalization] Building final tree from state:', {
-      eventCount: stateCopy.events.size,
-      messageIds: stateCopy.messageEventIds.length,
-      textAccumulatorKeys: textKeys,
-      thinkingAccumulatorKeys: thinkKeys,
-      totalAccumulators: stateCopy.textAccumulators.size,
-    });
-
     // Build final tree using ExecutionTreeBuilderService (TASK_2025_082 Batch 6)
     // PERFORMANCE: Use unique cache key for finalization to avoid stale cache
     const cacheKey = `finalize-${targetTabId}-${Date.now()}`;
@@ -471,9 +456,6 @@ export class MessageFinalizationService {
     };
 
     this.tabManager.updateTab(tabId, { messages: updatedMessages });
-    console.log(
-      '[MessageFinalizationService] Marked last agent as interrupted (hard deny)',
-    );
   }
 
   /**
@@ -548,10 +530,6 @@ export class MessageFinalizationService {
     };
 
     this.tabManager.updateTab(tabId, { messages: updatedMessages });
-    console.log(
-      '[MessageFinalizationService] Marked agents as interrupted by toolCallIds',
-      { toolCallIds: [...toolCallIds] },
-    );
   }
 
   /**

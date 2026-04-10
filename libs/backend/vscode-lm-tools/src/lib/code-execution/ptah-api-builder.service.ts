@@ -25,6 +25,7 @@
  * TASK_2025_244: Added browser namespace (15 total)
  */
 
+import * as os from 'os';
 import { injectable, inject, container } from 'tsyringe';
 import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
@@ -35,7 +36,6 @@ import type {
   IDiagnosticsProvider,
   ISecretStorage,
 } from '@ptah-extension/platform-core';
-import { MESSAGE_TYPES, type PermissionResponse } from '@ptah-extension/shared';
 import {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
@@ -51,8 +51,7 @@ import {
   ContextEnrichmentService,
   DependencyGraphService,
 } from '@ptah-extension/workspace-intelligence';
-import type { PtahAPI, BrowserWaitForUserResult } from './types';
-import type { PermissionPromptService } from '../permission/permission-prompt.service';
+import type { PtahAPI } from './types';
 import { WebSearchService } from './services/web-search.service';
 import {
   // Core namespace builders
@@ -267,10 +266,13 @@ export class PtahAPIBuilder {
       workspaceProvider: this.workspaceProvider,
     };
 
-    // Get workspace root for orchestration namespace
-    const workspaceRoot = this.getWorkspaceRoot();
+    // Lazy workspace root for orchestration namespace — resolved at call time
+    // so it stays current when the user switches workspace folders.
+    const getWorkspaceRootLazy = () => this.getWorkspaceRoot();
     const orchestrationDeps = {
-      workspaceRoot,
+      get workspaceRoot() {
+        return getWorkspaceRootLazy();
+      },
     };
 
     return {
@@ -326,7 +328,7 @@ export class PtahAPIBuilder {
         buildAgentNamespace({
           agentProcessManager: this.agentProcessManager,
           cliDetectionService: this.cliDetectionService,
-          workspaceRoot,
+          getWorkspaceRoot: () => this.getWorkspaceRoot(),
           getActiveSessionId: () => {
             // SessionLifecycleManager.getActiveSessionIds() returns all active sessions.
             // In single-session mode (current), there's at most one.
@@ -343,6 +345,21 @@ export class PtahAPIBuilder {
               return ids.length > 0 ? (ids[0] as string) : undefined;
             } catch {
               return undefined;
+            }
+          },
+          resolveSessionId: (tabIdOrSessionId: string) => {
+            // Resolve tab ID → real SDK UUID via SessionLifecycleManager.
+            // Used by MCP session threading to map tab_xxx → real-uuid.
+            if (!container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
+              return tabIdOrSessionId;
+            }
+            try {
+              const manager = container.resolve<{
+                getResolvedSessionId(id: string): string;
+              }>(SDK_SESSION_LIFECYCLE_MANAGER);
+              return manager.getResolvedSessionId(tabIdOrSessionId);
+            } catch {
+              return tabIdOrSessionId;
             }
           },
           getProjectGuidance: async () => {
@@ -485,7 +502,7 @@ export class PtahAPIBuilder {
       // to the frontend when MCP tools create/remove worktrees.
       git: this.buildNamespaceSafe('git', () =>
         buildGitNamespace({
-          workspaceRoot,
+          getWorkspaceRoot: getWorkspaceRootLazy,
           onWorktreeChanged: this.buildWorktreeChangeHandler(),
         }),
       ),
@@ -512,8 +529,6 @@ export class PtahAPIBuilder {
               false,
             ) ?? false,
           // Note: recordingDir is configured via capabilities constructor, not namespace deps
-          // Wait-for-user handler (VS Code only, undefined in Electron)
-          waitForUser: this.buildWaitForUserHandler(),
         }),
       ),
 
@@ -578,16 +593,41 @@ export class PtahAPIBuilder {
   }
 
   /**
-   * Get the workspace root path
-   * Falls back to current working directory if no workspace is open
+   * Get workspace root, preferring the active SDK session's projectPath.
+   *
+   * Resolution order:
+   * 1. Active session's projectPath (per-session accuracy for multi-workspace)
+   * 2. IWorkspaceProvider.getWorkspaceRoot() (platform-level: active editor folder or Electron active folder)
+   * 3. Empty string (never process.cwd() — that's the app installation directory)
+   *
+   * This ensures MCP tools (ptah_agent_spawn, git worktrees, orchestration) operate
+   * in the correct project directory even when multiple workspaces are open in Electron
+   * or multiple sessions target different workspace folders.
    */
   private getWorkspaceRoot(): string {
+    // 1. Try the active SDK session's workspace (most accurate in multi-session scenarios)
+    try {
+      if (container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
+        const manager = container.resolve<{
+          getActiveSessionWorkspace(): string | undefined;
+        }>(SDK_SESSION_LIFECYCLE_MANAGER);
+        const sessionWorkspace = manager.getActiveSessionWorkspace();
+        if (sessionWorkspace) {
+          return sessionWorkspace;
+        }
+      }
+    } catch {
+      // SessionLifecycleManager not available yet — fall through
+    }
+
+    // 2. Platform workspace provider (active editor folder in VS Code, active folder in Electron)
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
     if (workspaceRoot) {
       return workspaceRoot;
     }
-    // Fallback to current working directory
-    return process.cwd();
+
+    // 3. Safe fallback — never process.cwd() (that's the app install directory)
+    return os.homedir();
   }
 
   /**
@@ -680,149 +720,5 @@ export class PtahAPIBuilder {
     } catch {
       return undefined;
     }
-  }
-
-  /**
-   * Build the wait-for-user handler for browser automation (TASK_2025_254).
-   *
-   * In VS Code, this uses WebviewManager + PermissionPromptService to prompt the user
-   * via the webview UI (same pattern as approval_prompt in approval-prompt.handler.ts).
-   *
-   * In Electron, WebviewManager is not registered, so this returns undefined.
-   * The Electron DI container provides its own waitForUser via dialog.showMessageBox.
-   *
-   * @returns Wait-for-user async handler, or undefined when WebviewManager is absent
-   */
-  private buildWaitForUserHandler():
-    | ((params: {
-        message: string;
-        timeout?: number;
-      }) => Promise<BrowserWaitForUserResult>)
-    | undefined {
-    // Guard: WebviewManager is only available in VS Code
-    if (!container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
-      return undefined;
-    }
-
-    let webviewManager: WebviewManager;
-    let permissionService: PermissionPromptService;
-
-    try {
-      webviewManager = container.resolve<WebviewManager>(
-        TOKENS.WEBVIEW_MANAGER,
-      );
-      permissionService = container.resolve<PermissionPromptService>(
-        TOKENS.PERMISSION_PROMPT_SERVICE,
-      );
-    } catch {
-      return undefined;
-    }
-
-    const logger = this.logger;
-
-    return async (params: {
-      message: string;
-      timeout?: number;
-    }): Promise<BrowserWaitForUserResult> => {
-      const startTime = Date.now();
-      const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-      const timeoutMs = params.timeout ?? DEFAULT_TIMEOUT_MS;
-
-      try {
-        // 1. Create a permission request using the established pattern
-        //    (mirrors approval-prompt.handler.ts flow)
-        const permissionRequest = permissionService.createRequest({
-          tool_name: 'browser_wait_for_user',
-          input: { message: params.message } as Readonly<
-            Record<string, unknown>
-          >,
-        });
-
-        // 2. Create Promise that will be resolved when user responds
-        const responsePromise = new Promise<PermissionResponse>((resolve) => {
-          permissionService.setPendingResolver(
-            permissionRequest.id,
-            resolve,
-            permissionRequest,
-          );
-        });
-
-        // 3. Send permission request to webview via WebviewManager
-        await webviewManager.sendMessage(
-          'ptah.main',
-          MESSAGE_TYPES.PERMISSION_REQUEST,
-          permissionRequest,
-        );
-
-        // 4. Race between user response and timeout
-        let timeoutId: ReturnType<typeof setTimeout> | undefined;
-        const timeoutPromise = new Promise<'timeout'>((resolve) => {
-          timeoutId = setTimeout(() => resolve('timeout'), timeoutMs);
-        });
-
-        const result = await Promise.race([responsePromise, timeoutPromise]);
-
-        // Always clear the timeout to prevent timer leak
-        if (timeoutId !== undefined) {
-          clearTimeout(timeoutId);
-        }
-
-        const waitDurationMs = Date.now() - startTime;
-
-        if (result === 'timeout') {
-          // Cleanup the pending resolver to avoid stale prompts
-          permissionService.removePendingResolver(permissionRequest.id);
-          logger.info('Wait-for-user timed out', {
-            timeoutMs,
-            waitDurationMs,
-          });
-          return {
-            ready: false,
-            reason: `Timed out after ${Math.round(timeoutMs / 1000)}s waiting for user`,
-            waitDurationMs,
-          };
-        }
-
-        // User responded
-        const response = result as PermissionResponse;
-        if (
-          response.decision === 'allow' ||
-          response.decision === 'always_allow'
-        ) {
-          logger.info('Wait-for-user: user signaled ready', {
-            id: response.id,
-            waitDurationMs,
-          });
-          return {
-            ready: true,
-            waitDurationMs,
-          };
-        } else {
-          logger.info('Wait-for-user: user cancelled', {
-            id: response.id,
-            reason: response.reason,
-            waitDurationMs,
-          });
-          return {
-            ready: false,
-            reason: response.reason || 'User cancelled the wait',
-            waitDurationMs,
-          };
-        }
-      } catch (error) {
-        const waitDurationMs = Date.now() - startTime;
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        logger.error('Wait-for-user handler failed', {
-          error: errorMessage,
-          waitDurationMs,
-        });
-        return {
-          ready: false,
-          waitDurationMs,
-          error: `Wait-for-user failed: ${errorMessage}`,
-        };
-      }
-    };
   }
 }
