@@ -14,9 +14,8 @@
 # to release/electron (which would re-trigger this workflow in an infinite loop).
 # A commit message filter provides extra safety.
 #
-# Phase 1: Unsigned builds — no code signing secrets configured.
-# Users will see platform warnings ("unidentified developer") until
-# code signing is added in a future phase.
+# Windows builds are signed with SSL.com eSigner (IV code signing certificate).
+# macOS and Linux builds are unsigned — macOS signing requires an Apple Developer account.
 
 name: Publish Electron
 
@@ -181,6 +180,39 @@ jobs:
           # _CL_ is for MSVC (Windows), CXXFLAGS is for GCC/Clang (Linux/macOS)
           _CL_: ${{ runner.os == 'Windows' && '/std:c++20' || '' }}
           CXXFLAGS: ${{ runner.os != 'Windows' && '-std=c++20' || '' }}
+
+      - name: Sign Windows installer with SSL.com eSigner
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          SSL_COM_USERNAME: ${{ secrets.SSL_COM_USERNAME }}
+          SSL_COM_PASSWORD: ${{ secrets.SSL_COM_PASSWORD }}
+          SSL_COM_TOTP_SECRET: ${{ secrets.SSL_COM_TOTP_SECRET }}
+        run: |
+          # Download CodeSignTool for Windows
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest -Uri "https://www.ssl.com/download/codesigntool-for-windows/" -OutFile "CodeSignTool.zip"
+          Expand-Archive "CodeSignTool.zip" -DestinationPath ".\codesigntool" -Force
+
+          # Find CodeSignTool.bat (may be nested in a subdirectory)
+          $cst = (Get-ChildItem -Path ".\codesigntool" -Recurse -Filter "CodeSignTool.bat" | Select-Object -First 1).FullName
+          if (-not $cst) { throw "CodeSignTool.bat not found in downloaded archive" }
+
+          # Find the .exe installer
+          $exe = (Get-ChildItem -Path "dist\release" -Filter "*.exe" | Select-Object -First 1).FullName
+          if (-not $exe) { throw "No .exe installer found to sign" }
+          Write-Host "Signing: $exe"
+
+          # Sign the installer (-override replaces the file in place)
+          & cmd /c $cst sign `
+            -username="$env:SSL_COM_USERNAME" `
+            -password="$env:SSL_COM_PASSWORD" `
+            -totp_secret="$env:SSL_COM_TOTP_SECRET" `
+            -input_file_path="$exe" `
+            -override
+
+          if ($LASTEXITCODE -ne 0) { throw "Code signing failed with exit code $LASTEXITCODE" }
+          Write-Host "Successfully signed: $exe"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

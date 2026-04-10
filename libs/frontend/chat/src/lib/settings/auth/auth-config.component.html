@@ -57,6 +57,10 @@
               <lucide-angular [img]="GithubIcon" class="w-4 h-4" />
             } @else if (provider.id === 'openai-codex') {
               <lucide-angular [img]="TerminalIcon" class="w-4 h-4" />
+            } @else if (
+              provider.id === 'ollama' || provider.id === 'lm-studio'
+            ) {
+              <lucide-angular [img]="ServerIcon" class="w-4 h-4" />
             } @else if (provider.id === 'moonshot') {
               <lucide-angular [img]="SparklesIcon" class="w-4 h-4" />
             } @else if (provider.id === 'zai') {
@@ -78,6 +82,16 @@
                 <span
                   class="absolute -top-1 -right-1.5 badge badge-warning badge-xs w-2 h-2 p-0"
                   aria-label="Token expired"
+                ></span>
+              }
+            } @else if (provider.authType === 'none') {
+              @if (
+                authState.selectedProviderId() === provider.id &&
+                authState.hasProviderKey()
+              ) {
+                <span
+                  class="absolute -top-1 -right-1.5 badge badge-success badge-xs w-2 h-2 p-0"
+                  aria-label="Connected"
                 ></span>
               }
             } @else if (
@@ -242,29 +256,16 @@
 
     <!-- OAuth Token Input (shown when oauth mode selected) -->
     @if (claudeAuthMode() === 'oauth') {
-      <!-- OAuth Policy Warning -->
-      <div class="alert alert-warning py-2 px-3 text-[10px]" role="alert">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="w-3.5 h-3.5 shrink-0"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path
-            d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
-          />
-          <path d="M12 9v4" />
-          <path d="M12 17h.01" />
-        </svg>
-        <span>
-          <strong>Restricted:</strong> Anthropic blocks OAuth tokens from Claude
-          subscriptions in third-party tools (Feb 2026). Use
-          <strong>API Key</strong> or <strong>Provider</strong> instead.
-        </span>
+      <!-- Local execution note -->
+      <div
+        class="flex items-start gap-1.5 p-2 rounded bg-success/10 border border-success/20 mb-1"
+      >
+        <span class="text-success text-[10px] shrink-0 mt-0.5">●</span>
+        <p class="text-[10px] text-base-content/60 leading-relaxed">
+          <strong class="text-base-content/70">Runs 100% locally.</strong>
+          Your token goes directly from this machine to Anthropic — no proxies,
+          no Ptah servers involved.
+        </p>
       </div>
       <div class="form-control">
         <label class="label py-1 justify-start gap-2" for="oauthToken">
@@ -499,8 +500,43 @@
       </div>
     }
 
+    <!-- Local Model Provider (Ollama, LM Studio): No key needed, show status + endpoint -->
+    @if (isLocalProvider()) {
+      <div class="form-control">
+        <div class="label py-1 justify-start gap-2">
+          <span class="label-text text-xs font-medium">
+            {{ selectedProvider()?.name ?? 'Provider' }} Connection
+          </span>
+        </div>
+
+        <div
+          class="input input-bordered input-sm flex-1 flex items-center text-xs gap-1.5"
+        >
+          <lucide-angular [img]="ServerIcon" class="w-3.5 h-3.5 opacity-70" />
+          <span class="text-base-content/70">
+            No API key needed — runs locally
+          </span>
+        </div>
+
+        <div class="label flex-col items-start gap-0.5 py-1">
+          <span class="label-text-alt text-[10px] opacity-70">
+            Make sure {{ selectedProvider()?.name }} is running before
+            connecting.
+          </span>
+          <span class="label-text-alt text-[10px] opacity-70">
+            Default endpoint:
+            <code class="text-[10px]">{{
+              selectedProvider()?.id === 'ollama'
+                ? 'http://localhost:11434'
+                : 'http://localhost:1234'
+            }}</code>
+          </span>
+        </div>
+      </div>
+    }
+
     <!-- Standard API Key Provider Input (OpenRouter, Moonshot, Z.AI) -->
-    @if (!isOAuthProvider()) {
+    @if (!isOAuthProvider() && !isLocalProvider()) {
       <div class="form-control">
         <label class="label py-1 justify-start gap-2" for="providerKey">
           <span class="label-text text-xs font-medium">

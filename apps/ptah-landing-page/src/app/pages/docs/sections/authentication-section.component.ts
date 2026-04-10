@@ -11,7 +11,6 @@ import {
   Cpu,
   Layers,
   Settings,
-  AlertTriangle,
 } from 'lucide-angular';
 import { DocsStepCardComponent } from '../components/docs-step-card.component';
 import { DocsCodeBlockComponent } from '../components/docs-code-block.component';
@@ -44,29 +43,25 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
         [viewportConfig]="introConfig"
         class="text-neutral-content mb-4 max-w-2xl"
       >
-        Ptah offers multiple authentication methods. We recommend using an
-        <strong class="text-base-content/80">API Key</strong> or a
-        <strong class="text-base-content/80">third-party Provider</strong>
-        for the best experience.
+        Ptah offers multiple authentication methods. Choose whichever fits your
+        workflow — all options are fully supported.
       </p>
       <div
         viewportAnimation
         [viewportConfig]="introConfig"
-        class="flex items-start gap-2.5 p-3 rounded-lg bg-info/10 border border-info/20 mb-4 max-w-2xl"
+        class="flex items-start gap-2.5 p-3 rounded-lg bg-success/10 border border-success/20 mb-4 max-w-2xl"
       >
         <lucide-angular
-          [img]="AlertTriangleIcon"
-          class="w-4 h-4 text-info shrink-0 mt-0.5"
+          [img]="ShieldCheckIcon"
+          class="w-4 h-4 text-success shrink-0 mt-0.5"
           aria-hidden="true"
         />
         <p class="text-sm text-neutral-content">
-          <strong class="text-base-content/80">Note:</strong> As of February
-          2026, Anthropic restricts Claude subscription OAuth tokens to their
-          own apps only. The
-          <strong class="text-base-content/80">OAuth</strong> method below is no
-          longer functional. Use
-          <strong class="text-base-content/80">API Key</strong> or
-          <strong class="text-base-content/80">Provider</strong> instead.
+          <strong class="text-base-content/80">Runs 100% locally.</strong>
+          All AI integrations in Ptah execute directly on your machine. Your
+          credentials and requests never pass through our servers — there are no
+          proxies, no middleware, no data collection. The connection goes
+          straight from your machine to the AI provider.
         </p>
       </div>
       <p
@@ -90,61 +85,13 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
           title="OAuth Token"
           subtitle="Claude Max / Pro subscription"
         >
-          <!-- Anthropic Policy Warning Banner -->
-          <div
-            class="flex items-start gap-3 p-3 rounded-lg bg-warning/10 border border-warning/30 mb-4"
-          >
-            <lucide-angular
-              [img]="AlertTriangleIcon"
-              class="w-5 h-5 text-warning shrink-0 mt-0.5"
-              aria-hidden="true"
-            />
-            <div class="text-sm">
-              <p class="font-semibold text-warning mb-1">
-                Anthropic Policy Restriction (Feb 2026)
-              </p>
-              <p class="text-neutral-content mb-2">
-                Anthropic has
-                <strong class="text-base-content/80">officially banned</strong>
-                the use of Claude subscription OAuth tokens (Free, Pro, Max) in
-                all third-party tools — including Ptah. OAuth tokens are now
-                restricted to
-                <strong class="text-base-content/80"
-                  >Claude Code and Claude.ai only</strong
-                >. Tokens are blocked server-side and will not work.
-              </p>
-              <p class="text-neutral-content/70 text-xs">
-                Source:
-                <a
-                  href="https://code.claude.com/docs/en/legal-and-compliance"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-secondary hover:text-secondary/80 underline underline-offset-2"
-                  >Claude Code Legal &amp; Compliance</a
-                >
-              </p>
-            </div>
-          </div>
-
           <p class="text-sm text-neutral-content mb-4">
-            <strong class="text-error/80">This method no longer works.</strong>
-            Anthropic's updated Terms of Service prohibit using OAuth tokens
-            from Claude subscriptions in third-party applications. Use an
-            <a
-              href="#authentication"
-              class="text-secondary hover:text-secondary/80 underline underline-offset-2"
-              >API Key</a
-            >
-            or
-            <a
-              href="#providers"
-              class="text-secondary hover:text-secondary/80 underline underline-offset-2"
-              >third-party Provider</a
-            >
-            instead.
+            Use your Claude subscription token for direct access. Since Ptah
+            runs entirely on your local machine with no server proxy, your token
+            is used the same way Claude Code uses it.
           </p>
 
-          <div class="space-y-4 opacity-50">
+          <div class="space-y-4">
             <ptah-docs-step-card [stepNumber]="1" title="Generate your token">
               <p>Open a terminal and run:</p>
               <div class="mt-2">
@@ -311,8 +258,6 @@ export class AuthenticationSectionComponent {
   public readonly CpuIcon = Cpu;
   public readonly LayersIcon = Layers;
   public readonly SettingsIcon = Settings;
-  public readonly AlertTriangleIcon = AlertTriangle;
-
   public readonly headingConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.6,

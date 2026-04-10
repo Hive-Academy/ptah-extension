@@ -554,20 +554,6 @@ export interface BrowserRecordStopResult {
 }
 
 /**
- * Result of waiting for user interaction in the browser
- */
-export interface BrowserWaitForUserResult {
-  /** Whether the user signaled readiness */
-  ready: boolean;
-  /** Reason for non-readiness (user cancelled, timeout) */
-  reason?: string;
-  /** How long the wait lasted in milliseconds */
-  waitDurationMs: number;
-  /** Error message if wait failed */
-  error?: string;
-}
-
-/**
  * Browser automation namespace (TASK_2025_244)
  * Provides navigate, screenshot, evaluate, click, type, content read,
  * network monitoring, and session management for AI agent browser automation.
@@ -688,20 +674,6 @@ export interface BrowserNamespace {
    * @returns Stop result with file path and recording stats
    */
   recordStop(): Promise<BrowserRecordStopResult>;
-
-  /**
-   * Pause the agent and wait for the user to perform manual actions
-   * in the visible browser window (login, 2FA, CAPTCHA, etc.).
-   * Requires visible browser mode (headless=false).
-   * (TASK_2025_254)
-   *
-   * @param params - Wait configuration (message to user, timeout)
-   * @returns Wait result with readiness status
-   */
-  waitForUser(params: {
-    message: string;
-    timeout?: number;
-  }): Promise<BrowserWaitForUserResult>;
 }
 
 // ========================================
@@ -723,6 +695,9 @@ export interface MCPRequest {
 
   /** Method-specific parameters */
   params?: Record<string, unknown>;
+
+  /** Caller's SDK session ID extracted from MCP URL path (e.g., /session/{tabId}) */
+  _callerSessionId?: string;
 }
 
 /**

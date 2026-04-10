@@ -924,39 +924,6 @@ export function buildBrowserRecordStopTool(): MCPToolDefinition {
 }
 
 /**
- * Build the ptah_browser_wait_for_user tool definition
- * Pause agent and prompt user to perform manual actions in visible browser
- */
-export function buildBrowserWaitForUserTool(): MCPToolDefinition {
-  return {
-    name: 'ptah_browser_wait_for_user',
-    description:
-      'Pause the agent and prompt the user to perform manual actions in the visible browser window ' +
-      '(e.g., login, 2FA, CAPTCHA). The agent resumes when the user clicks Ready. ' +
-      'Requires visible browser mode (headless must be false when starting the session via ptah_browser_navigate). ' +
-      'The browser session inactivity timer is paused during the wait.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        message: {
-          type: 'string',
-          description:
-            'Message shown to the user explaining what action to take ' +
-            '(e.g., "Please log in to GitHub in the browser window, then click Ready when done")',
-        },
-        timeout: {
-          type: 'number',
-          description:
-            'Maximum time to wait in milliseconds (default: 300000 = 5 minutes)',
-        },
-      },
-      required: ['message'],
-    },
-    annotations: { idempotentHint: false },
-  };
-}
-
-/**
  * Build comprehensive execute_code tool description with full API reference.
  * Uses progressive disclosure: top namespaces inline, rest via ptah.help().
  */

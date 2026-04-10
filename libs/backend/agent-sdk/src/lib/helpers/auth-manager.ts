@@ -37,6 +37,8 @@ import type {
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
 import type { ICodexAuthService } from '../codex-provider/codex-provider.types';
 import type { ITranslationProxy } from '../openai-translation';
+import { LOCAL_PROXY_TOKEN_PLACEHOLDER } from '../local-provider';
+import { LocalModelTranslationProxy } from '../local-provider/local-model-translation-proxy';
 
 export interface AuthResult {
   configured: boolean;
@@ -87,6 +89,10 @@ export class AuthManager {
     private codexAuth: ICodexAuthService,
     @inject(SDK_TOKENS.SDK_CODEX_PROXY)
     private codexProxy: ITranslationProxy,
+    @inject(SDK_TOKENS.SDK_OLLAMA_PROXY)
+    private ollamaProxy: LocalModelTranslationProxy,
+    @inject(SDK_TOKENS.SDK_LM_STUDIO_PROXY)
+    private lmStudioProxy: LocalModelTranslationProxy,
   ) {}
 
   /**
@@ -323,6 +329,12 @@ export class AuthManager {
     // Uses translation proxy instead of API key
     if (provider?.requiresProxy && provider?.authType === 'oauth') {
       return this.configureOAuthProvider(provider);
+    }
+
+    // TASK_2025_265: Local provider flow (e.g., Ollama, LM Studio)
+    // Uses translation proxy, requires no API key or OAuth
+    if (provider?.requiresProxy && provider?.authType === 'none') {
+      return this.configureLocalProvider(provider);
     }
 
     // Per-provider key lookup: each provider has its own isolated storage slot
@@ -614,6 +626,94 @@ export class AuthManager {
   }
 
   /**
+   * Configure a local model provider that requires no authentication (TASK_2025_265).
+   *
+   * Flow:
+   * 1. Stop ALL other provider proxies (only one active at a time)
+   * 2. Start the provider's translation proxy
+   * 3. Point ANTHROPIC_BASE_URL to the proxy
+   * 4. Set a placeholder auth token
+   * 5. Register dynamic model fetcher for the provider
+   */
+  private async configureLocalProvider(provider: {
+    id: string;
+    name: string;
+  }): Promise<AuthResult> {
+    const providerName = provider.name;
+
+    this.logger.info(
+      `[AuthManager] Configuring local provider: ${providerName}`,
+    );
+
+    // Step 1: Stop other proxies to prevent cross-contamination
+    await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
+    await this.stopProxyIfRunning(this.codexProxy, 'Codex');
+    // Stop the OTHER local proxy if running
+    if (provider.id === 'ollama') {
+      await this.stopProxyIfRunning(this.lmStudioProxy, 'LM Studio');
+    } else {
+      await this.stopProxyIfRunning(this.ollamaProxy, 'Ollama');
+    }
+
+    // Step 2: Get the correct proxy for this provider
+    const proxy =
+      provider.id === 'ollama' ? this.ollamaProxy : this.lmStudioProxy;
+
+    // Step 3: Start the translation proxy
+    let proxyUrl: string;
+    try {
+      if (proxy.isRunning()) {
+        proxyUrl = proxy.getUrl()!;
+        this.logger.info(
+          `[AuthManager] ${providerName} translation proxy already running at ${proxyUrl}`,
+        );
+      } else {
+        const result = await proxy.start();
+        proxyUrl = result.url;
+        this.logger.info(
+          `[AuthManager] ${providerName} translation proxy started at ${proxyUrl}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `[AuthManager] Failed to start ${providerName} translation proxy: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return {
+        configured: false,
+        details: [],
+        errorMessage: `${providerName} is not running. Start ${providerName} and try again.`,
+      };
+    }
+
+    // Step 4: Point SDK at the proxy
+    this.authEnv.ANTHROPIC_BASE_URL = proxyUrl;
+    this.authEnv.ANTHROPIC_AUTH_TOKEN = LOCAL_PROXY_TOKEN_PLACEHOLDER;
+    // Sync to process.env -- SDK reads these directly, not from the env option
+    process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
+    process.env['ANTHROPIC_AUTH_TOKEN'] = LOCAL_PROXY_TOKEN_PLACEHOLDER;
+
+    // Step 5: Apply tier mappings and register dynamic model fetcher
+    this.providerModels.switchActiveProvider(provider.id);
+    this.providerModels.registerDynamicFetcher(provider.id, () =>
+      proxy.listModels(),
+    );
+
+    this.logger.info(
+      `[AuthManager] Using ${providerName} via translation proxy (${proxyUrl})`,
+    );
+    this.logger.info(
+      `[AuthManager] Set ANTHROPIC_BASE_URL=${proxyUrl}, ANTHROPIC_AUTH_TOKEN=<proxy-managed>`,
+    );
+
+    return {
+      configured: true,
+      details: [`${providerName} (local via translation proxy at ${proxyUrl})`],
+    };
+  }
+
+  /**
    * Configure API key authentication
    * Reads from SecretStorage (primary) or env snapshot (fallback)
    */
@@ -704,6 +804,26 @@ export class AuthManager {
       this.codexProxy.stop().catch((err) => {
         this.logger.warn(
           `[AuthManager] Failed to stop Codex proxy during cleanup: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
+    }
+
+    // Stop local provider proxies if running (TASK_2025_265)
+    if (this.ollamaProxy?.isRunning()) {
+      this.ollamaProxy.stop().catch((err) => {
+        this.logger.warn(
+          `[AuthManager] Failed to stop Ollama proxy during cleanup: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
+    }
+    if (this.lmStudioProxy?.isRunning()) {
+      this.lmStudioProxy.stop().catch((err) => {
+        this.logger.warn(
+          `[AuthManager] Failed to stop LM Studio proxy during cleanup: ${
             err instanceof Error ? err.message : String(err)
           }`,
         );

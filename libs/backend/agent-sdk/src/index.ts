@@ -222,6 +222,19 @@ export {
 export type { ICodexAuthService, CodexAuthFile } from './lib/codex-provider';
 
 // ============================================================
+// Local Model Providers (TASK_2025_265)
+// Ollama and LM Studio integration via translation proxy
+// ============================================================
+export {
+  OllamaTranslationProxy,
+  LmStudioTranslationProxy,
+  OLLAMA_PROVIDER_ENTRY,
+  LM_STUDIO_PROVIDER_ENTRY,
+  LOCAL_PROXY_TOKEN_PLACEHOLDER,
+  isLocalProviderId,
+} from './lib/local-provider';
+
+// ============================================================
 // OpenAI Translation Module (TASK_2025_193)
 // Shared Anthropic <-> OpenAI translation infrastructure
 // ============================================================

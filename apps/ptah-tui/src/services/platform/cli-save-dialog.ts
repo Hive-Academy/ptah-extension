@@ -18,11 +18,17 @@ export class CliSaveDialog implements ISaveDialogProvider {
     content: Buffer;
   }): Promise<string | null> {
     try {
-      const filePath = path.join(process.cwd(), options.defaultFilename);
+      // Sanitize filename to prevent path traversal — strip directory components
+      const safeName = path.basename(options.defaultFilename);
+      if (!safeName) return null;
 
-      // Ensure the parent directory exists
-      const dir = path.dirname(filePath);
-      await fs.mkdir(dir, { recursive: true });
+      const cwd = process.cwd();
+      const filePath = path.resolve(cwd, safeName);
+
+      // Verify the resolved path is still under cwd
+      if (!filePath.startsWith(cwd + path.sep) && filePath !== cwd) {
+        return null;
+      }
 
       await fs.writeFile(filePath, options.content);
 

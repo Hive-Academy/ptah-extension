@@ -356,15 +356,21 @@ export class GitStatusBarComponent {
     const workspaceRoot = this.gitStatus.activeWorkspacePath;
     if (!workspaceRoot) return;
 
-    // Guard against path traversal (git status paths should never contain these)
-    if (relativePath.startsWith('/') || relativePath.includes('..')) return;
+    // Guard against path traversal — validate each segment individually.
+    // Git status paths are always relative with forward slashes, never absolute.
+    const normalized = relativePath.replace(/\\/g, '/');
+    const segments = normalized.split('/');
+    const isAbsolute =
+      normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized);
+    const hasTraversal = segments.some((s) => s === '..' || s === '.');
+    if (isAbsolute || hasTraversal || segments.length === 0) return;
 
     // Build absolute path from workspace root + relative path
     const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
     const root = normalizedRoot.endsWith('/')
       ? normalizedRoot
       : normalizedRoot + '/';
-    const absolutePath = root + relativePath;
+    const absolutePath = root + normalized;
 
     void this.editorService.openFile(absolutePath);
   }

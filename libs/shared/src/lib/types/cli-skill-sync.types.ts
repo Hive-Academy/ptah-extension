@@ -19,7 +19,10 @@ import type { CliType } from './agent-process.types';
  *  - gemini: ~/.gemini/skills/
  *  - codex: ~/.agents/skills/
  */
-export type CliTarget = Extract<CliType, 'copilot' | 'gemini' | 'codex'>;
+export type CliTarget = Extract<
+  CliType,
+  'copilot' | 'gemini' | 'codex' | 'cursor'
+>;
 
 // ========================================
 // Agent Transform Result

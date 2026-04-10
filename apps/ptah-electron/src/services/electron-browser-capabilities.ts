@@ -56,9 +56,6 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   private _viewport = { ...DEFAULT_VIEWPORT };
   /** Pending session options set by configureSession(), consumed by createSession() */
   private _pendingOptions: BrowserSessionOptions = {};
-  /** Inactivity timer paused flag (TASK_2025_254) */
-  private _inactivityPaused = false;
-
   constructor(private readonly getRecordingDir: () => string = () => '') {}
 
   configureSession(options: BrowserSessionOptions): void {
@@ -537,9 +534,6 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   }
 
   private resetInactivityTimer(): void {
-    // TASK_2025_254: Skip reset if timer is paused during wait-for-user
-    if (this._inactivityPaused) return;
-
     if (this.inactivityTimer) {
       clearTimeout(this.inactivityTimer);
     }
@@ -552,28 +546,6 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     this.inactivityTimer = setTimeout(() => {
       this.cleanup();
     }, timeout);
-  }
-
-  /**
-   * Pause the inactivity timer. Used during wait-for-user interactions
-   * to prevent the session from closing while the user is active.
-   * (TASK_2025_254)
-   */
-  pauseInactivityTimer(): void {
-    this._inactivityPaused = true;
-    if (this.inactivityTimer) {
-      clearTimeout(this.inactivityTimer);
-      this.inactivityTimer = null;
-    }
-  }
-
-  /**
-   * Resume the inactivity timer after a wait-for-user interaction completes.
-   * (TASK_2025_254)
-   */
-  resumeInactivityTimer(): void {
-    this._inactivityPaused = false;
-    this.resetInactivityTimer();
   }
 
   private async cleanup(): Promise<void> {

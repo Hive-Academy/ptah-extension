@@ -15,7 +15,6 @@ export type {
   PtahAPI,
   BrowserRecordStartResult,
   BrowserRecordStopResult,
-  BrowserWaitForUserResult,
 } from './lib/code-execution/types';
 
 // IDE capabilities exports (TASK_2025_226 - platform decoupling)
