@@ -219,6 +219,13 @@
     "typescript": "5.9.3",
     "typescript-eslint": "^8.29.0"
   },
+  "optionalDependencies": {
+    "@nx/nx-linux-x64-gnu": "22.6.5",
+    "@nx/nx-linux-x64-musl": "22.6.5",
+    "@nx/nx-linux-arm64-gnu": "22.6.5",
+    "@nx/nx-darwin-x64": "22.6.5",
+    "@nx/nx-darwin-arm64": "22.6.5"
+  },
   "overrides": {
     "@anthropic-ai/claude-agent-sdk": {
       "zod": "^4.1.12"
