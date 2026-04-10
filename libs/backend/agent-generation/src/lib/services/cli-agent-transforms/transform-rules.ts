@@ -81,6 +81,12 @@ const CLI_TOOL_MAPPINGS: Record<
     slashPrefix: 'codex',
     productName: 'Codex CLI',
   },
+  cursor: {
+    askUser: 'ask the user directly in your response',
+    taskDelegate: 'cursor agent --agent',
+    slashPrefix: 'cursor',
+    productName: 'Cursor Agent CLI',
+  },
 };
 
 // ========================================
@@ -120,7 +126,7 @@ export function stripInternalReferences(content: string): string {
   return content.replace(patterns.internalImport, '').replace(
     // Clean up consecutive blank lines left by stripping
     /\n{3,}/g,
-    '\n\n'
+    '\n\n',
   );
 }
 
@@ -142,7 +148,7 @@ export function rewriteFrontmatter(
   content: string,
   cli: CliTarget,
   agentId: string,
-  description: string
+  description: string,
 ): string {
   // Normalize CRLF for reliable regex on Windows
   const normalized = normalizeCrlf(content);
@@ -181,7 +187,7 @@ export function rewriteToolReferences(content: string, cli: CliTarget): string {
   // Replace Task(subagent_type='name' ...) invocation pattern
   result = result.replace(
     patterns.taskToolInvocation,
-    `${mapping.taskDelegate} $1`
+    `${mapping.taskDelegate} $1`,
   );
 
   // Replace "Task tool to" references
@@ -216,7 +222,7 @@ export function rewriteSlashCommands(content: string, cli: CliTarget): string {
  */
 export function rewriteProductReferences(
   content: string,
-  cli: CliTarget
+  cli: CliTarget,
 ): string {
   const mapping = CLI_TOOL_MAPPINGS[cli];
   const patterns = createClaudePatterns();
@@ -237,7 +243,7 @@ export function transformAgentContent(
   content: string,
   cli: CliTarget,
   agentId: string,
-  description: string
+  description: string,
 ): string {
   let result = content;
 

@@ -62,7 +62,7 @@ export class AuthRpcHandlers {
     @inject(TOKENS.PLATFORM_COMMANDS)
     private readonly platformCommands: IPlatformCommands,
     @inject(TOKENS.PLATFORM_AUTH_PROVIDER)
-    private readonly platformAuth: IPlatformAuthProvider
+    private readonly platformAuth: IPlatformAuthProvider,
   ) {}
 
   /**
@@ -106,11 +106,11 @@ export class AuthRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: auth:getHealth failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           throw error;
         }
-      }
+      },
     );
   }
 
@@ -127,9 +127,8 @@ export class AuthRpcHandlers {
         this.logger.debug('RPC: auth:getAuthStatus called');
 
         // Check SecretStorage for credentials
-        const hasOAuthToken = await this.authSecretsService.hasCredential(
-          'oauthToken'
-        );
+        const hasOAuthToken =
+          await this.authSecretsService.hasCredential('oauthToken');
         const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
 
         // Get auth method from ConfigManager (non-sensitive)
@@ -143,14 +142,13 @@ export class AuthRpcHandlers {
         // TASK_2025_129 Batch 3: Get selected provider ID
         const anthropicProviderId = this.configManager.getWithDefault<string>(
           'anthropicProviderId',
-          DEFAULT_PROVIDER_ID
+          DEFAULT_PROVIDER_ID,
         );
 
         // Per-provider key check: use provided ID (for local UI switching) or persisted config
         const checkProviderId = params.providerId || anthropicProviderId;
-        const hasOpenRouterKey = await this.authSecretsService.hasProviderKey(
-          checkProviderId
-        );
+        const hasOpenRouterKey =
+          await this.authSecretsService.hasProviderKey(checkProviderId);
 
         // TASK_2025_194: Check if ANY provider has a key configured.
         // This supports users who only use third-party providers (z-ai, moonshot, etc.)
@@ -177,6 +175,7 @@ export class AuthRpcHandlers {
           maskedKeyDisplay: p.maskedKeyDisplay,
           hasDynamicModels: !!('modelsEndpoint' in p && p.modelsEndpoint),
           authType: 'authType' in p ? p.authType : undefined,
+          isLocal: 'isLocal' in p ? p.isLocal : undefined,
         }));
 
         // Check Copilot auth status (TASK_2025_191)
@@ -193,7 +192,7 @@ export class AuthRpcHandlers {
             'Copilot auth status check failed (non-fatal)',
             copilotError instanceof Error
               ? copilotError
-              : new Error(String(copilotError))
+              : new Error(String(copilotError)),
           );
         }
 
@@ -210,7 +209,7 @@ export class AuthRpcHandlers {
             'Codex auth status check failed (non-fatal)',
             codexError instanceof Error
               ? codexError
-              : new Error(String(codexError))
+              : new Error(String(codexError)),
           );
         }
 
@@ -242,7 +241,7 @@ export class AuthRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: auth:getAuthStatus failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         throw error;
       }
@@ -310,7 +309,7 @@ export class AuthRpcHandlers {
           if (validated.claudeOAuthToken.trim()) {
             await this.authSecretsService.setCredential(
               'oauthToken',
-              validated.claudeOAuthToken
+              validated.claudeOAuthToken,
             );
           } else {
             // Empty string = clear the credential
@@ -322,7 +321,7 @@ export class AuthRpcHandlers {
           if (validated.anthropicApiKey.trim()) {
             await this.authSecretsService.setCredential(
               'apiKey',
-              validated.anthropicApiKey
+              validated.anthropicApiKey,
             );
           } else {
             // Empty string = clear the credential
@@ -337,13 +336,13 @@ export class AuthRpcHandlers {
             validated.anthropicProviderId ??
             this.configManager.getWithDefault<string>(
               'anthropicProviderId',
-              DEFAULT_PROVIDER_ID
+              DEFAULT_PROVIDER_ID,
             );
 
           if (validated.openrouterApiKey.trim()) {
             await this.authSecretsService.setProviderKey(
               targetProviderId,
-              validated.openrouterApiKey
+              validated.openrouterApiKey,
             );
           } else {
             // Empty string = clear the provider's key
@@ -358,7 +357,7 @@ export class AuthRpcHandlers {
         if (validated.anthropicProviderId !== undefined) {
           await this.configManager.set(
             'anthropicProviderId',
-            validated.anthropicProviderId
+            validated.anthropicProviderId,
           );
         }
 
@@ -374,7 +373,7 @@ export class AuthRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: auth:saveSettings failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         throw error;
       }
@@ -420,7 +419,7 @@ export class AuthRpcHandlers {
 
           this.logger.debug(
             `RPC: auth:testConnection attempt ${attempt + 1}/${MAX_RETRIES}`,
-            { status: health.status, delay }
+            { status: health.status, delay },
           );
         }
 
@@ -434,13 +433,13 @@ export class AuthRpcHandlers {
 
         this.logger.info(
           'RPC: auth:testConnection completed (exhausted retries)',
-          { result }
+          { result },
         );
         return result;
       } catch (error) {
         this.logger.error(
           'RPC: auth:testConnection failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         throw error;
       }
@@ -483,7 +482,7 @@ export class AuthRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: auth:copilotLogin failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return {
           success: false,
@@ -510,11 +509,11 @@ export class AuthRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: auth:copilotLogout failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return { success: false };
         }
-      }
+      },
     );
   }
 
@@ -548,7 +547,7 @@ export class AuthRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: auth:copilotStatus failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return { authenticated: false };
       }
@@ -569,10 +568,10 @@ export class AuthRpcHandlers {
         this.logger.info('RPC: auth:codexLogin - opening terminal');
         this.platformCommands.openTerminal(
           'Codex Login',
-          'codex login --device-auth'
+          'codex login --device-auth',
         );
         return { success: true };
-      }
+      },
     );
   }
 
@@ -593,8 +592,8 @@ export class AuthRpcHandlers {
             this.providerModels.setModelTier(
               providerId,
               tier,
-              COPILOT_DEFAULT_TIERS[tier]
-            )
+              COPILOT_DEFAULT_TIERS[tier],
+            ),
           );
         }
       }
@@ -608,7 +607,7 @@ export class AuthRpcHandlers {
     } catch (error) {
       this.logger.warn(
         'Failed to auto-map Copilot tier models (non-fatal)',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }

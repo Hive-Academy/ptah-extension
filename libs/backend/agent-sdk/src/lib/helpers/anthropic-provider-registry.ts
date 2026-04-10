@@ -24,6 +24,10 @@ import {
 } from '@ptah-extension/shared';
 import { COPILOT_PROVIDER_ENTRY } from '../copilot-provider';
 import { CODEX_PROVIDER_ENTRY } from '../codex-provider';
+import {
+  OLLAMA_PROVIDER_ENTRY,
+  LM_STUDIO_PROVIDER_ENTRY,
+} from '../local-provider';
 
 /**
  * Static model definition for providers without a dynamic models API
@@ -86,14 +90,20 @@ export interface AnthropicProvider {
    * Authentication type (TASK_2025_186)
    * - 'apiKey': Traditional API key input (default if not set)
    * - 'oauth': OAuth-based authentication (e.g., GitHub Copilot)
+   * - 'none': No authentication needed (e.g., local providers like Ollama, LM Studio)
    */
-  authType?: 'apiKey' | 'oauth';
+  authType?: 'apiKey' | 'oauth' | 'none';
   /**
    * Whether this provider requires a local translation proxy (TASK_2025_186)
    * When true, a local HTTP proxy translates between Anthropic and provider protocols.
    * Defaults to false if not set.
    */
   requiresProxy?: boolean;
+  /**
+   * Whether this is a local provider running on localhost (TASK_2025_265)
+   * When true, the provider requires no API key and uses HTTP (not HTTPS).
+   */
+  isLocal?: boolean;
 }
 
 /**
@@ -301,6 +311,8 @@ export const ANTHROPIC_PROVIDERS = [
   },
   COPILOT_PROVIDER_ENTRY,
   CODEX_PROVIDER_ENTRY,
+  OLLAMA_PROVIDER_ENTRY,
+  LM_STUDIO_PROVIDER_ENTRY,
 ] as const satisfies readonly AnthropicProvider[];
 
 /**
@@ -312,7 +324,9 @@ export type AnthropicProviderId =
   | 'moonshot'
   | 'z-ai'
   | 'github-copilot'
-  | 'openai-codex';
+  | 'openai-codex'
+  | 'ollama'
+  | 'lm-studio';
 
 /** Default provider when none is configured */
 export const DEFAULT_PROVIDER_ID: AnthropicProviderId = 'openrouter';

@@ -58,7 +58,7 @@ export type AgentStatus =
 // CLI Type
 // ========================================
 
-export type CliType = 'gemini' | 'codex' | 'copilot' | 'ptah-cli';
+export type CliType = 'gemini' | 'codex' | 'copilot' | 'cursor' | 'ptah-cli';
 
 // ========================================
 // Agent Process Info (tracked per agent)

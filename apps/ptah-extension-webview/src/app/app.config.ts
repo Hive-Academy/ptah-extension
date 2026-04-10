@@ -17,6 +17,7 @@ import {
   SESSION_DATA_PROVIDER,
   WORKSPACE_COORDINATOR,
   WIZARD_VIEW_COMPONENT,
+  ORCHESTRA_CANVAS_COMPONENT,
 } from '@ptah-extension/core';
 import {
   ChatMessageHandler,
@@ -25,6 +26,7 @@ import {
   WorkspaceCoordinatorService,
 } from '@ptah-extension/chat';
 import { WizardViewComponent } from '@ptah-extension/setup-wizard';
+import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { getMarkedExtensions } from './marked-extensions';
 // Removed Material animations import - using pure VS Code design system
 // REMOVED: Angular Router imports - incompatible with VS Code webviews
@@ -152,6 +154,9 @@ export const appConfig: ApplicationConfig = {
     // Wizard view component: breaks circular dependency between chat and setup-wizard.
     // AppShellComponent renders this via NgComponentOutlet instead of importing directly.
     { provide: WIZARD_VIEW_COMPONENT, useValue: WizardViewComponent },
+    // Orchestra canvas component: breaks circular dependency between chat and canvas.
+    // canvas imports TabManagerService from chat, so chat cannot import canvas directly.
+    { provide: ORCHESTRA_CANVAS_COMPONENT, useValue: OrchestraCanvasComponent },
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',

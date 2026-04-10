@@ -98,6 +98,8 @@ export interface AgentNamespaceDependencies {
   getDisabledClis?: () => string[];
   /** Returns the user's preferred agent order for sorting list() results. */
   getPreferredAgentOrder?: () => string[];
+  /** Resolves a tab ID to its real SDK session UUID. Used for MCP session threading. */
+  resolveSessionId?: (tabIdOrSessionId: string) => string;
 }
 
 /**
@@ -117,12 +119,17 @@ export function buildAgentNamespace(
     getPtahCliRegistry,
     getDisabledClis,
     getPreferredAgentOrder,
+    resolveSessionId,
   } = deps;
 
   return {
     spawn: async (request) => {
-      // Inject parentSessionId and projectGuidance at spawn time
-      const activeSessionId = getActiveSessionId?.();
+      // Inject parentSessionId and projectGuidance at spawn time.
+      // Prefer parentSessionId from the request (set by MCP URL path) over the global fallback.
+      const rawSessionId = request.parentSessionId ?? getActiveSessionId?.();
+      const activeSessionId = rawSessionId
+        ? (resolveSessionId?.(rawSessionId) ?? rawSessionId)
+        : undefined;
       const projectGuidance = await getProjectGuidance?.();
 
       // Route Ptah CLI agent spawn through PtahCliRegistry

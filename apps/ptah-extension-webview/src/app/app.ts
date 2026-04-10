@@ -117,6 +117,7 @@ export class App implements OnInit, OnDestroy {
       'settings',
       'setup-wizard',
       'welcome',
+      'orchestra-canvas',
     ];
     const isValidView =
       rawInitialView && VALID_VIEWS.includes(rawInitialView as ViewType);

@@ -16,6 +16,7 @@ import {
   Check,
   ChevronDown,
   ExternalLink,
+  LayoutGrid,
   MessageSquare,
   Pencil,
   Plus,
@@ -47,6 +48,7 @@ import {
   VSCodeService,
   ClaudeRpcService,
   WIZARD_VIEW_COMPONENT,
+  ORCHESTRA_CANVAS_COMPONENT,
 } from '@ptah-extension/core';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
@@ -126,6 +128,14 @@ export class AppShellComponent {
   readonly wizardComponent =
     inject(WIZARD_VIEW_COMPONENT, { optional: true }) ?? null;
 
+  /**
+   * OrchestraCanvasComponent provided via DI token — breaks circular dependency between chat and canvas.
+   * canvas imports from chat (TabManagerService), so chat cannot import canvas directly.
+   * Provided by the application bootstrapper (app.config.ts).
+   */
+  readonly orchestraCanvasComponent =
+    inject(ORCHESTRA_CANVAS_COMPONENT, { optional: true }) ?? null;
+
   // Sidebar state: default open in Electron (more space), hidden in VS Code sidebar
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
@@ -143,6 +153,7 @@ export class AppShellComponent {
   readonly XIcon = X;
   readonly ExternalLinkIcon = ExternalLink;
   readonly BarChart3Icon = BarChart3;
+  readonly LayoutGridIcon = LayoutGrid;
 
   // Inline edit state for session renaming
   readonly editingSessionId = signal<string | null>(null);
@@ -314,6 +325,13 @@ export class AppShellComponent {
    */
   openDashboard(): void {
     this.appState.setCurrentView('analytics');
+  }
+
+  /**
+   * Navigate to Orchestra Canvas view
+   */
+  openCanvas(): void {
+    this.appState.setCurrentView('orchestra-canvas');
   }
 
   /** Guard to prevent double-click opening multiple panels */

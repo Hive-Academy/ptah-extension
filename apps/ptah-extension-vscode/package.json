@@ -123,6 +123,11 @@
         "icon": "$(graph)"
       },
       {
+        "command": "ptah.openOrchestraCanvas",
+        "title": "Open Orchestra Canvas",
+        "category": "Ptah"
+      },
+      {
         "command": "ptah.exportSettings",
         "title": "Export Settings",
         "category": "Ptah",

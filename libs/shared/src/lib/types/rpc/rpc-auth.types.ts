@@ -132,8 +132,10 @@ export interface AnthropicProviderInfo {
   maskedKeyDisplay: string;
   /** Whether this provider supports dynamic model listing via API (TASK_2025_132) */
   hasDynamicModels?: boolean;
-  /** Authentication type: 'apiKey' (default) or 'oauth' (e.g., GitHub Copilot) */
-  authType?: 'apiKey' | 'oauth';
+  /** Authentication type: 'apiKey' (default), 'oauth' (e.g., GitHub Copilot), or 'none' (local providers) */
+  authType?: 'apiKey' | 'oauth' | 'none';
+  /** Whether this is a local provider (no API key needed) */
+  isLocal?: boolean;
 }
 
 /**

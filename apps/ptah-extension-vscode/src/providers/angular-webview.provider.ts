@@ -52,19 +52,19 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     @inject(TOKENS.WEBVIEW_EVENT_QUEUE)
     private readonly eventQueue: WebviewEventQueue,
     @inject(TOKENS.WEBVIEW_MESSAGE_HANDLER)
-    private readonly messageHandler: WebviewMessageHandlerService // InteractiveSessionManager DELETED in TASK_2025_023 - ClaudeProcess handles sessions // RpcHandler REMOVED - message handling delegated to WebviewMessageHandlerService
+    private readonly messageHandler: WebviewMessageHandlerService, // InteractiveSessionManager DELETED in TASK_2025_023 - ClaudeProcess handles sessions // RpcHandler REMOVED - message handling delegated to WebviewMessageHandlerService
   ) {
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
     this.logger.info(
-      'AngularWebviewProvider initialized - using shared WebviewMessageHandlerService'
+      'AngularWebviewProvider initialized - using shared WebviewMessageHandlerService',
     );
   }
 
   async resolveWebviewView(
     webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext<unknown>,
-    _token: vscode.CancellationToken
+    _token: vscode.CancellationToken,
   ): Promise<void> {
     this._view = webviewView;
 
@@ -88,7 +88,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       webviewView.webview,
-      this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
+      this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>,
     );
 
     // TASK_2025_019 Phase 1: Setup RPC message listener using shared service
@@ -102,7 +102,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
           this.markWebviewReady();
         },
       },
-      this._disposables
+      this._disposables,
     );
   }
 
@@ -121,9 +121,11 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     const panelTitle =
       options?.initialView === 'analytics'
         ? 'Ptah - Session Analytics'
-        : options?.initialSessionName
-        ? `Ptah - ${options.initialSessionName}`
-        : 'Ptah - AI Coding Orchestra';
+        : options?.initialView === 'orchestra-canvas'
+          ? 'Ptah - Orchestra Canvas'
+          : options?.initialSessionName
+            ? `Ptah - ${options.initialSessionName}`
+            : 'Ptah - AI Coding Orchestra';
     const panel = vscode.window.createWebviewPanel(
       'ptah-angular-spa',
       panelTitle,
@@ -136,7 +138,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
           vscode.Uri.joinPath(this.context.extensionUri, 'assets'),
           this.context.extensionUri, // Allow all extension resources
         ],
-      }
+      },
     );
 
     // Track in local registry
@@ -146,7 +148,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     // Uses existing cast pattern (both WebviewPanel and WebviewView have .webview property)
     this.webviewManager.registerWebviewView(
       panelId,
-      panel as unknown as vscode.WebviewView
+      panel as unknown as vscode.WebviewView,
     );
 
     // Per-panel event queue for readiness gating (manually instantiated, not from DI)
@@ -164,7 +166,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         onReady: () => {
           if (!this._panels.has(panelId)) {
             this.logger.warn(
-              `Panel ${panelId} ready signal received after disposal, ignoring`
+              `Panel ${panelId} ready signal received after disposal, ignoring`,
             );
             return;
           }
@@ -173,7 +175,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
           panelEventQueue.flush((event) => panel.webview.postMessage(event));
         },
       },
-      panelDisposables
+      panelDisposables,
     );
 
     // Generate HTML with panelId and optional initial session in ptahConfig
@@ -188,7 +190,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         initialSessionId: options?.initialSessionId,
         initialSessionName: options?.initialSessionName,
         initialView: options?.initialView,
-      }
+      },
     );
 
     // Cleanup on dispose: remove from local Map, dispose event queue and per-panel disposables
@@ -199,12 +201,12 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       this._panelEventQueues.delete(panelId);
       panelDisposables.forEach((d) => d.dispose());
       this.logger.info(
-        `Panel ${panelId} disposed, ${this._panels.size} panels remaining`
+        `Panel ${panelId} disposed, ${this._panels.size} panels remaining`,
       );
     });
 
     this.logger.info(
-      `Panel ${panelId} created, ${this._panels.size} total panels`
+      `Panel ${panelId} created, ${this._panels.size} total panels`,
     );
   }
 
@@ -262,7 +264,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       this._view.webview.postMessage(message);
     } else {
       this.logger.warn(
-        `No sidebar webview available to send message: ${message.type}`
+        `No sidebar webview available to send message: ${message.type}`,
       );
     }
   }
@@ -277,7 +279,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       const webviewDistPath = vscode.Uri.joinPath(
         this.context.extensionUri,
         'webview',
-        'browser'
+        'browser',
       );
 
       // Create file system watcher for webview changes
@@ -285,7 +287,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         new vscode.RelativePattern(webviewDistPath, '**/*'),
         false, // Don't ignore creates
         false, // Don't ignore changes
-        false // Don't ignore deletes
+        false, // Don't ignore deletes
       );
 
       // Handle webview file changes
@@ -308,13 +310,13 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
     try {
       this.logger.info(
-        `Webview file changed: ${uri.fsPath} - Reloading webview`
+        `Webview file changed: ${uri.fsPath} - Reloading webview`,
       );
       this.reloadWebview();
     } catch (error) {
       this.logger.error(
         'Error during hot reload:',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }
@@ -344,7 +346,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
               unknown
             >,
             panelId,
-          }
+          },
         );
         panel.webview.html = newHtml;
         reloadedCount++;
@@ -356,7 +358,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     if (this._view?.webview) {
       const newHtml = this.htmlGenerator.generateAngularWebviewContent(
         this._view.webview,
-        this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
+        this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>,
       );
       this._view.webview.html = newHtml;
       reloadedCount++;

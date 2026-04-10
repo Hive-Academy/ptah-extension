@@ -49,6 +49,20 @@
     </div>
   }
 
+  <!-- Orchestra Canvas: Full-width, standalone layout (no sidebar) -->
+  <!-- OrchestraCanvasComponent injected via DI token to break circular dep (canvas -> chat -> canvas) -->
+  @case ('orchestra-canvas') {
+    <div class="h-full w-full overflow-hidden">
+      @if (orchestraCanvasComponent) {
+        <ng-container *ngComponentOutlet="orchestraCanvasComponent" />
+      } @else {
+        <div class="flex items-center justify-center h-full">
+          <span class="loading loading-spinner loading-md"></span>
+        </div>
+      }
+    </div>
+  }
+
   <!-- Chat (default): Sidebar + Header + Chat layout -->
   @default {
     <div class="flex h-full">
@@ -354,6 +368,17 @@
             >
               <lucide-angular [img]="BarChart3Icon" class="w-4 h-4" />
               <span class="icon-btn-label text-xs">Dashboard</span>
+            </button>
+
+            <!-- Canvas button (VS Code only — Electron has it in global navbar) -->
+            <button
+              class="btn btn-ghost btn-xs gap-1"
+              aria-label="Orchestra Canvas"
+              title="Orchestra Canvas — multi-session view"
+              (click)="openCanvas()"
+            >
+              <lucide-angular [img]="LayoutGridIcon" class="w-4 h-4" />
+              <span class="icon-btn-label text-xs">Canvas</span>
             </button>
           }
 

@@ -25,6 +25,7 @@ import type { ICliSkillInstaller } from './cli-skill-installer.interface';
 import { CodexSkillInstaller } from './codex-skill-installer';
 import { CopilotSkillInstaller } from './copilot-skill-installer';
 import { GeminiSkillInstaller } from './gemini-skill-installer';
+import { CursorSkillInstaller } from './cursor-skill-installer';
 import { CliSkillManifestTracker } from './cli-skill-manifest-tracker';
 
 /** Prefix used for all Ptah-generated agent files in CLI directories */
@@ -50,12 +51,13 @@ export class CliPluginSyncService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
-    private readonly cliDetection: CliDetectionService
+    private readonly cliDetection: CliDetectionService,
   ) {
     // Register installers (one per supported CLI target)
     this.installers.set('codex', new CodexSkillInstaller());
     this.installers.set('copilot', new CopilotSkillInstaller());
     this.installers.set('gemini', new GeminiSkillInstaller());
+    this.installers.set('cursor', new CursorSkillInstaller());
 
     this.logger.debug('[CliPluginSync] Service created');
   }
@@ -71,7 +73,7 @@ export class CliPluginSyncService {
   initialize(
     globalState: IStateStorage,
     extensionPath: string,
-    pluginPathResolver?: (ids: string[]) => string[]
+    pluginPathResolver?: (ids: string[]) => string[],
   ): void {
     this.manifestTracker.initialize(globalState);
     this.extensionPath = extensionPath;
@@ -91,18 +93,18 @@ export class CliPluginSyncService {
    * @returns Per-CLI sync status array
    */
   async syncOnActivation(
-    enabledPluginIds: string[]
+    enabledPluginIds: string[],
   ): Promise<CliSkillSyncStatus[]> {
     if (!this.initialized || !this.extensionPath) {
       this.logger.warn(
-        '[CliPluginSync] Not initialized, skipping activation sync'
+        '[CliPluginSync] Not initialized, skipping activation sync',
       );
       return [];
     }
 
     if (enabledPluginIds.length === 0) {
       this.logger.debug(
-        '[CliPluginSync] No enabled plugins, skipping activation sync'
+        '[CliPluginSync] No enabled plugins, skipping activation sync',
       );
       return [];
     }
@@ -126,7 +128,7 @@ export class CliPluginSyncService {
         // Check if sync is needed (content hash comparison)
         const needsSync = await this.manifestTracker.needsSync(
           cli,
-          pluginPaths
+          pluginPaths,
         );
         if (!needsSync) {
           this.logger.debug(`[CliPluginSync] ${cli} already up-to-date`);
@@ -145,7 +147,7 @@ export class CliPluginSyncService {
         const status = await this.syncForCli(
           cli,
           pluginPaths,
-          enabledPluginIds
+          enabledPluginIds,
         );
         results.push(status);
       } catch (error) {
@@ -194,7 +196,7 @@ export class CliPluginSyncService {
         const status = await this.syncForCli(
           cli,
           pluginPaths,
-          enabledPluginIds
+          enabledPluginIds,
         );
         results.push(status);
       } catch (error) {
@@ -230,7 +232,7 @@ export class CliPluginSyncService {
     }
 
     // Remove Ptah-generated agent files from CLI directories
-    await this.removeCliAgents(['codex', 'copilot', 'gemini']);
+    await this.removeCliAgents(['codex', 'copilot', 'gemini', 'cursor']);
   }
 
   /**
@@ -256,7 +258,7 @@ export class CliPluginSyncService {
         if (installer) {
           await installer.uninstall();
           this.logger.debug(
-            `[CliPluginSync] Agent cleanup for ${cli}: delegated to installer`
+            `[CliPluginSync] Agent cleanup for ${cli}: delegated to installer`,
           );
           continue;
         }
@@ -284,7 +286,7 @@ export class CliPluginSyncService {
         }
 
         this.logger.debug(
-          `[CliPluginSync] Agent cleanup for ${cli}: removed ${removedCount} of ${entries.length} files`
+          `[CliPluginSync] Agent cleanup for ${cli}: removed ${removedCount} of ${entries.length} files`,
         );
       } catch (error) {
         this.logger.warn(`[CliPluginSync] Agent cleanup failed for ${cli}`, {
@@ -300,7 +302,7 @@ export class CliPluginSyncService {
   private async syncForCli(
     cli: CliTarget,
     pluginPaths: string[],
-    enabledPluginIds: string[]
+    enabledPluginIds: string[],
   ): Promise<CliSkillSyncStatus> {
     const installer = this.installers.get(cli);
     if (!installer) {
@@ -323,7 +325,7 @@ export class CliPluginSyncService {
       await this.manifestTracker.updateSyncHash(
         cli,
         pluginPaths,
-        enabledPluginIds
+        enabledPluginIds,
       );
     }
 
@@ -366,7 +368,8 @@ export class CliPluginSyncService {
             result.installed &&
             (result.cli === 'copilot' ||
               result.cli === 'gemini' ||
-              result.cli === 'codex')
+              result.cli === 'codex' ||
+              result.cli === 'cursor'),
         )
         .map((result) => result.cli as CliTarget);
     } catch (error) {

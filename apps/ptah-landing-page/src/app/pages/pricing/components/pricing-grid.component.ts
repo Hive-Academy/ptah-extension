@@ -29,11 +29,14 @@ import { AuthService } from '../../../services/auth.service';
 import { SubscriptionStateService } from '../../../services/subscription-state.service';
 import { environment } from '../../../../environments/environment';
 import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
+import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule,
   TriangleAlert,
   CircleX,
   ExternalLink,
+  Tag,
+  ChevronDown,
 } from 'lucide-angular';
 
 /**
@@ -57,6 +60,7 @@ import {
     ProPlanCardComponent,
     ViewportAnimationDirective,
     LucideAngularModule,
+    FormsModule,
   ],
   template: `
     <div
@@ -147,6 +151,66 @@ import {
           </button>
         </div>
       }
+      <!-- Promo Code Input -->
+      <div class="flex justify-center mb-6">
+        <div class="flex flex-col items-center gap-2">
+          <button
+            type="button"
+            class="flex items-center gap-1.5 text-sm text-base-content/50 hover:text-base-content/80 transition-colors"
+            (click)="togglePromoInput()"
+          >
+            <lucide-angular
+              [img]="TagIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Have a promo code?
+            <lucide-angular
+              [img]="ChevronDownIcon"
+              class="w-3 h-3 transition-transform duration-200"
+              [class.rotate-180]="showPromoInput()"
+              aria-hidden="true"
+            />
+          </button>
+          @if (showPromoInput()) {
+            <div class="flex items-center gap-2 mt-1">
+              <input
+                type="text"
+                class="input input-sm input-bordered w-48 uppercase tracking-wider text-center font-mono"
+                placeholder="ENTER CODE"
+                [(ngModel)]="promoCodeValue"
+                (ngModelChange)="onPromoCodeChange($event)"
+                maxlength="50"
+                autocomplete="off"
+                aria-label="Promo code"
+              />
+              @if (promoCode()) {
+                <button
+                  type="button"
+                  class="btn btn-xs btn-ghost text-base-content/40"
+                  (click)="clearPromoCode()"
+                  aria-label="Clear promo code"
+                >
+                  ✕
+                </button>
+              }
+            </div>
+            @if (promoCode()) {
+              <p class="text-xs text-success flex items-center gap-1">
+                <lucide-angular
+                  [img]="TagIcon"
+                  class="w-3 h-3"
+                  aria-hidden="true"
+                />
+                Code
+                <span class="font-mono font-bold">{{ promoCode() }}</span> will
+                be applied at checkout
+              </p>
+            }
+          }
+        </div>
+      </div>
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8 items-stretch">
         <!-- Community Plan Card (FREE - no billing toggle) -->
         <div
@@ -203,6 +267,8 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   public readonly TriangleAlertIcon = TriangleAlert;
   public readonly CircleXIcon = CircleX;
   public readonly ExternalLinkIcon = ExternalLink;
+  public readonly TagIcon = Tag;
+  public readonly ChevronDownIcon = ChevronDown;
 
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -233,6 +299,11 @@ export class PricingGridComponent implements OnInit, OnDestroy {
 
   // Auto-checkout error state (for timeout handling)
   public readonly autoCheckoutError = signal<string | null>(null);
+
+  // Promo code state
+  public readonly showPromoInput = signal(false);
+  public readonly promoCode = signal<string>('');
+  public promoCodeValue = ''; // ngModel binding (two-way, synced to promoCode signal)
 
   // Expose paddle state for template
   public readonly paddleError = this.paddleService.error;
@@ -532,6 +603,22 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     }
   }
 
+  /** Toggle promo code input visibility */
+  public togglePromoInput(): void {
+    this.showPromoInput.update((v) => !v);
+  }
+
+  /** Sync ngModel string to the promoCode signal (uppercased and trimmed) */
+  public onPromoCodeChange(value: string): void {
+    this.promoCode.set(value.trim().toUpperCase());
+  }
+
+  /** Clear entered promo code */
+  public clearPromoCode(): void {
+    this.promoCodeValue = '';
+    this.promoCode.set('');
+  }
+
   /**
    * Handle CTA button click from plan card
    *
@@ -618,8 +705,9 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       this.loadingTimeoutId = null;
     }, this.CHECKOUT_TIMEOUT);
 
-    // Capture priceId to avoid TypeScript narrowing issues in callback
+    // Capture priceId and promoCode to avoid TypeScript narrowing issues in callback
     const priceId = plan.priceId;
+    const discountCode = this.promoCode() || undefined;
 
     this.authService
       .getCurrentUser()
@@ -629,11 +717,13 @@ export class PricingGridComponent implements OnInit, OnDestroy {
           this.paddleService.openCheckout({
             priceId,
             customerEmail: user?.email,
+            discountCode,
           });
         },
         error: () => {
           this.paddleService.openCheckout({
             priceId,
+            discountCode,
           });
         },
         complete: () => {

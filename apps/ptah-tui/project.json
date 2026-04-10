@@ -59,6 +59,7 @@
           "@tavily/core",
           "ink",
           "react",
+          "@inkjs/ui",
           "ink-text-input",
           "ink-select-input",
           "ink-spinner",
