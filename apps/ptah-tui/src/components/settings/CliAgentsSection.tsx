@@ -190,8 +190,7 @@ export function CliAgentsSection({
     [call, modelsShown],
   );
 
-  const navActive =
-    isActive && testingAgent === null && loadingModels === null;
+  const navActive = isActive && testingAgent === null && loadingModels === null;
 
   const { activeIndex } = useKeyboardNav({
     itemCount: agents.length,
@@ -252,9 +251,7 @@ export function CliAgentsSection({
               description={agent.providerName}
               isSelected={isSelected}
               badge={
-                <Badge variant={statusBadge.variant}>
-                  {statusBadge.label}
-                </Badge>
+                <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
               }
               trailing={isTesting ? <Spinner label="Testing..." /> : undefined}
             />

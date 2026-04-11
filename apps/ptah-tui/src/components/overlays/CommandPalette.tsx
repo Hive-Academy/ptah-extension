@@ -73,15 +73,47 @@ interface AutocompleteCommandsResult {
 // (compact, cost, context, memory, review) is fetched via the remote list
 // below and must NOT appear here.
 const LOCAL_TUI_COMMANDS: PaletteCommand[] = [
-  { name: 'clear', description: 'Clear the chat message history (TUI view + SDK state)', scope: 'tui-local' },
+  {
+    name: 'clear',
+    description: 'Clear the chat message history (TUI view + SDK state)',
+    scope: 'tui-local',
+  },
   { name: 'new', description: 'Create a new chat session', scope: 'tui-local' },
-  { name: 'settings', description: 'Open the settings panel', scope: 'tui-local' },
-  { name: 'sessions', description: 'Toggle the session sidebar', scope: 'tui-local' },
-  { name: 'theme', description: 'Switch the terminal color theme', scope: 'tui-local' },
-  { name: 'mode', description: 'Switch between plan and build modes', scope: 'tui-local' },
-  { name: 'model', description: 'Switch the active LLM model', scope: 'tui-local' },
-  { name: 'status', description: 'Show current TUI session status information', scope: 'tui-local' },
-  { name: 'help', description: 'List all available commands', scope: 'tui-local' },
+  {
+    name: 'settings',
+    description: 'Open the settings panel',
+    scope: 'tui-local',
+  },
+  {
+    name: 'sessions',
+    description: 'Toggle the session sidebar',
+    scope: 'tui-local',
+  },
+  {
+    name: 'theme',
+    description: 'Switch the terminal color theme',
+    scope: 'tui-local',
+  },
+  {
+    name: 'mode',
+    description: 'Switch between plan and build modes',
+    scope: 'tui-local',
+  },
+  {
+    name: 'model',
+    description: 'Switch the active LLM model',
+    scope: 'tui-local',
+  },
+  {
+    name: 'status',
+    description: 'Show current TUI session status information',
+    scope: 'tui-local',
+  },
+  {
+    name: 'help',
+    description: 'List all available commands',
+    scope: 'tui-local',
+  },
   { name: 'quit', description: 'Exit the TUI application', scope: 'tui-local' },
 ];
 

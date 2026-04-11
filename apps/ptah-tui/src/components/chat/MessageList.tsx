@@ -42,7 +42,7 @@ function WelcomeScreen(): React.JSX.Element {
           <BigText text="PTAH" font="tiny" align="center" />
         </Gradient>
         <Text color={theme.ui.dimmed} italic>
-          𓂀  The Coding Orchestra — AI-powered development in your terminal
+          𓂀 The Coding Orchestra — AI-powered development in your terminal
         </Text>
 
         <Box marginTop={1}>
@@ -50,7 +50,10 @@ function WelcomeScreen(): React.JSX.Element {
         </Box>
 
         <Box marginTop={1} flexDirection="column" paddingX={4} gap={0}>
-          <KeyHint keys="  Ctrl+S" label="Configure API keys and provider settings" />
+          <KeyHint
+            keys="  Ctrl+S"
+            label="Configure API keys and provider settings"
+          />
           <KeyHint keys="  Ctrl+B" label="Toggle the agents sidebar" />
           <KeyHint keys="  Ctrl+E" label="Toggle the sessions sidebar" />
           <KeyHint keys="  Ctrl+K" label="Open the command palette" />
@@ -63,8 +66,8 @@ function WelcomeScreen(): React.JSX.Element {
 
         <Box marginTop={1}>
           <Text dimColor italic>
-            Type a message below to start chatting — or press Ctrl+S to set up
-            a provider
+            Type a message below to start chatting — or press Ctrl+S to set up a
+            provider
           </Text>
         </Box>
       </Box>

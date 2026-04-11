@@ -237,7 +237,7 @@ export function App({
           <SessionProvider>
             <ModeProvider>
               <ErrorBoundary>
-              <Layout
+                <Layout
                   sidebarVisible={sidebarVisible}
                   agentPanelVisible={agentPanelVisible}
                   activeView={activeView}

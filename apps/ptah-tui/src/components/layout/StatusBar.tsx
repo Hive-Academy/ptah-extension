@@ -126,7 +126,11 @@ export function StatusBar({ isStreaming }: StatusBarProps): React.JSX.Element {
         {contextPercent > 0 && (
           <>
             <Text color={theme.ui.border}>{'│'}</Text>
-            <ProgressBar percent={contextPercent} width={8} color={contextColor} />
+            <ProgressBar
+              percent={contextPercent}
+              width={8}
+              color={contextColor}
+            />
             <Text color={contextColor}>{contextPercent}%</Text>
             {contextPercent > 90 && (
               <Text color={theme.status.error} bold>

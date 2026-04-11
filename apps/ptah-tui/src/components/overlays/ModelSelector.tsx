@@ -13,12 +13,7 @@ import { useTuiContext } from '../../context/TuiContext.js';
 import { useTheme } from '../../hooks/use-theme.js';
 import { usePushFocus } from '../../hooks/use-focus-manager.js';
 import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
-import {
-  Badge,
-  KeyHint,
-  Panel,
-  Spinner,
-} from '../atoms/index.js';
+import { Badge, KeyHint, Panel, Spinner } from '../atoms/index.js';
 import { ListItem, SectionHeader } from '../molecules/index.js';
 
 // ---------------------------------------------------------------------------
