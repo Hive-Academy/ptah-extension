@@ -1,22 +1,20 @@
 /**
  * PermissionPrompt -- Shows SDK tool call permission requests in a modal.
  *
- * TASK_2025_263 Batch 4
+ * The backend sends a PermissionRequest when an SDK tool (Bash, Write, Edit,
+ * etc.) needs user approval. The user responds with Allow (Y), Deny (N),
+ * or Always Allow (A).
  *
- * The backend sends a PermissionRequest when an SDK tool (Bash, Write, Edit, etc.)
- * needs user approval. The user responds with Allow (Y), Deny (N), or Always Allow (A).
- *
- * Keyboard:
- *   Y - Allow (once)
- *   N - Deny
- *   A - Always Allow (creates a persistent rule)
- *   Escape - Deny (same as N)
+ * Pushes a focus scope on mount so the Y/N/A keys can't leak to background
+ * handlers.
  */
 
 import React from 'react';
 import { Box, Text, useInput } from 'ink';
 
 import { useTheme } from '../../hooks/use-theme.js';
+import { usePushFocus } from '../../hooks/use-focus-manager.js';
+import { Badge, KeyHint, Panel, ToolIcon } from '../atoms/index.js';
 
 type PermissionDecision = 'allow' | 'deny' | 'always_allow';
 
@@ -34,8 +32,8 @@ export function PermissionPrompt({
   onDecision,
 }: PermissionPromptProps): React.JSX.Element {
   const theme = useTheme();
-  // isActive: true is explicit to document that this modal's input handler
-  // should always be active when rendered (ModalOverlay only renders when visible).
+  const isActive = usePushFocus('permission-prompt');
+
   useInput(
     (char, key) => {
       const lower = char.toLowerCase();
@@ -49,10 +47,9 @@ export function PermissionPrompt({
         onDecision('deny');
       }
     },
-    { isActive: true },
+    { isActive },
   );
 
-  // Prettify input JSON, truncated to avoid flooding the terminal
   let inputDisplay: string | undefined;
   if (input && Object.keys(input).length > 0) {
     const raw = JSON.stringify(input, null, 2);
@@ -65,46 +62,38 @@ export function PermissionPrompt({
   }
 
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Text bold color={theme.status.warning}>
-        Permission Request
-      </Text>
-      <Box marginTop={1}>
-        <Text>Tool: </Text>
-        <Text bold color={theme.ui.accent}>
-          {toolName}
-        </Text>
-      </Box>
-      {description ? (
-        <Box marginTop={1}>
-          <Text>{description}</Text>
+    <Panel title="Permission Request" isActive padding={1}>
+      <Box flexDirection="column">
+        <Box gap={1}>
+          <ToolIcon name={toolName} />
+          <Text>Tool:</Text>
+          <Text bold color={theme.ui.accent}>
+            {toolName}
+          </Text>
+          <Badge variant="warning">needs approval</Badge>
         </Box>
-      ) : null}
-      {inputDisplay ? (
-        <Box
-          marginTop={1}
-          flexDirection="column"
-          borderStyle="single"
-          borderColor={theme.ui.border}
-          paddingX={1}
-        >
-          <Text dimColor>{inputDisplay}</Text>
+
+        {description && (
+          <Box marginTop={1}>
+            <Text>{description}</Text>
+          </Box>
+        )}
+
+        {inputDisplay && (
+          <Box marginTop={1}>
+            <Panel variant="subtle" padding={1}>
+              <Text dimColor>{inputDisplay}</Text>
+            </Panel>
+          </Box>
+        )}
+
+        <Box marginTop={1} gap={2}>
+          <KeyHint keys="Y" label="Allow" />
+          <KeyHint keys="N" label="Deny" />
+          <KeyHint keys="A" label="Always Allow" />
+          <KeyHint keys="Esc" label="Cancel" />
         </Box>
-      ) : null}
-      <Box marginTop={1}>
-        <Text color={theme.status.success} bold>
-          [Y]
-        </Text>
-        <Text> Allow </Text>
-        <Text color={theme.status.error} bold>
-          [N]
-        </Text>
-        <Text> Deny </Text>
-        <Text color={theme.status.info} bold>
-          [A]
-        </Text>
-        <Text> Always Allow</Text>
       </Box>
-    </Box>
+    </Panel>
   );
 }

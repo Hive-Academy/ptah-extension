@@ -1,23 +1,18 @@
 /**
  * AgentMonitor -- Real-time agent process status display in the sidebar.
  *
- * TASK_2025_263 Batch 4
- *
  * Subscribes to backend push events to track CLI agent processes:
- *   - agent-monitor:spawned -- New agent started (green spinner)
+ *   - agent-monitor:spawned -- New agent started (streaming spinner)
  *   - agent-monitor:output  -- Agent produced output (updates last output line)
  *   - agent-monitor:exited  -- Agent finished (checkmark) or failed (X)
- *
- * Shows each agent with a color-coded status indicator and name.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Text } from 'ink';
 
-import { useTheme } from '../../hooks/use-theme.js';
-
 import { useTuiContext } from '../../context/TuiContext.js';
-import { Spinner } from '../common/Spinner.js';
+import { StatusBadge } from '../atoms/index.js';
+import type { ExecutionStatus } from '../atoms/index.js';
 
 interface AgentProcess {
   id: string;
@@ -26,31 +21,24 @@ interface AgentProcess {
   lastOutput?: string;
 }
 
-/** Payload shape for agent-monitor:spawned push events. */
 interface AgentSpawnedPayload {
   agentId?: string;
   cli?: string;
   task?: string;
 }
 
-/** Payload shape for agent-monitor:output push events. */
 interface AgentOutputPayload {
   agentId?: string;
   stdoutDelta?: string;
   stderrDelta?: string;
 }
 
-/** Payload shape for agent-monitor:exited push events. */
 interface AgentExitedPayload {
   agentId?: string;
   status?: string;
   exitCode?: number;
 }
 
-/**
- * Derive a short display name from agent info.
- * Uses CLI type and truncated task description.
- */
 function deriveAgentName(payload: AgentSpawnedPayload): string {
   const cli = payload.cli ?? 'agent';
   const task = payload.task;
@@ -60,19 +48,20 @@ function deriveAgentName(payload: AgentSpawnedPayload): string {
   return task ? `${cli}: ${task}` : cli;
 }
 
-/**
- * Extract the last meaningful line from output delta text.
- */
 function extractLastLine(text: string): string {
   const lines = text.trim().split('\n').filter(Boolean);
   const last = lines[lines.length - 1];
   if (!last) return '';
-  // Truncate long lines for sidebar display
   return last.length > 40 ? `${last.slice(0, 37)}...` : last;
 }
 
+function mapStatus(status: AgentProcess['status']): ExecutionStatus {
+  if (status === 'running') return 'streaming';
+  if (status === 'error') return 'error';
+  return 'complete';
+}
+
 export function AgentMonitor(): React.JSX.Element {
-  const theme = useTheme();
   const { pushAdapter } = useTuiContext();
   const [agents, setAgents] = useState<AgentProcess[]>([]);
 
@@ -87,7 +76,6 @@ export function AgentMonitor(): React.JSX.Element {
     };
 
     setAgents((prev) => {
-      // Avoid duplicates
       if (prev.some((a) => a.id === data.agentId)) return prev;
       return [...prev, newAgent];
     });
@@ -129,8 +117,6 @@ export function AgentMonitor(): React.JSX.Element {
       ),
     );
 
-    // Auto-cleanup: remove completed/errored agents after 30 seconds
-    // to prevent unbounded growth of the agent list (WARNING-1 fix).
     setTimeout(() => {
       setAgents((prev) => prev.filter((a) => a.id !== agentId));
     }, 30_000);
@@ -161,28 +147,8 @@ export function AgentMonitor(): React.JSX.Element {
       {agents.map((agent) => (
         <Box key={agent.id} flexDirection="column">
           <Box gap={1}>
-            {agent.status === 'running' && <Spinner />}
-            {agent.status === 'completed' && (
-              <Text color={theme.status.success} bold>
-                {'✓'}
-              </Text>
-            )}
-            {agent.status === 'error' && (
-              <Text color={theme.status.error} bold>
-                {'✗'}
-              </Text>
-            )}
-            <Text
-              color={
-                agent.status === 'running'
-                  ? theme.status.success
-                  : agent.status === 'error'
-                    ? theme.status.error
-                    : theme.status.success
-              }
-            >
-              {agent.name}
-            </Text>
+            <StatusBadge status={mapStatus(agent.status)} />
+            <Text>{agent.name}</Text>
           </Box>
           {agent.lastOutput && agent.status === 'running' && (
             <Box paddingLeft={3}>

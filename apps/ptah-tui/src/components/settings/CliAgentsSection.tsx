@@ -1,26 +1,24 @@
 /**
- * CliAgentsSection -- CLI agent detection, testing, and model listing for the TUI settings panel.
+ * CliAgentsSection -- CLI agent detection, testing, and model listing.
  *
- * TASK_2025_266 Batch 7
- *
- * Displays all configured CLI agents with their provider, status,
- * and provides actions to test connectivity and list available models.
+ * Displays all configured CLI agents with their provider, status, and
+ * provides actions to test connectivity and list available models.
  *
  * Navigation:
  *   - Up/Down: Navigate agent list
  *   - Enter or T: Test connection for selected agent
  *   - M: Toggle model list display for selected agent
- *
- * Uses useRpc() for backend communication (ptahCli:list, ptahCli:testConnection,
- * ptahCli:listModels).
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
 
 import { useRpc } from '../../hooks/use-rpc.js';
-import { Spinner } from '../common/Spinner.js';
 import { useTheme } from '../../hooks/use-theme.js';
+import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
+import { Badge, KeyHint, Spinner } from '../atoms/index.js';
+import { ListItem } from '../molecules/index.js';
+import type { BadgeVariant } from '../atoms/index.js';
 
 // ---------------------------------------------------------------------------
 // Types for RPC responses
@@ -67,6 +65,25 @@ interface CliAgentsSectionProps {
   isActive: boolean;
 }
 
+function getStatusBadge(agent: CliAgent): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  if (agent.status === 'available' && agent.hasApiKey) {
+    return { label: 'connected', variant: 'success' };
+  }
+  if (agent.status === 'error') {
+    return { label: 'disconnected', variant: 'error' };
+  }
+  if (!agent.hasApiKey || agent.status === 'unconfigured') {
+    return { label: 'not installed', variant: 'ghost' };
+  }
+  if (agent.status === 'initializing') {
+    return { label: 'initializing', variant: 'warning' };
+  }
+  return { label: agent.status ?? 'unknown', variant: 'ghost' };
+}
+
 export function CliAgentsSection({
   isActive,
 }: CliAgentsSectionProps): React.JSX.Element {
@@ -75,7 +92,6 @@ export function CliAgentsSection({
 
   const [agents, setAgents] = useState<CliAgent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedIndex, setSelectedIndex] = useState(0);
   const [testingAgent, setTestingAgent] = useState<string | null>(null);
   const [loadingModels, setLoadingModels] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<
@@ -85,7 +101,6 @@ export function CliAgentsSection({
     {},
   );
 
-  // Load agents on mount
   useEffect(() => {
     let cancelled = false;
 
@@ -147,7 +162,6 @@ export function CliAgentsSection({
 
   const handleListModels = useCallback(
     async (agentId: string): Promise<void> => {
-      // Toggle off if already shown
       if (modelsShown[agentId]) {
         setModelsShown((prev) => {
           const next = { ...prev };
@@ -176,32 +190,36 @@ export function CliAgentsSection({
     [call, modelsShown],
   );
 
+  const navActive = isActive && testingAgent === null && loadingModels === null;
+
+  const { activeIndex } = useKeyboardNav({
+    itemCount: agents.length,
+    isActive: navActive,
+    onSelect: (i) => {
+      const agent = agents[i];
+      if (agent) {
+        void handleTestConnection(agent.id);
+      }
+    },
+  });
+
   useInput(
     (input, key) => {
-      if (key.upArrow) {
-        setSelectedIndex((prev) => Math.max(0, prev - 1));
-      }
-      if (key.downArrow) {
-        setSelectedIndex((prev) => Math.min(agents.length - 1, prev + 1));
-      }
-
-      // Enter or 't' to test connection
-      if (key.return || (input === 't' && !key.ctrl && !key.meta)) {
-        const agent = agents[selectedIndex];
+      if (key.ctrl || key.meta) return;
+      if (input === 't') {
+        const agent = agents[activeIndex];
         if (agent) {
           void handleTestConnection(agent.id);
         }
       }
-
-      // 'm' to toggle model list
-      if (input === 'm' && !key.ctrl && !key.meta) {
-        const agent = agents[selectedIndex];
+      if (input === 'm') {
+        const agent = agents[activeIndex];
         if (agent) {
           void handleListModels(agent.id);
         }
       }
     },
-    { isActive: isActive && testingAgent === null && loadingModels === null },
+    { isActive: navActive },
   );
 
   if (loading) {
@@ -216,84 +234,51 @@ export function CliAgentsSection({
     );
   }
 
-  /**
-   * Map the agent status string to a display label and color.
-   */
-  function getStatusDisplay(agent: CliAgent): { label: string; color: string } {
-    if (agent.status === 'available' && agent.hasApiKey) {
-      return { label: 'connected', color: theme.status.success };
-    }
-    if (agent.status === 'error') {
-      return { label: 'disconnected', color: theme.status.error };
-    }
-    if (!agent.hasApiKey || agent.status === 'unconfigured') {
-      return { label: 'not installed', color: theme.ui.dimmed };
-    }
-    if (agent.status === 'initializing') {
-      return { label: 'initializing', color: theme.status.warning };
-    }
-    return { label: agent.status ?? 'unknown', color: theme.ui.dimmed };
-  }
-
   return (
     <Box flexDirection="column">
       {agents.map((agent, index) => {
-        const isSelected = index === selectedIndex && isActive;
+        const isSelected = index === activeIndex && isActive;
         const isTesting = testingAgent === agent.id;
         const isLoadingModelsForAgent = loadingModels === agent.id;
         const testResult = testResults[agent.id];
         const models = modelsShown[agent.id];
-        const statusDisplay = getStatusDisplay(agent);
+        const statusBadge = getStatusBadge(agent);
 
         return (
           <Box key={agent.id} flexDirection="column">
-            <Box>
-              <Text
-                bold={isSelected}
-                inverse={isSelected}
-                dimColor={!isSelected}
-              >
-                {isSelected ? '> ' : '  '}
-                {agent.name}
-              </Text>
-              {agent.providerName && (
-                <Text color={theme.ui.dimmed}> {agent.providerName}</Text>
-              )}
-              <Text> </Text>
-              <Text color={statusDisplay.color}>[{statusDisplay.label}]</Text>
-              {isTesting && (
-                <Box marginLeft={1}>
-                  <Spinner label="Testing..." />
-                </Box>
-              )}
-            </Box>
+            <ListItem
+              label={agent.name}
+              description={agent.providerName}
+              isSelected={isSelected}
+              badge={
+                <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
+              }
+              trailing={isTesting ? <Spinner label="Testing..." /> : undefined}
+            />
 
-            {/* Inline test result */}
             {testResult && !isTesting && (
               <Box marginLeft={4}>
                 {testResult.success ? (
                   <Text color={theme.status.success}>
-                    Connected
+                    ✓ Connected
                     {testResult.latencyMs !== undefined
                       ? ` (${testResult.latencyMs}ms)`
                       : ''}
                   </Text>
                 ) : (
                   <Text color={theme.status.error}>
-                    Failed: {testResult.error ?? 'Unknown error'}
+                    ✗ Failed: {testResult.error ?? 'Unknown error'}
                   </Text>
                 )}
               </Box>
             )}
 
-            {/* Model list loading */}
             {isLoadingModelsForAgent && (
               <Box marginLeft={4}>
                 <Spinner label="Loading models..." />
               </Box>
             )}
 
-            {/* Inline model list */}
             {models && models.length > 0 && (
               <Box flexDirection="column" marginLeft={4}>
                 <Text dimColor underline>
@@ -322,10 +307,10 @@ export function CliAgentsSection({
         );
       })}
 
-      <Box marginTop={1}>
-        <Text dimColor italic>
-          Enter/T: test connection | M: list models | Up/Down: navigate
-        </Text>
+      <Box marginTop={1} gap={2}>
+        <KeyHint keys="↑↓" label="navigate" />
+        <KeyHint keys="Enter/T" label="test" />
+        <KeyHint keys="M" label="list models" />
       </Box>
     </Box>
   );
