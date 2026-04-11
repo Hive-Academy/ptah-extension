@@ -92,6 +92,8 @@ export class ChatViewComponent {
    */
   private observer: MutationObserver | null = null;
   private scrollTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private userMessageScrollTimeoutId: ReturnType<typeof setTimeout> | null =
+    null;
   private readonly SCROLL_DEBOUNCE_MS = 50;
 
   /**
@@ -283,6 +285,10 @@ export class ChatViewComponent {
         const lastMsg = messages[count - 1];
         if (lastMsg?.role === 'user') {
           this.userScrolledUp.set(false);
+          this.userMessageScrollTimeoutId = setTimeout(() => {
+            this.scrollToBottom();
+            this.userMessageScrollTimeoutId = null;
+          }, 0);
         }
       }
       this.lastMessageCount = count;
@@ -416,17 +422,17 @@ export class ChatViewComponent {
    * Debouncing coalesces rapid DOM mutations during streaming into single scroll.
    */
   private scheduleScroll(): void {
-    // Respect user scroll-up (reading history)
-    if (this.userScrolledUp()) return;
-
     // Clear previous debounce (trailing debounce pattern)
     if (this.scrollTimeoutId) {
       clearTimeout(this.scrollTimeoutId);
     }
 
-    // Schedule scroll after debounce period
+    // Schedule scroll after debounce period.
+    // Always schedule the timeout — the userScrolledUp check happens inside
+    // the callback so it uses the value at fire-time, not at schedule-time.
+    // This prevents a race where MutationObserver fires before the effect
+    // that resets userScrolledUp for new user messages.
     this.scrollTimeoutId = setTimeout(() => {
-      // Re-check condition - user may have scrolled up during debounce period
       if (!this.userScrolledUp()) {
         this.scrollToBottom();
       }
@@ -445,6 +451,10 @@ export class ChatViewComponent {
     if (this.scrollTimeoutId) {
       clearTimeout(this.scrollTimeoutId);
       this.scrollTimeoutId = null;
+    }
+    if (this.userMessageScrollTimeoutId) {
+      clearTimeout(this.userMessageScrollTimeoutId);
+      this.userMessageScrollTimeoutId = null;
     }
   }
 }
