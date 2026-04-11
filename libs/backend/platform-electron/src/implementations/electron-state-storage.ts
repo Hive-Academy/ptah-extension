@@ -36,9 +36,21 @@ export class ElectronStateStorage implements IStateStorage {
     // Catch errors to prevent a single failure from breaking the chain permanently.
     this.writePromise = this.writePromise.then(
       () => this.persist(),
-      () => this.persist()
+      () => this.persist(),
     );
     await this.writePromise;
+  }
+
+  updateSync(key: string, value: unknown): void {
+    if (value === undefined) {
+      delete this.data[key];
+    } else {
+      this.data[key] = value;
+    }
+    this.persistSync();
+    // Any in-flight async persist is now stale — reset the chain so future
+    // async writes serialize from the state we just wrote to disk.
+    this.writePromise = Promise.resolve();
   }
 
   keys(): readonly string[] {
@@ -63,8 +75,18 @@ export class ElectronStateStorage implements IStateStorage {
     await fsPromises.writeFile(
       tmpPath,
       JSON.stringify(this.data, null, 2),
-      'utf-8'
+      'utf-8',
     );
     await fsPromises.rename(tmpPath, this.filePath);
+  }
+
+  private persistSync(): void {
+    const dir = path.dirname(this.filePath);
+    fs.mkdirSync(dir, { recursive: true });
+    // Distinct suffix from async persist() to avoid collisions if an async
+    // write is still in-flight when will-quit triggers this sync path.
+    const tmpPath = this.filePath + '.sync-tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(this.data, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, this.filePath);
   }
 }

@@ -12,6 +12,9 @@ Egyptian-Inspired Theme with DaisyUI v4 + Tailwind CSS v3.4
 /* xterm.js terminal styles - TASK_2025_227 terminal integration */
 @import '@xterm/xterm/css/xterm.css';
 
+/* Gridstack drag-and-resize grid styles - required for Orchestra Canvas */
+@import 'gridstack/dist/gridstack.min.css';
+
 /* Tailwind CSS v3.4.x directives */
 @tailwind base;
 @tailwind components;

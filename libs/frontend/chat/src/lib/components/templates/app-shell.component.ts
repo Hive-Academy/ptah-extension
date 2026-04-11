@@ -8,7 +8,7 @@ import {
   ElementRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { NgComponentOutlet, NgOptimizedImage } from '@angular/common';
+import { NgComponentOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule,
@@ -94,7 +94,6 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     TrialEndedModalComponent,
     ThemeToggleComponent,
     NotificationBellComponent,
-    NgOptimizedImage,
     LucideAngularModule,
     FormsModule,
     NativePopoverComponent,

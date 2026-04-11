@@ -7,6 +7,7 @@
    Uses VS Code variables when available (extension webview),
    falls back to Anubis theme (Electron desktop) via global styles.css */
 :host ::ng-deep .overflow-y-auto {
+  overflow-anchor: auto;
   scrollbar-width: thin;
   scrollbar-color: var(
       --vscode-scrollbarSlider-background,

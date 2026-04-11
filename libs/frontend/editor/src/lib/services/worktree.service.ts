@@ -106,7 +106,7 @@ export class WorktreeService {
 
     if (result.success && result.data?.success && result.data.worktreePath) {
       // Auto-register the new worktree as a workspace folder
-      this.layoutService.addFolderByPath(result.data.worktreePath);
+      await this.layoutService.addFolderByPath(result.data.worktreePath);
 
       // Refresh the worktree list to include the new entry
       await this.loadWorktrees();
@@ -186,7 +186,7 @@ export class WorktreeService {
 
         if (payload.action === 'created') {
           if (payload.path) {
-            this.layoutService.addFolderByPath(payload.path);
+            void this.layoutService.addFolderByPath(payload.path);
           }
           this.loadWorktrees();
         } else if (payload.action === 'removed') {

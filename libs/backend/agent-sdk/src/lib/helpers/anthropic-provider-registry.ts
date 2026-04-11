@@ -331,6 +331,9 @@ export type AnthropicProviderId =
 /** Default provider when none is configured */
 export const DEFAULT_PROVIDER_ID: AnthropicProviderId = 'openrouter';
 
+/** Virtual provider ID for direct Claude auth (OAuth/API key) — not in ANTHROPIC_PROVIDERS registry */
+export const ANTHROPIC_DIRECT_PROVIDER_ID = 'anthropic';
+
 /**
  * Get a provider by ID
  *

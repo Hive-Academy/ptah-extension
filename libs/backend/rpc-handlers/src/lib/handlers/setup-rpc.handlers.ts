@@ -39,6 +39,9 @@ import {
   normalizeAgentOutput,
   AgentRecommendationService,
   AnalysisStorageService,
+  NewProjectDiscoveryService,
+  MasterPlanGenerationService,
+  NewProjectStorageService,
 } from '@ptah-extension/agent-generation';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import type {
@@ -49,6 +52,14 @@ import type {
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
   WizardInstallPackAgentsResult,
+  WizardNewProjectSelectTypeParams,
+  WizardNewProjectSelectTypeResult,
+  WizardNewProjectSubmitAnswersParams,
+  WizardNewProjectSubmitAnswersResult,
+  WizardNewProjectGetPlanParams,
+  WizardNewProjectGetPlanResult,
+  WizardNewProjectApprovePlanParams,
+  WizardNewProjectApprovePlanResult,
 } from '@ptah-extension/shared';
 import { Result } from '@ptah-extension/shared';
 import type { MultiPhaseManifest } from '@ptah-extension/agent-generation';
@@ -138,6 +149,10 @@ export class SetupRpcHandlers {
     this.registerLoadAnalysis();
     this.registerListAgentPacks();
     this.registerInstallPackAgents();
+    this.registerNewProjectSelectType();
+    this.registerNewProjectSubmitAnswers();
+    this.registerNewProjectGetPlan();
+    this.registerNewProjectApprovePlan();
 
     this.logger.debug('Setup RPC handlers registered', {
       methods: [
@@ -150,6 +165,10 @@ export class SetupRpcHandlers {
         'wizard:load-analysis',
         'wizard:list-agent-packs',
         'wizard:install-pack-agents',
+        'wizard:new-project-select-type',
+        'wizard:new-project-submit-answers',
+        'wizard:new-project-get-plan',
+        'wizard:new-project-approve-plan',
       ],
     });
   }
@@ -748,6 +767,196 @@ export class SetupRpcHandlers {
         params.agentFiles,
         targetDir,
       );
+    });
+  }
+
+  // ============================================================
+  // New Project Wizard Handlers
+  // ============================================================
+
+  /**
+   * wizard:new-project-select-type - Get question groups for a project type
+   */
+  private registerNewProjectSelectType(): void {
+    this.rpcHandler.registerMethod<
+      WizardNewProjectSelectTypeParams,
+      WizardNewProjectSelectTypeResult
+    >('wizard:new-project-select-type', async (params) => {
+      this.logger.debug('RPC: wizard:new-project-select-type called', {
+        projectType: params.projectType,
+      });
+
+      const discoveryService = this.resolveService<NewProjectDiscoveryService>(
+        AGENT_GENERATION_TOKENS.NEW_PROJECT_DISCOVERY_SERVICE,
+        'NewProjectDiscoveryService',
+      );
+
+      const groups = discoveryService.getQuestionGroups(params.projectType);
+      return { groups };
+    });
+  }
+
+  /**
+   * wizard:new-project-submit-answers - Validate answers and generate master plan
+   */
+  private registerNewProjectSubmitAnswers(): void {
+    this.rpcHandler.registerMethod<
+      WizardNewProjectSubmitAnswersParams,
+      WizardNewProjectSubmitAnswersResult
+    >('wizard:new-project-submit-answers', async (params) => {
+      this.logger.debug('RPC: wizard:new-project-submit-answers called', {
+        projectType: params.projectType,
+        projectName: params.projectName,
+        answerCount: Object.keys(params.answers).length,
+      });
+
+      // 1. Resolve workspace root early (needed for storage check and plan save)
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      if (!workspaceRoot) {
+        throw new Error(
+          'No workspace folder open. Please open a folder first.',
+        );
+      }
+
+      const storageService = this.resolveService<NewProjectStorageService>(
+        AGENT_GENERATION_TOKENS.NEW_PROJECT_STORAGE_SERVICE,
+        'NewProjectStorageService',
+      );
+
+      // 2. Handle existing plan: skip if idempotent retry, delete if force regeneration
+      if (params.force) {
+        await storageService.deletePlan(workspaceRoot);
+        this.logger.info('Force regeneration requested, deleted existing plan');
+      } else {
+        const existingPlan = await storageService.loadPlan(workspaceRoot);
+        if (existingPlan) {
+          this.logger.info(
+            'Existing master plan found on disk, skipping LLM regeneration',
+            { projectName: existingPlan.projectName },
+          );
+          return { success: true };
+        }
+      }
+
+      // 3. Validate answers
+      const discoveryService = this.resolveService<NewProjectDiscoveryService>(
+        AGENT_GENERATION_TOKENS.NEW_PROJECT_DISCOVERY_SERVICE,
+        'NewProjectDiscoveryService',
+      );
+
+      const validation = discoveryService.validateAnswers(
+        params.projectType,
+        params.answers,
+      );
+
+      if (!validation.valid) {
+        return {
+          success: false,
+          error: `Missing required fields: ${validation.missingFields.join(', ')}`,
+        };
+      }
+
+      // 4. Generate master plan via LLM
+      const generationService =
+        this.resolveService<MasterPlanGenerationService>(
+          AGENT_GENERATION_TOKENS.MASTER_PLAN_GENERATION_SERVICE,
+          'MasterPlanGenerationService',
+        );
+
+      const plan = await generationService.generatePlan(
+        params.projectType,
+        params.answers,
+        params.projectName,
+        workspaceRoot,
+      );
+
+      // 5. Save plan to workspace
+      await storageService.savePlan(workspaceRoot, plan);
+
+      this.logger.info('New project master plan generated and saved', {
+        projectName: plan.projectName,
+        phaseCount: plan.phases.length,
+        totalTasks: plan.phases.reduce((sum, p) => sum + p.tasks.length, 0),
+      });
+
+      return { success: true };
+    });
+  }
+
+  /**
+   * wizard:new-project-get-plan - Load previously generated master plan
+   */
+  private registerNewProjectGetPlan(): void {
+    this.rpcHandler.registerMethod<
+      WizardNewProjectGetPlanParams,
+      WizardNewProjectGetPlanResult
+    >('wizard:new-project-get-plan', async () => {
+      this.logger.debug('RPC: wizard:new-project-get-plan called');
+
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      if (!workspaceRoot) {
+        throw new Error('No workspace folder open.');
+      }
+
+      const storageService = this.resolveService<NewProjectStorageService>(
+        AGENT_GENERATION_TOKENS.NEW_PROJECT_STORAGE_SERVICE,
+        'NewProjectStorageService',
+      );
+
+      const plan = await storageService.loadPlan(workspaceRoot);
+
+      if (!plan) {
+        throw new Error(
+          'No master plan found. Please submit answers first to generate a plan.',
+        );
+      }
+
+      return { plan };
+    });
+  }
+
+  /**
+   * wizard:new-project-approve-plan - Finalize and persist the master plan
+   */
+  private registerNewProjectApprovePlan(): void {
+    this.rpcHandler.registerMethod<
+      WizardNewProjectApprovePlanParams,
+      WizardNewProjectApprovePlanResult
+    >('wizard:new-project-approve-plan', async (params) => {
+      this.logger.debug('RPC: wizard:new-project-approve-plan called', {
+        approved: params.approved,
+      });
+
+      if (!params.approved) {
+        return { success: false, planPath: '' };
+      }
+
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      if (!workspaceRoot) {
+        throw new Error('No workspace folder open.');
+      }
+
+      const storageService = this.resolveService<NewProjectStorageService>(
+        AGENT_GENERATION_TOKENS.NEW_PROJECT_STORAGE_SERVICE,
+        'NewProjectStorageService',
+      );
+
+      // Load and re-save to confirm persistence (idempotent)
+      const plan = await storageService.loadPlan(workspaceRoot);
+      if (!plan) {
+        throw new Error(
+          'No master plan found to approve. Please generate a plan first.',
+        );
+      }
+
+      const planPath = await storageService.savePlan(workspaceRoot, plan);
+
+      this.logger.info('Master plan approved', {
+        projectName: plan.projectName,
+        planPath,
+      });
+
+      return { success: true, planPath };
     });
   }
 }
