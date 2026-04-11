@@ -21,6 +21,7 @@ import {
   ProviderModelsService,
   SDK_TOKENS,
   DEFAULT_PROVIDER_ID,
+  ANTHROPIC_DIRECT_PROVIDER_ID,
 } from '@ptah-extension/agent-sdk';
 import {
   PermissionLevel,
@@ -331,21 +332,35 @@ export class ConfigRpcHandlers {
           let tierOverrides: ReturnType<
             ProviderModelsService['getModelTiers']
           > | null = null;
-          if (authMethod === 'openrouter') {
-            try {
-              const activeProviderId =
-                this.configManager.getWithDefault<string>(
-                  'anthropicProviderId',
-                  DEFAULT_PROVIDER_ID,
-                );
-              tierOverrides =
-                this.providerModels.getModelTiers(activeProviderId);
-            } catch (e) {
-              this.logger.warn(
-                'Failed to read provider tier overrides',
-                e instanceof Error ? e : new Error(String(e)),
+
+          // TASK_2025_270: Apply tier overrides for ALL auth methods.
+          // For 'oauth'/'apiKey': use 'anthropic' virtual provider ID
+          // For 'openrouter': use the configured third-party provider ID
+          // For 'auto': detect which auth actually resolved by checking env
+          const tierProviderId = (() => {
+            if (authMethod === 'oauth' || authMethod === 'apiKey')
+              return ANTHROPIC_DIRECT_PROVIDER_ID;
+            if (authMethod === 'openrouter')
+              return this.configManager.getWithDefault<string>(
+                'anthropicProviderId',
+                DEFAULT_PROVIDER_ID,
               );
-            }
+            // 'auto' mode: provider auth sets ANTHROPIC_BASE_URL, direct auth does not
+            if (!process.env['ANTHROPIC_BASE_URL'])
+              return ANTHROPIC_DIRECT_PROVIDER_ID;
+            return this.configManager.getWithDefault<string>(
+              'anthropicProviderId',
+              DEFAULT_PROVIDER_ID,
+            );
+          })();
+
+          try {
+            tierOverrides = this.providerModels.getModelTiers(tierProviderId);
+          } catch (e) {
+            this.logger.warn(
+              'Failed to read provider tier overrides',
+              e instanceof Error ? e : new Error(String(e)),
+            );
           }
 
           // --- Phase 1: Build SDK tier models (recommended shortcuts) ---

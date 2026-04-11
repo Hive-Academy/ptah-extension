@@ -75,6 +75,7 @@ export * from './history';
 export {
   ANTHROPIC_PROVIDERS,
   DEFAULT_PROVIDER_ID,
+  ANTHROPIC_DIRECT_PROVIDER_ID,
   getAnthropicProvider,
   getProviderBaseUrl,
   type AnthropicProvider,

@@ -63,6 +63,7 @@ export type { SdkDIToken } from './lib/di/tokens';
 export {
   ANTHROPIC_PROVIDERS,
   DEFAULT_PROVIDER_ID,
+  ANTHROPIC_DIRECT_PROVIDER_ID,
   getAnthropicProvider,
   getProviderBaseUrl,
 } from './lib/helpers';

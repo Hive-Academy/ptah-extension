@@ -11,7 +11,6 @@ import {
   Injector,
   DestroyRef,
 } from '@angular/core';
-import { NgOptimizedImage } from '@angular/common';
 import { LucideAngularModule, Bell } from 'lucide-angular';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
@@ -57,7 +56,6 @@ import type { SubagentRecord } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-chat-view',
   imports: [
-    NgOptimizedImage,
     LucideAngularModule,
     MessageBubbleComponent,
     ChatInputComponent,

@@ -6,7 +6,6 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
-import { NgOptimizedImage } from '@angular/common';
 import {
   LucideAngularModule,
   FolderOpen,
@@ -18,7 +17,7 @@ import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
 @Component({
   selector: 'ptah-electron-welcome',
   standalone: true,
-  imports: [LucideAngularModule, NgOptimizedImage],
+  imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     :host {
@@ -31,8 +30,9 @@ import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
     <div class="flex items-center justify-center h-full bg-base-100">
       <div class="flex flex-col items-center text-center max-w-md px-8">
         <!-- Logo -->
+
         <img
-          [ngSrc]="ptahIconUri"
+          [src]="ptahIconUri"
           alt="Ptah"
           class="w-16 h-16 mb-6 opacity-80"
           width="64"
@@ -58,24 +58,24 @@ import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
         <!-- Features list -->
         <div class="flex flex-col gap-3 w-full mt-4">
           @for (feature of features; track feature.title) {
-          <div class="flex items-start gap-3 text-left">
-            <div
-              class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5"
-            >
-              <lucide-angular
-                [img]="SparklesIcon"
-                class="w-4 h-4 text-primary"
-              />
+            <div class="flex items-start gap-3 text-left">
+              <div
+                class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5"
+              >
+                <lucide-angular
+                  [img]="SparklesIcon"
+                  class="w-4 h-4 text-primary"
+                />
+              </div>
+              <div>
+                <span class="text-sm font-medium text-base-content/80">{{
+                  feature.title
+                }}</span>
+                <p class="text-xs text-base-content/40 mt-0.5">
+                  {{ feature.description }}
+                </p>
+              </div>
             </div>
-            <div>
-              <span class="text-sm font-medium text-base-content/80">{{
-                feature.title
-              }}</span>
-              <p class="text-xs text-base-content/40 mt-0.5">
-                {{ feature.description }}
-              </p>
-            </div>
-          </div>
           }
         </div>
       </div>

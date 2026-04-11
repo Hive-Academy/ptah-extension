@@ -20,7 +20,10 @@ import { ElectronWebviewManagerAdapter } from './ipc/webview-manager-adapter';
 import { createApplicationMenu } from './menu/application-menu';
 import * as fs from 'fs';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
-import { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
+import {
+  ElectronWorkspaceProvider,
+  ElectronStateStorage,
+} from '@ptah-extension/platform-electron';
 import {
   PLATFORM_TOKENS,
   ContentDownloadService,
@@ -61,6 +64,7 @@ if (!gotLock) {
     stop: () => void;
     switchWorkspace: (p: string) => void;
   } | null = null;
+  let flushWorkspacePersistence: (() => void) | null = null;
 
   app.whenReady().then(async () => {
     // ========================================
@@ -282,25 +286,48 @@ if (!gotLock) {
       // writes during bulk operations (e.g., restoring multiple folders).
       let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-      const persistWorkspaceList = () => {
+      const buildWorkspaceSnapshot = () => {
         const currentFolders =
           workspaceProviderForRestore.getWorkspaceFolders();
         const activeFolder = workspaceProviderForRestore.getActiveFolder();
         const activeIndex = activeFolder
           ? currentFolders.indexOf(activeFolder)
           : 0;
+        return {
+          folders: currentFolders,
+          activeIndex: activeIndex >= 0 ? activeIndex : 0,
+        };
+      };
 
+      const persistWorkspaceList = () => {
         globalStateStorage
-          .update('ptah.workspaces', {
-            folders: currentFolders,
-            activeIndex: activeIndex >= 0 ? activeIndex : 0,
-          })
+          .update('ptah.workspaces', buildWorkspaceSnapshot())
           .catch((err: unknown) => {
             console.error(
               '[Ptah Electron] Failed to persist workspace list:',
               err instanceof Error ? err.message : String(err),
             );
           });
+      };
+
+      // Expose a synchronous flush for the will-quit handler.
+      // Captures closure variables so will-quit can persist without async.
+      flushWorkspacePersistence = () => {
+        if (persistDebounceTimer !== null) {
+          clearTimeout(persistDebounceTimer);
+          persistDebounceTimer = null;
+        }
+        try {
+          (globalStateStorage as ElectronStateStorage).updateSync(
+            'ptah.workspaces',
+            buildWorkspaceSnapshot(),
+          );
+        } catch (err: unknown) {
+          console.error(
+            '[Ptah Electron] Sync workspace persist failed:',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
       };
 
       workspaceProviderForRestore.onDidChangeWorkspaceFolders(() => {
@@ -312,6 +339,12 @@ if (!gotLock) {
           persistDebounceTimer = null;
           persistWorkspaceList();
         }, 500);
+
+        // Notify git watcher of workspace changes so it watches the correct .git directory
+        const newActive = workspaceProviderForRestore.getActiveFolder();
+        if (newActive) {
+          gitWatcherRef?.switchWorkspace(newActive);
+        }
       });
     } catch (error) {
       console.warn(
@@ -1282,6 +1315,11 @@ if (!gotLock) {
   // deactivateSync() removes all managed junctions/symlinks and unsubscribes
   // from workspace folder changes. Must be synchronous (will-quit is sync).
   app.on('will-quit', () => {
+    // Flush any pending debounced workspace persistence synchronously.
+    // Without this, removing a folder and quitting within the 500ms debounce
+    // window would lose the change — the removed folder reappears on restart.
+    flushWorkspacePersistence?.();
+
     // Clear license revalidation interval (TASK_2025_240)
     if (revalidationInterval !== null) {
       clearInterval(revalidationInterval);

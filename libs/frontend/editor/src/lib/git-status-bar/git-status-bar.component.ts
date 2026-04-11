@@ -325,7 +325,7 @@ export class GitStatusBarComponent {
   protected onWorktreeSelect(worktree: GitWorktreeInfo): void {
     this.showWorktreeList.set(false);
     if (worktree.path) {
-      this.layoutService.addFolderByPath(worktree.path);
+      void this.layoutService.addFolderByPath(worktree.path);
     }
   }
 

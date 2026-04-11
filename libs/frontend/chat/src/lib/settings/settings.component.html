@@ -174,7 +174,7 @@
               provider.
             </p>
             <ptah-provider-model-selector
-              [providerId]="authState.selectedProviderId()"
+              [providerId]="authState.effectiveProviderId()"
               [hasKey]="authState.hasProviderCredential()"
             />
           }
