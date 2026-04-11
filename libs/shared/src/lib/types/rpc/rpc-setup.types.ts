@@ -383,6 +383,8 @@ export interface WizardNewProjectSubmitAnswersParams {
   projectType: NewProjectType;
   answers: DiscoveryAnswers;
   projectName: string;
+  /** When true, delete any existing plan and regenerate from scratch. */
+  force?: boolean;
 }
 
 /** Response from wizard:new-project-submit-answers RPC method */

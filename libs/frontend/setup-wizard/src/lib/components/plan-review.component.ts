@@ -508,6 +508,7 @@ export class PlanReviewComponent {
    */
   protected onRegenerate(): void {
     this.wizardState.setMasterPlan(null);
+    this.wizardState.setForceRegenerate(true);
     this.wizardState.setCurrentStep('plan-generation');
   }
 }

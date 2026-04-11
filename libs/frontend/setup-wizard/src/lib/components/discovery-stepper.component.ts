@@ -13,7 +13,6 @@ import {
 } from 'lucide-angular';
 import type { AnswerValue } from '@ptah-extension/shared';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
-import { WizardRpcService } from '../services/wizard-rpc.service';
 import { QuestionCardComponent } from './question-card.component';
 
 /**
@@ -173,7 +172,6 @@ import { QuestionCardComponent } from './question-card.component';
 })
 export class DiscoveryStepperComponent {
   private readonly wizardState = inject(SetupWizardStateService);
-  private readonly wizardRpc = inject(WizardRpcService);
 
   protected readonly ArrowLeftIcon = ArrowLeft;
   protected readonly ArrowRightIcon = ArrowRight;

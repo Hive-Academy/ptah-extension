@@ -823,14 +823,19 @@ export class SetupRpcHandlers {
         'NewProjectStorageService',
       );
 
-      // 2. Idempotent retry: if a plan already exists on disk, skip regeneration
-      const existingPlan = await storageService.loadPlan(workspaceRoot);
-      if (existingPlan) {
-        this.logger.info(
-          'Existing master plan found on disk, skipping LLM regeneration',
-          { projectName: existingPlan.projectName },
-        );
-        return { success: true };
+      // 2. Handle existing plan: skip if idempotent retry, delete if force regeneration
+      if (params.force) {
+        await storageService.deletePlan(workspaceRoot);
+        this.logger.info('Force regeneration requested, deleted existing plan');
+      } else {
+        const existingPlan = await storageService.loadPlan(workspaceRoot);
+        if (existingPlan) {
+          this.logger.info(
+            'Existing master plan found on disk, skipping LLM regeneration',
+            { projectName: existingPlan.projectName },
+          );
+          return { success: true };
+        }
       }
 
       // 3. Validate answers

@@ -166,6 +166,8 @@ export class PlanGenerationComponent implements OnInit {
 
     const answers = this.wizardState.discoveryAnswers();
     const projectName = (answers['project-name'] as string) || 'my-project';
+    const force = this.wizardState.forceRegenerate();
+    this.wizardState.setForceRegenerate(false);
 
     this.hasError.set(false);
     this.wizardState.setPlanGenerating(true);
@@ -179,6 +181,7 @@ export class PlanGenerationComponent implements OnInit {
         projectType,
         answers,
         projectName,
+        force || undefined,
       );
       this.progress.set(60);
 

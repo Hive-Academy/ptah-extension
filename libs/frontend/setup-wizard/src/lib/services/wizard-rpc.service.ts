@@ -488,10 +488,11 @@ export class WizardRpcService {
     projectType: NewProjectType,
     answers: DiscoveryAnswers,
     projectName: string,
+    force?: boolean,
   ): Promise<void> {
     const result = await this.rpcService.call(
       'wizard:new-project-submit-answers',
-      { projectType, answers, projectName },
+      { projectType, answers, projectName, force },
       { timeout: 120000 },
     );
     if (!result.isSuccess()) {

@@ -9,7 +9,7 @@
  */
 
 import { inject, injectable } from 'tsyringe';
-import { mkdir, readFile, writeFile } from 'fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type { MasterPlan } from '@ptah-extension/shared';
@@ -101,10 +101,59 @@ export class NewProjectStorageService {
       });
 
       return plan;
-    } catch {
-      this.logger.debug(`${SERVICE_TAG} No existing plan found at ${filePath}`);
+    } catch (error: unknown) {
+      const errorCode =
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        typeof (error as NodeJS.ErrnoException).code === 'string'
+          ? (error as NodeJS.ErrnoException).code
+          : undefined;
+
+      if (errorCode === 'ENOENT') {
+        this.logger.debug(
+          `${SERVICE_TAG} No existing plan found at ${filePath}`,
+        );
+        return null;
+      }
+
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.warn(`${SERVICE_TAG} Failed to load existing plan`, {
+        filePath,
+        errorCode,
+        errorMessage,
+      });
       return null;
     }
+  }
+
+  /**
+   * Delete a previously saved master plan from disk.
+   */
+  async deletePlan(workspacePath: string): Promise<void> {
+    const dir = join(workspacePath, STORAGE_DIR);
+    const planPath = join(dir, PLAN_FILENAME);
+    const summaryPath = join(dir, SUMMARY_FILENAME);
+
+    for (const filePath of [planPath, summaryPath]) {
+      try {
+        await unlink(filePath);
+      } catch (error: unknown) {
+        const code =
+          typeof error === 'object' &&
+          error !== null &&
+          'code' in error &&
+          typeof (error as NodeJS.ErrnoException).code === 'string'
+            ? (error as NodeJS.ErrnoException).code
+            : undefined;
+        if (code !== 'ENOENT') {
+          this.logger.warn(`${SERVICE_TAG} Failed to delete ${filePath}`);
+        }
+      }
+    }
+
+    this.logger.info(`${SERVICE_TAG} Plan deleted from ${dir}`);
   }
 
   // ==========================================================================

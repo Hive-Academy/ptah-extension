@@ -473,6 +473,8 @@ export class SetupWizardStateService {
    */
   private readonly planGeneratingSignal = signal<boolean>(false);
 
+  private readonly forceRegenerateSignal = signal<boolean>(false);
+
   /**
    * Public readonly signal for current wizard step
    */
@@ -677,6 +679,8 @@ export class SetupWizardStateService {
    * Public readonly signal for plan generation loading state.
    */
   public readonly planGenerating = this.planGeneratingSignal.asReadonly();
+
+  public readonly forceRegenerate = this.forceRegenerateSignal.asReadonly();
 
   /**
    * Computed signal for count of installed community agents.
@@ -1091,6 +1095,7 @@ export class SetupWizardStateService {
     this.discoveryAnswersSignal.set({});
     this.masterPlanSignal.set(null);
     this.planGeneratingSignal.set(false);
+    this.forceRegenerateSignal.set(false);
   }
 
   // === Community Agent Pack State Mutations (TASK_2025_258) ===
@@ -1219,6 +1224,10 @@ export class SetupWizardStateService {
    */
   public setPlanGenerating(generating: boolean): void {
     this.planGeneratingSignal.set(generating);
+  }
+
+  public setForceRegenerate(force: boolean): void {
+    this.forceRegenerateSignal.set(force);
   }
 
   // === Deep Analysis State Mutations (TASK_2025_111) ===
