@@ -94,8 +94,19 @@ export function ChatPanel({
       onSystemMessage: (text: string) => {
         addSystemMessage(text);
       },
+      onSendMessage: (text: string) => {
+        void startChat(text);
+      },
     }),
-    [clearMessages, addSystemMessage, onClear, onSettings, onSessions, onQuit],
+    [
+      clearMessages,
+      addSystemMessage,
+      startChat,
+      onClear,
+      onSettings,
+      onSessions,
+      onQuit,
+    ],
   );
 
   const { commands, executeCommand } = useCommands(commandCallbacks);

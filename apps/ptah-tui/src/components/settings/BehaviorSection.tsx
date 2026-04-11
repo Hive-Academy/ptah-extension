@@ -1,26 +1,20 @@
 /**
- * BehaviorSection -- Autopilot and effort level configuration for the TUI settings panel.
- *
- * TASK_2025_266 Batch 6
+ * BehaviorSection -- Autopilot and effort level configuration.
  *
  * Two configuration groups:
- *   1. Autopilot -- Enable/disable and permission level selection (ask, auto-edit, yolo, plan)
+ *   1. Autopilot -- Enable/disable + permission level (ask, auto-edit, yolo, plan)
  *   2. Effort Level -- Reasoning effort (low, medium, high, max)
  *
- * Navigation:
- *   - Up/Down: Navigate options within the active group
- *   - Enter: Toggle/select the highlighted option
- *   - Tab: Switch between Autopilot and Effort groups
- *
- * Uses useRpc() for backend communication (config:autopilot-get/toggle, config:effort-get/set).
+ * Navigation: Up/Down within group, Enter to toggle/select, Tab to switch groups.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
 
 import { useRpc } from '../../hooks/use-rpc.js';
-import { Spinner } from '../common/Spinner.js';
 import { useTheme } from '../../hooks/use-theme.js';
+import { Badge, KeyHint, Spinner } from '../atoms/index.js';
+import { ListItem } from '../molecules/index.js';
 
 // ---------------------------------------------------------------------------
 // Types for RPC responses
@@ -74,21 +68,15 @@ export function BehaviorSection({
   const { call } = useRpc();
 
   const [loading, setLoading] = useState(true);
-
-  // Autopilot state
   const [autopilotEnabled, setAutopilotEnabled] = useState(false);
   const [permissionLevel, setPermissionLevel] = useState('ask');
-
-  // Effort state
   const [effort, setEffort] = useState<string>('medium');
 
-  // Navigation state
   const [focusGroup, setFocusGroup] = useState<FocusGroup>('autopilot');
   // Index 0 = toggle row; indices 1..4 = permission levels
   const [autopilotIndex, setAutopilotIndex] = useState(0);
   const [effortIndex, setEffortIndex] = useState(0);
 
-  // Load initial state
   useEffect(() => {
     let cancelled = false;
 
@@ -115,7 +103,6 @@ export function BehaviorSection({
           (p) => p.id === autopilotResult.permissionLevel,
         );
         if (idx >= 0) {
-          // +1 because index 0 is the toggle row
           setAutopilotIndex(idx + 1);
         }
       }
@@ -186,12 +173,10 @@ export function BehaviorSection({
     [call],
   );
 
-  // Total navigable items in autopilot group: 1 (toggle) + permission levels
   const autopilotItemCount = 1 + PERMISSION_LEVELS.length;
 
   useInput(
     (_input, key) => {
-      // Tab switches focus group
       if (key.tab) {
         setFocusGroup((prev) =>
           prev === 'autopilot' ? 'effort' : 'autopilot',
@@ -210,10 +195,8 @@ export function BehaviorSection({
         }
         if (key.return) {
           if (autopilotIndex === 0) {
-            // Toggle autopilot on/off
             void handleAutopilotToggle();
           } else {
-            // Select permission level
             const level = PERMISSION_LEVELS[autopilotIndex - 1];
             if (level) {
               void handlePermissionChange(level.id);
@@ -221,7 +204,6 @@ export function BehaviorSection({
           }
         }
       } else {
-        // Effort group
         if (key.upArrow) {
           setEffortIndex((prev) => Math.max(0, prev - 1));
         }
@@ -250,7 +232,6 @@ export function BehaviorSection({
 
   return (
     <Box flexDirection="column">
-      {/* Autopilot group */}
       <Box flexDirection="column" marginBottom={1}>
         <Text
           bold
@@ -260,52 +241,36 @@ export function BehaviorSection({
           Autopilot
         </Text>
 
-        {/* Toggle row */}
-        <Box>
+        <Box gap={1}>
           <Text
             bold={isAutopilotFocused && autopilotIndex === 0}
             inverse={isAutopilotFocused && autopilotIndex === 0}
-            dimColor={!isAutopilotFocused && autopilotIndex !== 0}
           >
             {isAutopilotFocused && autopilotIndex === 0 ? '> ' : '  '}
-            Enabled:{' '}
+            Enabled:
           </Text>
-          {autopilotEnabled ? (
-            <Text bold color={theme.status.success}>
-              [ON]
-            </Text>
-          ) : (
-            <Text dimColor>[OFF]</Text>
-          )}
+          <Badge variant={autopilotEnabled ? 'success' : 'ghost'}>
+            {autopilotEnabled ? 'ON' : 'OFF'}
+          </Badge>
         </Box>
 
-        {/* Permission levels */}
         {PERMISSION_LEVELS.map((level, index) => {
           const itemIndex = index + 1;
           const isSelected = isAutopilotFocused && autopilotIndex === itemIndex;
           const isCurrentLevel = level.id === permissionLevel;
 
           return (
-            <Box key={level.id}>
-              <Text
-                bold={isSelected || isCurrentLevel}
-                inverse={isSelected}
-                color={isCurrentLevel ? theme.ui.accent : undefined}
-                dimColor={!isSelected && !isCurrentLevel}
-              >
-                {isSelected ? '> ' : '  '}
-                {level.label}
-              </Text>
-              {isCurrentLevel && (
-                <Text color={theme.status.success}> [active]</Text>
-              )}
-              <Text dimColor> - {level.description}</Text>
-            </Box>
+            <ListItem
+              key={level.id}
+              label={level.label}
+              description={level.description}
+              isSelected={isSelected}
+              isCurrent={isCurrentLevel}
+            />
           );
         })}
       </Box>
 
-      {/* Effort level group */}
       <Box flexDirection="column">
         <Text
           bold
@@ -320,29 +285,20 @@ export function BehaviorSection({
           const isCurrentLevel = level.id === effort;
 
           return (
-            <Box key={level.id}>
-              <Text
-                bold={isSelected || isCurrentLevel}
-                inverse={isSelected}
-                color={isCurrentLevel ? theme.ui.accent : undefined}
-                dimColor={!isSelected && !isCurrentLevel}
-              >
-                {isSelected ? '> ' : '  '}
-                {level.label}
-              </Text>
-              {isCurrentLevel && (
-                <Text color={theme.status.success}> [active]</Text>
-              )}
-            </Box>
+            <ListItem
+              key={level.id}
+              label={level.label}
+              isSelected={isSelected}
+              isCurrent={isCurrentLevel}
+            />
           );
         })}
       </Box>
 
-      {/* Help text */}
-      <Box marginTop={1}>
-        <Text dimColor italic>
-          Enter: toggle/select | Up/Down: navigate | Tab: switch group
-        </Text>
+      <Box marginTop={1} gap={2}>
+        <KeyHint keys="↑↓" label="navigate" />
+        <KeyHint keys="Enter" label="toggle/select" />
+        <KeyHint keys="Tab" label="switch group" />
       </Box>
     </Box>
   );

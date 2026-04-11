@@ -1,22 +1,9 @@
 /**
  * ModelSelector -- Modal model/provider selector (Ctrl+M).
  *
- * TASK_2025_266 Batch 5
- *
- * Self-contained modal that manages its own RPC calls for:
- *   - Fetching the current provider (llm:getDefaultProvider)
- *   - Fetching models for the active provider (config:models-list)
- *   - Fetching provider API key status (llm:getProviderStatus)
- *   - Switching providers (llm:setDefaultProvider)
- *   - Switching models (config:model-switch)
- *
- * Pushed onto the modal stack in App.tsx and rendered inside ModalOverlay.
- *
- * Keyboard:
- *   Tab     - Cycle between providers
- *   Up/Down - Navigate models
- *   Enter   - Select model
- *   Escape  - Dismiss
+ * Self-contained modal that manages its own RPC calls for provider/model
+ * discovery, provider switching, and model selection. Pushes a focus scope
+ * on mount so background useInput handlers are suspended.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -24,10 +11,18 @@ import { Box, Text, useInput } from 'ink';
 
 import { useTuiContext } from '../../context/TuiContext.js';
 import { useTheme } from '../../hooks/use-theme.js';
-import { Spinner } from '../common/Spinner.js';
+import { usePushFocus } from '../../hooks/use-focus-manager.js';
+import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
+import {
+  Badge,
+  KeyHint,
+  Panel,
+  Spinner,
+} from '../atoms/index.js';
+import { ListItem, SectionHeader } from '../molecules/index.js';
 
 // ---------------------------------------------------------------------------
-// Types for RPC responses (matching SettingsPanel patterns)
+// Types for RPC responses
 // ---------------------------------------------------------------------------
 
 interface ProviderStatus {
@@ -72,18 +67,15 @@ export function ModelSelector({
 }: ModelSelectorProps): React.JSX.Element {
   const theme = useTheme();
   const { transport } = useTuiContext();
+  const isActive = usePushFocus('model-selector');
 
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [currentProvider, setCurrentProvider] = useState<string>('');
   const [activeProviderIndex, setActiveProviderIndex] = useState(0);
   const [models, setModels] = useState<ModelEntry[]>([]);
-  const [selectedModelIndex, setSelectedModelIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [modelsLoading, setModelsLoading] = useState(false);
 
-  /**
-   * Fetch models for the currently active provider.
-   */
   const fetchModels = useCallback(async (): Promise<void> => {
     setModelsLoading(true);
     try {
@@ -94,29 +86,22 @@ export function ModelSelector({
 
       if (response.success && response.data?.models) {
         setModels(response.data.models);
-        // Position cursor on the currently selected model
-        const currentIdx = response.data.models.findIndex((m) => m.isSelected);
-        setSelectedModelIndex(currentIdx >= 0 ? currentIdx : 0);
       } else {
         setModels([]);
-        setSelectedModelIndex(0);
       }
     } catch {
       setModels([]);
-      setSelectedModelIndex(0);
     } finally {
       setModelsLoading(false);
     }
   }, [transport]);
 
-  // Initial data fetch on mount
   useEffect(() => {
     let cancelled = false;
 
     const fetchInitialData = async (): Promise<void> => {
       setLoading(true);
       try {
-        // Fetch provider status and default provider in parallel
         const [providerStatusRes, defaultProviderRes] = await Promise.all([
           transport.call<void, GetProviderStatusResult>(
             'llm:getProviderStatus',
@@ -130,17 +115,14 @@ export function ModelSelector({
 
         if (cancelled) return;
 
-        // Process providers
         if (providerStatusRes.success && providerStatusRes.data?.providers) {
           setProviders(providerStatusRes.data.providers);
         }
 
-        // Process default provider
         if (defaultProviderRes.success && defaultProviderRes.data?.provider) {
           const defaultId = defaultProviderRes.data.provider;
           setCurrentProvider(defaultId);
 
-          // Set active tab to the default provider
           if (providerStatusRes.success && providerStatusRes.data?.providers) {
             const idx = providerStatusRes.data.providers.findIndex(
               (p) => p.name === defaultId,
@@ -151,7 +133,6 @@ export function ModelSelector({
           }
         }
 
-        // Fetch models for the current provider
         await fetchModels();
       } catch {
         // Gracefully handle errors
@@ -169,9 +150,6 @@ export function ModelSelector({
     };
   }, [transport, fetchModels]);
 
-  /**
-   * Switch to a different provider and refetch models.
-   */
   const switchProvider = useCallback(
     async (providerId: string): Promise<void> => {
       try {
@@ -191,21 +169,19 @@ export function ModelSelector({
     [transport, fetchModels],
   );
 
-  /**
-   * Select a model.
-   */
   const selectModel = useCallback(
-    async (modelId: string): Promise<void> => {
+    async (index: number): Promise<void> => {
+      const model = models[index];
+      if (!model) return;
       try {
         const response = await transport.call<
           { model: string },
           { model: string }
-        >('config:model-switch', { model: modelId });
+        >('config:model-switch', { model: model.id });
 
         if (response.success) {
-          // Update local state to reflect selection
           setModels((prev) =>
-            prev.map((m) => ({ ...m, isSelected: m.id === modelId })),
+            prev.map((m) => ({ ...m, isSelected: m.id === model.id })),
           );
           onDismiss();
         }
@@ -213,151 +189,119 @@ export function ModelSelector({
         // Gracefully handle errors
       }
     },
-    [transport, onDismiss],
+    [transport, onDismiss, models],
   );
 
-  // Keyboard navigation
-  useInput((_input, key) => {
-    if (key.escape) {
-      onDismiss();
-      return;
-    }
-
-    // Tab cycles providers
-    if (key.tab && providers.length > 0) {
-      const nextIndex = (activeProviderIndex + 1) % providers.length;
-      setActiveProviderIndex(nextIndex);
-      const nextProvider = providers[nextIndex];
-      if (nextProvider) {
-        void switchProvider(nextProvider.name);
-      }
-      return;
-    }
-
-    // Up/Down navigate models
-    if (key.upArrow) {
-      setSelectedModelIndex((prev) =>
-        models.length === 0 ? 0 : (prev - 1 + models.length) % models.length,
-      );
-    }
-
-    if (key.downArrow) {
-      setSelectedModelIndex((prev) =>
-        models.length === 0 ? 0 : (prev + 1) % models.length,
-      );
-    }
-
-    // Enter selects model
-    if (key.return) {
-      const model = models[selectedModelIndex];
-      if (model) {
-        void selectModel(model.id);
-      }
-    }
+  // Nav hook owns up/down + enter + escape for the model list.
+  const initialModelIndex = Math.max(
+    0,
+    models.findIndex((m) => m.isSelected),
+  );
+  const { activeIndex } = useKeyboardNav({
+    itemCount: models.length,
+    isActive,
+    initialIndex: initialModelIndex,
+    wrap: true,
+    onSelect: (i) => {
+      void selectModel(i);
+    },
+    onEscape: onDismiss,
   });
+
+  // Tab cycling lives outside useKeyboardNav.
+  useInput(
+    (_input, key) => {
+      if (key.tab && providers.length > 0) {
+        const nextIndex = (activeProviderIndex + 1) % providers.length;
+        setActiveProviderIndex(nextIndex);
+        const nextProvider = providers[nextIndex];
+        if (nextProvider) {
+          void switchProvider(nextProvider.name);
+        }
+      }
+    },
+    { isActive },
+  );
 
   if (loading) {
     return (
-      <Box flexDirection="column" paddingX={1}>
-        <Text bold color={theme.ui.brand}>
-          Model Selector
-        </Text>
-        <Box marginTop={1}>
+      <Panel title="Model Selector" isActive>
+        <Box paddingX={1}>
           <Spinner label="Loading providers and models..." />
         </Box>
-      </Box>
+      </Panel>
     );
   }
 
-  // Determine the active provider for display
   const activeProvider = providers[activeProviderIndex];
 
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Text bold color={theme.ui.brand}>
-        Model Selector
-      </Text>
+    <Panel title="Model Selector" isActive padding={1}>
+      <Box flexDirection="column">
+        <SectionHeader
+          title={activeProvider?.displayName ?? currentProvider}
+          subtitle={
+            activeProvider && !activeProvider.hasApiKey
+              ? 'No API key configured for this provider'
+              : undefined
+          }
+        />
 
-      {/* Current provider indicator */}
-      <Box marginTop={1} gap={1}>
-        <Text dimColor>Provider:</Text>
-        <Text bold color={theme.ui.accent}>
-          {activeProvider?.displayName ?? currentProvider}
-        </Text>
-        {activeProvider && !activeProvider.hasApiKey && (
-          <Text color={theme.status.error}>(no API key)</Text>
+        {providers.length > 1 && (
+          <Box marginBottom={1} gap={2}>
+            {providers.map((provider, index) => {
+              const isActiveTab = index === activeProviderIndex;
+              return (
+                <Box key={provider.name} gap={1}>
+                  <Text
+                    bold={isActiveTab}
+                    color={isActiveTab ? theme.ui.accent : theme.ui.dimmed}
+                    inverse={isActiveTab}
+                  >
+                    {' '}
+                    {provider.displayName}{' '}
+                  </Text>
+                  <Badge variant={provider.hasApiKey ? 'success' : 'error'}>
+                    {provider.hasApiKey ? '✓' : '✗'}
+                  </Badge>
+                </Box>
+              );
+            })}
+          </Box>
         )}
-      </Box>
 
-      {/* Provider tabs */}
-      {providers.length > 1 && (
-        <Box marginTop={1} gap={2}>
-          {providers.map((provider, index) => {
-            const isActive = index === activeProviderIndex;
-            return (
-              <Box key={provider.name} gap={0}>
-                <Text
-                  bold={isActive}
-                  color={isActive ? theme.ui.accent : theme.ui.dimmed}
-                  inverse={isActive}
-                >
-                  {' '}
-                  {provider.displayName}{' '}
-                </Text>
-                {provider.hasApiKey ? (
-                  <Text color={theme.status.success}>{'\u2713'}</Text>
-                ) : (
-                  <Text color={theme.status.error}>{'\u2717'}</Text>
-                )}
-              </Box>
-            );
-          })}
+        <Box flexDirection="column">
+          {modelsLoading ? (
+            <Spinner label="Loading models..." />
+          ) : models.length === 0 ? (
+            <Text color={theme.ui.dimmed}>
+              No models available. Check your API key configuration.
+            </Text>
+          ) : (
+            models.map((model, index) => (
+              <ListItem
+                key={model.id}
+                label={model.name || model.id}
+                description={model.description || undefined}
+                isSelected={index === activeIndex}
+                isCurrent={model.isSelected}
+                badge={
+                  model.isRecommended && !model.isSelected ? (
+                    <Badge variant="warning">★</Badge>
+                  ) : undefined
+                }
+              />
+            ))
+          )}
         </Box>
-      )}
 
-      {/* Model list */}
-      <Box flexDirection="column" marginTop={1}>
-        {modelsLoading ? (
-          <Spinner label="Loading models..." />
-        ) : models.length === 0 ? (
-          <Text color={theme.ui.dimmed}>
-            No models available. Check your API key configuration.
-          </Text>
-        ) : (
-          models.map((model, index) => {
-            const isSelected = index === selectedModelIndex;
-            const isCurrent = model.isSelected;
-
-            return (
-              <Box key={model.id} gap={1}>
-                <Text
-                  bold={isSelected || isCurrent}
-                  inverse={isSelected}
-                  color={isCurrent && !isSelected ? theme.ui.accent : undefined}
-                >
-                  {model.name || model.id}
-                </Text>
-                {isCurrent && (
-                  <Text color={theme.status.success}>[current]</Text>
-                )}
-                {model.isRecommended && !isCurrent && (
-                  <Text color={theme.status.warning}>*</Text>
-                )}
-                {model.description && <Text dimColor>{model.description}</Text>}
-              </Box>
-            );
-          })
-        )}
+        <Box marginTop={1} gap={2}>
+          <KeyHint keys="Tab" label="switch provider" />
+          <KeyHint keys="↑↓" label="navigate" />
+          <KeyHint keys="Enter" label="select" />
+          <KeyHint keys="Esc" label="close" />
+        </Box>
       </Box>
-
-      {/* Help text */}
-      <Box marginTop={1}>
-        <Text dimColor>
-          Tab: switch provider | Up/Down: navigate | Enter: select | Escape:
-          close
-          {' | * = recommended'}
-        </Text>
-      </Box>
-    </Box>
+    </Panel>
   );
 }

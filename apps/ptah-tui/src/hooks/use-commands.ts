@@ -42,6 +42,8 @@ export interface CommandCallbacks {
   onSessions: () => void;
   onQuit: () => void;
   onSystemMessage: (text: string) => void;
+  /** Send a chat message. Used to forward remote/SDK commands to the backend. */
+  onSendMessage: (text: string) => void;
 }
 
 /** Shape of a remote command returned from autocomplete:commands RPC. */
@@ -83,13 +85,20 @@ export function useCommands(callbacks: CommandCallbacks): UseCommandsResult {
       return `Available commands:\n${lines.join('\n')}`;
     };
 
+    // Only commands that manipulate TUI-only state (panels, sidebars, themes,
+    // modes, session lifecycle, process exit) belong here. Anything the Claude
+    // SDK already owns (compact, cost, context, memory, review) is served by
+    // the backend via autocomplete:commands and must NOT be redeclared, or the
+    // local handler shadows the SDK behavior. /clear is the one exception: it
+    // needs to clear the TUI-local message list in addition to the SDK state.
     const cmds: CommandEntry[] = [
       {
         name: 'clear',
-        description: 'Clear the chat message history',
+        description: 'Clear the chat message history (TUI view + SDK state)',
         scope: 'tui-local',
         handler: () => {
           callbacks.onClear();
+          callbacks.onSendMessage('/clear');
         },
       },
       {
@@ -109,39 +118,11 @@ export function useCommands(callbacks: CommandCallbacks): UseCommandsResult {
         },
       },
       {
-        name: 'help',
-        description: 'List all available commands',
-        scope: 'tui-local',
-        // handler returns text via executeCommand's string result path
-      },
-      {
-        name: 'quit',
-        description: 'Exit the TUI application',
+        name: 'sessions',
+        description: 'Toggle the session sidebar',
         scope: 'tui-local',
         handler: () => {
-          callbacks.onQuit();
-        },
-      },
-      {
-        name: 'model',
-        description: 'Switch the active LLM model',
-        scope: 'tui-local',
-        argumentHint: '<model-name>',
-        handler: async (args: string) => {
-          if (!args.trim()) return;
-          await transport.call('config:model-switch', { model: args.trim() });
-        },
-      },
-      {
-        name: 'mode',
-        description: 'Switch between plan and build modes',
-        scope: 'tui-local',
-        argumentHint: '<plan|build>',
-        handler: async (args: string) => {
-          const trimmed = args.trim().toLowerCase();
-          if (trimmed === 'plan' || trimmed === 'build') {
-            await modeContext.setMode(trimmed as AppMode);
-          }
+          callbacks.onSessions();
         },
       },
       {
@@ -157,31 +138,45 @@ export function useCommands(callbacks: CommandCallbacks): UseCommandsResult {
         },
       },
       {
-        name: 'compact',
-        description: 'Compact the current chat context',
+        name: 'mode',
+        description: 'Switch between plan and build modes',
         scope: 'tui-local',
-        handler: async () => {
-          await transport.call('chat:compact', {});
+        argumentHint: '<plan|build>',
+        handler: async (args: string) => {
+          const trimmed = args.trim().toLowerCase();
+          if (trimmed === 'plan' || trimmed === 'build') {
+            await modeContext.setMode(trimmed as AppMode);
+          }
         },
       },
       {
-        name: 'cost',
-        description: 'Show current session cost and token usage',
+        name: 'model',
+        description: 'Switch the active LLM model',
         scope: 'tui-local',
-        // handler returns text via executeCommand's string result path
+        argumentHint: '<model-name>',
+        handler: async (args: string) => {
+          if (!args.trim()) return;
+          await transport.call('config:model-switch', { model: args.trim() });
+        },
       },
       {
         name: 'status',
-        description: 'Show current session status information',
+        description: 'Show current TUI session status information',
         scope: 'tui-local',
         // handler returns text via executeCommand's string result path
       },
       {
-        name: 'sessions',
-        description: 'Toggle the session sidebar',
+        name: 'help',
+        description: 'List all available commands',
+        scope: 'tui-local',
+        // handler returns text via executeCommand's string result path
+      },
+      {
+        name: 'quit',
+        description: 'Exit the TUI application',
         scope: 'tui-local',
         handler: () => {
-          callbacks.onSessions();
+          callbacks.onQuit();
         },
       },
     ];
@@ -270,18 +265,8 @@ export function useCommands(callbacks: CommandCallbacks): UseCommandsResult {
   const executeCommand = useCallback(
     async (name: string, args: string): Promise<string | null> => {
       const cmd = commands.find((c) => c.name === name);
-      if (!cmd) return null;
-
-      // Special cases that return text output
-      if (cmd.name === 'cost') {
-        const stats = sessionContext.stats;
-        if (!stats) return 'No session stats available.';
-        return (
-          `Cost: $${stats.costUSD.toFixed(4)}\n` +
-          `Input tokens: ${stats.inputTokens.toLocaleString()}\n` +
-          `Output tokens: ${stats.outputTokens.toLocaleString()}\n` +
-          `Model: ${stats.model ?? 'unknown'}`
-        );
+      if (!cmd) {
+        return `Unknown command: /${name}. Type /help to list available commands.`;
       }
 
       if (cmd.name === 'status') {
@@ -296,14 +281,25 @@ export function useCommands(callbacks: CommandCallbacks): UseCommandsResult {
         );
       }
 
-      // Commands with handlers
+      // Commands with handlers (local TUI commands)
       if (cmd.handler) {
         await cmd.handler(args);
+        return null;
+      }
+
+      // Remote/SDK commands: forward to backend as a chat message
+      // with the "/name args" prefix. The backend parses and executes it.
+      if (cmd.scope !== 'tui-local') {
+        const trimmedArgs = args.trim();
+        const text = trimmedArgs
+          ? `/${cmd.name} ${trimmedArgs}`
+          : `/${cmd.name}`;
+        callbacks.onSendMessage(text);
       }
 
       return null;
     },
-    [commands, sessionContext],
+    [commands, sessionContext, callbacks],
   );
 
   return { commands, searchCommands, executeCommand, loading };

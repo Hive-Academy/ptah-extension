@@ -14,6 +14,7 @@ import { Box, Text } from 'ink';
 import { useSessionContext } from '../../context/SessionContext.js';
 import { useModeContext } from '../../context/ModeContext.js';
 import { useTheme } from '../../hooks/use-theme.js';
+import { KeyHint, ProgressBar } from '../atoms/index.js';
 
 interface StatusBarProps {
   isStreaming: boolean;
@@ -125,10 +126,11 @@ export function StatusBar({ isStreaming }: StatusBarProps): React.JSX.Element {
         {contextPercent > 0 && (
           <>
             <Text color={theme.ui.border}>{'│'}</Text>
-            <Text color={contextColor}>{contextPercent}% ctx</Text>
+            <ProgressBar percent={contextPercent} width={8} color={contextColor} />
+            <Text color={contextColor}>{contextPercent}%</Text>
             {contextPercent > 90 && (
               <Text color={theme.status.error} bold>
-                {' ctx full!'}
+                {' full!'}
               </Text>
             )}
           </>
@@ -147,21 +149,13 @@ export function StatusBar({ isStreaming }: StatusBarProps): React.JSX.Element {
         </Text>
       </Box>
 
-      <Box gap={1}>
-        <Text color={theme.ui.dimmed}>^K</Text>
-        <Text dimColor>palette</Text>
-        <Text color={theme.ui.border}>{'│'}</Text>
-        <Text color={theme.ui.dimmed}>^M</Text>
-        <Text dimColor>model</Text>
-        <Text color={theme.ui.border}>{'│'}</Text>
-        <Text color={theme.ui.dimmed}>^B</Text>
-        <Text dimColor>sidebar</Text>
-        <Text color={theme.ui.border}>{'│'}</Text>
-        <Text color={theme.ui.dimmed}>^S</Text>
-        <Text dimColor>settings</Text>
-        <Text color={theme.ui.border}>{'│'}</Text>
-        <Text color={theme.ui.dimmed}>^Q</Text>
-        <Text dimColor>quit</Text>
+      <Box>
+        <KeyHint keys="^K" label="palette" />
+        <KeyHint keys="^N" label="new" separator />
+        <KeyHint keys="^B" label="agents" separator />
+        <KeyHint keys="^E" label="sessions" separator />
+        <KeyHint keys="^S" label="settings" separator />
+        <KeyHint keys="^Q" label="quit" separator />
       </Box>
     </Box>
   );

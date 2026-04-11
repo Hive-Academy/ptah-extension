@@ -1,19 +1,11 @@
 /**
- * UserQuestionPrompt -- Shows questions from the backend (e.g., AskUserQuestion tool).
+ * UserQuestionPrompt -- Shows questions from the backend (AskUserQuestion).
  *
- * TASK_2025_263 Batch 4
+ * Supports two modes: vertical option selection (arrow keys + Enter) and
+ * free-text input. Multiple questions are shown one at a time; answers are
+ * collected and submitted when all are answered.
  *
- * Supports two modes:
- *   1. Option selection: vertical list with arrow key navigation and Enter to select
- *   2. Free-text input: ink-text-input for open-ended answers
- *
- * When multiple questions are provided, they are shown one at a time.
- * After all questions are answered, onAnswer is called with the collected answers.
- *
- * Keyboard:
- *   Up/Down - Navigate options
- *   Enter - Select option / Submit text
- *   Escape - Dismiss with empty answers
+ * Pushes a focus scope on mount so background handlers are suspended.
  */
 
 import React, { useState, useCallback } from 'react';
@@ -21,8 +13,11 @@ import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 
 import { useTheme } from '../../hooks/use-theme.js';
+import { usePushFocus } from '../../hooks/use-focus-manager.js';
+import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
+import { KeyHint, Panel } from '../atoms/index.js';
+import { ListItem } from '../molecules/index.js';
 
-/** Simplified question shape matching QuestionItem from shared types */
 interface QuestionItemShape {
   question: string;
   header: string;
@@ -40,9 +35,10 @@ export function UserQuestionPrompt({
   onAnswer,
 }: UserQuestionPromptProps): React.JSX.Element {
   const theme = useTheme();
+  const isActive = usePushFocus('user-question-prompt');
+
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [selectedOptionIndex, setSelectedOptionIndex] = useState(0);
   const [textValue, setTextValue] = useState('');
 
   const currentQuestion =
@@ -57,53 +53,52 @@ export function UserQuestionPrompt({
       const updatedAnswers = { ...answers, [key]: answer };
 
       if (currentIndex + 1 >= questions.length) {
-        // All questions answered
         onAnswer(updatedAnswers);
       } else {
         setAnswers(updatedAnswers);
         setCurrentIndex((prev) => prev + 1);
-        setSelectedOptionIndex(0);
         setTextValue('');
       }
     },
     [answers, currentIndex, currentQuestion, onAnswer, questions.length],
   );
 
-  // Handle keyboard for option selection mode
-  useInput(
-    (char, key) => {
-      if (key.escape) {
-        // Dismiss with empty answers
-        const emptyAnswers: Record<string, string> = {};
-        for (const q of questions) {
-          emptyAnswers[q.header] = '';
-        }
-        onAnswer(emptyAnswers);
-        return;
-      }
+  const handleDismiss = useCallback(() => {
+    const emptyAnswers: Record<string, string> = {};
+    for (const q of questions) {
+      emptyAnswers[q.header] = '';
+    }
+    onAnswer(emptyAnswers);
+  }, [questions, onAnswer]);
 
-      if (!hasOptions) return;
-
-      const optionCount = currentQuestion.options.length;
-      if (key.upArrow) {
-        setSelectedOptionIndex((prev) =>
-          prev > 0 ? prev - 1 : optionCount - 1,
-        );
-      } else if (key.downArrow) {
-        setSelectedOptionIndex((prev) =>
-          prev < optionCount - 1 ? prev + 1 : 0,
-        );
-      } else if (key.return) {
-        const selected = currentQuestion.options[selectedOptionIndex];
-        if (selected) {
-          advanceOrFinish(selected.label);
-        }
+  const { activeIndex, reset } = useKeyboardNav({
+    itemCount: currentQuestion?.options.length ?? 0,
+    isActive: isActive && hasOptions,
+    wrap: true,
+    onSelect: (i) => {
+      const selected = currentQuestion?.options[i];
+      if (selected) {
+        advanceOrFinish(selected.label);
       }
     },
-    { isActive: currentQuestion !== undefined },
+    onEscape: handleDismiss,
+  });
+
+  // Reset option cursor when advancing to the next question.
+  React.useEffect(() => {
+    reset();
+  }, [currentIndex, reset]);
+
+  // Escape for free-text mode (useKeyboardNav is inactive there).
+  useInput(
+    (_char, key) => {
+      if (key.escape) {
+        handleDismiss();
+      }
+    },
+    { isActive: isActive && !hasOptions },
   );
 
-  // Handle free-text submission
   const handleTextSubmit = useCallback(
     (value: string) => {
       advanceOrFinish(value.trim() || '');
@@ -113,66 +108,58 @@ export function UserQuestionPrompt({
 
   if (!currentQuestion) {
     return (
-      <Box paddingX={1}>
+      <Panel title="Question" isActive padding={1}>
         <Text dimColor>No questions to display.</Text>
-      </Box>
+      </Panel>
     );
   }
 
+  const title =
+    questions.length > 1
+      ? `Question (${currentIndex + 1}/${questions.length})`
+      : 'Question';
+
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Text bold color={theme.ui.accent}>
-        Question
-        {questions.length > 1
-          ? ` (${currentIndex + 1}/${questions.length})`
-          : ''}
-      </Text>
-      <Box marginTop={1}>
+    <Panel title={title} isActive padding={1}>
+      <Box flexDirection="column">
         <Text>{currentQuestion.question}</Text>
+
+        {hasOptions ? (
+          <Box flexDirection="column" marginTop={1}>
+            {currentQuestion.options.map((opt, idx) => (
+              <ListItem
+                key={opt.label}
+                label={opt.label}
+                description={opt.description || undefined}
+                isSelected={idx === activeIndex}
+              />
+            ))}
+            <Box marginTop={1} gap={2}>
+              <KeyHint keys="↑↓" label="navigate" />
+              <KeyHint keys="Enter" label="select" />
+              <KeyHint keys="Esc" label="dismiss" />
+            </Box>
+          </Box>
+        ) : (
+          <Box flexDirection="column" marginTop={1}>
+            <Box>
+              <Text color={theme.ui.accent} bold>
+                {'> '}
+              </Text>
+              <TextInput
+                value={textValue}
+                onChange={setTextValue}
+                onSubmit={handleTextSubmit}
+                placeholder="Type your answer... (Enter to submit)"
+              />
+            </Box>
+            <Box marginTop={1} gap={2}>
+              <KeyHint keys="Enter" label="submit" />
+              <KeyHint keys="Esc" label="dismiss" />
+            </Box>
+          </Box>
+        )}
       </Box>
-      {hasOptions ? (
-        <Box flexDirection="column" marginTop={1}>
-          {currentQuestion.options.map((opt, idx) => {
-            const isSelected = idx === selectedOptionIndex;
-            return (
-              <Box key={opt.label}>
-                <Text
-                  color={isSelected ? theme.ui.accent : undefined}
-                  bold={isSelected}
-                >
-                  {isSelected ? '> ' : '  '}
-                  {opt.label}
-                </Text>
-                {opt.description ? (
-                  <Text dimColor> — {opt.description}</Text>
-                ) : null}
-              </Box>
-            );
-          })}
-          <Box marginTop={1}>
-            <Text dimColor>
-              Use Up/Down to navigate, Enter to select, Escape to dismiss
-            </Text>
-          </Box>
-        </Box>
-      ) : (
-        <Box marginTop={1} flexDirection="column">
-          <Box>
-            <Text color={theme.ui.accent} bold>
-              {'> '}
-            </Text>
-            <TextInput
-              value={textValue}
-              onChange={setTextValue}
-              onSubmit={handleTextSubmit}
-              placeholder="Type your answer... (Enter to submit)"
-            />
-          </Box>
-          <Box marginTop={1}>
-            <Text dimColor>Enter to submit, Escape to dismiss</Text>
-          </Box>
-        </Box>
-      )}
-    </Box>
+    </Panel>
   );
 }

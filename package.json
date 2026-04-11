@@ -125,8 +125,12 @@
     "gridstack": "^12.5.0",
     "helmet": "^8.1.0",
     "ink": "^7.0.0",
+    "ink-big-text": "^2.0.0",
+    "ink-divider": "^4.1.1",
+    "ink-gradient": "^4.0.0",
     "ink-select-input": "^6.0.0",
     "ink-spinner": "^5.0.0",
+    "ink-table": "^3.1.0",
     "ink-text-input": "^6.0.0",
     "jpeg-js": "^0.4.4",
     "json2md": "^2.0.3",
@@ -220,11 +224,11 @@
     "typescript-eslint": "^8.29.0"
   },
   "optionalDependencies": {
-    "@nx/nx-linux-x64-gnu": "22.6.5",
-    "@nx/nx-linux-x64-musl": "22.6.5",
-    "@nx/nx-linux-arm64-gnu": "22.6.5",
+    "@nx/nx-darwin-arm64": "22.6.5",
     "@nx/nx-darwin-x64": "22.6.5",
-    "@nx/nx-darwin-arm64": "22.6.5"
+    "@nx/nx-linux-arm64-gnu": "22.6.5",
+    "@nx/nx-linux-x64-gnu": "22.6.5",
+    "@nx/nx-linux-x64-musl": "22.6.5"
   },
   "overrides": {
     "@anthropic-ai/claude-agent-sdk": {

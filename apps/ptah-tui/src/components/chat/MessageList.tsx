@@ -1,17 +1,24 @@
 /**
- * MessageList -- Scrollable list of chat messages with welcome screen.
+ * MessageList -- Chat messages rendered into permanent terminal scrollback.
  *
- * Renders all messages as MessageBubble components.
- * Shows a styled welcome screen when no messages are present.
- * Shows a Spinner when streaming has started but no assistant content yet.
+ * Uses Ink's `<Static>` component so completed messages are written to the
+ * terminal exactly once and then remain in native scroll history — the user
+ * scrolls with their terminal (mouse wheel, shift+PgUp, etc.) rather than a
+ * viewport emulation. Only the currently streaming message (if any) and the
+ * "thinking" spinner are rendered dynamically.
+ *
+ * This replaces the previous viewport hack that computed a fixed-rows slice
+ * and handled PgUp/PgDn internally.
  */
 
 import React from 'react';
-import { Box, Text } from 'ink';
+import { Box, Static, Text } from 'ink';
+import BigText from 'ink-big-text';
+import Gradient from 'ink-gradient';
 
 import type { ChatMessage } from '../../hooks/use-chat.js';
 import { MessageBubble } from './MessageBubble.js';
-import { Spinner } from '../common/Spinner.js';
+import { Spinner, Divider, KeyHint } from '../atoms/index.js';
 import { useTheme } from '../../hooks/use-theme.js';
 
 interface MessageListProps {
@@ -30,52 +37,36 @@ function WelcomeScreen(): React.JSX.Element {
       flexGrow={1}
       paddingY={2}
     >
-      <Box flexDirection="column" alignItems="center" gap={1}>
-        <Text color={theme.ui.brand} bold>
-          {'𓂀  Welcome to Ptah'}
-        </Text>
-        <Text color={theme.ui.dimmed}>
-          The Coding Orchestra — AI-powered development in your terminal
+      <Box flexDirection="column" alignItems="center">
+        <Gradient name="vice">
+          <BigText text="PTAH" font="tiny" align="center" />
+        </Gradient>
+        <Text color={theme.ui.dimmed} italic>
+          𓂀  The Coding Orchestra — AI-powered development in your terminal
         </Text>
 
-        <Box marginTop={1} flexDirection="column" alignItems="center">
-          <Text dimColor>{'─'.repeat(50)}</Text>
+        <Box marginTop={1}>
+          <Divider title="Quick Start" width={52} />
         </Box>
 
-        <Box marginTop={1} flexDirection="column" gap={0} paddingX={4}>
-          <Box gap={1}>
-            <Text color={theme.ui.accent} bold>
-              {'  Chat'}
-            </Text>
-            <Text dimColor> Type a message below to start a conversation</Text>
-          </Box>
-          <Box gap={1}>
-            <Text color={theme.status.success} bold>
-              {'  Ctrl+S'}
-            </Text>
-            <Text dimColor>Configure API keys and provider settings</Text>
-          </Box>
-          <Box gap={1}>
-            <Text color={theme.status.warning} bold>
-              {'  Ctrl+B'}
-            </Text>
-            <Text dimColor>Toggle the session sidebar</Text>
-          </Box>
-          <Box gap={1}>
-            <Text color={theme.status.error} bold>
-              {'  Ctrl+Q'}
-            </Text>
-            <Text dimColor>Quit the application</Text>
-          </Box>
+        <Box marginTop={1} flexDirection="column" paddingX={4} gap={0}>
+          <KeyHint keys="  Ctrl+S" label="Configure API keys and provider settings" />
+          <KeyHint keys="  Ctrl+B" label="Toggle the agents sidebar" />
+          <KeyHint keys="  Ctrl+E" label="Toggle the sessions sidebar" />
+          <KeyHint keys="  Ctrl+K" label="Open the command palette" />
+          <KeyHint keys="  Ctrl+Q" label="Quit the application" />
         </Box>
 
-        <Box marginTop={1} flexDirection="column" alignItems="center">
-          <Text dimColor>{'─'.repeat(50)}</Text>
+        <Box marginTop={1}>
+          <Divider width={52} />
         </Box>
 
-        <Text dimColor italic>
-          Configure your API key in Settings (Ctrl+S) to get started
-        </Text>
+        <Box marginTop={1}>
+          <Text dimColor italic>
+            Type a message below to start chatting — or press Ctrl+S to set up
+            a provider
+          </Text>
+        </Box>
       </Box>
     </Box>
   );
@@ -86,27 +77,47 @@ export function MessageList({
   isStreaming,
 }: MessageListProps): React.JSX.Element {
   const theme = useTheme();
-  const lastMessage = messages[messages.length - 1];
-  const showThinkingSpinner =
-    isStreaming &&
-    (!lastMessage ||
-      lastMessage.role !== 'assistant' ||
-      lastMessage.content.length === 0);
 
   if (messages.length === 0 && !isStreaming) {
     return <WelcomeScreen />;
   }
 
+  // Split completed vs live: the trailing streaming message (if any) must
+  // render dynamically so its content can update. Everything before it is
+  // frozen and handed to Static for permanent scrollback.
+  const lastIdx = messages.length - 1;
+  const last = lastIdx >= 0 ? messages[lastIdx] : undefined;
+  const isLastLive = last?.isStreaming === true;
+
+  const completed = isLastLive ? messages.slice(0, -1) : messages;
+  const live = isLastLive ? last : undefined;
+
+  const showThinkingSpinner =
+    isStreaming &&
+    (!live || live.role !== 'assistant' || live.content.length === 0);
+
   return (
     <Box flexDirection="column" flexGrow={1} paddingX={1} paddingY={1}>
-      {messages.map((message) => (
+      <Static items={completed}>
+        {(message) => (
+          <MessageBubble
+            key={message.id}
+            role={message.role}
+            content={message.content}
+            isStreaming={false}
+          />
+        )}
+      </Static>
+
+      {live && (
         <MessageBubble
-          key={message.id}
-          role={message.role}
-          content={message.content}
-          isStreaming={message.isStreaming}
+          key={live.id}
+          role={live.role}
+          content={live.content}
+          isStreaming={true}
         />
-      ))}
+      )}
+
       {showThinkingSpinner && (
         <Box paddingX={1} marginBottom={1} gap={1}>
           <Text color={theme.ui.accent}>{'┃'}</Text>

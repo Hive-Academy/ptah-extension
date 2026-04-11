@@ -1,17 +1,8 @@
 /**
  * LicenseSection -- License management section for the TUI settings panel.
  *
- * TASK_2025_266 Batch 6
- *
- * Displays current license status (tier, validity, trial info, user email)
- * and provides actions to enter or clear a license key.
- *
- * Navigation:
- *   - Up/Down: Navigate between actions
- *   - Enter: Execute selected action (enter key / clear license)
- *   - Escape: Cancel key entry mode
- *
- * Uses useRpc() for backend communication (license:getStatus, license:setKey, license:clearKey).
+ * Displays current license status and provides actions to enter or clear
+ * a license key.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -19,11 +10,14 @@ import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 
 import { useRpc } from '../../hooks/use-rpc.js';
-import { Spinner } from '../common/Spinner.js';
 import { useTheme } from '../../hooks/use-theme.js';
+import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
+import { Badge, KeyHint, Spinner } from '../atoms/index.js';
+import { ListItem } from '../molecules/index.js';
+import type { BadgeVariant } from '../atoms/index.js';
 
 // ---------------------------------------------------------------------------
-// Types for RPC responses
+// Types
 // ---------------------------------------------------------------------------
 
 interface LicenseStatus {
@@ -59,11 +53,21 @@ interface LicenseClearKeyResult {
   error?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const ACTIONS = ['Enter License Key', 'Clear License'] as const;
+
+function tierBadgeVariant(tier: string): BadgeVariant {
+  if (tier === 'pro') return 'success';
+  if (tier === 'trial_pro') return 'warning';
+  if (tier === 'community') return 'ghost';
+  return 'ghost';
+}
+
+function tierLabel(tier: string): string {
+  if (tier === 'pro') return 'Pro';
+  if (tier === 'trial_pro') return 'Trial';
+  if (tier === 'community') return 'Community';
+  return tier;
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -81,7 +85,6 @@ export function LicenseSection({
 
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedAction, setSelectedAction] = useState(0);
   const [editMode, setEditMode] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [saving, setSaving] = useState(false);
@@ -90,7 +93,6 @@ export function LicenseSection({
     type: 'success' | 'error';
   } | null>(null);
 
-  // Load license status on mount
   const loadStatus = useCallback(async (): Promise<void> => {
     setLoading(true);
     const result = await call<void, LicenseStatus>(
@@ -183,79 +185,45 @@ export function LicenseSection({
     setSaving(false);
   }, [call, loadStatus]);
 
-  useInput(
-    (input, key) => {
-      // If in edit mode, only handle Escape (Enter handled by TextInput onSubmit)
-      if (editMode) {
-        if (key.escape) {
-          setEditMode(false);
-          setInputValue('');
-        }
-        return;
-      }
-
-      if (key.upArrow) {
-        setSelectedAction((prev) => Math.max(0, prev - 1));
-      }
-      if (key.downArrow) {
-        setSelectedAction((prev) => Math.min(ACTIONS.length - 1, prev + 1));
-      }
-      if (key.return) {
-        if (selectedAction === 0) {
-          // Enter License Key
-          setEditMode(true);
-          setInputValue('');
-          setMessage(null);
-        } else if (selectedAction === 1) {
-          // Clear License
-          void handleClearKey();
-        }
-      }
-
-      // Dismiss message on any other key
-      if (input && message) {
+  const { activeIndex } = useKeyboardNav({
+    itemCount: ACTIONS.length,
+    isActive: isActive && !saving && !editMode,
+    onSelect: (i) => {
+      if (i === 0) {
+        setEditMode(true);
+        setInputValue('');
         setMessage(null);
+      } else if (i === 1) {
+        void handleClearKey();
       }
     },
-    { isActive: isActive && !saving },
+  });
+
+  useInput(
+    (_input, key) => {
+      if (editMode && key.escape) {
+        setEditMode(false);
+        setInputValue('');
+      }
+    },
+    { isActive: isActive && editMode },
   );
 
   if (loading) {
     return <Spinner label="Loading license status..." />;
   }
 
-  // Determine tier display
-  const tierLabel = status?.tier ?? 'unknown';
-  const tierColor =
-    tierLabel === 'pro'
-      ? theme.ui.accent
-      : tierLabel === 'trial_pro'
-        ? theme.status.warning
-        : theme.ui.dimmed;
+  const tier = status?.tier ?? 'unknown';
 
   return (
     <Box flexDirection="column">
-      {/* Status display */}
       <Box flexDirection="column" marginBottom={1}>
-        <Box>
-          <Text>Tier: </Text>
-          <Text bold color={tierColor}>
-            [
-            {tierLabel === 'pro'
-              ? 'Pro'
-              : tierLabel === 'trial_pro'
-                ? 'Trial'
-                : tierLabel === 'community'
-                  ? 'Community'
-                  : tierLabel}
-            ]
-          </Text>
-          <Text> </Text>
-          {status?.valid ? (
-            <Text color={theme.status.success}>Valid</Text>
-          ) : (
-            <Text color={theme.status.error}>Invalid</Text>
-          )}
+        <Box gap={1}>
+          <Text>Tier:</Text>
+          <Badge variant={tierBadgeVariant(tier)}>{tierLabel(tier)}</Badge>
+          <Badge variant={status?.valid ? 'success' : 'error'}>
+            {status?.valid ? 'Valid' : 'Invalid'}
+          </Badge>
         </Box>
 
         {status?.daysRemaining !== null &&
@@ -288,21 +256,14 @@ export function LicenseSection({
         )}
       </Box>
 
-      {/* Actions */}
-      {ACTIONS.map((action, index) => {
-        const isSelected = index === selectedAction && isActive && !editMode;
+      {ACTIONS.map((action, index) => (
+        <ListItem
+          key={action}
+          label={action}
+          isSelected={index === activeIndex && isActive && !editMode}
+        />
+      ))}
 
-        return (
-          <Box key={action}>
-            <Text bold={isSelected} inverse={isSelected} dimColor={!isSelected}>
-              {isSelected ? '> ' : '  '}
-              {action}
-            </Text>
-          </Box>
-        );
-      })}
-
-      {/* Key entry mode */}
       {editMode && (
         <Box marginLeft={4} marginTop={1}>
           {saving ? (
@@ -325,7 +286,6 @@ export function LicenseSection({
         </Box>
       )}
 
-      {/* Status message */}
       {message && (
         <Box marginTop={1}>
           <Text
@@ -335,16 +295,15 @@ export function LicenseSection({
                 : theme.status.error
             }
           >
-            {message.text}
+            {message.type === 'success' ? '✓' : '✗'} {message.text}
           </Text>
         </Box>
       )}
 
-      {/* Help text */}
-      <Box marginTop={1}>
-        <Text dimColor italic>
-          Enter: select action | Up/Down: navigate | Esc: cancel
-        </Text>
+      <Box marginTop={1} gap={2}>
+        <KeyHint keys="↑↓" label="navigate" />
+        <KeyHint keys="Enter" label="select" />
+        <KeyHint keys="Esc" label="cancel" />
       </Box>
     </Box>
   );

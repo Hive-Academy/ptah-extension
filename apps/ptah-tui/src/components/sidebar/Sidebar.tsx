@@ -1,18 +1,16 @@
 /**
- * Sidebar -- Session list and agent monitor panel on the left side.
+ * Sidebar -- Session list panel on the left side (shown via ^E).
  *
- * Uses the shared SessionContext for state. Renders SessionList
- * at the top and AgentMonitor below with styled section headers.
+ * Uses the shared SessionContext for state. Renders SessionList only.
+ * The AgentMonitor has moved to AgentPanel (right sidebar).
  */
 
 import React, { useCallback } from 'react';
-import { Box, Text } from 'ink';
-
-import { useTheme } from '../../hooks/use-theme.js';
+import { Box } from 'ink';
 
 import { useSessionContext } from '../../context/SessionContext.js';
 import { SessionList } from './SessionList.js';
-import { AgentMonitor } from './AgentMonitor.js';
+import { SectionHeader } from '../molecules/index.js';
 
 interface SidebarProps {
   modalActive?: boolean;
@@ -48,17 +46,10 @@ export function Sidebar({
     [deleteSession],
   );
 
-  const theme = useTheme();
-
   return (
     <Box flexDirection="column" flexGrow={1}>
-      <Box paddingX={1} marginBottom={0}>
-        <Text bold color={theme.ui.brand}>
-          {'◆ '}
-        </Text>
-        <Text bold color={theme.ui.brand}>
-          Sessions
-        </Text>
+      <Box paddingX={1}>
+        <SectionHeader title="Sessions" icon="◆" />
       </Box>
       <SessionList
         sessions={sessions}
@@ -69,28 +60,6 @@ export function Sidebar({
         onDelete={handleDelete}
         isFocused={!modalActive}
       />
-
-      <Box
-        marginTop={1}
-        borderStyle="single"
-        borderColor={theme.ui.borderSubtle}
-        borderTop
-        borderBottom={false}
-        borderLeft={false}
-        borderRight={false}
-      >
-        <Box flexDirection="column" width="100%">
-          <Box paddingX={1} marginBottom={0}>
-            <Text bold color={theme.ui.brand}>
-              {'◆ '}
-            </Text>
-            <Text bold color={theme.ui.brand}>
-              Agents
-            </Text>
-          </Box>
-          <AgentMonitor />
-        </Box>
-      </Box>
     </Box>
   );
 }

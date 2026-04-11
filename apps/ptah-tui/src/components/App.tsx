@@ -20,6 +20,7 @@ import { TuiProvider } from '../context/TuiContext.js';
 import { ThemeProvider } from '../context/ThemeContext.js';
 import { SessionProvider } from '../context/SessionContext.js';
 import { ModeProvider } from '../context/ModeContext.js';
+import { FocusProvider } from '../hooks/use-focus-manager.js';
 import type { CliMessageTransport } from '../transport/cli-message-transport.js';
 import type { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
 import type { CliFireAndForgetHandler } from '../transport/cli-fire-and-forget-handler.js';
@@ -46,7 +47,8 @@ export function App({
 }: AppProps): React.JSX.Element {
   const { exit } = useApp();
   const [activeView, setActiveView] = useState<'chat' | 'settings'>('chat');
-  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
+  const [agentPanelVisible, setAgentPanelVisible] = useState(true);
   const [modalStack, setModalStack] = useState<React.ReactNode[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -164,7 +166,15 @@ export function App({
       }
 
       if (key.ctrl && input === 'b') {
+        setAgentPanelVisible((prev) => !prev);
+      }
+
+      if (key.ctrl && input === 'e') {
         setSidebarVisible((prev) => !prev);
+      }
+
+      if (key.ctrl && input === 'n') {
+        void transport.call('session:create', {});
       }
 
       if (key.ctrl && input === 's') {
@@ -223,35 +233,38 @@ export function App({
       fireAndForget={fireAndForget}
     >
       <ThemeProvider>
-        <SessionProvider>
-          <ModeProvider>
-            <ErrorBoundary>
+        <FocusProvider initialScope="global">
+          <SessionProvider>
+            <ModeProvider>
+              <ErrorBoundary>
               <Layout
-                sidebarVisible={sidebarVisible}
-                activeView={activeView}
-                isStreaming={isStreaming}
-                modalActive={modalActive || overlayActive}
-              >
-                <MainPanel
+                  sidebarVisible={sidebarVisible}
+                  agentPanelVisible={agentPanelVisible}
                   activeView={activeView}
-                  onSwitchView={handleSwitchView}
-                  modalActive={modalActive}
+                  isStreaming={isStreaming}
+                  modalActive={modalActive || overlayActive}
                 >
-                  <ChatPanel
+                  <MainPanel
+                    activeView={activeView}
+                    onSwitchView={handleSwitchView}
                     modalActive={modalActive}
-                    onOverlayActiveChange={handleOverlayActiveChange}
-                    onSettings={() => setActiveView('settings')}
-                    onSessions={() => setSidebarVisible((prev) => !prev)}
-                    onQuit={() => exit()}
-                  />
-                </MainPanel>
-              </Layout>
-              <ModalOverlay visible={modalStack.length > 0}>
-                {topModal}
-              </ModalOverlay>
-            </ErrorBoundary>
-          </ModeProvider>
-        </SessionProvider>
+                  >
+                    <ChatPanel
+                      modalActive={modalActive}
+                      onOverlayActiveChange={handleOverlayActiveChange}
+                      onSettings={() => setActiveView('settings')}
+                      onSessions={() => setSidebarVisible((prev) => !prev)}
+                      onQuit={() => exit()}
+                    />
+                  </MainPanel>
+                </Layout>
+                <ModalOverlay visible={modalStack.length > 0}>
+                  {topModal}
+                </ModalOverlay>
+              </ErrorBoundary>
+            </ModeProvider>
+          </SessionProvider>
+        </FocusProvider>
       </ThemeProvider>
     </TuiProvider>
   );

@@ -126,6 +126,9 @@ export class AuthRpcHandlers {
       try {
         this.logger.debug('RPC: auth:getAuthStatus called');
 
+        // Guard against undefined params: TUI callers pass no params at all.
+        const safeParams: AuthGetAuthStatusParams = params ?? {};
+
         // Check SecretStorage for credentials
         const hasOAuthToken =
           await this.authSecretsService.hasCredential('oauthToken');
@@ -146,7 +149,7 @@ export class AuthRpcHandlers {
         );
 
         // Per-provider key check: use provided ID (for local UI switching) or persisted config
-        const checkProviderId = params.providerId || anthropicProviderId;
+        const checkProviderId = safeParams.providerId || anthropicProviderId;
         const hasOpenRouterKey =
           await this.authSecretsService.hasProviderKey(checkProviderId);
 
