@@ -216,12 +216,22 @@ jobs:
           $originalName = Split-Path $exe -Leaf
           $noSpaceExe  = Join-Path $exeDir "PtahSetup.exe"
 
+          # Log both paths so we can see if $cst itself contains spaces
+          Write-Host "CodeSignTool: $cst"
           Write-Host "Renaming to no-spaces path: $noSpaceExe"
           Rename-Item $exe "PtahSetup.exe"
 
-          & cmd /c $cst sign "-username=$env:SSL_COM_USERNAME" "-password=$env:SSL_COM_PASSWORD" "-totp_secret=$env:SSL_COM_TOTP_SECRET" "-input_file_path=$noSpaceExe" "-override"
-
-          if ($LASTEXITCODE -ne 0) { throw "Code signing failed with exit code $LASTEXITCODE" }
+          # Use Start-Process: it internally wraps .bat files in cmd /c and correctly
+          # quotes the batch file path even when it contains spaces.
+          $proc = Start-Process -FilePath $cst `
+            -ArgumentList "sign", `
+              "-username=$env:SSL_COM_USERNAME", `
+              "-password=$env:SSL_COM_PASSWORD", `
+              "-totp_secret=$env:SSL_COM_TOTP_SECRET", `
+              "-input_file_path=$noSpaceExe", `
+              "-override" `
+            -Wait -PassThru -NoNewWindow
+          if ($proc.ExitCode -ne 0) { throw "Code signing failed with exit code $($proc.ExitCode)" }
 
           Rename-Item $noSpaceExe $originalName
           Write-Host "Successfully signed: $exe"
