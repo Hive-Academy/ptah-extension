@@ -57,7 +57,7 @@ contextBridge.exposeInMainWorld('ptahConfig', {
   userIconUri: './images/user-icon.png',
   panelId: 'electron-main',
   platform: process.platform, // 'darwin', 'win32', 'linux' — reliable in preload context
-  initialView: startupConfig?.initialView || null,
+  initialView: startupConfig?.initialView || 'orchestra-canvas',
   isLicensed: startupConfig?.isLicensed ?? true,
 });
 

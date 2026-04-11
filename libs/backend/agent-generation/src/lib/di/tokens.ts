@@ -171,6 +171,34 @@ export const MULTI_PHASE_ANALYSIS_SERVICE = Symbol.for(
 );
 
 // ========================================
+// New Project Wizard Services
+// ========================================
+
+/**
+ * NewProjectDiscoveryService - Static question group retrieval and answer validation
+ * Responsibilities: Return question groups per project type, validate answers, extract project name
+ */
+export const NEW_PROJECT_DISCOVERY_SERVICE = Symbol.for(
+  'NewProjectDiscoveryService',
+);
+
+/**
+ * MasterPlanGenerationService - LLM-powered project plan generation
+ * Responsibilities: Build LLM prompt from answers, execute query, parse MasterPlan JSON
+ */
+export const MASTER_PLAN_GENERATION_SERVICE = Symbol.for(
+  'MasterPlanGenerationService',
+);
+
+/**
+ * NewProjectStorageService - Master plan persistence to workspace disk
+ * Responsibilities: Save/load MasterPlan JSON + markdown summary to .ptah/new-project/
+ */
+export const NEW_PROJECT_STORAGE_SERVICE = Symbol.for(
+  'NewProjectStorageService',
+);
+
+// ========================================
 // Token Registry (Type-Safe Access)
 // ========================================
 
@@ -215,6 +243,11 @@ export const AGENT_GENERATION_TOKENS = {
 
   // Multi-Phase Analysis
   MULTI_PHASE_ANALYSIS_SERVICE,
+
+  // New Project Wizard
+  NEW_PROJECT_DISCOVERY_SERVICE,
+  MASTER_PLAN_GENERATION_SERVICE,
+  NEW_PROJECT_STORAGE_SERVICE,
 } as const;
 
 /**

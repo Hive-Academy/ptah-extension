@@ -187,57 +187,29 @@ jobs:
           _CL_: ${{ runner.os == 'Windows' && '/std:c++20' || '' }}
           CXXFLAGS: ${{ runner.os != 'Windows' && '-std=c++20' || '' }}
 
-      - name: Sign Windows installer with SSL.com eSigner
+      - name: Find Windows installer
         if: runner.os == 'Windows'
+        id: find-exe
         shell: pwsh
-        env:
-          SSL_COM_USERNAME: ${{ secrets.SSL_COM_USERNAME }}
-          SSL_COM_PASSWORD: ${{ secrets.SSL_COM_PASSWORD }}
-          SSL_COM_TOTP_SECRET: ${{ secrets.SSL_COM_TOTP_SECRET }}
         run: |
-          # Download CodeSignTool for Windows
-          $ProgressPreference = 'SilentlyContinue'
-          Invoke-WebRequest -Uri "https://www.ssl.com/download/codesigntool-for-windows/" -OutFile "CodeSignTool.zip"
-          Expand-Archive "CodeSignTool.zip" -DestinationPath ".\codesigntool" -Force
-
-          # Find CodeSignTool.bat (may be nested in a subdirectory)
-          $cst = (Get-ChildItem -Path ".\codesigntool" -Recurse -Filter "CodeSignTool.bat" | Select-Object -First 1).FullName
-          if (-not $cst) { throw "CodeSignTool.bat not found in downloaded archive" }
-
-          # Find the .exe installer
           $exe = (Get-ChildItem -Path "dist\release" -Filter "*.exe" | Select-Object -First 1).FullName
           if (-not $exe) { throw "No .exe installer found to sign" }
-          Write-Host "Signing: $exe"
+          Write-Host "Found installer: $exe"
+          echo "exe_path=$exe" >> $env:GITHUB_OUTPUT
 
-          # The NSIS installer name contains spaces ("Ptah Setup X.X.X.exe").
-          # CodeSignTool chokes on paths with spaces regardless of quoting style.
-          # Rename to a no-spaces name in-place, sign, then rename back.
-          $exeDir      = Split-Path $exe -Parent
-          $originalName = Split-Path $exe -Leaf
-          $noSpaceExe  = Join-Path $exeDir "PtahSetup.exe"
-
-          Write-Host "CodeSignTool: $cst"
-          Write-Host "Renaming to no-spaces path: $noSpaceExe"
-          Rename-Item $exe "PtahSetup.exe"
-
-          # CodeSignTool.bat uses RELATIVE paths internally (conf/, jar/) and must
-          # run from its own install directory — otherwise it fails with
-          # "The system cannot find the path specified." Use -WorkingDirectory
-          # to cd into the CodeSignTool folder before invoking the batch file.
-          $cstDir = Split-Path $cst -Parent
-          $proc = Start-Process -FilePath $cst `
-            -ArgumentList "sign", `
-              "-username=$env:SSL_COM_USERNAME", `
-              "-password=$env:SSL_COM_PASSWORD", `
-              "-totp_secret=$env:SSL_COM_TOTP_SECRET", `
-              "-input_file_path=$noSpaceExe", `
-              "-override" `
-            -WorkingDirectory $cstDir `
-            -Wait -PassThru -NoNewWindow
-          if ($proc.ExitCode -ne 0) { throw "Code signing failed with exit code $($proc.ExitCode)" }
-
-          Rename-Item $noSpaceExe $originalName
-          Write-Host "Successfully signed: $exe"
+      - name: Sign Windows installer with SSL.com eSigner
+        if: runner.os == 'Windows'
+        uses: sslcom/esigner-codesign@v1.3.2
+        with:
+          command: sign
+          username: ${{ secrets.SSL_COM_USERNAME }}
+          password: ${{ secrets.SSL_COM_PASSWORD }}
+          credential_id: ${{ secrets.SSL_COM_CREDENTIAL_ID }}
+          totp_secret: ${{ secrets.SSL_COM_TOTP_SECRET }}
+          file_path: ${{ steps.find-exe.outputs.exe_path }}
+          override: true
+          environment_name: PROD
+          malware_block: false
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

@@ -64,3 +64,11 @@ export {
   type WizardPanelInitialData,
   type ProjectAnalysisZodOutput,
 } from './lib/services/wizard';
+
+// New Project wizard services
+export {
+  NewProjectDiscoveryService,
+  MasterPlanGenerationService,
+  NewProjectStorageService,
+} from './lib/services/new-project';
+export type { AnswerValidationResult } from './lib/services/new-project/new-project-discovery.service';

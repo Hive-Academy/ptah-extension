@@ -34,6 +34,10 @@ export * from './lib/utils/git.utils';
 // Setup wizard types
 export * from './lib/types/setup-wizard.types';
 
+// New project wizard types and data
+export * from './lib/types/new-project.types';
+export * from './lib/data/new-project-questions';
+
 // Constants
 export * from './lib/constants/trial.constants';
 export * from './lib/constants/environment.constants';

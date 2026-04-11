@@ -157,6 +157,14 @@ import type {
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
   WizardInstallPackAgentsResult,
+  WizardNewProjectSelectTypeParams,
+  WizardNewProjectSelectTypeResult,
+  WizardNewProjectSubmitAnswersParams,
+  WizardNewProjectSubmitAnswersResult,
+  WizardNewProjectGetPlanParams,
+  WizardNewProjectGetPlanResult,
+  WizardNewProjectApprovePlanParams,
+  WizardNewProjectApprovePlanResult,
 } from './rpc/rpc-setup.types';
 
 import type {
@@ -437,6 +445,23 @@ export interface RpcMethodRegistry {
     params: WizardInstallPackAgentsParams;
     result: WizardInstallPackAgentsResult;
   };
+  // New Project Wizard Methods
+  'wizard:new-project-select-type': {
+    params: WizardNewProjectSelectTypeParams;
+    result: WizardNewProjectSelectTypeResult;
+  };
+  'wizard:new-project-submit-answers': {
+    params: WizardNewProjectSubmitAnswersParams;
+    result: WizardNewProjectSubmitAnswersResult;
+  };
+  'wizard:new-project-get-plan': {
+    params: WizardNewProjectGetPlanParams;
+    result: WizardNewProjectGetPlanResult;
+  };
+  'wizard:new-project-approve-plan': {
+    params: WizardNewProjectApprovePlanParams;
+    result: WizardNewProjectApprovePlanResult;
+  };
 
   // ---- License Methods ----
   'license:getStatus': {
@@ -692,7 +717,12 @@ export interface RpcMethodRegistry {
   // ---- Workspace Methods (Electron desktop) ----
   'workspace:getInfo': {
     params: Record<string, never>;
-    result: { folders: string[]; root: string | undefined; name: string };
+    result: {
+      folders: string[];
+      root: string | undefined;
+      activeFolder: string | undefined;
+      name: string;
+    };
   };
   'workspace:addFolder': {
     params: Record<string, never>;
@@ -705,6 +735,10 @@ export interface RpcMethodRegistry {
   'workspace:switch': {
     params: { path: string };
     result: { success: boolean; error?: string };
+  };
+  'workspace:registerFolder': {
+    params: { path: string };
+    result: { success: boolean; path: string; name: string; error?: string };
   };
 
   // ---- Layout Methods (Electron desktop) ----
@@ -949,6 +983,11 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // Agent Pack Browser Methods (TASK_2025_258)
   'wizard:list-agent-packs',
   'wizard:install-pack-agents',
+  // New Project Wizard Methods
+  'wizard:new-project-select-type',
+  'wizard:new-project-submit-answers',
+  'wizard:new-project-get-plan',
+  'wizard:new-project-approve-plan',
 
   // License Methods
   'license:getStatus',
@@ -1029,6 +1068,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'workspace:addFolder',
   'workspace:removeFolder',
   'workspace:switch',
+  'workspace:registerFolder',
 
   // Layout Methods (Electron desktop)
   'layout:persist',
