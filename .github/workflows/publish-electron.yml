@@ -209,18 +209,21 @@ jobs:
           if (-not $exe) { throw "No .exe installer found to sign" }
           Write-Host "Signing: $exe"
 
-          # CodeSignTool.bat fails on paths with spaces. Copy to a temp path without spaces,
-          # sign it there, then copy the signed binary back.
-          $tmpExe = Join-Path $env:TEMP "ptah-setup.exe"
-          Copy-Item $exe $tmpExe -Force
+          # The NSIS installer name contains spaces ("Ptah Setup X.X.X.exe").
+          # CodeSignTool chokes on paths with spaces regardless of quoting style.
+          # Rename to a no-spaces name in-place, sign, then rename back.
+          $exeDir      = Split-Path $exe -Parent
+          $originalName = Split-Path $exe -Leaf
+          $noSpaceExe  = Join-Path $exeDir "PtahSetup.exe"
 
-          & cmd /c "`"$cst`" sign -username=`"$env:SSL_COM_USERNAME`" -password=`"$env:SSL_COM_PASSWORD`" -totp_secret=`"$env:SSL_COM_TOTP_SECRET`" -input_file_path=`"$tmpExe`" -override"
+          Write-Host "Renaming to no-spaces path: $noSpaceExe"
+          Rename-Item $exe "PtahSetup.exe"
+
+          & cmd /c $cst sign "-username=$env:SSL_COM_USERNAME" "-password=$env:SSL_COM_PASSWORD" "-totp_secret=$env:SSL_COM_TOTP_SECRET" "-input_file_path=$noSpaceExe" "-override"
 
           if ($LASTEXITCODE -ne 0) { throw "Code signing failed with exit code $LASTEXITCODE" }
 
-          # Copy signed binary back to its original location
-          Copy-Item $tmpExe $exe -Force
-          Remove-Item $tmpExe -Force
+          Rename-Item $noSpaceExe $originalName
           Write-Host "Successfully signed: $exe"
 
       - name: Upload artifacts
