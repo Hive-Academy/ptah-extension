@@ -216,13 +216,15 @@ jobs:
           $originalName = Split-Path $exe -Leaf
           $noSpaceExe  = Join-Path $exeDir "PtahSetup.exe"
 
-          # Log both paths so we can see if $cst itself contains spaces
           Write-Host "CodeSignTool: $cst"
           Write-Host "Renaming to no-spaces path: $noSpaceExe"
           Rename-Item $exe "PtahSetup.exe"
 
-          # Use Start-Process: it internally wraps .bat files in cmd /c and correctly
-          # quotes the batch file path even when it contains spaces.
+          # CodeSignTool.bat uses RELATIVE paths internally (conf/, jar/) and must
+          # run from its own install directory — otherwise it fails with
+          # "The system cannot find the path specified." Use -WorkingDirectory
+          # to cd into the CodeSignTool folder before invoking the batch file.
+          $cstDir = Split-Path $cst -Parent
           $proc = Start-Process -FilePath $cst `
             -ArgumentList "sign", `
               "-username=$env:SSL_COM_USERNAME", `
@@ -230,6 +232,7 @@ jobs:
               "-totp_secret=$env:SSL_COM_TOTP_SECRET", `
               "-input_file_path=$noSpaceExe", `
               "-override" `
+            -WorkingDirectory $cstDir `
             -Wait -PassThru -NoNewWindow
           if ($proc.ExitCode -ne 0) { throw "Code signing failed with exit code $($proc.ExitCode)" }
 

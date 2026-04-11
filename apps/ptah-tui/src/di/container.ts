@@ -631,7 +631,7 @@ export class TuiDIContainer {
         (result) => {
           if (!result.success) {
             logger.warn('[TUI DI] Content download incomplete', {
-              errors: result.errors,
+              error: result.error,
             } as unknown as Error);
           } else {
             logger.info('[TUI DI] Content download complete');

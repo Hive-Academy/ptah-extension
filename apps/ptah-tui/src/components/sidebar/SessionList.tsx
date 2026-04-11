@@ -1,16 +1,19 @@
 /**
  * SessionList -- Interactive session list with keyboard navigation.
  *
- * Displays session names with the active session highlighted.
- * Supports: Up/Down arrows, Enter to load, N to create, D to delete.
+ * Renders sessions via the shared `ListItem` molecule and delegates arrow /
+ * Enter handling to the `useKeyboardNav` hook. Also handles the N/D
+ * shortcuts for create/delete inline.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 
 import type { Session } from '../../hooks/use-sessions.js';
 import { useTheme } from '../../hooks/use-theme.js';
-import { Spinner } from '../common/Spinner.js';
+import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
+import { Spinner } from '../atoms/Spinner.js';
+import { ListItem } from '../molecules/index.js';
 
 interface SessionListProps {
   sessions: Session[];
@@ -32,75 +35,56 @@ export function SessionList({
   isFocused = true,
 }: SessionListProps): React.JSX.Element {
   const theme = useTheme();
-  const [selectedIndex, setSelectedIndex] = useState(0);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(
     null,
   );
 
-  const handleConfirmDelete = useCallback(
-    (sessionId: string) => {
-      onDelete(sessionId);
-      setConfirmingDeleteId(null);
+  const handleSelect = useCallback(
+    (index: number) => {
+      const session = sessions[index];
+      if (session) {
+        onSelect(session.id);
+      }
     },
-    [onDelete],
+    [sessions, onSelect],
   );
 
-  const handleCancelDelete = useCallback(() => {
-    setConfirmingDeleteId(null);
-  }, []);
+  const { activeIndex } = useKeyboardNav({
+    itemCount: sessions.length,
+    isActive: isFocused && confirmingDeleteId === null,
+    onSelect: handleSelect,
+  });
 
+  // Inline handlers for N/D and delete confirm — the nav hook owns arrow/enter,
+  // these only cover the remaining shortcuts.
   useInput(
     (input, key) => {
       if (confirmingDeleteId !== null) {
         if (input.toLowerCase() === 'y') {
-          handleConfirmDelete(confirmingDeleteId);
+          onDelete(confirmingDeleteId);
+          setConfirmingDeleteId(null);
         } else if (input.toLowerCase() === 'n' || key.escape) {
-          handleCancelDelete();
+          setConfirmingDeleteId(null);
         }
         return;
       }
 
-      if (key.upArrow) {
-        setSelectedIndex((prev) => Math.max(0, prev - 1));
-        return;
-      }
+      if (key.ctrl || key.meta) return;
 
-      if (key.downArrow) {
-        setSelectedIndex((prev) => Math.min(sessions.length - 1, prev + 1));
-        return;
-      }
-
-      if (key.return && sessions.length > 0) {
-        const session = sessions[selectedIndex];
-        if (session) {
-          onSelect(session.id);
-        }
-        return;
-      }
-
-      if (input.toLowerCase() === 'n' && !key.ctrl && !key.meta) {
+      if (input.toLowerCase() === 'n') {
         onCreate();
         return;
       }
 
-      if (input.toLowerCase() === 'd' && !key.ctrl && !key.meta) {
-        if (sessions.length > 0) {
-          const session = sessions[selectedIndex];
-          if (session) {
-            setConfirmingDeleteId(session.id);
-          }
+      if (input.toLowerCase() === 'd' && sessions.length > 0) {
+        const session = sessions[activeIndex];
+        if (session) {
+          setConfirmingDeleteId(session.id);
         }
-        return;
       }
     },
     { isActive: isFocused },
   );
-
-  React.useEffect(() => {
-    if (sessions.length > 0 && selectedIndex >= sessions.length) {
-      setSelectedIndex(sessions.length - 1);
-    }
-  }, [sessions.length, selectedIndex]);
 
   if (loading && sessions.length === 0) {
     return (
@@ -124,8 +108,8 @@ export function SessionList({
   return (
     <Box flexDirection="column" paddingX={1}>
       {sessions.map((session, index) => {
-        const isSelected = index === selectedIndex;
-        const isActive = session.id === activeSessionId;
+        const isSelected = index === activeIndex;
+        const isCurrent = session.id === activeSessionId;
         const isConfirmingDelete = session.id === confirmingDeleteId;
 
         if (isConfirmingDelete) {
@@ -145,34 +129,13 @@ export function SessionList({
           );
         }
 
-        const indicator = isActive ? '●' : isSelected ? '›' : ' ';
-        const color = isActive
-          ? theme.ui.accent
-          : isSelected
-            ? undefined
-            : theme.ui.muted;
-
         return (
-          <Box key={session.id}>
-            <Text
-              color={
-                isActive
-                  ? theme.ui.accent
-                  : isSelected
-                    ? theme.ui.brand
-                    : theme.ui.dimmed
-              }
-            >
-              {indicator}{' '}
-            </Text>
-            <Text
-              color={color}
-              bold={isActive || isSelected}
-              inverse={isSelected && !isActive}
-            >
-              {session.name}
-            </Text>
-          </Box>
+          <ListItem
+            key={session.id}
+            label={session.name}
+            isSelected={isSelected}
+            isCurrent={isCurrent}
+          />
         );
       })}
       <Box marginTop={1}>

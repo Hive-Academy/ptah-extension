@@ -1,20 +1,10 @@
 /**
- * WebSearchSection -- Web search API key management and testing for the TUI settings panel.
- *
- * TASK_2025_266 Batch 6
+ * WebSearchSection -- Web search API key management and testing.
  *
  * Displays a list of web search providers (Tavily, Serper, Exa) with their
  * API key status. Supports entering/removing keys and testing connectivity.
  *
- * Navigation:
- *   - Up/Down: Navigate providers
- *   - Enter: Edit API key for selected provider (masked input)
- *   - R: Remove API key
- *   - T: Test connectivity
- *   - Escape: Cancel key entry mode
- *
- * Uses useRpc() for backend communication (webSearch:getApiKeyStatus, webSearch:setApiKey,
- * webSearch:deleteApiKey, webSearch:test).
+ * Navigation: Up/Down navigate providers, Enter edit key, R remove, T test.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -22,8 +12,10 @@ import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 
 import { useRpc } from '../../hooks/use-rpc.js';
-import { Spinner } from '../common/Spinner.js';
 import { useTheme } from '../../hooks/use-theme.js';
+import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
+import { Badge, KeyHint, Spinner } from '../atoms/index.js';
+import { ListItem } from '../molecules/index.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,10 +32,6 @@ interface TestResult {
   success: boolean;
   error?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 const WEB_SEARCH_PROVIDERS = [
   { id: 'tavily', label: 'Tavily' },
@@ -69,14 +57,12 @@ export function WebSearchSection({
     WEB_SEARCH_PROVIDERS.map((p) => ({ ...p, configured: false })),
   );
   const [loading, setLoading] = useState(true);
-  const [selectedIndex, setSelectedIndex] = useState(0);
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
 
-  // Load key status for all providers on mount
   const loadStatuses = useCallback(async (): Promise<void> => {
     const updatedProviders: ProviderInfo[] = [];
 
@@ -166,8 +152,6 @@ export function WebSearchSection({
       setTesting(providerId);
       setTestResult(null);
 
-      // The webSearch:test RPC reads the active provider from config.
-      // We set it first so the test targets the selected provider.
       await call<{ provider: string }, { success: boolean }>(
         'webSearch:setConfig',
         { provider: providerId },
@@ -192,9 +176,24 @@ export function WebSearchSection({
     [call],
   );
 
+  const navActive =
+    isActive && editingProvider === null && !saving && testing === null;
+
+  const { activeIndex } = useKeyboardNav({
+    itemCount: WEB_SEARCH_PROVIDERS.length,
+    isActive: navActive,
+    onSelect: (i) => {
+      const provider = WEB_SEARCH_PROVIDERS[i];
+      if (provider) {
+        setEditingProvider(provider.id);
+        setInputValue('');
+        setTestResult(null);
+      }
+    },
+  });
+
   useInput(
     (input, key) => {
-      // If editing, Escape cancels (Enter handled by TextInput onSubmit)
       if (editingProvider !== null) {
         if (key.escape) {
           setEditingProvider(null);
@@ -203,34 +202,16 @@ export function WebSearchSection({
         return;
       }
 
-      if (key.upArrow) {
-        setSelectedIndex((prev) => Math.max(0, prev - 1));
-      }
-      if (key.downArrow) {
-        setSelectedIndex((prev) =>
-          Math.min(WEB_SEARCH_PROVIDERS.length - 1, prev + 1),
-        );
-      }
-      if (key.return) {
-        const provider = WEB_SEARCH_PROVIDERS[selectedIndex];
-        if (provider) {
-          setEditingProvider(provider.id);
-          setInputValue('');
-          setTestResult(null);
-        }
-      }
+      if (key.ctrl || key.meta) return;
 
-      // 'r' to remove key
-      if (input === 'r' && !key.ctrl && !key.meta) {
-        const provider = WEB_SEARCH_PROVIDERS[selectedIndex];
+      if (input === 'r') {
+        const provider = WEB_SEARCH_PROVIDERS[activeIndex];
         if (provider) {
           void handleDeleteKey(provider.id);
         }
       }
-
-      // 't' to test
-      if (input === 't' && !key.ctrl && !key.meta) {
-        const provider = WEB_SEARCH_PROVIDERS[selectedIndex];
+      if (input === 't') {
+        const provider = WEB_SEARCH_PROVIDERS[activeIndex];
         if (provider) {
           void handleTest(provider.id);
         }
@@ -246,36 +227,25 @@ export function WebSearchSection({
   return (
     <Box flexDirection="column">
       {providers.map((provider, index) => {
-        const isSelected = index === selectedIndex && isActive;
+        const isSelected = index === activeIndex && isActive;
         const isEditing = editingProvider === provider.id;
         const isTesting = testing === provider.id;
 
         return (
           <Box key={provider.id} flexDirection="column">
-            <Box>
-              <Text
-                bold={isSelected}
-                inverse={isSelected && !isEditing}
-                dimColor={!isSelected}
-              >
-                {isSelected ? '> ' : '  '}
-                {provider.label}:{' '}
-              </Text>
-              {provider.configured ? (
-                <Text color={theme.status.success}>Configured</Text>
-              ) : (
-                <Text color={theme.status.error}>Not configured</Text>
-              )}
-              {isTesting && (
-                <Box marginLeft={1}>
-                  <Spinner label="Testing..." />
-                </Box>
-              )}
-            </Box>
+            <ListItem
+              label={provider.label}
+              isSelected={isSelected && !isEditing}
+              badge={
+                <Badge variant={provider.configured ? 'success' : 'error'}>
+                  {provider.configured ? 'configured' : 'not configured'}
+                </Badge>
+              }
+              trailing={isTesting ? <Spinner label="Testing..." /> : undefined}
+            />
 
-            {/* Inline key entry */}
             {isEditing && (
-              <Box marginLeft={4} marginTop={0}>
+              <Box marginLeft={4}>
                 {saving ? (
                   <Spinner label="Saving..." />
                 ) : (
@@ -296,14 +266,13 @@ export function WebSearchSection({
               </Box>
             )}
 
-            {/* Inline test result */}
             {testResult && testResult.provider === provider.id && (
               <Box marginLeft={4}>
                 {testResult.success ? (
-                  <Text color={theme.status.success}>Connected</Text>
+                  <Text color={theme.status.success}>✓ Connected</Text>
                 ) : (
                   <Text color={theme.status.error}>
-                    Failed: {testResult.error ?? 'Unknown error'}
+                    ✗ Failed: {testResult.error ?? 'Unknown error'}
                   </Text>
                 )}
               </Box>
@@ -312,11 +281,11 @@ export function WebSearchSection({
         );
       })}
 
-      {/* Help text */}
-      <Box marginTop={1}>
-        <Text dimColor italic>
-          Enter: edit key | R: remove | T: test | Up/Down: navigate
-        </Text>
+      <Box marginTop={1} gap={2}>
+        <KeyHint keys="↑↓" label="navigate" />
+        <KeyHint keys="Enter" label="edit key" />
+        <KeyHint keys="R" label="remove" />
+        <KeyHint keys="T" label="test" />
       </Box>
     </Box>
   );

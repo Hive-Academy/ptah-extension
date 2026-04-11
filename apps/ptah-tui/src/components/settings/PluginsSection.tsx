@@ -1,25 +1,17 @@
 /**
- * PluginsSection -- Plugin list with enable/disable toggle for the TUI settings panel.
- *
- * TASK_2025_266 Batch 7
+ * PluginsSection -- Plugin list with enable/disable toggle.
  *
  * Displays all available plugins with their category, skill count, and
  * enabled/disabled status. Users can toggle plugins on or off.
- *
- * Navigation:
- *   - Up/Down: Navigate plugin list
- *   - Enter: Toggle enabled/disabled for selected plugin
- *
- * Uses useRpc() for backend communication (plugins:list-available, plugins:get-config,
- * plugins:save-config).
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 
 import { useRpc } from '../../hooks/use-rpc.js';
-import { Spinner } from '../common/Spinner.js';
-import { useTheme } from '../../hooks/use-theme.js';
+import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
+import { Badge, KeyHint, Spinner } from '../atoms/index.js';
+import { ListItem } from '../molecules/index.js';
 
 // ---------------------------------------------------------------------------
 // Types for RPC responses
@@ -61,15 +53,12 @@ interface PluginsSectionProps {
 export function PluginsSection({
   isActive,
 }: PluginsSectionProps): React.JSX.Element {
-  const theme = useTheme();
   const { call } = useRpc();
 
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedIndex, setSelectedIndex] = useState(0);
   const [toggling, setToggling] = useState(false);
 
-  // Load plugins and their enabled state on mount
   const loadPlugins = useCallback(async (): Promise<PluginInfo[]> => {
     const [pluginListResult, configResult] = await Promise.all([
       call<Record<string, never>, { plugins: RpcPluginInfo[] }>(
@@ -113,10 +102,11 @@ export function PluginsSection({
   }, [loadPlugins]);
 
   const handleToggle = useCallback(
-    async (pluginId: string): Promise<void> => {
+    async (index: number): Promise<void> => {
+      const plugin = plugins[index];
+      if (!plugin) return;
       setToggling(true);
 
-      // Get current config
       const configResult = await call<Record<string, never>, PluginConfigState>(
         'plugins:get-config',
         {} as Record<string, never>,
@@ -124,44 +114,31 @@ export function PluginsSection({
 
       const currentEnabled = new Set(configResult?.enabledPluginIds ?? []);
 
-      // Toggle the plugin
-      if (currentEnabled.has(pluginId)) {
-        currentEnabled.delete(pluginId);
+      if (currentEnabled.has(plugin.id)) {
+        currentEnabled.delete(plugin.id);
       } else {
-        currentEnabled.add(pluginId);
+        currentEnabled.add(plugin.id);
       }
 
-      // Save updated config
       await call<{ enabledPluginIds: string[] }, { success: boolean }>(
         'plugins:save-config',
         { enabledPluginIds: Array.from(currentEnabled) },
       );
 
-      // Refresh plugin list
       const refreshed = await loadPlugins();
       setPlugins(refreshed);
       setToggling(false);
     },
-    [call, loadPlugins],
+    [call, loadPlugins, plugins],
   );
 
-  useInput(
-    (_input, key) => {
-      if (key.upArrow) {
-        setSelectedIndex((prev) => Math.max(0, prev - 1));
-      }
-      if (key.downArrow) {
-        setSelectedIndex((prev) => Math.min(plugins.length - 1, prev + 1));
-      }
-      if (key.return) {
-        const plugin = plugins[selectedIndex];
-        if (plugin) {
-          void handleToggle(plugin.id);
-        }
-      }
+  const { activeIndex } = useKeyboardNav({
+    itemCount: plugins.length,
+    isActive: isActive && !toggling,
+    onSelect: (i) => {
+      void handleToggle(i);
     },
-    { isActive: isActive && !toggling },
-  );
+  });
 
   if (loading) {
     return <Spinner label="Loading plugins..." />;
@@ -178,30 +155,27 @@ export function PluginsSection({
   return (
     <Box flexDirection="column">
       {plugins.map((plugin, index) => {
-        const isSelected = index === selectedIndex && isActive;
+        const isSelected = index === activeIndex && isActive;
+        const meta: string[] = [];
+        if (plugin.category) meta.push(plugin.category);
+        if (plugin.skillCount !== undefined) {
+          meta.push(
+            `${plugin.skillCount} skill${plugin.skillCount !== 1 ? 's' : ''}`,
+          );
+        }
 
         return (
-          <Box key={plugin.id}>
-            <Text bold={isSelected} inverse={isSelected} dimColor={!isSelected}>
-              {isSelected ? '> ' : '  '}
-              {plugin.name}
-            </Text>
-            {plugin.category && (
-              <Text color={theme.ui.dimmed}> ({plugin.category})</Text>
-            )}
-            {plugin.skillCount !== undefined && (
-              <Text dimColor>
-                {' '}
-                {plugin.skillCount} skill{plugin.skillCount !== 1 ? 's' : ''}
-              </Text>
-            )}
-            <Text> </Text>
-            {plugin.enabled ? (
-              <Text color={theme.status.success}>[enabled]</Text>
-            ) : (
-              <Text color={theme.ui.dimmed}>[disabled]</Text>
-            )}
-          </Box>
+          <ListItem
+            key={plugin.id}
+            label={plugin.name}
+            description={meta.length > 0 ? meta.join(' · ') : undefined}
+            isSelected={isSelected}
+            badge={
+              <Badge variant={plugin.enabled ? 'success' : 'ghost'}>
+                {plugin.enabled ? 'enabled' : 'disabled'}
+              </Badge>
+            }
+          />
         );
       })}
 
@@ -211,10 +185,9 @@ export function PluginsSection({
         </Box>
       )}
 
-      <Box marginTop={1}>
-        <Text dimColor italic>
-          Enter: toggle plugin | Up/Down: navigate
-        </Text>
+      <Box marginTop={1} gap={2}>
+        <KeyHint keys="↑↓" label="navigate" />
+        <KeyHint keys="Enter" label="toggle" />
       </Box>
     </Box>
   );
