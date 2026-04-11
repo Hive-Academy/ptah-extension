@@ -159,6 +159,12 @@ jobs:
         if: steps.cache-modules.outputs.cache-hit != 'true'
         run: npm ci
 
+      # dmg-license is a required dep of dmg-builder but is macOS-native and was excluded
+      # from the lock file (generated on Windows). Install it explicitly on macOS.
+      - name: Install dmg-license (macOS only)
+        if: runner.os == 'macOS'
+        run: npm install dmg-license --no-save
+
       # Python 3.12+ removed distutils; setuptools restores it for node-gyp native builds
       - uses: actions/setup-python@v5
         with:
@@ -203,15 +209,18 @@ jobs:
           if (-not $exe) { throw "No .exe installer found to sign" }
           Write-Host "Signing: $exe"
 
-          # Sign the installer (-override replaces the file in place)
-          & cmd /c $cst sign `
-            -username="$env:SSL_COM_USERNAME" `
-            -password="$env:SSL_COM_PASSWORD" `
-            -totp_secret="$env:SSL_COM_TOTP_SECRET" `
-            -input_file_path="$exe" `
-            -override
+          # CodeSignTool.bat fails on paths with spaces. Copy to a temp path without spaces,
+          # sign it there, then copy the signed binary back.
+          $tmpExe = Join-Path $env:TEMP "ptah-setup.exe"
+          Copy-Item $exe $tmpExe -Force
+
+          & cmd /c "`"$cst`" sign -username=`"$env:SSL_COM_USERNAME`" -password=`"$env:SSL_COM_PASSWORD`" -totp_secret=`"$env:SSL_COM_TOTP_SECRET`" -input_file_path=`"$tmpExe`" -override"
 
           if ($LASTEXITCODE -ne 0) { throw "Code signing failed with exit code $LASTEXITCODE" }
+
+          # Copy signed binary back to its original location
+          Copy-Item $tmpExe $exe -Force
+          Remove-Item $tmpExe -Force
           Write-Host "Successfully signed: $exe"
 
       - name: Upload artifacts
