@@ -6,7 +6,6 @@ import {
   computed,
   OnInit,
 } from '@angular/core';
-import { NgOptimizedImage } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule,
@@ -53,7 +52,7 @@ interface FeatureHighlight {
 @Component({
   selector: 'ptah-auth-welcome',
   standalone: true,
-  imports: [NgOptimizedImage, FormsModule, LucideAngularModule],
+  imports: [FormsModule, LucideAngularModule],
   templateUrl: './welcome.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

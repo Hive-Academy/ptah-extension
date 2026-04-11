@@ -14,6 +14,7 @@ import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 
 import { useTheme } from '../../hooks/use-theme.js';
+import { Spinner } from '../atoms/index.js';
 
 interface MessageInputProps {
   onSubmit: (text: string) => void;
@@ -88,8 +89,7 @@ export function MessageInput({
     >
       {isStreaming ? (
         <Box gap={1}>
-          <Text color={theme.status.warning}>{'◉'}</Text>
-          <Text color={theme.status.warning}>Streaming...</Text>
+          <Spinner label="Streaming..." />
           <Text dimColor>(Escape to stop)</Text>
         </Box>
       ) : (

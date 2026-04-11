@@ -134,12 +134,8 @@ export class ProviderModelsService {
     totalCount: number;
     isStatic: boolean;
   }> {
-    const provider = getAnthropicProvider(providerId);
-    if (!provider) {
-      throw new Error(`Unknown provider: ${providerId}`);
-    }
-
-    // Path 0: Registered dynamic fetcher (e.g., Copilot SDK listModels)
+    // Path 0: Registered dynamic fetcher (checked BEFORE registry to support
+    // virtual provider IDs like 'anthropic' that aren't in ANTHROPIC_PROVIDERS)
     const dynamicFetcher = this.dynamicFetchers.get(providerId);
     if (dynamicFetcher) {
       try {
@@ -174,7 +170,7 @@ export class ProviderModelsService {
             isStatic: false,
           };
         }
-        // Empty result — fall through to static fallback
+        // Empty result — fall through to static fallback if provider has a registry entry
       } catch (error) {
         this.logger.warn(
           '[ProviderModelsService] Dynamic fetcher failed, falling back to static models',
@@ -183,8 +179,18 @@ export class ProviderModelsService {
             error: error instanceof Error ? error.message : String(error),
           },
         );
-        // Fall through to existing paths
+        // Fall through to registry paths if available
       }
+
+      // Virtual provider with no registry entry: return empty gracefully
+      if (!getAnthropicProvider(providerId)) {
+        return { models: [], totalCount: 0, isStatic: false };
+      }
+    }
+
+    const provider = getAnthropicProvider(providerId);
+    if (!provider) {
+      throw new Error(`Unknown provider: ${providerId}`);
     }
 
     // Path 1: Has API endpoint AND key → try dynamic first

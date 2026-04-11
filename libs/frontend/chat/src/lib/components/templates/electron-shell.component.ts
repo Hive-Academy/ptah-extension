@@ -25,7 +25,7 @@ import {
   untracked,
   Type,
 } from '@angular/core';
-import { NgComponentOutlet, NgOptimizedImage } from '@angular/common';
+import { NgComponentOutlet } from '@angular/common';
 import {
   LucideAngularModule,
   Settings,
@@ -71,7 +71,6 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
     ThemeToggleComponent,
     NotificationBellComponent,
     LucideAngularModule,
-    NgOptimizedImage,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
@@ -176,7 +175,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
         <!-- Logo + App name -->
         <div class="flex items-center gap-2 no-drag">
           <img
-            [ngSrc]="ptahIconUri"
+            [src]="ptahIconUri"
             alt="Ptah"
             class="w-5 h-5 flex-shrink-0"
             width="20"

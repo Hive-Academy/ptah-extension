@@ -18,6 +18,7 @@ import {
   FlatStreamEventUnion,
   MessageTokenUsage,
   calculateMessageCost,
+  getModelContextWindow,
   AuthEnv,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
@@ -335,11 +336,16 @@ export class StreamTransformer {
                       },
                     );
                     recalculatedTotalCost += recalculatedCost;
+                    const knownContextWindow =
+                      getModelContextWindow(resolvedModel);
                     modelUsageList.push({
                       model: resolvedModel,
                       inputTokens: usage.inputTokens,
                       outputTokens: usage.outputTokens,
-                      contextWindow: usage.contextWindow,
+                      contextWindow:
+                        knownContextWindow > 0
+                          ? knownContextWindow
+                          : usage.contextWindow,
                       costUSD: recalculatedCost,
                       cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
                       // Use the last message_start's input usage as current context fill.

@@ -10,6 +10,7 @@ import {
   Clock,
   FolderOpen,
   LucideAngularModule,
+  PlusCircle,
   Search,
   Shield,
   Sparkles,
@@ -174,95 +175,116 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
           Start New Analysis
         </button>
 
+        <div class="divider text-xs text-base-content/40 my-3">OR</div>
+
+        <button
+          class="btn btn-secondary btn-sm"
+          aria-label="Start new project"
+          (click)="onStartNewProject()"
+        >
+          <lucide-angular
+            [img]="PlusCircleIcon"
+            class="w-4 h-4"
+            aria-hidden="true"
+          />
+          Start New Project
+        </button>
+
         <!-- Previous Analyses Section -->
         @if (isLoadingAnalyses()) {
-        <div class="mt-6 flex items-center justify-center gap-2">
-          <span class="loading loading-spinner loading-xs"></span>
-          <span class="text-xs text-base-content/50"
-            >Loading previous analyses...</span
-          >
-        </div>
-        } @else if (savedAnalyses().length > 0) {
-        <div class="mt-6 text-left">
-          <div class="divider text-xs text-base-content/40 my-3">
-            OR LOAD PREVIOUS ANALYSIS
-          </div>
-
-          <div class="flex items-center gap-2 mb-3">
-            <lucide-angular
-              [img]="FolderOpenIcon"
-              class="w-4 h-4 text-base-content/60"
-              aria-hidden="true"
-            />
-            <h3 class="text-xs font-semibold text-base-content/70">
-              Previous Analyses
-            </h3>
-          </div>
-
-          <div class="space-y-2 max-h-48 overflow-y-auto">
-            @for (analysis of savedAnalyses(); track analysis.filename) {
-            <div
-              class="border border-base-300 rounded-lg bg-base-200/30 p-3
-                     hover:border-primary/40 hover:bg-primary/5 transition-all"
+          <div class="mt-6 flex items-center justify-center gap-2">
+            <span class="loading loading-spinner loading-xs"></span>
+            <span class="text-xs text-base-content/50"
+              >Loading previous analyses...</span
             >
-              <div class="flex items-center justify-between gap-3">
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 mb-1">
-                    <span class="text-xs font-medium truncate">
-                      {{ analysis.projectType }}
-                    </span>
-                    @if (analysis.phaseCount) {
-                    <span class="badge badge-xs badge-ghost">
-                      {{ analysis.phaseCount }} phases
-                    </span>
-                    }
-                  </div>
-                  <div
-                    class="flex items-center gap-3 text-xs text-base-content/50"
-                  >
-                    <span class="flex items-center gap-1">
-                      <lucide-angular
-                        [img]="ClockIcon"
-                        class="w-3 h-3"
-                        aria-hidden="true"
-                      />
-                      {{ formatDate(analysis.savedAt) }}
-                    </span>
-                    <span>{{ analysis.model }}</span>
-                    @if (analysis.durationMs) {
-                    <span>{{ formatDuration(analysis.durationMs) }}</span>
-                    }
-                  </div>
-                </div>
-                <div class="flex items-center gap-1 shrink-0">
-                  <button
-                    class="btn btn-primary btn-xs"
-                    [disabled]="isLoadingAnalysis()"
-                    (click)="onUseAnalysis(analysis)"
-                    aria-label="Use this analysis"
-                  >
-                    @if (isLoadingAnalysis() && loadingFilename() ===
-                    analysis.filename) {
-                    <span class="loading loading-spinner loading-xs"></span>
-                    } @else { Use This }
-                  </button>
-                  <button
-                    class="btn btn-ghost btn-xs text-error/60 hover:text-error"
-                    (click)="onDeleteAnalysis(analysis)"
-                    aria-label="Delete this analysis"
-                  >
-                    <lucide-angular
-                      [img]="Trash2Icon"
-                      class="w-3 h-3"
-                      aria-hidden="true"
-                    />
-                  </button>
-                </div>
-              </div>
-            </div>
-            }
           </div>
-        </div>
+        } @else if (savedAnalyses().length > 0) {
+          <div class="mt-6 text-left">
+            <div class="divider text-xs text-base-content/40 my-3">
+              OR LOAD PREVIOUS ANALYSIS
+            </div>
+
+            <div class="flex items-center gap-2 mb-3">
+              <lucide-angular
+                [img]="FolderOpenIcon"
+                class="w-4 h-4 text-base-content/60"
+                aria-hidden="true"
+              />
+              <h3 class="text-xs font-semibold text-base-content/70">
+                Previous Analyses
+              </h3>
+            </div>
+
+            <div class="space-y-2 max-h-48 overflow-y-auto">
+              @for (analysis of savedAnalyses(); track analysis.filename) {
+                <div
+                  class="border border-base-300 rounded-lg bg-base-200/30 p-3
+                     hover:border-primary/40 hover:bg-primary/5 transition-all"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs font-medium truncate">
+                          {{ analysis.projectType }}
+                        </span>
+                        @if (analysis.phaseCount) {
+                          <span class="badge badge-xs badge-ghost">
+                            {{ analysis.phaseCount }} phases
+                          </span>
+                        }
+                      </div>
+                      <div
+                        class="flex items-center gap-3 text-xs text-base-content/50"
+                      >
+                        <span class="flex items-center gap-1">
+                          <lucide-angular
+                            [img]="ClockIcon"
+                            class="w-3 h-3"
+                            aria-hidden="true"
+                          />
+                          {{ formatDate(analysis.savedAt) }}
+                        </span>
+                        <span>{{ analysis.model }}</span>
+                        @if (analysis.durationMs) {
+                          <span>{{ formatDuration(analysis.durationMs) }}</span>
+                        }
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-1 shrink-0">
+                      <button
+                        class="btn btn-primary btn-xs"
+                        [disabled]="isLoadingAnalysis()"
+                        (click)="onUseAnalysis(analysis)"
+                        aria-label="Use this analysis"
+                      >
+                        @if (
+                          isLoadingAnalysis() &&
+                          loadingFilename() === analysis.filename
+                        ) {
+                          <span
+                            class="loading loading-spinner loading-xs"
+                          ></span>
+                        } @else {
+                          Use This
+                        }
+                      </button>
+                      <button
+                        class="btn btn-ghost btn-xs text-error/60 hover:text-error"
+                        (click)="onDeleteAnalysis(analysis)"
+                        aria-label="Delete this analysis"
+                      >
+                        <lucide-angular
+                          [img]="Trash2Icon"
+                          class="w-3 h-3"
+                          aria-hidden="true"
+                        />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
         }
       </div>
     </div>
@@ -280,6 +302,7 @@ export class WelcomeComponent implements OnInit {
   protected readonly FolderOpenIcon = FolderOpen;
   protected readonly ClockIcon = Clock;
   protected readonly Trash2Icon = Trash2;
+  protected readonly PlusCircleIcon = PlusCircle;
 
   protected readonly savedAnalyses = this.wizardState.savedAnalyses;
   protected readonly isLoadingAnalyses = signal(false);
@@ -301,7 +324,7 @@ export class WelcomeComponent implements OnInit {
     } catch (error) {
       console.warn(
         '[WelcomeComponent] Failed to load saved analyses:',
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     } finally {
       this.isLoadingAnalyses.set(false);
@@ -314,7 +337,17 @@ export class WelcomeComponent implements OnInit {
    * The ScanProgressComponent will initiate the actual deep analysis on mount.
    */
   protected onStartSetup(): void {
+    this.wizardState.setWizardPath('existing');
     this.wizardState.setCurrentStep('scan');
+  }
+
+  /**
+   * Handle "Start New Project" button click.
+   * Sets wizard path to 'new' and navigates to project-type selection step.
+   */
+  protected onStartNewProject(): void {
+    this.wizardState.setWizardPath('new');
+    this.wizardState.setCurrentStep('project-type');
   }
 
   /**
@@ -322,21 +355,20 @@ export class WelcomeComponent implements OnInit {
    * Loads the full analysis, sets state, and navigates to the analysis step.
    */
   protected async onUseAnalysis(
-    analysis: SavedAnalysisMetadata
+    analysis: SavedAnalysisMetadata,
   ): Promise<void> {
     this.isLoadingAnalysis.set(true);
     this.loadingFilename.set(analysis.filename);
 
     try {
       const multiPhaseData = await this.wizardRpc.loadAnalysis(
-        analysis.filename
+        analysis.filename,
       );
       this.wizardState.loadSavedAnalysis(multiPhaseData);
 
       // Fetch recommendations for the loaded analysis
-      const recommendations = await this.wizardRpc.recommendAgents(
-        multiPhaseData
-      );
+      const recommendations =
+        await this.wizardRpc.recommendAgents(multiPhaseData);
       this.wizardState.setRecommendations(recommendations);
 
       // Navigate to analysis step so user sees the loaded data before choosing next step
@@ -344,7 +376,7 @@ export class WelcomeComponent implements OnInit {
     } catch (error) {
       console.error(
         '[WelcomeComponent] Failed to load analysis:',
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     } finally {
       this.isLoadingAnalysis.set(false);
@@ -357,12 +389,12 @@ export class WelcomeComponent implements OnInit {
    * Removes from the list immediately and calls backend to delete file.
    */
   protected async onDeleteAnalysis(
-    analysis: SavedAnalysisMetadata
+    analysis: SavedAnalysisMetadata,
   ): Promise<void> {
     // Optimistic UI: remove from list immediately
     const current = this.savedAnalyses();
     this.wizardState.setSavedAnalyses(
-      current.filter((a) => a.filename !== analysis.filename)
+      current.filter((a) => a.filename !== analysis.filename),
     );
 
     // Note: Delete RPC not yet implemented in backend.

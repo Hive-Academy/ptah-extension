@@ -6,7 +6,7 @@
   "main": "./index.cjs",
   "types": "./index.d.ts",
   "dependencies": {
-    "axios": "1.13.6",
+    "axios": "^1.15.0",
     "tsyringe": "^4.10.0",
     "@ptah-extension/shared": "0.0.1",
     "@types/vscode": "^1.103.0",

@@ -167,7 +167,10 @@ export class AppStateManager implements MessageHandler {
       });
     }
 
-    const initialView = windowWithState.initialView || 'chat';
+    const initialView =
+      windowWithState.initialView ||
+      (windowWithState.ptahConfig?.initialView as ViewType) ||
+      'chat';
     this._currentView.set(initialView);
     if (initialView !== 'chat' && initialView !== 'welcome') {
       this._openViews.update((views) => {

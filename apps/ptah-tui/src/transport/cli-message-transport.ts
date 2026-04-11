@@ -45,6 +45,11 @@ export class CliMessageTransport {
   }> {
     const correlationId = randomUUID();
     const message = { method, params, correlationId };
-    return this.rpcHandler.handleMessage(message);
+    return this.rpcHandler.handleMessage(message) as Promise<{
+      success: boolean;
+      data?: TResult;
+      error?: string;
+      errorCode?: string;
+    }>;
   }
 }

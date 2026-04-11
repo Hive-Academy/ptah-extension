@@ -8,10 +8,12 @@ import { VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import {
   Check,
+  FileText,
   Folder,
   Info,
   LucideAngularModule,
   MessageCircle,
+  Rocket,
   Sparkles,
   Zap,
 } from 'lucide-angular';
@@ -59,11 +61,54 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
             </div>
           </div>
           <h1 class="text-2xl font-bold mb-3">Setup Complete!</h1>
-          <p class="text-base-content/60 max-w-xl mx-auto">
-            Your personalized agents have been generated. You're ready to start
-            using intelligent development workflows.
-          </p>
+          @if (isNewProjectPath()) {
+            <p class="text-base-content/60 max-w-xl mx-auto">
+              Your project plan and agents have been generated! You can now use
+              <code class="bg-base-300 px-1.5 py-0.5 rounded text-xs"
+                >/ptah-core:orchestrate</code
+              >
+              to start implementation.
+            </p>
+          } @else {
+            <p class="text-base-content/60 max-w-xl mx-auto">
+              Your personalized agents have been generated. You're ready to
+              start using intelligent development workflows.
+            </p>
+          }
         </div>
+
+        <!-- New Project Plan Info -->
+        @if (isNewProjectPath() && masterPlanName()) {
+          <div class="card bg-base-200/50 shadow-sm">
+            <div class="card-body p-4">
+              <div class="flex items-center gap-3 mb-2">
+                <lucide-angular
+                  [img]="FileTextIcon"
+                  class="h-5 w-5 text-primary"
+                />
+                <h2 class="text-sm font-semibold">Project Plan Generated</h2>
+              </div>
+              <p class="text-xs text-base-content/60 mb-3">
+                Your master plan for
+                <span class="font-medium">{{ masterPlanName() }}</span>
+                has been saved and is ready for execution.
+              </p>
+              <div class="flex items-center gap-2">
+                <lucide-angular
+                  [img]="RocketIcon"
+                  class="h-4 w-4 text-accent"
+                />
+                <span class="text-xs text-base-content/70">
+                  Run
+                  <code class="bg-base-300 px-1.5 py-0.5 rounded text-xs"
+                    >/ptah-core:orchestrate</code
+                  >
+                  to start building your project
+                </span>
+              </div>
+            </div>
+          </div>
+        }
 
         <!-- Generated Agents Section -->
         <div>
@@ -294,11 +339,27 @@ export class CompletionComponent {
 
   // Lucide icon references
   protected readonly CheckIcon = Check;
+  protected readonly FileTextIcon = FileText;
   protected readonly FolderIcon = Folder;
+  protected readonly RocketIcon = Rocket;
   protected readonly ZapIcon = Zap;
   protected readonly InfoIcon = Info;
   protected readonly MessageCircleIcon = MessageCircle;
   protected readonly SparklesIcon = Sparkles;
+
+  /**
+   * Whether the wizard was in the "new project" path.
+   */
+  protected readonly isNewProjectPath = computed(
+    () => this.wizardState.wizardPath() === 'new',
+  );
+
+  /**
+   * The master plan project name (if available).
+   */
+  protected readonly masterPlanName = computed(
+    () => this.wizardState.masterPlan()?.projectName ?? null,
+  );
 
   /**
    * All completed generation items from skill generation progress.

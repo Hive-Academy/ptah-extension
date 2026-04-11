@@ -26,6 +26,7 @@ import {
   getProviderAuthEnvVar,
   seedStaticModelPricing,
   DEFAULT_PROVIDER_ID,
+  ANTHROPIC_DIRECT_PROVIDER_ID,
 } from './anthropic-provider-registry';
 import { ProviderModelsService } from '../provider-models.service';
 import { SDK_TOKENS } from '../di/tokens';
@@ -269,6 +270,16 @@ export class AuthManager {
           !isOAuthFormat ? ', format may be invalid' : ''
         })`,
       );
+
+      try {
+        this.providerModels.applyPersistedTiers(ANTHROPIC_DIRECT_PROVIDER_ID);
+      } catch (e) {
+        this.logger.warn(
+          '[AuthManager] Failed to apply tier mappings for direct auth',
+          e instanceof Error ? e : new Error(String(e)),
+        );
+      }
+
       return { configured: true, details };
     } else if (envOAuthToken) {
       const tokenLength = envOAuthToken.length;
@@ -290,6 +301,16 @@ export class AuthManager {
           !isOAuthFormat ? ', format may be invalid' : ''
         })`,
       );
+
+      try {
+        this.providerModels.applyPersistedTiers(ANTHROPIC_DIRECT_PROVIDER_ID);
+      } catch (e) {
+        this.logger.warn(
+          '[AuthManager] Failed to apply tier mappings for direct auth',
+          e instanceof Error ? e : new Error(String(e)),
+        );
+      }
+
       return { configured: true, details };
     } else {
       this.logger.debug(
@@ -748,6 +769,16 @@ export class AuthManager {
           isValidFormat ? 'valid' : 'INVALID'
         })`,
       );
+
+      try {
+        this.providerModels.applyPersistedTiers(ANTHROPIC_DIRECT_PROVIDER_ID);
+      } catch (e) {
+        this.logger.warn(
+          '[AuthManager] Failed to apply tier mappings for direct auth',
+          e instanceof Error ? e : new Error(String(e)),
+        );
+      }
+
       return { configured: true, details };
     } else if (envApiKey) {
       const keyLength = envApiKey.length;
@@ -771,6 +802,16 @@ export class AuthManager {
           isValidFormat ? 'valid' : 'INVALID'
         })`,
       );
+
+      try {
+        this.providerModels.applyPersistedTiers(ANTHROPIC_DIRECT_PROVIDER_ID);
+      } catch (e) {
+        this.logger.warn(
+          '[AuthManager] Failed to apply tier mappings for direct auth',
+          e instanceof Error ? e : new Error(String(e)),
+        );
+      }
+
       return { configured: true, details };
     } else {
       this.logger.debug(
