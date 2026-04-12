@@ -45,28 +45,7 @@ import { CanvasTileComponent } from './canvas-tile.component';
   imports: [GridstackComponent, GridstackItemComponent, CanvasTileComponent],
   template: `
     <div class="flex flex-col h-full bg-base-100">
-      <!-- Minimal toolbar: canvas label, tile count, add session -->
-      <div
-        class="flex items-center gap-2 px-3 py-1.5 border-b border-base-300 bg-base-200 shrink-0"
-      >
-        <span class="font-semibold text-sm text-base-content"
-          >Orchestra Canvas</span
-        >
-        <span class="badge badge-sm badge-primary">{{
-          canvasStore.tileCount()
-        }}</span>
-        <div class="ml-auto">
-          <button
-            class="btn btn-xs btn-ghost gap-1"
-            (click)="addSession()"
-            aria-label="Add new session tile"
-          >
-            + Add Session
-          </button>
-        </div>
-      </div>
-
-      <!-- Gridstack drag-and-resize grid -->
+      <!-- Gridstack drag-and-resize grid (no toolbar — shared header provides controls) -->
       <div class="flex-1 overflow-auto">
         <gridstack [options]="gsOptions" (changeCB)="onGridChange($event)">
           @for (tile of canvasStore.tiles(); track tile.tabId) {
@@ -181,10 +160,6 @@ export class OrchestraCanvasComponent implements OnInit, OnDestroy {
     for (const tile of tiles) {
       this.tabManager.forceCloseTab(tile.tabId);
     }
-  }
-
-  addSession(): void {
-    this.canvasStore.addTile();
   }
 
   /**
