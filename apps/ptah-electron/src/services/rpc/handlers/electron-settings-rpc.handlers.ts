@@ -14,15 +14,23 @@
 
 import { injectable, inject } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import type {
+  Logger,
+  RpcHandler,
+  LicenseService,
+} from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
   countPopulatedSecrets,
+  SECRET_KEYS,
   type SettingsExportService,
   type SettingsImportService,
   type PtahSettingsExport,
 } from '@ptah-extension/agent-sdk';
 import type { IPlatformCommands } from '@ptah-extension/rpc-handlers';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
 
 @injectable()
 export class ElectronSettingsRpcHandlers {
@@ -34,8 +42,25 @@ export class ElectronSettingsRpcHandlers {
     @inject(SDK_TOKENS.SDK_SETTINGS_IMPORT)
     private readonly settingsImportService: SettingsImportService,
     @inject(TOKENS.PLATFORM_COMMANDS)
-    private readonly platformCommands: IPlatformCommands
+    private readonly platformCommands: IPlatformCommands,
+    @inject(TOKENS.LICENSE_SERVICE)
+    private readonly licenseService: LicenseService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
+
+  /**
+   * Access ElectronWorkspaceProvider for setConfiguration().
+   * Uses runtime type guard instead of unsafe double assertion.
+   */
+  private get electronProvider(): ElectronWorkspaceProvider {
+    if ('setConfiguration' in this.workspaceProvider) {
+      return this.workspaceProvider as unknown as ElectronWorkspaceProvider;
+    }
+    throw new Error(
+      'WorkspaceProvider does not support setConfiguration — expected ElectronWorkspaceProvider',
+    );
+  }
 
   register(): void {
     this.registerExport();
@@ -70,15 +95,14 @@ export class ElectronSettingsRpcHandlers {
 
         if (warningResult.response !== 0) {
           this.logger.info(
-            '[Electron RPC] settings:export cancelled by user (warning)'
+            '[Electron RPC] settings:export cancelled by user (warning)',
           );
           return { exported: false, cancelled: true };
         }
 
         // Step 2: Collect settings from platform-agnostic service
-        const exportData = await this.settingsExportService.collectSettings(
-          'electron'
-        );
+        const exportData =
+          await this.settingsExportService.collectSettings('electron');
 
         // Step 3: Show native save dialog
         const fs = await import('node:fs/promises');
@@ -116,7 +140,7 @@ export class ElectronSettingsRpcHandlers {
       } catch (error) {
         this.logger.error(
           '[Electron RPC] settings:export failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return {
           exported: false,
@@ -162,7 +186,7 @@ export class ElectronSettingsRpcHandlers {
         if (!fileContent.trim()) {
           this.logger.warn(
             '[Electron RPC] settings:import - empty file selected',
-            { filePath } as unknown as Error
+            { filePath } as unknown as Error,
           );
           return {
             cancelled: false,
@@ -215,9 +239,43 @@ export class ElectronSettingsRpcHandlers {
         }
 
         // Step 5: Delegate to SettingsImportService (handles version validation, key import, etc.)
+        // Note: SettingsImportService skips config values because IWorkspaceProvider
+        // is read-only. Electron handles config import in Step 6 below.
         const importResult = await this.settingsImportService.importSettings(
-          parsedData as PtahSettingsExport
+          parsedData as PtahSettingsExport,
         );
+
+        // Step 6: Import config values via ElectronWorkspaceProvider.setConfiguration()
+        // The shared SettingsImportService cannot do this (IWorkspaceProvider is read-only),
+        // but ElectronWorkspaceProvider exposes setConfiguration() for both
+        // file-based (~/.ptah/settings.json) and per-app (config.json) settings.
+        const exportData = parsedData as PtahSettingsExport;
+        if (exportData.config && Object.keys(exportData.config).length > 0) {
+          for (const [key, value] of Object.entries(exportData.config)) {
+            try {
+              await this.electronProvider.setConfiguration('ptah', key, value);
+              // Move from skipped to imported in the result
+              const skippedIdx = importResult.skipped.findIndex((s) =>
+                s.startsWith(`config:${key}`),
+              );
+              if (skippedIdx !== -1) {
+                importResult.skipped.splice(skippedIdx, 1);
+              }
+              importResult.imported.push(`config:${key}`);
+            } catch (configError) {
+              importResult.errors.push(
+                `config:${key}: ${
+                  configError instanceof Error
+                    ? configError.message
+                    : String(configError)
+                }`,
+              );
+            }
+          }
+          this.logger.info('[Electron RPC] Config values imported', {
+            count: Object.keys(exportData.config).length,
+          } as unknown as Error);
+        }
 
         this.logger.info('[Electron RPC] settings:import completed', {
           filePath,
@@ -226,15 +284,34 @@ export class ElectronSettingsRpcHandlers {
           errors: importResult.errors.length,
         } as unknown as Error);
 
-        // If a license key was imported, schedule a full app relaunch so the
-        // main process re-runs the license check (Phase 3.5 in main.ts).
-        // Same pattern as LicenseRpcHandlers.registerSetKey() — 1.5s delay
-        // lets the RPC response reach the renderer before restart.
-        if (importResult.imported.includes('ptah.licenseKey')) {
+        // If a license key was imported, verify it with the server to update
+        // the in-memory license cache, then reload the renderer.
+        // Without verifyLicense(), get-startup-config returns stale cached
+        // status and the welcome screen re-appears after reload.
+        // Only reload if verification succeeds — otherwise the stale cache
+        // would cause the welcome screen to reappear (the original bug).
+        if (importResult.imported.includes(SECRET_KEYS.LICENSE_KEY)) {
           this.logger.info(
-            '[Electron RPC] License key imported, scheduling app relaunch'
+            '[Electron RPC] License key imported, verifying and scheduling reload',
           );
-          setTimeout(() => this.platformCommands.reloadWindow(), 1500);
+          try {
+            const status = await this.licenseService.verifyLicense();
+            if (status.valid) {
+              setTimeout(() => this.platformCommands.reloadWindow(), 1500);
+            } else {
+              this.logger.warn(
+                '[Electron RPC] License key imported but verification returned invalid',
+                { reason: status.reason } as unknown as Error,
+              );
+            }
+          } catch (verifyError) {
+            this.logger.warn(
+              '[Electron RPC] License verification after import failed — user should restart manually',
+              verifyError instanceof Error
+                ? verifyError
+                : new Error(String(verifyError)),
+            );
+          }
         }
 
         return {
@@ -244,7 +321,7 @@ export class ElectronSettingsRpcHandlers {
       } catch (error) {
         this.logger.error(
           '[Electron RPC] settings:import failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return {
           cancelled: false,

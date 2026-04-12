@@ -154,6 +154,8 @@ export class PtahExtension implements vscode.Disposable {
     );
     this.disposables.push(dashboardCommand);
 
+    // Backward compat: this command still sends 'orchestra-canvas' as initialView.
+    // AppStateManager.initializeState() maps it to layoutMode('grid') + chat view.
     const orchestraCanvasCommand = vscode.commands.registerCommand(
       'ptah.openOrchestraCanvas',
       async () => {

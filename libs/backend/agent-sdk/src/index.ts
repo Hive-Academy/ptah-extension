@@ -58,6 +58,9 @@ export { registerSdkServices } from './lib/di/register';
 export { SDK_TOKENS } from './lib/di/tokens';
 export type { SdkDIToken } from './lib/di/tokens';
 
+// Model ID constants (single source of truth for tier → model ID mapping)
+export { TIER_TO_MODEL_ID, DEFAULT_FALLBACK_MODEL_ID } from './lib/helpers';
+
 // Anthropic-compatible provider registry (TASK_2025_129 Batch 3)
 // Re-exported via helpers barrel (canonical source: helpers/anthropic-provider-registry.ts)
 export {

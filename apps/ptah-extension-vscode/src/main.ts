@@ -428,10 +428,37 @@ async function handleLicenseBlocking(
                 }
               }
 
+              // Import config values via VS Code workspace configuration
+              const importConfig = importData['config'] as
+                | Record<string, unknown>
+                | undefined;
+              if (importConfig && typeof importConfig === 'object') {
+                const ptahConfig = vscode.workspace.getConfiguration('ptah');
+                for (const [key, value] of Object.entries(importConfig)) {
+                  try {
+                    await ptahConfig.update(
+                      key,
+                      value,
+                      vscode.ConfigurationTarget.Global,
+                    );
+                    imported.push(`config:${key}`);
+                  } catch (e) {
+                    errors.push(
+                      `config:${key}: ${e instanceof Error ? e.message : String(e)}`,
+                    );
+                  }
+                }
+              }
+
+              // Response shape must match RpcMethodRegistry['settings:import']['result']
+              // which nests imported/skipped/errors inside a `result` wrapper.
               webviewView.webview.postMessage({
                 type: 'rpc:response',
                 success: true,
-                data: { cancelled: false, imported, errors },
+                data: {
+                  cancelled: false,
+                  result: { imported, skipped: [], errors },
+                },
                 correlationId,
               });
 

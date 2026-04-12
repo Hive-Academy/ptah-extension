@@ -1862,30 +1862,18 @@ Session-related buttons use the brand gold, view pills get elegant styling
   color: #f5d97d;
 }
 
-/* Electron view pill — active state (replaces btn-primary on pills) */
-.view-pill-active {
-  background: linear-gradient(
-    135deg,
-    oklch(var(--p) / 0.15),
-    oklch(var(--s) / 0.15)
-  );
-  border: 1px solid oklch(var(--s) / 0.25);
-  color: oklch(var(--bc));
+/* Electron navbar — DaisyUI tabs-lifted with gold active accent */
+.electron-tabs.tabs-lifted > .tab {
+  font-size: 12px;
+  --tab-bg: oklch(var(--b2));
+  --tab-border-color: transparent;
+}
+
+.electron-tabs.tabs-lifted > .tab-active {
+  --tab-bg: oklch(var(--b1));
+  --tab-border-color: #d4af37;
+  color: #f5d97d;
   font-weight: 500;
-  box-shadow: 0 1px 4px oklch(var(--s) / 0.1);
-}
-
-/* Electron view pill — inactive state */
-.view-pill-inactive {
-  background: transparent;
-  border: 1px solid transparent;
-  color: oklch(var(--bc) / 0.5);
-}
-
-.view-pill-inactive:hover {
-  background-color: oklch(var(--bc) / 0.06);
-  color: oklch(var(--bc) / 0.7);
-  border-color: oklch(var(--bc) / 0.08);
 }
 
 /* ============================================================================
