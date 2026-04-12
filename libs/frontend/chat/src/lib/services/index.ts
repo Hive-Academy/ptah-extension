@@ -74,5 +74,8 @@ export {
   type TabLookupResult,
 } from './tab-workspace-partition.service';
 
+// SessionDisplayUtils - Shared session name/date formatting (extracted from AppShell + Canvas)
+export { SessionDisplayUtils } from './session-display-utils.service';
+
 // SESSION_CONTEXT — optional per-tile session override for canvas tiles (TASK_2025_265)
 export { SESSION_CONTEXT } from '../tokens/session-context.token';

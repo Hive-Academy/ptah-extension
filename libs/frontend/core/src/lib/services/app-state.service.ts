@@ -19,6 +19,15 @@ export type ViewType =
   | 'welcome'
   | 'orchestra-canvas';
 
+/** Layout mode for the chat view content area: single tab or canvas grid */
+export type LayoutMode = 'single' | 'grid';
+
+/** Request to open/focus a session in a canvas tile */
+export interface CanvasSessionRequest {
+  sessionId: string;
+  name?: string;
+}
+
 export interface AppState {
   currentView: ViewType;
   isLoading: boolean;
@@ -71,6 +80,15 @@ export class AppStateManager implements MessageHandler {
   /** Tracks which views are currently "open" as tab pills (Electron navbar). Chat is always present. */
   private readonly _openViews = signal<Set<ViewType>>(new Set(['chat']));
 
+  // Layout mode signals (canvas-first layout)
+  private readonly _layoutMode = signal<LayoutMode>('grid');
+  /** Signal bridge: request to open/focus a session in a canvas tile (from sidebar click in grid mode) */
+  private readonly _canvasSessionRequest = signal<CanvasSessionRequest | null>(
+    null,
+  );
+  /** Signal bridge: request to create a new session as a canvas tile (from "New Session" in grid mode) */
+  private readonly _newCanvasSessionRequest = signal<string | null>(null);
+
   constructor() {
     this.initializeState();
   }
@@ -87,6 +105,14 @@ export class AppStateManager implements MessageHandler {
   readonly openViews = computed(() =>
     Array.from(this._openViews()).filter((v) => v !== 'welcome'),
   );
+
+  // Layout mode public readonly signals
+  /** Current layout mode: 'single' (tab view) or 'grid' (canvas view) */
+  readonly layoutMode = this._layoutMode.asReadonly();
+  /** Pending request to open a session in a canvas tile (consumed by OrchestraCanvasComponent) */
+  readonly canvasSessionRequest = this._canvasSessionRequest.asReadonly();
+  /** Pending request to create a new canvas tile (consumed by OrchestraCanvasComponent) */
+  readonly newCanvasSessionRequest = this._newCanvasSessionRequest.asReadonly();
 
   // Computed signals
   // TASK_2025_126: Added welcome view check to prevent license bypass
@@ -179,6 +205,14 @@ export class AppStateManager implements MessageHandler {
         return next;
       });
     }
+
+    // Restore layout mode from localStorage (defaults to 'grid' for canvas-first)
+    const savedLayoutMode = localStorage.getItem(
+      'ptah-layout-mode',
+    ) as LayoutMode | null;
+    if (savedLayoutMode === 'single' || savedLayoutMode === 'grid') {
+      this._layoutMode.set(savedLayoutMode);
+    }
   }
 
   // State update methods
@@ -251,6 +285,19 @@ export class AppStateManager implements MessageHandler {
 
   handleViewSwitch(view: ViewType): void {
     if (!this.canSwitchViews()) return;
+
+    // Backward compat: 'orchestra-canvas' is now a layout mode, not a view
+    if (view === 'orchestra-canvas') {
+      this.setLayoutMode('grid');
+      this._openViews.update((views) => {
+        const next = new Set(views);
+        next.add('chat');
+        return next;
+      });
+      this._currentView.set('chat');
+      return;
+    }
+
     this._openViews.update((views) => {
       const next = new Set(views);
       next.add(view);
@@ -272,5 +319,45 @@ export class AppStateManager implements MessageHandler {
       isConnected: this._isConnected(),
       isLicensed: this._isLicensed(),
     };
+  }
+
+  // ============================================================================
+  // LAYOUT MODE METHODS
+  // ============================================================================
+
+  /** Set the layout mode and persist to localStorage */
+  setLayoutMode(mode: LayoutMode): void {
+    this._layoutMode.set(mode);
+    localStorage.setItem('ptah-layout-mode', mode);
+  }
+
+  /** Toggle between 'single' and 'grid' layout modes */
+  toggleLayoutMode(): void {
+    const next = this._layoutMode() === 'grid' ? 'single' : 'grid';
+    this.setLayoutMode(next);
+  }
+
+  // ============================================================================
+  // CANVAS SESSION REQUEST METHODS (Signal Bridge)
+  // ============================================================================
+
+  /** Request that the canvas opens/focuses a tile for the given session */
+  requestCanvasSession(sessionId: string, name?: string): void {
+    this._canvasSessionRequest.set({ sessionId, name });
+  }
+
+  /** Clear the canvas session request after the canvas has processed it */
+  clearCanvasSessionRequest(): void {
+    this._canvasSessionRequest.set(null);
+  }
+
+  /** Request that the canvas creates a new tile with the given name */
+  requestNewCanvasSession(name: string): void {
+    this._newCanvasSessionRequest.set(name);
+  }
+
+  /** Clear the new canvas session request after the canvas has processed it */
+  clearNewCanvasSessionRequest(): void {
+    this._newCanvasSessionRequest.set(null);
   }
 }
