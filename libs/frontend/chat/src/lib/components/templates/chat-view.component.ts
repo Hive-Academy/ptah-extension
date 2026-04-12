@@ -117,6 +117,10 @@ export class ChatViewComponent {
   /** Track message count to detect new user messages */
   private lastMessageCount = 0;
 
+  private readonly scrollPositionCache = new Map<string, number>();
+  private previousTabId: string | null = null;
+  private isRestoringScroll = false;
+
   /**
    * Ptah icon URI for skeleton avatar placeholder
    */
@@ -136,6 +140,11 @@ export class ChatViewComponent {
       return tab?.claudeSessionId ?? null;
     }
     return this.chatStore.currentSessionId();
+  });
+
+  private readonly resolvedTabId = computed(() => {
+    const ctx = this._sessionContext;
+    return ctx ? ctx() : this._tabManager.activeTabId();
   });
 
   /**
@@ -301,6 +310,28 @@ export class ChatViewComponent {
       this.lastMessageCount = count;
     });
 
+    // Restore scroll position when switching between tabs
+    effect(() => {
+      const currentTabId = this.resolvedTabId();
+      if (currentTabId === this.previousTabId) return;
+
+      this.previousTabId = currentTabId ?? null;
+
+      if (currentTabId && this.scrollPositionCache.has(currentTabId)) {
+        const savedPosition = this.scrollPositionCache.get(currentTabId)!;
+        this.isRestoringScroll = true;
+        setTimeout(() => {
+          const container = this.messageContainerRef()?.nativeElement;
+          if (container) {
+            container.scrollTo({ top: savedPosition, behavior: 'instant' });
+          }
+          setTimeout(() => {
+            this.isRestoringScroll = false;
+          }, this.SCROLL_DEBOUNCE_MS + 10);
+        }, 0);
+      }
+    });
+
     // Setup MutationObserver after initial render to watch for DOM changes
     // This replaces the effect-based approach for more reliable scroll timing
     afterNextRender(
@@ -324,14 +355,16 @@ export class ChatViewComponent {
     const container = event.target as HTMLElement;
     if (!container) return;
 
-    // Check if user is near the bottom (within 100px threshold)
     const isNearBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight <
       100;
 
-    // If user scrolled up, disable auto-scroll
-    // If user scrolled back to bottom, re-enable auto-scroll
     this.userScrolledUp.set(!isNearBottom);
+
+    const tabId = this.resolvedTabId();
+    if (tabId) {
+      this.scrollPositionCache.set(tabId, container.scrollTop);
+    }
   }
 
   /**
@@ -393,14 +426,14 @@ export class ChatViewComponent {
     }
   }
 
-  private scrollToBottom(): void {
+  private scrollToBottom(behavior: ScrollBehavior = 'smooth'): void {
     const containerRef = this.messageContainerRef();
     if (!containerRef) return;
 
     const container = containerRef.nativeElement;
     container.scrollTo({
       top: container.scrollHeight,
-      behavior: 'smooth',
+      behavior,
     });
   }
 
@@ -431,19 +464,14 @@ export class ChatViewComponent {
    * Debouncing coalesces rapid DOM mutations during streaming into single scroll.
    */
   private scheduleScroll(): void {
-    // Clear previous debounce (trailing debounce pattern)
     if (this.scrollTimeoutId) {
       clearTimeout(this.scrollTimeoutId);
     }
 
-    // Schedule scroll after debounce period.
-    // Always schedule the timeout — the userScrolledUp check happens inside
-    // the callback so it uses the value at fire-time, not at schedule-time.
-    // This prevents a race where MutationObserver fires before the effect
-    // that resets userScrolledUp for new user messages.
     this.scrollTimeoutId = setTimeout(() => {
-      if (!this.userScrolledUp()) {
-        this.scrollToBottom();
+      if (!this.userScrolledUp() && !this.isRestoringScroll) {
+        const behavior = this.resolvedIsStreaming() ? 'smooth' : 'instant';
+        this.scrollToBottom(behavior);
       }
       this.scrollTimeoutId = null;
     }, this.SCROLL_DEBOUNCE_MS);
