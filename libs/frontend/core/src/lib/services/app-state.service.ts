@@ -193,10 +193,19 @@ export class AppStateManager implements MessageHandler {
       });
     }
 
-    const initialView =
+    let initialView =
       windowWithState.initialView ||
       (windowWithState.ptahConfig?.initialView as ViewType) ||
       'chat';
+
+    // Backward compat: 'orchestra-canvas' is now a layout mode, not a view.
+    // Stale window.ptahConfig or persisted configs may still contain it.
+    // Map to chat view + grid layout mode so the @switch template matches correctly.
+    if (initialView === 'orchestra-canvas') {
+      initialView = 'chat';
+      this._layoutMode.set('grid');
+    }
+
     this._currentView.set(initialView);
     if (initialView !== 'chat' && initialView !== 'welcome') {
       this._openViews.update((views) => {

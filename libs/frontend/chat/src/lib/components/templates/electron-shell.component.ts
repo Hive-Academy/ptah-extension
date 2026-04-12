@@ -252,6 +252,18 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
               <span class="icon-btn-label text-xs">Dashboard</span>
             </button>
 
+            <!-- Layout toggle: canvas grid / single chat -->
+            <button
+              class="btn btn-ghost btn-xs gap-1"
+              [class.btn-active]="appState.layoutMode() === 'grid'"
+              aria-label="Toggle canvas grid / single chat"
+              title="Toggle canvas grid / single chat"
+              (click)="appState.toggleLayoutMode()"
+            >
+              <lucide-angular [img]="LayoutGridIcon" class="w-3.5 h-3.5" />
+              <span class="icon-btn-label text-xs">Canvas</span>
+            </button>
+
             <!-- Settings -->
             <button
               class="btn btn-ghost btn-xs gap-1"
@@ -530,6 +542,7 @@ export class ElectronShellComponent {
   readonly XIcon = X;
   readonly MessageSquareIcon = MessageSquare;
   readonly Wand2Icon = Wand2;
+  readonly LayoutGridIcon = LayoutGrid;
 
   // Asset URIs
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
@@ -551,6 +564,9 @@ export class ElectronShellComponent {
         return { label: 'Dashboard', icon: BarChart3 };
       case 'setup-wizard':
         return { label: 'Setup', icon: Wand2 };
+      // Kept for backward compat: users may have 'orchestra-canvas' persisted in _openViews.
+      // AppStateManager.handleViewSwitch() maps it to layoutMode('grid') + chat view,
+      // but the pill still needs a label/icon if it appears in the tab bar.
       case 'orchestra-canvas':
         return { label: 'Canvas', icon: LayoutGrid };
       default:
