@@ -301,11 +301,14 @@ export class WelcomeComponent implements OnInit {
         // Don't show success if user cancelled the file dialog
         if (data && !data.cancelled) {
           const imported = data.result?.imported ?? [];
+          const errors = data.result?.errors ?? [];
           if (imported.length > 0) {
             this.importSuccess.set(true);
             if (imported.includes('ptah.licenseKey')) {
               this.importedLicenseKey.set(true);
             }
+          } else if (errors.length > 0) {
+            this.errorMessage.set(`Import failed: ${errors.join(', ')}`);
           } else {
             this.errorMessage.set(
               'All settings already exist. Nothing new to import.',

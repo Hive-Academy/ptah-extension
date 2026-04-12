@@ -211,19 +211,9 @@ export class AppStateManager implements MessageHandler {
       (windowWithState.ptahConfig?.initialView as ViewType) ||
       'chat';
 
-    // Backward compat: normalizeView() maps 'orchestra-canvas' → 'chat' + grid layout
-    initialView = this.normalizeView(initialView);
-
-    this._currentView.set(initialView);
-    if (initialView !== 'chat' && initialView !== 'welcome') {
-      this._openViews.update((views) => {
-        const next = new Set(views);
-        next.add(initialView);
-        return next;
-      });
-    }
-
-    // Restore layout mode from localStorage (defaults to 'grid' for canvas-first)
+    // Restore layout mode from localStorage BEFORE normalizeView,
+    // so that explicit normalizeView overrides (e.g. 'orchestra-canvas' → grid)
+    // take precedence over the saved preference.
     let savedLayoutMode: LayoutMode | null = null;
     try {
       savedLayoutMode = localStorage.getItem(
@@ -234,6 +224,19 @@ export class AppStateManager implements MessageHandler {
     }
     if (savedLayoutMode === 'single' || savedLayoutMode === 'grid') {
       this._layoutMode.set(savedLayoutMode);
+    }
+
+    // Backward compat: normalizeView() maps 'orchestra-canvas' → 'chat' + grid layout.
+    // This runs AFTER localStorage restore so it can override saved preference when needed.
+    initialView = this.normalizeView(initialView);
+
+    this._currentView.set(initialView);
+    if (initialView !== 'chat' && initialView !== 'welcome') {
+      this._openViews.update((views) => {
+        const next = new Set(views);
+        next.add(initialView);
+        return next;
+      });
     }
   }
 

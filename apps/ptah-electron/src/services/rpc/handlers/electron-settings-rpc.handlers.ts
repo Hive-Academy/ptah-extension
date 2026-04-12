@@ -50,11 +50,16 @@ export class ElectronSettingsRpcHandlers {
   ) {}
 
   /**
-   * Cast to ElectronWorkspaceProvider for setConfiguration() access.
-   * In the Electron app, the workspace provider is always ElectronWorkspaceProvider.
+   * Access ElectronWorkspaceProvider for setConfiguration().
+   * Uses runtime type guard instead of unsafe double assertion.
    */
   private get electronProvider(): ElectronWorkspaceProvider {
-    return this.workspaceProvider as unknown as ElectronWorkspaceProvider;
+    if ('setConfiguration' in this.workspaceProvider) {
+      return this.workspaceProvider as unknown as ElectronWorkspaceProvider;
+    }
+    throw new Error(
+      'WorkspaceProvider does not support setConfiguration — expected ElectronWorkspaceProvider',
+    );
   }
 
   register(): void {

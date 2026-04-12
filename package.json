@@ -5,8 +5,8 @@
   "scripts": {
     "landing": "npx nx serve ptah-landing-page",
     "docker:up": "docker compose --profile webhook-testing up -d",
-    "docker:down": "docker-compose down",
-    "docker:logs": "docker-compose logs -f license-server",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f license-server",
     "docker:db:start": "docker compose up -d postgres",
     "docker:db:stop": "docker compose stop postgres",
     "docker:prod": "docker compose -f docker-compose.prod.yml up -d",
