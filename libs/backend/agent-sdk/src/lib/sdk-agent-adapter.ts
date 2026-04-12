@@ -204,6 +204,8 @@ export class SdkAgentAdapter implements IAIProvider {
         // TASK_2025_175: disposeAllSessions is now async, await it
         await this.sessionLifecycle.disposeAllSessions();
         this.cliDetector.clearCache();
+        // Clear model cache so re-init fetches fresh models with new auth
+        this.modelService.clearCache();
         this.cliInstallation = null;
         await this.initialize();
       });
@@ -275,7 +277,10 @@ export class SdkAgentAdapter implements IAIProvider {
         uptime: Date.now(),
       };
 
-      // Step 4: Initialize default model from SDK if not already configured
+      // Step 4: Initialize default model from SDK
+      // - If no saved model: fetch and set the default
+      // - If saved model is a bare tier name (legacy): resolve to full model ID
+      // - If saved model is already a full ID: leave as-is
       try {
         const savedModel = this.config.get<string>('model.selected');
         if (!savedModel) {
@@ -284,6 +289,20 @@ export class SdkAgentAdapter implements IAIProvider {
           this.logger.info('[SdkAgentAdapter] Set default model from SDK', {
             model: defaultModel,
           });
+        } else if (
+          !savedModel.startsWith('claude-') &&
+          savedModel !== 'default'
+        ) {
+          // Migrate legacy bare tier names ('opus', 'sonnet', 'haiku') to full IDs.
+          // Older versions stored tier names that the SDK no longer resolves.
+          const resolved = this.modelService.resolveModelId(savedModel);
+          if (resolved !== savedModel) {
+            await this.config.set('model.selected', resolved);
+            this.logger.info(
+              '[SdkAgentAdapter] Migrated legacy model name in config',
+              { from: savedModel, to: resolved },
+            );
+          }
         }
       } catch (modelError) {
         // Non-fatal - continue initialization even if model setup fails
