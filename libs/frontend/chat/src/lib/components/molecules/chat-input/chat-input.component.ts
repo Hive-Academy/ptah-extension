@@ -31,7 +31,6 @@ import {
   AutopilotStateService,
   CommandDiscoveryFacade,
   ClaudeRpcService,
-  EffortStateService,
 } from '@ptah-extension/core';
 import { ModelSelectorComponent } from './model-selector.component';
 import { AutopilotPopoverComponent } from './autopilot-popover.component';
@@ -319,7 +318,6 @@ export class ChatInputComponent implements OnInit {
   });
   readonly autopilotState = inject(AutopilotStateService);
   private readonly rpcService = inject(ClaudeRpcService);
-  private readonly effortState = inject(EffortStateService);
 
   // Autocomplete service injections
   readonly filePicker = inject(FilePickerService);
@@ -795,8 +793,8 @@ export class ChatInputComponent implements OnInit {
    * so this handler is kept for any additional side-effects if needed.
    */
   onEffortChange(_effort: EffortLevel | undefined): void {
-    // No-op: EffortSelectorComponent saves via EffortStateService directly.
-    // ChatInputComponent reads from effortState.currentEffort() at send time.
+    // No-op: EffortSelectorComponent saves per-tab or globally.
+    // MessageSenderService resolves effective effort at send time.
   }
 
   /**
@@ -1003,7 +1001,6 @@ export class ChatInputComponent implements OnInit {
         {
           files: filePaths.length > 0 ? filePaths : undefined,
           images: inlineImages.length > 0 ? inlineImages : undefined,
-          effort: this.effortState.currentEffort(),
           tabId: this._sessionContext?.() ?? undefined,
         },
       );
