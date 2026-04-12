@@ -137,6 +137,15 @@ export class SdkModelService {
         models: models.map((m) => `${m.value}: ${m.displayName}`),
       });
 
+      // SDK returned empty (e.g., auth not yet configured) — use fallback
+      // without caching so subsequent calls retry the SDK.
+      if (!models || models.length === 0) {
+        this.logger.warn(
+          '[SdkModelService] SDK returned empty models, using fallback tier slots',
+        );
+        return FALLBACK_MODELS;
+      }
+
       // Only cache successful SDK results — never cache fallbacks.
       // This ensures subsequent calls retry the SDK instead of being
       // stuck on fallback models forever after an init-time race condition.

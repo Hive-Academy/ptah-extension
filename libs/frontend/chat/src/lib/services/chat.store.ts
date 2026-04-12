@@ -401,8 +401,12 @@ export class ChatStore {
     content: string,
     options?: SendMessageOptions,
   ): Promise<void> {
-    // Check if streaming via active tab status (fine-grained selector)
-    const status = this.tabManager.activeTabStatus();
+    // Check target tab's streaming state — use explicit tabId if provided (canvas tile)
+    const targetTabId = options?.tabId;
+    const targetTab = targetTabId
+      ? this.tabManager.tabs().find((t) => t.id === targetTabId)
+      : null;
+    const status = targetTab?.status ?? this.tabManager.activeTabStatus();
     const isStreaming = status === 'streaming' || status === 'resuming';
 
     if (isStreaming) {

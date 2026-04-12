@@ -15,6 +15,7 @@ import {
   Component,
   inject,
   signal,
+  computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule, ChevronDown, Check } from 'lucide-angular';
@@ -25,6 +26,8 @@ import {
   KeyboardNavigationService,
 } from '@ptah-extension/ui';
 import { ChatStore } from '../../../services/chat.store';
+import { TabManagerService } from '../../../services/tab-manager.service';
+import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 import { SessionId } from '@ptah-extension/shared';
 
 @Component({
@@ -53,25 +56,24 @@ import { SessionId } from '@ptah-extension/shared';
         [disabled]="modelState.isPending()"
       >
         @if (modelState.isPending()) {
-        <span class="loading loading-spinner loading-xs"></span>
-        } @if (modelState.currentModelProviderHint()) {
-        <!-- Provider override active: show provider model as primary -->
-        <span
-          class="text-[10px] font-mono text-accent truncate"
-          [title]="
-            modelState.currentModelDisplay() +
-            ' → ' +
-            modelState.currentModelProviderHint()
-          "
-          >{{ modelState.currentModelProviderHint() }}</span
-        >
+          <span class="loading loading-spinner loading-xs"></span>
+        }
+        @if (effectiveModelProviderHint()) {
+          <!-- Provider override active: show provider model as primary -->
+          <span
+            class="text-[10px] font-mono text-accent truncate"
+            [title]="
+              effectiveModelDisplay() + ' → ' + effectiveModelProviderHint()
+            "
+            >{{ effectiveModelProviderHint() }}</span
+          >
         } @else {
-        <!-- No provider override: show standard display name -->
-        <span
-          class="text-[10px] font-medium truncate"
-          [title]="modelState.currentModelDisplay()"
-          >{{ modelState.currentModelDisplay() }}</span
-        >
+          <!-- No provider override: show standard display name -->
+          <span
+            class="text-[10px] font-medium truncate"
+            [title]="effectiveModelDisplay()"
+            >{{ effectiveModelDisplay() }}</span
+          >
         }
         <lucide-angular
           [img]="ChevronDownIcon"
@@ -93,46 +95,49 @@ import { SessionId } from '@ptah-extension/shared';
         <div
           class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1"
         >
-          @for (model of modelState.availableModels(); track model.id; let i =
-          $index) {
-          <ptah-native-option
-            [optionId]="'model-' + i"
-            [value]="model"
-            [isActive]="i === activeIndex()"
-            (selected)="selectModel($event.id)"
-            (hovered)="onHover(i)"
-          >
-            <div class="flex items-start gap-3 py-0.5">
-              <!-- Checkmark for selected -->
-              <div class="w-4 h-4 mt-0.5 flex-shrink-0">
-                @if (model.isSelected) {
-                <lucide-angular [img]="CheckIcon" class="w-4 h-4" />
-                }
-              </div>
-
-              <!-- Model Info -->
-              <div class="flex flex-col items-start flex-1 min-w-0">
-                <div class="flex items-center gap-2">
-                  <span class="font-medium text-xs">{{ model.name }}</span>
-                  @if (model.isRecommended) {
-                  <span class="badge badge-xs badge-primary">
-                    Recommended
-                  </span>
+          @for (
+            model of effectiveAvailableModels();
+            track model.id;
+            let i = $index
+          ) {
+            <ptah-native-option
+              [optionId]="'model-' + i"
+              [value]="model"
+              [isActive]="i === activeIndex()"
+              (selected)="selectModel($event.id)"
+              (hovered)="onHover(i)"
+            >
+              <div class="flex items-start gap-3 py-0.5">
+                <!-- Checkmark for selected -->
+                <div class="w-4 h-4 mt-0.5 flex-shrink-0">
+                  @if (model.isSelected) {
+                    <lucide-angular [img]="CheckIcon" class="w-4 h-4" />
                   }
                 </div>
-                @if (model.providerModelId) {
-                <span
-                  class="text-[11px] mt-0.5 font-mono text-accent truncate max-w-full"
-                >
-                  {{ model.providerModelId }}
-                </span>
-                }
-                <span class="text-[11px] mt-0.5 text-base-content/60">
-                  {{ model.description }}
-                </span>
+
+                <!-- Model Info -->
+                <div class="flex flex-col items-start flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-xs">{{ model.name }}</span>
+                    @if (model.isRecommended) {
+                      <span class="badge badge-xs badge-primary">
+                        Recommended
+                      </span>
+                    }
+                  </div>
+                  @if (model.providerModelId) {
+                    <span
+                      class="text-[11px] mt-0.5 font-mono text-accent truncate max-w-full"
+                    >
+                      {{ model.providerModelId }}
+                    </span>
+                  }
+                  <span class="text-[11px] mt-0.5 text-base-content/60">
+                    {{ model.description }}
+                  </span>
+                </div>
               </div>
-            </div>
-          </ptah-native-option>
+            </ptah-native-option>
           }
         </div>
       </div>
@@ -144,6 +149,10 @@ export class ModelSelectorComponent {
   readonly modelState = inject(ModelStateService);
   private readonly chatStore = inject(ChatStore);
   private readonly keyboardNav = inject(KeyboardNavigationService);
+  private readonly tabManager = inject(TabManagerService);
+  private readonly _sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
 
   // Lucide icons
   readonly ChevronDownIcon = ChevronDown;
@@ -157,40 +166,82 @@ export class ModelSelectorComponent {
   readonly activeIndex = this.keyboardNav.activeIndex;
 
   /**
-   * Toggle dropdown visibility
+   * Effective model for this context: per-tab override when in canvas tile,
+   * otherwise global ModelStateService selection.
    */
+  readonly effectiveModel = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (tabId) {
+        const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+        if (tab?.overrideModel) return tab.overrideModel;
+      }
+    }
+    return this.modelState.currentModel();
+  });
+
+  /**
+   * Display name for the effective model (resolves API name to human-readable).
+   */
+  readonly effectiveModelDisplay = computed(() => {
+    const modelId = this.effectiveModel();
+    const models = this.modelState.availableModels();
+    const model = models.find((m) => m.id === modelId);
+    return model?.name ?? modelId;
+  });
+
+  /**
+   * Provider hint for the effective model.
+   */
+  readonly effectiveModelProviderHint = computed(() => {
+    const modelId = this.effectiveModel();
+    const models = this.modelState.availableModels();
+    const model = models.find((m) => m.id === modelId);
+    return model?.providerModelId ?? null;
+  });
+
+  /**
+   * Available models with selection state reflecting the effective model.
+   */
+  readonly effectiveAvailableModels = computed(() => {
+    const effective = this.effectiveModel();
+    return this.modelState.availableModels().map((m) => ({
+      ...m,
+      isSelected: m.id === effective,
+    }));
+  });
+
   toggleDropdown(): void {
     this._isOpen.set(!this._isOpen());
   }
 
-  /**
-   * Close dropdown
-   */
   closeDropdown(): void {
     this._isOpen.set(false);
   }
 
   /**
-   * Select AI model for chat sessions.
-   * Fires async RPC call - errors are logged but do not block UI.
-   * Race condition protection is handled by ModelStateService.
-   * Called by NativeOptionComponent (selected) output.
-   *
-   * @param model - The model ID to switch to (API name like 'claude-sonnet-4-20250514')
+   * Select AI model. When in canvas tile context, stores override per-tab.
+   * Otherwise updates the global ModelStateService.
    */
   selectModel(model: string): void {
     this.closeDropdown();
 
-    // Pass sessionId for live SDK sync (cast to SessionId as it's actually a branded type from backend)
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (tabId) {
+        this.tabManager.updateTab(tabId, { overrideModel: model });
+        return;
+      }
+    }
+
     const sessionId = this.chatStore.currentSessionId() as SessionId | null;
     this.modelState.switchModel(model, sessionId).catch((error) => {
       console.error('[ModelSelectorComponent] Failed to switch model:', error);
     });
   }
 
-  /**
-   * Handle hover on option - update active index
-   */
   onHover(index: number): void {
     this.keyboardNav.setActiveIndex(index);
   }
