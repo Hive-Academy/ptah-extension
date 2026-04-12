@@ -32,20 +32,15 @@ import {
   BarChart3,
   Zap,
   Bot,
-  Shield,
   GitBranch,
   Sparkles,
-  X,
   MessageSquare,
-  Wand2,
   LayoutGrid,
-  type LucideIconData,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
   VSCodeService,
   AppStateManager,
-  type ViewType,
 } from '@ptah-extension/core';
 import { ChatStore } from '../../services/chat.store';
 import { AppShellComponent } from './app-shell.component';
@@ -189,40 +184,72 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
         <!-- Spacer (left) -->
         <div class="flex-1"></div>
 
-        <!-- View tab pills (centered in navbar) -->
+        <!-- Navbar tabs (DaisyUI tabs-lifted, fixed navigation) -->
         @if (appState.isLicensed() && layout.hasWorkspaceFolders()) {
-          <div class="flex items-center gap-1 no-drag">
-            @for (view of appState.openViews(); track view) {
-              <button
-                class="btn btn-xs gap-1 rounded-full px-3 h-6 min-h-0 no-drag transition-all duration-150"
-                [class.view-pill-active]="appState.currentView() === view"
-                [class.view-pill-inactive]="appState.currentView() !== view"
-                [title]="getViewMeta(view).label"
-                (click)="appState.setCurrentView(view)"
-              >
-                <lucide-angular
-                  [img]="getViewMeta(view).icon"
-                  class="w-3 h-3"
-                />
-                <span class="text-xs">{{ getViewMeta(view).label }}</span>
-                @if (view !== 'chat') {
-                  <span
-                    class="ml-0.5 rounded-full hover:bg-base-content/20 p-0.5 cursor-pointer"
-                    title="Close"
-                    (click)="closeViewTab(view, $event)"
-                  >
-                    <lucide-angular [img]="XIcon" class="w-2.5 h-2.5" />
-                  </span>
-                }
-              </button>
-            }
+          <div role="tablist" class="tabs tabs-lifted electron-tabs no-drag">
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="
+                appState.currentView() === 'chat' &&
+                appState.layoutMode() === 'grid'
+              "
+              [attr.aria-selected]="
+                appState.currentView() === 'chat' &&
+                appState.layoutMode() === 'grid'
+              "
+              title="Orchestra Canvas"
+              (click)="onCanvasTab()"
+            >
+              <lucide-angular [img]="LayoutGridIcon" class="w-3.5 h-3.5" />
+              Canvas
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="
+                appState.currentView() === 'chat' &&
+                appState.layoutMode() === 'single'
+              "
+              [attr.aria-selected]="
+                appState.currentView() === 'chat' &&
+                appState.layoutMode() === 'single'
+              "
+              title="Chat"
+              (click)="onChatTab()"
+            >
+              <lucide-angular [img]="MessageSquareIcon" class="w-3.5 h-3.5" />
+              Chat
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.currentView() === 'analytics'"
+              [attr.aria-selected]="appState.currentView() === 'analytics'"
+              title="Session Analytics"
+              (click)="openDashboard()"
+            >
+              <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
+              Dashboard
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.currentView() === 'settings'"
+              [attr.aria-selected]="appState.currentView() === 'settings'"
+              title="Settings"
+              (click)="openSettings()"
+            >
+              <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
+              Settings
+            </button>
           </div>
         }
 
         <!-- Spacer (right) -->
         <div class="flex-1"></div>
 
-        <!-- Global actions (no-drag so buttons are clickable on macOS) -->
+        <!-- Global actions — notifications + theme only (navigation moved to pills) -->
         <div class="flex items-center gap-0.5 no-drag">
           <!-- Notification bell (only when licensed) -->
           @if (appState.isLicensed()) {
@@ -238,31 +265,6 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
 
           <!-- Theme toggle (always available) -->
           <ptah-theme-toggle />
-
-          <!-- Dashboard & Settings (only when licensed) -->
-          @if (appState.isLicensed()) {
-            <!-- Dashboard -->
-            <button
-              class="btn btn-ghost btn-xs gap-1"
-              aria-label="Dashboard"
-              title="Session Analytics"
-              (click)="openDashboard()"
-            >
-              <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
-              <span class="icon-btn-label text-xs">Dashboard</span>
-            </button>
-
-            <!-- Settings -->
-            <button
-              class="btn btn-ghost btn-xs gap-1"
-              aria-label="Settings"
-              title="Settings"
-              (click)="openSettings()"
-            >
-              <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
-              <span class="icon-btn-label text-xs">Settings</span>
-            </button>
-          }
         </div>
       </div>
 
@@ -524,12 +526,10 @@ export class ElectronShellComponent {
   readonly BarChart3Icon = BarChart3;
   readonly ZapIcon = Zap;
   readonly BotIcon = Bot;
-  readonly ShieldIcon = Shield;
   readonly GitBranchIcon = GitBranch;
   readonly SparklesIcon = Sparkles;
-  readonly XIcon = X;
   readonly MessageSquareIcon = MessageSquare;
-  readonly Wand2Icon = Wand2;
+  readonly LayoutGridIcon = LayoutGrid;
 
   // Asset URIs
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
@@ -537,37 +537,21 @@ export class ElectronShellComponent {
   // Platform detection from Electron main process (reliable, not deprecated)
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
-  /** Map view types to display metadata for tab pills */
-  protected getViewMeta(view: ViewType): {
-    label: string;
-    icon: LucideIconData;
-  } {
-    switch (view) {
-      case 'chat':
-        return { label: 'Chat', icon: MessageSquare };
-      case 'settings':
-        return { label: 'Settings', icon: Settings };
-      case 'analytics':
-        return { label: 'Dashboard', icon: BarChart3 };
-      case 'setup-wizard':
-        return { label: 'Setup', icon: Wand2 };
-      case 'orchestra-canvas':
-        return { label: 'Canvas', icon: LayoutGrid };
-      default:
-        return { label: view, icon: MessageSquare };
-    }
+  onCanvasTab(): void {
+    this.appState.setLayoutMode('grid');
+    this.appState.setCurrentView('chat');
   }
 
-  closeViewTab(view: ViewType, event: Event): void {
-    event.stopPropagation();
-    this.appState.closeView(view);
+  onChatTab(): void {
+    this.appState.setLayoutMode('single');
+    this.appState.setCurrentView('chat');
   }
 
   openSettings(): void {
-    this.appState.openView('settings');
+    this.appState.setCurrentView('settings');
   }
 
   openDashboard(): void {
-    this.appState.openView('analytics');
+    this.appState.setCurrentView('analytics');
   }
 }

@@ -41,6 +41,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { AuthEnv } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkModuleLoader } from '../helpers/sdk-module-loader';
+import { SdkModelService } from '../helpers/sdk-model-service';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SubagentHookHandler } from '../helpers/subagent-hook-handler';
 import { CompactionConfigProvider } from '../helpers/compaction-config-provider';
@@ -114,6 +115,8 @@ export class InternalQueryService {
     private readonly compactionHookHandler: CompactionHookHandler,
     @inject(SDK_TOKENS.SDK_AUTH_ENV)
     private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
+    private readonly modelService: SdkModelService,
   ) {}
 
   /**
@@ -263,10 +266,14 @@ export class InternalQueryService {
       `${SERVICE_TAG} Compaction config: enabled=${compactionConfig.enabled}, threshold=${compactionConfig.contextTokenThreshold} (managed via hooks)`,
     );
 
+    // Resolve bare tier names ('opus', 'sonnet', 'haiku', 'default') to full model IDs.
+    // The SDK's query() requires full model IDs like 'claude-opus-4-6'.
+    const resolvedModel = this.modelService.resolveModelId(config.model);
+
     const options: SdkQueryOptions = {
       abortController,
       cwd: config.cwd,
-      model: config.model,
+      model: resolvedModel,
 
       // System prompt with all enhancements
       systemPrompt,

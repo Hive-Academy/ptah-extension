@@ -118,6 +118,8 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   }): Promise<void> {
     const panelId = `ptah.panel.${crypto.randomUUID()}`;
 
+    // Backward compat: 'orchestra-canvas' panel title kept for the ptah.openOrchestraCanvas command.
+    // AppStateManager maps this to layoutMode('grid') + chat view at runtime.
     const panelTitle =
       options?.initialView === 'analytics'
         ? 'Ptah - Session Analytics'

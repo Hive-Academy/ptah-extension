@@ -22,6 +22,7 @@ import {
   SDK_TOKENS,
   DEFAULT_PROVIDER_ID,
   ANTHROPIC_DIRECT_PROVIDER_ID,
+  TIER_TO_MODEL_ID,
 } from '@ptah-extension/agent-sdk';
 import {
   PermissionLevel,
@@ -376,13 +377,20 @@ export class ConfigRpcHandlers {
               descLower,
             );
 
-            // Resolve 'default' to explicit tier (SDK query() quirk)
+            // Resolve bare tier names and 'default' to full model IDs.
+            // Uses the canonical TIER_TO_MODEL_ID mapping from sdk-model-service
+            // (single source of truth for tier → model ID mapping).
             let resolvedValue = m.value;
             if (valueLower === 'default' && tier) {
-              resolvedValue = tier;
+              resolvedValue = TIER_TO_MODEL_ID[tier] ?? tier;
               this.logger.info(
                 `Resolved SDK 'default' tier to '${resolvedValue}'`,
                 { displayName: m.displayName },
+              );
+            } else if (TIER_TO_MODEL_ID[valueLower]) {
+              resolvedValue = TIER_TO_MODEL_ID[valueLower];
+              this.logger.info(
+                `Resolved bare tier name '${m.value}' to '${resolvedValue}'`,
               );
             }
 

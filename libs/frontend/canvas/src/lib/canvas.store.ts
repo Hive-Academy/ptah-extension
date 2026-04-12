@@ -25,8 +25,7 @@ const CANVAS_TILE_H = 6;
 export class CanvasStore {
   private readonly tabManager = inject(TabManagerService);
 
-  // FIX 6: Maximum tiles cap to prevent UI overload
-  private readonly MAX_TILES = 9;
+  static readonly MAX_TILES = 9;
 
   private readonly _tiles = signal<CanvasTile[]>([]);
   private readonly _focusedTabId = signal<string | null>(null);
@@ -34,6 +33,9 @@ export class CanvasStore {
   readonly tiles = this._tiles.asReadonly();
   readonly focusedTabId = this._focusedTabId.asReadonly();
   readonly tileCount = computed(() => this._tiles().length);
+  readonly canAddTile = computed(
+    () => this._tiles().length < CanvasStore.MAX_TILES,
+  );
 
   /**
    * Add a tile for an existing session. If a tile for this session already
@@ -41,7 +43,7 @@ export class CanvasStore {
    * @returns The tabId, or null if the tile cap is reached.
    */
   addTileFromSession(sessionId: string, name?: string): string | null {
-    if (this._tiles().length >= this.MAX_TILES) return null;
+    if (this._tiles().length >= CanvasStore.MAX_TILES) return null;
 
     const existingTile = this._tiles().find((t) => {
       const tab = this.tabManager.tabs().find((tab) => tab.id === t.tabId);
@@ -81,7 +83,7 @@ export class CanvasStore {
    */
   addTile(name?: string): string | null {
     // FIX 6: Enforce maximum tile count
-    if (this._tiles().length >= this.MAX_TILES) return null;
+    if (this._tiles().length >= CanvasStore.MAX_TILES) return null;
 
     const tabId = this.tabManager.createTab(name);
 
@@ -104,6 +106,20 @@ export class CanvasStore {
       },
     ]);
     return tabId;
+  }
+
+  /**
+   * Remove a tile from the canvas WITHOUT closing its underlying tab.
+   * Used for reactive cleanup when a tab has already been closed externally
+   * (e.g., session deletion from sidebar). Prevents double-close and
+   * avoids showing a confirmation dialog for an already-closed tab.
+   * @param tabId The tabId of the orphaned tile to remove.
+   */
+  removeTileOnly(tabId: string): void {
+    this._tiles.update((tiles) => tiles.filter((t) => t.tabId !== tabId));
+    if (this._focusedTabId() === tabId) {
+      this._focusedTabId.set(null);
+    }
   }
 
   /**

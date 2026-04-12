@@ -48,6 +48,7 @@ import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
 } from './anthropic-provider-registry';
+import { SdkModelService } from './sdk-model-service';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
@@ -400,6 +401,8 @@ export class SdkQueryOptionsBuilder {
     @inject(SDK_TOKENS.SDK_WORKTREE_HOOK_HANDLER)
     private readonly worktreeHookHandler: WorktreeHookHandler,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
+    private readonly modelService: SdkModelService,
   ) {}
 
   /**
@@ -443,7 +446,10 @@ export class SdkQueryOptionsBuilder {
       throw new Error('Model not provided - ensure SDK is initialized');
     }
 
-    const model = sessionConfig.model;
+    // Resolve bare tier names ('opus', 'sonnet', 'haiku') to full model IDs.
+    // The SDK's query() requires full model IDs like 'claude-opus-4-6' —
+    // bare tier names cause "can't access model named opus" errors.
+    const model = this.modelService.resolveModelId(sessionConfig.model);
     const cwd = sessionConfig?.projectPath || require('os').homedir();
 
     // Warn when falling back to os.homedir() — callers (ChatRpcHandlers)
