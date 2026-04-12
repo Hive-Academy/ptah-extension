@@ -1,7 +1,6 @@
 import {
   Component,
   ChangeDetectionStrategy,
-  OnInit,
   OnDestroy,
   inject,
   effect,
@@ -13,10 +12,12 @@ import {
   GridstackItemComponent,
   nodesCB,
 } from 'gridstack/dist/angular';
+import { LucideAngularModule, Plus } from 'lucide-angular';
 import { AppStateManager } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
 import { CanvasTileComponent } from './canvas-tile.component';
+import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
 
 /**
  * OrchestraCanvasComponent — top-level panel for the Orchestra Canvas view.
@@ -42,32 +43,55 @@ import { CanvasTileComponent } from './canvas-tile.component';
   selector: 'ptah-orchestra-canvas',
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [CanvasStore],
-  imports: [GridstackComponent, GridstackItemComponent, CanvasTileComponent],
+  imports: [
+    GridstackComponent,
+    GridstackItemComponent,
+    CanvasTileComponent,
+    CanvasEmptyStateComponent,
+    LucideAngularModule,
+  ],
   template: `
-    <div class="flex flex-col h-full bg-base-100">
-      <!-- Gridstack drag-and-resize grid (no toolbar — shared header provides controls) -->
-      <div class="flex-1 overflow-auto">
-        <gridstack [options]="gsOptions" (changeCB)="onGridChange($event)">
-          @for (tile of canvasStore.tiles(); track tile.tabId) {
-            <gridstack-item
-              [options]="{
-                x: tile.position.x,
-                y: tile.position.y,
-                w: tile.position.w,
-                h: tile.position.h,
-                id: tile.tabId,
-              }"
-            >
-              <ptah-canvas-tile
-                [tabId]="tile.tabId"
-                [focused]="canvasStore.focusedTabId() === tile.tabId"
-                (focusRequested)="canvasStore.focusTile($event)"
-                (closeRequested)="canvasStore.removeTile($event)"
-              />
-            </gridstack-item>
-          }
-        </gridstack>
-      </div>
+    <div class="flex flex-col h-full bg-base-100 relative">
+      @if (canvasStore.tiles().length === 0) {
+        <!-- Empty state: no tiles yet -->
+        <ptah-canvas-empty-state (createSession)="addNewTile()" />
+      } @else {
+        <!-- Gridstack drag-and-resize grid -->
+        <div class="flex-1 overflow-auto">
+          <gridstack [options]="gsOptions" (changeCB)="onGridChange($event)">
+            @for (tile of canvasStore.tiles(); track tile.tabId) {
+              <gridstack-item
+                [options]="{
+                  x: tile.position.x,
+                  y: tile.position.y,
+                  w: tile.position.w,
+                  h: tile.position.h,
+                  id: tile.tabId,
+                }"
+              >
+                <ptah-canvas-tile
+                  [tabId]="tile.tabId"
+                  [focused]="canvasStore.focusedTabId() === tile.tabId"
+                  (focusRequested)="canvasStore.focusTile($event)"
+                  (closeRequested)="canvasStore.removeTile($event)"
+                />
+              </gridstack-item>
+            }
+          </gridstack>
+        </div>
+
+        <!-- FAB: New tile button (floating bottom-right, hidden at max capacity) -->
+        @if (canvasStore.tileCount() < MAX_TILES) {
+          <button
+            class="absolute bottom-4 right-4 btn btn-primary btn-circle shadow-lg z-10"
+            title="Add new session tile"
+            aria-label="Add new session tile"
+            (click)="addNewTile()"
+          >
+            <lucide-angular [img]="PlusIcon" class="w-5 h-5" />
+          </button>
+        }
+      }
     </div>
   `,
   styles: [
@@ -83,10 +107,14 @@ import { CanvasTileComponent } from './canvas-tile.component';
     `,
   ],
 })
-export class OrchestraCanvasComponent implements OnInit, OnDestroy {
+export class OrchestraCanvasComponent implements OnDestroy {
   readonly canvasStore = inject(CanvasStore);
   private readonly appState = inject(AppStateManager);
   private readonly tabManager = inject(TabManagerService);
+
+  /** Local mirror of CanvasStore.MAX_TILES (private in store) for template access. */
+  readonly MAX_TILES = 9;
+  protected readonly PlusIcon = Plus;
 
   /**
    * Gridstack grid configuration.
@@ -140,11 +168,12 @@ export class OrchestraCanvasComponent implements OnInit, OnDestroy {
     });
   }
 
-  ngOnInit(): void {
-    // Seed one tile when the canvas opens empty so the user sees something immediately.
-    if (this.canvasStore.tileCount() === 0) {
-      this.canvasStore.addTile();
-    }
+  /**
+   * Add a new tile to the canvas via the store.
+   * Called from the empty state CTA and the floating action button.
+   */
+  addNewTile(): void {
+    this.canvasStore.addTile();
   }
 
   /**

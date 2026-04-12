@@ -189,9 +189,23 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
         <!-- Spacer (left) -->
         <div class="flex-1"></div>
 
-        <!-- View tab pills (centered in navbar) -->
+        <!-- View tab pills (centered in navbar) — includes Canvas toggle -->
         @if (appState.isLicensed() && layout.hasWorkspaceFolders()) {
           <div class="flex items-center gap-1 no-drag">
+            <!-- Canvas layout toggle pill (always visible, not closeable) -->
+            <button
+              class="btn btn-xs gap-1 rounded-full px-3 h-6 min-h-0 no-drag transition-all duration-150"
+              [class.view-pill-active]="appState.layoutMode() === 'grid'"
+              [class.view-pill-inactive]="appState.layoutMode() !== 'grid'"
+              title="Toggle canvas grid / single chat"
+              aria-label="Toggle canvas grid / single chat"
+              (click)="appState.toggleLayoutMode()"
+            >
+              <lucide-angular [img]="LayoutGridIcon" class="w-3 h-3" />
+              <span class="text-xs">Canvas</span>
+            </button>
+
+            <!-- Dynamic view pills (Chat, Dashboard, Settings, etc.) -->
             @for (view of appState.openViews(); track view) {
               <button
                 class="btn btn-xs gap-1 rounded-full px-3 h-6 min-h-0 no-drag transition-all duration-150"
@@ -222,7 +236,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
         <!-- Spacer (right) -->
         <div class="flex-1"></div>
 
-        <!-- Global actions (no-drag so buttons are clickable on macOS) -->
+        <!-- Global actions — notifications + theme only (navigation moved to pills) -->
         <div class="flex items-center gap-0.5 no-drag">
           <!-- Notification bell (only when licensed) -->
           @if (appState.isLicensed()) {
@@ -238,43 +252,6 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
 
           <!-- Theme toggle (always available) -->
           <ptah-theme-toggle />
-
-          <!-- Dashboard & Settings (only when licensed) -->
-          @if (appState.isLicensed()) {
-            <!-- Dashboard -->
-            <button
-              class="btn btn-ghost btn-xs gap-1"
-              aria-label="Dashboard"
-              title="Session Analytics"
-              (click)="openDashboard()"
-            >
-              <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
-              <span class="icon-btn-label text-xs">Dashboard</span>
-            </button>
-
-            <!-- Layout toggle: canvas grid / single chat -->
-            <button
-              class="btn btn-ghost btn-xs gap-1"
-              [class.btn-active]="appState.layoutMode() === 'grid'"
-              aria-label="Toggle canvas grid / single chat"
-              title="Toggle canvas grid / single chat"
-              (click)="appState.toggleLayoutMode()"
-            >
-              <lucide-angular [img]="LayoutGridIcon" class="w-3.5 h-3.5" />
-              <span class="icon-btn-label text-xs">Canvas</span>
-            </button>
-
-            <!-- Settings -->
-            <button
-              class="btn btn-ghost btn-xs gap-1"
-              aria-label="Settings"
-              title="Settings"
-              (click)="openSettings()"
-            >
-              <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
-              <span class="icon-btn-label text-xs">Settings</span>
-            </button>
-          }
         </div>
       </div>
 

@@ -8,6 +8,7 @@ import {
   output,
   signal,
   computed,
+  viewChild,
   EnvironmentInjector,
   createEnvironmentInjector,
 } from '@angular/core';
@@ -17,6 +18,8 @@ import {
   TabManagerService,
   SESSION_CONTEXT,
 } from '@ptah-extension/chat';
+import { TileAgentIndicatorComponent } from './tile-agent-indicator.component';
+import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
 
 /**
  * CanvasTileComponent — renders a single chat session tile within the Orchestra Canvas.
@@ -38,7 +41,11 @@ import {
 @Component({
   selector: 'ptah-canvas-tile',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgComponentOutlet],
+  imports: [
+    NgComponentOutlet,
+    TileAgentIndicatorComponent,
+    TileAgentMiniPanelComponent,
+  ],
   template: `
     <div
       class="canvas-tile flex flex-col border rounded-lg h-full overflow-hidden transition-shadow"
@@ -48,13 +55,14 @@ import {
       [class.border-base-300]="!focused()"
       (click)="onTileClick()"
     >
-      <!-- Tile header: label + close button -->
+      <!-- Tile header: label + agent indicator + close button -->
       <div
         class="tile-header flex items-center gap-2 px-2 py-1 bg-base-300 text-xs rounded-t-lg shrink-0"
       >
         <span class="truncate flex-1 font-medium text-base-content">{{
           tabLabel()
         }}</span>
+        <ptah-tile-agent-indicator [tabId]="tabId()" />
         <button
           class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-error"
           (click)="onClose($event)"
@@ -64,6 +72,11 @@ import {
           ×
         </button>
       </div>
+
+      <!-- Agent mini-panel (expanded from tile header indicator) -->
+      @if (tileAgentIndicator()?.expanded()) {
+        <ptah-tile-agent-mini-panel [agents]="tileAgentIndicator()!.agents()" />
+      }
 
       <!-- Chat view — only rendered after child injector is ready -->
       @if (childInjector()) {
@@ -103,6 +116,13 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
    * Parent must call canvasStore.removeTile(tabId).
    */
   readonly closeRequested = output<string>();
+
+  // ============================================================================
+  // VIEW CHILDREN
+  // ============================================================================
+
+  /** Reference to the agent indicator for reading expanded() and agents() signals. */
+  readonly tileAgentIndicator = viewChild(TileAgentIndicatorComponent);
 
   // ============================================================================
   // DEPENDENCIES
