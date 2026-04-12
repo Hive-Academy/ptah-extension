@@ -22,6 +22,7 @@ import { ResumeNotificationBannerComponent } from '../molecules/notifications/re
 import { CompactionNotificationComponent } from '../molecules/notifications/compaction-notification.component';
 import { ChatStore } from '../../services/chat.store';
 import { TabManagerService } from '../../services/tab-manager.service';
+import { ExecutionTreeBuilderService } from '../../services/execution-tree-builder.service';
 import { SESSION_CONTEXT } from '../../tokens/session-context.token';
 import { VSCodeService } from '@ptah-extension/core';
 import {
@@ -82,6 +83,7 @@ export class ChatViewComponent {
     optional: true,
   });
   private readonly _tabManager = inject(TabManagerService);
+  private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
 
   /** Lucide icon reference for template binding */
   protected readonly BellIcon = Bell;
@@ -115,6 +117,10 @@ export class ChatViewComponent {
   /** Track message count to detect new user messages */
   private lastMessageCount = 0;
 
+  private readonly scrollPositionCache = new Map<string, number>();
+  private previousTabId: string | null = null;
+  private isRestoringScroll = false;
+
   /**
    * Ptah icon URI for skeleton avatar placeholder
    */
@@ -134,6 +140,11 @@ export class ChatViewComponent {
       return tab?.claudeSessionId ?? null;
     }
     return this.chatStore.currentSessionId();
+  });
+
+  private readonly resolvedTabId = computed(() => {
+    const ctx = this._sessionContext;
+    return ctx ? ctx() : this._tabManager.activeTabId();
   });
 
   /**
@@ -169,6 +180,66 @@ export class ChatViewComponent {
     return this.chatStore.isStreaming();
   });
 
+  private resolvedTab = computed(() => {
+    const ctx = this._sessionContext;
+    if (!ctx) return null;
+    const tabId = ctx();
+    if (!tabId) return null;
+    return this._tabManager.tabs().find((t) => t.id === tabId) ?? null;
+  });
+
+  readonly resolvedPreloadedStats = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.preloadedStats ?? null)
+      : this.chatStore.preloadedStats();
+  });
+
+  readonly resolvedLiveModelStats = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.liveModelStats ?? null)
+      : this.chatStore.liveModelStats();
+  });
+
+  readonly resolvedModelUsageList = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.modelUsageList ?? null)
+      : this.chatStore.modelUsageList();
+  });
+
+  readonly resolvedCompactionCount = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.compactionCount ?? 0)
+      : this.chatStore.compactionCount();
+  });
+
+  readonly resolvedQueuedContent = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.queuedContent ?? null)
+      : this.chatStore.queuedContent();
+  });
+
+  readonly resolvedStreamingState = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.streamingState ?? null)
+      : this.chatStore.activeStreamingState();
+  });
+
+  readonly resolvedExecutionTrees = computed(() => {
+    const state = this.resolvedStreamingState();
+    if (!state) return [];
+    const ctx = this._sessionContext;
+    const cacheKey = ctx
+      ? `tile-${ctx()}`
+      : `tab-${this._tabManager.activeTabId()}`;
+    return this._treeBuilder.buildTree(state, cacheKey);
+  });
+
   /**
    * TASK_2025_096 FIX: Computed signal that creates ExecutionChatMessages
    * from ALL currentExecutionTrees (not just the first one).
@@ -188,72 +259,18 @@ export class ChatViewComponent {
    * so we can properly match and filter out already-finalized trees.
    */
   readonly streamingMessages = computed((): ExecutionChatMessage[] => {
-    // TASK_2025_265 FIX 2: When SESSION_CONTEXT is present, scope streaming trees to
-    // this tile's tab. currentExecutionTrees() always returns trees for the globally
-    // active tab. If the active tab is not this tile's tab, the trees belong to a
-    // different tile — return empty to prevent cross-tile streaming bleed.
-    const ctx = this._sessionContext;
-    if (ctx) {
-      const tileTabId = ctx();
-      if (!tileTabId) return [];
-      // Only show streaming trees when this tile's tab is the global active tab
-      const tileTab = this._tabManager.tabs().find((t) => t.id === tileTabId);
-      if (!tileTab) return [];
-      const resolvedId = this.resolvedSessionId();
-      const allTrees = this.chatStore.currentExecutionTrees();
-      // Trees are built from the active tab's streaming state. Filter to only trees
-      // whose session context matches this tile (via resolvedSessionId correlation).
-      // Since ExecutionNode has no sessionId field, we use the tab's claudeSessionId
-      // to confirm the active tab IS this tile before showing its trees.
-      const activeTabMatches =
-        allTrees.length === 0 ||
-        resolvedId === this.chatStore.currentSessionId();
-      const trees = activeTabMatches ? allTrees : [];
-      if (trees.length === 0) return [];
-
-      const streamingState = this.chatStore.activeStreamingState();
-      const pendingStats = streamingState?.pendingStats;
-      const finalizedMessageIds = new Set(
-        this.resolvedMessages().map((msg) => msg.id),
-      );
-      const nonFinalizedTrees = trees.filter(
-        (tree) => !finalizedMessageIds.has(tree.id),
-      );
-      if (nonFinalizedTrees.length === 0) return [];
-      return nonFinalizedTrees.map((tree) =>
-        createExecutionChatMessage({
-          id: tree.id,
-          role: 'assistant',
-          streamingState: tree,
-          sessionId: resolvedId ?? undefined,
-          ...(pendingStats && {
-            tokens: pendingStats.tokens,
-            cost: pendingStats.cost,
-            duration: pendingStats.duration,
-          }),
-        }),
-      );
-    }
-
-    const trees = this.chatStore.currentExecutionTrees();
+    const trees = this.resolvedExecutionTrees();
     if (trees.length === 0) return [];
 
-    // Get pendingStats from the active tab's streamingState (fine-grained selector)
-    const streamingState = this.chatStore.activeStreamingState();
+    const streamingState = this.resolvedStreamingState();
     const pendingStats = streamingState?.pendingStats;
 
-    // DEDUPLICATION: Get IDs of already finalized messages to filter out.
-    // CRITICAL: Finalized messages now use tree.id (message_start event id),
-    // not messageId, so IDs match between streaming trees and finalized messages.
     const finalizedMessageIds = new Set(
-      this.chatStore.messages().map((msg) => msg.id),
+      this.resolvedMessages().map((msg) => msg.id),
     );
-
-    // Filter out trees that are already finalized
     const nonFinalizedTrees = trees.filter(
       (tree) => !finalizedMessageIds.has(tree.id),
     );
-
     if (nonFinalizedTrees.length === 0) return [];
 
     return nonFinalizedTrees.map((tree) =>
@@ -262,7 +279,6 @@ export class ChatViewComponent {
         role: 'assistant',
         streamingState: tree,
         sessionId: this.resolvedSessionId() ?? undefined,
-        // TASK_2025_100: Include pending stats in streaming message
         ...(pendingStats && {
           tokens: pendingStats.tokens,
           cost: pendingStats.cost,
@@ -294,6 +310,28 @@ export class ChatViewComponent {
       this.lastMessageCount = count;
     });
 
+    // Restore scroll position when switching between tabs
+    effect(() => {
+      const currentTabId = this.resolvedTabId();
+      if (currentTabId === this.previousTabId) return;
+
+      this.previousTabId = currentTabId ?? null;
+
+      if (currentTabId && this.scrollPositionCache.has(currentTabId)) {
+        const savedPosition = this.scrollPositionCache.get(currentTabId)!;
+        this.isRestoringScroll = true;
+        setTimeout(() => {
+          const container = this.messageContainerRef()?.nativeElement;
+          if (container) {
+            container.scrollTo({ top: savedPosition, behavior: 'instant' });
+          }
+          setTimeout(() => {
+            this.isRestoringScroll = false;
+          }, this.SCROLL_DEBOUNCE_MS + 10);
+        }, 0);
+      }
+    });
+
     // Setup MutationObserver after initial render to watch for DOM changes
     // This replaces the effect-based approach for more reliable scroll timing
     afterNextRender(
@@ -317,14 +355,16 @@ export class ChatViewComponent {
     const container = event.target as HTMLElement;
     if (!container) return;
 
-    // Check if user is near the bottom (within 100px threshold)
     const isNearBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight <
       100;
 
-    // If user scrolled up, disable auto-scroll
-    // If user scrolled back to bottom, re-enable auto-scroll
     this.userScrolledUp.set(!isNearBottom);
+
+    const tabId = this.resolvedTabId();
+    if (tabId) {
+      this.scrollPositionCache.set(tabId, container.scrollTop);
+    }
   }
 
   /**
@@ -358,7 +398,8 @@ export class ChatViewComponent {
    */
   handleResumeAgent(agent: SubagentRecord): void {
     const prompt = `Resume the interrupted ${agent.agentType} agent (agentId: ${agent.agentId}) using the Task tool with resume parameter set to "${agent.agentId}".`;
-    this.chatStore.sendOrQueueMessage(prompt);
+    const tabId = this._sessionContext?.() ?? undefined;
+    this.chatStore.sendOrQueueMessage(prompt, { tabId });
     this.chatStore.removeResumableSubagent(agent.toolCallId);
   }
 
@@ -378,20 +419,21 @@ export class ChatViewComponent {
       .map((a) => `- ${a.agentType} (agentId: ${a.agentId})`)
       .join('\n');
     const prompt = `Resume all ${agents.length} interrupted agents using the Task tool with resume parameter for each:\n${agentList}`;
-    this.chatStore.sendOrQueueMessage(prompt);
+    const tabId = this._sessionContext?.() ?? undefined;
+    this.chatStore.sendOrQueueMessage(prompt, { tabId });
     for (const agent of agents) {
       this.chatStore.removeResumableSubagent(agent.toolCallId);
     }
   }
 
-  private scrollToBottom(): void {
+  private scrollToBottom(behavior: ScrollBehavior = 'smooth'): void {
     const containerRef = this.messageContainerRef();
     if (!containerRef) return;
 
     const container = containerRef.nativeElement;
     container.scrollTo({
       top: container.scrollHeight,
-      behavior: 'smooth',
+      behavior,
     });
   }
 
@@ -422,19 +464,14 @@ export class ChatViewComponent {
    * Debouncing coalesces rapid DOM mutations during streaming into single scroll.
    */
   private scheduleScroll(): void {
-    // Clear previous debounce (trailing debounce pattern)
     if (this.scrollTimeoutId) {
       clearTimeout(this.scrollTimeoutId);
     }
 
-    // Schedule scroll after debounce period.
-    // Always schedule the timeout — the userScrolledUp check happens inside
-    // the callback so it uses the value at fire-time, not at schedule-time.
-    // This prevents a race where MutationObserver fires before the effect
-    // that resets userScrolledUp for new user messages.
     this.scrollTimeoutId = setTimeout(() => {
-      if (!this.userScrolledUp()) {
-        this.scrollToBottom();
+      if (!this.userScrolledUp() && !this.isRestoringScroll) {
+        const behavior = this.resolvedIsStreaming() ? 'smooth' : 'instant';
+        this.scrollToBottom(behavior);
       }
       this.scrollTimeoutId = null;
     }, this.SCROLL_DEBOUNCE_MS);

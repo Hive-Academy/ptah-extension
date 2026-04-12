@@ -26,11 +26,11 @@ import {
 } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
 import { TabManagerService } from '../../../services/tab-manager.service';
+import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 import {
   AutopilotStateService,
   CommandDiscoveryFacade,
   ClaudeRpcService,
-  EffortStateService,
 } from '@ptah-extension/core';
 import { ModelSelectorComponent } from './model-selector.component';
 import { AutopilotPopoverComponent } from './autopilot-popover.component';
@@ -313,9 +313,11 @@ interface PastedImage {
 export class ChatInputComponent implements OnInit {
   readonly chatStore = inject(ChatStore);
   readonly tabManager = inject(TabManagerService);
+  private readonly _sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
   readonly autopilotState = inject(AutopilotStateService);
   private readonly rpcService = inject(ClaudeRpcService);
-  private readonly effortState = inject(EffortStateService);
 
   // Autocomplete service injections
   readonly filePicker = inject(FilePickerService);
@@ -332,7 +334,7 @@ export class ChatInputComponent implements OnInit {
    * tab shows streaming spinner. Now both use the visual streaming indicator.
    */
   readonly isActiveTabStreaming = computed(() => {
-    const tabId = this.tabManager.activeTabId();
+    const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
     return tabId ? this.tabManager.isTabStreaming(tabId) : false;
   });
 
@@ -791,8 +793,8 @@ export class ChatInputComponent implements OnInit {
    * so this handler is kept for any additional side-effects if needed.
    */
   onEffortChange(_effort: EffortLevel | undefined): void {
-    // No-op: EffortSelectorComponent saves via EffortStateService directly.
-    // ChatInputComponent reads from effortState.currentEffort() at send time.
+    // No-op: EffortSelectorComponent saves per-tab or globally.
+    // MessageSenderService resolves effective effort at send time.
   }
 
   /**
@@ -999,7 +1001,7 @@ export class ChatInputComponent implements OnInit {
         {
           files: filePaths.length > 0 ? filePaths : undefined,
           images: inlineImages.length > 0 ? inlineImages : undefined,
-          effort: this.effortState.currentEffort(),
+          tabId: this._sessionContext?.() ?? undefined,
         },
       );
 

@@ -16,8 +16,10 @@ export interface SendMessageOptions {
   files?: string[];
   /** Optional inline images (pasted/dropped) */
   images?: InlineImageAttachment[];
-  /** Optional effort level for reasoning depth (TASK_2025_184) */
+  /** Explicit effort override (highest priority). Normally resolved from tab override or global state by MessageSenderService. */
   effort?: EffortLevel;
+  /** Explicit tab to send from (canvas tile isolation — overrides global activeTab) */
+  tabId?: string;
 }
 
 /**
@@ -258,6 +260,20 @@ export interface TabState {
    * Used to pass the correct model when continuing a loaded historical session.
    */
   sessionModel?: string | null;
+
+  /**
+   * Per-session model override. When set, this tab uses this model instead of
+   * the global ModelStateService selection. Set via ModelSelectorComponent when
+   * SESSION_CONTEXT is present (canvas tile context).
+   */
+  overrideModel?: string | null;
+
+  /**
+   * Per-session effort level override. When set, this tab uses this effort
+   * instead of the global EffortStateService selection. Set via
+   * EffortSelectorComponent when SESSION_CONTEXT is present.
+   */
+  overrideEffort?: EffortLevel | null;
 
   /**
    * System prompt preset selection for this tab.

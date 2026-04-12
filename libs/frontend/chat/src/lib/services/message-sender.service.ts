@@ -23,9 +23,14 @@ import {
   ClaudeRpcService,
   VSCodeService,
   ModelStateService,
+  EffortStateService,
   PtahCliStateService,
 } from '@ptah-extension/core';
-import { createExecutionChatMessage, SessionId } from '@ptah-extension/shared';
+import {
+  createExecutionChatMessage,
+  SessionId,
+  EffortLevel,
+} from '@ptah-extension/shared';
 import { TabManagerService } from './tab-manager.service';
 import { SessionManager } from './session-manager.service';
 import { MessageValidationService } from './message-validation.service';
@@ -52,6 +57,7 @@ export class MessageSenderService {
   private readonly sessionManager = inject(SessionManager);
   private readonly validator = inject(MessageValidationService);
   private readonly modelState = inject(ModelStateService);
+  private readonly effortState = inject(EffortStateService);
   private readonly ptahCliState = inject(PtahCliStateService);
 
   // ============================================================================
@@ -85,6 +91,23 @@ export class MessageSenderService {
     }
 
     return true;
+  }
+
+  /**
+   * Resolve effective effort level with three-state semantics:
+   * - undefined on TabState = "not set, follow global"
+   * - null on TabState = "explicitly SDK default" (send nothing)
+   * - EffortLevel on TabState = explicit per-tab override
+   *
+   * Priority: explicit options > tab override > global state
+   */
+  private resolveEffort(
+    optionsEffort: EffortLevel | undefined,
+    tabOverride: EffortLevel | null | undefined,
+  ): EffortLevel | undefined {
+    if (optionsEffort !== undefined) return optionsEffort;
+    if (tabOverride !== undefined) return tabOverride ?? undefined;
+    return this.effortState.currentEffort();
   }
 
   /**
@@ -148,16 +171,17 @@ export class MessageSenderService {
     // Sanitize content (trim whitespace) — slash commands passed through as-is
     const sanitized = this.validator.sanitize(content);
 
-    const activeTab = this.tabManager.activeTab();
+    // When a tabId is provided (canvas tile context), use that specific tab
+    // instead of the global activeTab. This prevents cross-tile message routing.
+    const targetTabId = options?.tabId;
+    const targetTab = targetTabId
+      ? (this.tabManager.tabs().find((t) => t.id === targetTabId) ??
+        this.tabManager.activeTab())
+      : this.tabManager.activeTab();
 
-    const sessionId = activeTab?.claudeSessionId;
-    // A tab has an existing session if it has a valid claudeSessionId.
-    // Previously this also required status === 'loaded', but that was too
-    // restrictive: after multi-turn streaming the tab may stay in 'streaming'
-    // status (SESSION_STATS hasn't arrived yet), causing resume/follow-up
-    // messages to mistakenly create a new session instead of continuing.
+    const sessionId = targetTab?.claudeSessionId;
     const hasExistingSession =
-      activeTab && sessionId && sessionId !== ('' as SessionId);
+      targetTab && sessionId && sessionId !== ('' as SessionId);
 
     if (hasExistingSession && sessionId) {
       await this.continueConversation(
@@ -166,7 +190,6 @@ export class MessageSenderService {
         options,
       );
     } else {
-      // No active tab or no existing session — startNewConversation handles tab creation
       await this.startNewConversation(sanitized, options);
     }
   }
@@ -185,10 +208,14 @@ export class MessageSenderService {
     content: string,
     options?: SendMessageOptions,
   ): Promise<void> {
-    // Check if streaming via active tab status
-    const activeTab = this.tabManager.activeTab();
+    // Check if streaming — use target tab if specified, otherwise global active tab
+    const targetTabId = options?.tabId;
+    const targetTab = targetTabId
+      ? (this.tabManager.tabs().find((t) => t.id === targetTabId) ??
+        this.tabManager.activeTab())
+      : this.tabManager.activeTab();
     const isStreaming =
-      activeTab?.status === 'streaming' || activeTab?.status === 'resuming';
+      targetTab?.status === 'streaming' || targetTab?.status === 'resuming';
 
     if (isStreaming) {
       // Queue for later - delegate to ConversationService via ChatStore
@@ -222,6 +249,8 @@ export class MessageSenderService {
     const files = options?.files;
     const images = options?.images;
     const effort = options?.effort;
+    // Hoist target tab ID so catch block can use the canvas-scoped value
+    let activeTabId = options?.tabId ?? this.tabManager.activeTabId();
     try {
       // Wait for services to be ready (with timeout)
       const ready = await this.waitForServices(5000);
@@ -245,8 +274,7 @@ export class MessageSenderService {
         return;
       }
 
-      // Get or create active tab
-      let activeTabId = this.tabManager.activeTabId();
+      // Use hoisted activeTabId (already resolved from options.tabId or global)
       if (!activeTabId) {
         activeTabId = this.tabManager.createTab();
         this.tabManager.switchTab(activeTabId);
@@ -255,9 +283,10 @@ export class MessageSenderService {
       // Clear previous node maps to prevent stale references
       this.sessionManager.clearNodeMaps();
 
-      // Use the tab's existing placeholder session ID (proper UUID v4)
-      // This ensures TabManager.resolveSessionId can find the correct tab
-      const activeTab = this.tabManager.activeTab();
+      // Resolve the target tab — use explicit tabId when provided (canvas tile)
+      const activeTab =
+        this.tabManager.tabs().find((t) => t.id === activeTabId) ??
+        this.tabManager.activeTab();
       const sessionId = activeTab?.placeholderSessionId || this.generateId();
 
       // Update tab with streaming status immediately
@@ -312,6 +341,12 @@ export class MessageSenderService {
       // TASK_2025_092: Use tabId for frontend correlation instead of placeholder sessionId
       // TASK_2025_170: Pass ptahCliId if a Ptah CLI agent is selected
       const ptahCliId = this.ptahCliState.selectedAgentId() ?? undefined;
+      const effectiveModel =
+        activeTab?.overrideModel ?? this.modelState.currentModel();
+      const effectiveEffort = this.resolveEffort(
+        effort,
+        activeTab?.overrideEffort,
+      );
       const result = await this.claudeRpcService.call('chat:start', {
         prompt: content,
         tabId: activeTabId, // Frontend correlation ID
@@ -319,10 +354,10 @@ export class MessageSenderService {
         workspacePath,
         ptahCliId, // TASK_2025_170: Route to Ptah CLI agent adapter
         options: {
-          model: this.modelState.currentModel(),
+          model: effectiveModel,
           ...(files ? { files } : {}),
           ...(images && images.length > 0 ? { images } : {}),
-          ...(effort ? { effort } : {}), // TASK_2025_184: Effort level
+          ...(effectiveEffort ? { effort: effectiveEffort } : {}),
         },
       });
 
@@ -336,15 +371,12 @@ export class MessageSenderService {
     } catch (error) {
       console.error('[MessageSender] Failed to start new conversation:', error);
 
-      // Update tab status to loaded (error)
-      const activeTabId = this.tabManager.activeTabId();
       if (activeTabId) {
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
       }
       this.sessionManager.setStatus('loaded');
       this.sessionManager.failSession();
 
-      // Rethrow error to preserve error propagation
       throw error;
     }
   }
@@ -367,6 +399,8 @@ export class MessageSenderService {
     const files = options?.files;
     const images = options?.images;
     const effort = options?.effort;
+    // Hoist target tab ID so error paths use the canvas-scoped value
+    const activeTabId = options?.tabId ?? this.tabManager.activeTabId();
     try {
       // Wait for services to be ready (with timeout)
       const ready = await this.waitForServices(5000);
@@ -402,8 +436,6 @@ export class MessageSenderService {
           { sessionId },
         );
 
-        // Clear stale session ID from tab
-        const activeTabId = this.tabManager.activeTabId();
         if (activeTabId) {
           this.tabManager.updateTab(activeTabId, {
             claudeSessionId: null,
@@ -411,13 +443,10 @@ export class MessageSenderService {
           });
         }
 
-        // Start new conversation instead
         await this.startNewConversation(content, options);
         return;
       }
 
-      // Get active tab — if none, fall back to new conversation (handles tab creation)
-      const activeTabId = this.tabManager.activeTabId();
       if (!activeTabId) {
         console.warn(
           '[MessageSender] No active tab for continuing conversation — starting new',
@@ -426,7 +455,9 @@ export class MessageSenderService {
         return;
       }
 
-      const activeTab = this.tabManager.activeTab();
+      const activeTab =
+        this.tabManager.tabs().find((t) => t.id === activeTabId) ??
+        this.tabManager.activeTab();
 
       // Update SessionManager state
       this.sessionManager.setStatus('resuming');
@@ -451,16 +482,22 @@ export class MessageSenderService {
 
       // Call RPC to CONTINUE existing chat (uses --resume flag)
       // TASK_2025_092: Include tabId for event routing
+      const effectiveModel =
+        activeTab?.overrideModel ?? this.modelState.currentModel();
+      const effectiveEffort = this.resolveEffort(
+        effort,
+        activeTab?.overrideEffort,
+      );
       const result = await this.claudeRpcService.call('chat:continue', {
         prompt: content,
         sessionId,
         tabId: activeTabId, // For event routing
         name: activeTab?.name, // Send session name (support late naming)
         workspacePath,
-        model: this.modelState.currentModel(),
+        model: effectiveModel,
         files: files ?? [],
         ...(images && images.length > 0 ? { images } : {}),
-        ...(effort ? { effort } : {}), // TASK_2025_184: Effort level
+        ...(effectiveEffort ? { effort: effectiveEffort } : {}),
       });
 
       if (!result.success) {
@@ -475,7 +512,6 @@ export class MessageSenderService {
       }
     } catch (error) {
       console.error('[MessageSender] Failed to continue conversation:', error);
-      const activeTabId = this.tabManager.activeTabId();
       if (activeTabId) {
         this.tabManager.updateTab(activeTabId, { status: 'loaded' });
         this.tabManager.markTabIdle(activeTabId);
