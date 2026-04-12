@@ -107,6 +107,20 @@ export class CanvasStore {
   }
 
   /**
+   * Remove a tile from the canvas WITHOUT closing its underlying tab.
+   * Used for reactive cleanup when a tab has already been closed externally
+   * (e.g., session deletion from sidebar). Prevents double-close and
+   * avoids showing a confirmation dialog for an already-closed tab.
+   * @param tabId The tabId of the orphaned tile to remove.
+   */
+  removeTileOnly(tabId: string): void {
+    this._tiles.update((tiles) => tiles.filter((t) => t.tabId !== tabId));
+    if (this._focusedTabId() === tabId) {
+      this._focusedTabId.set(null);
+    }
+  }
+
+  /**
    * Remove a tile from the canvas and close its underlying tab.
    * Awaits closeTab() so tiles are only removed after the user confirms
    * (or when no confirmation is required). Clears focused state if removed tile was focused.

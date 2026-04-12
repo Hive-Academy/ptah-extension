@@ -5,6 +5,7 @@ import {
   OnDestroy,
   inject,
   effect,
+  untracked,
 } from '@angular/core';
 import { GridStackOptions } from 'gridstack';
 import {
@@ -13,6 +14,7 @@ import {
   nodesCB,
 } from 'gridstack/dist/angular';
 import { AppStateManager } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
 import { CanvasTileComponent } from './canvas-tile.component';
 
@@ -105,6 +107,7 @@ import { CanvasTileComponent } from './canvas-tile.component';
 export class OrchestraCanvasComponent implements OnInit, OnDestroy {
   readonly canvasStore = inject(CanvasStore);
   private readonly appState = inject(AppStateManager);
+  private readonly tabManager = inject(TabManagerService);
 
   /**
    * Gridstack grid configuration.
@@ -140,6 +143,22 @@ export class OrchestraCanvasComponent implements OnInit, OnDestroy {
         this.appState.clearNewCanvasSessionRequest();
       }
     });
+
+    // Reactive cleanup: remove orphaned tiles whose backing tab no longer exists.
+    // This handles the case where a session is deleted from the sidebar, which
+    // closes the tab via TabManagerService but leaves the canvas tile stale.
+    // Uses untracked() for tiles read to prevent re-triggering when removeTileOnly
+    // updates the _tiles signal.
+    effect(() => {
+      const tabs = this.tabManager.tabs(); // reactive dependency
+      const tabIds = new Set(tabs.map((t) => t.id));
+      const tiles = untracked(() => this.canvasStore.tiles());
+      for (const tile of tiles) {
+        if (!tabIds.has(tile.tabId)) {
+          this.canvasStore.removeTileOnly(tile.tabId);
+        }
+      }
+    });
   }
 
   ngOnInit(): void {
@@ -150,12 +169,18 @@ export class OrchestraCanvasComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * FIX 5: Close all tiles on destroy to prevent orphaned tabs in the root TabManagerService.
+   * Close all tiles on destroy to prevent orphaned tabs in the root TabManagerService.
    * CanvasStore is scoped per component instance, so its tabs must be cleaned up here.
+   *
+   * Uses forceCloseTab (no confirmation dialog) since the component is being destroyed
+   * — either the app is shutting down or the canvas is being fully removed from the DOM.
+   * The async removeTile() would show spurious confirmation dialogs during teardown.
    */
   ngOnDestroy(): void {
     const tiles = this.canvasStore.tiles();
-    tiles.forEach((tile) => this.canvasStore.removeTile(tile.tabId));
+    for (const tile of tiles) {
+      this.tabManager.forceCloseTab(tile.tabId);
+    }
   }
 
   addSession(): void {

@@ -93,6 +93,19 @@ export class AppStateManager implements MessageHandler {
     this.initializeState();
   }
 
+  /**
+   * Normalize backward-compat view values. 'orchestra-canvas' was previously a view;
+   * it's now a layout mode. Map it to 'chat' + grid layout so every entry point
+   * behaves consistently (no blank shell).
+   */
+  private normalizeView(view: ViewType): ViewType {
+    if (view === 'orchestra-canvas') {
+      this._layoutMode.set('grid');
+      return 'chat';
+    }
+    return view;
+  }
+
   // Public readonly signals
   readonly currentView = this._currentView.asReadonly();
   readonly isLoading = this._isLoading.asReadonly();
@@ -198,13 +211,8 @@ export class AppStateManager implements MessageHandler {
       (windowWithState.ptahConfig?.initialView as ViewType) ||
       'chat';
 
-    // Backward compat: 'orchestra-canvas' is now a layout mode, not a view.
-    // Stale window.ptahConfig or persisted configs may still contain it.
-    // Map to chat view + grid layout mode so the @switch template matches correctly.
-    if (initialView === 'orchestra-canvas') {
-      initialView = 'chat';
-      this._layoutMode.set('grid');
-    }
+    // Backward compat: normalizeView() maps 'orchestra-canvas' → 'chat' + grid layout
+    initialView = this.normalizeView(initialView);
 
     this._currentView.set(initialView);
     if (initialView !== 'chat' && initialView !== 'welcome') {
@@ -216,9 +224,14 @@ export class AppStateManager implements MessageHandler {
     }
 
     // Restore layout mode from localStorage (defaults to 'grid' for canvas-first)
-    const savedLayoutMode = localStorage.getItem(
-      'ptah-layout-mode',
-    ) as LayoutMode | null;
+    let savedLayoutMode: LayoutMode | null = null;
+    try {
+      savedLayoutMode = localStorage.getItem(
+        'ptah-layout-mode',
+      ) as LayoutMode | null;
+    } catch {
+      /* localStorage unavailable in restricted environments */
+    }
     if (savedLayoutMode === 'single' || savedLayoutMode === 'grid') {
       this._layoutMode.set(savedLayoutMode);
     }
@@ -227,6 +240,7 @@ export class AppStateManager implements MessageHandler {
   // State update methods
   setCurrentView(view: ViewType): void {
     if (this.canSwitchViews()) {
+      view = this.normalizeView(view);
       this._openViews.update((views) => {
         const next = new Set(views);
         next.add(view);
@@ -239,6 +253,7 @@ export class AppStateManager implements MessageHandler {
   /** Open a view as a tab pill and switch to it. Respects canSwitchViews() guard. */
   openView(view: ViewType): void {
     if (this.canSwitchViews()) {
+      view = this.normalizeView(view);
       this._openViews.update((views) => {
         const next = new Set(views);
         next.add(view);
@@ -288,24 +303,17 @@ export class AppStateManager implements MessageHandler {
     currentView?: ViewType;
   }): void {
     if (data.workspaceInfo) this.setWorkspaceInfo(data.workspaceInfo);
-    if (data.currentView) this._currentView.set(data.currentView);
+    if (data.currentView) {
+      const normalized = this.normalizeView(data.currentView);
+      this._currentView.set(normalized);
+    }
     this.setConnected(true);
   }
 
   handleViewSwitch(view: ViewType): void {
     if (!this.canSwitchViews()) return;
 
-    // Backward compat: 'orchestra-canvas' is now a layout mode, not a view
-    if (view === 'orchestra-canvas') {
-      this.setLayoutMode('grid');
-      this._openViews.update((views) => {
-        const next = new Set(views);
-        next.add('chat');
-        return next;
-      });
-      this._currentView.set('chat');
-      return;
-    }
+    view = this.normalizeView(view);
 
     this._openViews.update((views) => {
       const next = new Set(views);
@@ -337,7 +345,11 @@ export class AppStateManager implements MessageHandler {
   /** Set the layout mode and persist to localStorage */
   setLayoutMode(mode: LayoutMode): void {
     this._layoutMode.set(mode);
-    localStorage.setItem('ptah-layout-mode', mode);
+    try {
+      localStorage.setItem('ptah-layout-mode', mode);
+    } catch {
+      /* localStorage unavailable in restricted environments */
+    }
   }
 
   /** Toggle between 'single' and 'grid' layout modes */

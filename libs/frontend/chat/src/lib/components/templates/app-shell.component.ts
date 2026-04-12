@@ -53,6 +53,7 @@ import {
 } from '@ptah-extension/core';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
+import type { ViewType } from '@ptah-extension/core';
 
 /**
  * AppShellComponent - Main application layout with collapsible sidebar
@@ -110,6 +111,17 @@ export class AppShellComponent {
   // Initialize keyboard shortcuts (constructor injection triggers setup)
   private readonly keyboardShortcuts = inject(KeyboardShortcutsService);
 
+  /**
+   * Views that render full-screen ON TOP of the shared chrome (sidebar, header, agent panel).
+   * Must be kept in sync with the @switch cases in app-shell.component.html.
+   */
+  private static readonly STANDALONE_VIEWS: readonly ViewType[] = [
+    'setup-wizard',
+    'settings',
+    'welcome',
+    'analytics',
+  ] as const;
+
   readonly chatStore = inject(ChatStore);
   readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly tabManager = inject(TabManagerService);
@@ -127,9 +139,7 @@ export class AppShellComponent {
 
   /** Computed: true when the current view is a standalone view (no shared chrome) */
   readonly isStandaloneView = computed(() =>
-    ['setup-wizard', 'settings', 'welcome', 'analytics'].includes(
-      this.currentView(),
-    ),
+    AppShellComponent.STANDALONE_VIEWS.includes(this.currentView()),
   );
 
   /**

@@ -199,9 +199,7 @@
                   session.id !== chatStore.currentSession()?.id
                 "
                 [attr.aria-current]="
-                  session.id === chatStore.currentSession()?.id
-                    ? 'true'
-                    : null
+                  session.id === chatStore.currentSession()?.id ? 'true' : null
                 "
                 (click)="onSessionClick(session)"
               >
@@ -220,9 +218,7 @@
                 <span
                   class="text-xs text-base-content/50 flex items-center gap-2 w-full"
                 >
-                  <span>{{
-                    formatRelativeDate(session.lastActivityAt)
-                  }}</span>
+                  <span>{{ formatRelativeDate(session.lastActivityAt) }}</span>
                   @if (session.messageCount > 0) {
                     <span class="text-base-content/40"
                       >{{ session.messageCount }} msgs</span
@@ -287,9 +283,7 @@
                 [img]="MessageSquareIcon"
                 class="w-8 h-8 text-base-content/20 mb-2"
               />
-              <span class="text-sm text-base-content/40"
-                >No sessions yet</span
-              >
+              <span class="text-sm text-base-content/40">No sessions yet</span>
               <span class="text-xs text-base-content/25 mt-1"
                 >Create one to get started</span
               >
@@ -393,15 +387,9 @@
         @if (!isElectron) {
           <button
             class="btn btn-square btn-xs relative"
-            [class.btn-ghost]="
-              !agentMonitorStore.shouldSuggestEditorPanel()
-            "
-            [class.btn-primary]="
-              agentMonitorStore.shouldSuggestEditorPanel()
-            "
-            [class.animate-pulse]="
-              agentMonitorStore.shouldSuggestEditorPanel()
-            "
+            [class.btn-ghost]="!agentMonitorStore.shouldSuggestEditorPanel()"
+            [class.btn-primary]="agentMonitorStore.shouldSuggestEditorPanel()"
+            [class.animate-pulse]="agentMonitorStore.shouldSuggestEditorPanel()"
             aria-label="Open in editor tab"
             [title]="
               agentMonitorStore.shouldSuggestEditorPanel()
@@ -518,17 +506,18 @@
       </div>
     </div>
 
-    <!-- Content area: switches between layout modes -->
+    <!-- Content area: both layout modes are always rendered, toggled via CSS hidden.
+         This preserves canvas tile state (CanvasStore is scoped per component instance)
+         across layout toggles. Matches the [class.hidden] pattern used for standalone views. -->
     <div class="flex-1 overflow-hidden">
-      @if (layoutMode() === 'grid') {
-        <!-- Canvas grid (via DI token, same NgComponentOutlet pattern) -->
+      <div class="h-full" [class.hidden]="layoutMode() !== 'grid'">
         @if (orchestraCanvasComponent) {
           <ng-container *ngComponentOutlet="orchestraCanvasComponent" />
         }
-      } @else {
-        <!-- Single chat (existing behavior) -->
+      </div>
+      <div class="h-full" [class.hidden]="layoutMode() !== 'single'">
         <ptah-chat-view />
-      }
+      </div>
     </div>
   </div>
 
