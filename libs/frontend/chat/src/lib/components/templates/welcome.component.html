@@ -191,7 +191,11 @@
           </button>
           @if (importSuccess()) {
             <p class="text-xs text-success">
-              Settings imported successfully. Reloading...
+              @if (importedLicenseKey()) {
+                Settings imported successfully. Reloading...
+              } @else {
+                Settings imported. Enter your license key above to continue.
+              }
             </p>
           }
         </div>

@@ -30,6 +30,7 @@ import {
   PluginLoaderService,
   PtahCliRegistry,
   SlashCommandInterceptor,
+  DEFAULT_FALLBACK_MODEL_ID,
   type EnhancedPromptsService,
 } from '@ptah-extension/agent-sdk';
 
@@ -772,7 +773,7 @@ export class ChatRpcHandlers {
               params.model ||
               this.configManager.getWithDefault<string>(
                 'model.selected',
-                'sonnet',
+                DEFAULT_FALLBACK_MODEL_ID,
               );
 
             // Resume the session to reconnect to Claude's conversation context
@@ -1102,7 +1103,7 @@ IMPORTANT INSTRUCTIONS:
               params.model ||
               this.configManager.getWithDefault<string>(
                 'model.selected',
-                'sonnet',
+                DEFAULT_FALLBACK_MODEL_ID,
               ),
             projectPath: workspacePath,
           } as AISessionConfig,

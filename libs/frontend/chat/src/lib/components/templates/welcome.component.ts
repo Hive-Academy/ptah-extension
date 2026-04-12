@@ -88,6 +88,8 @@ export class WelcomeComponent implements OnInit {
   // Settings import state
   readonly isImporting = signal(false);
   readonly importSuccess = signal(false);
+  /** True when the imported file contained a license key (backend will reload) */
+  readonly importedLicenseKey = signal(false);
 
   // Format validation: ptah_lic_ followed by 64 hex characters
   readonly isKeyFormatValid = computed(() => {
@@ -288,25 +290,32 @@ export class WelcomeComponent implements OnInit {
     if (this.isImporting()) return;
     this.isImporting.set(true);
     this.errorMessage.set(null);
+    this.importSuccess.set(false);
+    this.importedLicenseKey.set(false);
 
     try {
-      const result = await this.rpcService.call(
-        'settings:import' as never,
-        {} as never,
-      );
+      const result = await this.rpcService.call('settings:import', {});
 
       if (result.isSuccess()) {
-        const data = result.data as { cancelled?: boolean } | undefined;
+        const data = result.data;
         // Don't show success if user cancelled the file dialog
-        if (!data?.cancelled) {
-          this.importSuccess.set(true);
-          // Backend handles window reload if a license key was imported
+        if (data && !data.cancelled) {
+          const imported = data.result?.imported ?? [];
+          if (imported.length > 0) {
+            this.importSuccess.set(true);
+            if (imported.includes('ptah.licenseKey')) {
+              this.importedLicenseKey.set(true);
+            }
+          } else {
+            this.errorMessage.set(
+              'All settings already exist. Nothing new to import.',
+            );
+          }
         }
       } else {
-        const errorMsg =
-          (result as { error?: string }).error ||
-          'Import failed. Please try again.';
-        this.errorMessage.set(errorMsg);
+        this.errorMessage.set(
+          result.error || 'Import failed. Please try again.',
+        );
       }
     } catch (error) {
       console.error('[WelcomeComponent] Failed to import settings:', error);

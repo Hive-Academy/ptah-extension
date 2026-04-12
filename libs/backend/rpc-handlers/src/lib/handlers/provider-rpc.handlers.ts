@@ -30,6 +30,7 @@ import {
   getAnthropicProvider,
   COPILOT_PROVIDER_ENTRY,
   CODEX_PROVIDER_ENTRY,
+  TIER_TO_MODEL_ID,
 } from '@ptah-extension/agent-sdk';
 import { CliDetectionService } from '@ptah-extension/llm-abstraction';
 import {
@@ -51,25 +52,28 @@ import type { AuthEnv } from '@ptah-extension/shared';
  * Last-resort fallback models for the 'anthropic' virtual provider.
  * Guarantees the model selector always shows tier slots even when
  * /v1/models API and SDK supportedModels() both return empty.
+ *
+ * Uses TIER_TO_MODEL_ID from sdk-model-service (single source of truth)
+ * to avoid duplicating model IDs across files.
  */
 const ANTHROPIC_TIER_FALLBACK: ProviderModelInfo[] = [
   {
-    id: 'sonnet',
-    name: 'Sonnet',
-    description: 'Best for everyday tasks',
-    contextLength: 200000,
-    supportsToolUse: true,
-  },
-  {
-    id: 'opus',
-    name: 'Opus',
+    id: TIER_TO_MODEL_ID['opus'],
+    name: 'Claude Opus 4.6',
     description: 'Most capable for complex work',
     contextLength: 200000,
     supportsToolUse: true,
   },
   {
-    id: 'haiku',
-    name: 'Haiku',
+    id: TIER_TO_MODEL_ID['sonnet'],
+    name: 'Claude Sonnet 4.6',
+    description: 'Best for everyday tasks',
+    contextLength: 200000,
+    supportsToolUse: true,
+  },
+  {
+    id: TIER_TO_MODEL_ID['haiku'],
+    name: 'Claude Haiku 4.5',
     description: 'Fastest for quick answers',
     contextLength: 200000,
     supportsToolUse: true,

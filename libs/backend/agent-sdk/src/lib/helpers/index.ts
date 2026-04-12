@@ -62,7 +62,12 @@ export {
   type QueryConfig,
 } from './sdk-query-options-builder';
 export { SdkModuleLoader } from './sdk-module-loader';
-export { SdkModelService, type ApiModelEntry } from './sdk-model-service';
+export {
+  SdkModelService,
+  TIER_TO_MODEL_ID,
+  DEFAULT_FALLBACK_MODEL_ID,
+  type ApiModelEntry,
+} from './sdk-model-service';
 // Slash command interceptor (TASK_2025_184)
 export {
   SlashCommandInterceptor,
