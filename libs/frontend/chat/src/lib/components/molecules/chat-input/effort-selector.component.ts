@@ -16,7 +16,6 @@ import {
   computed,
   output,
   inject,
-  effect,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule, ChevronDown, Check, Brain } from 'lucide-angular';
@@ -27,6 +26,8 @@ import {
   NativeOptionComponent,
   KeyboardNavigationService,
 } from '@ptah-extension/ui';
+import { TabManagerService } from '../../../services/tab-manager.service';
+import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 
 interface EffortOption {
   value: EffortLevel | '';
@@ -85,7 +86,6 @@ const EFFORT_OPTIONS: readonly EffortOption[] = [
 
 @Component({
   selector: 'ptah-effort-selector',
-  standalone: true,
   imports: [
     LucideAngularModule,
     NativeDropdownComponent,
@@ -117,15 +117,15 @@ const EFFORT_OPTIONS: readonly EffortOption[] = [
         <!-- Level bars indicator -->
         <div class="flex items-end gap-px h-3">
           @for (bar of barSlots; track bar) {
-          <div
-            [class]="
-              'w-[3px] rounded-[1px] transition-all ' +
-              (bar < (selectedOption()?.bars ?? 0)
-                ? (selectedOption()?.dotColor ?? '') + ' opacity-100'
-                : 'bg-base-content/20 opacity-60')
-            "
-            [style.height.px]="4 + bar * 2.5"
-          ></div>
+            <div
+              [class]="
+                'w-[3px] rounded-[1px] transition-all ' +
+                (bar < (selectedOption()?.bars ?? 0)
+                  ? (selectedOption()?.dotColor ?? '') + ' opacity-100'
+                  : 'bg-base-content/20 opacity-60')
+              "
+              [style.height.px]="4 + bar * 2.5"
+            ></div>
           }
         </div>
         <span
@@ -155,63 +155,63 @@ const EFFORT_OPTIONS: readonly EffortOption[] = [
           class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1"
         >
           @for (option of effortOptions; track option.value; let i = $index) {
-          <ptah-native-option
-            [optionId]="'effort-' + i"
-            [value]="option"
-            [isActive]="i === activeIndex()"
-            (selected)="selectEffort($event)"
-            (hovered)="onHover(i)"
-          >
-            <div class="flex items-center gap-2.5 py-0.5">
-              <!-- Checkmark for selected -->
-              <div
-                class="w-4 h-4 flex-shrink-0 flex items-center justify-center"
-              >
-                @if (option.value === selectedEffort()) {
-                <lucide-angular [img]="CheckIcon" class="w-4 h-4" />
-                }
-              </div>
-
-              <!-- Color dot indicator -->
-              <div
-                [class]="
-                  'w-2 h-2 rounded-full flex-shrink-0 ' + option.dotColor
-                "
-              ></div>
-
-              <!-- Option Info -->
-              <div class="flex flex-col items-start flex-1 min-w-0">
-                <div class="flex items-center gap-2">
-                  <span
-                    [class]="
-                      'font-medium text-xs ' +
-                      (option.value === selectedEffort()
-                        ? option.textColor
-                        : '')
-                    "
-                    >{{ option.label }}</span
-                  >
-                  <!-- Mini level bars in dropdown -->
-                  <div class="flex items-end gap-px h-2.5">
-                    @for (bar of barSlots; track bar) {
-                    <div
-                      [class]="
-                        'w-[2px] rounded-[1px] ' +
-                        (bar < option.bars
-                          ? option.dotColor
-                          : 'bg-base-content/15')
-                      "
-                      [style.height.px]="3 + bar * 1.5"
-                    ></div>
-                    }
-                  </div>
+            <ptah-native-option
+              [optionId]="'effort-' + i"
+              [value]="option"
+              [isActive]="i === activeIndex()"
+              (selected)="selectEffort($event)"
+              (hovered)="onHover(i)"
+            >
+              <div class="flex items-center gap-2.5 py-0.5">
+                <!-- Checkmark for selected -->
+                <div
+                  class="w-4 h-4 flex-shrink-0 flex items-center justify-center"
+                >
+                  @if (option.value === effectiveEffort()) {
+                    <lucide-angular [img]="CheckIcon" class="w-4 h-4" />
+                  }
                 </div>
-                <span class="text-[11px] mt-0.5 text-base-content/60">
-                  {{ option.description }}
-                </span>
+
+                <!-- Color dot indicator -->
+                <div
+                  [class]="
+                    'w-2 h-2 rounded-full flex-shrink-0 ' + option.dotColor
+                  "
+                ></div>
+
+                <!-- Option Info -->
+                <div class="flex flex-col items-start flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span
+                      [class]="
+                        'font-medium text-xs ' +
+                        (option.value === effectiveEffort()
+                          ? option.textColor
+                          : '')
+                      "
+                      >{{ option.label }}</span
+                    >
+                    <!-- Mini level bars in dropdown -->
+                    <div class="flex items-end gap-px h-2.5">
+                      @for (bar of barSlots; track bar) {
+                        <div
+                          [class]="
+                            'w-[2px] rounded-[1px] ' +
+                            (bar < option.bars
+                              ? option.dotColor
+                              : 'bg-base-content/15')
+                          "
+                          [style.height.px]="3 + bar * 1.5"
+                        ></div>
+                      }
+                    </div>
+                  </div>
+                  <span class="text-[11px] mt-0.5 text-base-content/60">
+                    {{ option.description }}
+                  </span>
+                </div>
               </div>
-            </div>
-          </ptah-native-option>
+            </ptah-native-option>
           }
         </div>
       </div>
@@ -222,51 +222,53 @@ const EFFORT_OPTIONS: readonly EffortOption[] = [
 export class EffortSelectorComponent {
   private readonly keyboardNav = inject(KeyboardNavigationService);
   private readonly effortState = inject(EffortStateService);
+  private readonly tabManager = inject(TabManagerService);
+  private readonly _sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
 
-  // Lucide icons
   readonly BrainIcon = Brain;
   readonly ChevronDownIcon = ChevronDown;
   readonly CheckIcon = Check;
 
-  // Options data
   readonly effortOptions = EFFORT_OPTIONS;
-  /** 4 bar slots for the level meter (indices 0-3) */
   readonly barSlots = [0, 1, 2, 3];
 
-  /** Current selected effort level. Empty string means SDK default. */
-  readonly selectedEffort = signal<EffortLevel | ''>('');
+  /**
+   * Effective effort for this context: per-tab override when in canvas tile,
+   * otherwise global EffortStateService selection.
+   * Three-state semantics on TabState:
+   *   undefined = not set (follow global), null = explicitly SDK default, EffortLevel = override
+   */
+  readonly effectiveEffort = computed((): EffortLevel | '' => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (tabId) {
+        const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+        if (tab?.overrideEffort !== undefined) {
+          return tab.overrideEffort ?? '';
+        }
+      }
+    }
+    return this.effortState.currentEffort() ?? '';
+  });
 
-  /** Display label for the trigger button */
+  readonly selectedOption = computed(() => {
+    const value = this.effectiveEffort();
+    return EFFORT_OPTIONS.find((o) => o.value === value) ?? EFFORT_OPTIONS[0];
+  });
+
   readonly selectedLabel = computed(() => {
     return this.selectedOption()?.label ?? 'Default';
   });
 
-  /** The full option object for the current selection (for color/bar lookups) */
-  readonly selectedOption = computed(() => {
-    const value = this.selectedEffort();
-    return EFFORT_OPTIONS.find((o) => o.value === value) ?? EFFORT_OPTIONS[0];
-  });
-
-  /** Emits when user changes effort level. undefined means use SDK default. */
   readonly effortChanged = output<EffortLevel | undefined>();
 
-  // Local state for dropdown visibility
   private readonly _isOpen = signal(false);
   readonly isOpen = this._isOpen.asReadonly();
 
-  // Keyboard navigation - expose activeIndex for template
   readonly activeIndex = this.keyboardNav.activeIndex;
-
-  constructor() {
-    // Sync from persisted state when loaded
-    effect(
-      () => {
-        const effort = this.effortState.currentEffort();
-        this.selectedEffort.set(effort ?? '');
-      },
-      { allowSignalWrites: true }
-    );
-  }
 
   toggleDropdown(): void {
     this._isOpen.set(!this._isOpen());
@@ -276,19 +278,29 @@ export class EffortSelectorComponent {
     this._isOpen.set(false);
   }
 
+  /**
+   * Select effort level. When in canvas tile context, stores override per-tab.
+   * Otherwise updates the global EffortStateService.
+   */
   selectEffort(value: unknown): void {
     const option = value as EffortOption;
     this.closeDropdown();
 
-    if (option.value === '') {
-      this.selectedEffort.set('');
-      this.effortChanged.emit(undefined);
-      this.effortState.setEffort(undefined);
-    } else {
-      this.selectedEffort.set(option.value);
-      this.effortChanged.emit(option.value);
-      this.effortState.setEffort(option.value);
+    const effortValue = option.value === '' ? undefined : option.value;
+
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (tabId) {
+        this.tabManager.updateTab(tabId, {
+          overrideEffort: effortValue ?? null,
+        });
+        return;
+      }
     }
+
+    this.effortChanged.emit(effortValue);
+    this.effortState.setEffort(effortValue);
   }
 
   onHover(index: number): void {

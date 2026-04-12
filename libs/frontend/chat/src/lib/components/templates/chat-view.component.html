@@ -1,13 +1,13 @@
 <div class="flex flex-col h-full">
   <!-- Session Stats Summary (only when there are messages) -->
-  @if (chatStore.messages().length > 0) {
+  @if (resolvedMessages().length > 0) {
     <div class="px-3 py-2 bg-base-200/30">
       <ptah-session-stats-summary
-        [messages]="chatStore.messages()"
-        [preloadedStats]="chatStore.preloadedStats()"
-        [liveModelStats]="chatStore.liveModelStats()"
-        [modelUsageList]="chatStore.modelUsageList()"
-        [compactionCount]="chatStore.compactionCount()"
+        [messages]="resolvedMessages()"
+        [preloadedStats]="resolvedPreloadedStats()"
+        [liveModelStats]="resolvedLiveModelStats()"
+        [modelUsageList]="resolvedModelUsageList()"
+        [compactionCount]="resolvedCompactionCount()"
       />
     </div>
   }
@@ -25,11 +25,11 @@
     #messageContainer
     (scroll)="onScroll($event)"
   >
-    @for (message of chatStore.messages(); track message.id; let i = $index) {
+    @for (message of resolvedMessages(); track message.id; let i = $index) {
       <ptah-message-bubble
         [message]="message"
         [messageIndex]="i"
-        [totalMessages]="chatStore.messages().length"
+        [totalMessages]="resolvedMessages().length"
       />
     }
 
@@ -43,12 +43,12 @@
     @for (msg of streamingMessages(); track msg.id) {
       <ptah-message-bubble
         [message]="msg"
-        [isStreaming]="chatStore.isStreaming()"
+        [isStreaming]="resolvedIsStreaming()"
       />
     }
 
     <!-- Skeleton placeholder: streaming started but no trees yet -->
-    @if (streamingMessages().length === 0 && chatStore.isStreaming()) {
+    @if (streamingMessages().length === 0 && resolvedIsStreaming()) {
       <!-- Tree NOT started but streaming: show skeleton placeholder -->
       <div class="chat chat-start">
         <div class="chat-image avatar">
@@ -67,8 +67,8 @@
     <!-- Empty state - Egyptian themed welcome -->
     <!-- TASK_2025_096: Also check for streamingMessages to avoid showing empty state while content exists -->
     @if (
-      chatStore.messages().length === 0 &&
-      !chatStore.isStreaming() &&
+      resolvedMessages().length === 0 &&
+      !resolvedIsStreaming() &&
       streamingMessages().length === 0
     ) {
       <ptah-chat-empty-state (promptSelected)="handlePromptSelected($event)" />
@@ -101,7 +101,7 @@
   }
 
   <!-- Queued Content Indicator -->
-  @if (chatStore.queuedContent()) {
+  @if (resolvedQueuedContent()) {
     <div class="px-4 pb-2 border-t border-primary/20 bg-primary/5">
       <div class="flex items-center justify-between gap-2 py-2">
         <!-- Left: Queue icon and text -->
@@ -132,10 +132,8 @@
       <div
         class="text-xs text-base-content/70 bg-base-200 rounded px-2 py-1 max-h-12 overflow-hidden"
       >
-        {{ chatStore.queuedContent()?.substring(0, 100) }}
-        @if (
-          chatStore.queuedContent() && chatStore.queuedContent()!.length > 100
-        ) {
+        {{ resolvedQueuedContent()?.substring(0, 100) }}
+        @if (resolvedQueuedContent() && resolvedQueuedContent()!.length > 100) {
           <span>...</span>
         }
       </div>
