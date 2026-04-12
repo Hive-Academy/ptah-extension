@@ -75,7 +75,9 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
 
       <!-- Agent mini-panel (expanded from tile header indicator) -->
       @if (tileAgentIndicator()?.expanded()) {
-        <ptah-tile-agent-mini-panel [agents]="tileAgentIndicator()!.agents()" />
+        <ptah-tile-agent-mini-panel
+          [agents]="tileAgentIndicator()?.agents() ?? []"
+        />
       }
 
       <!-- Chat view — only rendered after child injector is ready -->

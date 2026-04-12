@@ -81,7 +81,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
         </div>
 
         <!-- FAB: New tile button (floating bottom-right, hidden at max capacity) -->
-        @if (canvasStore.tileCount() < MAX_TILES) {
+        @if (canvasStore.canAddTile()) {
           <button
             class="absolute bottom-4 right-4 btn btn-primary btn-circle shadow-lg z-10"
             title="Add new session tile"
@@ -112,8 +112,6 @@ export class OrchestraCanvasComponent implements OnDestroy {
   private readonly appState = inject(AppStateManager);
   private readonly tabManager = inject(TabManagerService);
 
-  /** Local mirror of CanvasStore.MAX_TILES (private in store) for template access. */
-  readonly MAX_TILES = 9;
   protected readonly PlusIcon = Plus;
 
   /**

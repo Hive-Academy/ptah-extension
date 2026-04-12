@@ -32,20 +32,15 @@ import {
   BarChart3,
   Zap,
   Bot,
-  Shield,
   GitBranch,
   Sparkles,
-  X,
   MessageSquare,
-  Wand2,
   LayoutGrid,
-  type LucideIconData,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
   VSCodeService,
   AppStateManager,
-  type ViewType,
 } from '@ptah-extension/core';
 import { ChatStore } from '../../services/chat.store';
 import { AppShellComponent } from './app-shell.component';
@@ -199,6 +194,10 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
                 appState.currentView() === 'chat' &&
                 appState.layoutMode() === 'grid'
               "
+              [attr.aria-selected]="
+                appState.currentView() === 'chat' &&
+                appState.layoutMode() === 'grid'
+              "
               title="Orchestra Canvas"
               (click)="onCanvasTab()"
             >
@@ -212,6 +211,10 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
                 appState.currentView() === 'chat' &&
                 appState.layoutMode() === 'single'
               "
+              [attr.aria-selected]="
+                appState.currentView() === 'chat' &&
+                appState.layoutMode() === 'single'
+              "
               title="Chat"
               (click)="onChatTab()"
             >
@@ -222,6 +225,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
               role="tab"
               class="tab gap-1.5 no-drag"
               [class.tab-active]="appState.currentView() === 'analytics'"
+              [attr.aria-selected]="appState.currentView() === 'analytics'"
               title="Session Analytics"
               (click)="openDashboard()"
             >
@@ -232,6 +236,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
               role="tab"
               class="tab gap-1.5 no-drag"
               [class.tab-active]="appState.currentView() === 'settings'"
+              [attr.aria-selected]="appState.currentView() === 'settings'"
               title="Settings"
               (click)="openSettings()"
             >
@@ -521,12 +526,9 @@ export class ElectronShellComponent {
   readonly BarChart3Icon = BarChart3;
   readonly ZapIcon = Zap;
   readonly BotIcon = Bot;
-  readonly ShieldIcon = Shield;
   readonly GitBranchIcon = GitBranch;
   readonly SparklesIcon = Sparkles;
-  readonly XIcon = X;
   readonly MessageSquareIcon = MessageSquare;
-  readonly Wand2Icon = Wand2;
   readonly LayoutGridIcon = LayoutGrid;
 
   // Asset URIs
@@ -535,43 +537,14 @@ export class ElectronShellComponent {
   // Platform detection from Electron main process (reliable, not deprecated)
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
-  /** Map view types to display metadata for tab pills */
-  protected getViewMeta(view: ViewType): {
-    label: string;
-    icon: LucideIconData;
-  } {
-    switch (view) {
-      case 'chat':
-        return { label: 'Chat', icon: MessageSquare };
-      case 'settings':
-        return { label: 'Settings', icon: Settings };
-      case 'analytics':
-        return { label: 'Dashboard', icon: BarChart3 };
-      case 'setup-wizard':
-        return { label: 'Setup', icon: Wand2 };
-      // Kept for backward compat: users may have 'orchestra-canvas' persisted in _openViews.
-      // AppStateManager.handleViewSwitch() maps it to layoutMode('grid') + chat view,
-      // but the pill still needs a label/icon if it appears in the tab bar.
-      case 'orchestra-canvas':
-        return { label: 'Canvas', icon: LayoutGrid };
-      default:
-        return { label: view, icon: MessageSquare };
-    }
-  }
-
-  closeViewTab(view: ViewType, event: Event): void {
-    event.stopPropagation();
-    this.appState.closeView(view);
-  }
-
   onCanvasTab(): void {
-    this.appState.setCurrentView('chat');
     this.appState.setLayoutMode('grid');
+    this.appState.setCurrentView('chat');
   }
 
   onChatTab(): void {
-    this.appState.setCurrentView('chat');
     this.appState.setLayoutMode('single');
+    this.appState.setCurrentView('chat');
   }
 
   openSettings(): void {
