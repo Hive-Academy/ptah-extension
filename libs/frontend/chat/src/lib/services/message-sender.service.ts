@@ -148,16 +148,17 @@ export class MessageSenderService {
     // Sanitize content (trim whitespace) — slash commands passed through as-is
     const sanitized = this.validator.sanitize(content);
 
-    const activeTab = this.tabManager.activeTab();
+    // When a tabId is provided (canvas tile context), use that specific tab
+    // instead of the global activeTab. This prevents cross-tile message routing.
+    const targetTabId = options?.tabId;
+    const targetTab = targetTabId
+      ? (this.tabManager.tabs().find((t) => t.id === targetTabId) ??
+        this.tabManager.activeTab())
+      : this.tabManager.activeTab();
 
-    const sessionId = activeTab?.claudeSessionId;
-    // A tab has an existing session if it has a valid claudeSessionId.
-    // Previously this also required status === 'loaded', but that was too
-    // restrictive: after multi-turn streaming the tab may stay in 'streaming'
-    // status (SESSION_STATS hasn't arrived yet), causing resume/follow-up
-    // messages to mistakenly create a new session instead of continuing.
+    const sessionId = targetTab?.claudeSessionId;
     const hasExistingSession =
-      activeTab && sessionId && sessionId !== ('' as SessionId);
+      targetTab && sessionId && sessionId !== ('' as SessionId);
 
     if (hasExistingSession && sessionId) {
       await this.continueConversation(
@@ -166,7 +167,6 @@ export class MessageSenderService {
         options,
       );
     } else {
-      // No active tab or no existing session — startNewConversation handles tab creation
       await this.startNewConversation(sanitized, options);
     }
   }
@@ -185,10 +185,14 @@ export class MessageSenderService {
     content: string,
     options?: SendMessageOptions,
   ): Promise<void> {
-    // Check if streaming via active tab status
-    const activeTab = this.tabManager.activeTab();
+    // Check if streaming — use target tab if specified, otherwise global active tab
+    const targetTabId = options?.tabId;
+    const targetTab = targetTabId
+      ? (this.tabManager.tabs().find((t) => t.id === targetTabId) ??
+        this.tabManager.activeTab())
+      : this.tabManager.activeTab();
     const isStreaming =
-      activeTab?.status === 'streaming' || activeTab?.status === 'resuming';
+      targetTab?.status === 'streaming' || targetTab?.status === 'resuming';
 
     if (isStreaming) {
       // Queue for later - delegate to ConversationService via ChatStore
@@ -245,8 +249,8 @@ export class MessageSenderService {
         return;
       }
 
-      // Get or create active tab
-      let activeTabId = this.tabManager.activeTabId();
+      // Use explicit tabId when provided (canvas tile), otherwise global active tab
+      let activeTabId = options?.tabId ?? this.tabManager.activeTabId();
       if (!activeTabId) {
         activeTabId = this.tabManager.createTab();
         this.tabManager.switchTab(activeTabId);
@@ -416,8 +420,8 @@ export class MessageSenderService {
         return;
       }
 
-      // Get active tab — if none, fall back to new conversation (handles tab creation)
-      const activeTabId = this.tabManager.activeTabId();
+      // Use explicit tabId when provided (canvas tile), otherwise global active tab
+      const activeTabId = options?.tabId ?? this.tabManager.activeTabId();
       if (!activeTabId) {
         console.warn(
           '[MessageSender] No active tab for continuing conversation — starting new',
@@ -426,7 +430,9 @@ export class MessageSenderService {
         return;
       }
 
-      const activeTab = this.tabManager.activeTab();
+      const activeTab =
+        this.tabManager.tabs().find((t) => t.id === activeTabId) ??
+        this.tabManager.activeTab();
 
       // Update SessionManager state
       this.sessionManager.setStatus('resuming');

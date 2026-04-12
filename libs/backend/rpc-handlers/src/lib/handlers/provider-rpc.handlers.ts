@@ -45,6 +45,36 @@ import {
   getModelPricingDescription,
   getModelContextWindow,
 } from '@ptah-extension/shared';
+import type { AuthEnv } from '@ptah-extension/shared';
+
+/**
+ * Last-resort fallback models for the 'anthropic' virtual provider.
+ * Guarantees the model selector always shows tier slots even when
+ * /v1/models API and SDK supportedModels() both return empty.
+ */
+const ANTHROPIC_TIER_FALLBACK: ProviderModelInfo[] = [
+  {
+    id: 'sonnet',
+    name: 'Sonnet',
+    description: 'Best for everyday tasks',
+    contextLength: 200000,
+    supportsToolUse: true,
+  },
+  {
+    id: 'opus',
+    name: 'Opus',
+    description: 'Most capable for complex work',
+    contextLength: 200000,
+    supportsToolUse: true,
+  },
+  {
+    id: 'haiku',
+    name: 'Haiku',
+    description: 'Fastest for quick answers',
+    contextLength: 200000,
+    supportsToolUse: true,
+  },
+];
 
 /**
  * RPC handlers for provider model operations
@@ -66,6 +96,7 @@ export class ProviderRpcHandlers {
     private readonly modelDiscovery: IModelDiscovery,
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
     private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
   ) {}
 
   /**
@@ -220,9 +251,12 @@ export class ProviderRpcHandlers {
    * Register a dynamic model fetcher for direct Anthropic auth (oauth/apiKey).
    *
    * TASK_2025_270: 'anthropic' is a virtual provider ID for direct Claude auth
-   * users — it is NOT in the ANTHROPIC_PROVIDERS registry. The fetcher calls the
-   * Anthropic /v1/models API via SdkAgentAdapter.getApiModels(), which handles
-   * auth headers for all credential types (apiKey, oauthToken).
+   * users — it is NOT in the ANTHROPIC_PROVIDERS registry.
+   *
+   * Routes based on the active credential type in authEnv:
+   * - API key: calls /v1/models directly (returns specific model versions)
+   * - OAuth token: uses SDK's query().supportedModels() (SDK handles OAuth
+   *   auth internally; /v1/models does not accept Bearer OAuth tokens)
    *
    * ProviderModelsService.fetchModels() checks dynamic fetchers BEFORE the
    * registry lookup, so this fetcher is reached without throwing "Unknown provider".
@@ -232,33 +266,61 @@ export class ProviderRpcHandlers {
     this.providerModels.registerDynamicFetcher(
       ANTHROPIC_DIRECT_PROVIDER_ID,
       async (): Promise<ProviderModelInfo[]> => {
+        const hasApiKey = !!this.authEnv.ANTHROPIC_API_KEY;
+        const hasOAuthToken = !!this.authEnv.CLAUDE_CODE_OAUTH_TOKEN;
+
+        if (!hasApiKey && !hasOAuthToken) {
+          this.logger.debug(
+            '[ProviderRpc] No API key or OAuth token set, using tier fallback',
+          );
+          return ANTHROPIC_TIER_FALLBACK;
+        }
+
         try {
-          const apiModels = await this.sdkAdapter.getApiModels();
-          if (apiModels.length === 0) {
-            this.logger.debug(
-              '[ProviderRpc] Anthropic /v1/models returned empty (no auth credentials set)',
-            );
-            return [];
+          if (hasApiKey) {
+            // API key auth: /v1/models returns all specific model versions
+            const apiModels = await this.sdkAdapter.getApiModels();
+            if (apiModels.length > 0) {
+              this.logger.info(
+                `[ProviderRpc] Fetched ${apiModels.length} models from /v1/models (API key)`,
+              );
+              return apiModels.map((m) => ({
+                id: m.id,
+                name: m.displayName,
+                description: getModelPricingDescription(m.id),
+                contextLength: getModelContextWindow(m.id),
+                supportsToolUse: true,
+              }));
+            }
           }
 
-          this.logger.info(
-            `[ProviderRpc] Fetched ${apiModels.length} models from Anthropic /v1/models API`,
-          );
+          // OAuth auth (or API key /v1/models returned empty):
+          // SDK's supportedModels() handles OAuth internally
+          const sdkModels = await this.sdkAdapter.getSupportedModels();
+          if (sdkModels.length > 0) {
+            this.logger.info(
+              `[ProviderRpc] Fetched ${sdkModels.length} models from SDK supportedModels() (${hasOAuthToken ? 'OAuth' : 'API key fallback'})`,
+            );
+            return sdkModels.map((m) => ({
+              id: m.value,
+              name: m.displayName,
+              description: m.description || getModelPricingDescription(m.value),
+              contextLength: getModelContextWindow(m.value),
+              supportsToolUse: true,
+            }));
+          }
 
-          return apiModels.map((m) => ({
-            id: m.id,
-            name: m.displayName,
-            description: getModelPricingDescription(m.id),
-            contextLength: getModelContextWindow(m.id),
-            supportsToolUse: true,
-          }));
+          this.logger.warn(
+            '[ProviderRpc] No models from API or SDK, using hardcoded tier fallback',
+          );
+          return ANTHROPIC_TIER_FALLBACK;
         } catch (error) {
           this.logger.warn(
-            `[ProviderRpc] Failed to fetch Anthropic direct models: ${
+            `[ProviderRpc] Failed to fetch Anthropic direct models, using fallback: ${
               error instanceof Error ? error.message : String(error)
             }`,
           );
-          return [];
+          return ANTHROPIC_TIER_FALLBACK;
         }
       },
     );

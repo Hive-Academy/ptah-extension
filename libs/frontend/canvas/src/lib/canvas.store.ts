@@ -36,6 +36,43 @@ export class CanvasStore {
   readonly tileCount = computed(() => this._tiles().length);
 
   /**
+   * Add a tile for an existing session. If a tile for this session already
+   * exists, focuses it instead of creating a duplicate.
+   * @returns The tabId, or null if the tile cap is reached.
+   */
+  addTileFromSession(sessionId: string, name?: string): string | null {
+    if (this._tiles().length >= this.MAX_TILES) return null;
+
+    const existingTile = this._tiles().find((t) => {
+      const tab = this.tabManager.tabs().find((tab) => tab.id === t.tabId);
+      return tab?.claudeSessionId === sessionId;
+    });
+    if (existingTile) {
+      this.focusTile(existingTile.tabId);
+      return existingTile.tabId;
+    }
+
+    const tabId = this.tabManager.openSessionTab(sessionId, name);
+
+    const existing = this._tiles();
+    const col = existing.length % CANVAS_COLS_PER_ROW;
+    const row = Math.floor(existing.length / CANVAS_COLS_PER_ROW);
+    this._tiles.update((tiles) => [
+      ...tiles,
+      {
+        tabId,
+        position: {
+          x: col * CANVAS_TILE_W,
+          y: row * CANVAS_TILE_H,
+          w: CANVAS_TILE_W,
+          h: CANVAS_TILE_H,
+        },
+      },
+    ]);
+    return tabId;
+  }
+
+  /**
    * Create a new tab and add a corresponding tile to the canvas.
    * Auto-computes a grid position based on the current tile count.
    * Guards against duplicate tabIds and enforces MAX_TILES cap.

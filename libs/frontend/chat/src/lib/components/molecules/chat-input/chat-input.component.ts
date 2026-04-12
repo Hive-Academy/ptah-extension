@@ -26,6 +26,7 @@ import {
 } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
 import { TabManagerService } from '../../../services/tab-manager.service';
+import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 import {
   AutopilotStateService,
   CommandDiscoveryFacade,
@@ -313,6 +314,9 @@ interface PastedImage {
 export class ChatInputComponent implements OnInit {
   readonly chatStore = inject(ChatStore);
   readonly tabManager = inject(TabManagerService);
+  private readonly _sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
   readonly autopilotState = inject(AutopilotStateService);
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly effortState = inject(EffortStateService);
@@ -332,7 +336,7 @@ export class ChatInputComponent implements OnInit {
    * tab shows streaming spinner. Now both use the visual streaming indicator.
    */
   readonly isActiveTabStreaming = computed(() => {
-    const tabId = this.tabManager.activeTabId();
+    const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
     return tabId ? this.tabManager.isTabStreaming(tabId) : false;
   });
 
@@ -1000,6 +1004,7 @@ export class ChatInputComponent implements OnInit {
           files: filePaths.length > 0 ? filePaths : undefined,
           images: inlineImages.length > 0 ? inlineImages : undefined,
           effort: this.effortState.currentEffort(),
+          tabId: this._sessionContext?.() ?? undefined,
         },
       );
 

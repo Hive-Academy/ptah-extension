@@ -18,6 +18,8 @@ export interface SendMessageOptions {
   images?: InlineImageAttachment[];
   /** Optional effort level for reasoning depth (TASK_2025_184) */
   effort?: EffortLevel;
+  /** Explicit tab to send from (canvas tile isolation — overrides global activeTab) */
+  tabId?: string;
 }
 
 /**
