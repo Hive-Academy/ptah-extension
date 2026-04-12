@@ -189,50 +189,55 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
         <!-- Spacer (left) -->
         <div class="flex-1"></div>
 
-        <!-- Navbar tabs (DaisyUI tabs-lifted) -->
+        <!-- Navbar tabs (DaisyUI tabs-lifted, fixed navigation) -->
         @if (appState.isLicensed() && layout.hasWorkspaceFolders()) {
-          <div
-            role="tablist"
-            class="tabs tabs-lifted tabs-sm no-drag [--tab-border-color:oklch(var(--wa)/0.6)]"
-          >
-            <!-- Canvas layout toggle tab (always visible, not closeable) -->
+          <div role="tablist" class="tabs tabs-lifted electron-tabs no-drag">
             <button
               role="tab"
               class="tab gap-1.5 no-drag"
-              [class.tab-active]="appState.layoutMode() === 'grid'"
-              title="Toggle canvas grid / single chat"
-              aria-label="Toggle canvas grid / single chat"
-              (click)="appState.toggleLayoutMode()"
+              [class.tab-active]="
+                appState.currentView() === 'chat' &&
+                appState.layoutMode() === 'grid'
+              "
+              title="Orchestra Canvas"
+              (click)="onCanvasTab()"
             >
               <lucide-angular [img]="LayoutGridIcon" class="w-3.5 h-3.5" />
               Canvas
             </button>
-
-            <!-- Dynamic view tabs (Chat, Dashboard, Settings, etc.) -->
-            @for (view of appState.openViews(); track view) {
-              <button
-                role="tab"
-                class="tab gap-1.5 no-drag"
-                [class.tab-active]="appState.currentView() === view"
-                [title]="getViewMeta(view).label"
-                (click)="appState.setCurrentView(view)"
-              >
-                <lucide-angular
-                  [img]="getViewMeta(view).icon"
-                  class="w-3.5 h-3.5"
-                />
-                {{ getViewMeta(view).label }}
-                @if (view !== 'chat') {
-                  <span
-                    class="ml-0.5 rounded-full hover:bg-base-content/20 p-0.5 cursor-pointer"
-                    title="Close"
-                    (click)="closeViewTab(view, $event)"
-                  >
-                    <lucide-angular [img]="XIcon" class="w-2.5 h-2.5" />
-                  </span>
-                }
-              </button>
-            }
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="
+                appState.currentView() === 'chat' &&
+                appState.layoutMode() === 'single'
+              "
+              title="Chat"
+              (click)="onChatTab()"
+            >
+              <lucide-angular [img]="MessageSquareIcon" class="w-3.5 h-3.5" />
+              Chat
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.currentView() === 'analytics'"
+              title="Session Analytics"
+              (click)="openDashboard()"
+            >
+              <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
+              Dashboard
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.currentView() === 'settings'"
+              title="Settings"
+              (click)="openSettings()"
+            >
+              <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
+              Settings
+            </button>
           </div>
         }
 
@@ -559,11 +564,21 @@ export class ElectronShellComponent {
     this.appState.closeView(view);
   }
 
+  onCanvasTab(): void {
+    this.appState.setCurrentView('chat');
+    this.appState.setLayoutMode('grid');
+  }
+
+  onChatTab(): void {
+    this.appState.setCurrentView('chat');
+    this.appState.setLayoutMode('single');
+  }
+
   openSettings(): void {
-    this.appState.openView('settings');
+    this.appState.setCurrentView('settings');
   }
 
   openDashboard(): void {
-    this.appState.openView('analytics');
+    this.appState.setCurrentView('analytics');
   }
 }

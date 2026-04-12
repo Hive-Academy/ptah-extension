@@ -1862,9 +1862,18 @@ Session-related buttons use the brand gold, view pills get elegant styling
   color: #f5d97d;
 }
 
-/* Electron navbar — DaisyUI tabs-lifted overrides for compact navbar fit */
-.tabs-lifted > .tab {
+/* Electron navbar — DaisyUI tabs-lifted with gold active accent */
+.electron-tabs.tabs-lifted > .tab {
   font-size: 12px;
+  --tab-bg: oklch(var(--b2));
+  --tab-border-color: transparent;
+}
+
+.electron-tabs.tabs-lifted > .tab-active {
+  --tab-bg: oklch(var(--b1));
+  --tab-border-color: #d4af37;
+  color: #f5d97d;
+  font-weight: 500;
 }
 
 /* ============================================================================
