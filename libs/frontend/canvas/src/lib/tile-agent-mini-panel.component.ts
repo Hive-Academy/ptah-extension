@@ -41,12 +41,8 @@ import type { AgentPermissionRequest } from '@ptah-extension/shared';
               [class.bg-info]="agent.status === 'running'"
               [class.bg-success]="agent.status === 'completed'"
               [class.bg-error]="agent.status === 'failed'"
-              [class.bg-warning]="agent.status === 'interrupted'"
-              [class.bg-base-content/40]="
-                agent.status !== 'running' &&
-                agent.status !== 'completed' &&
-                agent.status !== 'failed' &&
-                agent.status !== 'interrupted'
+              [class.bg-warning]="
+                agent.status === 'timeout' || agent.status === 'stopped'
               "
             ></span>
             <span class="font-medium text-base-content truncate">
@@ -61,7 +57,9 @@ import type { AgentPermissionRequest } from '@ptah-extension/shared';
               [class.badge-info]="agent.status === 'running'"
               [class.badge-success]="agent.status === 'completed'"
               [class.badge-error]="agent.status === 'failed'"
-              [class.badge-warning]="agent.status === 'interrupted'"
+              [class.badge-warning]="
+                agent.status === 'timeout' || agent.status === 'stopped'
+              "
             >
               {{ agent.status }}
             </span>
