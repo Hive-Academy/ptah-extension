@@ -189,36 +189,36 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
         <!-- Spacer (left) -->
         <div class="flex-1"></div>
 
-        <!-- View tab pills (centered in navbar) — includes Canvas toggle -->
+        <!-- Navbar tabs (centered, curved-notch design) -->
         @if (appState.isLicensed() && layout.hasWorkspaceFolders()) {
-          <div class="flex items-center gap-1 no-drag">
-            <!-- Canvas layout toggle pill (always visible, not closeable) -->
+          <div class="navbar-tab-group no-drag">
+            <!-- Canvas layout toggle tab (always visible, not closeable) -->
             <button
-              class="btn btn-xs gap-1 rounded-full px-3 h-6 min-h-0 no-drag transition-all duration-150"
-              [class.view-pill-active]="appState.layoutMode() === 'grid'"
-              [class.view-pill-inactive]="appState.layoutMode() !== 'grid'"
+              class="navbar-tab"
+              [class.navbar-tab-active]="appState.layoutMode() === 'grid'"
+              [class.navbar-tab-inactive]="appState.layoutMode() !== 'grid'"
               title="Toggle canvas grid / single chat"
               aria-label="Toggle canvas grid / single chat"
               (click)="appState.toggleLayoutMode()"
             >
-              <lucide-angular [img]="LayoutGridIcon" class="w-3 h-3" />
-              <span class="text-xs">Canvas</span>
+              <lucide-angular [img]="LayoutGridIcon" class="w-3.5 h-3.5" />
+              <span>Canvas</span>
             </button>
 
-            <!-- Dynamic view pills (Chat, Dashboard, Settings, etc.) -->
+            <!-- Dynamic view tabs (Chat, Dashboard, Settings, etc.) -->
             @for (view of appState.openViews(); track view) {
               <button
-                class="btn btn-xs gap-1 rounded-full px-3 h-6 min-h-0 no-drag transition-all duration-150"
-                [class.view-pill-active]="appState.currentView() === view"
-                [class.view-pill-inactive]="appState.currentView() !== view"
+                class="navbar-tab"
+                [class.navbar-tab-active]="appState.currentView() === view"
+                [class.navbar-tab-inactive]="appState.currentView() !== view"
                 [title]="getViewMeta(view).label"
                 (click)="appState.setCurrentView(view)"
               >
                 <lucide-angular
                   [img]="getViewMeta(view).icon"
-                  class="w-3 h-3"
+                  class="w-3.5 h-3.5"
                 />
-                <span class="text-xs">{{ getViewMeta(view).label }}</span>
+                <span>{{ getViewMeta(view).label }}</span>
                 @if (view !== 'chat') {
                   <span
                     class="ml-0.5 rounded-full hover:bg-base-content/20 p-0.5 cursor-pointer"
