@@ -133,9 +133,7 @@
         class="text-xs text-base-content/70 bg-base-200 rounded px-2 py-1 max-h-12 overflow-hidden"
       >
         {{ resolvedQueuedContent()?.substring(0, 100) }}
-        @if (
-          resolvedQueuedContent() && resolvedQueuedContent()!.length > 100
-        ) {
+        @if (resolvedQueuedContent() && resolvedQueuedContent()!.length > 100) {
           <span>...</span>
         }
       </div>
