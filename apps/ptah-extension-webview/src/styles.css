@@ -1862,77 +1862,9 @@ Session-related buttons use the brand gold, view pills get elegant styling
   color: #f5d97d;
 }
 
-/* ---- Electron navbar tab system (curved-notch design) ---- */
-
-/* Container for tabs — provides the bottom border line that tabs "rise" from */
-.navbar-tab-group {
-  display: flex;
-  align-items: flex-end;
-  gap: 0;
-  position: relative;
-  height: 100%;
-  padding: 0 4px;
-}
-
-/* Base tab style (shared between active/inactive) */
-.navbar-tab {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 14px;
+/* Electron navbar — DaisyUI tabs-lifted overrides for compact navbar fit */
+.tabs-lifted > .tab {
   font-size: 12px;
-  cursor: pointer;
-  transition: color 0.15s ease;
-  border: none;
-  background: transparent;
-  white-space: nowrap;
-  margin-bottom: -1px; /* Overlap with parent's border-bottom */
-}
-
-/* Active tab — curved notch rising from the bottom border */
-.navbar-tab-active {
-  color: oklch(var(--bc));
-  font-weight: 500;
-}
-
-.navbar-tab-active::before {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 4px;
-  right: 4px;
-  top: 2px;
-  border: 1.5px solid oklch(var(--wa) / 0.6);
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  background: oklch(var(--b1));
-}
-
-/* Left curved connector — small arc connecting tab border to the bottom line */
-.navbar-tab-active::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: -5px;
-  right: -5px;
-  height: 1.5px;
-  background: oklch(var(--b1));
-}
-
-/* Inactive tab */
-.navbar-tab-inactive {
-  color: oklch(var(--bc) / 0.45);
-}
-
-.navbar-tab-inactive:hover {
-  color: oklch(var(--bc) / 0.75);
-}
-
-/* Tab content sits above the pseudo-elements */
-.navbar-tab > * {
-  position: relative;
-  z-index: 1;
 }
 
 /* ============================================================================

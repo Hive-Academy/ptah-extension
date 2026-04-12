@@ -189,28 +189,31 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
         <!-- Spacer (left) -->
         <div class="flex-1"></div>
 
-        <!-- Navbar tabs (centered, curved-notch design) -->
+        <!-- Navbar tabs (DaisyUI tabs-lifted) -->
         @if (appState.isLicensed() && layout.hasWorkspaceFolders()) {
-          <div class="navbar-tab-group no-drag">
+          <div
+            role="tablist"
+            class="tabs tabs-lifted tabs-sm no-drag [--tab-border-color:oklch(var(--wa)/0.6)]"
+          >
             <!-- Canvas layout toggle tab (always visible, not closeable) -->
             <button
-              class="navbar-tab"
-              [class.navbar-tab-active]="appState.layoutMode() === 'grid'"
-              [class.navbar-tab-inactive]="appState.layoutMode() !== 'grid'"
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.layoutMode() === 'grid'"
               title="Toggle canvas grid / single chat"
               aria-label="Toggle canvas grid / single chat"
               (click)="appState.toggleLayoutMode()"
             >
               <lucide-angular [img]="LayoutGridIcon" class="w-3.5 h-3.5" />
-              <span>Canvas</span>
+              Canvas
             </button>
 
             <!-- Dynamic view tabs (Chat, Dashboard, Settings, etc.) -->
             @for (view of appState.openViews(); track view) {
               <button
-                class="navbar-tab"
-                [class.navbar-tab-active]="appState.currentView() === view"
-                [class.navbar-tab-inactive]="appState.currentView() !== view"
+                role="tab"
+                class="tab gap-1.5 no-drag"
+                [class.tab-active]="appState.currentView() === view"
                 [title]="getViewMeta(view).label"
                 (click)="appState.setCurrentView(view)"
               >
@@ -218,7 +221,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
                   [img]="getViewMeta(view).icon"
                   class="w-3.5 h-3.5"
                 />
-                <span>{{ getViewMeta(view).label }}</span>
+                {{ getViewMeta(view).label }}
                 @if (view !== 'chat') {
                   <span
                     class="ml-0.5 rounded-full hover:bg-base-content/20 p-0.5 cursor-pointer"
