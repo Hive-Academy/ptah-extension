@@ -43,6 +43,7 @@ import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { TabManagerService } from '../../services/tab-manager.service';
+import { SessionDisplayUtils } from '../../services/session-display-utils.service';
 import {
   AppStateManager,
   VSCodeService,
@@ -116,9 +117,20 @@ export class AppShellComponent {
   private readonly vscodeService = inject(VSCodeService);
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly confirmDialog = inject(ConfirmationDialogService);
+  private readonly sessionDisplayUtils = inject(SessionDisplayUtils);
 
   // Expose currentView signal for template
   readonly currentView = this.appState.currentView;
+
+  // Layout mode signals (canvas-first layout)
+  readonly layoutMode = this.appState.layoutMode;
+
+  /** Computed: true when the current view is a standalone view (no shared chrome) */
+  readonly isStandaloneView = computed(() =>
+    ['setup-wizard', 'settings', 'welcome', 'analytics'].includes(
+      this.currentView(),
+    ),
+  );
 
   /**
    * WizardViewComponent provided via DI token — breaks circular dependency between chat and setup-wizard.
@@ -327,10 +339,11 @@ export class AppShellComponent {
   }
 
   /**
-   * Navigate to Orchestra Canvas view
+   * Toggle between single-chat and canvas-grid layout modes.
+   * Replaces the old openCanvas() which navigated to a separate view.
    */
-  openCanvas(): void {
-    this.appState.setCurrentView('orchestra-canvas');
+  toggleLayoutMode(): void {
+    this.appState.toggleLayoutMode();
   }
 
   /** Guard to prevent double-click opening multiple panels */
@@ -401,14 +414,20 @@ export class AppShellComponent {
   }
 
   /**
-   * Handle session creation from popover
+   * Handle session creation from popover.
+   * Layout-mode-aware: in grid mode, requests a new canvas tile instead of a tab.
    */
   handleCreateSession(): void {
     const name = this.sessionNameInput().trim();
     const sessionName = name || this.generateDefaultSessionName();
 
-    // Create new tab with name (createTab already switches to the new tab)
-    this.tabManager.createTab(sessionName);
+    if (this.layoutMode() === 'grid') {
+      // Grid mode: request canvas to create a new tile
+      this.appState.requestNewCanvasSession(sessionName);
+    } else {
+      // Single mode: create new tab (createTab already switches to the new tab)
+      this.tabManager.createTab(sessionName);
+    }
 
     // Close popover
     this._sessionNamePopoverOpen.set(false);
@@ -454,86 +473,31 @@ export class AppShellComponent {
 
   /**
    * Format timestamp as relative date for sidebar display.
-   * Pure function - no side effects, no dependencies.
-   *
-   * Rules:
-   *   < 1 minute:    "Just now"
-   *   < 1 hour:      "Xm ago"    (e.g., "5m ago")
-   *   < 24 hours:    "Xh ago"    (e.g., "2h ago")
-   *   Yesterday:     "Yesterday"
-   *   Current week:  "Mon", "Tue", etc.
-   *   Current year:  "Jan 15"
-   *   Previous year: "Jan 15, 2025"
+   * Delegates to SessionDisplayUtils shared service.
    */
   formatRelativeDate(date: Date | string | number): string {
-    if (!date || (typeof date === 'number' && date <= 0)) return '';
-    const now = new Date();
-    const d = new Date(date);
-    if (isNaN(d.getTime())) return '';
-    const diffMs = now.getTime() - d.getTime();
-    if (diffMs < 0) return 'Just now';
-    const diffMin = Math.floor(diffMs / 60000);
-    const diffHr = Math.floor(diffMs / 3600000);
-
-    if (diffMin < 1) return 'Just now';
-    if (diffMin < 60) return `${diffMin}m ago`;
-    if (diffHr < 24) return `${diffHr}h ago`;
-
-    // Check if yesterday
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
-
-    // Current week: show day name
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (diffDays < 7) {
-      return d.toLocaleDateString('en-US', { weekday: 'short' });
-    }
-
-    // Current year: "Jan 15"
-    if (d.getFullYear() === now.getFullYear()) {
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    }
-
-    // Previous year: "Jan 15, 2025"
-    return d.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+    return this.sessionDisplayUtils.formatRelativeDate(date);
   }
 
   /**
-   * Get display name for session
-   * Falls back to truncated UUID if no proper title
+   * Get display name for session.
+   * Delegates to SessionDisplayUtils shared service.
    */
   getSessionDisplayName(session: ChatSessionSummary): string {
-    const name = session.name;
+    return this.sessionDisplayUtils.getSessionDisplayName(session);
+  }
 
-    // Check if name is a UUID (fallback case)
-    const uuidPattern =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (uuidPattern.test(name)) {
-      // Return truncated UUID with "Session" prefix
-      return `Session ${name.substring(0, 8)}...`;
+  /**
+   * Layout-mode-aware session click handler for sidebar.
+   * In grid mode: requests canvas to open/focus a tile for the session.
+   * In single mode: switches to the session's tab (existing behavior).
+   */
+  onSessionClick(session: ChatSessionSummary): void {
+    if (this.layoutMode() === 'grid') {
+      this.appState.requestCanvasSession(session.id, session.name);
+    } else {
+      this.chatStore.switchSession(session.id);
     }
-
-    // Check if name starts with "<command-message>" (Claude CLI system output)
-    if (name.startsWith('<command-message>')) {
-      // Extract meaningful content or use fallback
-      const cleaned = name.replace(/<\/?command-message>/g, '').trim();
-      if (cleaned.length > 0 && cleaned.length < 80) {
-        return cleaned;
-      }
-      return `Session ${session.id.substring(0, 8)}...`;
-    }
-
-    // Return the name, truncated if too long
-    if (name.length > 50) {
-      return name.substring(0, 47) + '...';
-    }
-
-    return name;
   }
 
   /**
