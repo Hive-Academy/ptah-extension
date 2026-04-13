@@ -522,24 +522,21 @@
     </div>
   </div>
 
-  <!-- Global agent panel hidden in grid mode (per-tile indicators handle agents instead) -->
-  @if (layoutMode() !== 'grid') {
-    <!-- Resize handle (visible only when agent panel is open) -->
-    @if (agentMonitorStore.panelOpen()) {
-      <ptah-resize-handle />
-    }
-
-    <!-- Right sidebar: Agent Monitor Panel -->
-    <ptah-agent-monitor-panel />
-
-    <!-- Agents vertical tab (always visible — primary toggle for agent panel) -->
-    <ptah-sidebar-tab
-      label="Agents"
-      side="right"
-      [isOpen]="agentMonitorStore.panelOpen()"
-      [badgeType]="agentBadgeType()"
-      [size]="isElectron ? 'default' : 'sm'"
-      (toggled)="agentMonitorStore.togglePanel()"
-    />
+  <!-- Resize handle (visible only when agent panel is open) -->
+  @if (agentMonitorStore.panelOpen()) {
+    <ptah-resize-handle />
   }
+
+  <!-- Right sidebar: Agent Monitor Panel (shows agents for focused tile in grid mode) -->
+  <ptah-agent-monitor-panel />
+
+  <!-- Agents vertical tab (always visible — primary toggle for agent panel) -->
+  <ptah-sidebar-tab
+    label="Agents"
+    side="right"
+    [isOpen]="agentMonitorStore.panelOpen()"
+    [badgeType]="agentBadgeType()"
+    [size]="isElectron ? 'default' : 'sm'"
+    (toggled)="agentMonitorStore.togglePanel()"
+  />
 </div>

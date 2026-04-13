@@ -14,7 +14,7 @@ import {
 } from 'gridstack/dist/angular';
 import { LucideAngularModule, Plus } from 'lucide-angular';
 import { AppStateManager } from '@ptah-extension/core';
-import { TabManagerService } from '@ptah-extension/chat';
+import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
 import { CanvasTileComponent } from './canvas-tile.component';
 import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
@@ -111,6 +111,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
   readonly canvasStore = inject(CanvasStore);
   private readonly appState = inject(AppStateManager);
   private readonly tabManager = inject(TabManagerService);
+  private readonly chatStore = inject(ChatStore);
 
   protected readonly PlusIcon = Plus;
 
@@ -135,8 +136,16 @@ export class OrchestraCanvasComponent implements OnDestroy {
     effect(() => {
       const req = this.appState.canvasSessionRequest();
       if (req) {
-        this.canvasStore.addTileFromSession(req.sessionId, req.name);
+        const tabId = this.canvasStore.addTileFromSession(
+          req.sessionId,
+          req.name,
+        );
         this.appState.clearCanvasSessionRequest();
+        // Load the session's messages into the tab via ChatStore's full load flow
+        // (openSessionTab only creates an empty tab — switchSession triggers the RPC)
+        if (tabId) {
+          this.chatStore.switchSession(req.sessionId);
+        }
       }
     });
 
