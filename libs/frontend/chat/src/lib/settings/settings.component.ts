@@ -128,6 +128,9 @@ export class SettingsComponent implements OnInit {
   /** Whether the plugin browser modal is open */
   readonly isPluginBrowserOpen = signal(false);
 
+  /** Counter incremented on plugin config save to trigger skill-sh-browser refresh */
+  readonly skillRefreshTrigger = signal(0);
+
   // License status computed signals (kept in parent for header badge + tab gating)
   readonly isPremium = computed(
     () => this.chatStore.licenseStatus()?.isPremium ?? false,
@@ -197,6 +200,8 @@ export class SettingsComponent implements OnInit {
   onPluginsSaved(enabledIds: string[]): void {
     this.isPluginBrowserOpen.set(false);
     this.commandDiscovery.clearCache();
+    // Trigger skill-sh-browser to reload installed skills list
+    this.skillRefreshTrigger.update((n) => n + 1);
   }
 
   /**

@@ -188,7 +188,11 @@ export {
 // Skill Junction Service (TASK_2025_201)
 // Manages workspace .ptah/skills/ junctions for third-party providers
 // ============================================================
-export { SkillJunctionService, type SkillJunctionResult } from './lib/helpers';
+export {
+  SkillJunctionService,
+  type SkillJunctionActivateOptions,
+  type SkillJunctionResult,
+} from './lib/helpers';
 
 // ============================================================
 // Ptah CLI (TASK_2025_167)
@@ -232,16 +236,19 @@ export {
 export type { ICodexAuthService, CodexAuthFile } from './lib/codex-provider';
 
 // ============================================================
-// Local Model Providers (TASK_2025_265)
-// Ollama and LM Studio integration via translation proxy
+// Local Model Providers (TASK_2025_265, updated TASK_2025_281)
+// Ollama (Anthropic-native) and LM Studio (translation proxy)
 // ============================================================
 export {
-  OllamaTranslationProxy,
   LmStudioTranslationProxy,
+  OllamaModelDiscoveryService,
   OLLAMA_PROVIDER_ENTRY,
+  OLLAMA_CLOUD_PROVIDER_ENTRY,
   LM_STUDIO_PROVIDER_ENTRY,
   LOCAL_PROXY_TOKEN_PLACEHOLDER,
+  OLLAMA_AUTH_TOKEN_PLACEHOLDER,
   isLocalProviderId,
+  isOllamaProviderId,
 } from './lib/local-provider';
 
 // ============================================================

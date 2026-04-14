@@ -235,6 +235,16 @@ export class ChatViewComponent {
   private isRestoringScroll = false;
 
   /**
+   * Guard active during the streaming→finalized DOM transition.
+   * Suppresses onScroll events and forces scheduleScroll to scroll regardless
+   * of userScrolledUp. Prevents layout-driven scroll events from blocking
+   * auto-scroll during the dramatic DOM swap (streaming elements destroyed,
+   * finalized elements created).
+   */
+  private isFinalizingTransition = false;
+  private finalizingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  /**
    * Ptah icon URI for skeleton avatar placeholder
    */
   readonly ptahIconUri = computed(() => this.vscodeService.getPtahIconUri());
@@ -338,6 +348,22 @@ export class ChatViewComponent {
     return tab !== null
       ? (tab.isCompacting ?? false)
       : this.chatStore.isCompacting();
+  });
+
+  /**
+   * Resolved question requests: scoped to this tile's session in canvas mode.
+   * Prevents question cards from appearing in ALL tiles — only the session that
+   * triggered the question shows the card.
+   * Same pattern as resolvedIsCompacting (TASK_2025_098).
+   */
+  readonly resolvedQuestionRequests = computed(() => {
+    const allQuestions = this.chatStore.questionRequests();
+    if (allQuestions.length === 0) return [];
+
+    const sessionId = this.resolvedSessionId();
+    if (!sessionId) return allQuestions; // No session context — show all (initial state)
+
+    return allQuestions.filter((q) => q.sessionId === sessionId);
   });
 
   readonly resolvedQueuedContent = computed(() => {
@@ -483,18 +509,45 @@ export class ChatViewComponent {
 
     // Force scroll to bottom when streaming ends (agent finished work).
     // During finalization, streaming DOM is destroyed and finalized DOM is created.
-    // This dramatic DOM change can trigger layout-driven scroll events that falsely
-    // set userScrolledUp=true via onScroll(). The MutationObserver's scheduleScroll
-    // then sees userScrolledUp=true and skips scrolling, leaving the user stuck
-    // at an old position. This effect bypasses that by directly calling scrollToBottom.
+    // This dramatic DOM change can cause scroll position disruption:
+    // 1. Browser scroll anchoring resets scrollTop when anchor elements are destroyed
+    //    (mitigated by overflow-anchor: none in CSS)
+    // 2. Layout-driven scroll events falsely set userScrolledUp=true
+    // 3. setTimeout(0) may fire before Angular renders finalized content in zoneless mode
+    //
+    // Fix: Enter a "finalization transition" guard that suppresses onScroll and forces
+    // scheduleScroll to always scroll. Use afterNextRender for the first scroll attempt
+    // (guaranteed post-render), plus a 300ms safety net for late DOM changes.
     effect(() => {
       const isStreaming = this.resolvedIsStreaming();
       if (this.wasStreaming && !isStreaming) {
         untracked(() => {
+          this.isFinalizingTransition = true;
           this.userScrolledUp.set(false);
-          // setTimeout(0) runs after Angular CD completes and DOM is updated,
-          // ensuring scrollHeight reflects the finalized content.
-          setTimeout(() => this.scrollToBottom('instant'), 0);
+
+          // Clear any previous finalization timeout (rapid transitions)
+          if (this.finalizingTimeoutId) {
+            clearTimeout(this.finalizingTimeoutId);
+          }
+
+          // First scroll attempt: afterNextRender guarantees the callback fires
+          // AFTER Angular change detection + DOM rendering completes. This is more
+          // reliable than setTimeout(0) which races with zoneless CD microtasks.
+          afterNextRender(
+            () => {
+              this.scrollToBottom('instant');
+            },
+            { injector: this.injector },
+          );
+
+          // End transition after generous window. Covers MutationObserver debounce
+          // (50ms), async layout adjustments, and any late component rendering
+          // (markdown, code highlighting). Final scrollToBottom catches everything.
+          this.finalizingTimeoutId = setTimeout(() => {
+            this.isFinalizingTransition = false;
+            this.finalizingTimeoutId = null;
+            this.scrollToBottom('instant');
+          }, 300);
         });
       }
       this.wasStreaming = isStreaming;
@@ -522,7 +575,7 @@ export class ChatViewComponent {
    * smooth scroll animation intermediates from falsely setting userScrolledUp.
    */
   onScroll(event: Event): void {
-    if (this.isProgrammaticScrolling) return;
+    if (this.isProgrammaticScrolling || this.isFinalizingTransition) return;
 
     const container = event.target as HTMLElement;
     if (!container) return;
@@ -662,7 +715,12 @@ export class ChatViewComponent {
     }
 
     this.scrollTimeoutId = setTimeout(() => {
-      if (!this.userScrolledUp() && !this.isRestoringScroll) {
+      // During finalization transition, always scroll regardless of userScrolledUp.
+      // Layout-driven scroll events from the DOM swap may have falsely set it.
+      if (
+        this.isFinalizingTransition ||
+        (!this.userScrolledUp() && !this.isRestoringScroll)
+      ) {
         const behavior = this.resolvedIsStreaming() ? 'smooth' : 'instant';
         this.scrollToBottom(behavior);
       }
@@ -685,6 +743,10 @@ export class ChatViewComponent {
     if (this.userMessageScrollTimeoutId) {
       clearTimeout(this.userMessageScrollTimeoutId);
       this.userMessageScrollTimeoutId = null;
+    }
+    if (this.finalizingTimeoutId) {
+      clearTimeout(this.finalizingTimeoutId);
+      this.finalizingTimeoutId = null;
     }
   }
 }

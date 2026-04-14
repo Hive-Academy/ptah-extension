@@ -104,4 +104,5 @@ export const CODEX_PROVIDER_ENTRY: AnthropicProvider = {
   keyPlaceholder: 'Authenticated via Codex CLI',
   maskedKeyDisplay: 'Codex (connected)',
   staticModels: CODEX_STATIC_MODELS,
+  defaultTiers: CODEX_DEFAULT_TIERS,
 };

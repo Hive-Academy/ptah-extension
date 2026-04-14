@@ -1643,6 +1643,22 @@ IMPORTANT INSTRUCTIONS:
       this.ptahCliSessions.delete(tabId);
       // Note: ptahCliSdkSessionIds is NOT cleaned up here — it must persist
       // until persistCliSessionReference reads it (agent may exit later).
+
+      // TASK_2025_COMPACT_FIX: Clean up the session from activeSessions when the
+      // stream ends naturally (e.g., slash commands with maxTurns: 1). Without this,
+      // chat:continue sees the session as "active" and calls sendMessage on a dead
+      // query instead of resuming properly. For multi-turn sessions (with streamInput),
+      // the loop only exits on abort, which already calls endSession.
+      if (this.sdkAdapter.isSessionActive(sessionId)) {
+        try {
+          await this.sdkAdapter.endSession(sessionId);
+          this.logger.info(
+            `[RPC] Session ${sessionId} cleaned up after stream completion`,
+          );
+        } catch {
+          // Best-effort cleanup — session may have already been ended
+        }
+      }
     }
   }
 }

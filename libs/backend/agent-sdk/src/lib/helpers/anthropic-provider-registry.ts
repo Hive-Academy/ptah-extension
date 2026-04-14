@@ -27,6 +27,7 @@ import { COPILOT_PROVIDER_ENTRY } from '../copilot-provider';
 import { CODEX_PROVIDER_ENTRY } from '../codex-provider';
 import {
   OLLAMA_PROVIDER_ENTRY,
+  OLLAMA_CLOUD_PROVIDER_ENTRY,
   LM_STUDIO_PROVIDER_ENTRY,
 } from '../local-provider';
 
@@ -105,6 +106,16 @@ export interface AnthropicProvider {
    * When true, the provider requires no API key and uses HTTP (not HTTPS).
    */
   isLocal?: boolean;
+  /**
+   * Default model tier mappings for this provider.
+   * When present, auto-applied on first provider selection so
+   * "Default (recommended)" resolves to the provider's best model.
+   */
+  defaultTiers?: {
+    readonly sonnet: string;
+    readonly opus: string;
+    readonly haiku: string;
+  };
 }
 
 /**
@@ -138,6 +149,11 @@ export const ANTHROPIC_PROVIDERS = [
     keyPlaceholder: 'Enter Moonshot API key...',
     maskedKeyDisplay: '••••••••••••',
     modelsEndpoint: 'https://api.moonshot.ai/v1/models',
+    defaultTiers: {
+      sonnet: 'kimi-k2.5',
+      opus: 'kimi-k2-thinking',
+      haiku: 'kimi-k2',
+    },
     staticModels: [
       {
         id: 'kimi-k2',
@@ -189,6 +205,11 @@ export const ANTHROPIC_PROVIDERS = [
     maskedKeyDisplay: '••••••••••••',
     // Z.AI has no /v1/models API — static models only
     // @see https://docs.z.ai/guides/overview/pricing
+    defaultTiers: {
+      sonnet: 'glm-5.1',
+      opus: 'glm-5-code',
+      haiku: 'glm-4.7-flashx',
+    },
     staticModels: [
       {
         id: 'glm-5.1',
@@ -313,6 +334,7 @@ export const ANTHROPIC_PROVIDERS = [
   COPILOT_PROVIDER_ENTRY,
   CODEX_PROVIDER_ENTRY,
   OLLAMA_PROVIDER_ENTRY,
+  OLLAMA_CLOUD_PROVIDER_ENTRY,
   LM_STUDIO_PROVIDER_ENTRY,
 ] as const satisfies readonly AnthropicProvider[];
 
@@ -327,6 +349,7 @@ export type AnthropicProviderId =
   | 'github-copilot'
   | 'openai-codex'
   | 'ollama'
+  | 'ollama-cloud'
   | 'lm-studio';
 
 /** Default provider when none is configured */

@@ -48,7 +48,9 @@ import {
   seedStaticModelPricing,
   type AnthropicProvider,
 } from '../helpers/anthropic-provider-registry';
+import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../local-provider';
 import { buildSafeEnv } from '../helpers/build-safe-env';
+import { TIER_TO_MODEL_ID, type ModelTier } from '../helpers/sdk-model-service';
 import type { Options } from '../types/sdk-types/claude-sdk.types';
 import { PtahCliAdapter } from './ptah-cli-adapter';
 import type { PtahCliConfigPersistence } from './helpers/ptah-cli-config-persistence.service';
@@ -120,11 +122,14 @@ export class PtahCliRegistry {
     const summaries: PtahCliSummary[] = [];
 
     for (const agentConfig of configs) {
-      const hasKey = await this.authSecrets.hasProviderKey(
-        `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`,
-      );
-
       const provider = getAnthropicProvider(agentConfig.providerId);
+      const isLocalProvider = provider?.authType === 'none';
+      const hasKey =
+        isLocalProvider ||
+        (await this.authSecrets.hasProviderKey(
+          `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`,
+        ));
+
       const modelCount = provider?.staticModels?.length ?? 0;
 
       let status: PtahCliState['status'] = 'unconfigured';
@@ -310,15 +315,17 @@ export class PtahCliRegistry {
       return undefined;
     }
 
-    const apiKey = await this.authSecrets.getProviderKey(
-      `${PTAH_CLI_KEY_PREFIX}.${id}`,
-    );
+    const provider = getAnthropicProvider(agentConfig.providerId);
+    const isLocalProvider = provider?.authType === 'none';
+
+    const apiKey = isLocalProvider
+      ? OLLAMA_AUTH_TOKEN_PLACEHOLDER
+      : await this.authSecrets.getProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`);
     if (!apiKey) {
       this.logger.warn(`[PtahCliRegistry] No API key for agent: ${id}`);
       return undefined;
     }
 
-    const provider = getAnthropicProvider(agentConfig.providerId);
     const effectiveTiers = provider
       ? this.resolveEffectiveTiers(agentConfig, provider)
       : agentConfig.tierMappings;
@@ -374,14 +381,15 @@ export class PtahCliRegistry {
         return { success: false, error: 'Agent configuration not found' };
       }
 
-      const apiKey = await this.authSecrets.getProviderKey(
-        `${PTAH_CLI_KEY_PREFIX}.${id}`,
-      );
+      const testProvider = getAnthropicProvider(agentConfig.providerId);
+      const isLocalProvider = testProvider?.authType === 'none';
+
+      const apiKey = isLocalProvider
+        ? OLLAMA_AUTH_TOKEN_PLACEHOLDER
+        : await this.authSecrets.getProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`);
       if (!apiKey) {
         return { success: false, error: 'API key not configured' };
       }
-
-      const testProvider = getAnthropicProvider(agentConfig.providerId);
       const testTiers = testProvider
         ? this.resolveEffectiveTiers(agentConfig, testProvider)
         : agentConfig.tierMappings;
@@ -488,6 +496,9 @@ export class PtahCliRegistry {
       /** Parent session ID for permission routing. Permissions from this agent
        *  will be scoped to this session for cleanup purposes. */
       parentSessionId?: string;
+      /** Model capability tier: 'opus' (most capable), 'sonnet' (balanced, default), 'haiku' (fastest).
+       *  Resolves to the SDK model ID used for the query. When omitted, defaults to 'sonnet'. */
+      modelTier?: 'opus' | 'sonnet' | 'haiku';
     },
   ): Promise<
     | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
@@ -512,10 +523,14 @@ export class PtahCliRegistry {
       };
     }
 
-    // Get API key
-    const apiKey = await this.authSecrets.getProviderKey(
-      `${PTAH_CLI_KEY_PREFIX}.${id}`,
-    );
+    // Resolve provider
+    const provider = getAnthropicProvider(agentConfig.providerId);
+
+    // Get API key (local providers use placeholder)
+    const isLocalProvider = provider?.authType === 'none';
+    const apiKey = isLocalProvider
+      ? OLLAMA_AUTH_TOKEN_PLACEHOLDER
+      : await this.authSecrets.getProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`);
     if (!apiKey) {
       this.logger.warn(
         `[PtahCliRegistry] spawnAgent: no API key for agent: ${id}`,
@@ -525,9 +540,6 @@ export class PtahCliRegistry {
         message: `No API key configured for Ptah CLI agent "${id}"`,
       };
     }
-
-    // Resolve provider
-    const provider = getAnthropicProvider(agentConfig.providerId);
     if (!provider) {
       this.logger.error(
         `[PtahCliRegistry] spawnAgent: unknown provider: ${agentConfig.providerId}`,
@@ -549,8 +561,11 @@ export class PtahCliRegistry {
     const authEnv = this.buildAuthEnv(agentConfig, provider, apiKey);
     seedStaticModelPricing(agentConfig.providerId);
 
-    // SDK model name (env vars route to actual provider model)
-    const model = 'claude-sonnet-4-20250514';
+    // Resolve SDK model from tier — prefer provider-specific tier mappings
+    // over hardcoded Anthropic model IDs (critical for local providers like Ollama)
+    const tier: ModelTier = options?.modelTier ?? 'sonnet';
+    const spawnTiers = this.resolveEffectiveTiers(agentConfig, provider);
+    const model = spawnTiers?.[tier] ?? TIER_TO_MODEL_ID[tier];
     // workingDirectory should be resolved by the caller (agent-namespace.builder).
     // os.homedir() is a safer fallback than process.cwd() which returns the
     // app installation directory in VS Code extension host / Electron.
@@ -582,6 +597,8 @@ export class PtahCliRegistry {
       `[PtahCliRegistry] Building spawn options for "${agentConfig.name}"`,
       {
         cwd,
+        modelTier: tier,
+        sdkModel: model,
         resumeSessionId: options?.resumeSessionId ?? null,
         isPremium: assembly.isPremium,
         pluginCount: assembly.plugins?.length ?? 0,
@@ -930,12 +947,22 @@ export class PtahCliRegistry {
   ): PtahCliConfig['tierMappings'] {
     const mainTiers = this.providerModels.getModelTiers(agentConfig.providerId);
     const agentTiers = agentConfig.tierMappings;
+    const providerDefaults = provider.defaultTiers;
     const defaultSonnet = provider.staticModels?.[0]?.id ?? undefined;
 
     const sonnet =
-      agentTiers?.sonnet || mainTiers.sonnet || defaultSonnet || undefined;
-    const opus = agentTiers?.opus || mainTiers.opus || undefined;
-    const haiku = agentTiers?.haiku || mainTiers.haiku || undefined;
+      agentTiers?.sonnet ||
+      mainTiers.sonnet ||
+      providerDefaults?.sonnet ||
+      defaultSonnet ||
+      undefined;
+    const opus =
+      agentTiers?.opus || mainTiers.opus || providerDefaults?.opus || undefined;
+    const haiku =
+      agentTiers?.haiku ||
+      mainTiers.haiku ||
+      providerDefaults?.haiku ||
+      undefined;
 
     if (!sonnet && !opus && !haiku) {
       return undefined;

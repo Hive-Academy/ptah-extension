@@ -245,6 +245,7 @@ import type {
   QualityExportResult,
   PluginInfo,
   PluginConfigState,
+  PluginSkillEntry,
 } from './rpc/rpc-misc.types';
 
 // ============================================================
@@ -604,8 +605,12 @@ export interface RpcMethodRegistry {
     result: PluginConfigState;
   };
   'plugins:save-config': {
-    params: { enabledPluginIds: string[] };
+    params: { enabledPluginIds: string[]; disabledSkillIds?: string[] };
     result: { success: boolean; error?: string };
+  };
+  'plugins:list-skills': {
+    params: { pluginIds: string[] };
+    result: { skills: PluginSkillEntry[] };
   };
 
   // ---- Agent Orchestration Methods (TASK_2025_157) ----
@@ -1052,6 +1057,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'plugins:list-available',
   'plugins:get-config',
   'plugins:save-config',
+  'plugins:list-skills',
 
   // Agent Orchestration Methods (TASK_2025_157)
   'agent:getConfig',
