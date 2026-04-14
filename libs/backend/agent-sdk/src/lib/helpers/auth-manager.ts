@@ -38,8 +38,12 @@ import type {
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
 import type { ICodexAuthService } from '../codex-provider/codex-provider.types';
 import type { ITranslationProxy } from '../openai-translation';
-import { LOCAL_PROXY_TOKEN_PLACEHOLDER } from '../local-provider';
+import {
+  LOCAL_PROXY_TOKEN_PLACEHOLDER,
+  OLLAMA_AUTH_TOKEN_PLACEHOLDER,
+} from '../local-provider';
 import { LocalModelTranslationProxy } from '../local-provider/local-model-translation-proxy';
+import type { OllamaModelDiscoveryService } from '../local-provider/ollama-model-discovery.service';
 
 export interface AuthResult {
   configured: boolean;
@@ -90,8 +94,8 @@ export class AuthManager {
     private codexAuth: ICodexAuthService,
     @inject(SDK_TOKENS.SDK_CODEX_PROXY)
     private codexProxy: ITranslationProxy,
-    @inject(SDK_TOKENS.SDK_OLLAMA_PROXY)
-    private ollamaProxy: LocalModelTranslationProxy,
+    @inject(SDK_TOKENS.SDK_OLLAMA_DISCOVERY)
+    private ollamaDiscovery: OllamaModelDiscoveryService,
     @inject(SDK_TOKENS.SDK_LM_STUDIO_PROXY)
     private lmStudioProxy: LocalModelTranslationProxy,
   ) {}
@@ -352,7 +356,13 @@ export class AuthManager {
       return this.configureOAuthProvider(provider);
     }
 
-    // TASK_2025_265: Local provider flow (e.g., Ollama, LM Studio)
+    // TASK_2025_281: Ollama Anthropic-native flow (no proxy needed)
+    // Ollama v0.14.0+ speaks Anthropic Messages API directly
+    if (!provider?.requiresProxy && provider?.authType === 'none') {
+      return this.configureOllamaProvider(provider);
+    }
+
+    // TASK_2025_265: Local proxy provider flow (LM Studio)
     // Uses translation proxy, requires no API key or OAuth
     if (provider?.requiresProxy && provider?.authType === 'none') {
       return this.configureLocalProvider(provider);
@@ -469,6 +479,121 @@ export class AuthManager {
         );
       }
     }
+  }
+
+  /**
+   * Configure Ollama provider (Anthropic-native, no proxy) - TASK_2025_281.
+   *
+   * Flow:
+   * 1. Stop ALL other provider proxies
+   * 2. Point ANTHROPIC_BASE_URL directly to Ollama server
+   * 3. Set placeholder auth token (Ollama ignores auth)
+   * 4. Register dynamic model fetcher via OllamaModelDiscoveryService
+   */
+  private async configureOllamaProvider(provider: {
+    id: string;
+    name: string;
+  }): Promise<AuthResult> {
+    const providerName = provider.name;
+
+    this.logger.info(
+      `[AuthManager] Configuring Ollama provider: ${providerName} (Anthropic-native)`,
+    );
+
+    // Step 1: Stop all other proxies
+    await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
+    await this.stopProxyIfRunning(this.codexProxy, 'Codex');
+    await this.stopProxyIfRunning(this.lmStudioProxy, 'LM Studio');
+
+    // Step 2: Get the base URL (custom or default from provider entry)
+    const customUrl = this.config.get<string>(
+      `provider.${provider.id}.baseUrl`,
+    );
+    const baseUrl = customUrl?.trim() || getProviderBaseUrl(provider.id);
+
+    // Step 2.5: Version check — verify Ollama v0.14.0+ for Anthropic API support
+    try {
+      const { version, supported } = await this.ollamaDiscovery.checkVersion(
+        provider.id,
+      );
+
+      if (!supported) {
+        this.logger.warn(
+          `[AuthManager] Ollama v${version} does not support Anthropic Messages API. Minimum: v0.14.0.`,
+        );
+        return {
+          configured: false,
+          details: [],
+          errorMessage: `Ollama v${version} is too old. Please upgrade to v0.14.0+ for Anthropic API support (download from ollama.com/download).`,
+        };
+      }
+
+      this.logger.info(
+        `[AuthManager] Ollama v${version} — Anthropic Messages API supported`,
+      );
+    } catch {
+      this.logger.warn(
+        `[AuthManager] Ollama server not reachable at ${baseUrl}. Ensure Ollama is running.`,
+      );
+      return {
+        configured: false,
+        details: [],
+        errorMessage: `Ollama is not reachable at ${baseUrl}. Ensure Ollama is running.`,
+      };
+    }
+
+    // Step 2.6: Model availability check
+    try {
+      const models =
+        provider.id === 'ollama-cloud'
+          ? await this.ollamaDiscovery.listCloudModels()
+          : await this.ollamaDiscovery.listLocalModels();
+
+      if (provider.id === 'ollama-cloud' && models.length === 0) {
+        this.logger.warn(
+          `[AuthManager] Ollama Cloud: no cloud models found. Run "ollama signin" to authenticate with Ollama Cloud.`,
+        );
+      }
+    } catch (modelError) {
+      this.logger.warn(
+        `[AuthManager] Failed to list Ollama models: ${
+          modelError instanceof Error ? modelError.message : String(modelError)
+        }`,
+      );
+      // Non-fatal: proceed with configuration even if model listing fails
+    }
+
+    // Step 3: Point SDK directly at Ollama (no proxy)
+    this.authEnv.ANTHROPIC_BASE_URL = baseUrl;
+    this.authEnv.ANTHROPIC_AUTH_TOKEN = OLLAMA_AUTH_TOKEN_PLACEHOLDER;
+    process.env['ANTHROPIC_BASE_URL'] = baseUrl;
+    process.env['ANTHROPIC_AUTH_TOKEN'] = OLLAMA_AUTH_TOKEN_PLACEHOLDER;
+
+    // Step 4: Apply tier mappings and register dynamic model fetcher
+    this.providerModels.switchActiveProvider(provider.id);
+
+    // Register the appropriate model fetcher (local vs cloud)
+    if (provider.id === 'ollama-cloud') {
+      this.providerModels.registerDynamicFetcher(provider.id, () =>
+        this.ollamaDiscovery.listCloudModels(),
+      );
+    } else {
+      this.providerModels.registerDynamicFetcher(provider.id, () =>
+        this.ollamaDiscovery.listLocalModels(),
+      );
+    }
+
+    this.logger.info(
+      `[AuthManager] Using ${providerName} (Anthropic-native at ${baseUrl})`,
+    );
+    this.logger.info(
+      `[AuthManager] Set ANTHROPIC_BASE_URL=${baseUrl}, ANTHROPIC_AUTH_TOKEN=<ollama>`,
+    );
+
+    return {
+      configured: true,
+      details: [`${providerName} (Anthropic-native at ${baseUrl})`],
+    };
   }
 
   /**
@@ -647,7 +772,8 @@ export class AuthManager {
   }
 
   /**
-   * Configure a local model provider that requires no authentication (TASK_2025_265).
+   * Configure a local proxy provider that requires no authentication (TASK_2025_265).
+   * Now LM Studio only — Ollama uses configureOllamaProvider() instead (TASK_2025_281).
    *
    * Flow:
    * 1. Stop ALL other provider proxies (only one active at a time)
@@ -669,16 +795,9 @@ export class AuthManager {
     // Step 1: Stop other proxies to prevent cross-contamination
     await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
     await this.stopProxyIfRunning(this.codexProxy, 'Codex');
-    // Stop the OTHER local proxy if running
-    if (provider.id === 'ollama') {
-      await this.stopProxyIfRunning(this.lmStudioProxy, 'LM Studio');
-    } else {
-      await this.stopProxyIfRunning(this.ollamaProxy, 'Ollama');
-    }
 
-    // Step 2: Get the correct proxy for this provider
-    const proxy =
-      provider.id === 'ollama' ? this.ollamaProxy : this.lmStudioProxy;
+    // Step 2: LM Studio is the only proxy provider now (TASK_2025_281)
+    const proxy = this.lmStudioProxy;
 
     // Step 3: Start the translation proxy
     let proxyUrl: string;
@@ -851,16 +970,11 @@ export class AuthManager {
       });
     }
 
-    // Stop local provider proxies if running (TASK_2025_265)
-    if (this.ollamaProxy?.isRunning()) {
-      this.ollamaProxy.stop().catch((err) => {
-        this.logger.warn(
-          `[AuthManager] Failed to stop Ollama proxy during cleanup: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      });
-    }
+    // Clear Ollama model discovery cache (TASK_2025_281)
+    this.ollamaDiscovery.clearCache();
+
+    // Stop LM Studio proxy if running (TASK_2025_265, updated TASK_2025_281)
+    // Ollama no longer uses a proxy — it speaks Anthropic API natively
     if (this.lmStudioProxy?.isRunning()) {
       this.lmStudioProxy.stop().catch((err) => {
         this.logger.warn(
