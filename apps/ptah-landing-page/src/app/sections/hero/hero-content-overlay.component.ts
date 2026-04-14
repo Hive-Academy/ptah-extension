@@ -1,4 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -18,7 +19,7 @@ import {
 @Component({
   selector: 'ptah-hero-content-overlay',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ViewportAnimationDirective, ScrollAnimationDirective],
+  imports: [ViewportAnimationDirective, ScrollAnimationDirective, RouterLink],
   template: `
     <!-- Scroll-linked fade-out container for cinematic exit -->
     <div
@@ -89,9 +90,7 @@ import {
             30 DAYS TRIAL
           </span>
           <a
-            href="https://github.com/Hive-Academy/ptah-extension/releases/latest"
-            target="_blank"
-            rel="noopener"
+            routerLink="/download"
             class="cta-glow-button block relative overflow-hidden px-5 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold text-white rounded-xl text-center"
           >
             <span class="relative z-[1]">Download Desktop App</span>

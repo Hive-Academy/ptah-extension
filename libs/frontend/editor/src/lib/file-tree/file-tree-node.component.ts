@@ -71,7 +71,7 @@ import type { GitFileStatus } from '@ptah-extension/shared';
           aria-hidden="true"
         />
       }
-      <span class="truncate">{{ node().name }}</span>
+      <span class="truncate" [class]="fileNameColor()">{{ node().name }}</span>
       @if (nodeGitStatus()) {
         <span
           class="ml-auto text-[10px] font-mono flex-shrink-0"
@@ -80,6 +80,12 @@ import type { GitFileStatus } from '@ptah-extension/shared';
           aria-hidden="true"
           >{{ nodeGitStatus()!.status }}</span
         >
+      }
+      @if (hasChangedChildren()) {
+        <span
+          class="w-1.5 h-1.5 rounded-full bg-warning ml-auto flex-shrink-0"
+          title="Contains changes"
+        ></span>
       }
       @if (isLoadingChildren()) {
         <span class="loading loading-spinner loading-xs ml-auto"></span>
@@ -172,6 +178,55 @@ export class FileTreeNodeComponent {
       default:
         return 'text-base-content/50';
     }
+  });
+
+  /**
+   * CSS class for coloring the entire filename based on git status.
+   * Applied to files only (directories use hasChangedChildren dot instead).
+   * Deleted files also get a line-through decoration.
+   */
+  readonly fileNameColor = computed((): string => {
+    const status = this.nodeGitStatus();
+    if (!status) return '';
+    switch (status.status) {
+      case 'M':
+        return 'text-warning';
+      case 'A':
+        return 'text-success';
+      case 'D':
+        return 'text-error line-through';
+      case '??':
+        return 'text-success';
+      default:
+        return '';
+    }
+  });
+
+  /**
+   * Whether this directory contains any files with git changes.
+   * Used to show a small dot indicator on directories that have modified children.
+   * Only applies to directory nodes.
+   */
+  readonly hasChangedChildren = computed((): boolean => {
+    if (this.node().type !== 'directory') return false;
+    const nodePath = this.node().path.replace(/\\/g, '/');
+    const workspaceRoot = this.gitStatus.activeWorkspacePath;
+    if (!workspaceRoot) return false;
+
+    const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
+    const rootWithSlash = normalizedRoot.endsWith('/')
+      ? normalizedRoot
+      : normalizedRoot + '/';
+    const relativeDirPath = nodePath.startsWith(rootWithSlash)
+      ? nodePath.slice(rootWithSlash.length)
+      : '';
+    if (!relativeDirPath) return false;
+
+    const dirPrefix = relativeDirPath + '/';
+    for (const key of this.gitStatus.fileStatusMap().keys()) {
+      if (key.startsWith(dirPrefix)) return true;
+    }
+    return false;
   });
 
   // Lucide icons

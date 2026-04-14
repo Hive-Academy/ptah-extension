@@ -36,3 +36,20 @@
     oklch(var(--s) / 0.5)
   );
 }
+
+/* Collapsible input area animation */
+.input-collapse-wrapper {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 200ms ease-out;
+  overflow: hidden;
+}
+
+.input-collapse-wrapper.input-collapsed {
+  grid-template-rows: 0fr;
+}
+
+.input-collapse-wrapper > :first-child {
+  min-height: 0;
+  overflow: hidden;
+}

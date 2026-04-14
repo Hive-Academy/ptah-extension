@@ -16,6 +16,11 @@ import {
   type GitFileStatus,
   type GitInfoResult,
   type GitWorktreeInfo,
+  type GitStageResult,
+  type GitUnstageResult,
+  type GitDiscardResult,
+  type GitCommitResult,
+  type GitShowFileResult,
 } from '@ptah-extension/shared';
 
 const GIT_TIMEOUT_MS = 10_000;
@@ -157,6 +162,286 @@ export class GitInfoService {
       return { success: false, error: message };
     }
   }
+
+  // ==========================================================================
+  // Source Control Operations (TASK_2025_273)
+  // ==========================================================================
+
+  /**
+   * Stage files in the git index.
+   * Runs: git add -- <paths...>
+   */
+  async stageFiles(
+    workspacePath: string,
+    paths: string[],
+  ): Promise<GitStageResult> {
+    try {
+      this.validatePaths(paths);
+
+      const { exitCode, stderr } = await this.execGit(
+        ['add', '--', ...paths],
+        workspacePath,
+      );
+
+      if (exitCode !== 0) {
+        return {
+          success: false,
+          error: stderr.trim() || 'Failed to stage files',
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('[GitInfoService] stageFiles failed', {
+        workspacePath,
+        paths,
+        error: message,
+      } as unknown as Error);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * Unstage files from the git index.
+   * Runs: git reset HEAD -- <paths...>
+   */
+  async unstageFiles(
+    workspacePath: string,
+    paths: string[],
+  ): Promise<GitUnstageResult> {
+    try {
+      this.validatePaths(paths);
+
+      const { exitCode, stderr } = await this.execGit(
+        ['reset', 'HEAD', '--', ...paths],
+        workspacePath,
+      );
+
+      if (exitCode !== 0) {
+        return {
+          success: false,
+          error: stderr.trim() || 'Failed to unstage files',
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('[GitInfoService] unstageFiles failed', {
+        workspacePath,
+        paths,
+        error: message,
+      } as unknown as Error);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * Discard working tree changes for files.
+   * For tracked files: git checkout -- <paths...>
+   * For untracked files: git clean -f -- <paths...>
+   *
+   * WARNING: This is a destructive operation that cannot be undone.
+   */
+  async discardChanges(
+    workspacePath: string,
+    paths: string[],
+  ): Promise<GitDiscardResult> {
+    try {
+      this.validatePaths(paths);
+
+      // Separate tracked from untracked files by checking git status
+      const { stdout: statusOutput } = await this.execGit(
+        ['status', '--porcelain', '--', ...paths],
+        workspacePath,
+      );
+
+      const untrackedPaths: string[] = [];
+      const trackedPaths: string[] = [];
+
+      for (const line of statusOutput.split('\n')) {
+        if (!line.trim()) continue;
+        // Untracked files start with '?? '
+        if (line.startsWith('?? ')) {
+          untrackedPaths.push(line.substring(3).trim());
+        } else {
+          // Extract the file path from the status line (skip 3-char status prefix)
+          trackedPaths.push(line.substring(3).trim());
+        }
+      }
+
+      // Discard tracked file changes
+      if (trackedPaths.length > 0) {
+        const { exitCode, stderr } = await this.execGit(
+          ['checkout', '--', ...trackedPaths],
+          workspacePath,
+        );
+
+        if (exitCode !== 0) {
+          return {
+            success: false,
+            error: stderr.trim() || 'Failed to discard tracked file changes',
+          };
+        }
+      }
+
+      // Remove untracked files
+      if (untrackedPaths.length > 0) {
+        this.logger.warn(
+          '[GitInfoService] Removing untracked files via git clean (irreversible)',
+          {
+            workspacePath,
+            paths: untrackedPaths,
+          } as unknown as Error,
+        );
+
+        const { exitCode, stderr } = await this.execGit(
+          ['clean', '-f', '--', ...untrackedPaths],
+          workspacePath,
+        );
+
+        if (exitCode !== 0) {
+          return {
+            success: false,
+            error: stderr.trim() || 'Failed to remove untracked files',
+          };
+        }
+      }
+
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('[GitInfoService] discardChanges failed', {
+        workspacePath,
+        paths,
+        error: message,
+      } as unknown as Error);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * Create a commit with the given message.
+   * Runs: git commit -m "<message>"
+   * Parses the commit hash from the output.
+   */
+  async commit(
+    workspacePath: string,
+    message: string,
+  ): Promise<GitCommitResult> {
+    try {
+      const trimmedMessage = message.trim();
+      if (!trimmedMessage) {
+        return { success: false, error: 'Commit message cannot be empty' };
+      }
+
+      const { stdout, exitCode, stderr } = await this.execGit(
+        ['commit', '-m', trimmedMessage],
+        workspacePath,
+      );
+
+      if (exitCode !== 0) {
+        return {
+          success: false,
+          error: stderr.trim() || 'Failed to create commit',
+        };
+      }
+
+      // Parse commit hash from output like "[branch abc1234] commit message"
+      const hashMatch = stdout.match(/\[[\w/.-]+ ([0-9a-f]+)\]/);
+      const commitHash = hashMatch?.[1];
+
+      return { success: true, commitHash };
+    } catch (error) {
+      const message_ = error instanceof Error ? error.message : String(error);
+      this.logger.error('[GitInfoService] commit failed', {
+        workspacePath,
+        error: message_,
+      } as unknown as Error);
+      return { success: false, error: message_ };
+    }
+  }
+
+  /**
+   * Show file content from HEAD.
+   * Runs: git show HEAD:<relativePath>
+   * Returns empty content for new/untracked files.
+   */
+  async showFile(
+    workspacePath: string,
+    relativePath: string,
+  ): Promise<GitShowFileResult> {
+    try {
+      if (!relativePath || !relativePath.trim()) {
+        return { content: '' };
+      }
+
+      this.validatePathSegment(relativePath);
+
+      const { stdout, exitCode } = await this.execGit(
+        ['show', `HEAD:${relativePath}`],
+        workspacePath,
+      );
+
+      if (exitCode !== 0) {
+        // File doesn't exist in HEAD (new/untracked file) — return empty content
+        return { content: '' };
+      }
+
+      return { content: stdout };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('[GitInfoService] showFile failed', {
+        workspacePath,
+        relativePath,
+        error: message,
+      } as unknown as Error);
+      // Gracefully return empty content on any failure
+      return { content: '' };
+    }
+  }
+
+  // ==========================================================================
+  // PATH VALIDATION
+  // ==========================================================================
+
+  /**
+   * Validate an array of paths: must be non-empty, no path traversal.
+   * Throws on invalid input.
+   */
+  private validatePaths(paths: string[]): void {
+    if (!paths || paths.length === 0) {
+      throw new Error('paths must be a non-empty array');
+    }
+
+    for (const p of paths) {
+      this.validatePathSegment(p);
+    }
+  }
+
+  /**
+   * Validate a single path: must be non-empty, no '..' segments.
+   * Throws on invalid input.
+   */
+  private validatePathSegment(filePath: string): void {
+    if (!filePath || !filePath.trim()) {
+      throw new Error('path must be a non-empty string');
+    }
+
+    // Prevent path traversal: reject paths containing '..' segments
+    const normalized = filePath.replace(/\\/g, '/');
+    const segments = normalized.split('/');
+    if (segments.some((s) => s === '..')) {
+      throw new Error(
+        `Path traversal detected: "${filePath}" contains '..' segments`,
+      );
+    }
+  }
+
+  // ==========================================================================
+  // REPOSITORY CHECKS
+  // ==========================================================================
 
   async isGitRepo(workspacePath: string): Promise<boolean> {
     try {

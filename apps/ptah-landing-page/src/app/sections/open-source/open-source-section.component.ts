@@ -196,9 +196,7 @@ import {
                 </li>
               </ul>
               <a
-                href="https://github.com/Hive-Academy/ptah-extension/releases/latest"
-                target="_blank"
-                rel="noopener noreferrer"
+                routerLink="/download"
                 class="inline-flex items-center gap-2 text-[#f4d47c] hover:text-[#d4af37] font-medium text-sm transition-colors group/link"
               >
                 <div

@@ -32,6 +32,12 @@ export interface ApiModelEntry {
   createdAt: string;
 }
 
+/** Valid tier names for model resolution */
+export type ModelTier = 'opus' | 'sonnet' | 'haiku' | 'default';
+
+/** Tier names that have corresponding ANTHROPIC_DEFAULT_*_MODEL env vars */
+export type EnvMappedTier = Exclude<ModelTier, 'default'>;
+
 /**
  * Canonical mapping from bare tier names to full model IDs.
  * Exported as the single source of truth — all consumers must import this
@@ -44,7 +50,7 @@ export interface ApiModelEntry {
  *
  * MAINTENANCE: Update these when new Claude model versions are released.
  */
-export const TIER_TO_MODEL_ID: Record<string, string> = {
+export const TIER_TO_MODEL_ID: Record<ModelTier, string> = {
   opus: 'claude-opus-4-6',
   sonnet: 'claude-sonnet-4-6',
   haiku: 'claude-haiku-4-5-20251001',
@@ -52,17 +58,90 @@ export const TIER_TO_MODEL_ID: Record<string, string> = {
 };
 
 /** Default fallback model ID — Sonnet as the best cost/capability balance */
-export const DEFAULT_FALLBACK_MODEL_ID = 'claude-sonnet-4-6';
+export const DEFAULT_FALLBACK_MODEL_ID = TIER_TO_MODEL_ID['default'];
+
+/** Type guard: check if a string is a valid ModelTier key */
+function isModelTier(value: string): value is ModelTier {
+  return value in TIER_TO_MODEL_ID;
+}
+
+/** Type guard: check if a string is an EnvMappedTier key */
+function isEnvMappedTier(value: string): value is EnvMappedTier {
+  return value in TIER_ENV_VAR_MAP;
+}
 
 /**
- * Known tier names that have corresponding ANTHROPIC_DEFAULT_*_MODEL env vars.
- * Used to safely construct env var keys without unsound `as keyof AuthEnv` casts.
+ * Canonical mapping from tier names to their ANTHROPIC_DEFAULT_*_MODEL env var keys.
+ * Single source of truth — all consumers must import this rather than defining their own.
+ *
+ * Used by:
+ * - SdkModelService.resolveModelId() — to check env var overrides
+ * - ProviderModelsService.setModelTier() — to set env vars for proxy providers
+ * - buildTierEnvDefaults() — to guarantee env vars for SDK subagent spawning
+ * - clearAllTierEnvVars() / applyPersistedTiers() — to manage tier env lifecycle
  */
-const TIER_ENV_VAR_MAP: Record<string, keyof AuthEnv> = {
+export const TIER_ENV_VAR_MAP: Record<EnvMappedTier, keyof AuthEnv> = {
   opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
   sonnet: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
   haiku: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
 };
+
+/**
+ * Build tier env var defaults for SDK subprocess environments.
+ *
+ * The Claude Agent SDK resolves bare tier names ('haiku', 'sonnet', 'opus') in
+ * subagent subprocesses by reading ANTHROPIC_DEFAULT_*_MODEL env vars. When using
+ * direct Anthropic auth (API key / OAuth), these vars are never set because
+ * ProviderModelsService.setModelTier() is only called for third-party providers.
+ *
+ * This function returns a Record that guarantees all three tier env vars are
+ * present — using existing authEnv values when set (proxy provider), falling
+ * back to TIER_TO_MODEL_ID defaults (direct Anthropic).
+ *
+ * @param authEnv - Current AuthEnv (may have overrides from proxy provider)
+ * @returns Record with guaranteed ANTHROPIC_DEFAULT_*_MODEL values
+ */
+export function buildTierEnvDefaults(authEnv: AuthEnv): Record<string, string> {
+  const defaults: Record<string, string> = {};
+  for (const [tier, envKey] of Object.entries(TIER_ENV_VAR_MAP)) {
+    defaults[envKey] =
+      authEnv[envKey] || TIER_TO_MODEL_ID[tier as EnvMappedTier];
+  }
+  return defaults;
+}
+
+/**
+ * Resolve a model identifier to a full model ID (static version).
+ *
+ * Standalone function for contexts where SdkModelService is not injectable
+ * (e.g., RPC handlers). Uses the same resolution priority as the instance
+ * method:
+ *
+ * 1. Already a full ID (starts with 'claude-') → return as-is
+ * 2. Env var override (if authEnv provided) → use provider-specific mapping
+ * 3. Known tier in TIER_TO_MODEL_ID → return default mapping
+ * 4. Unknown → return as-is
+ *
+ * @param model - Model string (could be full ID or bare tier name)
+ * @param authEnv - Optional AuthEnv for env var override checks (proxy providers)
+ */
+export function resolveModelIdStatic(model: string, authEnv?: AuthEnv): string {
+  if (model.startsWith('claude-')) {
+    return model;
+  }
+  const tierLower = model.toLowerCase();
+
+  // Check env var overrides (set by ProviderModelsService for proxy providers)
+  if (authEnv && isEnvMappedTier(tierLower)) {
+    const envKey = TIER_ENV_VAR_MAP[tierLower];
+    const override = authEnv[envKey];
+    if (override) {
+      return override;
+    }
+  }
+
+  return isModelTier(tierLower) ? TIER_TO_MODEL_ID[tierLower] : model;
+}
 
 /**
  * Fallback models using full model IDs.
@@ -549,8 +628,8 @@ export class SdkModelService {
     // Check env var overrides first (set by ProviderModelsService.setModelTier).
     // Only check known tiers that have corresponding env vars — avoids
     // constructing invalid env key names from arbitrary input.
-    const envVarKey = TIER_ENV_VAR_MAP[tierLower];
-    if (envVarKey) {
+    if (isEnvMappedTier(tierLower)) {
+      const envVarKey = TIER_ENV_VAR_MAP[tierLower];
       const envOverride = this.authEnv[envVarKey];
       if (envOverride) {
         this.logger.debug(
@@ -561,8 +640,8 @@ export class SdkModelService {
     }
 
     // Fall back to known tier-to-model-ID mapping
-    const knownId = TIER_TO_MODEL_ID[tierLower];
-    if (knownId) {
+    if (isModelTier(tierLower)) {
+      const knownId = TIER_TO_MODEL_ID[tierLower];
       this.logger.debug(
         `[SdkModelService] Resolved bare tier name '${model}' to '${knownId}'`,
       );

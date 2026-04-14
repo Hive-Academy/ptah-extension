@@ -18,7 +18,7 @@
 
     <!-- TASK_2025_098: Compaction Notification Banner -->
     <div class="px-4">
-      <ptah-compaction-notification [isCompacting]="chatStore.isCompacting()" />
+      <ptah-compaction-notification [isCompacting]="resolvedIsCompacting()" />
     </div>
 
     <!-- Message List -->
@@ -146,8 +146,29 @@
       </div>
     }
 
-    <!-- Input Area (sticky at bottom, never shrinks) -->
-    <ptah-chat-input class="flex-shrink-0 border-t border-base-300" />
+    <!-- Input Area Collapse Toggle (full-width bar above input) -->
+    <button
+      class="w-full flex items-center justify-center gap-1 py-0.5 bg-base-200/50 hover:bg-base-200 border-t border-base-300 cursor-pointer transition-colors text-base-content/40 hover:text-base-content/70 flex-shrink-0"
+      (click)="toggleInputCollapse()"
+      [title]="inputCollapsed() ? 'Show input area' : 'Hide input area'"
+      type="button"
+    >
+      <lucide-angular
+        [img]="inputCollapsed() ? ChevronUpIcon : ChevronDownIcon"
+        class="w-3.5 h-3.5"
+      />
+      <span class="text-[10px] font-medium uppercase tracking-wider">{{
+        inputCollapsed() ? 'Show Input' : 'Hide Input'
+      }}</span>
+    </button>
+
+    <!-- Input Area (sticky at bottom, never shrinks) — collapsible with animation -->
+    <div
+      class="flex-shrink-0 input-collapse-wrapper"
+      [class.input-collapsed]="inputCollapsed()"
+    >
+      <ptah-chat-input class="border-t border-base-300" />
+    </div>
   </div>
 
   <!-- Agents vertical toggle tab (per-session) -->

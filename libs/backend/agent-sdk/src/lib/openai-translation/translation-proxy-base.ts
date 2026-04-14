@@ -599,6 +599,13 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           }
 
           // Handle 429 -- rate limit
+          // IMPORTANT: Return 429 rate_limit_error (NOT 529 overloaded_error).
+          // The Claude Agent SDK retries 529 aggressively with backoff, which
+          // creates a retry amplification loop: each retry sends a new request
+          // to the upstream API, consuming another premium request, which gets
+          // rate-limited again → another 529 → another retry. This burns through
+          // Copilot premium requests until max_retries is exhausted.
+          // Returning 429 with retry-after lets the SDK handle rate limits properly.
           if (statusCode === 429) {
             const retryAfter = proxyRes.headers['retry-after'];
             const retryMsg = retryAfter
@@ -608,11 +615,19 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               `${this.logPrefix} [${requestId}] Rate limited by ${this.config.name} ${apiLabel}${retryMsg}`,
             );
             proxyRes.resume();
+
+            // Pass through retry-after header so the SDK can respect it
+            const headers: Record<string, string> = {};
+            if (retryAfter) {
+              headers['retry-after'] = retryAfter;
+            }
+
             this.sendErrorResponse(
               res,
-              529,
-              'overloaded_error',
+              429,
+              'rate_limit_error',
               `${this.config.name} API rate limit exceeded.${retryMsg} Please wait and try again.`,
+              headers,
             );
             resolve();
             return;
@@ -1062,37 +1077,45 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   }
 
   /**
-   * Send a JSON response.
+   * Send a JSON response with optional extra headers.
    */
   private sendJson(
     res: http.ServerResponse,
     statusCode: number,
     body: Record<string, unknown>,
+    extraHeaders?: Record<string, string>,
   ): void {
     const json = JSON.stringify(body);
     res.writeHead(statusCode, {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(json).toString(),
+      ...extraHeaders,
     });
     res.end(json);
   }
 
   /**
-   * Send an Anthropic-format error response.
+   * Send an Anthropic-format error response with optional extra headers.
    */
   private sendErrorResponse(
     res: http.ServerResponse,
     statusCode: number,
     errorType: string,
     message: string,
+    extraHeaders?: Record<string, string>,
   ): void {
-    this.sendJson(res, statusCode, {
-      type: 'error',
-      error: {
-        type: errorType,
-        message,
+    this.sendJson(
+      res,
+      statusCode,
+      {
+        type: 'error',
+        error: {
+          type: errorType,
+          message,
+        },
       },
-    });
+      extraHeaders,
+    );
   }
 
   /**
