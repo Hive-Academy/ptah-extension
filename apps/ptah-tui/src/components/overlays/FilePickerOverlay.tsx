@@ -1,32 +1,26 @@
 /**
  * FilePickerOverlay -- Inline file picker rendered above the MessageInput.
  *
- * TASK_2025_266 Batch 5
- *
- * Displays a filtered list of workspace files based on the @ query.
- * Supports keyboard navigation (Up/Down to select, Enter to confirm, Escape to dismiss).
- * Uses inverse text for the selected item, matching the CommandOverlay pattern.
- *
- * This is NOT a modal -- it renders inline within ChatPanel, between
- * MessageList and MessageInput, identical to CommandOverlay.
+ * Displays a filtered list of workspace files based on the @ query. Renders
+ * inline within ChatPanel, not as a modal. Uses `useKeyboardNav` for
+ * selection handling.
  */
 
-import React, { useState, useEffect } from 'react';
-import { Box, Text, useInput } from 'ink';
+import React, { useEffect } from 'react';
+import { Text } from 'ink';
 
 import { useTheme } from '../../hooks/use-theme.js';
-import { Spinner } from '../common/Spinner.js';
+import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
+import { Panel, Spinner } from '../atoms/index.js';
+import { ListItem } from '../molecules/index.js';
 import type { FileEntry } from '../../hooks/use-file-picker.js';
 
 /** Maximum number of files to display in the overlay. */
 const MAX_VISIBLE_FILES = 15;
 
-/**
- * Map a file extension to a short icon string for display.
- */
 function getFileTypeIcon(fileName: string): string {
   const dotIndex = fileName.lastIndexOf('.');
-  if (dotIndex < 0) return '\u00B7'; // middle dot for extensionless files
+  if (dotIndex < 0) return '\u00B7';
 
   const ext = fileName.substring(dotIndex).toLowerCase();
   switch (ext) {
@@ -54,7 +48,7 @@ function getFileTypeIcon(fileName: string): string {
     case '.rs':
       return 'RS';
     default:
-      return '\u00B7'; // middle dot
+      return '\u00B7';
   }
 }
 
@@ -79,75 +73,42 @@ function FilePickerOverlayInner({
 
   const visible = files.slice(0, MAX_VISIBLE_FILES);
 
-  const [selectedIndex, setSelectedIndex] = useState(0);
-
-  // Reset selection when the file list or query changes
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [query, files]);
-
-  useInput(
-    (_input, key) => {
-      if (key.upArrow) {
-        setSelectedIndex((prev) =>
-          visible.length === 0
-            ? 0
-            : (prev - 1 + visible.length) % visible.length,
-        );
-      }
-
-      if (key.downArrow) {
-        setSelectedIndex((prev) =>
-          visible.length === 0 ? 0 : (prev + 1) % visible.length,
-        );
-      }
-
-      if (key.return) {
-        const selected = visible[selectedIndex];
-        if (selected) {
-          onSelect(selected);
-        }
-      }
-
-      if (key.escape) {
-        onDismiss();
+  const { activeIndex, reset } = useKeyboardNav({
+    itemCount: visible.length,
+    isActive,
+    wrap: true,
+    onSelect: (i) => {
+      const selected = visible[i];
+      if (selected) {
+        onSelect(selected);
       }
     },
-    { isActive },
-  );
+    onEscape: onDismiss,
+  });
+
+  useEffect(() => {
+    reset();
+  }, [query, files, reset]);
 
   if (!isActive) return null;
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="single"
-      borderColor={theme.ui.borderActive}
-      paddingX={1}
-      marginX={0}
-    >
+    <Panel isActive padding={1}>
       {loading ? (
         <Spinner label="Searching files..." />
       ) : visible.length === 0 ? (
         <Text color={theme.ui.dimmed}>No matching files</Text>
       ) : (
-        visible.map((file, index) => {
-          const isSelected = index === selectedIndex;
-          const icon = getFileTypeIcon(file.fileName);
-
-          return (
-            <Box key={file.relativePath} gap={1}>
-              <Text dimColor color={theme.ui.dimmed}>
-                {icon}
-              </Text>
-              <Text bold={isSelected} inverse={isSelected}>
-                {file.relativePath}
-              </Text>
-            </Box>
-          );
-        })
+        visible.map((file, index) => (
+          <ListItem
+            key={file.relativePath}
+            label={file.relativePath}
+            icon={getFileTypeIcon(file.fileName)}
+            isSelected={index === activeIndex}
+          />
+        ))
       )}
-    </Box>
+    </Panel>
   );
 }
 

@@ -176,15 +176,34 @@ export class ElectronLayoutService {
    * Unlike addFolder(), this does not open a file dialog -- it directly
    * registers the given path as a workspace folder.
    */
-  addFolderByPath(folderPath: string): void {
+  async addFolderByPath(folderPath: string): Promise<void> {
     // Deduplicate: don't add if the path already exists
     const existing = this._workspaceFolders();
     if (existing.some((f) => f.path === folderPath)) {
-      // Already open -- just switch to it
       const existingIndex = existing.findIndex((f) => f.path === folderPath);
       if (existingIndex >= 0) {
         this.switchWorkspace(existingIndex);
       }
+      return;
+    }
+
+    // Register with backend first so the folder persists across restarts
+    try {
+      const result = await this.rpcService.call('workspace:registerFolder', {
+        path: folderPath,
+      });
+      if (!result.isSuccess() || !result.data?.success) {
+        console.error(
+          '[ElectronLayout] Failed to register folder with backend:',
+          result.isSuccess() ? result.data?.error : 'RPC failed',
+        );
+        return;
+      }
+    } catch (error) {
+      console.error(
+        '[ElectronLayout] workspace:registerFolder RPC failed:',
+        error,
+      );
       return;
     }
 
@@ -196,7 +215,6 @@ export class ElectronLayoutService {
       },
     ]);
 
-    // Auto-switch to the new folder
     const newIndex = this._workspaceFolders().length - 1;
     this.switchWorkspace(newIndex);
   }
@@ -296,26 +314,36 @@ export class ElectronLayoutService {
       }
     }
 
-    // Remove the folder from the list
+    // Remove from backend first — if this fails, don't mutate frontend state.
+    // Prevents zombie folders that reappear on restart.
+    try {
+      const result = await this.rpcService.call('workspace:removeFolder', {
+        path: removedFolder.path,
+      });
+      if (!result.isSuccess()) {
+        console.error(
+          '[ElectronLayout] Backend rejected folder removal:',
+          result,
+        );
+        return;
+      }
+    } catch (error) {
+      console.error(
+        '[ElectronLayout] Failed to remove folder from backend:',
+        error,
+      );
+      return;
+    }
+
+    // Backend confirmed — now safe to mutate frontend state
     this._workspaceFolders.update((f) => f.filter((_, i) => i !== index));
 
-    // Adjust active index
     const newLength = this._workspaceFolders().length;
     if (newLength === 0) {
       this._activeWorkspaceIndex.set(0);
     } else if (this._activeWorkspaceIndex() >= newLength) {
       this._activeWorkspaceIndex.set(newLength - 1);
     }
-
-    // Notify backend of folder removal
-    this.rpcService
-      .call('workspace:removeFolder', { path: removedFolder.path })
-      .catch((error) => {
-        console.error(
-          '[ElectronLayout] Failed to remove folder from backend:',
-          error,
-        );
-      });
 
     // TASK_2025_208: Clean up frontend state for the removed workspace
     this.cleanupWorkspaceState(removedFolder.path);
@@ -464,7 +492,7 @@ export class ElectronLayoutService {
 
       // Update AppStateManager so dashboard and other consumers using
       // appState.workspaceInfo() see the new workspace path
-      const workspaceName = newPath.split(/[\\/]/).pop() || newPath;
+      const workspaceName = this.folderName(newPath);
       this.appState.setWorkspaceInfo({
         name: workspaceName,
         path: newPath,
@@ -523,8 +551,6 @@ export class ElectronLayoutService {
       sidebarVisible: this._workspaceSidebarVisible(),
       editorWidth: this._editorPanelWidth(),
       editorVisible: this._editorPanelVisible(),
-      workspaceFolders: this._workspaceFolders(),
-      activeWorkspaceIndex: this._activeWorkspaceIndex(),
     };
     this.vscodeService.setState(LAYOUT_STATE_KEY, state);
   }
@@ -562,7 +588,67 @@ export class ElectronLayoutService {
     if (typeof state.editorVisible === 'boolean') {
       this._editorPanelVisible.set(state.editorVisible);
     }
-    // Validate workspace folders shape before restoring
+    // Fetch workspace list from backend (source of truth: global-state.json).
+    // The webview-cached folder list can diverge from the backend after crashes
+    // or debounce-race conditions. Backend is authoritative.
+    const restoreSwitchId = ++this._switchId;
+
+    this.rpcService
+      .call('workspace:getInfo', {})
+      .then((result) => {
+        if (this._switchId !== restoreSwitchId) return;
+
+        if (result.isSuccess() && result.data) {
+          const info = result.data;
+          if (info.folders && info.folders.length > 0) {
+            const backendFolders: WorkspaceFolder[] = info.folders.map(
+              (p: string) => ({
+                path: p,
+                name: this.folderName(p),
+              }),
+            );
+            this._workspaceFolders.set(backendFolders);
+
+            const activeIndex = info.activeFolder
+              ? Math.max(0, info.folders.indexOf(info.activeFolder))
+              : 0;
+            this._activeWorkspaceIndex.set(activeIndex);
+
+            const activePath = backendFolders[activeIndex]?.path;
+            if (activePath) {
+              this.rpcService
+                .call('workspace:switch', { path: activePath })
+                .then((switchResult) => {
+                  if (this._switchId !== restoreSwitchId) return;
+                  if (switchResult.isSuccess()) {
+                    this.coordinateWorkspaceSwitch(activePath, activeIndex);
+                  }
+                })
+                .catch((error) => {
+                  console.error(
+                    '[ElectronLayout] Initial workspace:switch RPC failed:',
+                    error,
+                  );
+                });
+            }
+          }
+        } else {
+          // Backend has no workspaces — fall back to cached webview state
+          this.restoreWorkspaceFoldersFromCache(state);
+        }
+
+        this.persistLayout();
+      })
+      .catch(() => {
+        // RPC failed — fall back to cached webview state
+        this.restoreWorkspaceFoldersFromCache(state);
+      });
+  }
+
+  private restoreWorkspaceFoldersFromCache(state: {
+    workspaceFolders?: unknown[];
+    activeWorkspaceIndex?: number;
+  }): void {
     if (Array.isArray(state.workspaceFolders)) {
       const validFolders = state.workspaceFolders.filter(
         (f): f is WorkspaceFolder =>
@@ -580,45 +666,23 @@ export class ElectronLayoutService {
       );
     }
 
-    // TASK_2025_208 (Task 4.4): Send initial workspace:switch RPC for the
-    // restored active workspace so the backend activates the correct child container.
-    //
-    // Fix 2: Await RPC before coordinating frontend services to prevent
-    // race condition where frontend switches before backend is ready.
     const restoredFolders = this._workspaceFolders();
     const restoredIndex = this._activeWorkspaceIndex();
-
     if (restoredFolders.length > 0 && restoredFolders[restoredIndex]) {
       const activePath = restoredFolders[restoredIndex].path;
-
-      // Participate in the _switchId stale-response protocol so that if the
-      // user clicks a different workspace before this RPC resolves, we discard
-      // the stale response instead of overriding the user's selection.
       const restoreSwitchId = ++this._switchId;
 
-      // Send workspace:switch RPC and AWAIT before coordinating (no debounce on initial load)
       this.rpcService
         .call('workspace:switch', { path: activePath })
         .then((result) => {
-          // Discard if user switched workspace while this RPC was in flight
-          if (this._switchId !== restoreSwitchId) {
-            return;
+          if (this._switchId !== restoreSwitchId) return;
+          if (result.isSuccess()) {
+            this.coordinateWorkspaceSwitch(activePath, restoredIndex);
           }
-
-          if (!result.isSuccess()) {
-            console.error(
-              '[ElectronLayout] Initial workspace:switch RPC failed:',
-              result,
-            );
-            return;
-          }
-
-          // Only coordinate frontend services AFTER backend confirms the switch
-          this.coordinateWorkspaceSwitch(activePath, restoredIndex);
         })
         .catch((error) => {
           console.error(
-            '[ElectronLayout] Failed to send initial workspace:switch:',
+            '[ElectronLayout] Fallback workspace:switch failed:',
             error,
           );
         });

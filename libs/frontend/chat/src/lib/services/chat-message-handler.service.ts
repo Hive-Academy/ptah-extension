@@ -30,7 +30,7 @@ export class ChatMessageHandler implements MessageHandler {
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
-    // CHAT_COMPLETE intentionally not registered — SESSION_STATS is authoritative (TASK_2025_101)
+    MESSAGE_TYPES.CHAT_COMPLETE,
     MESSAGE_TYPES.CHAT_ERROR,
     MESSAGE_TYPES.PERMISSION_REQUEST,
     MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
@@ -45,6 +45,9 @@ export class ChatMessageHandler implements MessageHandler {
     switch (message.type) {
       case MESSAGE_TYPES.CHAT_CHUNK:
         this.handleChatChunk(message.payload);
+        break;
+      case MESSAGE_TYPES.CHAT_COMPLETE:
+        this.handleChatComplete(message.payload);
         break;
       case MESSAGE_TYPES.CHAT_ERROR:
         this.handleChatError(message.payload);
@@ -89,6 +92,32 @@ export class ChatMessageHandler implements MessageHandler {
     };
 
     this.chatStore.processStreamEvent(event, tabId, sessionId);
+  }
+
+  // CHAT_COMPLETE: Mark tab idle as safety net
+  // SESSION_STATS remains the authoritative completion signal (TASK_2025_101),
+  // but slash commands (/compact, /context, /cost) may not produce a result
+  // message, so SESSION_STATS never fires. CHAT_COMPLETE is the fallback
+  // that ensures the tab exits "streaming" state. markTabIdle is idempotent,
+  // so calling it twice (from both SESSION_STATS and CHAT_COMPLETE) is safe.
+  private handleChatComplete(payload: unknown): void {
+    const { tabId, sessionId } =
+      (payload as { tabId?: string; sessionId?: string }) ?? {};
+
+    // Route by tabId (primary) then sessionId fallback
+    let targetTabId = tabId;
+    if (!targetTabId && sessionId) {
+      const tab = this.chatStore.findTabBySessionId(sessionId);
+      targetTabId = tab?.id ?? undefined;
+    }
+    if (!targetTabId) {
+      targetTabId = this.chatStore.getActiveTabId() ?? undefined;
+    }
+    if (targetTabId) {
+      this.chatStore.markTabIdle(targetTabId);
+      // Also clear compaction state in case this was a /compact command
+      this.chatStore.clearCompactionStateForTab(targetTabId);
+    }
   }
 
   // CHAT_ERROR: Chat error signal

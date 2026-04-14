@@ -104,6 +104,8 @@ export class ElectronCommandRpcHandlers {
         return { success: true };
       }
 
+      // Backward compat: sends 'orchestra-canvas' which AppStateManager.handleViewSwitch()
+      // maps to layoutMode('grid') + chat view at runtime.
       case 'ptah.openOrchestraCanvas': {
         await this.webviewManager.broadcastMessage(MESSAGE_TYPES.SWITCH_VIEW, {
           view: 'orchestra-canvas',

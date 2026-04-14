@@ -51,6 +51,7 @@ export class ElectronWorkspaceRpcHandlers {
   register(): void {
     this.registerGetInfo();
     this.registerAddFolder();
+    this.registerRegisterFolder();
     this.registerRemoveFolder();
     this.registerSwitch();
   }
@@ -129,6 +130,56 @@ export class ElectronWorkspaceRpcHandlers {
         return { path: null, name: null, error: String(error) };
       }
     });
+  }
+
+  private registerRegisterFolder(): void {
+    this.rpcHandler.registerMethod(
+      'workspace:registerFolder',
+      async (params: { path: string } | undefined) => {
+        if (!params?.path) {
+          return {
+            success: false,
+            path: '',
+            name: '',
+            error: 'path is required',
+          };
+        }
+
+        try {
+          const folderPath = params.path;
+          const folderName = folderPath.split(/[/\\]/).pop() ?? folderPath;
+
+          const createResult =
+            await this.workspaceContextManager.createWorkspace(folderPath);
+          if (!createResult.success) {
+            return {
+              success: false,
+              path: folderPath,
+              name: folderName,
+              error: `Failed to create workspace context: ${createResult.error}`,
+            };
+          }
+
+          this.electronProvider.addFolder(folderPath);
+
+          this.logger.info('[Electron RPC] workspace:registerFolder', {
+            folderPath,
+          });
+          return { success: true, path: folderPath, name: folderName };
+        } catch (error) {
+          this.logger.error(
+            '[Electron RPC] workspace:registerFolder failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          return {
+            success: false,
+            path: params.path,
+            name: '',
+            error: String(error),
+          };
+        }
+      },
+    );
   }
 
   private registerRemoveFolder(): void {

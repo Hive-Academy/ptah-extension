@@ -143,8 +143,9 @@ export class ConversationService {
     content: string,
     options?: SendMessageOptions,
   ): void {
-    const activeTabId = this.tabManager.activeTabId();
-    if (!activeTabId) return;
+    // Use explicit tabId from options (canvas tile isolation) or fall back to active tab
+    const targetTabId = options?.tabId ?? this.tabManager.activeTabId();
+    if (!targetTabId) return;
 
     // Validate content using centralized validation service
     const validation = this.validator.validate(content);
@@ -158,8 +159,8 @@ export class ConversationService {
     // Sanitize content (trim whitespace)
     const sanitized = this.validator.sanitize(content);
 
-    const activeTab = this.tabManager.activeTab();
-    const existingQueue = activeTab?.queuedContent?.trim() ?? '';
+    const targetTab = this.tabManager.tabs().find((t) => t.id === targetTabId);
+    const existingQueue = targetTab?.queuedContent?.trim() ?? '';
 
     let newQueuedContent: string;
     const tabUpdate: Record<string, unknown> = {};
@@ -176,17 +177,18 @@ export class ConversationService {
     }
 
     tabUpdate['queuedContent'] = newQueuedContent;
-    this.tabManager.updateTab(activeTabId, tabUpdate);
+    this.tabManager.updateTab(targetTabId, tabUpdate);
   }
 
   /**
-   * Clear queued content and options for active tab
+   * Clear queued content and options for a specific tab or the active tab.
+   * @param tabId - Optional tab ID. Falls back to active tab if not provided.
    */
-  public clearQueuedContent(): void {
-    const activeTabId = this.tabManager.activeTabId();
-    if (!activeTabId) return;
+  public clearQueuedContent(tabId?: string): void {
+    const targetTabId = tabId ?? this.tabManager.activeTabId();
+    if (!targetTabId) return;
 
-    this.tabManager.updateTab(activeTabId, {
+    this.tabManager.updateTab(targetTabId, {
       queuedContent: '',
       queuedOptions: null,
     });
@@ -377,8 +379,18 @@ export class ConversationService {
   /**
    * Continue an existing conversation with Claude
    * Uses the real session ID (SDK UUID) for resume, tabId for event routing
+   *
+   * @param content - Message content to send
+   * @param files - Optional file paths to include
+   * @param explicitTabId - Optional tab ID to target. When provided (e.g., from sendQueuedMessage),
+   *   uses this tab instead of activeTab. Prevents user message being added to the wrong tab
+   *   if the user switched tabs before the queued message fires.
    */
-  async continueConversation(content: string, files?: string[]): Promise<void> {
+  async continueConversation(
+    content: string,
+    files?: string[],
+    explicitTabId?: string,
+  ): Promise<void> {
     try {
       // Wait for services to be ready (with timeout)
       const ready = await this.waitForServices(5000);
@@ -402,22 +414,25 @@ export class ConversationService {
         return;
       }
 
-      // Get REAL Claude session ID from the ACTIVE TAB (not global SessionManager)
+      // Use explicit tab if provided (queued message), otherwise fall back to active tab
+      const targetTabId = explicitTabId ?? this.tabManager.activeTabId();
+      const targetTab = explicitTabId
+        ? this.tabManager.tabs().find((t) => t.id === explicitTabId)
+        : this.tabManager.activeTab();
+
+      // Get REAL Claude session ID from the TARGET TAB (not global SessionManager)
       // This is critical for multi-tab support - each tab has its own session
-      const activeTab = this.tabManager.activeTab();
-      const sessionId = activeTab?.claudeSessionId;
+      const sessionId = targetTab?.claudeSessionId;
       if (!sessionId) {
         console.warn(
-          '[ConversationService] No Claude session ID on active tab - starting new conversation',
+          '[ConversationService] No Claude session ID on target tab - starting new conversation',
         );
         return this.startNewConversation(content, files);
       }
 
-      // Get active tab ID for event routing
-      const activeTabId = this.tabManager.activeTabId();
-      if (!activeTabId) {
+      if (!targetTabId) {
         console.warn(
-          '[ConversationService] No active tab for continuing conversation',
+          '[ConversationService] No target tab for continuing conversation',
         );
         return this.startNewConversation(content, files);
       }
@@ -426,14 +441,14 @@ export class ConversationService {
       this.sessionManager.setStatus('resuming');
 
       // Update tab status
-      this.tabManager.updateTab(activeTabId, { status: 'resuming' });
+      this.tabManager.updateTab(targetTabId, { status: 'resuming' });
 
       // TASK_2025_093 FIX: Finalize any existing streaming state before starting new turn.
       // This converts the streaming content into a proper message in tab.messages.
       // Without this, the streaming message would persist alongside new messages.
-      if (activeTab?.streamingState) {
+      if (targetTab?.streamingState) {
         const streamingHandler = this.injector.get(StreamingHandlerService);
-        streamingHandler.finalizeCurrentMessage(activeTabId);
+        streamingHandler.finalizeCurrentMessage(targetTabId);
         // Re-fetch the tab after finalization to get updated messages
         // Note: The tab's messages array now includes the finalized assistant message
       }
@@ -441,7 +456,7 @@ export class ConversationService {
       // Re-fetch tab after potential finalization to get updated messages
       const currentTab = this.tabManager
         .tabs()
-        .find((t) => t.id === activeTabId);
+        .find((t) => t.id === targetTabId);
 
       // Add user message immediately
       const userMessage = createExecutionChatMessage({
@@ -453,7 +468,7 @@ export class ConversationService {
       });
 
       // Update tab with user message (use currentTab to include finalized messages)
-      this.tabManager.updateTab(activeTabId, {
+      this.tabManager.updateTab(targetTabId, {
         messages: [...(currentTab?.messages ?? []), userMessage],
       });
 
@@ -463,9 +478,9 @@ export class ConversationService {
       const result = await this.claudeRpcService.call('chat:continue', {
         prompt: content,
         sessionId: sessionId as SessionId,
-        tabId: activeTabId, // For event routing
+        tabId: targetTabId, // For event routing
         workspacePath,
-        model: activeTab?.sessionModel ?? undefined,
+        model: targetTab?.sessionModel ?? undefined,
       });
 
       if (!result.success) {
@@ -473,19 +488,19 @@ export class ConversationService {
           '[ConversationService] Failed to continue chat:',
           result.error,
         );
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        this.tabManager.updateTab(targetTabId, { status: 'loaded' });
       } else {
         this.sessionManager.setStatus('streaming');
-        this.tabManager.updateTab(activeTabId, { status: 'streaming' });
+        this.tabManager.updateTab(targetTabId, { status: 'streaming' });
       }
     } catch (error) {
       console.error(
         '[ConversationService] Failed to continue conversation:',
         error,
       );
-      const activeTabId = this.tabManager.activeTabId();
-      if (activeTabId) {
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+      const fallbackTabId = explicitTabId ?? this.tabManager.activeTabId();
+      if (fallbackTabId) {
+        this.tabManager.updateTab(fallbackTabId, { status: 'loaded' });
       }
     }
   }

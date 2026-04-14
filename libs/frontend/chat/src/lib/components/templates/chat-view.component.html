@@ -1,147 +1,203 @@
-<div class="flex flex-col h-full">
-  <!-- Session Stats Summary (only when there are messages) -->
-  @if (chatStore.messages().length > 0) {
-    <div class="px-3 py-2 bg-base-200/30">
-      <ptah-session-stats-summary
-        [messages]="chatStore.messages()"
-        [preloadedStats]="chatStore.preloadedStats()"
-        [liveModelStats]="chatStore.liveModelStats()"
-        [modelUsageList]="chatStore.modelUsageList()"
-        [compactionCount]="chatStore.compactionCount()"
-      />
+<div class="flex h-full">
+  <!-- Main chat content -->
+  <div class="flex-1 flex flex-col min-w-0">
+    <!-- Session Stats Summary (only when there are messages) -->
+    @if (resolvedMessages().length > 0) {
+      <div class="px-3 py-2 bg-base-200/30">
+        <ptah-session-stats-summary
+          [messages]="resolvedMessages()"
+          [preloadedStats]="resolvedPreloadedStats()"
+          [liveModelStats]="resolvedLiveModelStats()"
+          [modelUsageList]="resolvedModelUsageList()"
+          [compactionCount]="resolvedCompactionCount()"
+        />
+      </div>
+    }
+
+    <!-- TASK_2025_142/143: Trial & community banners moved to header notification bell -->
+
+    <!-- TASK_2025_098: Compaction Notification Banner -->
+    <div class="px-4">
+      <ptah-compaction-notification [isCompacting]="resolvedIsCompacting()" />
     </div>
-  }
 
-  <!-- TASK_2025_142/143: Trial & community banners moved to header notification bell -->
+    <!-- Message List -->
+    <div
+      class="flex-1 overflow-y-auto p-2 space-y-3"
+      #messageContainer
+      (scroll)="onScroll($event)"
+    >
+      @for (message of resolvedMessages(); track message.id; let i = $index) {
+        <ptah-message-bubble
+          [message]="message"
+          [messageIndex]="i"
+          [totalMessages]="resolvedMessages().length"
+        />
+      }
 
-  <!-- TASK_2025_098: Compaction Notification Banner -->
-  <div class="px-4">
-    <ptah-compaction-notification [isCompacting]="chatStore.isCompacting()" />
-  </div>
+      <!-- Streaming assistant messages (live execution trees) -->
+      <!-- TASK_2025_096 FIX: Render ALL streaming messages, not just the first one!
+           When Claude uses tools, the SDK sends multiple assistant messages in one turn:
+           - Message 1: Contains tool calls (e.g., Glob)
+           - Message 2: Contains follow-up text and more tools after tool results
+           Previously, only the first tree was rendered, causing subsequent messages to be LOST!
+           Now we iterate over ALL streaming messages to render them all. -->
+      @for (msg of streamingMessages(); track msg.id) {
+        <ptah-message-bubble
+          [message]="msg"
+          [isStreaming]="resolvedIsStreaming()"
+        />
+      }
 
-  <!-- Message List -->
-  <div
-    class="flex-1 overflow-y-auto p-2 space-y-3"
-    #messageContainer
-    (scroll)="onScroll($event)"
-  >
-    @for (message of chatStore.messages(); track message.id; let i = $index) {
-      <ptah-message-bubble
-        [message]="message"
-        [messageIndex]="i"
-        [totalMessages]="chatStore.messages().length"
-      />
-    }
-
-    <!-- Streaming assistant messages (live execution trees) -->
-    <!-- TASK_2025_096 FIX: Render ALL streaming messages, not just the first one!
-         When Claude uses tools, the SDK sends multiple assistant messages in one turn:
-         - Message 1: Contains tool calls (e.g., Glob)
-         - Message 2: Contains follow-up text and more tools after tool results
-         Previously, only the first tree was rendered, causing subsequent messages to be LOST!
-         Now we iterate over ALL streaming messages to render them all. -->
-    @for (msg of streamingMessages(); track msg.id) {
-      <ptah-message-bubble
-        [message]="msg"
-        [isStreaming]="chatStore.isStreaming()"
-      />
-    }
-
-    <!-- Skeleton placeholder: streaming started but no trees yet -->
-    @if (streamingMessages().length === 0 && chatStore.isStreaming()) {
-      <!-- Tree NOT started but streaming: show skeleton placeholder -->
-      <div class="chat chat-start">
-        <div class="chat-image avatar">
-          <div class="w-8 h-8 rounded-full overflow-hidden">
-            <img [ngSrc]="ptahIconUri()" alt="Claude" width="32" height="32" />
+      <!-- Skeleton placeholder: streaming started but no trees yet -->
+      @if (streamingMessages().length === 0 && resolvedIsStreaming()) {
+        <!-- Tree NOT started but streaming: show skeleton placeholder -->
+        <div class="chat chat-start">
+          <div class="chat-image avatar">
+            <div class="w-8 h-8 rounded-full overflow-hidden">
+              <img [src]="ptahIconUri()" alt="Claude" width="32" height="32" />
+            </div>
+          </div>
+          <div class="chat-bubble bg-neutral">
+            <div class="skeleton h-4 w-64 mb-2"></div>
+            <div class="skeleton h-4 w-48 mb-2"></div>
+            <div class="skeleton h-4 w-56"></div>
           </div>
         </div>
-        <div class="chat-bubble bg-neutral">
-          <div class="skeleton h-4 w-64 mb-2"></div>
-          <div class="skeleton h-4 w-48 mb-2"></div>
-          <div class="skeleton h-4 w-56"></div>
-        </div>
-      </div>
-    }
+      }
 
-    <!-- Empty state - Egyptian themed welcome -->
-    <!-- TASK_2025_096: Also check for streamingMessages to avoid showing empty state while content exists -->
-    @if (
-      chatStore.messages().length === 0 &&
-      !chatStore.isStreaming() &&
-      streamingMessages().length === 0
-    ) {
-      <ptah-chat-empty-state (promptSelected)="handlePromptSelected($event)" />
-    }
-  </div>
+      <!-- Empty state - Egyptian themed welcome -->
+      <!-- TASK_2025_096: Also check for streamingMessages to avoid showing empty state while content exists -->
+      @if (
+        resolvedMessages().length === 0 &&
+        !resolvedIsStreaming() &&
+        streamingMessages().length === 0
+      ) {
+        <ptah-chat-empty-state
+          (promptSelected)="handlePromptSelected($event)"
+        />
+      }
+    </div>
 
-  <!-- Resume Notification Banner -->
-  <div class="px-2 py-1">
-    <ptah-resume-notification-banner
-      [resumableSubagents]="chatStore.resumableSubagents()"
-      (resumeRequested)="handleResumeAgent($event)"
-      (resumeAllRequested)="handleResumeAllAgents($event)"
-    />
-  </div>
-
-  <!-- Collapsed Permission Badge (doesn't block chat area) -->
-  <ptah-permission-badge
-    [permissions]="chatStore.unmatchedPermissions()"
-    (responded)="chatStore.handlePermissionResponse($event)"
-  />
-
-  <!-- AskUserQuestion Cards (TASK_2025_136) -->
-  @for (questionReq of chatStore.questionRequests(); track questionReq.id) {
+    <!-- Resume Notification Banner -->
     <div class="px-2 py-1">
-      <ptah-question-card
-        [request]="questionReq"
-        (answered)="chatStore.handleQuestionResponse($event)"
+      <ptah-resume-notification-banner
+        [resumableSubagents]="chatStore.resumableSubagents()"
+        (resumeRequested)="handleResumeAgent($event)"
+        (resumeAllRequested)="handleResumeAllAgents($event)"
       />
     </div>
-  }
 
-  <!-- Queued Content Indicator -->
-  @if (chatStore.queuedContent()) {
-    <div class="px-4 pb-2 border-t border-primary/20 bg-primary/5">
-      <div class="flex items-center justify-between gap-2 py-2">
-        <!-- Left: Queue icon and text -->
-        <div class="flex items-center gap-2 text-sm">
-          <lucide-angular
-            [img]="BellIcon"
-            class="w-4 h-4 text-primary animate-pulse"
-            aria-hidden="true"
-          />
-          <span class="text-primary font-medium">Message queued</span>
-          <span class="text-base-content/60"
-            >(will send when Claude finishes)</span
+    <!-- Collapsed Permission Badge (doesn't block chat area) -->
+    <ptah-permission-badge
+      [permissions]="chatStore.unmatchedPermissions()"
+      (responded)="chatStore.handlePermissionResponse($event)"
+    />
+
+    <!-- AskUserQuestion Cards (TASK_2025_136) -->
+    @for (questionReq of chatStore.questionRequests(); track questionReq.id) {
+      <div class="px-2 py-1">
+        <ptah-question-card
+          [request]="questionReq"
+          (answered)="chatStore.handleQuestionResponse($event)"
+        />
+      </div>
+    }
+
+    <!-- Queued Content Indicator -->
+    @if (resolvedQueuedContent()) {
+      <div class="px-4 pb-2 border-t border-primary/20 bg-primary/5">
+        <div class="flex items-center justify-between gap-2 py-2">
+          <!-- Left: Queue icon and text -->
+          <div class="flex items-center gap-2 text-sm">
+            <lucide-angular
+              [img]="BellIcon"
+              class="w-4 h-4 text-primary animate-pulse"
+              aria-hidden="true"
+            />
+            <span class="text-primary font-medium">Message queued</span>
+            <span class="text-base-content/60"
+              >(will send when Claude finishes)</span
+            >
+          </div>
+
+          <!-- Right: Cancel button -->
+          <button
+            class="btn btn-ghost btn-xs"
+            (click)="cancelQueue()"
+            type="button"
+            title="Cancel queued message"
           >
+            ✕
+          </button>
         </div>
 
-        <!-- Right: Cancel button -->
-        <button
-          class="btn btn-ghost btn-xs"
-          (click)="cancelQueue()"
-          type="button"
-          title="Cancel queued message"
+        <!-- Queued content preview (truncated) -->
+        <div
+          class="text-xs text-base-content/70 bg-base-200 rounded px-2 py-1 max-h-12 overflow-hidden"
         >
-          ✕
-        </button>
+          {{ resolvedQueuedContent()?.substring(0, 100) }}
+          @if (
+            resolvedQueuedContent() && resolvedQueuedContent()!.length > 100
+          ) {
+            <span>...</span>
+          }
+        </div>
       </div>
+    }
 
-      <!-- Queued content preview (truncated) -->
+    <!-- Input Area Collapse Toggle (full-width bar above input) -->
+    <button
+      class="w-full flex items-center justify-center gap-1 py-0.5 bg-base-200/50 hover:bg-base-200 border-t border-base-300 cursor-pointer transition-colors text-base-content/40 hover:text-base-content/70 flex-shrink-0"
+      (click)="toggleInputCollapse()"
+      [title]="inputCollapsed() ? 'Show input area' : 'Hide input area'"
+      type="button"
+    >
+      <lucide-angular
+        [img]="inputCollapsed() ? ChevronUpIcon : ChevronDownIcon"
+        class="w-3.5 h-3.5"
+      />
+      <span class="text-[10px] font-medium uppercase tracking-wider">{{
+        inputCollapsed() ? 'Show Input' : 'Hide Input'
+      }}</span>
+    </button>
+
+    <!-- Input Area (sticky at bottom, never shrinks) — collapsible with animation -->
+    <div
+      class="flex-shrink-0 input-collapse-wrapper"
+      [class.input-collapsed]="inputCollapsed()"
+    >
+      <ptah-chat-input class="border-t border-base-300" />
+    </div>
+  </div>
+
+  <!-- Agents vertical toggle tab (per-session) -->
+  <ptah-sidebar-tab
+    label="Agents"
+    side="right"
+    [isOpen]="agentPanelOpen()"
+    [badgeType]="agentBadgeType()"
+    size="sm"
+    (toggled)="toggleAgentPanel()"
+  />
+
+  <!-- Resize handle between chat and agent panel -->
+  @if (agentPanelOpen()) {
+    <div
+      class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group"
+      (mousedown)="onResizeStart($event)"
+    >
       <div
-        class="text-xs text-base-content/70 bg-base-200 rounded px-2 py-1 max-h-12 overflow-hidden"
-      >
-        {{ chatStore.queuedContent()?.substring(0, 100) }}
-        @if (
-          chatStore.queuedContent() && chatStore.queuedContent()!.length > 100
-        ) {
-          <span>...</span>
-        }
-      </div>
+        class="w-0.5 h-full rounded-full bg-base-content/20 group-hover:bg-primary/60 group-active:bg-primary transition-colors"
+      ></div>
     </div>
   }
 
-  <!-- Input Area (sticky at bottom, never shrinks) -->
-  <ptah-chat-input class="flex-shrink-0 border-t border-base-300" />
+  <!-- Agent monitor panel (session-scoped) -->
+  <ptah-agent-monitor-panel
+    [embeddedAgents]="sessionAgents()"
+    [embeddedOpen]="agentPanelOpen()"
+    [sessionId]="resolvedSessionId()"
+    (closed)="agentPanelOpen.set(false)"
+  />
 </div>

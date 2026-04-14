@@ -36,12 +36,16 @@ export type { FileTreeNode } from './lib/models/file-tree.model';
 export { FileTreeComponent } from './lib/file-tree/file-tree.component';
 export { FileTreeNodeComponent } from './lib/file-tree/file-tree-node.component';
 export { CodeEditorComponent } from './lib/code-editor/code-editor.component';
+export { DiffViewComponent } from './lib/diff-view/diff-view.component';
 export { EditorPanelComponent } from './lib/editor-panel/editor-panel.component';
 export { GitStatusBarComponent } from './lib/git-status-bar/git-status-bar.component';
 export { TerminalComponent } from './lib/terminal/terminal.component';
 export { TerminalTabBarComponent } from './lib/terminal/terminal-tab-bar.component';
 export { TerminalPanelComponent } from './lib/terminal/terminal-panel.component';
 export { AddWorktreeDialogComponent } from './lib/worktree/add-worktree-dialog.component';
+export { SidebarComponent } from './lib/sidebar/sidebar.component';
+export { SourceControlPanelComponent } from './lib/source-control/source-control-panel.component';
+export { SourceControlFileComponent } from './lib/source-control/source-control-file.component';
 
 // Services
 export { EditorService } from './lib/services/editor.service';
@@ -49,6 +53,7 @@ export type { EditorTab } from './lib/services/editor.service';
 export { GitStatusService } from './lib/services/git-status.service';
 export { TerminalService } from './lib/services/terminal.service';
 export { WorktreeService } from './lib/services/worktree.service';
+export { SourceControlService } from './lib/services/source-control.service';
 
 // Utilities
 export { rpcCall } from './lib/services/rpc-call.util';

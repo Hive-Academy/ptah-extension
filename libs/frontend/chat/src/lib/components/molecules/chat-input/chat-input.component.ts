@@ -26,11 +26,11 @@ import {
 } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
 import { TabManagerService } from '../../../services/tab-manager.service';
+import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 import {
   AutopilotStateService,
   CommandDiscoveryFacade,
   ClaudeRpcService,
-  EffortStateService,
 } from '@ptah-extension/core';
 import { ModelSelectorComponent } from './model-selector.component';
 import { AutopilotPopoverComponent } from './autopilot-popover.component';
@@ -109,7 +109,7 @@ interface PastedImage {
       (drop)="handleDrop($event)"
     >
       <!-- Compaction overlay on input area -->
-      @if (chatStore.isCompacting()) {
+      @if (resolvedIsCompacting()) {
         <div
           class="absolute inset-0 z-10 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px] rounded-lg"
         >
@@ -313,9 +313,11 @@ interface PastedImage {
 export class ChatInputComponent implements OnInit {
   readonly chatStore = inject(ChatStore);
   readonly tabManager = inject(TabManagerService);
+  private readonly _sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
   readonly autopilotState = inject(AutopilotStateService);
   private readonly rpcService = inject(ClaudeRpcService);
-  private readonly effortState = inject(EffortStateService);
 
   // Autocomplete service injections
   readonly filePicker = inject(FilePickerService);
@@ -332,8 +334,25 @@ export class ChatInputComponent implements OnInit {
    * tab shows streaming spinner. Now both use the visual streaming indicator.
    */
   readonly isActiveTabStreaming = computed(() => {
-    const tabId = this.tabManager.activeTabId();
+    const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
     return tabId ? this.tabManager.isTabStreaming(tabId) : false;
+  });
+
+  /**
+   * Per-tab compaction state. In canvas mode, scoped to this tile's tab.
+   * Prevents compaction overlay from showing on ALL tiles.
+   */
+  readonly resolvedIsCompacting = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (!tabId) return false;
+      return (
+        this.tabManager.tabs().find((t) => t.id === tabId)?.isCompacting ??
+        false
+      );
+    }
+    return this.chatStore.isCompacting();
   });
 
   // Signal-based viewChild references (Angular 20+ pattern)
@@ -416,8 +435,17 @@ export class ChatInputComponent implements OnInit {
     this.fetchAuthMethodLabel();
   }
 
-  // Check if there's queued content waiting to be sent
+  // Check if there's queued content waiting to be sent (session-context-aware)
   readonly hasQueuedContent = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      // Canvas tile: read from this tile's specific tab
+      const tabId = ctx();
+      if (!tabId) return false;
+      const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+      return !!tab?.queuedContent?.trim();
+    }
+    // Single mode: read from active tab
     const queued = this.tabManager.activeTabQueuedContent();
     return !!queued?.trim();
   });
@@ -791,8 +819,8 @@ export class ChatInputComponent implements OnInit {
    * so this handler is kept for any additional side-effects if needed.
    */
   onEffortChange(_effort: EffortLevel | undefined): void {
-    // No-op: EffortSelectorComponent saves via EffortStateService directly.
-    // ChatInputComponent reads from effortState.currentEffort() at send time.
+    // No-op: EffortSelectorComponent saves per-tab or globally.
+    // MessageSenderService resolves effective effort at send time.
   }
 
   /**
@@ -999,7 +1027,7 @@ export class ChatInputComponent implements OnInit {
         {
           files: filePaths.length > 0 ? filePaths : undefined,
           images: inlineImages.length > 0 ? inlineImages : undefined,
-          effort: this.effortState.currentEffort(),
+          tabId: this._sessionContext?.() ?? undefined,
         },
       );
 

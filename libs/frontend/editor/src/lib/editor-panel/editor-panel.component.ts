@@ -16,12 +16,13 @@ import {
   Terminal as TermIcon,
 } from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
-import { FileTreeComponent } from '../file-tree/file-tree.component';
 import { CodeEditorComponent } from '../code-editor/code-editor.component';
+import { DiffViewComponent } from '../diff-view/diff-view.component';
 import { EditorService } from '../services/editor.service';
 import { GitStatusService } from '../services/git-status.service';
 import { GitStatusBarComponent } from '../git-status-bar/git-status-bar.component';
 import { TerminalPanelComponent } from '../terminal/terminal-panel.component';
+import { SidebarComponent } from '../sidebar/sidebar.component';
 
 /**
  * EditorPanelComponent - Main container combining file tree sidebar, code editor,
@@ -50,11 +51,12 @@ import { TerminalPanelComponent } from '../terminal/terminal-panel.component';
   standalone: true,
   imports: [
     NgClass,
-    FileTreeComponent,
     CodeEditorComponent,
+    DiffViewComponent,
     LucideAngularModule,
     GitStatusBarComponent,
     TerminalPanelComponent,
+    SidebarComponent,
   ],
   template: `
     <div
@@ -68,12 +70,12 @@ import { TerminalPanelComponent } from '../terminal/terminal-panel.component';
       >
         <button
           class="btn btn-square btn-ghost btn-xs"
-          [title]="explorerVisible() ? 'Hide explorer' : 'Show explorer'"
-          aria-label="Toggle explorer"
-          (click)="toggleExplorer()"
+          [title]="sidebarVisible() ? 'Hide sidebar' : 'Show sidebar'"
+          aria-label="Toggle sidebar"
+          (click)="toggleSidebar()"
         >
           <lucide-angular
-            [img]="explorerVisible() ? PanelLeftCloseIcon : PanelLeftIcon"
+            [img]="sidebarVisible() ? PanelLeftCloseIcon : PanelLeftIcon"
             class="w-3.5 h-3.5"
           />
         </button>
@@ -104,11 +106,14 @@ import { TerminalPanelComponent } from '../terminal/terminal-panel.component';
           class="flex min-h-0"
           [style.flex]="terminalVisible() ? '1 1 0' : '1 1 auto'"
         >
-          @if (explorerVisible()) {
-            <ptah-file-tree
+          @if (sidebarVisible()) {
+            <ptah-sidebar
               [files]="editorService.fileTree()"
               [activeFilePath]="editorService.activeFilePath()"
+              [changedFiles]="gitStatus.files()"
+              [branchName]="gitStatus.branchName()"
               (fileSelected)="onFileSelected($event)"
+              (diffRequested)="onDiffRequested($event)"
             />
           }
           <div class="flex-1 min-w-0 flex flex-col">
@@ -159,12 +164,24 @@ import { TerminalPanelComponent } from '../terminal/terminal-panel.component';
               </div>
             } @else {
               <div class="flex-1 min-h-0">
-                <ptah-code-editor
-                  [filePath]="editorService.activeFilePath()"
-                  [content]="editorService.activeFileContent()"
-                  (contentChanged)="onContentChanged($event)"
-                  (fileSaved)="onFileSaved($event)"
-                />
+                @if (editorService.activeDiffTab()) {
+                  <ptah-diff-view
+                    [filePath]="
+                      editorService.activeDiffTab()!.diffRelativePath!
+                    "
+                    [originalContent]="
+                      editorService.activeDiffTab()!.originalContent!
+                    "
+                    [modifiedContent]="editorService.activeDiffTab()!.content"
+                  />
+                } @else {
+                  <ptah-code-editor
+                    [filePath]="editorService.activeFilePath()"
+                    [content]="editorService.activeFileContent()"
+                    (contentChanged)="onContentChanged($event)"
+                    (fileSaved)="onFileSaved($event)"
+                  />
+                }
               </div>
             }
           </div>
@@ -215,10 +232,10 @@ import { TerminalPanelComponent } from '../terminal/terminal-panel.component';
 })
 export class EditorPanelComponent implements OnInit, OnDestroy {
   protected readonly editorService = inject(EditorService);
-  private readonly gitStatus = inject(GitStatusService);
+  protected readonly gitStatus = inject(GitStatusService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly ngZone = inject(NgZone);
-  protected readonly explorerVisible = signal(true);
+  protected readonly sidebarVisible = signal(true);
 
   /** Whether the terminal panel is visible. */
   protected readonly terminalVisible = signal(false);
@@ -253,8 +270,8 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     this.cleanupResizeListeners();
   }
 
-  protected toggleExplorer(): void {
-    this.explorerVisible.update((v) => !v);
+  protected toggleSidebar(): void {
+    this.sidebarVisible.update((v) => !v);
   }
 
   protected toggleTerminal(): void {
@@ -263,6 +280,17 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
   protected onFileSelected(filePath: string): void {
     void this.editorService.openFile(filePath);
+  }
+
+  protected onDiffRequested(relativePath: string): void {
+    const workspaceRoot = this.gitStatus.activeWorkspacePath;
+    if (!workspaceRoot) return;
+    const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
+    const root = normalizedRoot.endsWith('/')
+      ? normalizedRoot
+      : normalizedRoot + '/';
+    const absolutePath = root + relativePath.replace(/\\/g, '/');
+    void this.editorService.openDiff(relativePath, absolutePath);
   }
 
   protected onContentChanged(content: string): void {

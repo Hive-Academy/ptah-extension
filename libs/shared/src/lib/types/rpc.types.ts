@@ -157,6 +157,14 @@ import type {
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
   WizardInstallPackAgentsResult,
+  WizardNewProjectSelectTypeParams,
+  WizardNewProjectSelectTypeResult,
+  WizardNewProjectSubmitAnswersParams,
+  WizardNewProjectSubmitAnswersResult,
+  WizardNewProjectGetPlanParams,
+  WizardNewProjectGetPlanResult,
+  WizardNewProjectApprovePlanParams,
+  WizardNewProjectApprovePlanResult,
 } from './rpc/rpc-setup.types';
 
 import type {
@@ -191,6 +199,16 @@ import type {
   GitAddWorktreeResult,
   GitRemoveWorktreeParams,
   GitRemoveWorktreeResult,
+  GitStageParams,
+  GitStageResult,
+  GitUnstageParams,
+  GitUnstageResult,
+  GitDiscardParams,
+  GitDiscardResult,
+  GitCommitParams,
+  GitCommitResult,
+  GitShowFileParams,
+  GitShowFileResult,
 } from './rpc/rpc-git.types';
 
 import type {
@@ -436,6 +454,23 @@ export interface RpcMethodRegistry {
   'wizard:install-pack-agents': {
     params: WizardInstallPackAgentsParams;
     result: WizardInstallPackAgentsResult;
+  };
+  // New Project Wizard Methods
+  'wizard:new-project-select-type': {
+    params: WizardNewProjectSelectTypeParams;
+    result: WizardNewProjectSelectTypeResult;
+  };
+  'wizard:new-project-submit-answers': {
+    params: WizardNewProjectSubmitAnswersParams;
+    result: WizardNewProjectSubmitAnswersResult;
+  };
+  'wizard:new-project-get-plan': {
+    params: WizardNewProjectGetPlanParams;
+    result: WizardNewProjectGetPlanResult;
+  };
+  'wizard:new-project-approve-plan': {
+    params: WizardNewProjectApprovePlanParams;
+    result: WizardNewProjectApprovePlanResult;
   };
 
   // ---- License Methods ----
@@ -692,7 +727,12 @@ export interface RpcMethodRegistry {
   // ---- Workspace Methods (Electron desktop) ----
   'workspace:getInfo': {
     params: Record<string, never>;
-    result: { folders: string[]; root: string | undefined; name: string };
+    result: {
+      folders: string[];
+      root: string | undefined;
+      activeFolder: string | undefined;
+      name: string;
+    };
   };
   'workspace:addFolder': {
     params: Record<string, never>;
@@ -705,6 +745,10 @@ export interface RpcMethodRegistry {
   'workspace:switch': {
     params: { path: string };
     result: { success: boolean; error?: string };
+  };
+  'workspace:registerFolder': {
+    params: { path: string };
+    result: { success: boolean; path: string; name: string; error?: string };
   };
 
   // ---- Layout Methods (Electron desktop) ----
@@ -860,6 +904,12 @@ export interface RpcMethodRegistry {
     params: GitRemoveWorktreeParams;
     result: GitRemoveWorktreeResult;
   };
+  // Source control methods (TASK_2025_273)
+  'git:stage': { params: GitStageParams; result: GitStageResult };
+  'git:unstage': { params: GitUnstageParams; result: GitUnstageResult };
+  'git:discard': { params: GitDiscardParams; result: GitDiscardResult };
+  'git:commit': { params: GitCommitParams; result: GitCommitResult };
+  'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
 
   // ---- Terminal Methods (TASK_2025_227) ----
   'terminal:create': {
@@ -949,6 +999,11 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // Agent Pack Browser Methods (TASK_2025_258)
   'wizard:list-agent-packs',
   'wizard:install-pack-agents',
+  // New Project Wizard Methods
+  'wizard:new-project-select-type',
+  'wizard:new-project-submit-answers',
+  'wizard:new-project-get-plan',
+  'wizard:new-project-approve-plan',
 
   // License Methods
   'license:getStatus',
@@ -1029,6 +1084,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'workspace:addFolder',
   'workspace:removeFolder',
   'workspace:switch',
+  'workspace:registerFolder',
 
   // Layout Methods (Electron desktop)
   'layout:persist',
@@ -1070,6 +1126,12 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'git:worktrees',
   'git:addWorktree',
   'git:removeWorktree',
+  // Source control methods (TASK_2025_273)
+  'git:stage',
+  'git:unstage',
+  'git:discard',
+  'git:commit',
+  'git:showFile',
 
   // Terminal Methods (TASK_2025_227)
   'terminal:create',

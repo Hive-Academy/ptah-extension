@@ -117,6 +117,7 @@ export class App implements OnInit, OnDestroy {
       'settings',
       'setup-wizard',
       'welcome',
+      // Kept for backward compat -- AppStateManager maps to layoutMode('grid') + chat view
       'orchestra-canvas',
     ];
     const isValidView =

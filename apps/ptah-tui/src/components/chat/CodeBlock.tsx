@@ -9,6 +9,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 
 import { useTheme } from '../../hooks/use-theme.js';
+import { Panel } from '../atoms/index.js';
 
 let highlightSync:
   | ((code: string, options?: { language?: string }) => string)
@@ -44,13 +45,7 @@ export function CodeBlock({
   }
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={theme.ui.border}
-      paddingX={1}
-      marginY={0}
-    >
+    <Panel>
       {language && (
         <Box
           borderStyle="single"
@@ -67,6 +62,6 @@ export function CodeBlock({
         </Box>
       )}
       <Text>{displayCode}</Text>
-    </Box>
+    </Panel>
   );
 }

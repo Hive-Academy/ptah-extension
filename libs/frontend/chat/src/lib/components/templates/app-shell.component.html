@@ -8,12 +8,14 @@
 }
 
 <!--
-  Layout Architecture:
-  - Wizard and Settings views render STANDALONE (no sidebar, no tabs)
-  - Chat view renders with full sidebar + tab bar layout
-  - View determined by appStateManager.currentView() signal
+  Layout Architecture (TASK_2025_271):
+  - Standalone views (setup-wizard, settings, welcome, analytics) render ON TOP via @switch
+  - Shared chrome (sidebar, header, agent panel) is ALWAYS rendered but hidden when standalone view is active
+  - Canvas state persists across standalone view navigation (components are hidden, not destroyed)
+  - Content area switches between canvas grid and single chat via layoutMode signal
 -->
 
+<!-- 1. Standalone views — rendered ON TOP when active -->
 @switch (currentView()) {
   <!-- Setup Wizard: Full-width, standalone layout (injected via DI token to break circular dep) -->
   @case ('setup-wizard') {
@@ -48,500 +50,477 @@
       <ptah-session-analytics-dashboard />
     </div>
   }
+}
 
-  <!-- Orchestra Canvas: Full-width, standalone layout (no sidebar) -->
-  <!-- OrchestraCanvasComponent injected via DI token to break circular dep (canvas -> chat -> canvas) -->
-  @case ('orchestra-canvas') {
-    <div class="h-full w-full overflow-hidden">
-      @if (orchestraCanvasComponent) {
-        <ng-container *ngComponentOutlet="orchestraCanvasComponent" />
-      } @else {
-        <div class="flex items-center justify-center h-full">
-          <span class="loading loading-spinner loading-md"></span>
-        </div>
-      }
-    </div>
-  }
+<!-- 2. Shared chrome — ALWAYS rendered, hidden when standalone view is active -->
+<!-- Uses [class.hidden] (CSS display:none) so canvas tiles survive navigation to settings/analytics -->
+<div class="flex h-full" [class.hidden]="isStandaloneView()">
+  <!-- Session Sidebar (toggleable width, no border — tab provides visual edge) -->
+  <aside
+    class="flex flex-col bg-base-200 transition-all duration-300"
+    [class.w-0]="!sidebarOpen()"
+    [class.w-56]="sidebarOpen()"
+    [class.overflow-hidden]="!sidebarOpen()"
+  >
+    <!-- Sidebar header with Ptah icon -->
+    <div
+      class="p-3 border-b border-base-content/10 flex items-center justify-center"
+    >
+      <!-- Ptah icon -->
 
-  <!-- Chat (default): Sidebar + Header + Chat layout -->
-  @default {
-    <div class="flex h-full">
-      <!-- Session Sidebar (toggleable width, no border — tab provides visual edge) -->
-      <aside
-        class="flex flex-col bg-base-200 transition-all duration-300"
-        [class.w-0]="!sidebarOpen()"
-        [class.w-56]="sidebarOpen()"
-        [class.overflow-hidden]="!sidebarOpen()"
-      >
-        <!-- Sidebar header with Ptah icon -->
-        <div
-          class="p-3 border-b border-base-content/10 flex items-center justify-center"
-        >
-          <!-- Ptah icon -->
-          <img
-            [ngSrc]="ptahIconUri"
-            alt="Ptah"
-            class="w-5 h-5 flex-shrink-0 opacity-80"
-            width="20"
-            height="20"
-          />
-        </div>
-
-        <!-- TASK_2025_192: Session search & filter -->
-        <div class="px-1.5 pt-1.5 pb-0.5 flex flex-col gap-1">
-          <!-- Search input -->
-          <label
-            class="input input-xs w-full flex items-center gap-1.5 bg-base-100 border-base-content/10"
-          >
-            <lucide-angular
-              [img]="SearchIcon"
-              class="w-3 h-3 text-base-content/40 flex-shrink-0"
-            />
-            <input
-              type="text"
-              class="grow text-xs min-w-0"
-              placeholder="Search sessions..."
-              [ngModel]="searchQuery()"
-              (ngModelChange)="setSearchQuery($event)"
-              aria-label="Search sessions by name"
-            />
-            @if (searchQuery()) {
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs btn-circle w-4 h-4 min-h-0 p-0"
-                (click)="setSearchQuery('')"
-                aria-label="Clear search"
-              >
-                <lucide-angular [img]="XIcon" class="w-2.5 h-2.5" />
-              </button>
-            }
-          </label>
-
-          <!-- Date filter toggle + clear filters row -->
-          <div class="flex items-center gap-1">
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs gap-1 text-base-content/50 hover:text-base-content/70 flex-1 justify-start px-1"
-              (click)="toggleDateFilter()"
-              aria-label="Toggle date filter"
-            >
-              <lucide-angular [img]="CalendarDaysIcon" class="w-3 h-3" />
-              <span class="text-[10px]">Date range</span>
-              <lucide-angular
-                [img]="ChevronDownIcon"
-                class="w-2.5 h-2.5 transition-transform duration-200"
-                [class.rotate-180]="dateFilterOpen()"
-              />
-            </button>
-            @if (hasActiveFilters()) {
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs text-[10px] text-base-content/40 hover:text-error px-1"
-                (click)="clearFilters()"
-                aria-label="Clear all filters"
-              >
-                Clear
-              </button>
-            }
-          </div>
-
-          <!-- Date range inputs (collapsible) -->
-          @if (dateFilterOpen()) {
-            <div class="flex flex-col gap-1 px-0.5 pb-0.5">
-              <label
-                for="session-filter-date-from"
-                class="text-[10px] text-base-content/40"
-                >From</label
-              >
-              <input
-                id="session-filter-date-from"
-                type="date"
-                class="input input-xs w-full bg-base-100 border-base-content/10 text-xs"
-                [ngModel]="dateFrom()"
-                (ngModelChange)="setDateFrom($event)"
-              />
-              <label
-                for="session-filter-date-to"
-                class="text-[10px] text-base-content/40"
-                >To</label
-              >
-              <input
-                id="session-filter-date-to"
-                type="date"
-                class="input input-xs w-full bg-base-100 border-base-content/10 text-xs"
-                [ngModel]="dateTo()"
-                (ngModelChange)="setDateTo($event)"
-              />
-            </div>
-          }
-        </div>
-
-        <!-- Session list (scrollable) -->
-        <div class="flex-1 overflow-y-auto p-1.5 sidebar-scroll">
-          <ul class="flex flex-col gap-0.5 p-0" role="list">
-            @for (session of filteredSessions(); track session.id) {
-              <li class="group relative" role="listitem">
-                @if (editingSessionId() === session.id) {
-                  <!-- Inline edit mode -->
-                  <div class="flex items-center gap-1 py-2.5 px-3 w-full">
-                    <input
-                      #editSessionInput
-                      type="text"
-                      class="input input-xs input-bordered flex-1 text-sm bg-base-100"
-                      maxlength="200"
-                      aria-label="Edit session name"
-                      [ngModel]="editingSessionName()"
-                      (ngModelChange)="editingSessionName.set($event)"
-                      (keydown.enter)="saveSessionName($event, session)"
-                      (keydown.escape)="cancelEditingSession()"
-                      (blur)="saveSessionName($event, session)"
-                    />
-                  </div>
-                } @else {
-                  <button
-                    type="button"
-                    class="flex flex-col items-start gap-1 py-2.5 px-3 pr-16 w-full text-left rounded-md transition-all duration-200 border-l-2 border-transparent hover:bg-base-300/50"
-                    [class.sidebar-item-active]="
-                      session.id === chatStore.currentSession()?.id
-                    "
-                    [class.sidebar-item-open-tab]="
-                      isSessionOpen(session.id) &&
-                      session.id !== chatStore.currentSession()?.id
-                    "
-                    [attr.aria-current]="
-                      session.id === chatStore.currentSession()?.id
-                        ? 'true'
-                        : null
-                    "
-                    (click)="chatStore.switchSession(session.id)"
-                  >
-                    <!-- Session name -->
-                    <span
-                      class="font-medium text-sm truncate w-full leading-snug"
-                      [class.text-primary]="
-                        session.id === chatStore.currentSession()?.id ||
-                        isSessionOpen(session.id)
-                      "
-                      [title]="session.name"
-                    >
-                      {{ getSessionDisplayName(session) }}
-                    </span>
-                    <!-- Session metadata row -->
-                    <span
-                      class="text-xs text-base-content/50 flex items-center gap-2 w-full"
-                    >
-                      <span>{{
-                        formatRelativeDate(session.lastActivityAt)
-                      }}</span>
-                      @if (session.messageCount > 0) {
-                        <span class="text-base-content/40"
-                          >{{ session.messageCount }} msgs</span
-                        >
-                      }
-                    </span>
-                  </button>
-                  <!-- Action buttons (hover reveal) -->
-                  <div
-                    class="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                  >
-                    <button
-                      type="button"
-                      class="btn btn-ghost btn-xs btn-square rounded text-base-content/40 hover:text-primary hover:bg-primary/10"
-                      title="Rename session"
-                      [attr.aria-label]="
-                        'Rename session: ' + getSessionDisplayName(session)
-                      "
-                      (click)="startEditingSession($event, session)"
-                    >
-                      <lucide-angular [img]="PencilIcon" class="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-ghost btn-xs btn-square rounded text-base-content/40 hover:text-error hover:bg-error/10"
-                      title="Delete session"
-                      [attr.aria-label]="
-                        'Delete session: ' + getSessionDisplayName(session)
-                      "
-                      (click)="deleteSession($event, session)"
-                    >
-                      <lucide-angular [img]="Trash2Icon" class="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                }
-              </li>
-            } @empty {
-              <li
-                class="flex flex-col items-center justify-center p-6 text-center"
-                role="presentation"
-              >
-                @if (hasActiveFilters() && chatStore.sessions().length > 0) {
-                  <lucide-angular
-                    [img]="SearchIcon"
-                    class="w-8 h-8 text-base-content/20 mb-2"
-                  />
-                  <span class="text-sm text-base-content/40"
-                    >No matching sessions</span
-                  >
-                  <span class="text-xs text-base-content/25 mt-1">
-                    Try adjusting your search or filters
-                  </span>
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-xs mt-2 text-primary/60 hover:text-primary"
-                    (click)="clearFilters()"
-                  >
-                    Clear filters
-                  </button>
-                } @else {
-                  <lucide-angular
-                    [img]="MessageSquareIcon"
-                    class="w-8 h-8 text-base-content/20 mb-2"
-                  />
-                  <span class="text-sm text-base-content/40"
-                    >No sessions yet</span
-                  >
-                  <span class="text-xs text-base-content/25 mt-1"
-                    >Create one to get started</span
-                  >
-                }
-              </li>
-            }
-          </ul>
-
-          <!-- Load More button (hidden when filters produce zero results) -->
-          @if (
-            chatStore.hasMoreSessions() &&
-            (!hasActiveFilters() || filteredSessions().length > 0)
-          ) {
-            <div class="px-1.5 pt-1 pb-1">
-              <button
-                class="btn btn-ghost btn-xs w-full text-base-content/50 hover:text-base-content/70 hover:bg-base-300/30 transition-all duration-200 gap-1"
-                [class.loading]="chatStore.isLoadingMoreSessions()"
-                [disabled]="chatStore.isLoadingMoreSessions()"
-                (click)="chatStore.loadMoreSessions()"
-              >
-                @if (chatStore.isLoadingMoreSessions()) {
-                  <span class="loading loading-spinner loading-xs"></span>
-                  Loading...
-                } @else {
-                  @if (hasActiveFilters()) {
-                    <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
-                    Load more to expand search
-                  } @else {
-                    <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
-                    Load More
-                    <span class="text-base-content/30"
-                      >({{
-                        chatStore.totalSessions() - chatStore.sessions().length
-                      }})</span
-                    >
-                  }
-                }
-              </button>
-            </div>
-          }
-        </div>
-      </aside>
-
-      <!-- Sessions vertical tab (always visible — primary toggle for session panel) -->
-      <ptah-sidebar-tab
-        label="Sessions"
-        side="left"
-        [isOpen]="sidebarOpen()"
-        [size]="isElectron ? 'default' : 'sm'"
-        (toggled)="toggleSidebar()"
+      <img
+        [src]="ptahIconUri"
+        alt="Ptah"
+        class="w-5 h-5 flex-shrink-0 opacity-80"
+        width="20"
+        height="20"
       />
+    </div>
 
-      <!-- Main Content -->
-      <div class="flex-1 flex flex-col min-w-0">
-        <!-- Header -->
-        <div
-          class="navbar bg-base-100 border-b border-base-300 min-h-[40px] px-2 gap-2"
+    <!-- TASK_2025_192: Session search & filter -->
+    <div class="px-1.5 pt-1.5 pb-0.5 flex flex-col gap-1">
+      <!-- Search input -->
+      <label
+        class="input input-xs w-full flex items-center gap-1.5 bg-base-100 border-base-content/10"
+      >
+        <lucide-angular
+          [img]="SearchIcon"
+          class="w-3 h-3 text-base-content/40 flex-shrink-0"
+        />
+        <input
+          type="text"
+          class="grow text-xs min-w-0"
+          placeholder="Search sessions..."
+          [ngModel]="searchQuery()"
+          (ngModelChange)="setSearchQuery($event)"
+          aria-label="Search sessions by name"
+        />
+        @if (searchQuery()) {
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs btn-circle w-4 h-4 min-h-0 p-0"
+            (click)="setSearchQuery('')"
+            aria-label="Clear search"
+          >
+            <lucide-angular [img]="XIcon" class="w-2.5 h-2.5" />
+          </button>
+        }
+      </label>
+
+      <!-- Date filter toggle + clear filters row -->
+      <div class="flex items-center gap-1">
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs gap-1 text-base-content/50 hover:text-base-content/70 flex-1 justify-start px-1"
+          (click)="toggleDateFilter()"
+          aria-label="Toggle date filter"
         >
-          <!-- Dashboard (gold accent, VS Code only — Electron has it in global navbar) -->
-          @if (!isElectron) {
-            <button
-              class="btn btn-gold btn-xs gap-1"
-              aria-label="Dashboard"
-              title="Session Analytics"
-              (click)="openDashboard()"
-            >
-              <lucide-angular [img]="BarChart3Icon" class="w-4 h-4" />
-              <span class="icon-btn-label text-xs">Dashboard</span>
-            </button>
-
-            <!-- Canvas button (VS Code only — Electron has it in global navbar) -->
-            <button
-              class="btn btn-ghost btn-xs gap-1"
-              aria-label="Orchestra Canvas"
-              title="Orchestra Canvas — multi-session view"
-              (click)="openCanvas()"
-            >
-              <lucide-angular [img]="LayoutGridIcon" class="w-4 h-4" />
-              <span class="icon-btn-label text-xs">Canvas</span>
-            </button>
-          }
-
-          <!-- Tab bar -->
-          <div class="flex-1 min-w-0">
-            <ptah-tab-bar />
-          </div>
-
-          <!-- Header actions -->
-          <div class="flex gap-0.5 items-center">
-            <!-- Group 1: View controls -->
-            <!-- Pop out to editor tab (VS Code only — Electron has built-in editor panel) -->
-            @if (!isElectron) {
-              <button
-                class="btn btn-square btn-xs relative"
-                [class.btn-ghost]="
-                  !agentMonitorStore.shouldSuggestEditorPanel()
-                "
-                [class.btn-primary]="
-                  agentMonitorStore.shouldSuggestEditorPanel()
-                "
-                [class.animate-pulse]="
-                  agentMonitorStore.shouldSuggestEditorPanel()
-                "
-                aria-label="Open in editor tab"
-                [title]="
-                  agentMonitorStore.shouldSuggestEditorPanel()
-                    ? 'Pop out to editor tab — CLI agents need more space'
-                    : 'Open in editor tab (more space)'
-                "
-                (click)="openInEditor()"
-              >
-                <lucide-angular [img]="ExternalLinkIcon" class="w-3.5 h-3.5" />
-              </button>
-            }
-
-            <!-- Divider between View controls and Session group (VS Code only — pop out button exists) -->
-            @if (!isElectron) {
-              <div class="w-px h-4 bg-base-content/10"></div>
-            }
-
-            <!-- Group 2: Session -->
-
-            <!-- Notification bell (VS Code only — in Electron this is in the global navbar) -->
-            @if (!isElectron) {
-              @if (chatStore.licenseStatus(); as license) {
-                <ptah-notification-bell
-                  [trialActive]="license.trialActive"
-                  [trialDaysRemaining]="license.trialDaysRemaining"
-                  [isCommunity]="license.isCommunity"
-                  [reason]="license.reason"
-                />
-              }
-            }
-
-            <!-- New session popover -->
-            <ptah-native-popover
-              [isOpen]="sessionNamePopoverOpen()"
-              [placement]="'bottom'"
-              [hasBackdrop]="true"
-              [backdropClass]="'transparent'"
-              (closed)="handleCancelSession()"
-            >
-              <!-- Trigger: New Session button (gold accent) -->
-              <button
-                trigger
-                class="btn btn-gold btn-xs gap-1"
-                (click)="createNewSession()"
-                aria-label="New Session"
-                title="New Session"
-              >
-                <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
-                <span class="icon-btn-label text-xs">New</span>
-              </button>
-
-              <!-- Popover content -->
-              <div
-                content
-                class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
-              >
-                <h3 class="text-sm font-semibold mb-3 text-base-content/90">
-                  New Session
-                </h3>
-
-                <!-- Input field with Enter/ESC keyboard support -->
-                <input
-                  #sessionNameInputRef
-                  type="text"
-                  class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
-                  placeholder="Enter session name (optional)"
-                  [(ngModel)]="sessionNameInput"
-                  (keydown.enter)="
-                    handleCreateSession();
-                    $event.preventDefault();
-                    $event.stopPropagation()
-                  "
-                  (keydown.escape)="handleCancelSession()"
-                />
-
-                <!-- Action buttons -->
-                <div class="flex gap-2">
-                  <button
-                    class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content/60"
-                    (click)="handleCancelSession()"
-                  >
-                    <lucide-angular [img]="XIcon" class="w-3 h-3" />
-                    Cancel
-                  </button>
-                  <button
-                    class="btn btn-sm btn-primary flex-1 gap-1.5"
-                    (click)="handleCreateSession()"
-                  >
-                    <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
-                    Create
-                  </button>
-                </div>
-              </div>
-            </ptah-native-popover>
-
-            <!-- App-level actions (VS Code only — in Electron these are in the global navbar) -->
-            @if (!isElectron) {
-              <!-- Divider between Session and App group -->
-              <div class="w-px h-4 bg-base-content/10"></div>
-
-              <!-- Theme toggle -->
-              <ptah-theme-toggle />
-
-              <button
-                class="btn btn-ghost btn-xs gap-1"
-                aria-label="Settings"
-                title="Settings"
-                (click)="openSettings()"
-              >
-                <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
-                <span class="icon-btn-label text-xs">Settings</span>
-              </button>
-            }
-          </div>
-        </div>
-
-        <!-- Chat content area -->
-        <div class="flex-1 overflow-hidden">
-          <ptah-chat-view />
-        </div>
+          <lucide-angular [img]="CalendarDaysIcon" class="w-3 h-3" />
+          <span class="text-[10px]">Date range</span>
+          <lucide-angular
+            [img]="ChevronDownIcon"
+            class="w-2.5 h-2.5 transition-transform duration-200"
+            [class.rotate-180]="dateFilterOpen()"
+          />
+        </button>
+        @if (hasActiveFilters()) {
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs text-[10px] text-base-content/40 hover:text-error px-1"
+            (click)="clearFilters()"
+            aria-label="Clear all filters"
+          >
+            Clear
+          </button>
+        }
       </div>
 
-      <!-- Resize handle (visible only when agent panel is open) -->
-      @if (agentMonitorStore.panelOpen()) {
-        <ptah-resize-handle />
+      <!-- Date range inputs (collapsible) -->
+      @if (dateFilterOpen()) {
+        <div class="flex flex-col gap-1 px-0.5 pb-0.5">
+          <label
+            for="session-filter-date-from"
+            class="text-[10px] text-base-content/40"
+            >From</label
+          >
+          <input
+            id="session-filter-date-from"
+            type="date"
+            class="input input-xs w-full bg-base-100 border-base-content/10 text-xs"
+            [ngModel]="dateFrom()"
+            (ngModelChange)="setDateFrom($event)"
+          />
+          <label
+            for="session-filter-date-to"
+            class="text-[10px] text-base-content/40"
+            >To</label
+          >
+          <input
+            id="session-filter-date-to"
+            type="date"
+            class="input input-xs w-full bg-base-100 border-base-content/10 text-xs"
+            [ngModel]="dateTo()"
+            (ngModelChange)="setDateTo($event)"
+          />
+        </div>
+      }
+    </div>
+
+    <!-- Session list (scrollable) -->
+    <div class="flex-1 overflow-y-auto p-1.5 sidebar-scroll">
+      <ul class="flex flex-col gap-0.5 p-0" role="list">
+        @for (session of filteredSessions(); track session.id) {
+          <li class="group relative" role="listitem">
+            @if (editingSessionId() === session.id) {
+              <!-- Inline edit mode -->
+              <div class="flex items-center gap-1 py-2.5 px-3 w-full">
+                <input
+                  #editSessionInput
+                  type="text"
+                  class="input input-xs input-bordered flex-1 text-sm bg-base-100"
+                  maxlength="200"
+                  aria-label="Edit session name"
+                  [ngModel]="editingSessionName()"
+                  (ngModelChange)="editingSessionName.set($event)"
+                  (keydown.enter)="saveSessionName($event, session)"
+                  (keydown.escape)="cancelEditingSession()"
+                  (blur)="saveSessionName($event, session)"
+                />
+              </div>
+            } @else {
+              <button
+                type="button"
+                class="flex flex-col items-start gap-1 py-2.5 px-3 pr-16 w-full text-left rounded-md transition-all duration-200 border-l-2 border-transparent hover:bg-base-300/50"
+                [class.sidebar-item-active]="
+                  session.id === chatStore.currentSession()?.id
+                "
+                [class.sidebar-item-open-tab]="
+                  isSessionOpen(session.id) &&
+                  session.id !== chatStore.currentSession()?.id
+                "
+                [attr.aria-current]="
+                  session.id === chatStore.currentSession()?.id ? 'true' : null
+                "
+                (click)="onSessionClick(session)"
+              >
+                <!-- Session name -->
+                <span
+                  class="font-medium text-sm truncate w-full leading-snug"
+                  [class.text-primary]="
+                    session.id === chatStore.currentSession()?.id ||
+                    isSessionOpen(session.id)
+                  "
+                  [title]="session.name"
+                >
+                  {{ getSessionDisplayName(session) }}
+                </span>
+                <!-- Session metadata row -->
+                <span
+                  class="text-xs text-base-content/50 flex items-center gap-2 w-full"
+                >
+                  <span>{{ formatRelativeDate(session.lastActivityAt) }}</span>
+                  @if (session.messageCount > 0) {
+                    <span class="text-base-content/40"
+                      >{{ session.messageCount }} msgs</span
+                    >
+                  }
+                </span>
+              </button>
+              <!-- Action buttons (hover reveal) -->
+              <div
+                class="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+              >
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs btn-square rounded text-base-content/40 hover:text-primary hover:bg-primary/10"
+                  title="Rename session"
+                  [attr.aria-label]="
+                    'Rename session: ' + getSessionDisplayName(session)
+                  "
+                  (click)="startEditingSession($event, session)"
+                >
+                  <lucide-angular [img]="PencilIcon" class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs btn-square rounded text-base-content/40 hover:text-error hover:bg-error/10"
+                  title="Delete session"
+                  [attr.aria-label]="
+                    'Delete session: ' + getSessionDisplayName(session)
+                  "
+                  (click)="deleteSession($event, session)"
+                >
+                  <lucide-angular [img]="Trash2Icon" class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            }
+          </li>
+        } @empty {
+          <li
+            class="flex flex-col items-center justify-center p-6 text-center"
+            role="presentation"
+          >
+            @if (hasActiveFilters() && chatStore.sessions().length > 0) {
+              <lucide-angular
+                [img]="SearchIcon"
+                class="w-8 h-8 text-base-content/20 mb-2"
+              />
+              <span class="text-sm text-base-content/40"
+                >No matching sessions</span
+              >
+              <span class="text-xs text-base-content/25 mt-1">
+                Try adjusting your search or filters
+              </span>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs mt-2 text-primary/60 hover:text-primary"
+                (click)="clearFilters()"
+              >
+                Clear filters
+              </button>
+            } @else {
+              <lucide-angular
+                [img]="MessageSquareIcon"
+                class="w-8 h-8 text-base-content/20 mb-2"
+              />
+              <span class="text-sm text-base-content/40">No sessions yet</span>
+              <span class="text-xs text-base-content/25 mt-1"
+                >Create one to get started</span
+              >
+            }
+          </li>
+        }
+      </ul>
+
+      <!-- Load More button (hidden when filters produce zero results) -->
+      @if (
+        chatStore.hasMoreSessions() &&
+        (!hasActiveFilters() || filteredSessions().length > 0)
+      ) {
+        <div class="px-1.5 pt-1 pb-1">
+          <button
+            class="btn btn-ghost btn-xs w-full text-base-content/50 hover:text-base-content/70 hover:bg-base-300/30 transition-all duration-200 gap-1"
+            [class.loading]="chatStore.isLoadingMoreSessions()"
+            [disabled]="chatStore.isLoadingMoreSessions()"
+            (click)="chatStore.loadMoreSessions()"
+          >
+            @if (chatStore.isLoadingMoreSessions()) {
+              <span class="loading loading-spinner loading-xs"></span>
+              Loading...
+            } @else {
+              @if (hasActiveFilters()) {
+                <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
+                Load more to expand search
+              } @else {
+                <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
+                Load More
+                <span class="text-base-content/30"
+                  >({{
+                    chatStore.totalSessions() - chatStore.sessions().length
+                  }})</span
+                >
+              }
+            }
+          </button>
+        </div>
+      }
+    </div>
+  </aside>
+
+  <!-- Sessions vertical tab (always visible — primary toggle for session panel) -->
+  <ptah-sidebar-tab
+    label="Sessions"
+    side="left"
+    [isOpen]="sidebarOpen()"
+    [size]="isElectron ? 'default' : 'sm'"
+    (toggled)="toggleSidebar()"
+  />
+
+  <!-- Main Content -->
+  <div class="flex-1 flex flex-col min-w-0">
+    <!-- Header: hidden in Electron grid mode (global navbar provides all controls) -->
+    <div
+      class="navbar bg-base-100 border-b border-base-300 min-h-[40px] px-2 gap-2"
+      [class.hidden]="isElectron && layoutMode() === 'grid'"
+    >
+      <!-- Dashboard (gold accent, VS Code only — Electron has it in global navbar) -->
+      @if (!isElectron) {
+        <button
+          class="btn btn-gold btn-xs gap-1"
+          aria-label="Dashboard"
+          title="Session Analytics"
+          (click)="openDashboard()"
+        >
+          <lucide-angular [img]="BarChart3Icon" class="w-4 h-4" />
+          <span class="icon-btn-label text-xs">Dashboard</span>
+        </button>
+
+        <!-- Layout toggle button (replaces old Canvas navigation button) -->
+        <button
+          class="btn btn-ghost btn-xs gap-1"
+          [class.btn-active]="layoutMode() === 'grid'"
+          aria-label="Toggle canvas grid / single chat"
+          title="Toggle canvas grid / single chat"
+          (click)="toggleLayoutMode()"
+        >
+          <lucide-angular [img]="LayoutGridIcon" class="w-4 h-4" />
+          <span class="icon-btn-label text-xs">Canvas</span>
+        </button>
       }
 
-      <!-- Right sidebar: Agent Monitor Panel -->
-      <ptah-agent-monitor-panel />
+      <!-- Tab bar (single mode only) / Canvas label (grid mode) -->
+      @if (layoutMode() === 'single') {
+        <div class="flex-1 min-w-0">
+          <ptah-tab-bar />
+        </div>
+      } @else {
+        <div class="flex-1 min-w-0 flex items-center">
+          <span class="text-xs text-base-content/60 font-medium"
+            >Orchestra Canvas</span
+          >
+        </div>
+      }
 
-      <!-- Agents vertical tab (always visible — primary toggle for agent panel) -->
-      <ptah-sidebar-tab
-        label="Agents"
-        side="right"
-        [isOpen]="agentMonitorStore.panelOpen()"
-        [badgeType]="agentBadgeType()"
-        [size]="isElectron ? 'default' : 'sm'"
-        (toggled)="agentMonitorStore.togglePanel()"
-      />
+      <!-- Header actions -->
+      <div class="flex gap-0.5 items-center">
+        <!-- Group 1: View controls -->
+        <!-- Pop out to editor tab (VS Code only — Electron has built-in editor panel) -->
+        @if (!isElectron) {
+          <button
+            class="btn btn-square btn-xs relative"
+            [class.btn-ghost]="!agentMonitorStore.shouldSuggestEditorPanel()"
+            [class.btn-primary]="agentMonitorStore.shouldSuggestEditorPanel()"
+            [class.animate-pulse]="agentMonitorStore.shouldSuggestEditorPanel()"
+            aria-label="Open in editor tab"
+            [title]="
+              agentMonitorStore.shouldSuggestEditorPanel()
+                ? 'Pop out to editor tab — CLI agents need more space'
+                : 'Open in editor tab (more space)'
+            "
+            (click)="openInEditor()"
+          >
+            <lucide-angular [img]="ExternalLinkIcon" class="w-3.5 h-3.5" />
+          </button>
+        }
+
+        <!-- Divider between View controls and Session group (VS Code only — pop out button exists) -->
+        @if (!isElectron) {
+          <div class="w-px h-4 bg-base-content/10"></div>
+        }
+
+        <!-- Group 2: Session -->
+
+        <!-- Notification bell (VS Code only — in Electron this is in the global navbar) -->
+        @if (!isElectron) {
+          @if (chatStore.licenseStatus(); as license) {
+            <ptah-notification-bell
+              [trialActive]="license.trialActive"
+              [trialDaysRemaining]="license.trialDaysRemaining"
+              [isCommunity]="license.isCommunity"
+              [reason]="license.reason"
+            />
+          }
+        }
+
+        <!-- New session popover -->
+        <ptah-native-popover
+          [isOpen]="sessionNamePopoverOpen()"
+          [placement]="'bottom'"
+          [hasBackdrop]="true"
+          [backdropClass]="'transparent'"
+          (closed)="handleCancelSession()"
+        >
+          <!-- Trigger: New Session button (gold accent) -->
+          <button
+            trigger
+            class="btn btn-gold btn-xs gap-1"
+            (click)="createNewSession()"
+            aria-label="New Session"
+            title="New Session"
+          >
+            <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
+            <span class="icon-btn-label text-xs">New</span>
+          </button>
+
+          <!-- Popover content -->
+          <div
+            content
+            class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
+          >
+            <h3 class="text-sm font-semibold mb-3 text-base-content/90">
+              New Session
+            </h3>
+
+            <!-- Input field with Enter/ESC keyboard support -->
+            <input
+              #sessionNameInputRef
+              type="text"
+              class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
+              placeholder="Enter session name (optional)"
+              [(ngModel)]="sessionNameInput"
+              (keydown.enter)="
+                handleCreateSession();
+                $event.preventDefault();
+                $event.stopPropagation()
+              "
+              (keydown.escape)="handleCancelSession()"
+            />
+
+            <!-- Action buttons -->
+            <div class="flex gap-2">
+              <button
+                class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content/60"
+                (click)="handleCancelSession()"
+              >
+                <lucide-angular [img]="XIcon" class="w-3 h-3" />
+                Cancel
+              </button>
+              <button
+                class="btn btn-sm btn-primary flex-1 gap-1.5"
+                (click)="handleCreateSession()"
+              >
+                <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
+                Create
+              </button>
+            </div>
+          </div>
+        </ptah-native-popover>
+
+        <!-- App-level actions (VS Code only — in Electron these are in the global navbar) -->
+        @if (!isElectron) {
+          <!-- Divider between Session and App group -->
+          <div class="w-px h-4 bg-base-content/10"></div>
+
+          <!-- Theme toggle -->
+          <ptah-theme-toggle />
+
+          <button
+            class="btn btn-ghost btn-xs gap-1"
+            aria-label="Settings"
+            title="Settings"
+            (click)="openSettings()"
+          >
+            <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
+            <span class="icon-btn-label text-xs">Settings</span>
+          </button>
+        }
+      </div>
     </div>
-  }
-}
+
+    <!-- Content area: both layout modes are always rendered, toggled via CSS hidden.
+         This preserves canvas tile state (CanvasStore is scoped per component instance)
+         across layout toggles. Matches the [class.hidden] pattern used for standalone views. -->
+    <div class="flex-1 overflow-hidden">
+      <div class="h-full" [class.hidden]="layoutMode() !== 'grid'">
+        @if (orchestraCanvasComponent) {
+          <ng-container *ngComponentOutlet="orchestraCanvasComponent" />
+        }
+      </div>
+      <div class="h-full" [class.hidden]="layoutMode() !== 'single'">
+        <ptah-chat-view />
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent panel moved inside ChatViewComponent (per-session scoping) -->
+</div>

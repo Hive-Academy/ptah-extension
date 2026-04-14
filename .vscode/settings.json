@@ -1,5 +1,7 @@
 {
   "ptah.authMethod": "oauth",
-  "ptah.model.selected": "opus",
-  "ptah.reasoningEffort": "high"
+  "ptah.model.selected": "claude-opus-4-6",
+  "ptah.reasoningEffort": "high",
+  "ptah.autopilot.enabled": true,
+  "ptah.autopilot.permissionLevel": "yolo"
 }

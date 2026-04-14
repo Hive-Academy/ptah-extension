@@ -224,6 +224,12 @@ export class AuthStateService {
    */
   readonly showProviderModels = computed(() => {
     const method = this._authMethod();
+
+    // Direct auth methods: show when credential is present
+    if (method === 'oauth') return this._hasOAuthToken();
+    if (method === 'apiKey') return this._hasApiKey();
+
+    // OpenRouter/auto: check provider-level credentials
     if (method !== 'openrouter' && method !== 'auto') return false;
 
     // OAuth providers use their own auth, not API keys
@@ -238,11 +244,26 @@ export class AuthStateService {
   });
 
   /**
+   * Effective provider ID for model mapping.
+   * For direct auth methods (oauth/apiKey), the provider is always 'anthropic'.
+   * For openrouter/auto, delegates to the user-selected provider.
+   */
+  readonly effectiveProviderId = computed(() => {
+    const method = this._authMethod();
+    if (method === 'oauth' || method === 'apiKey') return 'anthropic';
+    return this._selectedProviderId();
+  });
+
+  /**
    * Whether the selected provider has valid credentials (API key or OAuth).
    * Used by provider-model-selector to gate model loading.
-   * TASK_2025_191
    */
   readonly hasProviderCredential = computed(() => {
+    const method = this._authMethod();
+    if (method === 'oauth') return this._hasOAuthToken();
+    if (method === 'apiKey') return this._hasApiKey();
+
+    // OpenRouter/auto: check provider-level credentials
     const provider = this.selectedProvider();
     if (provider?.authType === 'oauth') {
       if (provider.id === 'github-copilot') return this._copilotAuthenticated();

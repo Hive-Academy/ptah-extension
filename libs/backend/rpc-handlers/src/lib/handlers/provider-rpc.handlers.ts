@@ -23,23 +23,62 @@ import {
 import type { IModelDiscovery } from '../platform-abstractions';
 import {
   ProviderModelsService,
+  SdkAgentAdapter,
   SDK_TOKENS,
   DEFAULT_PROVIDER_ID,
+  ANTHROPIC_DIRECT_PROVIDER_ID,
   getAnthropicProvider,
   COPILOT_PROVIDER_ENTRY,
   CODEX_PROVIDER_ENTRY,
+  TIER_TO_MODEL_ID,
 } from '@ptah-extension/agent-sdk';
 import { CliDetectionService } from '@ptah-extension/llm-abstraction';
 import {
   ProviderListModelsParams,
   ProviderListModelsResult,
+  ProviderModelInfo,
   ProviderSetModelTierParams,
   ProviderSetModelTierResult,
   ProviderGetModelTiersParams,
   ProviderGetModelTiersResult,
   ProviderClearModelTierParams,
   ProviderClearModelTierResult,
+  getModelPricingDescription,
+  getModelContextWindow,
 } from '@ptah-extension/shared';
+import type { AuthEnv } from '@ptah-extension/shared';
+
+/**
+ * Last-resort fallback models for the 'anthropic' virtual provider.
+ * Guarantees the model selector always shows tier slots even when
+ * /v1/models API and SDK supportedModels() both return empty.
+ *
+ * Uses TIER_TO_MODEL_ID from sdk-model-service (single source of truth)
+ * to avoid duplicating model IDs across files.
+ */
+const ANTHROPIC_TIER_FALLBACK: ProviderModelInfo[] = [
+  {
+    id: TIER_TO_MODEL_ID['opus'],
+    name: 'Claude Opus 4.6',
+    description: 'Most capable for complex work',
+    contextLength: 200000,
+    supportsToolUse: true,
+  },
+  {
+    id: TIER_TO_MODEL_ID['sonnet'],
+    name: 'Claude Sonnet 4.6',
+    description: 'Best for everyday tasks',
+    contextLength: 200000,
+    supportsToolUse: true,
+  },
+  {
+    id: TIER_TO_MODEL_ID['haiku'],
+    name: 'Claude Haiku 4.5',
+    description: 'Fastest for quick answers',
+    contextLength: 200000,
+    supportsToolUse: true,
+  },
+];
 
 /**
  * RPC handlers for provider model operations
@@ -58,7 +97,10 @@ export class ProviderRpcHandlers {
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
     @inject(TOKENS.MODEL_DISCOVERY)
-    private readonly modelDiscovery: IModelDiscovery
+    private readonly modelDiscovery: IModelDiscovery,
+    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
+    private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
   ) {}
 
   /**
@@ -67,6 +109,7 @@ export class ProviderRpcHandlers {
   register(): void {
     this.registerCopilotDynamicFetcher();
     this.registerCodexDynamicFetcher();
+    this.registerAnthropicDirectFetcher();
     this.registerListModels();
     this.registerSetModelTier();
     this.registerGetModelTiers();
@@ -100,7 +143,7 @@ export class ProviderRpcHandlers {
         const platformModels = await this.modelDiscovery.getCopilotModels();
         if (platformModels.length > 0) {
           this.logger.info(
-            `[ProviderRpc] Fetched ${platformModels.length} Copilot models from platform discovery`
+            `[ProviderRpc] Fetched ${platformModels.length} Copilot models from platform discovery`,
           );
           return platformModels.map((m) => ({
             id: m.id,
@@ -114,7 +157,7 @@ export class ProviderRpcHandlers {
         this.logger.debug(
           `[ProviderRpc] Platform model discovery unavailable: ${
             error instanceof Error ? error.message : String(error)
-          }`
+          }`,
         );
       }
 
@@ -125,7 +168,7 @@ export class ProviderRpcHandlers {
           const cliModels = await copilotAdapter.listModels();
           if (cliModels.length > 0) {
             this.logger.info(
-              `[ProviderRpc] Fetched ${cliModels.length} Copilot models from CLI SDK`
+              `[ProviderRpc] Fetched ${cliModels.length} Copilot models from CLI SDK`,
             );
             return cliModels.map((m) => ({
               id: m.id,
@@ -140,13 +183,13 @@ export class ProviderRpcHandlers {
         this.logger.debug(
           `[ProviderRpc] Copilot CLI SDK unavailable: ${
             error instanceof Error ? error.message : String(error)
-          }`
+          }`,
         );
       }
 
       // 3. Static fallback
       this.logger.info(
-        '[ProviderRpc] Using static Copilot model list (VS Code LM and CLI both unavailable)'
+        '[ProviderRpc] Using static Copilot model list (VS Code LM and CLI both unavailable)',
       );
       return (COPILOT_PROVIDER_ENTRY.staticModels ?? []).map((m) => ({
         id: m.id,
@@ -173,12 +216,12 @@ export class ProviderRpcHandlers {
         const platformModels = await this.modelDiscovery.getCodexModels();
         // Filter to known Codex model IDs
         const codexModelIds = new Set(
-          (CODEX_PROVIDER_ENTRY.staticModels ?? []).map((m) => m.id)
+          (CODEX_PROVIDER_ENTRY.staticModels ?? []).map((m) => m.id),
         );
         const matched = platformModels.filter((m) => codexModelIds.has(m.id));
         if (matched.length > 0) {
           this.logger.info(
-            `[ProviderRpc] Fetched ${matched.length} Codex models from platform discovery`
+            `[ProviderRpc] Fetched ${matched.length} Codex models from platform discovery`,
           );
           return matched.map((m) => ({
             id: m.id,
@@ -192,7 +235,7 @@ export class ProviderRpcHandlers {
         this.logger.debug(
           `[ProviderRpc] Platform model discovery unavailable for Codex: ${
             error instanceof Error ? error.message : String(error)
-          }`
+          }`,
         );
       }
 
@@ -206,6 +249,85 @@ export class ProviderRpcHandlers {
         supportsToolUse: m.supportsToolUse ?? false,
       }));
     });
+  }
+
+  /**
+   * Register a dynamic model fetcher for direct Anthropic auth (oauth/apiKey).
+   *
+   * TASK_2025_270: 'anthropic' is a virtual provider ID for direct Claude auth
+   * users — it is NOT in the ANTHROPIC_PROVIDERS registry.
+   *
+   * Routes based on the active credential type in authEnv:
+   * - API key: calls /v1/models directly (returns specific model versions)
+   * - OAuth token: uses SDK's query().supportedModels() (SDK handles OAuth
+   *   auth internally; /v1/models does not accept Bearer OAuth tokens)
+   *
+   * ProviderModelsService.fetchModels() checks dynamic fetchers BEFORE the
+   * registry lookup, so this fetcher is reached without throwing "Unknown provider".
+   * The service also provides caching automatically.
+   */
+  private registerAnthropicDirectFetcher(): void {
+    this.providerModels.registerDynamicFetcher(
+      ANTHROPIC_DIRECT_PROVIDER_ID,
+      async (): Promise<ProviderModelInfo[]> => {
+        const hasApiKey = !!this.authEnv.ANTHROPIC_API_KEY;
+        const hasOAuthToken = !!this.authEnv.CLAUDE_CODE_OAUTH_TOKEN;
+
+        if (!hasApiKey && !hasOAuthToken) {
+          this.logger.debug(
+            '[ProviderRpc] No API key or OAuth token set, using tier fallback',
+          );
+          return ANTHROPIC_TIER_FALLBACK;
+        }
+
+        try {
+          if (hasApiKey) {
+            // API key auth: /v1/models returns all specific model versions
+            const apiModels = await this.sdkAdapter.getApiModels();
+            if (apiModels.length > 0) {
+              this.logger.info(
+                `[ProviderRpc] Fetched ${apiModels.length} models from /v1/models (API key)`,
+              );
+              return apiModels.map((m) => ({
+                id: m.id,
+                name: m.displayName,
+                description: getModelPricingDescription(m.id),
+                contextLength: getModelContextWindow(m.id),
+                supportsToolUse: true,
+              }));
+            }
+          }
+
+          // OAuth auth (or API key /v1/models returned empty):
+          // SDK's supportedModels() handles OAuth internally
+          const sdkModels = await this.sdkAdapter.getSupportedModels();
+          if (sdkModels.length > 0) {
+            this.logger.info(
+              `[ProviderRpc] Fetched ${sdkModels.length} models from SDK supportedModels() (${hasOAuthToken ? 'OAuth' : 'API key fallback'})`,
+            );
+            return sdkModels.map((m) => ({
+              id: m.value,
+              name: m.displayName,
+              description: m.description || getModelPricingDescription(m.value),
+              contextLength: getModelContextWindow(m.value),
+              supportsToolUse: true,
+            }));
+          }
+
+          this.logger.warn(
+            '[ProviderRpc] No models from API or SDK, using hardcoded tier fallback',
+          );
+          return ANTHROPIC_TIER_FALLBACK;
+        } catch (error) {
+          this.logger.warn(
+            `[ProviderRpc] Failed to fetch Anthropic direct models, using fallback: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+          return ANTHROPIC_TIER_FALLBACK;
+        }
+      },
+    );
   }
 
   /** Convert model ID slug to display name: "gpt-5.3-codex" → "GPT 5.3 Codex" */
@@ -223,12 +345,20 @@ export class ProviderRpcHandlers {
     if (providerId) return providerId;
     return this.configManager.getWithDefault<string>(
       'anthropicProviderId',
-      DEFAULT_PROVIDER_ID
+      DEFAULT_PROVIDER_ID,
     );
   }
 
   /**
    * provider:listModels - Fetch models from provider API (or return static list)
+   *
+   * Provider ID routing:
+   * - Registry providers (openrouter, moonshot, z-ai, github-copilot, openai-codex, etc.):
+   *   Resolved via ANTHROPIC_PROVIDERS registry → fetchModels() handles static/dynamic paths.
+   * - 'anthropic' (virtual provider for direct OAuth/API key auth, TASK_2025_270):
+   *   NOT in the registry. Handled via dynamic fetcher registered by
+   *   registerAnthropicDirectFetcher() — ProviderModelsService.fetchModels() checks
+   *   dynamic fetchers before the registry lookup, so this works without a registry entry.
    */
   private registerListModels(): void {
     const ListModelsSchema = z.object({
@@ -261,7 +391,7 @@ export class ProviderRpcHandlers {
           if (isPurelyDynamic) {
             this.logger.debug(
               'RPC: provider:listModels skipped - no API key for dynamic provider',
-              { providerId }
+              { providerId },
             );
             return { models: [], totalCount: 0, isStatic: false };
           }
@@ -271,7 +401,7 @@ export class ProviderRpcHandlers {
         const result = await this.providerModels.fetchModels(
           providerId,
           apiKey ?? null,
-          validated.toolUseOnly ?? false
+          validated.toolUseOnly ?? false,
         );
 
         this.logger.info('RPC: provider:listModels completed', {
@@ -297,7 +427,7 @@ export class ProviderRpcHandlers {
           const providerName = provider?.name ?? providerId;
           this.logger.warn(
             'RPC: provider:listModels - auth failed, returning empty result',
-            { providerId, error: errorMsg }
+            { providerId, error: errorMsg },
           );
           return {
             models: [],
@@ -309,7 +439,7 @@ export class ProviderRpcHandlers {
 
         this.logger.error(
           'RPC: provider:listModels failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         throw error;
       }
@@ -343,7 +473,7 @@ export class ProviderRpcHandlers {
         await this.providerModels.setModelTier(
           providerId,
           validated.tier,
-          validated.modelId
+          validated.modelId,
         );
 
         this.logger.info('RPC: provider:setModelTier completed', {
@@ -356,7 +486,7 @@ export class ProviderRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: provider:setModelTier failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return {
           success: false,
@@ -395,7 +525,7 @@ export class ProviderRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: provider:getModelTiers failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         throw error;
       }
@@ -435,7 +565,7 @@ export class ProviderRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: provider:clearModelTier failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return {
           success: false,

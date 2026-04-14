@@ -7,7 +7,6 @@ import {
   ChangeDetectionStrategy,
   inject,
 } from '@angular/core';
-import { NgOptimizedImage } from '@angular/common';
 import { MarkdownModule } from 'ngx-markdown';
 import {
   LucideAngularModule,
@@ -62,11 +61,13 @@ import {
     CostBadgeComponent,
     DurationBadgeComponent,
     LucideAngularModule,
-    NgOptimizedImage,
   ],
   templateUrl: './message-bubble.component.html',
   styleUrl: './message-bubble.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    '[class.is-streaming]': 'isStreaming()',
+  },
 })
 export class MessageBubbleComponent {
   /**

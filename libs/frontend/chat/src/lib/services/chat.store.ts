@@ -170,9 +170,10 @@ export class ChatStore {
   );
   readonly licenseStatus = this._licenseStatus.asReadonly();
 
-  // Compaction state signals (TASK_2025_098)
-  private readonly _isCompacting = signal<boolean>(false);
-  readonly isCompacting = this._isCompacting.asReadonly();
+  // Compaction state — per-tab via TabManagerService (TASK_2025_098)
+  // Previously a global signal that caused ALL canvas tiles to show the
+  // compaction banner when any single session was compacting.
+  readonly isCompacting = this.tabManager.activeTabIsCompacting;
 
   /**
    * Timeout ID for compaction safety fallback.
@@ -183,7 +184,7 @@ export class ChatStore {
    * 2. setTimeout returns a number/NodeJS.Timeout, not a serializable value
    * 3. We only need to clear it, never read it in templates
    *
-   * The associated `_isCompacting` signal IS the UI state that components observe.
+   * The associated `isCompacting` per-tab field IS the UI state that components observe.
    * @see TASK_2025_098
    */
   private compactionTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -401,8 +402,12 @@ export class ChatStore {
     content: string,
     options?: SendMessageOptions,
   ): Promise<void> {
-    // Check if streaming via active tab status (fine-grained selector)
-    const status = this.tabManager.activeTabStatus();
+    // Check target tab's streaming state — use explicit tabId if provided (canvas tile)
+    const targetTabId = options?.tabId;
+    const targetTab = targetTabId
+      ? this.tabManager.tabs().find((t) => t.id === targetTabId)
+      : null;
+    const status = targetTab?.status ?? this.tabManager.activeTabStatus();
     const isStreaming = status === 'streaming' || status === 'resuming';
 
     if (isStreaming) {
@@ -540,10 +545,13 @@ export class ChatStore {
    * @param sessionId - The session ID where compaction is occurring
    */
   handleCompactionStart(sessionId: string): void {
-    const activeSessionId = this.currentSessionId();
-
-    // Only show compaction for the active session
-    if (sessionId !== activeSessionId) {
+    // Find the tab for this session — compaction state is per-tab, not global
+    const tab = this.tabManager.findTabBySessionId(sessionId);
+    if (!tab) {
+      console.warn(
+        '[ChatStore] handleCompactionStart: no tab found for sessionId',
+        { sessionId },
+      );
       return;
     }
 
@@ -553,12 +561,13 @@ export class ChatStore {
       this.compactionTimeoutId = null;
     }
 
-    // Set compacting state — stays visible until compaction_complete event arrives
-    this._isCompacting.set(true);
+    // Set compacting state on the specific tab
+    this.tabManager.updateTab(tab.id, { isCompacting: true });
 
     // Safety fallback: dismiss if compaction_complete event is never received
+    const compactingTabId = tab.id;
     this.compactionTimeoutId = setTimeout(() => {
-      this._isCompacting.set(false);
+      this.tabManager.updateTab(compactingTabId, { isCompacting: false });
       this.compactionTimeoutId = null;
       console.warn(
         '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
@@ -567,15 +576,57 @@ export class ChatStore {
   }
 
   /**
-   * Clear compaction state (called when new message is received)
+   * Public accessor for marking a tab idle from external handlers.
+   * Used by ChatMessageHandler to handle CHAT_COMPLETE fallback.
+   */
+  markTabIdle(tabId: string): void {
+    this.tabManager.markTabIdle(tabId);
+  }
+
+  /**
+   * Public accessor to find a tab by its session ID.
+   * Used by ChatMessageHandler for CHAT_COMPLETE routing.
+   */
+  findTabBySessionId(sessionId: string): TabState | null {
+    return this.tabManager.findTabBySessionId(sessionId);
+  }
+
+  /**
+   * Public accessor to get the active tab ID.
+   * Used by ChatMessageHandler for CHAT_COMPLETE fallback routing.
+   */
+  getActiveTabId(): string | null {
+    return this.tabManager.activeTabId();
+  }
+
+  /**
+   * Clear compaction state for a specific tab.
+   * Public for use by ChatMessageHandler on CHAT_COMPLETE.
+   */
+  clearCompactionStateForTab(tabId: string): void {
+    this.tabManager.updateTab(tabId, { isCompacting: false });
+  }
+
+  /**
+   * Clear compaction state for a specific tab, or all compacting tabs if no tabId given.
    * TASK_2025_098: SDK Session Compaction
    */
-  private clearCompactionState(): void {
+  private clearCompactionState(tabId?: string): void {
     if (this.compactionTimeoutId) {
       clearTimeout(this.compactionTimeoutId);
       this.compactionTimeoutId = null;
     }
-    this._isCompacting.set(false);
+    // Clear on the specific tab if provided, otherwise clear on all compacting tabs
+    if (tabId) {
+      this.tabManager.updateTab(tabId, { isCompacting: false });
+    } else {
+      // Fallback: clear isCompacting on any tab that has it set
+      for (const tab of this.tabManager.tabs()) {
+        if (tab.isCompacting) {
+          this.tabManager.updateTab(tab.id, { isCompacting: false });
+        }
+      }
+    }
   }
 
   /**
@@ -666,13 +717,13 @@ export class ChatStore {
   }
 
   /**
-   * Clear queued content for active tab
-   * Delegates to TabManagerService (simple facade)
+   * Clear queued content for a specific tab or the active tab.
+   * @param tabId - Optional tab ID. Falls back to active tab if not provided.
    */
-  clearQueuedContent(): void {
-    const activeTabId = this.tabManager.activeTabId();
-    if (!activeTabId) return;
-    this.tabManager.updateTab(activeTabId, { queuedContent: null });
+  clearQueuedContent(tabId?: string): void {
+    const targetTabId = tabId ?? this.tabManager.activeTabId();
+    if (!targetTabId) return;
+    this.tabManager.updateTab(targetTabId, { queuedContent: null });
   }
 
   /**
@@ -713,9 +764,12 @@ export class ChatStore {
       // messageSender.send() checks tab.status === 'loaded' which is false during streaming,
       // causing it to incorrectly start a NEW conversation instead of continuing the existing one.
       // Pass files from stored options (effort is set at session config level, not per-message for continue).
+      // Pass explicit tabId so the user message is added to the correct tab even if the user
+      // switched tabs before the queued message fires.
       await this.conversation.continueConversation(
         content,
         queuedOptions?.files,
+        tabId,
       );
     } catch (error) {
       console.error('[ChatStore] sendQueuedMessage failed:', error);
@@ -749,7 +803,7 @@ export class ChatStore {
 
     // Handle compaction complete: dismiss banner, reset tree, clear finalized messages
     if (result && result.compactionComplete && result.compactionSessionId) {
-      this.clearCompactionState();
+      this.clearCompactionState(result.tabId);
       this.treeBuilder.clearCache();
 
       // Clear finalized messages for the tab - stale pre-compaction messages
@@ -783,6 +837,11 @@ export class ChatStore {
           preloadedStats,
           compactionCount: (compactionTab.compactionCount ?? 0) + 1,
         });
+
+        // Mark tab idle — /compact doesn't produce a result message with
+        // SESSION_STATS, so the normal completion path never fires.
+        // Without this, the tab stays in "streaming" state forever.
+        this.tabManager.markTabIdle(result.tabId);
       }
       return;
     }
@@ -927,14 +986,14 @@ export class ChatStore {
       lastTurnContextTokens?: number;
     }>;
   }): void {
-    // TASK_2025_098: Clear compaction state when new message finishes
-    // This indicates compaction (if any) has completed successfully
-    this.clearCompactionState();
-
     // Resolve the target tab by sessionId first.
     // Fallback to activeTab() only as safety net — stats can't be dropped since
     // they're the only opportunity to record cost/token data for the turn.
     let targetTab = this.tabManager.findTabBySessionId(stats.sessionId);
+
+    // TASK_2025_098: Clear compaction state when new message finishes
+    // This indicates compaction (if any) has completed successfully
+    this.clearCompactionState(targetTab?.id);
     if (!targetTab) {
       targetTab = this.tabManager.activeTab();
       if (targetTab) {

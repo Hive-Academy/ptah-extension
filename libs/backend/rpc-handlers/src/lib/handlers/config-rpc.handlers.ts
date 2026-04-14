@@ -21,6 +21,9 @@ import {
   ProviderModelsService,
   SDK_TOKENS,
   DEFAULT_PROVIDER_ID,
+  ANTHROPIC_DIRECT_PROVIDER_ID,
+  TIER_TO_MODEL_ID,
+  resolveModelIdStatic,
 } from '@ptah-extension/agent-sdk';
 import {
   PermissionLevel,
@@ -35,6 +38,7 @@ import {
   ConfigEffortSetResult,
   ConfigEffortGetResult,
   getModelPricingDescription,
+  type AuthEnv,
   type EffortLevel,
 } from '@ptah-extension/shared';
 
@@ -54,6 +58,8 @@ export class ConfigRpcHandlers {
     private readonly providerModels: ProviderModelsService,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
     private readonly permissionHandler: SdkPermissionHandler,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
   ) {}
 
   /**
@@ -156,8 +162,9 @@ export class ConfigRpcHandlers {
         try {
           this.logger.debug('RPC: config:model-get called');
 
-          const model =
+          const raw =
             this.configManager.get<string>('model.selected') || 'default';
+          const model = resolveModelIdStatic(raw, this.authEnv);
 
           return { model };
         } catch (error) {
@@ -313,9 +320,11 @@ export class ConfigRpcHandlers {
         try {
           this.logger.debug('RPC: config:models-list called');
 
-          // Get saved model preference
-          const savedModel =
+          // Get saved model preference. Resolve bare tier names and 'default'
+          // to full model IDs via the canonical resolver.
+          const rawSaved =
             this.configManager.get<string>('model.selected') || 'default';
+          const savedModel = resolveModelIdStatic(rawSaved, this.authEnv);
 
           // Fetch SDK tier models (always available, 3 slots)
           const sdkModels = await this.sdkAdapter.getSupportedModels();
@@ -331,26 +340,55 @@ export class ConfigRpcHandlers {
           let tierOverrides: ReturnType<
             ProviderModelsService['getModelTiers']
           > | null = null;
-          if (authMethod === 'openrouter') {
-            try {
-              const activeProviderId =
-                this.configManager.getWithDefault<string>(
-                  'anthropicProviderId',
-                  DEFAULT_PROVIDER_ID,
-                );
-              tierOverrides =
-                this.providerModels.getModelTiers(activeProviderId);
-            } catch (e) {
-              this.logger.warn(
-                'Failed to read provider tier overrides',
-                e instanceof Error ? e : new Error(String(e)),
+
+          // TASK_2025_270: Apply tier overrides for ALL auth methods.
+          // For 'oauth'/'apiKey': use 'anthropic' virtual provider ID
+          // For 'openrouter': use the configured third-party provider ID
+          // For 'auto': detect which auth actually resolved by checking env
+          const tierProviderId = (() => {
+            if (authMethod === 'oauth' || authMethod === 'apiKey')
+              return ANTHROPIC_DIRECT_PROVIDER_ID;
+            if (authMethod === 'openrouter')
+              return this.configManager.getWithDefault<string>(
+                'anthropicProviderId',
+                DEFAULT_PROVIDER_ID,
               );
-            }
+            // 'auto' mode: provider auth sets ANTHROPIC_BASE_URL, direct auth does not
+            if (!process.env['ANTHROPIC_BASE_URL'])
+              return ANTHROPIC_DIRECT_PROVIDER_ID;
+            return this.configManager.getWithDefault<string>(
+              'anthropicProviderId',
+              DEFAULT_PROVIDER_ID,
+            );
+          })();
+
+          try {
+            tierOverrides = this.providerModels.getModelTiers(tierProviderId);
+          } catch (e) {
+            this.logger.warn(
+              'Failed to read provider tier overrides',
+              e instanceof Error ? e : new Error(String(e)),
+            );
           }
 
           // --- Phase 1: Build SDK tier models (recommended shortcuts) ---
+          // The SDK may return 'default' as a model value (which maps to sonnet).
+          // Instead of filtering it out (which loses sonnet entirely when the SDK
+          // doesn't return a separate 'sonnet' entry), resolve it to the actual
+          // tier model ID. De-duplicate by resolved ID to avoid duplicate entries.
           const sdkModelIds = new Set<string>();
-          const models = sdkModels.map((m) => {
+          const models: Array<{
+            id: string;
+            name: string;
+            description: string;
+            apiName: string;
+            isSelected: boolean;
+            isRecommended: boolean;
+            providerModelId: string | null;
+            tier: 'opus' | 'sonnet' | 'haiku' | undefined;
+          }> = [];
+
+          for (const m of sdkModels) {
             const valueLower = m.value.toLowerCase();
             const displayLower = (m.displayName || '').toLowerCase();
             const descLower = (m.description || '').toLowerCase();
@@ -361,14 +399,23 @@ export class ConfigRpcHandlers {
               descLower,
             );
 
-            // Resolve 'default' to explicit tier (SDK query() quirk)
-            let resolvedValue = m.value;
-            if (valueLower === 'default' && tier) {
-              resolvedValue = tier;
+            // Resolve bare tier names AND 'default' to full model IDs via the
+            // canonical resolver (single source of truth in sdk-model-service).
+            const resolvedValue = resolveModelIdStatic(m.value, this.authEnv);
+            if (resolvedValue !== m.value) {
               this.logger.info(
-                `Resolved SDK 'default' tier to '${resolvedValue}'`,
+                `Resolved SDK model '${m.value}' to '${resolvedValue}'`,
                 { displayName: m.displayName },
               );
+            }
+
+            // De-duplicate by resolved ID — 'default' and an explicit tier
+            // may resolve to the same model ID
+            if (sdkModelIds.has(resolvedValue)) {
+              this.logger.debug(
+                `Skipping duplicate SDK model '${m.value}' (resolved to '${resolvedValue}')`,
+              );
+              continue;
             }
 
             sdkModelIds.add(resolvedValue);
@@ -383,7 +430,9 @@ export class ConfigRpcHandlers {
               ? getModelPricingDescription(providerModelId)
               : m.description;
 
-            return {
+            // Also check resolved value for sonnet (e.g. 'default' resolved to sonnet tier)
+            const resolvedLower = resolvedValue.toLowerCase();
+            models.push({
               id: resolvedValue,
               name: m.displayName,
               description,
@@ -391,11 +440,12 @@ export class ConfigRpcHandlers {
               isSelected: resolvedValue === savedModel,
               isRecommended:
                 valueLower.includes('sonnet') ||
-                displayLower.includes('sonnet'),
+                displayLower.includes('sonnet') ||
+                resolvedLower.includes('sonnet'),
               providerModelId,
               tier,
-            };
-          });
+            });
+          }
 
           // --- Phase 2: Add API models not already covered by SDK tiers ---
           for (const apiModel of apiModels) {

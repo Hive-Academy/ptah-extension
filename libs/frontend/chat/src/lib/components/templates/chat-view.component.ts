@@ -8,12 +8,18 @@ import {
   ChangeDetectionStrategy,
   afterNextRender,
   effect,
+  untracked,
   Injector,
   DestroyRef,
 } from '@angular/core';
-import { NgOptimizedImage } from '@angular/common';
-import { LucideAngularModule, Bell } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  Bell,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-angular';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
+import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
 import { PermissionBadgeComponent } from '../molecules/permissions/permission-badge.component';
 import { QuestionCardComponent } from '../molecules/question-card.component';
@@ -21,8 +27,12 @@ import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-s
 import { SessionStatsSummaryComponent } from '../molecules/session/session-stats-summary.component';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { CompactionNotificationComponent } from '../molecules/notifications/compaction-notification.component';
+import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
 import { ChatStore } from '../../services/chat.store';
+import { AgentMonitorStore } from '../../services/agent-monitor.store';
+import { PanelResizeService } from '../../services/panel-resize.service';
 import { TabManagerService } from '../../services/tab-manager.service';
+import { ExecutionTreeBuilderService } from '../../services/execution-tree-builder.service';
 import { SESSION_CONTEXT } from '../../tokens/session-context.token';
 import { VSCodeService } from '@ptah-extension/core';
 import {
@@ -57,9 +67,9 @@ import type { SubagentRecord } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-chat-view',
   imports: [
-    NgOptimizedImage,
     LucideAngularModule,
     MessageBubbleComponent,
+    AgentMonitorPanelComponent,
     ChatInputComponent,
     PermissionBadgeComponent,
     QuestionCardComponent,
@@ -67,6 +77,7 @@ import type { SubagentRecord } from '@ptah-extension/shared';
     SessionStatsSummaryComponent,
     ResumeNotificationBannerComponent,
     CompactionNotificationComponent,
+    SidebarTabComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -77,6 +88,8 @@ export class ChatViewComponent {
   private readonly vscodeService = inject(VSCodeService);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly panelResizeService = inject(PanelResizeService);
 
   // CANVAS: Optional per-tile session context. When provided, all signals
   // derive from this tabId instead of the global activeTabId.
@@ -84,9 +97,92 @@ export class ChatViewComponent {
     optional: true,
   });
   private readonly _tabManager = inject(TabManagerService);
+  private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
 
-  /** Lucide icon reference for template binding */
+  /** Lucide icon references for template binding */
   protected readonly BellIcon = Bell;
+  protected readonly ChevronUpIcon = ChevronUp;
+  protected readonly ChevronDownIcon = ChevronDown;
+
+  /** Whether the input area is collapsed to give more room to chat */
+  readonly inputCollapsed = signal(false);
+
+  /** Toggle the input area collapse state */
+  toggleInputCollapse(): void {
+    this.inputCollapsed.update((v) => !v);
+  }
+
+  // ============================================================================
+  // AGENT PANEL (per-session, embedded)
+  // Replaces the global agent sidebar. Each ChatView instance manages its own
+  // agent panel state. Canvas tiles skip this (they use TileAgentIndicator).
+  // ============================================================================
+
+  /** Local panel open/close state */
+  readonly agentPanelOpen = signal(false);
+
+  /** Session-scoped agents for the embedded panel */
+  readonly sessionAgents = computed(() => {
+    const sid = this.resolvedSessionId();
+    if (!sid) return this.agentMonitorStore.agents();
+    return this.agentMonitorStore.agentsForSession(sid);
+  });
+
+  /** Badge type for the Agents sidebar tab */
+  readonly agentBadgeType = computed<'warning' | 'info' | 'neutral' | null>(
+    () => {
+      const agents = this.sessionAgents();
+      if (agents.length === 0) return null;
+      if (agents.some((a) => a.permissionQueue.length > 0)) return 'warning';
+      if (agents.some((a) => a.status === 'running')) return 'info';
+      return 'neutral';
+    },
+  );
+
+  /** Tracks whether the user explicitly closed the panel this session.
+   *  Prevents auto-open from fighting user intent. Reset when all agents complete. */
+  private _userExplicitlyClosed = false;
+
+  toggleAgentPanel(): void {
+    const wasOpen = this.agentPanelOpen();
+    this.agentPanelOpen.update((v) => !v);
+    if (wasOpen) {
+      this._userExplicitlyClosed = true;
+    }
+  }
+
+  // ============================================================================
+  // PANEL RESIZE (drag handle between chat and agent panel)
+  // ============================================================================
+
+  private resizeMouseMove: ((e: MouseEvent) => void) | null = null;
+  private resizeMouseUp: (() => void) | null = null;
+
+  /** Start drag-resize: capture mouse and update panel width on move. */
+  onResizeStart(event: MouseEvent): void {
+    event.preventDefault();
+    this.panelResizeService.setDragging(true);
+
+    this.resizeMouseMove = (e: MouseEvent) => {
+      const newWidth = window.innerWidth - e.clientX;
+      this.panelResizeService.setCustomWidth(newWidth);
+    };
+
+    this.resizeMouseUp = () => {
+      this.panelResizeService.setDragging(false);
+      if (this.resizeMouseMove) {
+        document.removeEventListener('mousemove', this.resizeMouseMove);
+      }
+      if (this.resizeMouseUp) {
+        document.removeEventListener('mouseup', this.resizeMouseUp);
+      }
+      this.resizeMouseMove = null;
+      this.resizeMouseUp = null;
+    };
+
+    document.addEventListener('mousemove', this.resizeMouseMove);
+    document.addEventListener('mouseup', this.resizeMouseUp);
+  }
 
   /**
    * MutationObserver for auto-scroll behavior.
@@ -94,6 +190,8 @@ export class ChatViewComponent {
    */
   private observer: MutationObserver | null = null;
   private scrollTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private userMessageScrollTimeoutId: ReturnType<typeof setTimeout> | null =
+    null;
   private readonly SCROLL_DEBOUNCE_MS = 50;
 
   /**
@@ -116,6 +214,27 @@ export class ChatViewComponent {
   private lastMessageCount = 0;
 
   /**
+   * Tracks previous streaming state to detect the streaming→idle transition.
+   * When streaming ends (agent finishes), we force scroll-to-bottom regardless
+   * of userScrolledUp — the dramatic DOM change during finalization (streaming
+   * DOM replaced with finalized DOM) can trigger layout-driven scroll events
+   * that falsely set userScrolledUp=true.
+   */
+  private wasStreaming = false;
+
+  /**
+   * Flag to suppress onScroll during programmatic scrollToBottom().
+   * Smooth scroll animations generate intermediate scroll events at positions
+   * that aren't near the bottom, which falsely set userScrolledUp=true.
+   * This guard prevents that race condition.
+   */
+  private isProgrammaticScrolling = false;
+
+  private readonly scrollPositionCache = new Map<string, number>();
+  private previousTabId: string | null = null;
+  private isRestoringScroll = false;
+
+  /**
    * Ptah icon URI for skeleton avatar placeholder
    */
   readonly ptahIconUri = computed(() => this.vscodeService.getPtahIconUri());
@@ -134,6 +253,11 @@ export class ChatViewComponent {
       return tab?.claudeSessionId ?? null;
     }
     return this.chatStore.currentSessionId();
+  });
+
+  private readonly resolvedTabId = computed(() => {
+    const ctx = this._sessionContext;
+    return ctx ? ctx() : this._tabManager.activeTabId();
   });
 
   /**
@@ -169,6 +293,77 @@ export class ChatViewComponent {
     return this.chatStore.isStreaming();
   });
 
+  private resolvedTab = computed(() => {
+    const ctx = this._sessionContext;
+    if (!ctx) return null;
+    const tabId = ctx();
+    if (!tabId) return null;
+    return this._tabManager.tabs().find((t) => t.id === tabId) ?? null;
+  });
+
+  readonly resolvedPreloadedStats = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.preloadedStats ?? null)
+      : this.chatStore.preloadedStats();
+  });
+
+  readonly resolvedLiveModelStats = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.liveModelStats ?? null)
+      : this.chatStore.liveModelStats();
+  });
+
+  readonly resolvedModelUsageList = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.modelUsageList ?? null)
+      : this.chatStore.modelUsageList();
+  });
+
+  readonly resolvedCompactionCount = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.compactionCount ?? 0)
+      : this.chatStore.compactionCount();
+  });
+
+  /**
+   * Resolved isCompacting: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
+   * Prevents compaction banner from showing on ALL canvas tiles when only one session compacts.
+   */
+  readonly resolvedIsCompacting = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.isCompacting ?? false)
+      : this.chatStore.isCompacting();
+  });
+
+  readonly resolvedQueuedContent = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.queuedContent ?? null)
+      : this.chatStore.queuedContent();
+  });
+
+  readonly resolvedStreamingState = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.streamingState ?? null)
+      : this.chatStore.activeStreamingState();
+  });
+
+  readonly resolvedExecutionTrees = computed(() => {
+    const state = this.resolvedStreamingState();
+    if (!state) return [];
+    const ctx = this._sessionContext;
+    const cacheKey = ctx
+      ? `tile-${ctx()}`
+      : `tab-${this._tabManager.activeTabId()}`;
+    return this._treeBuilder.buildTree(state, cacheKey);
+  });
+
   /**
    * TASK_2025_096 FIX: Computed signal that creates ExecutionChatMessages
    * from ALL currentExecutionTrees (not just the first one).
@@ -188,72 +383,18 @@ export class ChatViewComponent {
    * so we can properly match and filter out already-finalized trees.
    */
   readonly streamingMessages = computed((): ExecutionChatMessage[] => {
-    // TASK_2025_265 FIX 2: When SESSION_CONTEXT is present, scope streaming trees to
-    // this tile's tab. currentExecutionTrees() always returns trees for the globally
-    // active tab. If the active tab is not this tile's tab, the trees belong to a
-    // different tile — return empty to prevent cross-tile streaming bleed.
-    const ctx = this._sessionContext;
-    if (ctx) {
-      const tileTabId = ctx();
-      if (!tileTabId) return [];
-      // Only show streaming trees when this tile's tab is the global active tab
-      const tileTab = this._tabManager.tabs().find((t) => t.id === tileTabId);
-      if (!tileTab) return [];
-      const resolvedId = this.resolvedSessionId();
-      const allTrees = this.chatStore.currentExecutionTrees();
-      // Trees are built from the active tab's streaming state. Filter to only trees
-      // whose session context matches this tile (via resolvedSessionId correlation).
-      // Since ExecutionNode has no sessionId field, we use the tab's claudeSessionId
-      // to confirm the active tab IS this tile before showing its trees.
-      const activeTabMatches =
-        allTrees.length === 0 ||
-        resolvedId === this.chatStore.currentSessionId();
-      const trees = activeTabMatches ? allTrees : [];
-      if (trees.length === 0) return [];
-
-      const streamingState = this.chatStore.activeStreamingState();
-      const pendingStats = streamingState?.pendingStats;
-      const finalizedMessageIds = new Set(
-        this.resolvedMessages().map((msg) => msg.id),
-      );
-      const nonFinalizedTrees = trees.filter(
-        (tree) => !finalizedMessageIds.has(tree.id),
-      );
-      if (nonFinalizedTrees.length === 0) return [];
-      return nonFinalizedTrees.map((tree) =>
-        createExecutionChatMessage({
-          id: tree.id,
-          role: 'assistant',
-          streamingState: tree,
-          sessionId: resolvedId ?? undefined,
-          ...(pendingStats && {
-            tokens: pendingStats.tokens,
-            cost: pendingStats.cost,
-            duration: pendingStats.duration,
-          }),
-        }),
-      );
-    }
-
-    const trees = this.chatStore.currentExecutionTrees();
+    const trees = this.resolvedExecutionTrees();
     if (trees.length === 0) return [];
 
-    // Get pendingStats from the active tab's streamingState (fine-grained selector)
-    const streamingState = this.chatStore.activeStreamingState();
+    const streamingState = this.resolvedStreamingState();
     const pendingStats = streamingState?.pendingStats;
 
-    // DEDUPLICATION: Get IDs of already finalized messages to filter out.
-    // CRITICAL: Finalized messages now use tree.id (message_start event id),
-    // not messageId, so IDs match between streaming trees and finalized messages.
     const finalizedMessageIds = new Set(
-      this.chatStore.messages().map((msg) => msg.id),
+      this.resolvedMessages().map((msg) => msg.id),
     );
-
-    // Filter out trees that are already finalized
     const nonFinalizedTrees = trees.filter(
       (tree) => !finalizedMessageIds.has(tree.id),
     );
-
     if (nonFinalizedTrees.length === 0) return [];
 
     return nonFinalizedTrees.map((tree) =>
@@ -262,7 +403,6 @@ export class ChatViewComponent {
         role: 'assistant',
         streamingState: tree,
         sessionId: this.resolvedSessionId() ?? undefined,
-        // TASK_2025_100: Include pending stats in streaming message
         ...(pendingStats && {
           tokens: pendingStats.tokens,
           cost: pendingStats.cost,
@@ -273,6 +413,31 @@ export class ChatViewComponent {
   });
 
   constructor() {
+    // Auto-open agent panel when agents spawn or request permissions.
+    // Uses untracked() for agentPanelOpen read to avoid bidirectional signal dependency.
+    // Respects _userExplicitlyClosed to prevent fighting user intent.
+    effect(() => {
+      const agents = this.sessionAgents();
+      const hasRunning = agents.some((a) => a.status === 'running');
+      const hasPendingPermission = agents.some(
+        (a) => a.permissionQueue.length > 0,
+      );
+      const isOpen = untracked(() => this.agentPanelOpen());
+
+      if (
+        (hasRunning || hasPendingPermission) &&
+        !isOpen &&
+        !this._userExplicitlyClosed
+      ) {
+        this.agentPanelOpen.set(true);
+      }
+
+      // Reset explicit-close flag when all agents finish — next spawn will auto-open
+      if (!hasRunning && !hasPendingPermission && agents.length > 0) {
+        this._userExplicitlyClosed = false;
+      }
+    });
+
     // Reset auto-scroll when a new user message is sent.
     // This ensures the view scrolls to show the user's message even if
     // they had scrolled up to read earlier content before sending.
@@ -285,9 +450,54 @@ export class ChatViewComponent {
         const lastMsg = messages[count - 1];
         if (lastMsg?.role === 'user') {
           this.userScrolledUp.set(false);
+          this.userMessageScrollTimeoutId = setTimeout(() => {
+            this.scrollToBottom();
+            this.userMessageScrollTimeoutId = null;
+          }, 0);
         }
       }
       this.lastMessageCount = count;
+    });
+
+    // Restore scroll position when switching between tabs
+    effect(() => {
+      const currentTabId = this.resolvedTabId();
+      if (currentTabId === this.previousTabId) return;
+
+      this.previousTabId = currentTabId ?? null;
+
+      if (currentTabId && this.scrollPositionCache.has(currentTabId)) {
+        const savedPosition = this.scrollPositionCache.get(currentTabId)!;
+        this.isRestoringScroll = true;
+        setTimeout(() => {
+          const container = this.messageContainerRef()?.nativeElement;
+          if (container) {
+            container.scrollTo({ top: savedPosition, behavior: 'instant' });
+          }
+          setTimeout(() => {
+            this.isRestoringScroll = false;
+          }, this.SCROLL_DEBOUNCE_MS + 10);
+        }, 0);
+      }
+    });
+
+    // Force scroll to bottom when streaming ends (agent finished work).
+    // During finalization, streaming DOM is destroyed and finalized DOM is created.
+    // This dramatic DOM change can trigger layout-driven scroll events that falsely
+    // set userScrolledUp=true via onScroll(). The MutationObserver's scheduleScroll
+    // then sees userScrolledUp=true and skips scrolling, leaving the user stuck
+    // at an old position. This effect bypasses that by directly calling scrollToBottom.
+    effect(() => {
+      const isStreaming = this.resolvedIsStreaming();
+      if (this.wasStreaming && !isStreaming) {
+        untracked(() => {
+          this.userScrolledUp.set(false);
+          // setTimeout(0) runs after Angular CD completes and DOM is updated,
+          // ensuring scrollHeight reflects the finalized content.
+          setTimeout(() => this.scrollToBottom('instant'), 0);
+        });
+      }
+      this.wasStreaming = isStreaming;
     });
 
     // Setup MutationObserver after initial render to watch for DOM changes
@@ -306,21 +516,27 @@ export class ChatViewComponent {
   }
 
   /**
-   * Handle scroll events on message container
-   * Detects if user has scrolled up to disable auto-scroll
+   * Handle scroll events on message container.
+   * Detects if user has scrolled up to disable auto-scroll.
+   * Ignores scroll events fired during programmatic scrollToBottom() to prevent
+   * smooth scroll animation intermediates from falsely setting userScrolledUp.
    */
   onScroll(event: Event): void {
+    if (this.isProgrammaticScrolling) return;
+
     const container = event.target as HTMLElement;
     if (!container) return;
 
-    // Check if user is near the bottom (within 100px threshold)
     const isNearBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight <
       100;
 
-    // If user scrolled up, disable auto-scroll
-    // If user scrolled back to bottom, re-enable auto-scroll
     this.userScrolledUp.set(!isNearBottom);
+
+    const tabId = this.resolvedTabId();
+    if (tabId) {
+      this.scrollPositionCache.set(tabId, container.scrollTop);
+    }
   }
 
   /**
@@ -335,10 +551,12 @@ export class ChatViewComponent {
   }
 
   /**
-   * Cancel queued message (user-requested cancellation)
+   * Cancel queued message (user-requested cancellation).
+   * Uses resolvedTabId to target the correct tab in both single and canvas modes.
    */
   cancelQueue(): void {
-    this.chatStore.clearQueuedContent();
+    const tabId = this.resolvedTabId() ?? undefined;
+    this.chatStore.clearQueuedContent(tabId);
     console.log('[ChatViewComponent] Queued content cancelled by user');
   }
 
@@ -354,7 +572,8 @@ export class ChatViewComponent {
    */
   handleResumeAgent(agent: SubagentRecord): void {
     const prompt = `Resume the interrupted ${agent.agentType} agent (agentId: ${agent.agentId}) using the Task tool with resume parameter set to "${agent.agentId}".`;
-    this.chatStore.sendOrQueueMessage(prompt);
+    const tabId = this._sessionContext?.() ?? undefined;
+    this.chatStore.sendOrQueueMessage(prompt, { tabId });
     this.chatStore.removeResumableSubagent(agent.toolCallId);
   }
 
@@ -374,21 +593,41 @@ export class ChatViewComponent {
       .map((a) => `- ${a.agentType} (agentId: ${a.agentId})`)
       .join('\n');
     const prompt = `Resume all ${agents.length} interrupted agents using the Task tool with resume parameter for each:\n${agentList}`;
-    this.chatStore.sendOrQueueMessage(prompt);
+    const tabId = this._sessionContext?.() ?? undefined;
+    this.chatStore.sendOrQueueMessage(prompt, { tabId });
     for (const agent of agents) {
       this.chatStore.removeResumableSubagent(agent.toolCallId);
     }
   }
 
-  private scrollToBottom(): void {
+  private scrollToBottom(behavior: ScrollBehavior = 'smooth'): void {
     const containerRef = this.messageContainerRef();
     if (!containerRef) return;
 
     const container = containerRef.nativeElement;
+
+    // Guard: suppress onScroll during programmatic scrolling.
+    // Smooth scroll generates intermediate scroll events at positions that
+    // aren't near the bottom, which would falsely set userScrolledUp=true.
+    this.isProgrammaticScrolling = true;
     container.scrollTo({
       top: container.scrollHeight,
-      behavior: 'smooth',
+      behavior,
     });
+
+    if (behavior === 'instant') {
+      // Instant scroll completes synchronously; clear after next frame
+      // to catch any same-frame scroll events the browser fires.
+      requestAnimationFrame(() => {
+        this.isProgrammaticScrolling = false;
+      });
+    } else {
+      // Smooth scroll animation takes multiple frames.
+      // Clear after a generous window to cover the animation duration.
+      setTimeout(() => {
+        this.isProgrammaticScrolling = false;
+      }, 400);
+    }
   }
 
   /**
@@ -418,19 +657,14 @@ export class ChatViewComponent {
    * Debouncing coalesces rapid DOM mutations during streaming into single scroll.
    */
   private scheduleScroll(): void {
-    // Respect user scroll-up (reading history)
-    if (this.userScrolledUp()) return;
-
-    // Clear previous debounce (trailing debounce pattern)
     if (this.scrollTimeoutId) {
       clearTimeout(this.scrollTimeoutId);
     }
 
-    // Schedule scroll after debounce period
     this.scrollTimeoutId = setTimeout(() => {
-      // Re-check condition - user may have scrolled up during debounce period
-      if (!this.userScrolledUp()) {
-        this.scrollToBottom();
+      if (!this.userScrolledUp() && !this.isRestoringScroll) {
+        const behavior = this.resolvedIsStreaming() ? 'smooth' : 'instant';
+        this.scrollToBottom(behavior);
       }
       this.scrollTimeoutId = null;
     }, this.SCROLL_DEBOUNCE_MS);
@@ -447,6 +681,10 @@ export class ChatViewComponent {
     if (this.scrollTimeoutId) {
       clearTimeout(this.scrollTimeoutId);
       this.scrollTimeoutId = null;
+    }
+    if (this.userMessageScrollTimeoutId) {
+      clearTimeout(this.userMessageScrollTimeoutId);
+      this.userMessageScrollTimeoutId = null;
     }
   }
 }

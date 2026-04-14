@@ -48,6 +48,7 @@ import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
 } from './anthropic-provider-registry';
+import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
@@ -400,6 +401,8 @@ export class SdkQueryOptionsBuilder {
     @inject(SDK_TOKENS.SDK_WORKTREE_HOOK_HANDLER)
     private readonly worktreeHookHandler: WorktreeHookHandler,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
+    private readonly modelService: SdkModelService,
   ) {}
 
   /**
@@ -443,7 +446,10 @@ export class SdkQueryOptionsBuilder {
       throw new Error('Model not provided - ensure SDK is initialized');
     }
 
-    const model = sessionConfig.model;
+    // Resolve bare tier names ('opus', 'sonnet', 'haiku') to full model IDs.
+    // The SDK's query() requires full model IDs like 'claude-opus-4-6' —
+    // bare tier names cause "can't access model named opus" errors.
+    const model = this.modelService.resolveModelId(sessionConfig.model);
     const cwd = sessionConfig?.projectPath || require('os').homedir();
 
     // Warn when falling back to os.homedir() — callers (ChatRpcHandlers)
@@ -456,13 +462,31 @@ export class SdkQueryOptionsBuilder {
     }
 
     // Log resolved model and tier env vars for debugging (TASK_2025_132, TASK_2025_164: reads from AuthEnv)
+    const envSonnet = this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL || 'default';
+    const envOpus = this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL || 'default';
+    const envHaiku = this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL || 'default';
     this.logger.info(`[SdkQueryOptionsBuilder] SDK call with model: ${model}`, {
       model,
-      envSonnet: this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL || 'default',
-      envOpus: this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL || 'default',
-      envHaiku: this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL || 'default',
+      envSonnet,
+      envOpus,
+      envHaiku,
       baseUrl: this.authEnv.ANTHROPIC_BASE_URL || 'default',
     });
+
+    // Warn when main model is non-Claude but tier env vars still point to Claude.
+    // This means subagents will silently use Claude models at higher premium rates.
+    if (!model.startsWith('claude-')) {
+      const claudeTiers = [envSonnet, envOpus, envHaiku].filter(
+        (t) => t !== 'default' && t.startsWith('claude-'),
+      );
+      if (claudeTiers.length > 0) {
+        this.logger.warn(
+          `[SdkQueryOptionsBuilder] Model mismatch: main model is '${model}' but ${claudeTiers.length} tier(s) still point to Claude models (${claudeTiers.join(', ')}). ` +
+            'Subagents spawned by the SDK will use these Claude models, potentially consuming premium requests at a higher rate. ' +
+            'Update tier mappings in the model selector to match your preferred provider.',
+        );
+      }
+    }
 
     // Build system prompt configuration
     const systemPrompt = this.buildSystemPrompt(
@@ -543,6 +567,10 @@ export class SdkQueryOptionsBuilder {
           ? ['project', 'local']
           : ['user', 'project', 'local'],
         // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
+        // Guarantee tier env vars (ANTHROPIC_DEFAULT_*_MODEL) are always present so the
+        // SDK can resolve bare tier names ('haiku', 'sonnet', 'opus') in subagent
+        // subprocesses. Without these, direct Anthropic users get "model not found" errors
+        // when subagents specify a tier name instead of a full model ID.
         // Set NO_PROXY to prevent corporate proxy interception of localhost requests
         // Disable experimental betas for any non-Anthropic base URL — the SDK
         // enables context-management-2025-06-27 for "firstParty" providers, which
@@ -551,6 +579,7 @@ export class SdkQueryOptionsBuilder {
         // relying on provider registry detection, which misses unknown providers.
         env: {
           ...process.env,
+          ...buildTierEnvDefaults(this.authEnv),
           ...this.authEnv,
           NO_PROXY: '127.0.0.1,localhost',
           ...(() => {
@@ -750,7 +779,16 @@ export class SdkQueryOptionsBuilder {
   }
 
   /**
-   * Calculate max turns from session config
+   * Calculate max turns from session config.
+   *
+   * Safety limit: returns a default cap when no explicit maxTokens is set.
+   * Without this, the SDK runs unlimited agentic turns — each turn is an
+   * API round-trip that consumes provider quota. On metered providers like
+   * Copilot (premium requests) or pay-per-token APIs, runaway sessions can
+   * exhaust budgets quickly.
+   *
+   * Default: 200 turns — generous enough for complex multi-step tasks,
+   * but prevents infinite loops from burning through quota.
    */
   private calculateMaxTurns(
     sessionConfig?: AISessionConfig,
@@ -758,7 +796,8 @@ export class SdkQueryOptionsBuilder {
     if (sessionConfig?.maxTokens) {
       return Math.floor(sessionConfig.maxTokens / 1000);
     }
-    return undefined;
+    // Safety cap: prevent unlimited agentic turns on metered providers
+    return 200;
   }
 
   /**

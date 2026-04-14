@@ -1,34 +1,27 @@
 /**
- * SettingsPanel -- Eight-section settings panel for the TUI.
- *
- * TASK_2025_263 Batch 4, TASK_2025_266 Batch 6-7
+ * SettingsPanel -- Seven-section settings panel for the TUI.
  *
  * Sections:
- *   0. API Keys      -- Shows key status per provider, allows entry via ink-text-input
- *   1. Provider       -- Lists available LLM providers, allows selection
- *   2. Model Config   -- Shows current model, allows switching from available models
- *   3. License        -- View license status, enter/clear key
- *   4. Behavior       -- Autopilot toggle and effort level configuration
- *   5. Web Search     -- Web search API key management and testing
- *   6. Plugins        -- Plugin list with enable/disable toggle
- *   7. CLI Agents     -- CLI agent detection, testing, and model listing
+ *   0. Authentication -- Full provider selection + auth config
+ *   1. Model Config   -- Shows current model, allows switching
+ *   2. License        -- View license status, enter/clear key
+ *   3. Behavior       -- Autopilot toggle and effort level configuration
+ *   4. Web Search     -- Web search API key management and testing
+ *   5. Plugins        -- Plugin list with enable/disable toggle
+ *   6. CLI Agents     -- CLI agent detection, testing, and model listing
  *
- * Navigation:
- *   - Tab:   Cycle between sections
- *   - Up/Down: Navigate within a section
- *   - Enter: Confirm selection
- *   - Escape: Handled by parent (switches back to chat)
- *
- * Uses useRpc() for all backend communication and useTuiContext() for transport.
+ * Navigation: Tab to cycle sections, arrows within a section.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
-import TextInput from 'ink-text-input';
 
 import { useRpc } from '../../hooks/use-rpc.js';
-import { Spinner } from '../common/Spinner.js';
 import { useTheme } from '../../hooks/use-theme.js';
+import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
+import { Badge, KeyHint, Panel, Spinner } from '../atoms/index.js';
+import { ListItem } from '../molecules/index.js';
+import { AuthSection } from './AuthSection.js';
 import { LicenseSection } from './LicenseSection.js';
 import { BehaviorSection } from './BehaviorSection.js';
 import { WebSearchSection } from './WebSearchSection.js';
@@ -38,13 +31,6 @@ import { CliAgentsSection } from './CliAgentsSection.js';
 // ---------------------------------------------------------------------------
 // Types for RPC responses
 // ---------------------------------------------------------------------------
-
-interface ProviderStatus {
-  name: string;
-  displayName: string;
-  hasApiKey: boolean;
-  isDefault: boolean;
-}
 
 interface ModelEntry {
   id: string;
@@ -56,351 +42,8 @@ interface ModelEntry {
   tier: string | null;
 }
 
-// Provider definitions for the API Keys section
-const API_KEY_PROVIDERS = [
-  { id: 'anthropic', label: 'Anthropic (Claude)' },
-  { id: 'openrouter', label: 'OpenRouter' },
-] as const;
-
 // ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-interface SectionBoxProps {
-  title: string;
-  isActive: boolean;
-  children: React.ReactNode;
-}
-
-function SectionBox({
-  title,
-  isActive,
-  children,
-}: SectionBoxProps): React.JSX.Element {
-  const theme = useTheme();
-
-  return (
-    <Box
-      flexDirection="column"
-      borderStyle="single"
-      borderColor={isActive ? theme.ui.accent : theme.ui.border}
-      paddingX={1}
-      marginBottom={1}
-    >
-      <Text bold color={isActive ? theme.ui.accent : undefined}>
-        {isActive ? '> ' : '  '}
-        {title}
-      </Text>
-      <Box flexDirection="column" marginTop={1}>
-        {children}
-      </Box>
-    </Box>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Section 0: API Keys
-// ---------------------------------------------------------------------------
-
-interface ApiKeysSectionProps {
-  isActive: boolean;
-}
-
-function ApiKeysSection({ isActive }: ApiKeysSectionProps): React.JSX.Element {
-  const theme = useTheme();
-  const { call } = useRpc();
-  const [statuses, setStatuses] = useState<ProviderStatus[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [editingProvider, setEditingProvider] = useState<string | null>(null);
-  const [inputValue, setInputValue] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  // Load provider statuses on mount
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadStatuses(): Promise<void> {
-      setLoading(true);
-      const result = await call<void, { providers: ProviderStatus[] }>(
-        'llm:getProviderStatus',
-        undefined as unknown as void,
-      );
-      if (!cancelled && result) {
-        setStatuses(result.providers);
-      }
-      if (!cancelled) {
-        setLoading(false);
-      }
-    }
-
-    void loadStatuses();
-    return () => {
-      cancelled = true;
-    };
-  }, [call]);
-
-  const handleSaveKey = useCallback(
-    async (provider: string, apiKey: string): Promise<void> => {
-      if (!apiKey.trim()) {
-        setEditingProvider(null);
-        setInputValue('');
-        return;
-      }
-
-      setSaving(true);
-      const result = await call<
-        { provider: string; apiKey: string },
-        { success: boolean; error?: string }
-      >('llm:setApiKey', { provider, apiKey: apiKey.trim() });
-
-      if (result?.success) {
-        // Refresh statuses after saving
-        const refreshed = await call<void, { providers: ProviderStatus[] }>(
-          'llm:getProviderStatus',
-          undefined as unknown as void,
-        );
-        if (refreshed) {
-          setStatuses(refreshed.providers);
-        }
-      }
-
-      setSaving(false);
-      setEditingProvider(null);
-      setInputValue('');
-    },
-    [call],
-  );
-
-  useInput(
-    (input, key) => {
-      // If editing, Enter submits, Escape cancels
-      if (editingProvider !== null) {
-        if (key.escape) {
-          setEditingProvider(null);
-          setInputValue('');
-        }
-        // Enter is handled by TextInput onSubmit
-        return;
-      }
-
-      if (key.upArrow) {
-        setSelectedIndex((prev) => Math.max(0, prev - 1));
-      }
-      if (key.downArrow) {
-        setSelectedIndex((prev) =>
-          Math.min(API_KEY_PROVIDERS.length - 1, prev + 1),
-        );
-      }
-      if (key.return) {
-        const provider = API_KEY_PROVIDERS[selectedIndex];
-        if (provider) {
-          setEditingProvider(provider.id);
-          setInputValue('');
-        }
-      }
-
-      // 'r' to remove a key
-      if (input === 'r' && !key.ctrl && !key.meta) {
-        const provider = API_KEY_PROVIDERS[selectedIndex];
-        if (provider) {
-          void call<{ provider: string }, { success: boolean }>(
-            'llm:removeApiKey',
-            { provider: provider.id },
-          ).then(async () => {
-            const refreshed = await call<void, { providers: ProviderStatus[] }>(
-              'llm:getProviderStatus',
-              undefined as unknown as void,
-            );
-            if (refreshed) {
-              setStatuses(refreshed.providers);
-            }
-          });
-        }
-      }
-    },
-    { isActive: isActive && !saving },
-  );
-
-  if (loading) {
-    return <Spinner label="Loading API key status..." />;
-  }
-
-  return (
-    <Box flexDirection="column">
-      {API_KEY_PROVIDERS.map((provider, index) => {
-        const status = statuses.find((s) => s.name === provider.id);
-        const isSelected = index === selectedIndex && isActive;
-        const isEditing = editingProvider === provider.id;
-
-        return (
-          <Box key={provider.id} flexDirection="column">
-            <Box>
-              <Text
-                bold={isSelected}
-                inverse={isSelected && !isEditing}
-                dimColor={!isSelected}
-              >
-                {isSelected ? '> ' : '  '}
-                {provider.label}:{' '}
-              </Text>
-              {status?.hasApiKey ? (
-                <Text color={theme.status.success}>Configured</Text>
-              ) : (
-                <Text color={theme.status.error}>Not configured</Text>
-              )}
-              {status?.isDefault && (
-                <Text color={theme.ui.accent}> (default)</Text>
-              )}
-            </Box>
-            {isEditing && (
-              <Box marginLeft={4} marginTop={0}>
-                {saving ? (
-                  <Spinner label="Saving..." />
-                ) : (
-                  <Box>
-                    <Text color={theme.status.warning}>Key: </Text>
-                    <TextInput
-                      value={inputValue}
-                      onChange={setInputValue}
-                      onSubmit={(val) => {
-                        void handleSaveKey(provider.id, val);
-                      }}
-                      placeholder="Paste API key and press Enter"
-                      focus={true}
-                      mask="*"
-                    />
-                  </Box>
-                )}
-              </Box>
-            )}
-          </Box>
-        );
-      })}
-      <Box marginTop={1}>
-        <Text dimColor italic>
-          Enter: edit key | R: remove | Up/Down: navigate
-        </Text>
-      </Box>
-    </Box>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Section 1: Provider Selection
-// ---------------------------------------------------------------------------
-
-interface ProviderSectionProps {
-  isActive: boolean;
-}
-
-function ProviderSection({
-  isActive,
-}: ProviderSectionProps): React.JSX.Element {
-  const theme = useTheme();
-  const { call } = useRpc();
-  const [defaultProvider, setDefaultProvider] = useState<string>('anthropic');
-  const [providers] = useState<Array<{ id: string; label: string }>>([
-    { id: 'anthropic', label: 'Anthropic (Claude)' },
-    { id: 'openrouter', label: 'OpenRouter' },
-  ]);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadDefault(): Promise<void> {
-      setLoading(true);
-      const result = await call<void, { provider: string }>(
-        'llm:getDefaultProvider',
-        undefined as unknown as void,
-      );
-      if (!cancelled && result) {
-        setDefaultProvider(result.provider);
-        const idx = providers.findIndex((p) => p.id === result.provider);
-        if (idx >= 0) {
-          setSelectedIndex(idx);
-        }
-      }
-      if (!cancelled) {
-        setLoading(false);
-      }
-    }
-
-    void loadDefault();
-    return () => {
-      cancelled = true;
-    };
-  }, [call, providers]);
-
-  const handleSelect = useCallback(
-    async (providerId: string): Promise<void> => {
-      const result = await call<{ provider: string }, { success: boolean }>(
-        'llm:setDefaultProvider',
-        { provider: providerId },
-      );
-      if (result?.success) {
-        setDefaultProvider(providerId);
-      }
-    },
-    [call],
-  );
-
-  useInput(
-    (_input, key) => {
-      if (key.upArrow) {
-        setSelectedIndex((prev) => Math.max(0, prev - 1));
-      }
-      if (key.downArrow) {
-        setSelectedIndex((prev) => Math.min(providers.length - 1, prev + 1));
-      }
-      if (key.return) {
-        const provider = providers[selectedIndex];
-        if (provider) {
-          void handleSelect(provider.id);
-        }
-      }
-    },
-    { isActive },
-  );
-
-  if (loading) {
-    return <Spinner label="Loading provider info..." />;
-  }
-
-  return (
-    <Box flexDirection="column">
-      {providers.map((provider, index) => {
-        const isSelected = index === selectedIndex && isActive;
-        const isDefault = provider.id === defaultProvider;
-
-        return (
-          <Box key={provider.id}>
-            <Text
-              bold={isSelected || isDefault}
-              inverse={isSelected}
-              color={isDefault ? theme.ui.accent : undefined}
-              dimColor={!isSelected && !isDefault}
-            >
-              {isSelected ? '> ' : '  '}
-              {provider.label}
-            </Text>
-            {isDefault && <Text color={theme.status.success}> [active]</Text>}
-          </Box>
-        );
-      })}
-      <Box marginTop={1}>
-        <Text dimColor italic>
-          Enter: set as default | Up/Down: navigate
-        </Text>
-      </Box>
-    </Box>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Section 2: Model Configuration
+// Section 1: Model Configuration
 // ---------------------------------------------------------------------------
 
 interface ModelSectionProps {
@@ -411,7 +54,6 @@ function ModelSection({ isActive }: ModelSectionProps): React.JSX.Element {
   const theme = useTheme();
   const { call } = useRpc();
   const [models, setModels] = useState<ModelEntry[]>([]);
-  const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -430,11 +72,6 @@ function ModelSection({ isActive }: ModelSectionProps): React.JSX.Element {
 
       if (result && result.models.length > 0) {
         setModels(result.models);
-        // Find currently selected model and position cursor there
-        const currentIdx = result.models.findIndex((m) => m.isSelected);
-        if (currentIdx >= 0) {
-          setSelectedIndex(currentIdx);
-        }
       } else {
         setError('No models available. Check your API key configuration.');
       }
@@ -448,38 +85,35 @@ function ModelSection({ isActive }: ModelSectionProps): React.JSX.Element {
   }, [call]);
 
   const handleSelect = useCallback(
-    async (modelId: string): Promise<void> => {
+    async (index: number): Promise<void> => {
+      const model = models[index];
+      if (!model) return;
       const result = await call<{ model: string }, { model: string }>(
         'config:model-switch',
-        { model: modelId },
+        { model: model.id },
       );
       if (result) {
-        // Update local state to reflect selection
         setModels((prev) =>
-          prev.map((m) => ({ ...m, isSelected: m.id === modelId })),
+          prev.map((m) => ({ ...m, isSelected: m.id === model.id })),
         );
       }
     },
-    [call],
+    [call, models],
   );
 
-  useInput(
-    (_input, key) => {
-      if (key.upArrow) {
-        setSelectedIndex((prev) => Math.max(0, prev - 1));
-      }
-      if (key.downArrow) {
-        setSelectedIndex((prev) => Math.min(models.length - 1, prev + 1));
-      }
-      if (key.return) {
-        const model = models[selectedIndex];
-        if (model) {
-          void handleSelect(model.id);
-        }
-      }
-    },
-    { isActive },
+  const initialIndex = Math.max(
+    0,
+    models.findIndex((m) => m.isSelected),
   );
+
+  const { activeIndex } = useKeyboardNav({
+    itemCount: models.length,
+    isActive,
+    initialIndex,
+    onSelect: (i) => {
+      void handleSelect(i);
+    },
+  });
 
   if (loading) {
     return <Spinner label="Loading models..." />;
@@ -503,33 +137,23 @@ function ModelSection({ isActive }: ModelSectionProps): React.JSX.Element {
 
   return (
     <Box flexDirection="column">
-      {models.map((model, index) => {
-        const isSelected = index === selectedIndex && isActive;
-        const isCurrent = model.isSelected;
-
-        return (
-          <Box key={model.id}>
-            <Text
-              bold={isSelected || isCurrent}
-              inverse={isSelected}
-              color={isCurrent ? theme.ui.accent : undefined}
-              dimColor={!isSelected && !isCurrent}
-            >
-              {isSelected ? '> ' : '  '}
-              {model.name || model.id}
-            </Text>
-            {isCurrent && <Text color={theme.status.success}> [current]</Text>}
-            {model.isRecommended && !isCurrent && (
-              <Text color={theme.status.warning}> *</Text>
-            )}
-            {model.description && <Text dimColor> - {model.description}</Text>}
-          </Box>
-        );
-      })}
-      <Box marginTop={1}>
-        <Text dimColor italic>
-          Enter: select model | Up/Down: navigate | * = recommended
-        </Text>
+      {models.map((model, index) => (
+        <ListItem
+          key={model.id}
+          label={model.name || model.id}
+          description={model.description || undefined}
+          isSelected={index === activeIndex && isActive}
+          isCurrent={model.isSelected}
+          badge={
+            model.isRecommended && !model.isSelected ? (
+              <Badge variant="warning">★</Badge>
+            ) : undefined
+          }
+        />
+      ))}
+      <Box marginTop={1} gap={2}>
+        <KeyHint keys="↑↓" label="navigate" />
+        <KeyHint keys="Enter" label="select" />
       </Box>
     </Box>
   );
@@ -540,8 +164,7 @@ function ModelSection({ isActive }: ModelSectionProps): React.JSX.Element {
 // ---------------------------------------------------------------------------
 
 const SECTION_TITLES = [
-  'API Keys',
-  'Provider',
+  'Authentication',
   'Model Configuration',
   'License',
   'Behavior',
@@ -552,7 +175,6 @@ const SECTION_TITLES = [
 const SECTION_COUNT = SECTION_TITLES.length;
 
 interface SettingsPanelProps {
-  /** When true, a modal overlay is active and keyboard input should be suppressed. */
   modalActive?: boolean;
 }
 
@@ -571,46 +193,57 @@ export function SettingsPanel({
     { isActive: !modalActive },
   );
 
+  const renderActiveSection = (): React.JSX.Element => {
+    switch (activeSection) {
+      case 0:
+        return <AuthSection isActive={!modalActive} />;
+      case 1:
+        return <ModelSection isActive={!modalActive} />;
+      case 2:
+        return <LicenseSection isActive={!modalActive} />;
+      case 3:
+        return <BehaviorSection isActive={!modalActive} />;
+      case 4:
+        return <WebSearchSection isActive={!modalActive} />;
+      case 5:
+        return <PluginsSection isActive={!modalActive} />;
+      case 6:
+        return <CliAgentsSection isActive={!modalActive} />;
+      default:
+        return <Box />;
+    }
+  };
+
   return (
     <Box flexDirection="column" flexGrow={1} padding={1}>
-      <Box marginBottom={1}>
+      <Box marginBottom={1} gap={2}>
         <Text bold color={theme.ui.accent}>
           Settings
         </Text>
-        <Text dimColor> (Tab to switch sections, Escape to return)</Text>
+        <KeyHint keys="Tab" label="switch section" />
+        <KeyHint keys="Esc" label="return" />
       </Box>
 
-      <SectionBox title={SECTION_TITLES[0]} isActive={activeSection === 0}>
-        <ApiKeysSection isActive={activeSection === 0 && !modalActive} />
-      </SectionBox>
+      <Box marginBottom={1} gap={1}>
+        {SECTION_TITLES.map((title, i) => (
+          <Text
+            key={title}
+            bold={i === activeSection}
+            color={i === activeSection ? theme.ui.accent : theme.ui.dimmed}
+          >
+            {i === activeSection ? `[ ${title} ]` : title}
+          </Text>
+        ))}
+      </Box>
 
-      <SectionBox title={SECTION_TITLES[1]} isActive={activeSection === 1}>
-        <ProviderSection isActive={activeSection === 1 && !modalActive} />
-      </SectionBox>
-
-      <SectionBox title={SECTION_TITLES[2]} isActive={activeSection === 2}>
-        <ModelSection isActive={activeSection === 2 && !modalActive} />
-      </SectionBox>
-
-      <SectionBox title={SECTION_TITLES[3]} isActive={activeSection === 3}>
-        <LicenseSection isActive={activeSection === 3 && !modalActive} />
-      </SectionBox>
-
-      <SectionBox title={SECTION_TITLES[4]} isActive={activeSection === 4}>
-        <BehaviorSection isActive={activeSection === 4 && !modalActive} />
-      </SectionBox>
-
-      <SectionBox title={SECTION_TITLES[5]} isActive={activeSection === 5}>
-        <WebSearchSection isActive={activeSection === 5 && !modalActive} />
-      </SectionBox>
-
-      <SectionBox title={SECTION_TITLES[6]} isActive={activeSection === 6}>
-        <PluginsSection isActive={activeSection === 6 && !modalActive} />
-      </SectionBox>
-
-      <SectionBox title={SECTION_TITLES[7]} isActive={activeSection === 7}>
-        <CliAgentsSection isActive={activeSection === 7 && !modalActive} />
-      </SectionBox>
+      <Panel
+        title={SECTION_TITLES[activeSection]}
+        isActive
+        padding={1}
+        flexGrow={1}
+      >
+        {renderActiveSection()}
+      </Panel>
     </Box>
   );
 }

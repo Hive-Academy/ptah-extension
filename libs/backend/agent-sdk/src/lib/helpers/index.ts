@@ -62,7 +62,17 @@ export {
   type QueryConfig,
 } from './sdk-query-options-builder';
 export { SdkModuleLoader } from './sdk-module-loader';
-export { SdkModelService, type ApiModelEntry } from './sdk-model-service';
+export {
+  SdkModelService,
+  TIER_TO_MODEL_ID,
+  TIER_ENV_VAR_MAP,
+  DEFAULT_FALLBACK_MODEL_ID,
+  buildTierEnvDefaults,
+  resolveModelIdStatic,
+  type ModelTier,
+  type EnvMappedTier,
+  type ApiModelEntry,
+} from './sdk-model-service';
 // Slash command interceptor (TASK_2025_184)
 export {
   SlashCommandInterceptor,
@@ -75,6 +85,7 @@ export * from './history';
 export {
   ANTHROPIC_PROVIDERS,
   DEFAULT_PROVIDER_ID,
+  ANTHROPIC_DIRECT_PROVIDER_ID,
   getAnthropicProvider,
   getProviderBaseUrl,
   type AnthropicProvider,

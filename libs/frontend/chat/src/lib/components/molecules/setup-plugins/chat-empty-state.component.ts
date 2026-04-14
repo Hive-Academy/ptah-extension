@@ -7,7 +7,6 @@ import {
   output,
   ViewChild,
 } from '@angular/core';
-import { NgOptimizedImage } from '@angular/common';
 import {
   LucideAngularModule,
   ScanSearch,
@@ -61,7 +60,6 @@ import { ChatStore } from '../../../services/chat.store';
     PluginStatusWidgetComponent,
     PluginBrowserModalComponent,
     PromptSuggestionsComponent,
-    NgOptimizedImage,
     LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -88,8 +86,9 @@ import { ChatStore } from '../../../services/chat.store';
             <div
               class="absolute inset-0 -m-2 rounded-full divine-glow opacity-50"
             ></div>
+
             <img
-              [ngSrc]="ptahIconUri"
+              [src]="ptahIconUri"
               alt="Ptah"
               width="64"
               height="64"
@@ -145,145 +144,151 @@ import { ChatStore } from '../../../services/chat.store';
 
       <!-- Tab 1: Ptah Skills -->
       @if (activeTab() === 'skills') {
-      <div class="w-full max-w-md lg:max-w-lg space-y-5 tab-content-animated">
-        <!-- Ptah Skills Card -->
-        <div
-          class="glass-panel glass-panel-divine rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg"
-        >
-          <div class="p-4">
-            <div class="flex items-start gap-3 mb-3">
-              <div
-                class="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 text-primary shrink-0"
-              >
-                <lucide-angular
-                  [img]="PuzzleIcon"
-                  class="w-5 h-5 md:w-6 md:h-6"
-                  aria-hidden="true"
-                />
-              </div>
-              <div class="flex-1">
-                <h3
-                  class="text-sm md:text-base font-semibold text-primary mb-0.5"
+        <div class="w-full max-w-md lg:max-w-lg space-y-5 tab-content-animated">
+          <!-- Ptah Skills Card -->
+          <div
+            class="glass-panel glass-panel-divine rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg"
+          >
+            <div class="p-4">
+              <div class="flex items-start gap-3 mb-3">
+                <div
+                  class="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 text-primary shrink-0"
                 >
-                  Ptah Skills
-                  <span class="badge badge-primary badge-xs ml-1">Pro</span>
-                </h3>
-                <p class="text-xs text-base-content/60 leading-relaxed">
-                  Enhance your sessions with specialized skills for
-                  orchestration, frontend patterns, backend architecture, and
-                  more.
-                </p>
+                  <lucide-angular
+                    [img]="PuzzleIcon"
+                    class="w-5 h-5 md:w-6 md:h-6"
+                    aria-hidden="true"
+                  />
+                </div>
+                <div class="flex-1">
+                  <h3
+                    class="text-sm md:text-base font-semibold text-primary mb-0.5"
+                  >
+                    Ptah Skills
+                    <span class="badge badge-primary badge-xs ml-1">Pro</span>
+                  </h3>
+                  <p class="text-xs text-base-content/60 leading-relaxed">
+                    Enhance your sessions with specialized skills for
+                    orchestration, frontend patterns, backend architecture, and
+                    more.
+                  </p>
+                </div>
               </div>
+              @if (isPremium()) {
+                <ptah-plugin-status-widget
+                  (configureClicked)="openPluginBrowser()"
+                />
+              } @else {
+                <div
+                  class="flex items-center justify-between p-2 rounded-md bg-base-200/50 border border-base-300"
+                >
+                  <span class="text-xs text-base-content/60"
+                    >Available with Pro plan</span
+                  >
+                  <span class="badge badge-xs badge-primary">Upgrade</span>
+                </div>
+              }
             </div>
-            @if (isPremium()) {
-            <ptah-plugin-status-widget
-              (configureClicked)="openPluginBrowser()"
-            />
-            } @else {
-            <div
-              class="flex items-center justify-between p-2 rounded-md bg-base-200/50 border border-base-300"
-            >
-              <span class="text-xs text-base-content/60"
-                >Available with Pro plan</span
-              >
-              <span class="badge badge-xs badge-primary">Upgrade</span>
-            </div>
-            }
           </div>
-        </div>
 
-        <!-- Prompt Suggestions with tab-card layout (TASK_2025_174) -->
-        <ptah-prompt-suggestions
-          (promptSelected)="promptSelected.emit($event)"
-        />
-      </div>
+          <!-- Prompt Suggestions with tab-card layout (TASK_2025_174) -->
+          <ptah-prompt-suggestions
+            (promptSelected)="promptSelected.emit($event)"
+          />
+        </div>
       }
 
       <!-- Tab 2: Intelligent Project Setup -->
       @if (activeTab() === 'setup') {
-      <div class="w-full max-w-md lg:max-w-lg space-y-5 tab-content-animated">
-        <!-- Warning if skills not configured -->
-        @if (isPremium() && !hasConfiguredSkills()) {
-        <div
-          class="border border-warning/30 rounded-md bg-warning/5 p-3 flex items-start gap-2"
-        >
-          <lucide-angular
-            [img]="AlertTriangleIcon"
-            class="w-4 h-4 text-warning shrink-0 mt-0.5"
-            aria-hidden="true"
-          />
-          <div class="flex-1">
-            <h4 class="text-xs font-semibold text-warning mb-1">
-              Skills Not Configured
-            </h4>
-            <p class="text-xs text-base-content/60 leading-relaxed mb-2">
-              The Intelligent Project Setup uses your configured skills to
-              provide better recommendations. It's recommended to configure your
-              Ptah Skills first for optimal results.
-            </p>
-            <button
-              class="btn btn-xs btn-warning"
-              (click)="setActiveTab('skills')"
-              type="button"
+        <div class="w-full max-w-md lg:max-w-lg space-y-5 tab-content-animated">
+          <!-- Warning if skills not configured -->
+          @if (isPremium() && !hasConfiguredSkills()) {
+            <div
+              class="border border-warning/30 rounded-md bg-warning/5 p-3 flex items-start gap-2"
             >
-              Configure Skills First
-            </button>
-          </div>
-        </div>
-        }
-
-        <!-- Smart Setup CTA Card - Glass Panel -->
-        <div
-          class="glass-panel glass-panel-divine rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg"
-        >
-          <div class="p-4">
-            <!-- Header with Scanner Icon -->
-            <div class="flex items-start gap-3 mb-3">
-              <div
-                class="flex items-center justify-center w-10 h-10 rounded-lg bg-secondary/10 text-secondary shrink-0 agent-working"
-              >
-                <lucide-angular
-                  [img]="ScanSearchIcon"
-                  class="w-5 h-5 md:w-6 md:h-6"
-                  aria-hidden="true"
-                />
-              </div>
+              <lucide-angular
+                [img]="AlertTriangleIcon"
+                class="w-4 h-4 text-warning shrink-0 mt-0.5"
+                aria-hidden="true"
+              />
               <div class="flex-1">
-                <h3
-                  class="text-sm md:text-base font-semibold text-secondary mb-0.5"
-                >
-                  Intelligent Project Setup
-                </h3>
-                <p class="text-xs text-base-content/60 leading-relaxed">
-                  MCP-powered scanning analyzes your workspace, detects
-                  frameworks, and configures optimal AI agents automatically.
+                <h4 class="text-xs font-semibold text-warning mb-1">
+                  Skills Not Configured
+                </h4>
+                <p class="text-xs text-base-content/60 leading-relaxed mb-2">
+                  The Intelligent Project Setup uses your configured skills to
+                  provide better recommendations. It's recommended to configure
+                  your Ptah Skills first for optimal results.
                 </p>
+                <button
+                  class="btn btn-xs btn-warning"
+                  (click)="setActiveTab('skills')"
+                  type="button"
+                >
+                  Configure Skills First
+                </button>
               </div>
             </div>
+          }
 
-            <!-- Feature Badges using DaisyUI -->
-            <div class="flex flex-wrap gap-1.5 mb-3">
-              <span class="badge badge-sm badge-outline badge-secondary gap-1">
-                <span class="text-[10px]">⚡</span> Auto-detect
-              </span>
-              <span class="badge badge-sm badge-outline badge-secondary gap-1">
-                <span class="text-[10px]">🔗</span> VS Code AI
-              </span>
-              <span class="badge badge-sm badge-outline badge-secondary gap-1">
-                <span class="text-[10px]">🛠️</span> MCP Server
-              </span>
+          <!-- Smart Setup CTA Card - Glass Panel -->
+          <div
+            class="glass-panel glass-panel-divine rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg"
+          >
+            <div class="p-4">
+              <!-- Header with Scanner Icon -->
+              <div class="flex items-start gap-3 mb-3">
+                <div
+                  class="flex items-center justify-center w-10 h-10 rounded-lg bg-secondary/10 text-secondary shrink-0 agent-working"
+                >
+                  <lucide-angular
+                    [img]="ScanSearchIcon"
+                    class="w-5 h-5 md:w-6 md:h-6"
+                    aria-hidden="true"
+                  />
+                </div>
+                <div class="flex-1">
+                  <h3
+                    class="text-sm md:text-base font-semibold text-secondary mb-0.5"
+                  >
+                    Intelligent Project Setup
+                  </h3>
+                  <p class="text-xs text-base-content/60 leading-relaxed">
+                    MCP-powered scanning analyzes your workspace, detects
+                    frameworks, and configures optimal AI agents automatically.
+                  </p>
+                </div>
+              </div>
+
+              <!-- Feature Badges using DaisyUI -->
+              <div class="flex flex-wrap gap-1.5 mb-3">
+                <span
+                  class="badge badge-sm badge-outline badge-secondary gap-1"
+                >
+                  <span class="text-[10px]">⚡</span> Auto-detect
+                </span>
+                <span
+                  class="badge badge-sm badge-outline badge-secondary gap-1"
+                >
+                  <span class="text-[10px]">🔗</span> VS Code AI
+                </span>
+                <span
+                  class="badge badge-sm badge-outline badge-secondary gap-1"
+                >
+                  <span class="text-[10px]">🛠️</span> MCP Server
+                </span>
+              </div>
+
+              <!-- Setup Status Widget Integration -->
+              <ptah-setup-status-widget />
             </div>
-
-            <!-- Setup Status Widget Integration -->
-            <ptah-setup-status-widget />
           </div>
-        </div>
 
-        <!-- Prompt Suggestions (TASK_2025_174) -->
-        <ptah-prompt-suggestions
-          (promptSelected)="promptSelected.emit($event)"
-        />
-      </div>
+          <!-- Prompt Suggestions (TASK_2025_174) -->
+          <ptah-prompt-suggestions
+            (promptSelected)="promptSelected.emit($event)"
+          />
+        </div>
       }
 
       <!-- Decorative Egyptian Footer -->
@@ -365,7 +370,7 @@ export class ChatEmptyStateComponent {
 
   /** Whether the current user has a premium license */
   protected readonly isPremium = computed(
-    () => this.chatStore.licenseStatus()?.isPremium ?? false
+    () => this.chatStore.licenseStatus()?.isPremium ?? false,
   );
 
   /** Whether the plugin browser modal is open (TASK_2025_153) */
