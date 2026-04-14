@@ -561,9 +561,11 @@ export class PtahCliRegistry {
     const authEnv = this.buildAuthEnv(agentConfig, provider, apiKey);
     seedStaticModelPricing(agentConfig.providerId);
 
-    // Resolve SDK model from tier (env vars route to actual provider model)
+    // Resolve SDK model from tier — prefer provider-specific tier mappings
+    // over hardcoded Anthropic model IDs (critical for local providers like Ollama)
     const tier: ModelTier = options?.modelTier ?? 'sonnet';
-    const model = TIER_TO_MODEL_ID[tier];
+    const spawnTiers = this.resolveEffectiveTiers(agentConfig, provider);
+    const model = spawnTiers?.[tier] ?? TIER_TO_MODEL_ID[tier];
     // workingDirectory should be resolved by the caller (agent-namespace.builder).
     // os.homedir() is a safer fallback than process.cwd() which returns the
     // app installation directory in VS Code extension host / Electron.
@@ -945,12 +947,22 @@ export class PtahCliRegistry {
   ): PtahCliConfig['tierMappings'] {
     const mainTiers = this.providerModels.getModelTiers(agentConfig.providerId);
     const agentTiers = agentConfig.tierMappings;
+    const providerDefaults = provider.defaultTiers;
     const defaultSonnet = provider.staticModels?.[0]?.id ?? undefined;
 
     const sonnet =
-      agentTiers?.sonnet || mainTiers.sonnet || defaultSonnet || undefined;
-    const opus = agentTiers?.opus || mainTiers.opus || undefined;
-    const haiku = agentTiers?.haiku || mainTiers.haiku || undefined;
+      agentTiers?.sonnet ||
+      mainTiers.sonnet ||
+      providerDefaults?.sonnet ||
+      defaultSonnet ||
+      undefined;
+    const opus =
+      agentTiers?.opus || mainTiers.opus || providerDefaults?.opus || undefined;
+    const haiku =
+      agentTiers?.haiku ||
+      mainTiers.haiku ||
+      providerDefaults?.haiku ||
+      undefined;
 
     if (!sonnet && !opus && !haiku) {
       return undefined;

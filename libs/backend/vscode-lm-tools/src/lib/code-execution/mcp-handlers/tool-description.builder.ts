@@ -280,7 +280,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         },
         cli: {
           type: 'string',
-          enum: ['gemini', 'codex', 'copilot'],
+          enum: ['gemini', 'codex', 'copilot', 'cursor'],
           description:
             'Which CLI agent to use. Each requires its CLI installed on PATH. ' +
             'Omit to use the default (auto-detected or user-configured). ' +
