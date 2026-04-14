@@ -264,6 +264,8 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
       'The agent runs while you continue working. ' +
       'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
       'For Ptah CLI agents, pass ptahCliId (from ptah_agent_list). ' +
+      'Use modelTier to control capability level: "opus" for complex/architectural tasks, ' +
+      '"sonnet" (default) for balanced work, "haiku" for fast/simple tasks. Only applies to Ptah CLI agents. ' +
       'To resume a previous CLI session, pass resume_session_id with the CLI session ID. ' +
       'Ideal for delegating: code reviews, test generation, documentation, ' +
       'and other independent subtasks.',
@@ -317,6 +319,18 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
           description:
             'Model override for the CLI agent (e.g., "gemini-2.5-pro" for Gemini, "claude-sonnet-4.6" for Copilot). ' +
             'Uses user-configured default if omitted.',
+        },
+        modelTier: {
+          type: 'string',
+          enum: ['opus', 'sonnet', 'haiku'],
+          description:
+            'Model capability tier for Ptah CLI agents. Controls which model tier the spawned agent uses. ' +
+            '"opus" = most capable (complex architecture, deep analysis), ' +
+            '"sonnet" = balanced (default, general coding tasks), ' +
+            '"haiku" = fastest (simple tasks, quick lookups). ' +
+            "The tier maps to the actual provider model via the agent's tier mappings " +
+            '(e.g., opus → kimi-k2-thinking for Moonshot, opus → glm-5-code for Z.AI). ' +
+            'Only applies when ptahCliId is set. Ignored for standard CLI agents.',
         },
         resume_session_id: {
           type: 'string',

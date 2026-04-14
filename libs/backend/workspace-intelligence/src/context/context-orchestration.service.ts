@@ -145,7 +145,7 @@ export interface GetFileSuggestionsRequest {
 export interface GetFileSuggestionsResult {
   success: boolean;
   query?: string;
-  suggestions?: Array<{
+  files?: Array<{
     uri: string;
     relativePath: string;
     fileName: string;
@@ -422,7 +422,7 @@ export class ContextOrchestrationService {
       return {
         success: true,
         query: request.query,
-        suggestions: suggestions.map(formatFileResult),
+        files: suggestions.map(formatFileResult),
       };
     } catch (error) {
       const errorMessage =

@@ -49,7 +49,7 @@ export function stripAllowedToolsFromFrontmatter(content: string): string {
   const frontmatter = frontmatterMatch[1];
   const lines = frontmatter.split('\n');
   const filteredLines = lines.filter(
-    (line) => !line.trimStart().startsWith('allowed-tools:')
+    (line) => !line.trimStart().startsWith('allowed-tools:'),
   );
 
   // If nothing was filtered, return normalized content
@@ -122,7 +122,7 @@ export function sanitizeYamlDescriptions(content: string): string {
  * the name field must be updated to `ptah-{skillName}` accordingly.
  *
  * @param content - SKILL.md content (LF-normalized)
- * @param newName - The target folder name (e.g., "ptah-agent-browser")
+ * @param newName - The target folder name (e.g., "ptah-orchestration")
  * @returns Content with updated name field, or unchanged if no frontmatter
  */
 export function rewriteSkillName(content: string, newName: string): string {
@@ -166,7 +166,7 @@ export async function copyDirectoryRecursive(
   sourceDir: string,
   targetDir: string,
   depth = 0,
-  skillFolderName?: string
+  skillFolderName?: string,
 ): Promise<number> {
   if (depth > MAX_RECURSION_DEPTH) {
     return 0; // Prevent runaway recursion from symlink loops or deep nesting
@@ -192,7 +192,7 @@ export async function copyDirectoryRecursive(
         sourcePath,
         targetPath,
         depth + 1,
-        skillFolderName
+        skillFolderName,
       );
     } else if (entryStat.isFile()) {
       // For markdown files, strip Claude-specific frontmatter fields,

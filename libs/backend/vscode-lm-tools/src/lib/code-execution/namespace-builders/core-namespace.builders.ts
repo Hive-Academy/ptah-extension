@@ -90,9 +90,9 @@ export function buildSearchNamespace(
           query,
           limit: maxFiles,
         });
-        return (result.suggestions || [])
-          .filter((s) => s != null)
-          .map((s) => s.relativePath || String(s));
+        return (result.files || [])
+          .filter((s: { relativePath?: string }) => s != null)
+          .map((s: { relativePath?: string }) => s.relativePath || String(s));
       } catch {
         return [];
       }

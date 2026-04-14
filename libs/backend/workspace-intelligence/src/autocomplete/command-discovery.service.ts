@@ -45,39 +45,42 @@ export interface CommandSearchRequest {
  * Discovers and manages Claude CLI commands (built-in + custom)
  *
  * ARCHITECTURE:
- * - Hardcoded built-in commands (33 total)
+ * - Hardcoded built-in commands (6 total)
  * - Scans .claude/commands/ directories (project + user)
+ * - Scans .claude/skills/ directory (junctioned by SkillJunctionService)
  * - Parses YAML frontmatter for command metadata
  * - Watches for file changes (real-time invalidation)
- * - TODO: Query MCP servers for exposed prompts
+ *
+ * Commands and skills are discovered from the workspace .claude/ directory
+ * (the source of truth) — NOT from plugin source directories. The
+ * SkillJunctionService copies commands to .claude/commands/ and junctions
+ * skills to .claude/skills/ at activation time. This avoids plugin-namespaced
+ * entries (e.g. ptah-core:orchestrate) that the SDK can't resolve since
+ * plugins are not passed via the SDK query option.
  */
 @injectable()
 export class CommandDiscoveryService {
   private cache: CommandInfo[] = [];
   private watchers: IDisposable[] = [];
-  private pluginPaths: string[] = [];
 
   constructor(
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
-    private readonly fsProvider: IFileSystemProvider
+    private readonly fsProvider: IFileSystemProvider,
   ) {}
 
   /**
-   * Set plugin paths for command/skill discovery.
-   * Called after PluginLoaderService is initialized (late initialization pattern).
-   *
-   * @param pluginPaths - Absolute paths to enabled plugin directories
+   * Invalidate the command cache.
+   * Called when plugin configuration changes so the next search
+   * picks up newly junctioned skills and copied commands.
    */
-  setPluginPaths(pluginPaths: string[]): void {
-    this.pluginPaths = pluginPaths;
-    // Invalidate cache so next search picks up plugin commands
+  invalidateCache(): void {
     this.cache = [];
   }
 
   /**
-   * Discover all commands (built-in + custom)
+   * Discover all commands (built-in + custom + skills)
    */
   async discoverCommands(): Promise<CommandDiscoveryResult> {
     try {
@@ -89,24 +92,26 @@ export class CommandDiscoveryService {
       // Built-in commands
       const builtins = this.getBuiltinCommands();
 
-      // Project commands
+      // Project commands (includes plugin commands copied by SkillJunctionService)
       const projectCommands = await this.scanCommandDirectory(
-        path.join(workspaceRoot, '.claude/commands')
+        path.join(workspaceRoot, '.claude/commands'),
       );
 
       // User commands
       const userCommands = await this.scanCommandDirectory(
-        path.join(os.homedir(), '.claude/commands')
+        path.join(os.homedir(), '.claude/commands'),
       );
 
-      // Plugin commands and skills
-      const pluginCommands = await this.scanPluginDirectories();
+      // Workspace skills (junctioned from plugins by SkillJunctionService)
+      const workspaceSkills = await this.scanWorkspaceSkills(
+        path.join(workspaceRoot, '.claude/skills'),
+      );
 
       const allCommands = [
         ...builtins,
         ...projectCommands.map((c) => ({ ...c, scope: 'project' as const })),
         ...userCommands.map((c) => ({ ...c, scope: 'user' as const })),
-        ...pluginCommands,
+        ...workspaceSkills,
       ];
 
       // Update cache
@@ -127,7 +132,7 @@ export class CommandDiscoveryService {
    * Search commands by query
    */
   async searchCommands(
-    request: CommandSearchRequest
+    request: CommandSearchRequest,
   ): Promise<CommandDiscoveryResult> {
     try {
       // Ensure cache is populated
@@ -145,7 +150,7 @@ export class CommandDiscoveryService {
       const filtered = this.cache.filter(
         (cmd) =>
           cmd.name.toLowerCase().includes(lowerQuery) ||
-          cmd.description.toLowerCase().includes(lowerQuery)
+          cmd.description.toLowerCase().includes(lowerQuery),
       );
 
       return { success: true, commands: filtered.slice(0, maxResults) };
@@ -168,7 +173,7 @@ export class CommandDiscoveryService {
 
     // Watch project commands using platform file watcher
     const projectWatcher = this.fsProvider.createFileWatcher(
-      '.claude/commands/**/*.md'
+      '.claude/commands/**/*.md',
     );
 
     const refreshCache = () => {
@@ -185,7 +190,7 @@ export class CommandDiscoveryService {
       projectWatcher,
       createDisposable,
       changeDisposable,
-      deleteDisposable
+      deleteDisposable,
     );
   }
 
@@ -236,7 +241,7 @@ export class CommandDiscoveryService {
       const files = await this.getAllMarkdownFiles(dir);
 
       const commands = await Promise.all(
-        files.map((file) => this.parseCommandFile(file))
+        files.map((file) => this.parseCommandFile(file)),
       );
 
       return commands.filter(Boolean) as CommandInfo[];
@@ -245,7 +250,7 @@ export class CommandDiscoveryService {
         error instanceof Error ? error.message : String(error);
       console.debug(
         `[CommandDiscovery] Directory ${dir} not accessible:`,
-        errorMessage
+        errorMessage,
       );
       return [];
     }
@@ -276,7 +281,7 @@ export class CommandDiscoveryService {
           error instanceof Error ? error.message : String(error);
         console.debug(
           `[CommandDiscovery] Cannot scan ${currentDir}:`,
-          errorMessage
+          errorMessage,
         );
       }
     }
@@ -289,7 +294,7 @@ export class CommandDiscoveryService {
    * Parse command .md file with YAML frontmatter
    */
   private async parseCommandFile(
-    filePath: string
+    filePath: string,
   ): Promise<CommandInfo | null> {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
@@ -318,7 +323,7 @@ export class CommandDiscoveryService {
         error instanceof Error ? error.message : String(error);
       console.error(
         `[CommandDiscovery] Failed to parse command file ${filePath}:`,
-        errorMessage
+        errorMessage,
       );
       return null;
     }
@@ -329,7 +334,7 @@ export class CommandDiscoveryService {
    * Looks for the first non-heading, non-empty paragraph line after the heading.
    */
   private extractDescriptionFromMarkdown(
-    markdownContent: string
+    markdownContent: string,
   ): string | null {
     const lines = markdownContent.split('\n');
     for (const line of lines) {
@@ -351,82 +356,22 @@ export class CommandDiscoveryService {
   }
 
   /**
-   * Scan plugin directories for commands and skills.
-   * SDK automatically namespaces plugin commands as `plugin-name:command-name`,
-   * so we mirror that format in autocomplete suggestions.
+   * Scan workspace .claude/skills/ directory for junctioned skill definitions.
+   *
+   * SkillJunctionService creates junctions/symlinks from .claude/skills/{name}/
+   * to the plugin's skills directory. Each skill directory contains a SKILL.md
+   * with YAML frontmatter (name, description). Skills are listed without a
+   * plugin namespace prefix so they resolve correctly when invoked as /skill-name.
    */
-  private async scanPluginDirectories(): Promise<CommandInfo[]> {
-    if (this.pluginPaths.length === 0) return [];
-
-    const commands: CommandInfo[] = [];
-
-    for (const pluginPath of this.pluginPaths) {
-      const pluginName = await this.readPluginName(pluginPath);
-
-      // Scan plugin commands/ directory (same format as .claude/commands/)
-      const pluginCommands = await this.scanCommandDirectory(
-        path.join(pluginPath, 'commands')
-      );
-      commands.push(
-        ...pluginCommands.map((c) => ({
-          ...c,
-          name: `${pluginName}:${c.name}`,
-          scope: 'plugin' as const,
-        }))
-      );
-
-      // Scan plugin skills/ directory (SKILL.md with frontmatter)
-      const pluginSkills = await this.scanSkillsDirectory(pluginPath);
-      commands.push(
-        ...pluginSkills.map((s) => ({
-          ...s,
-          name: `${pluginName}:${s.name}`,
-        }))
-      );
-    }
-
-    return commands;
-  }
-
-  /**
-   * Read plugin name from .claude-plugin/plugin.json manifest.
-   * Falls back to directory name if manifest is missing.
-   */
-  private async readPluginName(pluginPath: string): Promise<string> {
-    try {
-      const manifestPath = path.join(
-        pluginPath,
-        '.claude-plugin',
-        'plugin.json'
-      );
-      const content = await fs.readFile(manifestPath, 'utf-8');
-      const manifest = JSON.parse(content);
-      if (manifest.name && typeof manifest.name === 'string') {
-        return manifest.name;
-      }
-    } catch (error) {
-      console.debug(
-        `[CommandDiscovery] Cannot read plugin manifest at ${pluginPath}:`,
-        error instanceof Error ? error.message : String(error)
-      );
-    }
-    return path.basename(pluginPath);
-  }
-
-  /**
-   * Scan a plugin's skills/ directory for skill definitions
-   */
-  private async scanSkillsDirectory(
-    pluginPath: string
-  ): Promise<CommandInfo[]> {
-    const skillsDir = path.join(pluginPath, 'skills');
+  private async scanWorkspaceSkills(skillsDir: string): Promise<CommandInfo[]> {
     const skills: CommandInfo[] = [];
 
     try {
       const entries = await fs.readdir(skillsDir, { withFileTypes: true });
 
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+        // Skills are directories (or junctions/symlinks to directories)
+        if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 
         const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
         try {
@@ -434,7 +379,7 @@ export class CommandDiscoveryService {
           const { data: frontmatter } = matter(content);
 
           const name = frontmatter['name'] || entry.name;
-          const description = frontmatter['description'] || 'Plugin skill';
+          const description = frontmatter['description'] || 'Skill';
 
           skills.push({
             name,
@@ -448,14 +393,14 @@ export class CommandDiscoveryService {
         } catch (error) {
           console.debug(
             `[CommandDiscovery] Cannot read SKILL.md at ${skillMdPath}:`,
-            error instanceof Error ? error.message : String(error)
+            error instanceof Error ? error.message : String(error),
           );
         }
       }
     } catch (error) {
       console.debug(
         `[CommandDiscovery] Skills directory not accessible at ${skillsDir}:`,
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     }
 
