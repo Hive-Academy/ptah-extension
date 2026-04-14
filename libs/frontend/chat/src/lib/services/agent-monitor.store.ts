@@ -551,15 +551,17 @@ export class AgentMonitorStore implements OnDestroy {
     this._panelOpen.set(true);
   }
 
-  /** Shift the first permission off the queue (after user responds). Next one auto-shows. */
-  clearPermission(agentId: string): void {
+  /** Remove a specific permission from the queue by requestId (after user responds). */
+  clearPermission(agentId: string, requestId?: string): void {
     this._agents.update((map) => {
       const agent = map.get(agentId);
       if (!agent) return map;
       const next = new Map(map);
       next.set(agentId, {
         ...agent,
-        permissionQueue: agent.permissionQueue.slice(1),
+        permissionQueue: requestId
+          ? agent.permissionQueue.filter((p) => p.requestId !== requestId)
+          : agent.permissionQueue.slice(1),
       });
       return next;
     });
@@ -703,11 +705,6 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
-   * Remove a single agent card from the store.
-   * Used when resuming a stopped agent — the old card is removed and a new
-   * one is created by the incoming agent:spawned event.
-   */
-  /**
    * Remove all non-running agents belonging to a specific session.
    * Called when a tab is closed to clean up its associated agent cards.
    * Running agents are preserved (they'll complete in the background).
@@ -767,6 +764,31 @@ export class AgentMonitorStore implements OnDestroy {
     });
 
     // Reset explicit-close flag when all agents cleared — next spawn will auto-open
+    if (this._agents().size === 0) {
+      this._userExplicitlyClosed = false;
+    }
+
+    this.syncTick();
+  }
+
+  /**
+   * Clear completed/failed agents belonging to a specific session.
+   * Used by embedded agent panels to scope clear operations per session.
+   * Uses `changed` flag to avoid unnecessary signal notifications (matches clearSessionAgents pattern).
+   */
+  clearCompletedInSession(sessionId: string): void {
+    this._agents.update((map) => {
+      let changed = false;
+      const next = new Map(map);
+      for (const [id, agent] of next) {
+        if (agent.parentSessionId === sessionId && agent.status !== 'running') {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : map;
+    });
+
     if (this._agents().size === 0) {
       this._userExplicitlyClosed = false;
     }

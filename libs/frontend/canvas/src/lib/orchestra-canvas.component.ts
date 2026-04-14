@@ -4,15 +4,20 @@ import {
   OnDestroy,
   inject,
   effect,
+  signal,
+  viewChild,
+  ElementRef,
   untracked,
 } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { GridStackOptions } from 'gridstack';
 import {
   GridstackComponent,
   GridstackItemComponent,
   nodesCB,
 } from 'gridstack/dist/angular';
-import { LucideAngularModule, Plus } from 'lucide-angular';
+import { LucideAngularModule, Plus, X, Check } from 'lucide-angular';
+import { NativePopoverComponent } from '@ptah-extension/ui';
 import { AppStateManager } from '@ptah-extension/core';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
@@ -44,17 +49,19 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [CanvasStore],
   imports: [
+    FormsModule,
     GridstackComponent,
     GridstackItemComponent,
     CanvasTileComponent,
     CanvasEmptyStateComponent,
     LucideAngularModule,
+    NativePopoverComponent,
   ],
   template: `
     <div class="flex flex-col h-full bg-base-100 relative">
       @if (canvasStore.tiles().length === 0) {
         <!-- Empty state: no tiles yet -->
-        <ptah-canvas-empty-state (createSession)="addNewTile()" />
+        <ptah-canvas-empty-state (createSession)="openNewSessionPopover()" />
       } @else {
         <!-- Gridstack drag-and-resize grid -->
         <div class="flex-1 overflow-auto">
@@ -82,15 +89,111 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
 
         <!-- FAB: New tile button (floating bottom-right, hidden at max capacity) -->
         @if (canvasStore.canAddTile()) {
-          <button
-            class="absolute bottom-4 right-4 btn btn-primary btn-circle shadow-lg z-10"
-            title="Add new session tile"
-            aria-label="Add new session tile"
-            (click)="addNewTile()"
+          <ptah-native-popover
+            [isOpen]="sessionPopoverOpen()"
+            [placement]="'top'"
+            [hasBackdrop]="true"
+            [backdropClass]="'transparent'"
+            (closed)="handleCancelSession()"
           >
-            <lucide-angular [img]="PlusIcon" class="w-5 h-5" />
-          </button>
+            <button
+              trigger
+              class="absolute bottom-4 right-4 btn btn-primary btn-circle shadow-lg z-10"
+              title="Add new session tile"
+              aria-label="Add new session tile"
+              (click)="openNewSessionPopover()"
+            >
+              <lucide-angular [img]="PlusIcon" class="w-5 h-5" />
+            </button>
+
+            <div
+              content
+              class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
+            >
+              <h3 class="text-sm font-semibold mb-3 text-base-content/90">
+                New Session
+              </h3>
+              <input
+                #sessionNameInputRef
+                type="text"
+                class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
+                placeholder="Enter session name (optional)"
+                [(ngModel)]="sessionNameInput"
+                (keydown.enter)="
+                  handleCreateSession();
+                  $event.preventDefault();
+                  $event.stopPropagation()
+                "
+                (keydown.escape)="handleCancelSession()"
+              />
+              <div class="flex gap-2">
+                <button
+                  class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content/60"
+                  (click)="handleCancelSession()"
+                >
+                  <lucide-angular [img]="XIcon" class="w-3 h-3" />
+                  Cancel
+                </button>
+                <button
+                  class="btn btn-sm btn-primary flex-1 gap-1.5"
+                  (click)="handleCreateSession()"
+                >
+                  <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
+                  Create
+                </button>
+              </div>
+            </div>
+          </ptah-native-popover>
         }
+      }
+
+      <!-- Standalone popover for empty state (no FAB to anchor to) -->
+      @if (canvasStore.tiles().length === 0 && sessionPopoverOpen()) {
+        <div
+          class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50"
+        >
+          <div
+            class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
+          >
+            <h3 class="text-sm font-semibold mb-3 text-base-content/90">
+              New Session
+            </h3>
+            <input
+              #emptyStateNameInputRef
+              type="text"
+              class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
+              placeholder="Enter session name (optional)"
+              [(ngModel)]="sessionNameInput"
+              (keydown.enter)="
+                handleCreateSession();
+                $event.preventDefault();
+                $event.stopPropagation()
+              "
+              (keydown.escape)="handleCancelSession()"
+            />
+            <div class="flex gap-2">
+              <button
+                class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content/60"
+                (click)="handleCancelSession()"
+              >
+                <lucide-angular [img]="XIcon" class="w-3 h-3" />
+                Cancel
+              </button>
+              <button
+                class="btn btn-sm btn-primary flex-1 gap-1.5"
+                (click)="handleCreateSession()"
+              >
+                <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
+                Create
+              </button>
+            </div>
+          </div>
+          <!-- Backdrop -->
+          <div
+            class="fixed inset-0 -z-10"
+            (click)="handleCancelSession()"
+          ></div>
+        </div>
       }
     </div>
   `,
@@ -114,6 +217,17 @@ export class OrchestraCanvasComponent implements OnDestroy {
   private readonly chatStore = inject(ChatStore);
 
   protected readonly PlusIcon = Plus;
+  protected readonly XIcon = X;
+  protected readonly CheckIcon = Check;
+
+  protected readonly sessionPopoverOpen = signal(false);
+  protected readonly sessionNameInput = signal('');
+  private readonly sessionNameInputRef = viewChild<
+    ElementRef<HTMLInputElement>
+  >('sessionNameInputRef');
+  private readonly emptyStateNameInputRef = viewChild<
+    ElementRef<HTMLInputElement>
+  >('emptyStateNameInputRef');
 
   /**
    * Gridstack grid configuration.
@@ -127,11 +241,30 @@ export class OrchestraCanvasComponent implements OnDestroy {
     cellHeight: 80,
     float: true,
     margin: 8,
+    draggable: { handle: '.tile-header' },
     resizable: { handles: 'e, se, s, sw, w' },
     animate: true,
   };
 
   constructor() {
+    // Auto-focus session name input when popover opens
+    effect(() => {
+      if (this.sessionPopoverOpen()) {
+        setTimeout(() => {
+          const ref =
+            this.sessionNameInputRef() ?? this.emptyStateNameInputRef();
+          ref?.nativeElement.focus();
+        }, 0);
+      }
+    });
+
+    // Restore canvas tiles from tabs that were persisted to localStorage.
+    // TabManagerService restores tabs before this component initializes; without
+    // this sync, the canvas starts empty while the hidden single-mode ChatView
+    // already shows the restored session — causing a session to appear in Chat
+    // but not in Canvas despite Canvas being the initial view.
+    this.restoreCanvasTilesFromTabs();
+
     // Signal bridge: watch for session load requests from shared sidebar
     effect(() => {
       const req = this.appState.canvasSessionRequest();
@@ -176,11 +309,68 @@ export class OrchestraCanvasComponent implements OnDestroy {
   }
 
   /**
-   * Add a new tile to the canvas via the store.
-   * Called from the empty state CTA and the floating action button.
+   * Restore canvas tiles from tabs that were persisted in localStorage.
+   * Runs once at construction — creates a canvas tile for each pre-existing
+   * tab so the canvas reflects sessions the user had open in their last session.
    */
-  addNewTile(): void {
-    this.canvasStore.addTile();
+  private restoreCanvasTilesFromTabs(): void {
+    const existingTabs = this.tabManager.tabs();
+    if (existingTabs.length === 0) return;
+
+    // Capture the user's previously active tab BEFORE the loop, because
+    // addTileFromSession → openSessionTab → switchTab overwrites activeTabId.
+    const originalActiveTabId = this.tabManager.activeTabId();
+
+    for (const tab of existingTabs) {
+      if (tab.claudeSessionId) {
+        // Tab has a session — add as session tile (deduplicates internally)
+        this.canvasStore.addTileFromSession(tab.claudeSessionId, tab.name);
+      } else {
+        // Tab without a session (blank/new) — adopt existing tab as tile
+        this.canvasStore.adoptTab(tab.id);
+      }
+    }
+
+    // Restore focus to the user's previously active tab
+    if (
+      originalActiveTabId &&
+      this.canvasStore.tiles().some((t) => t.tabId === originalActiveTabId)
+    ) {
+      this.canvasStore.focusTile(originalActiveTabId);
+    }
+  }
+
+  /**
+   * Generate slugified default session name from current timestamp.
+   * Format: session-MM-DD-HH-mm (e.g., "session-04-14-09-30")
+   */
+  private generateDefaultSessionName(): string {
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `session-${month}-${day}-${hours}-${minutes}`;
+  }
+
+  /** Open the session name popover. */
+  protected openNewSessionPopover(): void {
+    this.sessionNameInput.set('');
+    this.sessionPopoverOpen.set(true);
+  }
+
+  /** Create session with the entered (or default) name. */
+  protected handleCreateSession(): void {
+    const name = this.sessionNameInput().trim();
+    const sessionName = name || this.generateDefaultSessionName();
+    this.canvasStore.addTile(sessionName);
+    this.sessionPopoverOpen.set(false);
+  }
+
+  /** Cancel session creation. */
+  protected handleCancelSession(): void {
+    this.sessionPopoverOpen.set(false);
+    this.sessionNameInput.set('');
   }
 
   /**
