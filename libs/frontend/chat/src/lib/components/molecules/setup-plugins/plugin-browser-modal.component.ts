@@ -16,9 +16,11 @@ import {
   Search,
   Package,
   Star,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import type { PluginInfo } from '@ptah-extension/shared';
+import type { PluginInfo, PluginSkillEntry } from '@ptah-extension/shared';
 import { NgClass } from '@angular/common';
 
 /**
@@ -103,178 +105,275 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
         </div>
 
         @if (isLoading()) {
-        <!-- Loading state -->
-        <div class="flex flex-col gap-3 py-8">
-          <div class="flex justify-center">
-            <span
-              class="loading loading-spinner loading-md text-primary"
-            ></span>
-          </div>
-          <span class="block text-sm text-base-content/60 text-center">
-            Loading available plugins...
-          </span>
-        </div>
-        } @else if (error()) {
-        <!-- Error state -->
-        <div class="flex flex-col items-center gap-3 py-8">
-          <span class="text-error text-sm text-center">{{ error() }}</span>
-          <button
-            class="btn btn-sm btn-ghost"
-            (click)="loadPlugins()"
-            type="button"
-          >
-            Try Again
-          </button>
-        </div>
-        } @else {
-        <!-- Search input -->
-        <div class="relative mb-4">
-          <lucide-angular
-            [img]="SearchIcon"
-            class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/40"
-            aria-hidden="true"
-          />
-          <input
-            type="text"
-            class="input input-bordered input-sm w-full pl-9"
-            placeholder="Search plugins..."
-            [value]="searchQuery()"
-            (input)="onSearchInput($event)"
-            aria-label="Search plugins"
-          />
-        </div>
-
-        <!-- Plugin list grouped by category -->
-        <div
-          class="max-h-[50vh] overflow-y-auto space-y-4 pr-1"
-          role="list"
-          aria-label="Available plugins"
-        >
-          @for (group of groupedPlugins(); track group.key) {
-          <div>
-            <!-- Category header -->
-            <span
-              class="block text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2"
-            >
-              {{ group.label }}
-            </span>
-
-            <!-- Plugin cards -->
-            <div class="space-y-2">
-              @for (plugin of group.plugins; track plugin.id) {
-              <div
-                class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all duration-150"
-                [ngClass]="
-                  isSelected(plugin.id)
-                    ? 'border-primary bg-primary/5'
-                    : 'border-base-300 bg-base-200/30 hover:bg-base-200/60'
-                "
-                role="listitem"
-                (click)="togglePlugin(plugin.id)"
-              >
-                <!-- Checkbox -->
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-primary checkbox-sm mt-0.5"
-                  [checked]="isSelected(plugin.id)"
-                  [attr.aria-label]="'Enable ' + plugin.name"
-                />
-
-                <!-- Plugin info -->
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <span class="text-sm font-medium">{{ plugin.name }}</span>
-                    @if (plugin.isDefault) {
-                    <span class="badge badge-xs badge-primary gap-1">
-                      <lucide-angular
-                        [img]="StarIcon"
-                        class="w-2.5 h-2.5"
-                        aria-hidden="true"
-                      />
-                      Recommended
-                    </span>
-                    }
-                  </div>
-                  <span
-                    class="block text-xs text-base-content/60 mt-0.5 leading-relaxed"
-                  >
-                    {{ plugin.description }}
-                  </span>
-                  <!-- Badges: skill count, command count -->
-                  <div class="flex gap-1.5 mt-1.5">
-                    @if (plugin.skillCount > 0) {
-                    <span class="badge badge-xs badge-ghost gap-1">
-                      <lucide-angular
-                        [img]="PackageIcon"
-                        class="w-2.5 h-2.5"
-                        aria-hidden="true"
-                      />
-                      {{ plugin.skillCount }}
-                      skill{{ plugin.skillCount !== 1 ? 's' : '' }}
-                    </span>
-                    } @if (plugin.commandCount > 0) {
-                    <span class="badge badge-xs badge-ghost gap-1">
-                      {{ plugin.commandCount }}
-                      command{{ plugin.commandCount !== 1 ? 's' : '' }}
-                    </span>
-                    }
-                  </div>
-                </div>
-
-                <!-- Selected indicator -->
-                @if (isSelected(plugin.id)) {
-                <lucide-angular
-                  [img]="CheckIcon"
-                  class="w-4 h-4 text-primary shrink-0 mt-1"
-                  aria-hidden="true"
-                />
-                }
-              </div>
-              }
+          <!-- Loading state -->
+          <div class="flex flex-col gap-3 py-8">
+            <div class="flex justify-center">
+              <span
+                class="loading loading-spinner loading-md text-primary"
+              ></span>
             </div>
-          </div>
-          } @empty {
-          <div class="text-center py-6 text-base-content/50">
-            <span class="block text-sm">
-              @if (searchQuery()) { No plugins match your search. } @else { No
-              plugins available. }
+            <span class="block text-sm text-base-content/60 text-center">
+              Loading available plugins...
             </span>
           </div>
-          }
-        </div>
-
-        <!-- Footer -->
-        <div class="modal-action mt-4 pt-3 border-t border-base-300">
-          <span class="text-xs text-base-content/50 flex-1">
-            {{ selectedIds().size }} of {{ availablePlugins().length }} selected
-          </span>
-          @if (saveError()) {
-          <span class="text-error text-xs">{{ saveError() }}</span>
-          }
-          <button
-            class="btn btn-ghost btn-sm"
-            (click)="handleClose()"
-            type="button"
-          >
-            Cancel
-          </button>
-          <button
-            class="btn btn-primary btn-sm"
-            [disabled]="isSaving()"
-            (click)="saveConfiguration()"
-            type="button"
-          >
-            @if (isSaving()) {
-            <span class="loading loading-spinner loading-xs"></span>
-            Saving... } @else {
+        } @else if (error()) {
+          <!-- Error state -->
+          <div class="flex flex-col items-center gap-3 py-8">
+            <span class="text-error text-sm text-center">{{ error() }}</span>
+            <button
+              class="btn btn-sm btn-ghost"
+              (click)="loadPlugins()"
+              type="button"
+            >
+              Try Again
+            </button>
+          </div>
+        } @else {
+          <!-- Search input -->
+          <div class="relative mb-4">
             <lucide-angular
-              [img]="CheckIcon"
-              class="w-4 h-4"
+              [img]="SearchIcon"
+              class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/40"
               aria-hidden="true"
             />
-            Save Configuration }
-          </button>
-        </div>
+            <input
+              type="text"
+              class="input input-bordered input-sm w-full pl-9"
+              placeholder="Search plugins..."
+              [value]="searchQuery()"
+              (input)="onSearchInput($event)"
+              aria-label="Search plugins"
+            />
+          </div>
+
+          <!-- Plugin list grouped by category -->
+          <div
+            class="max-h-[50vh] overflow-y-auto space-y-4 pr-1"
+            role="list"
+            aria-label="Available plugins"
+          >
+            @for (group of groupedPlugins(); track group.key) {
+              <div>
+                <!-- Category header -->
+                <span
+                  class="block text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2"
+                >
+                  {{ group.label }}
+                </span>
+
+                <!-- Plugin cards -->
+                <div class="space-y-2">
+                  @for (plugin of group.plugins; track plugin.id) {
+                    <div
+                      class="rounded-lg border transition-all duration-150"
+                      [ngClass]="
+                        isSelected(plugin.id)
+                          ? 'border-primary bg-primary/5'
+                          : 'border-base-300 bg-base-200/30 hover:bg-base-200/60'
+                      "
+                      role="listitem"
+                    >
+                      <!-- Plugin header row (clickable to toggle plugin) -->
+                      <div
+                        class="flex items-start gap-3 p-3 cursor-pointer"
+                        (click)="togglePlugin(plugin.id)"
+                      >
+                        <!-- Checkbox -->
+                        <input
+                          type="checkbox"
+                          class="checkbox checkbox-primary checkbox-sm mt-0.5"
+                          [checked]="isSelected(plugin.id)"
+                          [attr.aria-label]="'Enable ' + plugin.name"
+                        />
+
+                        <!-- Plugin info -->
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-sm font-medium">{{
+                              plugin.name
+                            }}</span>
+                            @if (plugin.isDefault) {
+                              <span class="badge badge-xs badge-primary gap-1">
+                                <lucide-angular
+                                  [img]="StarIcon"
+                                  class="w-2.5 h-2.5"
+                                  aria-hidden="true"
+                                />
+                                Recommended
+                              </span>
+                            }
+                          </div>
+                          <span
+                            class="block text-xs text-base-content/60 mt-0.5 leading-relaxed"
+                          >
+                            {{ plugin.description }}
+                          </span>
+                          <!-- Badges: skill count, command count, expand chevron -->
+                          <div class="flex items-center gap-1.5 mt-1.5">
+                            @if (plugin.skillCount > 0) {
+                              <span class="badge badge-xs badge-ghost gap-1">
+                                <lucide-angular
+                                  [img]="PackageIcon"
+                                  class="w-2.5 h-2.5"
+                                  aria-hidden="true"
+                                />
+                                {{ plugin.skillCount }}
+                                skill{{ plugin.skillCount !== 1 ? 's' : '' }}
+                              </span>
+                              @if (
+                                isSelected(plugin.id) &&
+                                pluginSkills().get(plugin.id)?.length
+                              ) {
+                                <button
+                                  class="btn btn-ghost btn-xs px-1 h-5 min-h-0"
+                                  (click)="toggleExpand(plugin.id, $event)"
+                                  type="button"
+                                  [attr.aria-label]="
+                                    isPluginExpanded(plugin.id)
+                                      ? 'Collapse skill list'
+                                      : 'Expand skill list'
+                                  "
+                                  [attr.aria-expanded]="
+                                    isPluginExpanded(plugin.id)
+                                  "
+                                >
+                                  <lucide-angular
+                                    [img]="
+                                      isPluginExpanded(plugin.id)
+                                        ? ChevronDownIcon
+                                        : ChevronRightIcon
+                                    "
+                                    class="w-3 h-3"
+                                    aria-hidden="true"
+                                  />
+                                </button>
+                              }
+                            }
+                            @if (plugin.commandCount > 0) {
+                              <span class="badge badge-xs badge-ghost gap-1">
+                                {{ plugin.commandCount }}
+                                command{{
+                                  plugin.commandCount !== 1 ? 's' : ''
+                                }}
+                              </span>
+                            }
+                          </div>
+                        </div>
+
+                        <!-- Selected indicator -->
+                        @if (isSelected(plugin.id)) {
+                          <lucide-angular
+                            [img]="CheckIcon"
+                            class="w-4 h-4 text-primary shrink-0 mt-1"
+                            aria-hidden="true"
+                          />
+                        }
+                      </div>
+
+                      <!-- Expandable skill list (only when plugin is selected AND expanded) -->
+                      @if (
+                        isSelected(plugin.id) &&
+                        isPluginExpanded(plugin.id) &&
+                        pluginSkills().get(plugin.id)?.length
+                      ) {
+                        <div class="border-t border-base-300/50 mx-3 pb-3">
+                          <div
+                            class="pt-2 pl-8"
+                            role="group"
+                            [attr.aria-label]="'Skills for ' + plugin.name"
+                          >
+                            @for (
+                              skill of pluginSkills().get(plugin.id)!;
+                              track skill.skillId
+                            ) {
+                              <label
+                                class="flex items-center gap-2 py-1.5 cursor-pointer hover:bg-base-200/40 rounded px-1 -mx-1"
+                                (click)="$event.stopPropagation()"
+                              >
+                                <input
+                                  type="checkbox"
+                                  class="checkbox checkbox-xs checkbox-primary"
+                                  [checked]="isSkillEnabled(skill.skillId)"
+                                  (change)="toggleSkill(skill.skillId, $event)"
+                                  [attr.aria-label]="
+                                    (isSkillEnabled(skill.skillId)
+                                      ? 'Disable '
+                                      : 'Enable ') + skill.displayName
+                                  "
+                                />
+                                <span
+                                  class="text-xs font-medium whitespace-nowrap"
+                                  >{{ skill.displayName }}</span
+                                >
+                                <span
+                                  class="text-xs text-base-content/50 truncate"
+                                  >{{ skill.description }}</span
+                                >
+                              </label>
+                            }
+                          </div>
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            } @empty {
+              <div class="text-center py-6 text-base-content/50">
+                <span class="block text-sm">
+                  @if (searchQuery()) {
+                    No plugins match your search.
+                  } @else {
+                    No plugins available.
+                  }
+                </span>
+              </div>
+            }
+          </div>
+
+          <!-- Footer -->
+          <div class="modal-action mt-4 pt-3 border-t border-base-300">
+            <span class="text-xs text-base-content/50 flex-1">
+              {{ selectedIds().size }} of
+              {{ availablePlugins().length }} selected
+              @if (disabledSkillIds().size > 0) {
+                <span class="text-base-content/40">
+                  &middot; {{ disabledSkillIds().size }} skill{{
+                    disabledSkillIds().size !== 1 ? 's' : ''
+                  }}
+                  disabled
+                </span>
+              }
+            </span>
+            @if (saveError()) {
+              <span class="text-error text-xs">{{ saveError() }}</span>
+            }
+            <button
+              class="btn btn-ghost btn-sm"
+              (click)="handleClose()"
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              class="btn btn-primary btn-sm"
+              [disabled]="isSaving()"
+              (click)="saveConfiguration()"
+              type="button"
+            >
+              @if (isSaving()) {
+                <span class="loading loading-spinner loading-xs"></span>
+                Saving...
+              } @else {
+                <lucide-angular
+                  [img]="CheckIcon"
+                  class="w-4 h-4"
+                  aria-hidden="true"
+                />
+                Save Configuration
+              }
+            </button>
+          </div>
         }
       </div>
 
@@ -300,6 +399,8 @@ export class PluginBrowserModalComponent {
   protected readonly SearchIcon = Search;
   protected readonly PackageIcon = Package;
   protected readonly StarIcon = Star;
+  protected readonly ChevronDownIcon = ChevronDown;
+  protected readonly ChevronRightIcon = ChevronRight;
 
   /** Controls modal visibility (from parent) */
   readonly isOpen = input(false);
@@ -331,6 +432,15 @@ export class PluginBrowserModalComponent {
   /** Error message from saving configuration */
   readonly saveError = signal<string | null>(null);
 
+  /** Map of pluginId -> PluginSkillEntry[] for per-skill toggling */
+  readonly pluginSkills = signal<Map<string, PluginSkillEntry[]>>(new Map());
+
+  /** Set of disabled skill IDs (skills the user has explicitly turned off) */
+  readonly disabledSkillIds = signal<Set<string>>(new Set());
+
+  /** Set of plugin IDs whose skill list is currently expanded */
+  readonly expandedPlugins = signal<Set<string>>(new Set());
+
   /**
    * Filtered plugins based on search query.
    * Matches against name, description, and keywords.
@@ -347,7 +457,7 @@ export class PluginBrowserModalComponent {
       (plugin) =>
         plugin.name.toLowerCase().includes(query) ||
         plugin.description.toLowerCase().includes(query) ||
-        plugin.keywords.some((kw) => kw.toLowerCase().includes(query))
+        plugin.keywords.some((kw) => kw.toLowerCase().includes(query)),
     );
   });
 
@@ -361,7 +471,7 @@ export class PluginBrowserModalComponent {
 
     for (const categoryKey of CATEGORY_ORDER) {
       const categoryPlugins = filtered.filter(
-        (p) => p.category === categoryKey
+        (p) => p.category === categoryKey,
       );
       if (categoryPlugins.length > 0) {
         groups.push({
@@ -382,8 +492,9 @@ export class PluginBrowserModalComponent {
       if (open) {
         this.loadPlugins();
       } else {
-        // Reset search when modal closes
+        // Reset transient state when modal closes
         this.searchQuery.set('');
+        this.expandedPlugins.set(new Set());
       }
     });
   }
@@ -414,6 +525,56 @@ export class PluginBrowserModalComponent {
   }
 
   /**
+   * Toggle expanded state for a plugin's skill list.
+   * Uses immutable Set update pattern for signal reactivity.
+   */
+  toggleExpand(pluginId: string, event: Event): void {
+    event.stopPropagation();
+    const current = this.expandedPlugins();
+    const updated = new Set(current);
+
+    if (updated.has(pluginId)) {
+      updated.delete(pluginId);
+    } else {
+      updated.add(pluginId);
+    }
+
+    this.expandedPlugins.set(updated);
+  }
+
+  /**
+   * Toggle a skill's enabled/disabled state.
+   * If in disabledSkillIds -> remove (enable). If not -> add (disable).
+   */
+  toggleSkill(skillId: string, event: Event): void {
+    event.stopPropagation();
+    const current = this.disabledSkillIds();
+    const updated = new Set(current);
+
+    if (updated.has(skillId)) {
+      updated.delete(skillId);
+    } else {
+      updated.add(skillId);
+    }
+
+    this.disabledSkillIds.set(updated);
+  }
+
+  /**
+   * Check if a skill is enabled (not in disabled set).
+   */
+  isSkillEnabled(skillId: string): boolean {
+    return !this.disabledSkillIds().has(skillId);
+  }
+
+  /**
+   * Check if a plugin's skill list is currently expanded.
+   */
+  isPluginExpanded(pluginId: string): boolean {
+    return this.expandedPlugins().has(pluginId);
+  }
+
+  /**
    * Handle search input changes.
    */
   onSearchInput(event: Event): void {
@@ -438,11 +599,12 @@ export class PluginBrowserModalComponent {
 
     try {
       const enabledPluginIds = Array.from(this.selectedIds());
+      const disabledSkillIds = Array.from(this.disabledSkillIds());
 
       const result = await this.rpcService.call(
         'plugins:save-config',
-        { enabledPluginIds },
-        { timeout: 10000 }
+        { enabledPluginIds, disabledSkillIds },
+        { timeout: 10000 },
       );
 
       if (result.isSuccess()) {
@@ -451,7 +613,7 @@ export class PluginBrowserModalComponent {
       } else {
         console.error(
           '[PluginBrowserModal] Failed to save config:',
-          result.error
+          result.error,
         );
         this.saveError.set('Failed to save configuration.');
       }
@@ -478,22 +640,61 @@ export class PluginBrowserModalComponent {
         this.rpcService.call('plugins:get-config', {}, { timeout: 10000 }),
       ]);
 
+      let plugins: PluginInfo[] = [];
+
       if (listResult.isSuccess() && listResult.data) {
-        this.availablePlugins.set(listResult.data.plugins);
+        plugins = listResult.data.plugins;
+        this.availablePlugins.set(plugins);
       } else {
         this.availablePlugins.set([]);
       }
 
       if (configResult.isSuccess() && configResult.data) {
         this.selectedIds.set(new Set(configResult.data.enabledPluginIds));
+        this.disabledSkillIds.set(
+          new Set(configResult.data.disabledSkillIds ?? []),
+        );
       } else {
         this.selectedIds.set(new Set());
+        this.disabledSkillIds.set(new Set());
+      }
+
+      // Fetch skills independently — failure should not affect plugin display
+      if (plugins.length > 0) {
+        try {
+          const pluginIds = plugins.map((p) => p.id);
+          const skillsResult = await this.rpcService.call(
+            'plugins:list-skills',
+            { pluginIds },
+            { timeout: 10000 },
+          );
+
+          if (skillsResult.isSuccess() && skillsResult.data) {
+            const skillsMap = new Map<string, PluginSkillEntry[]>();
+            for (const skill of skillsResult.data.skills) {
+              const existing = skillsMap.get(skill.pluginId) ?? [];
+              existing.push(skill);
+              skillsMap.set(skill.pluginId, existing);
+            }
+            this.pluginSkills.set(skillsMap);
+          } else {
+            this.pluginSkills.set(new Map());
+          }
+        } catch (skillsErr) {
+          console.warn(
+            '[PluginBrowserModal] Failed to load skills (non-fatal):',
+            skillsErr,
+          );
+          this.pluginSkills.set(new Map());
+        }
       }
     } catch (err) {
       console.error('[PluginBrowserModal] Error loading plugins:', err);
       this.error.set('Failed to load plugins. Please try again.');
       this.availablePlugins.set([]);
       this.selectedIds.set(new Set());
+      this.pluginSkills.set(new Map());
+      this.disabledSkillIds.set(new Set());
     } finally {
       this.isLoading.set(false);
     }

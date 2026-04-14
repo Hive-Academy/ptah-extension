@@ -58,7 +58,9 @@
             } @else if (provider.id === 'openai-codex') {
               <lucide-angular [img]="TerminalIcon" class="w-4 h-4" />
             } @else if (
-              provider.id === 'ollama' || provider.id === 'lm-studio'
+              provider.id === 'ollama' ||
+              provider.id === 'ollama-cloud' ||
+              provider.id === 'lm-studio'
             ) {
               <lucide-angular [img]="ServerIcon" class="w-4 h-4" />
             } @else if (provider.id === 'moonshot') {
@@ -510,7 +512,12 @@
         >
           <lucide-angular [img]="ServerIcon" class="w-3.5 h-3.5 opacity-70" />
           <span class="text-base-content/70">
-            No API key needed — runs locally
+            @if (selectedProvider()?.id === 'ollama-cloud') {
+              No API key needed — sign in via
+              <code class="text-[10px]">ollama signin</code>
+            } @else {
+              No API key needed — runs locally
+            }
           </span>
         </div>
 
@@ -522,9 +529,7 @@
           <span class="label-text-alt text-[10px] opacity-70">
             Default endpoint:
             <code class="text-[10px]">{{
-              selectedProvider()?.id === 'ollama'
-                ? 'http://localhost:11434'
-                : 'http://localhost:1234'
+              selectedProvider()?.baseUrl ?? 'http://localhost:11434'
             }}</code>
           </span>
         </div>

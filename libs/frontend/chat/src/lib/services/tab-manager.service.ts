@@ -837,7 +837,17 @@ export class TabManagerService {
         const sanitizedTabs = state.tabs.map((tab: TabState) => ({
           ...tab,
           streamingState: null, // Clear transient streaming state
-          status: tab.status === 'streaming' ? 'loaded' : tab.status, // Reset stuck streaming status
+          // TASK_2025_COMPACT_FIX: Also sanitize 'resuming' and 'switching' — these
+          // are transient states that should never persist across reloads.
+          status:
+            tab.status === 'streaming' ||
+            tab.status === 'resuming' ||
+            tab.status === 'switching'
+              ? 'loaded'
+              : tab.status,
+          // Clear stale queued content that may have been persisted during streaming
+          queuedContent: null,
+          queuedOptions: null,
         }));
         this._tabs.set(sanitizedTabs);
         this._activeTabId.set(state.activeTabId);

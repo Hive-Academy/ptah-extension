@@ -90,15 +90,16 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
         <!-- FAB: New tile button (floating bottom-right, hidden at max capacity) -->
         @if (canvasStore.canAddTile()) {
           <ptah-native-popover
+            class="absolute bottom-4 right-4 z-10"
             [isOpen]="sessionPopoverOpen()"
-            [placement]="'top'"
+            [placement]="'top-end'"
             [hasBackdrop]="true"
             [backdropClass]="'transparent'"
             (closed)="handleCancelSession()"
           >
             <button
               trigger
-              class="absolute bottom-4 right-4 btn btn-primary btn-circle shadow-lg z-10"
+              class="btn btn-primary btn-circle shadow-lg"
               title="Add new session tile"
               aria-label="Add new session tile"
               (click)="openNewSessionPopover()"

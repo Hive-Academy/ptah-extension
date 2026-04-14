@@ -225,9 +225,8 @@ export class AuthStateService {
   readonly showProviderModels = computed(() => {
     const method = this._authMethod();
 
-    // Direct auth methods: show when credential is present
-    if (method === 'oauth') return this._hasOAuthToken();
-    if (method === 'apiKey') return this._hasApiKey();
+    // Direct Anthropic auth: model mapping not needed — SDK handles tiers natively
+    if (method === 'oauth' || method === 'apiKey') return false;
 
     // OpenRouter/auto: check provider-level credentials
     if (method !== 'openrouter' && method !== 'auto') return false;
@@ -239,6 +238,9 @@ export class AuthStateService {
       if (provider.id === 'openai-codex') return this._codexAuthenticated();
       return false;
     }
+
+    // Local providers (authType === 'none') don't need API keys — always show models
+    if (provider?.authType === 'none') return true;
 
     return this.hasProviderKey();
   });
@@ -270,6 +272,10 @@ export class AuthStateService {
       if (provider.id === 'openai-codex') return this._codexAuthenticated();
       return false;
     }
+
+    // Local providers (authType === 'none') don't need API keys — always credentialed
+    if (provider?.authType === 'none') return true;
+
     return this.hasProviderKey();
   });
 
