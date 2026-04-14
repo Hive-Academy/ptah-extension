@@ -22,6 +22,7 @@ import {
   type ModelPricing,
   type AuthEnv,
 } from '@ptah-extension/shared';
+import { TIER_ENV_VAR_MAP } from './sdk-model-service';
 import { COPILOT_PROVIDER_ENTRY } from '../copilot-provider';
 import { CODEX_PROVIDER_ENTRY } from '../codex-provider';
 import {
@@ -448,23 +449,16 @@ export function resolveActualModelForPricing(
   }
 
   // Third-party provider detected — check if modelId looks like an Anthropic model
+  // and resolve to the actual provider model via tier env var overrides.
+  // Uses TIER_ENV_VAR_MAP (canonical source) instead of fragile substring matching.
   const lower = modelId.toLowerCase();
 
-  if (lower.includes('opus')) {
-    const override =
-      authEnv?.ANTHROPIC_DEFAULT_OPUS_MODEL ??
-      process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'];
-    if (override) return override;
-  } else if (lower.includes('sonnet')) {
-    const override =
-      authEnv?.ANTHROPIC_DEFAULT_SONNET_MODEL ??
-      process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'];
-    if (override) return override;
-  } else if (lower.includes('haiku')) {
-    const override =
-      authEnv?.ANTHROPIC_DEFAULT_HAIKU_MODEL ??
-      process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
-    if (override) return override;
+  for (const [tier, envKey] of Object.entries(TIER_ENV_VAR_MAP)) {
+    if (lower.includes(tier)) {
+      const override = authEnv?.[envKey] ?? process.env[envKey];
+      if (override) return override;
+      break; // Only match the first tier — 'opus', 'sonnet', 'haiku' are mutually exclusive
+    }
   }
 
   // Not an Anthropic model alias, or no tier override set — return as-is

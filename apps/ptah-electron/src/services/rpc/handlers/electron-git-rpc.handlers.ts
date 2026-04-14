@@ -22,6 +22,16 @@ import type {
   GitAddWorktreeResult,
   GitRemoveWorktreeParams,
   GitRemoveWorktreeResult,
+  GitStageParams,
+  GitStageResult,
+  GitUnstageParams,
+  GitUnstageResult,
+  GitDiscardParams,
+  GitDiscardResult,
+  GitCommitParams,
+  GitCommitResult,
+  GitShowFileParams,
+  GitShowFileResult,
 } from '@ptah-extension/shared';
 import type { GitInfoService } from '../../git-info.service';
 import { ELECTRON_TOKENS } from '../../../di/electron-tokens';
@@ -42,6 +52,12 @@ export class ElectronGitRpcHandlers {
     this.registerGitWorktrees();
     this.registerAddWorktree();
     this.registerRemoveWorktree();
+    // Source control methods (TASK_2025_273)
+    this.registerGitStage();
+    this.registerGitUnstage();
+    this.registerGitDiscard();
+    this.registerGitCommit();
+    this.registerGitShowFile();
   }
 
   /**
@@ -157,5 +173,119 @@ export class ElectronGitRpcHandlers {
 
       return this.gitInfo.removeWorktree(wsRoot, params.path, params.force);
     });
+  }
+
+  // ==========================================================================
+  // Source Control Handlers (TASK_2025_273)
+  // ==========================================================================
+
+  /**
+   * git:stage - Stage files in the git index.
+   */
+  private registerGitStage(): void {
+    this.rpcHandler.registerMethod<GitStageParams, GitStageResult>(
+      'git:stage',
+      async (params) => {
+        const wsRoot = this.workspace.getWorkspaceRoot();
+        if (!wsRoot) {
+          return { success: false, error: 'No workspace folder open' };
+        }
+
+        if (!params?.paths || params.paths.length === 0) {
+          return { success: false, error: 'paths must be a non-empty array' };
+        }
+
+        return this.gitInfo.stageFiles(wsRoot, params.paths);
+      },
+    );
+  }
+
+  /**
+   * git:unstage - Unstage files from the git index.
+   */
+  private registerGitUnstage(): void {
+    this.rpcHandler.registerMethod<GitUnstageParams, GitUnstageResult>(
+      'git:unstage',
+      async (params) => {
+        const wsRoot = this.workspace.getWorkspaceRoot();
+        if (!wsRoot) {
+          return { success: false, error: 'No workspace folder open' };
+        }
+
+        if (!params?.paths || params.paths.length === 0) {
+          return { success: false, error: 'paths must be a non-empty array' };
+        }
+
+        return this.gitInfo.unstageFiles(wsRoot, params.paths);
+      },
+    );
+  }
+
+  /**
+   * git:discard - Discard working tree changes (destructive).
+   */
+  private registerGitDiscard(): void {
+    this.rpcHandler.registerMethod<GitDiscardParams, GitDiscardResult>(
+      'git:discard',
+      async (params) => {
+        const wsRoot = this.workspace.getWorkspaceRoot();
+        if (!wsRoot) {
+          return { success: false, error: 'No workspace folder open' };
+        }
+
+        if (!params?.paths || params.paths.length === 0) {
+          return { success: false, error: 'paths must be a non-empty array' };
+        }
+
+        this.logger.warn(
+          '[ElectronGitRpc] git:discard called — this is a destructive operation',
+          { paths: params.paths } as unknown as Error,
+        );
+
+        return this.gitInfo.discardChanges(wsRoot, params.paths);
+      },
+    );
+  }
+
+  /**
+   * git:commit - Create a commit with the provided message.
+   */
+  private registerGitCommit(): void {
+    this.rpcHandler.registerMethod<GitCommitParams, GitCommitResult>(
+      'git:commit',
+      async (params) => {
+        const wsRoot = this.workspace.getWorkspaceRoot();
+        if (!wsRoot) {
+          return { success: false, error: 'No workspace folder open' };
+        }
+
+        if (!params?.message || !params.message.trim()) {
+          return { success: false, error: 'Commit message cannot be empty' };
+        }
+
+        return this.gitInfo.commit(wsRoot, params.message);
+      },
+    );
+  }
+
+  /**
+   * git:showFile - Show file content from HEAD revision.
+   */
+  private registerGitShowFile(): void {
+    this.rpcHandler.registerMethod<GitShowFileParams, GitShowFileResult>(
+      'git:showFile',
+      async (params) => {
+        const wsRoot = this.workspace.getWorkspaceRoot();
+        if (!wsRoot) {
+          return { content: '' };
+        }
+
+        if (!params?.path || !params.path.trim()) {
+          return { content: '' };
+        }
+
+        return this.gitInfo.showFile(wsRoot, params.path);
+      },
+    );
   }
 }

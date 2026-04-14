@@ -65,7 +65,12 @@ export { SdkModuleLoader } from './sdk-module-loader';
 export {
   SdkModelService,
   TIER_TO_MODEL_ID,
+  TIER_ENV_VAR_MAP,
   DEFAULT_FALLBACK_MODEL_ID,
+  buildTierEnvDefaults,
+  resolveModelIdStatic,
+  type ModelTier,
+  type EnvMappedTier,
   type ApiModelEntry,
 } from './sdk-model-service';
 // Slash command interceptor (TASK_2025_184)

@@ -60,6 +60,8 @@
           "gpt-tokenizer",
           "web-tree-sitter",
           "@tavily/core",
+          "chrome-launcher",
+          "chrome-remote-interface",
           "gifenc",
           "jpeg-js"
         ],

@@ -186,11 +186,19 @@ const COPILOT_STATIC_MODELS: ProviderStaticModel[] = [
 /**
  * Default model tier mappings for GitHub Copilot.
  * Auto-applied on first login so users get the best models mapped immediately.
+ *
+ * IMPORTANT: These default to GPT models, NOT Claude. Claude models via Copilot
+ * consume 5-10x more premium requests than GPT equivalents. Since the Claude
+ * Agent SDK spawns subagents using tier aliases (sonnet/opus/haiku), every
+ * subagent would silently use Claude at inflated rates if these defaulted
+ * to Claude models — even when the user selected a GPT model for the main session.
+ *
+ * Users who prefer Claude through Copilot can manually configure tiers in the UI.
  */
 export const COPILOT_DEFAULT_TIERS = {
-  sonnet: 'claude-sonnet-4.6',
-  opus: 'claude-opus-4.6',
-  haiku: 'claude-haiku-4.5',
+  sonnet: 'gpt-5.4',
+  opus: 'gpt-5.4',
+  haiku: 'gpt-5-mini',
 } as const;
 
 export const COPILOT_PROVIDER_ENTRY: AnthropicProvider = {

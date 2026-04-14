@@ -9,6 +9,12 @@ export interface EditorTab {
   fileName: string;
   content: string;
   isDirty: boolean;
+  /** Whether this tab shows a diff view instead of a regular editor */
+  isDiff?: boolean;
+  /** Original (HEAD) content for diff tabs */
+  originalContent?: string;
+  /** Relative path within the workspace for diff tabs */
+  diffRelativePath?: string;
 }
 
 /**
@@ -106,6 +112,14 @@ export class EditorService {
 
   /** Whether a file is currently open */
   readonly hasActiveFile = computed(() => this._activeFilePath() !== undefined);
+
+  /** The active diff tab, or null if the active tab is not a diff view */
+  readonly activeDiffTab = computed(() => {
+    const tabs = this._openTabs();
+    const activePath = this._activeFilePath();
+    const tab = tabs.find((t) => t.filePath === activePath);
+    return tab?.isDiff ? tab : null;
+  });
 
   // ============================================================================
   // WORKSPACE OPERATIONS (TASK_2025_208)
@@ -286,6 +300,70 @@ export class EditorService {
       this.showError(result.error ?? 'Failed to open file');
     }
     this._isLoading.set(false);
+  }
+
+  /**
+   * Open a diff view for a file, showing the HEAD version alongside the working tree version.
+   * Creates a special diff tab with a `diff:` prefixed key to distinguish from regular file tabs.
+   *
+   * Fetches the original (HEAD) content via git:showFile RPC and the current content
+   * via editor:openFile RPC in parallel.
+   *
+   * @param relativePath - The git-relative path of the file (e.g., "src/app/foo.ts")
+   * @param absolutePath - The absolute file system path for reading current content
+   */
+  async openDiff(relativePath: string, absolutePath: string): Promise<void> {
+    const diffKey = `diff:${relativePath}`;
+
+    // If diff tab already open, switch to it
+    const existingTab = this._openTabs().find((t) => t.filePath === diffKey);
+    if (existingTab) {
+      this._activeFilePath.set(diffKey);
+      this._activeFileContent.set(existingTab.content);
+      return;
+    }
+
+    this._isLoading.set(true);
+    this.clearError();
+
+    // Fetch original content from HEAD and current content in parallel
+    const [originalResult, currentResult] = await Promise.all([
+      rpcCall<{ content: string }>(this.vscodeService, 'git:showFile', {
+        path: relativePath,
+      }),
+      rpcCall<{ content: string; filePath: string }>(
+        this.vscodeService,
+        'editor:openFile',
+        { filePath: absolutePath },
+      ),
+    ]);
+
+    const originalContent = originalResult.success
+      ? (originalResult.data?.content ?? '')
+      : '';
+    const currentContent = currentResult.success
+      ? (currentResult.data?.content ?? '')
+      : '';
+
+    const fileName = this._extractFileName(relativePath);
+
+    this._openTabs.update((tabs) => [
+      ...tabs,
+      {
+        filePath: diffKey,
+        fileName: `${fileName} (diff)`,
+        content: currentContent,
+        isDirty: false,
+        isDiff: true,
+        originalContent,
+        diffRelativePath: relativePath,
+      },
+    ]);
+
+    this._activeFilePath.set(diffKey);
+    this._activeFileContent.set(currentContent);
+    this._isLoading.set(false);
+    this._syncTabsToCache();
   }
 
   /**

@@ -83,11 +83,13 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
       return modelId;
     }
 
-    // Match: claude-{family}-{major}-{minor}[-{date}]
-    // e.g., 'claude-opus-4-6' → ['claude-opus-4', '6']
-    // e.g., 'claude-haiku-4-5-20251001' → ['claude-haiku-4', '5']
+    // Match: claude-{family}-{major}-{minor}[-{anything}]
+    // e.g., 'claude-opus-4-6' → 'claude-opus-4.6'
+    // e.g., 'claude-haiku-4-5-20251001' → 'claude-haiku-4.5'
+    // e.g., 'claude-sonnet-5-0-preview-20261001' → 'claude-sonnet-5.0'
+    // Strips everything after major.minor — Copilot uses short model names.
     const match = modelId.match(
-      /^(claude-(?:opus|sonnet|haiku)-\d+)-(\d+)(?:-\d+)?$/,
+      /^(claude-(?:opus|sonnet|haiku)-\d+)-(\d+)(?:-.+)?$/,
     );
     if (match) {
       return `${match[1]}.${match[2]}`;
