@@ -98,6 +98,15 @@ import { AuthService } from '../services/auth.service';
           Docs
         </a>
 
+        <!-- Download Link -->
+        <a
+          routerLink="/download"
+          class="text-white/80 hover:text-amber-400 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          aria-label="Download desktop app"
+        >
+          Download
+        </a>
+
         @if (isAuthenticated()) {
           <!-- Profile Link (Authenticated) -->
           <a
@@ -278,6 +287,16 @@ import { AuthService } from '../services/auth.service';
             (click)="closeMobileMenu()"
           >
             Docs
+          </a>
+
+          <!-- Download Link -->
+          <a
+            routerLink="/download"
+            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+            role="menuitem"
+            (click)="closeMobileMenu()"
+          >
+            Download
           </a>
 
           @if (isAuthenticated()) {

@@ -94,8 +94,8 @@ import { registerTemplateGenerationServices } from '@ptah-extension/template-gen
 import {
   registerVsCodeLmToolsServices,
   BROWSER_CAPABILITIES_TOKEN,
+  ChromeLauncherBrowserCapabilities,
 } from '@ptah-extension/vscode-lm-tools';
-import { ElectronBrowserCapabilities } from '../services/electron-browser-capabilities';
 
 // Electron-specific adapters (defined below)
 import {
@@ -699,15 +699,16 @@ export class ElectronDIContainer {
     registerVsCodeLmToolsServices(container, logger);
 
     // Phase 4.0.1: Browser capabilities (TASK_2025_244)
-    // ElectronBrowserCapabilities uses Electron's native BrowserWindow + webContents.debugger
-    // for CDP browser automation. Zero external dependencies.
-    // Headless/viewport are agent-controlled via ptah_browser_navigate params.
+    // Uses ChromeLauncherBrowserCapabilities (same as VS Code) to launch a real Chrome
+    // instance via chrome-launcher + chrome-remote-interface for CDP automation.
+    // This avoids the Electron BrowserWindow approach which confusingly opens
+    // another Ptah Desktop window instead of a separate browser.
     {
       const workspaceProvider = container.resolve<IWorkspaceProvider>(
         PLATFORM_TOKENS.WORKSPACE_PROVIDER,
       );
       container.register(BROWSER_CAPABILITIES_TOKEN, {
-        useValue: new ElectronBrowserCapabilities(
+        useValue: new ChromeLauncherBrowserCapabilities(
           // getRecordingDir
           () =>
             workspaceProvider.getConfiguration<string>(

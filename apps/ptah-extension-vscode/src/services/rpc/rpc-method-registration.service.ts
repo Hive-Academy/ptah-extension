@@ -213,6 +213,12 @@ export class RpcMethodRegistrationService {
       'git:worktrees',
       'git:addWorktree',
       'git:removeWorktree',
+      // Source control methods (TASK_2025_273)
+      'git:stage',
+      'git:unstage',
+      'git:discard',
+      'git:commit',
+      'git:showFile',
       // Electron terminal methods (TASK_2025_227)
       'terminal:create',
       'terminal:kill',

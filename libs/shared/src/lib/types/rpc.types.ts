@@ -199,6 +199,16 @@ import type {
   GitAddWorktreeResult,
   GitRemoveWorktreeParams,
   GitRemoveWorktreeResult,
+  GitStageParams,
+  GitStageResult,
+  GitUnstageParams,
+  GitUnstageResult,
+  GitDiscardParams,
+  GitDiscardResult,
+  GitCommitParams,
+  GitCommitResult,
+  GitShowFileParams,
+  GitShowFileResult,
 } from './rpc/rpc-git.types';
 
 import type {
@@ -894,6 +904,12 @@ export interface RpcMethodRegistry {
     params: GitRemoveWorktreeParams;
     result: GitRemoveWorktreeResult;
   };
+  // Source control methods (TASK_2025_273)
+  'git:stage': { params: GitStageParams; result: GitStageResult };
+  'git:unstage': { params: GitUnstageParams; result: GitUnstageResult };
+  'git:discard': { params: GitDiscardParams; result: GitDiscardResult };
+  'git:commit': { params: GitCommitParams; result: GitCommitResult };
+  'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
 
   // ---- Terminal Methods (TASK_2025_227) ----
   'terminal:create': {
@@ -1110,6 +1126,12 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'git:worktrees',
   'git:addWorktree',
   'git:removeWorktree',
+  // Source control methods (TASK_2025_273)
+  'git:stage',
+  'git:unstage',
+  'git:discard',
+  'git:commit',
+  'git:showFile',
 
   // Terminal Methods (TASK_2025_227)
   'terminal:create',

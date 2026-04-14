@@ -29,6 +29,7 @@ import {
   getAnthropicProvider,
   type AnthropicProvider,
 } from './helpers/anthropic-provider-registry';
+import { TIER_ENV_VAR_MAP } from './helpers/sdk-model-service';
 import { SDK_TOKENS } from './di/tokens';
 
 /**
@@ -57,13 +58,6 @@ interface ModelsApiModel {
 interface ModelsApiResponse {
   data: ModelsApiModel[];
 }
-
-/** Environment variable names for tier overrides */
-const TIER_ENV_VARS = {
-  sonnet: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
-  opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
-  haiku: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
-} as const;
 
 /** Per-provider cache entry */
 interface ProviderCache {
@@ -410,7 +404,7 @@ export class ProviderModelsService {
     tier: ProviderModelTier,
     modelId: string,
   ): Promise<void> {
-    const envVar = TIER_ENV_VARS[tier];
+    const envVar = TIER_ENV_VAR_MAP[tier];
     const configKey = this.getTierConfigKey(providerId, tier);
 
     // Set AuthEnv variable for immediate use
@@ -456,7 +450,7 @@ export class ProviderModelsService {
     providerId: string,
     tier: ProviderModelTier,
   ): Promise<void> {
-    const envVar = TIER_ENV_VARS[tier];
+    const envVar = TIER_ENV_VAR_MAP[tier];
     const configKey = this.getTierConfigKey(providerId, tier);
 
     // Clear AuthEnv variable
@@ -478,17 +472,14 @@ export class ProviderModelsService {
   applyPersistedTiers(providerId: string): void {
     const tiers = this.getModelTiers(providerId);
 
-    if (tiers.sonnet) {
-      this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL = tiers.sonnet;
-      process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = tiers.sonnet;
-    }
-    if (tiers.opus) {
-      this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL = tiers.opus;
-      process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'] = tiers.opus;
-    }
-    if (tiers.haiku) {
-      this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = tiers.haiku;
-      process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] = tiers.haiku;
+    // Iterate the canonical TIER_ENV_VAR_MAP to ensure all tiers are covered
+    // if new tiers are added in the future
+    for (const [tier, envKey] of Object.entries(TIER_ENV_VAR_MAP)) {
+      const value = tiers[tier as keyof typeof tiers];
+      if (value) {
+        this.authEnv[envKey as keyof AuthEnv] = value;
+        process.env[envKey] = value;
+      }
     }
 
     this.logger.debug(
@@ -502,12 +493,11 @@ export class ProviderModelsService {
    * Call this when switching providers or switching to OAuth/API key auth
    */
   clearAllTierEnvVars(): void {
-    delete this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL;
-    delete this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL;
-    delete this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
-    delete process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'];
-    delete process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'];
-    delete process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
+    // Iterate the canonical TIER_ENV_VAR_MAP to ensure all tiers are covered
+    for (const envKey of Object.values(TIER_ENV_VAR_MAP)) {
+      delete this.authEnv[envKey as keyof AuthEnv];
+      delete process.env[envKey];
+    }
 
     this.logger.debug(
       '[ProviderModelsService] Cleared all tier environment variables',

@@ -111,6 +111,20 @@ export class GitStatusService {
   /** Current branch name string shortcut. */
   readonly branchName = computed(() => this._branch().branch);
 
+  /** Files that are staged in the git index. */
+  readonly stagedFiles = computed(() => this._files().filter((f) => f.staged));
+
+  /** Files that are unstaged (working tree changes). */
+  readonly unstagedFiles = computed(() =>
+    this._files().filter((f) => !f.staged),
+  );
+
+  /** Count of staged files. */
+  readonly stagedCount = computed(() => this.stagedFiles().length);
+
+  /** Count of unstaged files. */
+  readonly unstagedCount = computed(() => this.unstagedFiles().length);
+
   /**
    * Map<relativePath, GitFileStatus[]> for O(1) lookup by FileTreeNodeComponent.
    * Keys are relative paths from workspace root (as reported by git status --porcelain=v2).

@@ -119,7 +119,7 @@ export class FloatingUIService {
   async position(
     referenceEl: HTMLElement,
     floatingEl: HTMLElement,
-    options: FloatingUIOptions = {}
+    options: FloatingUIOptions = {},
   ): Promise<void> {
     // Cleanup any existing auto-update listener
     this.cleanup();
@@ -169,7 +169,7 @@ export class FloatingUIService {
    */
   private applyPosition(floatingEl: HTMLElement, x: number, y: number): void {
     Object.assign(floatingEl.style, {
-      position: 'absolute',
+      position: 'fixed',
       left: `${x}px`,
       top: `${y}px`,
       // Ensure visibility after positioning to prevent flash at 0,0

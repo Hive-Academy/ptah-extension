@@ -7,6 +7,7 @@ import { TrialEndedPageComponent } from './pages/trial-ended/trial-ended-page.co
 import { AuthGuard } from './guards/auth.guard';
 import { GuestGuard } from './guards/guest.guard';
 import { DocsPageComponent } from './pages/docs/docs-page.component';
+import { DownloadPageComponent } from './pages/download/download-page.component';
 import { TermsPageComponent } from './pages/legal/terms-page.component';
 import { PrivacyPageComponent } from './pages/legal/privacy-page.component';
 import { RefundPageComponent } from './pages/legal/refund-page.component';
@@ -53,6 +54,10 @@ export const routes: Routes = [
   {
     path: 'docs',
     component: DocsPageComponent,
+  },
+  {
+    path: 'download',
+    component: DownloadPageComponent,
   },
   {
     path: 'pricing',

@@ -23,6 +23,7 @@ import {
   DEFAULT_PROVIDER_ID,
   ANTHROPIC_DIRECT_PROVIDER_ID,
   TIER_TO_MODEL_ID,
+  resolveModelIdStatic,
 } from '@ptah-extension/agent-sdk';
 import {
   PermissionLevel,
@@ -37,6 +38,7 @@ import {
   ConfigEffortSetResult,
   ConfigEffortGetResult,
   getModelPricingDescription,
+  type AuthEnv,
   type EffortLevel,
 } from '@ptah-extension/shared';
 
@@ -56,6 +58,8 @@ export class ConfigRpcHandlers {
     private readonly providerModels: ProviderModelsService,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
     private readonly permissionHandler: SdkPermissionHandler,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
   ) {}
 
   /**
@@ -158,9 +162,9 @@ export class ConfigRpcHandlers {
         try {
           this.logger.debug('RPC: config:model-get called');
 
-          const raw = this.configManager.get<string>('model.selected') || '';
-          const model =
-            raw === 'default' || raw === '' ? TIER_TO_MODEL_ID['sonnet'] : raw;
+          const raw =
+            this.configManager.get<string>('model.selected') || 'default';
+          const model = resolveModelIdStatic(raw, this.authEnv);
 
           return { model };
         } catch (error) {
@@ -316,15 +320,11 @@ export class ConfigRpcHandlers {
         try {
           this.logger.debug('RPC: config:models-list called');
 
-          // Get saved model preference. Resolve legacy 'default' to
-          // the canonical sonnet model ID so selection matching works
-          // now that we no longer include a 'default' entry.
+          // Get saved model preference. Resolve bare tier names and 'default'
+          // to full model IDs via the canonical resolver.
           const rawSaved =
-            this.configManager.get<string>('model.selected') || '';
-          const savedModel =
-            rawSaved === 'default' || rawSaved === ''
-              ? TIER_TO_MODEL_ID['sonnet']
-              : rawSaved;
+            this.configManager.get<string>('model.selected') || 'default';
+          const savedModel = resolveModelIdStatic(rawSaved, this.authEnv);
 
           // Fetch SDK tier models (always available, 3 slots)
           const sdkModels = await this.sdkAdapter.getSupportedModels();
@@ -372,16 +372,23 @@ export class ConfigRpcHandlers {
           }
 
           // --- Phase 1: Build SDK tier models (recommended shortcuts) ---
-          // Filter out the SDK's 'default' model — it always resolves to
-          // the same ID as one of the tier models (usually sonnet), creating
-          // a confusing duplicate entry in the dropdown. The tier models
-          // themselves are the authoritative entries.
-          const filteredSdkModels = sdkModels.filter(
-            (m) => m.value.toLowerCase() !== 'default',
-          );
-
+          // The SDK may return 'default' as a model value (which maps to sonnet).
+          // Instead of filtering it out (which loses sonnet entirely when the SDK
+          // doesn't return a separate 'sonnet' entry), resolve it to the actual
+          // tier model ID. De-duplicate by resolved ID to avoid duplicate entries.
           const sdkModelIds = new Set<string>();
-          const models = filteredSdkModels.map((m) => {
+          const models: Array<{
+            id: string;
+            name: string;
+            description: string;
+            apiName: string;
+            isSelected: boolean;
+            isRecommended: boolean;
+            providerModelId: string | null;
+            tier: 'opus' | 'sonnet' | 'haiku' | undefined;
+          }> = [];
+
+          for (const m of sdkModels) {
             const valueLower = m.value.toLowerCase();
             const displayLower = (m.displayName || '').toLowerCase();
             const descLower = (m.description || '').toLowerCase();
@@ -392,15 +399,23 @@ export class ConfigRpcHandlers {
               descLower,
             );
 
-            // Resolve bare tier names to full model IDs.
-            // Uses the canonical TIER_TO_MODEL_ID mapping from sdk-model-service
-            // (single source of truth for tier → model ID mapping).
-            let resolvedValue = m.value;
-            if (TIER_TO_MODEL_ID[valueLower]) {
-              resolvedValue = TIER_TO_MODEL_ID[valueLower];
+            // Resolve bare tier names AND 'default' to full model IDs via the
+            // canonical resolver (single source of truth in sdk-model-service).
+            const resolvedValue = resolveModelIdStatic(m.value, this.authEnv);
+            if (resolvedValue !== m.value) {
               this.logger.info(
-                `Resolved bare tier name '${m.value}' to '${resolvedValue}'`,
+                `Resolved SDK model '${m.value}' to '${resolvedValue}'`,
+                { displayName: m.displayName },
               );
+            }
+
+            // De-duplicate by resolved ID — 'default' and an explicit tier
+            // may resolve to the same model ID
+            if (sdkModelIds.has(resolvedValue)) {
+              this.logger.debug(
+                `Skipping duplicate SDK model '${m.value}' (resolved to '${resolvedValue}')`,
+              );
+              continue;
             }
 
             sdkModelIds.add(resolvedValue);
@@ -415,7 +430,9 @@ export class ConfigRpcHandlers {
               ? getModelPricingDescription(providerModelId)
               : m.description;
 
-            return {
+            // Also check resolved value for sonnet (e.g. 'default' resolved to sonnet tier)
+            const resolvedLower = resolvedValue.toLowerCase();
+            models.push({
               id: resolvedValue,
               name: m.displayName,
               description,
@@ -423,11 +440,12 @@ export class ConfigRpcHandlers {
               isSelected: resolvedValue === savedModel,
               isRecommended:
                 valueLower.includes('sonnet') ||
-                displayLower.includes('sonnet'),
+                displayLower.includes('sonnet') ||
+                resolvedLower.includes('sonnet'),
               providerModelId,
               tier,
-            };
-          });
+            });
+          }
 
           // --- Phase 2: Add API models not already covered by SDK tiers ---
           for (const apiModel of apiModels) {

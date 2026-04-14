@@ -112,3 +112,71 @@ export interface GitWorktreeChangedNotification {
   /** Worktree path (for removed, or the created path if available) */
   path?: string;
 }
+
+// ============================================================================
+// Source Control RPC Types (TASK_2025_273)
+// ============================================================================
+
+/** Parameters for git:stage RPC method */
+export interface GitStageParams {
+  /** File paths to stage (relative to workspace root) */
+  paths: string[];
+}
+
+/** Result from git:stage RPC method */
+export interface GitStageResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Parameters for git:unstage RPC method */
+export interface GitUnstageParams {
+  /** File paths to unstage (relative to workspace root) */
+  paths: string[];
+}
+
+/** Result from git:unstage RPC method */
+export interface GitUnstageResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Parameters for git:discard RPC method */
+export interface GitDiscardParams {
+  /** File paths to discard changes for (relative to workspace root) */
+  paths: string[];
+}
+
+/** Result from git:discard RPC method */
+export interface GitDiscardResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Parameters for git:commit RPC method */
+export interface GitCommitParams {
+  /** Commit message */
+  message: string;
+}
+
+/** Result from git:commit RPC method */
+export interface GitCommitResult {
+  success: boolean;
+  /** Abbreviated commit hash on success */
+  commitHash?: string;
+  error?: string;
+}
+
+/** Parameters for git:showFile RPC method */
+export interface GitShowFileParams {
+  /** Relative file path from workspace root */
+  path: string;
+}
+
+/** Result from git:showFile RPC method */
+export interface GitShowFileResult {
+  /** File content from HEAD (empty string for new/untracked files) */
+  content: string;
+  /** Whether the file is binary */
+  isBinary?: boolean;
+}
