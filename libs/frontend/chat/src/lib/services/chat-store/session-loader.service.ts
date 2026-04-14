@@ -62,6 +62,12 @@ export class SessionLoaderService {
   private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
 
   /**
+   * Tracks which session ID the current _resumableSubagents belong to.
+   * Used to clear stale subagents when the active tab changes to a different session.
+   */
+  private _resumableSubagentsSessionId: string | null = null;
+
+  /**
    * Set of sessionIds currently being loaded via switchSession() or
    * refreshResumableSubagentsForSession(). Prevents duplicate chat:resume
    * calls when the same session is requested while a load is already in
@@ -153,6 +159,19 @@ export class SessionLoaderService {
           this.refreshResumableSubagentsForSession(sessionId, tabId),
         );
       }
+    });
+
+    // Clear stale resumable subagents when the active tab switches to a different session.
+    // Without this, interrupted agents from session A leak into session B's banner
+    // because _resumableSubagents is a global signal, not tab-scoped.
+    effect(() => {
+      const activeSessionId = this.tabManager.activeTabSessionId();
+      untracked(() => {
+        if (activeSessionId !== this._resumableSubagentsSessionId) {
+          this._resumableSubagents.set([]);
+          this._resumableSubagentsSessionId = activeSessionId ?? null;
+        }
+      });
     });
   }
 
@@ -650,6 +669,7 @@ export class SessionLoaderService {
 
         // TASK_2025_213: Populate resumableSubagents signal for the banner UI
         this._resumableSubagents.set(resumableSubagents ?? []);
+        this._resumableSubagentsSessionId = sessionId;
 
         // TASK_2025_168: Load CLI sessions into agent monitor panel
         if (cliSessions && cliSessions.length > 0) {
@@ -677,6 +697,7 @@ export class SessionLoaderService {
 
         // TASK_2025_213: Set resumableSubagents from chat:resume response (empty for simple-message sessions)
         this._resumableSubagents.set(resumableSubagents ?? []);
+        this._resumableSubagentsSessionId = sessionId;
 
         // TASK_2025_168: Also load CLI sessions in fallback branch
         if (cliSessions && cliSessions.length > 0) {
@@ -696,11 +717,13 @@ export class SessionLoaderService {
 
         // TASK_2025_213: No resumable subagents on error/empty session
         this._resumableSubagents.set([]);
+        this._resumableSubagentsSessionId = sessionId;
       }
     } catch (error) {
       console.error('[SessionLoaderService] Failed to switch session:', error);
       // Clear stale resumable subagents from previous session on switch failure
       this._resumableSubagents.set([]);
+      this._resumableSubagentsSessionId = null;
     } finally {
       this._inFlightSessions.delete(sessionId);
     }
@@ -794,6 +817,7 @@ export class SessionLoaderService {
       const resumableSubagents = result.data?.resumableSubagents;
       if (resumableSubagents && resumableSubagents.length > 0) {
         this._resumableSubagents.set(resumableSubagents);
+        this._resumableSubagentsSessionId = sessionId;
         console.log(
           '[SessionLoaderService] Populated resumableSubagents for restored session',
           { sessionId, count: resumableSubagents.length },

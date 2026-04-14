@@ -12,7 +12,12 @@ import {
   Injector,
   DestroyRef,
 } from '@angular/core';
-import { LucideAngularModule, Bell } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  Bell,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-angular';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
@@ -94,8 +99,18 @@ export class ChatViewComponent {
   private readonly _tabManager = inject(TabManagerService);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
 
-  /** Lucide icon reference for template binding */
+  /** Lucide icon references for template binding */
   protected readonly BellIcon = Bell;
+  protected readonly ChevronUpIcon = ChevronUp;
+  protected readonly ChevronDownIcon = ChevronDown;
+
+  /** Whether the input area is collapsed to give more room to chat */
+  readonly inputCollapsed = signal(false);
+
+  /** Toggle the input area collapse state */
+  toggleInputCollapse(): void {
+    this.inputCollapsed.update((v) => !v);
+  }
 
   // ============================================================================
   // AGENT PANEL (per-session, embedded)
@@ -198,6 +213,23 @@ export class ChatViewComponent {
   /** Track message count to detect new user messages */
   private lastMessageCount = 0;
 
+  /**
+   * Tracks previous streaming state to detect the streaming→idle transition.
+   * When streaming ends (agent finishes), we force scroll-to-bottom regardless
+   * of userScrolledUp — the dramatic DOM change during finalization (streaming
+   * DOM replaced with finalized DOM) can trigger layout-driven scroll events
+   * that falsely set userScrolledUp=true.
+   */
+  private wasStreaming = false;
+
+  /**
+   * Flag to suppress onScroll during programmatic scrollToBottom().
+   * Smooth scroll animations generate intermediate scroll events at positions
+   * that aren't near the bottom, which falsely set userScrolledUp=true.
+   * This guard prevents that race condition.
+   */
+  private isProgrammaticScrolling = false;
+
   private readonly scrollPositionCache = new Map<string, number>();
   private previousTabId: string | null = null;
   private isRestoringScroll = false;
@@ -295,6 +327,17 @@ export class ChatViewComponent {
     return tab !== null
       ? (tab.compactionCount ?? 0)
       : this.chatStore.compactionCount();
+  });
+
+  /**
+   * Resolved isCompacting: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
+   * Prevents compaction banner from showing on ALL canvas tiles when only one session compacts.
+   */
+  readonly resolvedIsCompacting = computed(() => {
+    const tab = this.resolvedTab();
+    return tab !== null
+      ? (tab.isCompacting ?? false)
+      : this.chatStore.isCompacting();
   });
 
   readonly resolvedQueuedContent = computed(() => {
@@ -438,6 +481,25 @@ export class ChatViewComponent {
       }
     });
 
+    // Force scroll to bottom when streaming ends (agent finished work).
+    // During finalization, streaming DOM is destroyed and finalized DOM is created.
+    // This dramatic DOM change can trigger layout-driven scroll events that falsely
+    // set userScrolledUp=true via onScroll(). The MutationObserver's scheduleScroll
+    // then sees userScrolledUp=true and skips scrolling, leaving the user stuck
+    // at an old position. This effect bypasses that by directly calling scrollToBottom.
+    effect(() => {
+      const isStreaming = this.resolvedIsStreaming();
+      if (this.wasStreaming && !isStreaming) {
+        untracked(() => {
+          this.userScrolledUp.set(false);
+          // setTimeout(0) runs after Angular CD completes and DOM is updated,
+          // ensuring scrollHeight reflects the finalized content.
+          setTimeout(() => this.scrollToBottom('instant'), 0);
+        });
+      }
+      this.wasStreaming = isStreaming;
+    });
+
     // Setup MutationObserver after initial render to watch for DOM changes
     // This replaces the effect-based approach for more reliable scroll timing
     afterNextRender(
@@ -454,10 +516,14 @@ export class ChatViewComponent {
   }
 
   /**
-   * Handle scroll events on message container
-   * Detects if user has scrolled up to disable auto-scroll
+   * Handle scroll events on message container.
+   * Detects if user has scrolled up to disable auto-scroll.
+   * Ignores scroll events fired during programmatic scrollToBottom() to prevent
+   * smooth scroll animation intermediates from falsely setting userScrolledUp.
    */
   onScroll(event: Event): void {
+    if (this.isProgrammaticScrolling) return;
+
     const container = event.target as HTMLElement;
     if (!container) return;
 
@@ -485,10 +551,12 @@ export class ChatViewComponent {
   }
 
   /**
-   * Cancel queued message (user-requested cancellation)
+   * Cancel queued message (user-requested cancellation).
+   * Uses resolvedTabId to target the correct tab in both single and canvas modes.
    */
   cancelQueue(): void {
-    this.chatStore.clearQueuedContent();
+    const tabId = this.resolvedTabId() ?? undefined;
+    this.chatStore.clearQueuedContent(tabId);
     console.log('[ChatViewComponent] Queued content cancelled by user');
   }
 
@@ -537,10 +605,29 @@ export class ChatViewComponent {
     if (!containerRef) return;
 
     const container = containerRef.nativeElement;
+
+    // Guard: suppress onScroll during programmatic scrolling.
+    // Smooth scroll generates intermediate scroll events at positions that
+    // aren't near the bottom, which would falsely set userScrolledUp=true.
+    this.isProgrammaticScrolling = true;
     container.scrollTo({
       top: container.scrollHeight,
       behavior,
     });
+
+    if (behavior === 'instant') {
+      // Instant scroll completes synchronously; clear after next frame
+      // to catch any same-frame scroll events the browser fires.
+      requestAnimationFrame(() => {
+        this.isProgrammaticScrolling = false;
+      });
+    } else {
+      // Smooth scroll animation takes multiple frames.
+      // Clear after a generous window to cover the animation duration.
+      setTimeout(() => {
+        this.isProgrammaticScrolling = false;
+      }, 400);
+    }
   }
 
   /**

@@ -168,6 +168,14 @@ export class TabManagerService {
     { equal: (a, b) => a === b },
   );
 
+  /** Whether compaction is in progress for the active tab. */
+  readonly activeTabIsCompacting = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.isCompacting ??
+      false,
+    { equal: (a, b) => a === b },
+  );
+
   /** Compaction count. Rarely changes. */
   readonly activeTabCompactionCount = computed(
     () =>
