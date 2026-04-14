@@ -8,11 +8,13 @@ import {
   ChangeDetectionStrategy,
   afterNextRender,
   effect,
+  untracked,
   Injector,
   DestroyRef,
 } from '@angular/core';
 import { LucideAngularModule, Bell } from 'lucide-angular';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
+import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
 import { PermissionBadgeComponent } from '../molecules/permissions/permission-badge.component';
 import { QuestionCardComponent } from '../molecules/question-card.component';
@@ -20,7 +22,10 @@ import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-s
 import { SessionStatsSummaryComponent } from '../molecules/session/session-stats-summary.component';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { CompactionNotificationComponent } from '../molecules/notifications/compaction-notification.component';
+import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
 import { ChatStore } from '../../services/chat.store';
+import { AgentMonitorStore } from '../../services/agent-monitor.store';
+import { PanelResizeService } from '../../services/panel-resize.service';
 import { TabManagerService } from '../../services/tab-manager.service';
 import { ExecutionTreeBuilderService } from '../../services/execution-tree-builder.service';
 import { SESSION_CONTEXT } from '../../tokens/session-context.token';
@@ -59,6 +64,7 @@ import type { SubagentRecord } from '@ptah-extension/shared';
   imports: [
     LucideAngularModule,
     MessageBubbleComponent,
+    AgentMonitorPanelComponent,
     ChatInputComponent,
     PermissionBadgeComponent,
     QuestionCardComponent,
@@ -66,6 +72,7 @@ import type { SubagentRecord } from '@ptah-extension/shared';
     SessionStatsSummaryComponent,
     ResumeNotificationBannerComponent,
     CompactionNotificationComponent,
+    SidebarTabComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -76,6 +83,8 @@ export class ChatViewComponent {
   private readonly vscodeService = inject(VSCodeService);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly panelResizeService = inject(PanelResizeService);
 
   // CANVAS: Optional per-tile session context. When provided, all signals
   // derive from this tabId instead of the global activeTabId.
@@ -87,6 +96,78 @@ export class ChatViewComponent {
 
   /** Lucide icon reference for template binding */
   protected readonly BellIcon = Bell;
+
+  // ============================================================================
+  // AGENT PANEL (per-session, embedded)
+  // Replaces the global agent sidebar. Each ChatView instance manages its own
+  // agent panel state. Canvas tiles skip this (they use TileAgentIndicator).
+  // ============================================================================
+
+  /** Local panel open/close state */
+  readonly agentPanelOpen = signal(false);
+
+  /** Session-scoped agents for the embedded panel */
+  readonly sessionAgents = computed(() => {
+    const sid = this.resolvedSessionId();
+    if (!sid) return this.agentMonitorStore.agents();
+    return this.agentMonitorStore.agentsForSession(sid);
+  });
+
+  /** Badge type for the Agents sidebar tab */
+  readonly agentBadgeType = computed<'warning' | 'info' | 'neutral' | null>(
+    () => {
+      const agents = this.sessionAgents();
+      if (agents.length === 0) return null;
+      if (agents.some((a) => a.permissionQueue.length > 0)) return 'warning';
+      if (agents.some((a) => a.status === 'running')) return 'info';
+      return 'neutral';
+    },
+  );
+
+  /** Tracks whether the user explicitly closed the panel this session.
+   *  Prevents auto-open from fighting user intent. Reset when all agents complete. */
+  private _userExplicitlyClosed = false;
+
+  toggleAgentPanel(): void {
+    const wasOpen = this.agentPanelOpen();
+    this.agentPanelOpen.update((v) => !v);
+    if (wasOpen) {
+      this._userExplicitlyClosed = true;
+    }
+  }
+
+  // ============================================================================
+  // PANEL RESIZE (drag handle between chat and agent panel)
+  // ============================================================================
+
+  private resizeMouseMove: ((e: MouseEvent) => void) | null = null;
+  private resizeMouseUp: (() => void) | null = null;
+
+  /** Start drag-resize: capture mouse and update panel width on move. */
+  onResizeStart(event: MouseEvent): void {
+    event.preventDefault();
+    this.panelResizeService.setDragging(true);
+
+    this.resizeMouseMove = (e: MouseEvent) => {
+      const newWidth = window.innerWidth - e.clientX;
+      this.panelResizeService.setCustomWidth(newWidth);
+    };
+
+    this.resizeMouseUp = () => {
+      this.panelResizeService.setDragging(false);
+      if (this.resizeMouseMove) {
+        document.removeEventListener('mousemove', this.resizeMouseMove);
+      }
+      if (this.resizeMouseUp) {
+        document.removeEventListener('mouseup', this.resizeMouseUp);
+      }
+      this.resizeMouseMove = null;
+      this.resizeMouseUp = null;
+    };
+
+    document.addEventListener('mousemove', this.resizeMouseMove);
+    document.addEventListener('mouseup', this.resizeMouseUp);
+  }
 
   /**
    * MutationObserver for auto-scroll behavior.
@@ -289,6 +370,31 @@ export class ChatViewComponent {
   });
 
   constructor() {
+    // Auto-open agent panel when agents spawn or request permissions.
+    // Uses untracked() for agentPanelOpen read to avoid bidirectional signal dependency.
+    // Respects _userExplicitlyClosed to prevent fighting user intent.
+    effect(() => {
+      const agents = this.sessionAgents();
+      const hasRunning = agents.some((a) => a.status === 'running');
+      const hasPendingPermission = agents.some(
+        (a) => a.permissionQueue.length > 0,
+      );
+      const isOpen = untracked(() => this.agentPanelOpen());
+
+      if (
+        (hasRunning || hasPendingPermission) &&
+        !isOpen &&
+        !this._userExplicitlyClosed
+      ) {
+        this.agentPanelOpen.set(true);
+      }
+
+      // Reset explicit-close flag when all agents finish — next spawn will auto-open
+      if (!hasRunning && !hasPendingPermission && agents.length > 0) {
+        this._userExplicitlyClosed = false;
+      }
+    });
+
     // Reset auto-scroll when a new user message is sent.
     // This ensures the view scrolls to show the user's message even if
     // they had scrolled up to read earlier content before sending.
