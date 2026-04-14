@@ -303,6 +303,20 @@ export interface PluginInfo {
 export interface PluginConfigState {
   /** Array of enabled plugin IDs */
   enabledPluginIds: string[];
+  /** Skill directory names that are explicitly disabled (e.g., "orchestration") */
+  disabledSkillIds: string[];
   /** ISO timestamp of last configuration change */
   lastUpdated?: string;
+}
+
+/** Skill metadata for per-skill toggling UI */
+export interface PluginSkillEntry {
+  /** Skill directory name (globally unique, used as ID) */
+  skillId: string;
+  /** Human-readable skill name from SKILL.md frontmatter */
+  displayName: string;
+  /** Skill description from SKILL.md frontmatter */
+  description: string;
+  /** Parent plugin ID (e.g., "ptah-core") */
+  pluginId: string;
 }

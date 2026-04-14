@@ -110,9 +110,9 @@ export interface AuthGetAuthStatusParams {
  * Anthropic-compatible provider info for UI display (TASK_2025_129 Batch 3)
  *
  * NOTE: This interface mirrors `AnthropicProvider` from `@ptah-extension/agent-sdk`
- * (libs/backend/agent-sdk/src/lib/helpers/anthropic-provider-registry.ts) minus the
- * `baseUrl` field (which is backend-only). Any changes to the shared fields in
- * AnthropicProvider must be reflected here, and vice versa.
+ * (libs/backend/agent-sdk/src/lib/helpers/anthropic-provider-registry.ts).
+ * Any changes to the shared fields in AnthropicProvider must be reflected here,
+ * and vice versa.
  * The `shared` library cannot import from `agent-sdk` due to dependency direction constraints.
  */
 export interface AnthropicProviderInfo {
@@ -136,6 +136,8 @@ export interface AnthropicProviderInfo {
   authType?: 'apiKey' | 'oauth' | 'none';
   /** Whether this is a local provider (no API key needed) */
   isLocal?: boolean;
+  /** Base URL for the provider API endpoint (used for local provider endpoint display) */
+  baseUrl?: string;
 }
 
 /**
