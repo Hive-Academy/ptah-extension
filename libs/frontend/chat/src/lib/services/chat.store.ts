@@ -1,5 +1,9 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  VSCodeService,
+  AuthStateService,
+} from '@ptah-extension/core';
 import {
   ExecutionNode,
   FlatStreamEventUnion,
@@ -9,6 +13,7 @@ import {
   MESSAGE_TYPES,
   LicenseGetStatusResponse,
   calculateSessionCostSummary,
+  createExecutionChatMessage,
 } from '@ptah-extension/shared';
 import type {
   AskUserQuestionRequest,
@@ -79,6 +84,9 @@ export class ChatStore {
 
   // Tree builder for render-time ExecutionNode construction (TASK_2025_082 Batch 5)
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
+
+  // Auth state for provider-aware slash command filtering
+  private readonly authState = inject(AuthStateService);
 
   // Signal to track service initialization state
   private readonly _servicesReady = signal(false);
@@ -196,6 +204,19 @@ export class ChatStore {
    * @see TASK_2025_098
    */
   private static readonly COMPACTION_SAFETY_TIMEOUT_MS = 120000;
+
+  /**
+   * SDK-native slash commands that only work with direct Anthropic API.
+   * These commands are handled internally by the Claude Agent SDK and require
+   * Claude-specific model behavior. Third-party providers (Ollama, Kimi,
+   * Copilot, Codex, LM Studio, etc.) don't support them.
+   */
+  private static readonly SDK_NATIVE_COMMANDS = new Set([
+    'compact',
+    'context',
+    'cost',
+    'review',
+  ]);
 
   // ============================================================================
   // PUBLIC READONLY SIGNALS
@@ -402,6 +423,15 @@ export class ChatStore {
     content: string,
     options?: SendMessageOptions,
   ): Promise<void> {
+    // TASK_2025_COMPACT_FIX: Block SDK-native slash commands for non-Anthropic providers.
+    // Commands like /compact, /context, /cost are handled internally by the Claude Agent SDK
+    // and require Claude-specific model behavior. Third-party providers don't support them
+    // and sending them causes the session to hang indefinitely.
+    if (this.isBlockedSlashCommand(content)) {
+      this.showBlockedCommandWarning(content, options?.tabId);
+      return;
+    }
+
     // Check target tab's streaming state — use explicit tabId if provided (canvas tile)
     const targetTabId = options?.tabId;
     const targetTab = targetTabId
@@ -431,6 +461,63 @@ export class ChatStore {
       // Send normally via MessageSender
       await this.messageSender.send(content, options);
     }
+  }
+
+  /**
+   * Check if the message is an SDK-native slash command that won't work
+   * with the current (non-Anthropic) provider.
+   */
+  private isBlockedSlashCommand(content: string): boolean {
+    const trimmed = content.trim();
+    if (!trimmed.startsWith('/')) return false;
+
+    // Extract command name (e.g., "/compact foo" → "compact")
+    const spaceIdx = trimmed.indexOf(' ');
+    const commandName =
+      spaceIdx === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIdx);
+
+    if (!ChatStore.SDK_NATIVE_COMMANDS.has(commandName)) return false;
+
+    // Check if user is on a direct Anthropic provider
+    const authMethod = this.authState.persistedAuthMethod();
+    return authMethod !== 'oauth' && authMethod !== 'apiKey';
+  }
+
+  /**
+   * Show a warning message in chat when an SDK-native slash command
+   * is used with a non-Anthropic provider.
+   */
+  private showBlockedCommandWarning(content: string, tabId?: string): void {
+    const activeTabId = tabId ?? this.tabManager.activeTabId();
+    if (!activeTabId) return;
+
+    const activeTab = this.tabManager.tabs().find((t) => t.id === activeTabId);
+    const genId = () =>
+      `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    // Add the user message so it's visible in the chat
+    const userMessage = createExecutionChatMessage({
+      id: genId(),
+      role: 'user',
+      rawContent: content,
+    });
+
+    // Add a warning assistant message
+    const commandName = content.trim().split(/\s/)[0];
+    const warningMessage = createExecutionChatMessage({
+      id: genId(),
+      role: 'assistant',
+      rawContent:
+        `The \`${commandName}\` command is a built-in Claude Agent SDK feature ` +
+        `that only works with direct Anthropic authentication (OAuth or API key).\n\n` +
+        `Your current provider does not support this command. ` +
+        `To use SDK commands like \`/compact\`, \`/context\`, \`/cost\`, and \`/review\`, ` +
+        `switch to a direct Anthropic connection in **Settings > Authentication**.`,
+    });
+
+    this.tabManager.updateTab(activeTabId, {
+      messages: [...(activeTab?.messages ?? []), userMessage, warningMessage],
+    });
   }
 
   /**
@@ -567,7 +654,14 @@ export class ChatStore {
     // Safety fallback: dismiss if compaction_complete event is never received
     const compactingTabId = tab.id;
     this.compactionTimeoutId = setTimeout(() => {
-      this.tabManager.updateTab(compactingTabId, { isCompacting: false });
+      this.tabManager.updateTab(compactingTabId, {
+        isCompacting: false,
+        status: 'loaded',
+        streamingState: null,
+        currentMessageId: null,
+      });
+      this.tabManager.markTabIdle(compactingTabId);
+      this.sessionManager.setStatus('loaded');
       this.compactionTimeoutId = null;
       console.warn(
         '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
@@ -578,9 +672,27 @@ export class ChatStore {
   /**
    * Public accessor for marking a tab idle from external handlers.
    * Used by ChatMessageHandler to handle CHAT_COMPLETE fallback.
+   *
+   * TASK_2025_COMPACT_FIX: Also resets tab status to 'loaded' and clears
+   * streaming/queue state. Previously this was visual-only (removing from
+   * _streamingTabIds set), which left tab.status stuck on 'streaming' —
+   * causing subsequent messages to be queued instead of sent.
    */
   markTabIdle(tabId: string): void {
     this.tabManager.markTabIdle(tabId);
+    // Safety net: ensure tab status is definitively 'loaded' and queue is cleared.
+    // updateTab is a no-op for properties that already match, so this is safe
+    // to call even when SESSION_STATS already reset the status.
+    const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+    if (tab && (tab.status === 'streaming' || tab.status === 'resuming')) {
+      this.tabManager.updateTab(tabId, {
+        status: 'loaded',
+        streamingState: null,
+        queuedContent: null,
+        queuedOptions: null,
+      });
+      this.sessionManager.setStatus('loaded');
+    }
   }
 
   /**
@@ -836,12 +948,19 @@ export class ChatStore {
           messages: [],
           preloadedStats,
           compactionCount: (compactionTab.compactionCount ?? 0) + 1,
+          status: 'loaded',
+          streamingState: null,
+          currentMessageId: null,
+          // TASK_2025_COMPACT_FIX: Clear any queued message so the
+          // "Message queued (will send when Claude finishes)" banner disappears
+          // and the next user message is sent fresh instead of draining a stale queue.
+          queuedContent: null,
+          queuedOptions: null,
         });
 
-        // Mark tab idle — /compact doesn't produce a result message with
-        // SESSION_STATS, so the normal completion path never fires.
-        // Without this, the tab stays in "streaming" state forever.
+        // Also clear the visual streaming indicator and session manager state
         this.tabManager.markTabIdle(result.tabId);
+        this.sessionManager.setStatus('loaded');
       }
       return;
     }
@@ -1223,10 +1342,15 @@ export class ChatStore {
     }
 
     // Reset streaming state (including per-tab currentMessageId)
+    // TASK_2025_COMPACT_FIX: Also clear queued content and visual streaming indicator
+    // to prevent "Message queued" banner from persisting after slash command errors
     this.tabManager.updateTab(targetTabId, {
       status: 'loaded',
       currentMessageId: null,
+      queuedContent: null,
+      queuedOptions: null,
     });
+    this.tabManager.markTabIdle(targetTabId);
     this.sessionManager.setStatus('loaded');
 
     // Safety net: refresh sidebar in case session metadata was created before the error.

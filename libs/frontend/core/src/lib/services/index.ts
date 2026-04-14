@@ -14,7 +14,12 @@ export * from './app-state.service';
 export * from './webview-navigation.service';
 
 // Theme Service (TASK_2025_100)
-export { ThemeService, type ThemeName } from './theme.service';
+export {
+  ThemeService,
+  type ThemeName,
+  type ThemeInfo,
+  DAISYUI_THEMES,
+} from './theme.service';
 
 // Model & Autopilot State Services (TASK_2025_035)
 export {

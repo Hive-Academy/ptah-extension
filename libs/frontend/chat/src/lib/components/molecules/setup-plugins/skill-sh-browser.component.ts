@@ -4,6 +4,8 @@ import {
   inject,
   signal,
   computed,
+  effect,
+  input,
   OnInit,
   OnDestroy,
   DestroyRef,
@@ -59,311 +61,347 @@ interface DisplaySkillEntry extends SkillShEntry {
 
       <!-- ===== Browse View ===== -->
       @if (activeView() === 'browse') {
-      <!-- Search Input -->
-      <div class="relative">
-        <lucide-angular
-          [img]="SearchIcon"
-          class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content/40"
-          aria-hidden="true"
-        />
-        <input
-          type="text"
-          class="input input-bordered input-sm w-full pl-8 text-xs"
-          placeholder="Search skills..."
-          [value]="searchQuery()"
-          (input)="onSearchInput($event)"
-          aria-label="Search skills"
-        />
-        @if (isSearching()) {
-        <span
-          class="loading loading-spinner loading-xs absolute right-2.5 top-1/2 -translate-y-1/2"
-        ></span>
+        <!-- Search Input -->
+        <div class="relative">
+          <lucide-angular
+            [img]="SearchIcon"
+            class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content/40"
+            aria-hidden="true"
+          />
+          <input
+            type="text"
+            class="input input-bordered input-sm w-full pl-8 text-xs"
+            placeholder="Search skills..."
+            [value]="searchQuery()"
+            (input)="onSearchInput($event)"
+            aria-label="Search skills"
+          />
+          @if (isSearching()) {
+            <span
+              class="loading loading-spinner loading-xs absolute right-2.5 top-1/2 -translate-y-1/2"
+            ></span>
+          }
+        </div>
+
+        <!-- Error -->
+        @if (error()) {
+          <div class="alert alert-error alert-sm py-1 px-2">
+            <span class="text-xs">{{ error() }}</span>
+            <button
+              class="btn btn-ghost btn-xs"
+              (click)="error.set(null)"
+              type="button"
+            >
+              Dismiss
+            </button>
+          </div>
         }
-      </div>
 
-      <!-- Error -->
-      @if (error()) {
-      <div class="alert alert-error alert-sm py-1 px-2">
-        <span class="text-xs">{{ error() }}</span>
-        <button
-          class="btn btn-ghost btn-xs"
-          (click)="error.set(null)"
-          type="button"
-        >
-          Dismiss
-        </button>
-      </div>
-      }
-
-      <!-- Recommendations -->
-      @if (isLoadingRecommendations() && !searchQuery()) {
-      <div>
-        <div
-          class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
-        >
-          Recommended for your project
-        </div>
-        <div class="skeleton h-16 w-full rounded-lg"></div>
-      </div>
-      } @else if ( !searchQuery() &&
-      recommendations()?.recommendedSkills?.length ) {
-      <div>
-        <div
-          class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
-        >
-          Recommended for your project
-        </div>
-        <div class="space-y-1.5">
-          @for ( skill of recommendedDisplaySkills(); track skill.skillId ) {
-          <div
-            class="flex items-start gap-2 p-2 rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors"
-          >
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-1.5 flex-wrap">
-                <span class="text-xs font-medium text-base-content">{{
-                  skill.name
-                }}</span>
-                @if (skill.installs > 0) {
-                <span class="badge badge-xs badge-ghost text-[10px]">{{
-                  skill.formattedInstalls
-                }}</span>
-                } @if (isSkillInstalled(skill)) {
-                <span class="badge badge-xs badge-success text-[10px] gap-0.5">
-                  <lucide-angular
-                    [img]="CheckIcon"
-                    class="w-2 h-2"
-                    aria-hidden="true"
-                  />
-                  Installed
-                </span>
-                }
-              </div>
-              <p
-                class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2 mt-0.5"
-              >
-                {{ skill.description }}
-              </p>
-              <span class="text-[10px] text-base-content/40 font-mono"
-                >{{ skill.source }}/{{ skill.skillId }}</span
-              >
+        <!-- Recommendations -->
+        @if (isLoadingRecommendations() && !searchQuery()) {
+          <div>
+            <div
+              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+            >
+              Recommended for your project
             </div>
-            <div class="shrink-0">
-              @if (isSkillInstalled(skill)) {
-              <button
-                class="btn btn-ghost btn-xs text-error"
-                [disabled]="uninstallingSkillIds().has(skill.skillId)"
-                (click)="uninstallSkill(skill)"
-                type="button"
-                [attr.aria-label]="'Remove ' + skill.name"
-              >
-                @if (uninstallingSkillIds().has(skill.skillId)) {
-                <span class="loading loading-spinner loading-xs"></span>
-                } @else { Remove }
-              </button>
-              } @else {
-              <button
-                class="btn btn-primary btn-xs"
-                [disabled]="installingSkillIds().has(skill.skillId)"
-                (click)="installSkill(skill)"
-                type="button"
-                [attr.aria-label]="'Install ' + skill.name"
-              >
-                @if (installingSkillIds().has(skill.skillId)) {
-                <span class="loading loading-spinner loading-xs"></span>
-                } @else { Install }
-              </button>
+            <div class="skeleton h-16 w-full rounded-lg"></div>
+          </div>
+        } @else if (
+          !searchQuery() && recommendations()?.recommendedSkills?.length
+        ) {
+          <div>
+            <div
+              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+            >
+              Recommended for your project
+            </div>
+            <div class="space-y-1.5">
+              @for (skill of recommendedDisplaySkills(); track skill.skillId) {
+                <div
+                  class="flex items-start gap-2 p-2 rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors"
+                >
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <span class="text-xs font-medium text-base-content">{{
+                        skill.name
+                      }}</span>
+                      @if (skill.installs > 0) {
+                        <span class="badge badge-xs badge-ghost text-[10px]">{{
+                          skill.formattedInstalls
+                        }}</span>
+                      }
+                      @if (isSkillInstalled(skill)) {
+                        <span
+                          class="badge badge-xs badge-success text-[10px] gap-0.5"
+                        >
+                          <lucide-angular
+                            [img]="CheckIcon"
+                            class="w-2 h-2"
+                            aria-hidden="true"
+                          />
+                          Installed
+                        </span>
+                      }
+                    </div>
+                    <p
+                      class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2 mt-0.5"
+                    >
+                      {{ skill.description }}
+                    </p>
+                    <span class="text-[10px] text-base-content/40 font-mono"
+                      >{{ skill.source }}/{{ skill.skillId }}</span
+                    >
+                  </div>
+                  <div class="shrink-0">
+                    @if (isSkillInstalled(skill)) {
+                      <button
+                        class="btn btn-ghost btn-xs text-error"
+                        [disabled]="uninstallingSkillIds().has(skill.skillId)"
+                        (click)="uninstallSkill(skill)"
+                        type="button"
+                        [attr.aria-label]="'Remove ' + skill.name"
+                      >
+                        @if (uninstallingSkillIds().has(skill.skillId)) {
+                          <span
+                            class="loading loading-spinner loading-xs"
+                          ></span>
+                        } @else {
+                          Remove
+                        }
+                      </button>
+                    } @else {
+                      <button
+                        class="btn btn-primary btn-xs"
+                        [disabled]="installingSkillIds().has(skill.skillId)"
+                        (click)="installSkill(skill)"
+                        type="button"
+                        [attr.aria-label]="'Install ' + skill.name"
+                      >
+                        @if (installingSkillIds().has(skill.skillId)) {
+                          <span
+                            class="loading loading-spinner loading-xs"
+                          ></span>
+                        } @else {
+                          Install
+                        }
+                      </button>
+                    }
+                  </div>
+                </div>
               }
             </div>
           </div>
-          }
-        </div>
-      </div>
-      }
-
-      <!-- Popular / Search Results -->
-      <div>
-        @if (isLoadingPopular() && !searchQuery()) { @for (i of [1, 2, 3, 4, 5];
-        track i) {
-        <div class="skeleton h-16 w-full rounded-lg mb-1.5"></div>
-        } } @else {
-        <div
-          class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
-        >
-          {{ searchQuery() ? 'Search Results' : 'Popular Skills' }}
-        </div>
-        @if (displaySkills().length === 0) {
-        <div class="text-xs text-base-content/50 text-center py-4">
-          {{
-            searchQuery()
-              ? 'No skills found for "' + searchQuery() + '"'
-              : 'No skills available'
-          }}
-        </div>
         }
-        <div class="space-y-1.5">
-          @for (skill of displaySkills(); track skill.skillId) {
-          <div
-            class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30 hover:bg-base-200/60 transition-colors"
-          >
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-1.5 flex-wrap">
-                <span class="text-xs font-medium text-base-content">{{
-                  skill.name
-                }}</span>
-                @if (skill.installs > 0) {
-                <span class="badge badge-xs badge-ghost text-[10px]">{{
-                  skill.formattedInstalls
-                }}</span>
-                } @if (isSkillInstalled(skill)) {
-                <span class="badge badge-xs badge-success text-[10px] gap-0.5">
-                  <lucide-angular
-                    [img]="CheckIcon"
-                    class="w-2 h-2"
-                    aria-hidden="true"
-                  />
-                  Installed
-                </span>
-                }
-              </div>
-              <p
-                class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2 mt-0.5"
-              >
-                {{ skill.description }}
-              </p>
-              <span class="text-[10px] text-base-content/40 font-mono"
-                >{{ skill.source }}/{{ skill.skillId }}</span
-              >
+
+        <!-- Popular / Search Results -->
+        <div>
+          @if (isLoadingPopular() && !searchQuery()) {
+            @for (i of [1, 2, 3, 4, 5]; track i) {
+              <div class="skeleton h-16 w-full rounded-lg mb-1.5"></div>
+            }
+          } @else {
+            <div
+              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+            >
+              {{ searchQuery() ? 'Search Results' : 'Popular Skills' }}
             </div>
-            <div class="shrink-0">
-              @if (isSkillInstalled(skill)) {
-              <button
-                class="btn btn-ghost btn-xs text-error"
-                [disabled]="uninstallingSkillIds().has(skill.skillId)"
-                (click)="uninstallSkill(skill)"
-                type="button"
-                [attr.aria-label]="'Remove ' + skill.name"
-              >
-                @if (uninstallingSkillIds().has(skill.skillId)) {
-                <span class="loading loading-spinner loading-xs"></span>
-                } @else { Remove }
-              </button>
-              } @else {
-              <button
-                class="btn btn-primary btn-xs"
-                [disabled]="installingSkillIds().has(skill.skillId)"
-                (click)="installSkill(skill)"
-                type="button"
-                [attr.aria-label]="'Install ' + skill.name"
-              >
-                @if (installingSkillIds().has(skill.skillId)) {
-                <span class="loading loading-spinner loading-xs"></span>
-                } @else { Install }
-              </button>
+            @if (displaySkills().length === 0) {
+              <div class="text-xs text-base-content/50 text-center py-4">
+                {{
+                  searchQuery()
+                    ? 'No skills found for "' + searchQuery() + '"'
+                    : 'No skills available'
+                }}
+              </div>
+            }
+            <div class="space-y-1.5">
+              @for (skill of displaySkills(); track skill.skillId) {
+                <div
+                  class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30 hover:bg-base-200/60 transition-colors"
+                >
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <span class="text-xs font-medium text-base-content">{{
+                        skill.name
+                      }}</span>
+                      @if (skill.installs > 0) {
+                        <span class="badge badge-xs badge-ghost text-[10px]">{{
+                          skill.formattedInstalls
+                        }}</span>
+                      }
+                      @if (isSkillInstalled(skill)) {
+                        <span
+                          class="badge badge-xs badge-success text-[10px] gap-0.5"
+                        >
+                          <lucide-angular
+                            [img]="CheckIcon"
+                            class="w-2 h-2"
+                            aria-hidden="true"
+                          />
+                          Installed
+                        </span>
+                      }
+                    </div>
+                    <p
+                      class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2 mt-0.5"
+                    >
+                      {{ skill.description }}
+                    </p>
+                    <span class="text-[10px] text-base-content/40 font-mono"
+                      >{{ skill.source }}/{{ skill.skillId }}</span
+                    >
+                  </div>
+                  <div class="shrink-0">
+                    @if (isSkillInstalled(skill)) {
+                      <button
+                        class="btn btn-ghost btn-xs text-error"
+                        [disabled]="uninstallingSkillIds().has(skill.skillId)"
+                        (click)="uninstallSkill(skill)"
+                        type="button"
+                        [attr.aria-label]="'Remove ' + skill.name"
+                      >
+                        @if (uninstallingSkillIds().has(skill.skillId)) {
+                          <span
+                            class="loading loading-spinner loading-xs"
+                          ></span>
+                        } @else {
+                          Remove
+                        }
+                      </button>
+                    } @else {
+                      <button
+                        class="btn btn-primary btn-xs"
+                        [disabled]="installingSkillIds().has(skill.skillId)"
+                        (click)="installSkill(skill)"
+                        type="button"
+                        [attr.aria-label]="'Install ' + skill.name"
+                      >
+                        @if (installingSkillIds().has(skill.skillId)) {
+                          <span
+                            class="loading loading-spinner loading-xs"
+                          ></span>
+                        } @else {
+                          Install
+                        }
+                      </button>
+                    }
+                  </div>
+                </div>
               }
             </div>
-          </div>
           }
         </div>
-        }
-      </div>
       }
 
       <!-- ===== Installed View ===== -->
-      @if (activeView() === 'installed') { @if (isLoadingInstalled()) { @for (i
-      of [1, 2, 3]; track i) {
-      <div class="skeleton h-14 w-full rounded-lg mb-1.5"></div>
-      } } @else if (installedSkills().length === 0) {
-      <div class="text-xs text-base-content/50 text-center py-6">
-        <p class="mb-1">No skills installed yet</p>
-        <button
-          class="btn btn-ghost btn-xs"
-          (click)="activeView.set('browse')"
-          type="button"
-        >
-          Browse skills
-        </button>
-      </div>
-      } @else { @if (projectSkills().length > 0) {
-      <div
-        class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
-      >
-        Project Skills
-      </div>
-      <div class="space-y-1.5">
-        @for (skill of projectSkills(); track skill.path) {
-        <div
-          class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30"
-        >
-          <div class="flex-1 min-w-0">
-            <div class="text-xs font-medium">{{ skill.name }}</div>
-            @if (skill.agents?.length) {
-            <div class="flex flex-wrap gap-1 mt-0.5">
-              @for (agent of skill.agents; track agent) {
-              <span class="badge badge-xs badge-outline text-[9px]">{{
-                agent
-              }}</span>
+      @if (activeView() === 'installed') {
+        @if (isLoadingInstalled()) {
+          @for (i of [1, 2, 3]; track i) {
+            <div class="skeleton h-14 w-full rounded-lg mb-1.5"></div>
+          }
+        } @else if (installedSkills().length === 0) {
+          <div class="text-xs text-base-content/50 text-center py-6">
+            <p class="mb-1">No skills installed yet</p>
+            <button
+              class="btn btn-ghost btn-xs"
+              (click)="activeView.set('browse')"
+              type="button"
+            >
+              Browse skills
+            </button>
+          </div>
+        } @else {
+          @if (projectSkills().length > 0) {
+            <div
+              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
+            >
+              Project Skills
+            </div>
+            <div class="space-y-1.5">
+              @for (skill of projectSkills(); track skill.path) {
+                <div
+                  class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30"
+                >
+                  <div class="flex-1 min-w-0">
+                    <div class="text-xs font-medium">{{ skill.name }}</div>
+                    @if (skill.agents?.length) {
+                      <div class="flex flex-wrap gap-1 mt-0.5">
+                        @for (agent of skill.agents; track agent) {
+                          <span
+                            class="badge badge-xs badge-outline text-[9px]"
+                            >{{ agent }}</span
+                          >
+                        }
+                      </div>
+                    }
+                    <span class="text-[10px] text-base-content/40 font-mono">{{
+                      skill.source
+                    }}</span>
+                  </div>
+                  <button
+                    class="btn btn-ghost btn-xs text-error shrink-0"
+                    [disabled]="uninstallingSkillIds().has(skill.name)"
+                    (click)="removeInstalledSkill(skill)"
+                    type="button"
+                    [attr.aria-label]="'Remove ' + skill.name"
+                  >
+                    @if (uninstallingSkillIds().has(skill.name)) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    } @else {
+                      Remove
+                    }
+                  </button>
+                </div>
               }
             </div>
-            }
-            <span class="text-[10px] text-base-content/40 font-mono">{{
-              skill.source
-            }}</span>
-          </div>
-          <button
-            class="btn btn-ghost btn-xs text-error shrink-0"
-            [disabled]="uninstallingSkillIds().has(skill.name)"
-            (click)="removeInstalledSkill(skill)"
-            type="button"
-            [attr.aria-label]="'Remove ' + skill.name"
-          >
-            @if (uninstallingSkillIds().has(skill.name)) {
-            <span class="loading loading-spinner loading-xs"></span>
-            } @else { Remove }
-          </button>
-        </div>
-        }
-      </div>
-      } @if (globalSkills().length > 0) {
-      <div
-        class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium mt-3"
-      >
-        Global Skills
-      </div>
-      <div class="space-y-1.5">
-        @for (skill of globalSkills(); track skill.path) {
-        <div
-          class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30"
-        >
-          <div class="flex-1 min-w-0">
-            <div class="text-xs font-medium">{{ skill.name }}</div>
-            @if (skill.agents?.length) {
-            <div class="flex flex-wrap gap-1 mt-0.5">
-              @for (agent of skill.agents; track agent) {
-              <span class="badge badge-xs badge-outline text-[9px]">{{
-                agent
-              }}</span>
+          }
+          @if (globalSkills().length > 0) {
+            <div
+              class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium mt-3"
+            >
+              Global Skills
+            </div>
+            <div class="space-y-1.5">
+              @for (skill of globalSkills(); track skill.path) {
+                <div
+                  class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30"
+                >
+                  <div class="flex-1 min-w-0">
+                    <div class="text-xs font-medium">{{ skill.name }}</div>
+                    @if (skill.agents?.length) {
+                      <div class="flex flex-wrap gap-1 mt-0.5">
+                        @for (agent of skill.agents; track agent) {
+                          <span
+                            class="badge badge-xs badge-outline text-[9px]"
+                            >{{ agent }}</span
+                          >
+                        }
+                      </div>
+                    }
+                    <span class="text-[10px] text-base-content/40 font-mono">{{
+                      skill.source
+                    }}</span>
+                  </div>
+                  <button
+                    class="btn btn-ghost btn-xs text-error shrink-0"
+                    [disabled]="uninstallingSkillIds().has(skill.name)"
+                    (click)="removeInstalledSkill(skill)"
+                    type="button"
+                    [attr.aria-label]="'Remove ' + skill.name"
+                  >
+                    @if (uninstallingSkillIds().has(skill.name)) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    } @else {
+                      Remove
+                    }
+                  </button>
+                </div>
               }
             </div>
-            }
-            <span class="text-[10px] text-base-content/40 font-mono">{{
-              skill.source
-            }}</span>
-          </div>
-          <button
-            class="btn btn-ghost btn-xs text-error shrink-0"
-            [disabled]="uninstallingSkillIds().has(skill.name)"
-            (click)="removeInstalledSkill(skill)"
-            type="button"
-            [attr.aria-label]="'Remove ' + skill.name"
-          >
-            @if (uninstallingSkillIds().has(skill.name)) {
-            <span class="loading loading-spinner loading-xs"></span>
-            } @else { Remove }
-          </button>
-        </div>
+          }
         }
-      </div>
-      } } }
+      }
 
       <!-- skills.sh attribution -->
       <div class="text-[10px] text-base-content/30 text-center pt-1">
@@ -391,6 +429,14 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly destroyRef = inject(DestroyRef);
   private destroyed = false;
+
+  /**
+   * Increment this input to trigger a reload of the installed skills list.
+   * Used by the parent settings component when plugin configuration changes
+   * (skills are added/removed via SkillJunctionService) so the Installed tab
+   * reflects the current state without requiring a full page reload.
+   */
+  readonly refreshTrigger = input(0);
 
   /** Emitted when a skill is successfully installed */
   readonly skillInstalled = output<SkillShEntry>();
@@ -422,7 +468,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   readonly installedCount = computed(() => this.installedSkills().length);
 
   readonly displaySkills = computed(() =>
-    this.searchQuery() ? this.searchResults() : this.popularSkills()
+    this.searchQuery() ? this.searchResults() : this.popularSkills(),
   );
 
   /** Recommended skills pre-enriched with formatted installs */
@@ -436,11 +482,11 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   });
 
   readonly projectSkills = computed(() =>
-    this.installedSkills().filter((s) => s.scope === 'project')
+    this.installedSkills().filter((s) => s.scope === 'project'),
   );
 
   readonly globalSkills = computed(() =>
-    this.installedSkills().filter((s) => s.scope === 'global')
+    this.installedSkills().filter((s) => s.scope === 'global'),
   );
 
   // ===== Private =====
@@ -448,6 +494,14 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   private searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // ===== Lifecycle =====
+
+  /** Re-load installed skills when refreshTrigger changes (skips initial value of 0) */
+  private readonly refreshEffect = effect(() => {
+    const trigger = this.refreshTrigger();
+    if (trigger > 0) {
+      this.loadInstalled();
+    }
+  });
 
   ngOnInit(): void {
     this.destroyRef.onDestroy(() => {
@@ -580,7 +634,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   isSkillInstalled(skill: SkillShEntry): boolean {
     return this.installedSkills().some(
       (installed) =>
-        installed.name === skill.skillId || installed.name === skill.name
+        installed.name === skill.skillId || installed.name === skill.name,
     );
   }
 
@@ -593,13 +647,13 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   }
 
   private enrichWithFormattedInstalls(
-    skills: SkillShEntry[]
+    skills: SkillShEntry[],
   ): DisplaySkillEntry[] {
     const installed = this.installedSkills();
     return skills.map((s) => ({
       ...s,
       isInstalled: installed.some(
-        (i) => i.name === s.skillId || i.name === s.name
+        (i) => i.name === s.skillId || i.name === s.name,
       ),
       formattedInstalls: this.formatInstallCount(s.installs),
     }));
@@ -615,7 +669,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
 
       if (result.isSuccess()) {
         this.searchResults.set(
-          this.enrichWithFormattedInstalls(result.data.skills)
+          this.enrichWithFormattedInstalls(result.data.skills),
         );
       } else {
         this.error.set('Search failed');
@@ -658,7 +712,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
 
       if (result.isSuccess()) {
         this.popularSkills.set(
-          this.enrichWithFormattedInstalls(result.data.skills)
+          this.enrichWithFormattedInstalls(result.data.skills),
         );
       }
     } catch {
@@ -674,7 +728,7 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     try {
       const result = await this.rpcService.call(
         'skillsSh:detectRecommended',
-        {}
+        {},
       );
 
       if (this.destroyed) return;
@@ -691,26 +745,26 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
 
   private refreshInstalledStatus(): void {
     this.popularSkills.set(
-      this.enrichWithFormattedInstalls(this.popularSkills())
+      this.enrichWithFormattedInstalls(this.popularSkills()),
     );
 
     if (this.searchQuery()) {
       this.searchResults.set(
-        this.enrichWithFormattedInstalls(this.searchResults())
+        this.enrichWithFormattedInstalls(this.searchResults()),
       );
     }
   }
 
   private addToSet(
     sig: ReturnType<typeof signal<Set<string>>>,
-    value: string
+    value: string,
   ): void {
     sig.update((s) => new Set([...s, value]));
   }
 
   private removeFromSet(
     sig: ReturnType<typeof signal<Set<string>>>,
-    value: string
+    value: string,
   ): void {
     sig.update((s) => {
       const next = new Set(s);

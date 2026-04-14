@@ -51,7 +51,6 @@
       "ptah-core/commands/review-code.md",
       "ptah-core/commands/review-logic.md",
       "ptah-core/commands/review-security.md",
-      "ptah-core/skills/agent-browser/SKILL.md",
       "ptah-core/skills/ddd-architecture/SKILL.md",
       "ptah-core/skills/ddd-architecture/references/cqrs-pattern.md",
       "ptah-core/skills/ddd-architecture/references/domain-events.md",

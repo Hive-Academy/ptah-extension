@@ -497,7 +497,10 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
 /**
  * Format ptah_agent_spawn result
  */
-export function formatAgentSpawn(result: SpawnAgentResult): string {
+export function formatAgentSpawn(
+  result: SpawnAgentResult,
+  options?: { modelTier?: string },
+): string {
   try {
     const cliLabel = formatCliLabel(result.cli, result.ptahCliName);
 
@@ -507,6 +510,9 @@ export function formatAgentSpawn(result: SpawnAgentResult): string {
         p: [
           `**Agent ID:** ${result.agentId}`,
           `**CLI:** ${cliLabel}`,
+          ...(options?.modelTier
+            ? [`**Model Tier:** ${options.modelTier}`]
+            : []),
           `**Status:** ${result.status}`,
           `**Started:** ${result.startedAt}`,
           ...(result.cliSessionId

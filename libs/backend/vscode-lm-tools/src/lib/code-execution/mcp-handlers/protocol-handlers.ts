@@ -461,6 +461,7 @@ async function handleIndividualTool(
           files,
           taskFolder,
           model,
+          modelTier,
           resume_session_id,
         } = args as {
           task: string;
@@ -471,6 +472,7 @@ async function handleIndividualTool(
           files?: string[];
           taskFolder?: string;
           model?: string;
+          modelTier?: 'opus' | 'sonnet' | 'haiku';
           resume_session_id?: string;
         };
 
@@ -511,6 +513,7 @@ async function handleIndividualTool(
           cli: cli ?? (ptahCliId ? 'ptah-cli' : 'auto-detect'),
           ptahCliId,
           model: model ?? 'default',
+          modelTier: modelTier ?? 'sonnet',
           task: task.substring(0, 100) + (task.length > 100 ? '...' : ''),
           timeout,
           files: files?.length ?? 0,
@@ -527,6 +530,7 @@ async function handleIndividualTool(
           files,
           taskFolder,
           model,
+          modelTier,
           resumeSessionId: resume_session_id,
           // parentSessionId from MCP URL path (session-specific endpoint)
           // Falls back to getActiveSessionId() in buildAgentNamespace if not present
@@ -542,7 +546,9 @@ async function handleIndividualTool(
 
         return createToolSuccessResponse(
           request,
-          formatAgentSpawn(result),
+          formatAgentSpawn(result, {
+            modelTier: ptahCliId ? (modelTier ?? 'sonnet') : undefined,
+          }),
           deps,
         );
       }

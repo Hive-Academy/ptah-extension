@@ -70,6 +70,14 @@ interface CommandManifestEntry {
 /** Manifest mapping command filename to its tracking entry. */
 type CommandManifest = Record<string, CommandManifestEntry>;
 
+/** Options for the activate() method */
+export interface SkillJunctionActivateOptions {
+  pluginPaths: string[];
+  disabledSkillIds: string[];
+  getPluginPaths: () => string[];
+  getDisabledSkillIds: () => string[];
+}
+
 /**
  * Result of junction creation/cleanup operations
  */
@@ -144,16 +152,18 @@ export class SkillJunctionService {
    * Always subscribes to workspace changes even if no plugins are currently enabled,
    * so junctions are created when the user enables plugins and switches workspaces.
    *
-   * @param pluginPaths - Absolute paths to enabled plugin directories
-   * @param getPluginPaths - Callback to re-resolve plugin paths on workspace change
+   * @param options - Activation options with plugin paths, disabled skill IDs, and callbacks
    * @returns Junction creation result
    */
-  activate(
-    pluginPaths: string[],
-    getPluginPaths: () => string[],
-  ): SkillJunctionResult {
-    const result = this.createJunctions(pluginPaths);
-    this.subscribeToWorkspaceChanges(getPluginPaths);
+  activate(options: SkillJunctionActivateOptions): SkillJunctionResult {
+    const result = this.createJunctions(
+      options.pluginPaths,
+      options.disabledSkillIds,
+    );
+    this.subscribeToWorkspaceChanges(
+      options.getPluginPaths,
+      options.getDisabledSkillIds,
+    );
     return result;
   }
 
@@ -167,7 +177,10 @@ export class SkillJunctionService {
    * @param pluginPaths - Absolute paths to enabled plugin directories
    * @returns Result with counts of created/skipped/removed/errors
    */
-  createJunctions(pluginPaths: string[]): SkillJunctionResult {
+  createJunctions(
+    pluginPaths: string[],
+    disabledSkillIds: string[] = [],
+  ): SkillJunctionResult {
     const result: SkillJunctionResult = {
       created: 0,
       skipped: 0,
@@ -187,7 +200,10 @@ export class SkillJunctionService {
     this.migrateFromPtahDir(result);
 
     // Build skills map: skillName -> source absolute path
-    const skillsMap = this.buildSkillsMap(pluginPaths);
+    const skillsMap = this.buildSkillsMap(
+      pluginPaths,
+      new Set(disabledSkillIds),
+    );
     if (skillsMap.size === 0) {
       this.logger.debug(
         '[SkillJunctionService] No skills found in enabled plugins',
@@ -302,7 +318,10 @@ export class SkillJunctionService {
   /**
    * Subscribe to workspace folder changes to re-create junctions.
    */
-  subscribeToWorkspaceChanges(getPluginPaths: () => string[]): void {
+  subscribeToWorkspaceChanges(
+    getPluginPaths: () => string[],
+    getDisabledSkillIds: () => string[],
+  ): void {
     // Dispose existing subscription if any
     this.workspaceFolderDisposer?.();
 
@@ -322,7 +341,7 @@ export class SkillJunctionService {
 
           // Create junctions in new workspace
           if (this.workspaceRoot) {
-            this.createJunctions(getPluginPaths());
+            this.createJunctions(getPluginPaths(), getDisabledSkillIds());
           }
         } catch (error) {
           this.logger.warn(
@@ -380,7 +399,10 @@ export class SkillJunctionService {
    * Flat namespace: all skills from all plugins in one map.
    * First plugin wins on collision (logged as warning).
    */
-  private buildSkillsMap(pluginPaths: string[]): Map<string, string> {
+  private buildSkillsMap(
+    pluginPaths: string[],
+    disabledSkillIds: Set<string> = new Set(),
+  ): Map<string, string> {
     const skillsMap = new Map<string, string>();
 
     for (const pluginPath of pluginPaths) {
@@ -407,6 +429,14 @@ export class SkillJunctionService {
           accessSync(skillMdPath, fsConstants.R_OK);
         } catch {
           continue; // No SKILL.md, not a skill directory
+        }
+
+        // Skip disabled skills
+        if (disabledSkillIds.has(entry)) {
+          this.logger.debug(
+            `[SkillJunctionService] Skipping disabled skill: "${entry}"`,
+          );
+          continue;
         }
 
         if (skillsMap.has(entry)) {
