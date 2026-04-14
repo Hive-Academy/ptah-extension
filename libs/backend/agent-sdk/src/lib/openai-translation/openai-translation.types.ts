@@ -88,8 +88,13 @@ export interface OpenAIChatCompletionsRequest {
   model: string;
   /** Conversation messages */
   messages: OpenAIChatMessage[];
-  /** Maximum tokens to generate */
-  max_tokens?: number;
+  /**
+   * Maximum tokens to generate (modern field).
+   * Newer OpenAI-compatible APIs (Copilot, GPT-4-turbo+) require this
+   * instead of `max_tokens`. The Copilot API rejects `max_tokens` with
+   * "Unsupported parameter: use 'max_completion_tokens' instead".
+   */
+  max_completion_tokens?: number;
   /** Whether to stream the response */
   stream?: boolean;
   /** Stream options for usage reporting */

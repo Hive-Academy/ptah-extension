@@ -6,7 +6,7 @@ export interface CanvasTile {
   position: { x: number; y: number; w: number; h: number };
 }
 
-// FIX 11: Named constants for canvas grid layout (replaces magic numbers)
+// Named constants for canvas grid layout
 const CANVAS_COLS_PER_ROW = 3;
 const CANVAS_TILE_W = 4; // 12-column grid ÷ 3 tiles per row
 const CANVAS_TILE_H = 6;
@@ -55,22 +55,7 @@ export class CanvasStore {
     }
 
     const tabId = this.tabManager.openSessionTab(sessionId, name);
-
-    const existing = this._tiles();
-    const col = existing.length % CANVAS_COLS_PER_ROW;
-    const row = Math.floor(existing.length / CANVAS_COLS_PER_ROW);
-    this._tiles.update((tiles) => [
-      ...tiles,
-      {
-        tabId,
-        position: {
-          x: col * CANVAS_TILE_W,
-          y: row * CANVAS_TILE_H,
-          w: CANVAS_TILE_W,
-          h: CANVAS_TILE_H,
-        },
-      },
-    ]);
+    this.appendTile(tabId);
     return tabId;
   }
 
@@ -82,29 +67,29 @@ export class CanvasStore {
    * @returns The tabId of the newly created tab, or null if cap reached.
    */
   addTile(name?: string): string | null {
-    // FIX 6: Enforce maximum tile count
     if (this._tiles().length >= CanvasStore.MAX_TILES) return null;
 
     const tabId = this.tabManager.createTab(name);
 
-    // FIX 7: Guard against duplicate tabIds (defensive — createTab should always be unique)
+    // Guard against duplicate tabIds (defensive — createTab should always be unique)
     if (this._tiles().some((t) => t.tabId === tabId)) return tabId;
 
-    const existing = this._tiles();
-    const col = existing.length % CANVAS_COLS_PER_ROW;
-    const row = Math.floor(existing.length / CANVAS_COLS_PER_ROW);
-    this._tiles.update((tiles) => [
-      ...tiles,
-      {
-        tabId,
-        position: {
-          x: col * CANVAS_TILE_W,
-          y: row * CANVAS_TILE_H,
-          w: CANVAS_TILE_W,
-          h: CANVAS_TILE_H,
-        },
-      },
-    ]);
+    this.appendTile(tabId);
+    return tabId;
+  }
+
+  /**
+   * Adopt an existing tab from TabManagerService as a canvas tile.
+   * Used during restoration to create tiles for tabs that already exist
+   * (e.g., restored from localStorage) without creating duplicate tabs.
+   * @param tabId The pre-existing tab ID to adopt.
+   * @returns The tabId, or null if the tile cap is reached.
+   */
+  adoptTab(tabId: string): string | null {
+    if (this._tiles().length >= CanvasStore.MAX_TILES) return null;
+    if (this._tiles().some((t) => t.tabId === tabId)) return tabId;
+
+    this.appendTile(tabId);
     return tabId;
   }
 
@@ -129,8 +114,6 @@ export class CanvasStore {
    * @param tabId The tabId of the tile to remove.
    */
   async removeTile(tabId: string): Promise<void> {
-    // FIX 4: Await closeTab() before removing the tile — prevents premature removal
-    // when closeTab shows a confirmation dialog for streaming/dirty tabs.
     await this.tabManager.closeTab(tabId);
     this._tiles.update((tiles) => tiles.filter((t) => t.tabId !== tabId));
     if (this._focusedTabId() === tabId) {
@@ -157,5 +140,29 @@ export class CanvasStore {
   focusTile(tabId: string): void {
     this._focusedTabId.set(tabId);
     this.tabManager.switchTab(tabId);
+  }
+
+  // ============================================================================
+  // PRIVATE HELPERS
+  // ============================================================================
+
+  /**
+   * Append a tile for the given tabId at the next available grid position.
+   * Centralizes the position calculation to avoid duplication.
+   */
+  private appendTile(tabId: string): void {
+    const count = this._tiles().length;
+    this._tiles.update((tiles) => [
+      ...tiles,
+      {
+        tabId,
+        position: {
+          x: (count % CANVAS_COLS_PER_ROW) * CANVAS_TILE_W,
+          y: Math.floor(count / CANVAS_COLS_PER_ROW) * CANVAS_TILE_H,
+          w: CANVAS_TILE_W,
+          h: CANVAS_TILE_H,
+        },
+      },
+    ]);
   }
 }

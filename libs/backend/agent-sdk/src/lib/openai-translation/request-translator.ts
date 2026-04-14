@@ -57,7 +57,7 @@ export interface TranslateOptions {
  */
 export function translateAnthropicToOpenAI(
   anthropicRequest: AnthropicMessagesRequest,
-  options?: TranslateOptions
+  options?: TranslateOptions,
 ): OpenAIChatCompletionsRequest {
   const openaiMessages: OpenAIChatMessage[] = [];
 
@@ -84,9 +84,11 @@ export function translateAnthropicToOpenAI(
     messages: openaiMessages,
   };
 
-  // max_tokens — direct pass-through
+  // max_tokens → max_completion_tokens (modern OpenAI field name).
+  // Newer APIs (Copilot, GPT-4-turbo+) reject 'max_tokens' with
+  // "Unsupported parameter: use 'max_completion_tokens' instead".
   if (anthropicRequest.max_tokens != null) {
-    openaiRequest.max_tokens = anthropicRequest.max_tokens;
+    openaiRequest.max_completion_tokens = anthropicRequest.max_tokens;
   }
 
   // stream — direct pass-through, request usage in final chunk
@@ -103,7 +105,7 @@ export function translateAnthropicToOpenAI(
   // tool_choice — translate format differences
   if (anthropicRequest.tool_choice) {
     openaiRequest.tool_choice = translateToolChoice(
-      anthropicRequest.tool_choice
+      anthropicRequest.tool_choice,
     );
   }
 
@@ -120,7 +122,7 @@ export function translateAnthropicToOpenAI(
  * Returns undefined if no system prompt is provided.
  */
 export function translateSystemPrompt(
-  system: AnthropicSystemPrompt | undefined
+  system: AnthropicSystemPrompt | undefined,
 ): OpenAIChatMessage | undefined {
   if (system == null) return undefined;
 
@@ -149,7 +151,7 @@ export function translateSystemPrompt(
  * tool_result (which become separate role:'tool' messages).
  */
 export function translateMessages(
-  messages: AnthropicMessage[]
+  messages: AnthropicMessage[],
 ): OpenAIChatMessage[] {
   const result: OpenAIChatMessage[] = [];
 
@@ -168,7 +170,7 @@ export function translateMessages(
  * Translate Anthropic tool definitions into OpenAI function tool definitions.
  */
 export function translateTools(
-  tools: AnthropicToolDefinition[]
+  tools: AnthropicToolDefinition[],
 ): OpenAIToolDefinition[] {
   return tools.map((tool) => ({
     type: 'function' as const,
@@ -184,7 +186,7 @@ export function translateTools(
  * Translate Anthropic tool_choice into OpenAI tool_choice format.
  */
 export function translateToolChoice(
-  toolChoice: AnthropicToolChoice
+  toolChoice: AnthropicToolChoice,
 ): OpenAIChatCompletionsRequest['tool_choice'] {
   switch (toolChoice.type) {
     case 'auto':
@@ -311,7 +313,7 @@ function translateAssistantMessage(msg: AnthropicMessage): OpenAIChatMessage[] {
  * Convert an Anthropic tool_result block into an OpenAI role:'tool' message.
  */
 function translateToolResultToMessage(
-  toolResult: AnthropicToolResultBlock
+  toolResult: AnthropicToolResultBlock,
 ): OpenAIChatMessage {
   let content: string;
 
@@ -345,7 +347,7 @@ function translateToolResultToMessage(
  * (those are handled separately).
  */
 function flattenContentBlocks(
-  blocks: AnthropicContentBlock[]
+  blocks: AnthropicContentBlock[],
 ): OpenAIContentPart[] {
   const parts: OpenAIContentPart[] = [];
 
