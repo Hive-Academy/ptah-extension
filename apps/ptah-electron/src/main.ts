@@ -583,19 +583,8 @@ if (!gotLock) {
         pluginConfig.enabledPluginIds,
       );
 
-      // Wire into command discovery for slash command autocomplete.
-      // COMMAND_DISCOVERY_SERVICE is NOT registered in Electron container,
-      // so we guard with isRegistered() to avoid resolution failure.
-      if (container.isRegistered(TOKENS.COMMAND_DISCOVERY_SERVICE)) {
-        const cmdDiscovery = container.resolve(
-          TOKENS.COMMAND_DISCOVERY_SERVICE,
-        ) as { setPluginPaths: (paths: string[]) => void };
-        cmdDiscovery.setPluginPaths(pluginPaths);
-      } else {
-        console.log(
-          '[Ptah Electron] COMMAND_DISCOVERY_SERVICE not registered, skipping plugin path wiring',
-        );
-      }
+      // Command discovery reads from .claude/commands/ and .claude/skills/
+      // (junctioned by SkillJunctionService) — no plugin path wiring needed.
 
       console.log(
         `[Ptah Electron] Plugin loader initialized (${pluginPaths.length} plugin paths)`,
@@ -629,9 +618,11 @@ if (!gotLock) {
       const config = pluginLoader.getWorkspacePluginConfig();
       const paths = pluginLoader.resolvePluginPaths(config.enabledPluginIds);
 
-      const junctionResult = skillJunction.activate(paths, () => {
-        const c = pluginLoader.getWorkspacePluginConfig();
-        return pluginLoader.resolvePluginPaths(c.enabledPluginIds);
+      const junctionResult = skillJunction.activate({
+        pluginPaths: paths,
+        disabledSkillIds: config.disabledSkillIds,
+        getPluginPaths: () => pluginLoader.resolveCurrentPluginPaths(),
+        getDisabledSkillIds: () => pluginLoader.getDisabledSkillIds(),
       });
 
       // Store reference for cleanup in will-quit handler

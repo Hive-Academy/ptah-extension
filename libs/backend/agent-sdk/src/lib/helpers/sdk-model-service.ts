@@ -625,6 +625,27 @@ export class SdkModelService {
 
     const tierLower = model.toLowerCase();
 
+    // 'default' maps to sonnet tier — check sonnet's env var override first.
+    // This ensures proxy providers (Codex, Copilot) that set ANTHROPIC_DEFAULT_SONNET_MODEL
+    // to a provider-specific model (e.g., 'gpt-5.3-codex') get the correct mapping
+    // even when the user selects "Default (recommended)".
+    if (tierLower === 'default') {
+      const sonnetEnvKey = TIER_ENV_VAR_MAP['sonnet'];
+      const sonnetOverride = this.authEnv[sonnetEnvKey];
+      if (sonnetOverride) {
+        this.logger.debug(
+          `[SdkModelService] Resolved '${model}' to '${sonnetOverride}' via ${sonnetEnvKey} (default → sonnet tier)`,
+        );
+        return sonnetOverride;
+      }
+      // No env override — use hardcoded default
+      const knownId = TIER_TO_MODEL_ID['default'];
+      this.logger.debug(
+        `[SdkModelService] Resolved '${model}' to '${knownId}' (hardcoded default)`,
+      );
+      return knownId;
+    }
+
     // Check env var overrides first (set by ProviderModelsService.setModelTier).
     // Only check known tiers that have corresponding env vars — avoids
     // constructing invalid env key names from arbitrary input.

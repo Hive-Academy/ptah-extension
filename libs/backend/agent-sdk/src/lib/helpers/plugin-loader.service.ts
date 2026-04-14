@@ -18,7 +18,11 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import type { PluginInfo, PluginConfigState } from '@ptah-extension/shared';
+import type {
+  PluginInfo,
+  PluginConfigState,
+  PluginSkillEntry,
+} from '@ptah-extension/shared';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 
 /** VS Code workspaceState key for plugin configuration */
@@ -170,17 +174,31 @@ export class PluginLoaderService {
       this.logger.debug(
         '[PluginLoaderService] workspaceState not initialized, returning default config',
       );
-      return { enabledPluginIds: [], lastUpdated: undefined };
+      return {
+        enabledPluginIds: [],
+        disabledSkillIds: [],
+        lastUpdated: undefined,
+      };
     }
 
     const stored =
       this.workspaceState.get<PluginConfigState>(PLUGIN_CONFIG_KEY);
 
     if (!stored || !Array.isArray(stored.enabledPluginIds)) {
-      return { enabledPluginIds: [], lastUpdated: undefined };
+      return {
+        enabledPluginIds: [],
+        disabledSkillIds: [],
+        lastUpdated: undefined,
+      };
     }
 
-    return stored;
+    return {
+      enabledPluginIds: stored.enabledPluginIds,
+      disabledSkillIds: Array.isArray(stored.disabledSkillIds)
+        ? stored.disabledSkillIds
+        : [],
+      lastUpdated: stored.lastUpdated,
+    };
   }
 
   /**
@@ -193,7 +211,7 @@ export class PluginLoaderService {
    * @throws Error if workspaceState is not initialized
    */
   async saveWorkspacePluginConfig(
-    config: Pick<PluginConfigState, 'enabledPluginIds'>,
+    config: Pick<PluginConfigState, 'enabledPluginIds' | 'disabledSkillIds'>,
   ): Promise<void> {
     if (!this.workspaceState) {
       throw new Error(
@@ -203,6 +221,7 @@ export class PluginLoaderService {
 
     const configToSave: PluginConfigState = {
       enabledPluginIds: config.enabledPluginIds,
+      disabledSkillIds: config.disabledSkillIds,
       lastUpdated: new Date().toISOString(),
     };
 
@@ -211,6 +230,7 @@ export class PluginLoaderService {
     this.logger.debug('[PluginLoaderService] Plugin config saved', {
       enabledCount: configToSave.enabledPluginIds.length,
       enabledPluginIds: configToSave.enabledPluginIds,
+      disabledSkillCount: configToSave.disabledSkillIds.length,
       lastUpdated: configToSave.lastUpdated,
     });
   }
@@ -266,5 +286,106 @@ export class PluginLoaderService {
     });
 
     return paths;
+  }
+
+  /**
+   * Get the current disabled skill IDs from workspace config.
+   * Convenience method for SkillJunctionService callbacks.
+   */
+  getDisabledSkillIds(): string[] {
+    return this.getWorkspacePluginConfig().disabledSkillIds;
+  }
+
+  /**
+   * Resolve plugin paths for currently enabled plugins.
+   * Convenience method for SkillJunctionService callbacks.
+   */
+  resolveCurrentPluginPaths(): string[] {
+    const config = this.getWorkspacePluginConfig();
+    return this.resolvePluginPaths(config.enabledPluginIds);
+  }
+
+  /**
+   * Enumerate all skills within the given plugin paths, returning stable skill IDs.
+   *
+   * For each plugin path, reads the skills/ directory and looks for subdirectories
+   * containing a SKILL.md file. Parses YAML frontmatter for display name and description.
+   * The skillId is the directory name (matching SkillJunctionService.buildSkillsMap keys).
+   *
+   * @param pluginPaths - Absolute paths to plugin directories
+   * @returns Flat list of PluginSkillEntry with directory-name-based skillId
+   */
+  discoverSkillsForPlugins(pluginPaths: string[]): PluginSkillEntry[] {
+    const skills: PluginSkillEntry[] = [];
+
+    for (const pluginPath of pluginPaths) {
+      try {
+        const pluginId = path.basename(pluginPath);
+        const skillsDir = path.join(pluginPath, 'skills');
+
+        let entries: string[];
+        try {
+          entries = fs.readdirSync(skillsDir);
+        } catch {
+          continue;
+        }
+
+        for (const entry of entries) {
+          const entryPath = path.join(skillsDir, entry);
+          try {
+            if (!fs.statSync(entryPath).isDirectory()) continue;
+          } catch {
+            continue;
+          }
+
+          const skillMdPath = path.join(entryPath, 'SKILL.md');
+          try {
+            const content = fs.readFileSync(skillMdPath, 'utf-8');
+            const { name, description } = this.parseFrontmatter(content);
+
+            skills.push({
+              skillId: entry,
+              displayName: name || entry,
+              description: description || name || entry,
+              pluginId,
+            });
+          } catch {
+            // SKILL.md not readable — skip this skill
+          }
+        }
+      } catch {
+        // Plugin path not accessible — skip
+      }
+    }
+
+    return skills;
+  }
+
+  /**
+   * Parse simple YAML-like frontmatter from a SKILL.md file.
+   * Extracts `name` and `description` fields from `---` delimited frontmatter.
+   *
+   * NOTE: Only handles single-line values (e.g., `description: Some text`).
+   * Multi-line YAML block scalars (`|`, `>`) are not supported and will
+   * return truncated or empty values. All existing SKILL.md files use
+   * single-line values.
+   */
+  private parseFrontmatter(content: string): {
+    name: string;
+    description: string;
+  } {
+    const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
+    if (!match) return { name: '', description: '' };
+
+    const frontmatter = match[1];
+    const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
+    const descMatch = frontmatter.match(/^description:\s*(.+)$/m);
+
+    return {
+      name: nameMatch ? nameMatch[1].trim().replace(/^['"]|['"]$/g, '') : '',
+      description: descMatch
+        ? descMatch[1].trim().replace(/^['"]|['"]$/g, '')
+        : '',
+    };
   }
 }

@@ -1,72 +1,92 @@
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
-import { LucideAngularModule, Sun, Moon } from 'lucide-angular';
-import { ThemeService } from '@ptah-extension/core';
+import { LucideAngularModule, Palette, Check } from 'lucide-angular';
+import {
+  ThemeService,
+  type ThemeName,
+  type ThemeInfo,
+  DAISYUI_THEMES,
+} from '@ptah-extension/core';
 
 /**
- * ThemeToggleComponent - Toggle between light and dark themes
+ * ThemeToggleComponent - DaisyUI theme picker dropdown
  *
- * Complexity Level: 1 (Simple atom)
- * Patterns: Single Responsibility, Composition via LucideAngularModule
+ * Displays a dropdown with all available DaisyUI themes.
+ * Each theme shows 4 color preview dots (primary, secondary, accent, neutral)
+ * and a checkmark for the currently active theme.
  *
- * Displays a button with Sun icon (in dark mode) or Moon icon (in light mode)
- * that toggles between the 'anubis' (dark) and 'anubis-light' themes.
- *
- * Accessibility:
- * - Uses semantic <button> element
- * - Dynamic aria-label describes the action (switch to light/dark mode)
- * - Icon changes to indicate current state
- *
- * TASK_2025_100: DaisyUI Theme Consistency & Theme Toggle System
+ * Replaces the previous simple dark/light toggle to support all 34 themes.
  */
 @Component({
   selector: 'ptah-theme-toggle',
   standalone: true,
   imports: [LucideAngularModule],
   template: `
-    <button
-      type="button"
-      class="btn btn-ghost btn-xs gap-1"
-      (click)="toggle()"
-      [attr.aria-label]="
-        isDarkMode() ? 'Switch to light mode' : 'Switch to dark mode'
-      "
-      [attr.aria-pressed]="isDarkMode()"
-    >
-      <lucide-angular
-        [img]="isDarkMode() ? SunIcon : MoonIcon"
-        class="w-4 h-4"
-      />
-      <span class="icon-btn-label text-xs">{{
-        isDarkMode() ? 'Light' : 'Dark'
-      }}</span>
-    </button>
+    <div class="dropdown dropdown-end">
+      <div
+        tabindex="0"
+        role="button"
+        class="btn btn-ghost btn-xs gap-1"
+        aria-label="Change theme"
+      >
+        <lucide-angular [img]="PaletteIcon" class="w-4 h-4" />
+        <span class="icon-btn-label text-xs">Theme</span>
+      </div>
+      <ul
+        tabindex="0"
+        class="dropdown-content z-[1] menu p-2 shadow-lg bg-base-200 rounded-box w-56 max-h-96 overflow-y-auto flex-nowrap"
+      >
+        <li class="menu-title text-xs opacity-60">Theme</li>
+        @for (theme of themes; track theme.name) {
+          <li>
+            <button
+              class="flex items-center gap-2 px-2 py-1.5"
+              [class.active]="currentTheme() === theme.name"
+              [attr.data-theme]="theme.name"
+              (click)="selectTheme(theme.name)"
+            >
+              <!-- Color preview dots -->
+              <div class="flex gap-0.5">
+                <span
+                  class="w-2 h-2 rounded-full shrink-0"
+                  [style.background-color]="'oklch(var(--p))'"
+                ></span>
+                <span
+                  class="w-2 h-2 rounded-full shrink-0"
+                  [style.background-color]="'oklch(var(--s))'"
+                ></span>
+                <span
+                  class="w-2 h-2 rounded-full shrink-0"
+                  [style.background-color]="'oklch(var(--a))'"
+                ></span>
+                <span
+                  class="w-2 h-2 rounded-full shrink-0"
+                  [style.background-color]="'oklch(var(--n))'"
+                ></span>
+              </div>
+              <!-- Theme name -->
+              <span class="flex-1 text-sm">{{ theme.label }}</span>
+              <!-- Active checkmark -->
+              @if (currentTheme() === theme.name) {
+                <lucide-angular [img]="CheckIcon" class="w-4 h-4 shrink-0" />
+              }
+            </button>
+          </li>
+        }
+      </ul>
+    </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ThemeToggleComponent {
   private readonly themeService = inject(ThemeService);
 
-  /**
-   * Signal indicating if dark mode is active
-   * Bound directly from ThemeService for reactivity
-   */
-  readonly isDarkMode = this.themeService.isDarkMode;
+  readonly currentTheme = this.themeService.currentTheme;
+  readonly themes: readonly ThemeInfo[] = DAISYUI_THEMES;
 
-  /**
-   * Sun icon - shown when in dark mode (click to switch to light)
-   */
-  protected readonly SunIcon = Sun;
+  protected readonly PaletteIcon = Palette;
+  protected readonly CheckIcon = Check;
 
-  /**
-   * Moon icon - shown when in light mode (click to switch to dark)
-   */
-  protected readonly MoonIcon = Moon;
-
-  /**
-   * Toggle between dark and light themes
-   * Delegates to ThemeService which handles persistence
-   */
-  protected toggle(): void {
-    this.themeService.toggleTheme();
+  protected selectTheme(theme: ThemeName): void {
+    this.themeService.setTheme(theme);
   }
 }

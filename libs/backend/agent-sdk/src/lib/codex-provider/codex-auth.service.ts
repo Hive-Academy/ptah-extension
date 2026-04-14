@@ -10,7 +10,7 @@
  *
  * API endpoint depends on auth mode:
  * - ApiKey → https://api.openai.com/v1
- * - OAuth → user-configured endpoint from settings
+ * - OAuth → user-configured endpoint from settings, or https://chatgpt.com/backend-api/codex
  *
  * TASK_2025_245: Removed all outbound OAuth refresh logic. Tokens are read-only.
  * When an OAuth token expires, the user is directed to run `codex login`.
@@ -43,6 +43,14 @@ const TOKEN_MAX_AGE_MS = 50 * 60 * 1000;
 
 /** Default Codex API endpoint for API key auth mode */
 const DEFAULT_API_ENDPOINT_APIKEY = 'https://api.openai.com/v1';
+
+/**
+ * Default Codex API endpoint for OAuth (ChatGPT subscription) auth mode.
+ * OAuth tokens from `codex login` are ChatGPT subscription tokens — they
+ * authenticate against the ChatGPT backend API, NOT the public api.openai.com.
+ * Using api.openai.com with OAuth tokens fails with 401 "Missing scopes: api.responses.write".
+ */
+const DEFAULT_API_ENDPOINT_OAUTH = 'https://chatgpt.com/backend-api/codex';
 
 // ---------------------------------------------------------------------------
 // Service Implementation
@@ -131,7 +139,7 @@ export class CodexAuthService implements ICodexAuthService {
    * Resolution order:
    * 1. api_base_url from auth file (explicit override)
    * 2. API key mode → https://api.openai.com/v1
-   * 3. OAuth mode → user-configured endpoint from settings
+   * 3. OAuth mode → user-configured endpoint from settings, or ChatGPT backend default
    */
   getApiEndpoint(): string {
     // Explicit override from auth file always wins
@@ -148,18 +156,19 @@ export class CodexAuthService implements ICodexAuthService {
       return DEFAULT_API_ENDPOINT_APIKEY;
     }
 
-    // OAuth mode: read endpoint from settings
+    // OAuth mode: read endpoint from settings, or use the ChatGPT backend default
     const oauthEndpoint = this.getOAuthApiEndpoint();
-    if (!oauthEndpoint) {
-      this.logger.warn(
-        '[CodexAuth] OAuth API endpoint not configured. ' +
-          'Set "ptah.provider.openai-codex.oauthApiEndpoint" in settings, ' +
-          'or use API key mode instead.',
+    if (oauthEndpoint) {
+      this.logger.debug(
+        `[CodexAuth] Using custom OAuth API endpoint from settings: ${oauthEndpoint}`,
       );
-      // Fall back to public endpoint (will likely fail for OAuth, but better than empty)
-      return DEFAULT_API_ENDPOINT_APIKEY;
+      return oauthEndpoint;
     }
-    return oauthEndpoint;
+
+    this.logger.debug(
+      `[CodexAuth] Using default OAuth API endpoint: ${DEFAULT_API_ENDPOINT_OAUTH}`,
+    );
+    return DEFAULT_API_ENDPOINT_OAUTH;
   }
 
   /**

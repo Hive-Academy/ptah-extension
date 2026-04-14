@@ -109,5 +109,6 @@ export {
 // Skill junction management (TASK_2025_201)
 export {
   SkillJunctionService,
+  type SkillJunctionActivateOptions,
   type SkillJunctionResult,
 } from './skill-junction.service';

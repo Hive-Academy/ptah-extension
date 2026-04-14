@@ -75,34 +75,33 @@ import { FloatingUIService } from '../shared';
 
     <!-- Popover panel (conditionally rendered) -->
     @if (isOpen()) {
-    <!-- Backdrop (optional) -->
-    @if (hasBackdrop()) {
-    <div
-      class="fixed inset-0 z-40"
-      [class]="backdropClass() === 'dark' ? 'bg-black/50' : ''"
-      (click)="handleBackdropClick()"
-      tabindex="-1"
-      role="presentation"
-      aria-hidden="true"
-    ></div>
-    }
+      <!-- Backdrop (optional) -->
+      @if (hasBackdrop()) {
+        <div
+          class="fixed inset-0 z-40"
+          [class]="backdropClass() === 'dark' ? 'bg-black/50' : ''"
+          (click)="handleBackdropClick()"
+          tabindex="-1"
+          role="presentation"
+          aria-hidden="true"
+        ></div>
+      }
 
-    <!-- Floating content - starts hidden until positioned -->
-    <div
-      #floatingRef
-      class="popover-panel bg-base-200 border border-base-300 rounded-lg shadow-xl z-50"
-      style="visibility: hidden;"
-      tabindex="-1"
-    >
-      <ng-content select="[content]" />
-    </div>
+      <!-- Floating content - starts hidden until positioned -->
+      <div
+        #floatingRef
+        class="popover-panel bg-base-200 border border-base-300 rounded-lg shadow-xl z-50"
+        style="visibility: hidden;"
+        tabindex="-1"
+      >
+        <ng-content select="[content]" />
+      </div>
     }
   `,
   styles: [
     `
       :host {
         display: inline-block;
-        position: relative;
       }
     `,
   ],

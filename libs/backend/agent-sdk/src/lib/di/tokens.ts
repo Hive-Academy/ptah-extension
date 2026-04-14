@@ -110,8 +110,8 @@ export const SDK_TOKENS = {
   SDK_CODEX_AUTH: Symbol.for('SdkCodexAuth'),
   SDK_CODEX_PROXY: Symbol.for('SdkCodexProxy'),
 
-  /** Local Model Provider Services (TASK_2025_265) */
-  SDK_OLLAMA_PROXY: Symbol.for('SdkOllamaProxy'),
+  /** Local Model Provider Services (TASK_2025_265, updated TASK_2025_281) */
+  SDK_OLLAMA_DISCOVERY: Symbol.for('SdkOllamaDiscovery'),
   SDK_LM_STUDIO_PROXY: Symbol.for('SdkLmStudioProxy'),
 
   /** Skill Junction Service (TASK_2025_201) */

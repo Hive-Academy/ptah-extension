@@ -69,6 +69,7 @@ interface PtahCliRegistryLike {
       workingDirectory?: string;
       resumeSessionId?: string;
       parentSessionId?: string;
+      modelTier?: 'opus' | 'sonnet' | 'haiku';
     },
   ): Promise<
     | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
@@ -153,6 +154,7 @@ export function buildAgentNamespace(
             workingDirectory,
             resumeSessionId: request.resumeSessionId,
             parentSessionId: activeSessionId,
+            modelTier: request.modelTier,
           },
         );
         if ('status' in result) {

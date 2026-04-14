@@ -841,10 +841,19 @@ export class SessionLifecycleManager {
       promptMode = 'iterable';
     }
 
+    // TASK_2025_COMPACT_FIX: Slash commands like /compact are single-turn operations.
+    // The SDK expects maxTurns: 1 so the query completes after the command executes.
+    // Without this, the query runs with maxTurns: 200 and never terminates,
+    // leaving the UI stuck in "streaming" state indefinitely.
+    if (isSlashCommand) {
+      queryOptions.options.maxTurns = 1;
+    }
+
     this.logger.info('[SessionLifecycle] Starting SDK query with options', {
       model: queryOptions.options.model,
       cwd: queryOptions.options.cwd,
       permissionMode: queryOptions.options.permissionMode,
+      maxTurns: queryOptions.options.maxTurns,
       isResume,
       isSlashCommand,
       promptMode,
@@ -859,9 +868,12 @@ export class SessionLifecycleManager {
 
     // Step 7b: Connect streamInput for follow-up message delivery
     // Resume sessions: ALL messages come via streamInput (idle prompt)
-    // Slash command sessions: follow-up messages come via streamInput
     // Regular sessions: follow-up messages come from the iterable
-    if (isResume || isSlashCommand) {
+    // TASK_2025_COMPACT_FIX: Do NOT connect streamInput for slash commands.
+    // Slash commands use maxTurns: 1 and complete after a single turn —
+    // connecting streamInput keeps the query alive waiting for input that
+    // will never come, preventing the for-await-of loop from exiting.
+    if (isResume && !isSlashCommand) {
       sdkQuery.streamInput(userMessageStream).catch((err) => {
         this.logger.warn('[SessionLifecycle] streamInput error', {
           error: err instanceof Error ? err.message : String(err),

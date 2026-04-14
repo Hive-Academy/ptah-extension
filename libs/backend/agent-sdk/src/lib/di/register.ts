@@ -66,7 +66,7 @@ import {
 } from '../copilot-provider';
 import { CodexAuthService, CodexTranslationProxy } from '../codex-provider';
 import {
-  OllamaTranslationProxy,
+  OllamaModelDiscoveryService,
   LmStudioTranslationProxy,
 } from '../local-provider';
 import { SDK_TOKENS } from './tokens';
@@ -428,14 +428,15 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Local Model Provider Services (TASK_2025_265)
-  // Translation proxies for Ollama and LM Studio
+  // Local Model Provider Services (TASK_2025_265, updated TASK_2025_281)
+  // Ollama: model discovery service (Anthropic-native, no proxy)
+  // LM Studio: translation proxy (OpenAI-compat, still needs proxy)
   // Must be registered before AuthManager resolves (which depends on these)
   // ============================================================
 
   container.register(
-    SDK_TOKENS.SDK_OLLAMA_PROXY,
-    { useClass: OllamaTranslationProxy },
+    SDK_TOKENS.SDK_OLLAMA_DISCOVERY,
+    { useClass: OllamaModelDiscoveryService },
     { lifecycle: Lifecycle.Singleton },
   );
 

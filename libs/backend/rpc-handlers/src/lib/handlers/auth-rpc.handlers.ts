@@ -28,7 +28,7 @@ import {
   ANTHROPIC_PROVIDERS,
   DEFAULT_PROVIDER_ID,
   ProviderModelsService,
-  COPILOT_DEFAULT_TIERS,
+  getAnthropicProvider,
 } from '@ptah-extension/agent-sdk';
 import type {
   CopilotAuthService,
@@ -179,6 +179,7 @@ export class AuthRpcHandlers {
           hasDynamicModels: !!('modelsEndpoint' in p && p.modelsEndpoint),
           authType: 'authType' in p ? p.authType : undefined,
           isLocal: 'isLocal' in p ? p.isLocal : undefined,
+          baseUrl: p.baseUrl,
         }));
 
         // Check Copilot auth status (TASK_2025_191)
@@ -362,6 +363,9 @@ export class AuthRpcHandlers {
             'anthropicProviderId',
             validated.anthropicProviderId,
           );
+
+          // Auto-map default tier models on first provider selection
+          await this.autoMapProviderTiers(validated.anthropicProviderId);
         }
 
         // TASK_2025_194: Explicitly await reinit so testConnection sees updated health.
@@ -478,7 +482,7 @@ export class AuthRpcHandlers {
         const username = await this.getGitHubUsername();
 
         // Auto-map default tier models if no mappings exist yet
-        await this.autoMapCopilotTiers();
+        await this.autoMapProviderTiers('github-copilot');
 
         this.logger.info('RPC: auth:copilotLogin succeeded', { username });
         return { success: true, username };
@@ -579,13 +583,19 @@ export class AuthRpcHandlers {
   }
 
   /**
-   * Auto-map Copilot's best models to Sonnet/Opus/Haiku tiers on first login.
+   * Auto-map a provider's default tier models on first selection or login.
    * Only sets tiers that haven't been explicitly configured by the user.
+   *
+   * Reads `defaultTiers` from the provider registry entry. Providers without
+   * defaultTiers (e.g., OpenRouter, local providers) are silently skipped.
    */
-  private async autoMapCopilotTiers(): Promise<void> {
-    const providerId = 'github-copilot';
+  private async autoMapProviderTiers(providerId: string): Promise<void> {
+    const provider = getAnthropicProvider(providerId);
+    if (!provider?.defaultTiers) return;
+
     try {
       const currentTiers = this.providerModels.getModelTiers(providerId);
+      const { defaultTiers } = provider;
 
       const tiers = ['sonnet', 'opus', 'haiku'] as const;
       const promises: Promise<void>[] = [];
@@ -595,7 +605,7 @@ export class AuthRpcHandlers {
             this.providerModels.setModelTier(
               providerId,
               tier,
-              COPILOT_DEFAULT_TIERS[tier],
+              defaultTiers[tier],
             ),
           );
         }
@@ -603,13 +613,13 @@ export class AuthRpcHandlers {
 
       if (promises.length > 0) {
         await Promise.all(promises);
-        this.logger.info('Auto-mapped Copilot default tier models', {
+        this.logger.info(`Auto-mapped ${provider.name} default tier models`, {
           mapped: promises.length,
         });
       }
     } catch (error) {
       this.logger.warn(
-        'Failed to auto-map Copilot tier models (non-fatal)',
+        `Failed to auto-map ${provider?.name ?? providerId} tier models (non-fatal)`,
         error instanceof Error ? error : new Error(String(error)),
       );
     }
