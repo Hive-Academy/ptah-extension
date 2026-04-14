@@ -158,8 +158,9 @@ export class ConfigRpcHandlers {
         try {
           this.logger.debug('RPC: config:model-get called');
 
+          const raw = this.configManager.get<string>('model.selected') || '';
           const model =
-            this.configManager.get<string>('model.selected') || 'default';
+            raw === 'default' || raw === '' ? TIER_TO_MODEL_ID['sonnet'] : raw;
 
           return { model };
         } catch (error) {
@@ -315,9 +316,15 @@ export class ConfigRpcHandlers {
         try {
           this.logger.debug('RPC: config:models-list called');
 
-          // Get saved model preference
+          // Get saved model preference. Resolve legacy 'default' to
+          // the canonical sonnet model ID so selection matching works
+          // now that we no longer include a 'default' entry.
+          const rawSaved =
+            this.configManager.get<string>('model.selected') || '';
           const savedModel =
-            this.configManager.get<string>('model.selected') || 'default';
+            rawSaved === 'default' || rawSaved === ''
+              ? TIER_TO_MODEL_ID['sonnet']
+              : rawSaved;
 
           // Fetch SDK tier models (always available, 3 slots)
           const sdkModels = await this.sdkAdapter.getSupportedModels();
@@ -365,8 +372,16 @@ export class ConfigRpcHandlers {
           }
 
           // --- Phase 1: Build SDK tier models (recommended shortcuts) ---
+          // Filter out the SDK's 'default' model — it always resolves to
+          // the same ID as one of the tier models (usually sonnet), creating
+          // a confusing duplicate entry in the dropdown. The tier models
+          // themselves are the authoritative entries.
+          const filteredSdkModels = sdkModels.filter(
+            (m) => m.value.toLowerCase() !== 'default',
+          );
+
           const sdkModelIds = new Set<string>();
-          const models = sdkModels.map((m) => {
+          const models = filteredSdkModels.map((m) => {
             const valueLower = m.value.toLowerCase();
             const displayLower = (m.displayName || '').toLowerCase();
             const descLower = (m.description || '').toLowerCase();
@@ -377,17 +392,11 @@ export class ConfigRpcHandlers {
               descLower,
             );
 
-            // Resolve bare tier names and 'default' to full model IDs.
+            // Resolve bare tier names to full model IDs.
             // Uses the canonical TIER_TO_MODEL_ID mapping from sdk-model-service
             // (single source of truth for tier → model ID mapping).
             let resolvedValue = m.value;
-            if (valueLower === 'default' && tier) {
-              resolvedValue = TIER_TO_MODEL_ID[tier] ?? tier;
-              this.logger.info(
-                `Resolved SDK 'default' tier to '${resolvedValue}'`,
-                { displayName: m.displayName },
-              );
-            } else if (TIER_TO_MODEL_ID[valueLower]) {
+            if (TIER_TO_MODEL_ID[valueLower]) {
               resolvedValue = TIER_TO_MODEL_ID[valueLower];
               this.logger.info(
                 `Resolved bare tier name '${m.value}' to '${resolvedValue}'`,

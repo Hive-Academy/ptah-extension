@@ -33,8 +33,6 @@ import { TrialEndedModalComponent } from '../molecules/trial-billing/trial-ended
 import { SettingsComponent } from '../../settings/settings.component';
 import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
-import { ResizeHandleComponent } from '../atoms/resize-handle.component';
 import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
 import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
@@ -99,8 +97,6 @@ import type { ViewType } from '@ptah-extension/core';
     LucideAngularModule,
     FormsModule,
     NativePopoverComponent,
-    AgentMonitorPanelComponent,
-    ResizeHandleComponent,
     SidebarTabComponent,
     SessionAnalyticsDashboardViewComponent,
   ],
@@ -179,20 +175,6 @@ export class AppShellComponent {
   // Inline edit state for session renaming
   readonly editingSessionId = signal<string | null>(null);
   readonly editingSessionName = signal('');
-
-  // Agent monitor badge type for the sidebar tab (session-scoped).
-  // Uses activeTab-filtered signals so the badge reflects only agents
-  // belonging to the currently viewed session, matching the panel content.
-  // Permission warnings remain global — the user should always see them.
-  readonly agentBadgeType = computed<'warning' | 'info' | 'neutral' | null>(
-    () => {
-      if (this.agentMonitorStore.pendingPermissions().length > 0)
-        return 'warning';
-      if (this.agentMonitorStore.hasActiveTabRunningAgents()) return 'info';
-      if (this.agentMonitorStore.activeTabAgentCount() > 0) return 'neutral';
-      return null;
-    },
-  );
 
   // Platform detection: in Electron, some icons move to the global navbar
   readonly isElectron = this.vscodeService.isElectron;

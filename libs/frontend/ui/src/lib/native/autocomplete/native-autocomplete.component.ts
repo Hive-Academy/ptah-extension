@@ -63,68 +63,77 @@ import { FloatingUIService, KeyboardNavigationService } from '../shared';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NativeOptionComponent, NgTemplateOutlet],
   providers: [FloatingUIService, KeyboardNavigationService],
+  host: {
+    '(document:click)': 'onDocumentClick($event)',
+    '(document:keydown.escape)': 'onEscapeKey()',
+  },
   template: `
     <div #inputOrigin class="autocomplete-input">
       <ng-content select="[autocompleteInput]" />
     </div>
 
     @if (isOpen()) {
-    <div
-      #floatingPanel
-      class="suggestions-panel bg-base-200 border border-base-300 rounded-lg shadow-lg max-h-80 flex flex-col z-50"
-      style="visibility: hidden;"
-      role="listbox"
-      [attr.aria-label]="ariaLabel()"
-    >
-      <!-- Header -->
-      @if (headerTitle()) {
-      <div class="px-3 py-2 border-b border-base-300">
-        <span
-          class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
-        >
-          {{ headerTitle() }}
-        </span>
-      </div>
-      }
+      <div
+        #floatingPanel
+        class="suggestions-panel bg-base-200 border border-base-300 rounded-lg shadow-lg max-h-80 flex flex-col z-50"
+        style="visibility: hidden;"
+        role="listbox"
+        [attr.aria-label]="ariaLabel()"
+      >
+        <!-- Header -->
+        @if (headerTitle()) {
+          <div class="px-3 py-2 border-b border-base-300">
+            <span
+              class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
+            >
+              {{ headerTitle() }}
+            </span>
+          </div>
+        }
 
-      <!-- Loading State -->
-      @if (isLoading()) {
-      <div class="flex items-center justify-center gap-3 p-4">
-        <span class="loading loading-spinner loading-sm"></span>
-        <span class="text-sm text-base-content/70">Loading...</span>
-      </div>
-      }
+        <!-- Loading State -->
+        @if (isLoading()) {
+          <div class="flex items-center justify-center gap-3 p-4">
+            <span class="loading loading-spinner loading-sm"></span>
+            <span class="text-sm text-base-content/70">Loading...</span>
+          </div>
+        }
 
-      <!-- Empty State -->
-      @else if (suggestions().length === 0) {
-      <div class="flex items-center justify-center p-4">
-        <span class="text-sm text-base-content/60">{{ emptyMessage() }}</span>
-      </div>
-      }
+        <!-- Empty State -->
+        @else if (suggestions().length === 0) {
+          <div class="flex items-center justify-center p-4">
+            <span class="text-sm text-base-content/60">{{
+              emptyMessage()
+            }}</span>
+          </div>
+        }
 
-      <!-- Suggestions List -->
-      @else {
-      <div class="flex flex-col overflow-y-auto overflow-x-hidden p-1">
-        @for (suggestion of suggestions(); track trackBy()($index, suggestion);
-        let i = $index) {
-        <ptah-native-option
-          [optionId]="'suggestion-' + i"
-          [value]="suggestion"
-          [isActive]="i === activeIndex()"
-          (selected)="handleSelection($event)"
-          (hovered)="handleHover(i)"
-        >
-          <ng-container
-            *ngTemplateOutlet="
-              suggestionTemplate();
-              context: { $implicit: suggestion }
-            "
-          />
-        </ptah-native-option>
+        <!-- Suggestions List -->
+        @else {
+          <div class="flex flex-col overflow-y-auto overflow-x-hidden p-1">
+            @for (
+              suggestion of suggestions();
+              track trackBy()($index, suggestion);
+              let i = $index
+            ) {
+              <ptah-native-option
+                [optionId]="'suggestion-' + i"
+                [value]="suggestion"
+                [isActive]="i === activeIndex()"
+                (selected)="handleSelection($event)"
+                (hovered)="handleHover(i)"
+              >
+                <ng-container
+                  *ngTemplateOutlet="
+                    suggestionTemplate();
+                    context: { $implicit: suggestion }
+                  "
+                />
+              </ptah-native-option>
+            }
+          </div>
         }
       </div>
-      }
-    </div>
     }
   `,
 })
@@ -177,7 +186,7 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
    * @default (index) => index
    */
   readonly trackBy = input<(index: number, item: T) => unknown>(
-    (i: number) => i
+    (i: number) => i,
   );
 
   /**
@@ -388,6 +397,39 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
   getActiveDescendantId(): string | null {
     const index = this.activeIndex();
     return index >= 0 ? `suggestion-${index}` : null;
+  }
+
+  // ============================================================
+  // CLICK-OUTSIDE & ESCAPE HANDLING
+  // ============================================================
+
+  /**
+   * Close the panel when clicking outside the input and floating panel.
+   * Uses the same pattern as NativeDropdownComponent.
+   */
+  onDocumentClick(event: MouseEvent): void {
+    if (!this.isOpen()) return;
+
+    const target = event.target as HTMLElement;
+    const origin = this.inputOrigin()?.nativeElement;
+    const panel = this.floatingPanel()?.nativeElement;
+
+    const clickedInside =
+      (origin && origin.contains(target)) || (panel && panel.contains(target));
+
+    if (!clickedInside) {
+      this.closed.emit();
+    }
+  }
+
+  /**
+   * Close the panel on Escape key press.
+   * Handles Escape globally so the parent doesn't need to wire up (keydown).
+   */
+  onEscapeKey(): void {
+    if (this.isOpen()) {
+      this.closed.emit();
+    }
   }
 
   // ============================================================
