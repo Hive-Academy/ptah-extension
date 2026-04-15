@@ -5,6 +5,7 @@ import {
   type Logger,
   type LicenseService,
   type LicenseStatus,
+  type IAuthSecretsService,
   TOKENS,
 } from '@ptah-extension/vscode-core';
 import { resolveEnvironment } from '@ptah-extension/shared';
@@ -374,23 +375,6 @@ async function handleLicenseBlocking(
                 }
               }
 
-              if (
-                auth['oauthToken'] &&
-                typeof auth['oauthToken'] === 'string'
-              ) {
-                try {
-                  await context.secrets.store(
-                    'ptah.auth.claudeOAuthToken',
-                    auth['oauthToken'] as string,
-                  );
-                  imported.push('ptah.auth.claudeOAuthToken');
-                } catch (e) {
-                  errors.push(
-                    `oauthToken: ${e instanceof Error ? e.message : String(e)}`,
-                  );
-                }
-              }
-
               if (auth['apiKey'] && typeof auth['apiKey'] === 'string') {
                 try {
                   await context.secrets.store(
@@ -551,6 +535,15 @@ export async function activate(
       tier: licenseStatus.tier,
       valid: licenseStatus.valid,
     });
+
+    // Clean up legacy secrets (e.g. removed OAuth token) — best-effort, non-blocking
+    DIContainer.resolve<IAuthSecretsService>(TOKENS.AUTH_SECRETS_SERVICE)
+      .cleanupLegacySecrets()
+      .catch((err) =>
+        logger.warn('Legacy secret cleanup failed', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
 
     // Register RPC Methods (Phase 2 - TASK_2025_021)
     // Extracted to RpcMethodRegistrationService for clean separation

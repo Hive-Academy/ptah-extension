@@ -493,6 +493,7 @@ export class ChatViewComponent {
       this.previousTabId = currentTabId ?? null;
 
       if (currentTabId && this.scrollPositionCache.has(currentTabId)) {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const savedPosition = this.scrollPositionCache.get(currentTabId)!;
         this.isRestoringScroll = true;
         setTimeout(() => {

@@ -1,4 +1,0 @@
-{
-  "*.{ts,js,json,md}": ["npx nx format:write"],
-  "*.{ts,js}": ["npx nx affected --target=lint --fix=true"]
-}

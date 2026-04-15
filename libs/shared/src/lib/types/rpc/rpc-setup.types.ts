@@ -7,7 +7,6 @@
 import type {
   ProjectAnalysisResult,
   AgentRecommendation,
-  SavedAnalysisMetadata,
 } from '../setup-wizard.types';
 import type {
   NewProjectType,

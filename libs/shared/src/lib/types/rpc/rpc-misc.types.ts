@@ -5,7 +5,6 @@
  * quality:*, plugins:* methods
  */
 
-import type { SessionId } from '../branded.types';
 import type {
   ProjectIntelligence,
   QualityHistoryEntry,

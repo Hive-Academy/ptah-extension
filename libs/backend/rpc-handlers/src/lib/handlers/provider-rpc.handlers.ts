@@ -271,40 +271,36 @@ export class ProviderRpcHandlers {
       ANTHROPIC_DIRECT_PROVIDER_ID,
       async (): Promise<ProviderModelInfo[]> => {
         const hasApiKey = !!this.authEnv.ANTHROPIC_API_KEY;
-        const hasOAuthToken = !!this.authEnv.CLAUDE_CODE_OAUTH_TOKEN;
 
-        if (!hasApiKey && !hasOAuthToken) {
+        if (!hasApiKey) {
           this.logger.debug(
-            '[ProviderRpc] No API key or OAuth token set, using tier fallback',
+            '[ProviderRpc] No API key set, using tier fallback',
           );
           return ANTHROPIC_TIER_FALLBACK;
         }
 
         try {
-          if (hasApiKey) {
-            // API key auth: /v1/models returns all specific model versions
-            // getApiModels() returns ModelInfo[] with .value as full model ID
-            const apiModels = await this.sdkAdapter.getApiModels();
-            if (apiModels.length > 0) {
-              this.logger.info(
-                `[ProviderRpc] Fetched ${apiModels.length} models from /v1/models (API key)`,
-              );
-              return apiModels.map((m) => ({
-                id: m.value,
-                name: m.displayName,
-                description: getModelPricingDescription(m.value),
-                contextLength: getModelContextWindow(m.value),
-                supportsToolUse: true,
-              }));
-            }
+          // API key auth: /v1/models returns all specific model versions
+          // getApiModels() returns ModelInfo[] with .value as full model ID
+          const apiModels = await this.sdkAdapter.getApiModels();
+          if (apiModels.length > 0) {
+            this.logger.info(
+              `[ProviderRpc] Fetched ${apiModels.length} models from /v1/models (API key)`,
+            );
+            return apiModels.map((m) => ({
+              id: m.value,
+              name: m.displayName,
+              description: getModelPricingDescription(m.value),
+              contextLength: getModelContextWindow(m.value),
+              supportsToolUse: true,
+            }));
           }
 
-          // OAuth auth (or API key /v1/models returned empty):
-          // getSupportedModels() returns ModelInfo[] with .value already normalized
+          // API key /v1/models returned empty — try SDK supportedModels() as fallback
           const sdkModels = await this.sdkAdapter.getSupportedModels();
           if (sdkModels.length > 0) {
             this.logger.info(
-              `[ProviderRpc] Fetched ${sdkModels.length} models from SDK supportedModels() (${hasOAuthToken ? 'OAuth' : 'API key fallback'})`,
+              `[ProviderRpc] Fetched ${sdkModels.length} models from SDK supportedModels() (API key fallback)`,
             );
             return sdkModels.map((m) => ({
               id: m.value,

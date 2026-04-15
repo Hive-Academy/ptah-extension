@@ -4,7 +4,7 @@
  *
  * Centralizes all authentication state that was previously scattered across
  * SettingsComponent and AuthConfigComponent. Provides a single source of truth
- * for auth credentials, provider selection, and connection status.
+ * for auth credentials (API key, provider keys), provider selection, and connection status.
  *
  * Follows ModelStateService signal-based pattern (private _signal, public asReadonly).
  * RPC integration: claude-rpc.service.ts (RpcResult pattern)
@@ -24,7 +24,7 @@ import type {
  * Auth State Service - Signal-based authentication state
  *
  * Responsibilities:
- * - Maintain authentication credential presence flags (OAuth, API key, provider keys)
+ * - Maintain authentication credential presence flags (API key, provider keys)
  * - Track per-provider key existence via _providerKeyMap
  * - Provide readonly signals for reactive UI updates
  * - Sync auth state with backend via RPC
@@ -35,7 +35,6 @@ import type {
  * readonly authState = inject(AuthStateService);
  *
  * // Read auth state
- * console.log(authState.hasOAuthToken());       // true/false
  * console.log(authState.hasProviderKey());       // true/false (for selected provider)
  * console.log(authState.showProviderModels());   // true/false
  *
@@ -52,9 +51,6 @@ export class AuthStateService {
   private readonly modelState = inject(ModelStateService);
 
   // --- Private mutable signals ---
-
-  /** Whether an OAuth token is configured in SecretStorage */
-  private readonly _hasOAuthToken = signal(false);
 
   /** Whether an Anthropic API key is configured in SecretStorage */
   private readonly _hasApiKey = signal(false);
@@ -103,6 +99,9 @@ export class AuthStateService {
   /** Whether Codex CLI auth token is stale/expired (TASK_2025_199) */
   private readonly _codexTokenStale = signal(false);
 
+  /** Whether Claude CLI is installed and detected on the system */
+  private readonly _claudeCliInstalled = signal(false);
+
   /**
    * Persisted auth method — the last value successfully saved to/loaded from the backend.
    * Unlike _authMethod (which changes on tile click), this only updates on load or successful save.
@@ -122,9 +121,6 @@ export class AuthStateService {
   private _loadPromise: Promise<void> | null = null;
 
   // --- Public readonly signals ---
-
-  /** Whether OAuth token is configured */
-  readonly hasOAuthToken = this._hasOAuthToken.asReadonly();
 
   /** Whether API key is configured */
   readonly hasApiKey = this._hasApiKey.asReadonly();
@@ -168,6 +164,9 @@ export class AuthStateService {
   /** Whether Codex CLI auth token is stale/expired (TASK_2025_199) */
   readonly codexTokenStale = this._codexTokenStale.asReadonly();
 
+  /** Whether Claude CLI is installed on the system */
+  readonly claudeCliInstalled = this._claudeCliInstalled.asReadonly();
+
   /** Persisted auth method (last loaded/saved from backend) */
   readonly persistedAuthMethod = this._persistedAuthMethod.asReadonly();
 
@@ -176,14 +175,14 @@ export class AuthStateService {
 
   /**
    * The tile ID of the currently active (persisted) provider.
-   * Returns 'claude' when persisted method is apiKey/oauth, otherwise the persisted provider ID.
+   * Returns 'claude' when persisted method is apiKey, otherwise the persisted provider ID.
    * Used to show an "Active" indicator on the correct tile, separate from the viewed tile.
    */
   readonly persistedTileId = computed(() => {
     // Return null while loading to avoid flashing the wrong tile as active
     if (this._isLoading()) return null;
     const method = this._persistedAuthMethod();
-    if (method === 'apiKey' || method === 'oauth') {
+    if (method === 'apiKey' || method === 'claudeCli') {
       return 'claude';
     }
     return this._persistedProviderId();
@@ -202,14 +201,14 @@ export class AuthStateService {
   });
 
   /**
-   * Whether any credential is configured (OAuth, API key, provider key, or Copilot OAuth).
+   * Whether any credential is configured (API key, provider key, or Copilot OAuth).
    * Used by SettingsComponent to determine if authentication section shows status.
    * TASK_2025_191: Added Copilot authenticated check.
    */
   readonly hasAnyCredential = computed(
     () =>
-      this._hasOAuthToken() ||
       this._hasApiKey() ||
+      this._claudeCliInstalled() ||
       this.hasProviderKey() ||
       this._copilotAuthenticated(),
   );
@@ -226,7 +225,7 @@ export class AuthStateService {
     const method = this._authMethod();
 
     // Direct Anthropic auth: model mapping not needed — SDK handles tiers natively
-    if (method === 'oauth' || method === 'apiKey') return false;
+    if (method === 'apiKey' || method === 'claudeCli') return false;
 
     // OpenRouter/auto: check provider-level credentials
     if (method !== 'openrouter' && method !== 'auto') return false;
@@ -247,22 +246,22 @@ export class AuthStateService {
 
   /**
    * Effective provider ID for model mapping.
-   * For direct auth methods (oauth/apiKey), the provider is always 'anthropic'.
+   * For direct auth (apiKey), the provider is always 'anthropic'.
    * For openrouter/auto, delegates to the user-selected provider.
    */
   readonly effectiveProviderId = computed(() => {
     const method = this._authMethod();
-    if (method === 'oauth' || method === 'apiKey') return 'anthropic';
+    if (method === 'apiKey' || method === 'claudeCli') return 'anthropic';
     return this._selectedProviderId();
   });
 
   /**
-   * Whether the selected provider has valid credentials (API key or OAuth).
+   * Whether the selected provider has valid credentials (API key or provider-specific auth).
    * Used by provider-model-selector to gate model loading.
    */
   readonly hasProviderCredential = computed(() => {
     const method = this._authMethod();
-    if (method === 'oauth') return this._hasOAuthToken();
+    if (method === 'claudeCli') return this._claudeCliInstalled();
     if (method === 'apiKey') return this._hasApiKey();
 
     // OpenRouter/auto: check provider-level credentials
@@ -484,35 +483,6 @@ export class AuthStateService {
       );
     } finally {
       this._isSaving.set(false);
-    }
-  }
-
-  /**
-   * Delete the OAuth token credential.
-   * Calls auth:saveSettings with empty claudeOAuthToken to remove it,
-   * then refreshes auth status.
-   */
-  async deleteOAuthToken(): Promise<void> {
-    try {
-      const result = await this.rpc.call('auth:saveSettings', {
-        authMethod: this._authMethod(),
-        claudeOAuthToken: '',
-      });
-
-      if (result.isSuccess()) {
-        await this.refreshAuthStatus();
-      } else {
-        console.error(
-          '[AuthStateService] Failed to delete OAuth token:',
-          result.error,
-        );
-        this._errorMessage.set(result.error || 'Failed to delete OAuth token');
-      }
-    } catch (error) {
-      console.error('[AuthStateService] deleteOAuthToken error:', error);
-      this._errorMessage.set(
-        error instanceof Error ? error.message : 'Failed to delete OAuth token',
-      );
     }
   }
 
@@ -751,7 +721,6 @@ export class AuthStateService {
    * @param response - Backend auth status response
    */
   private populateFromResponse(response: AuthGetAuthStatusResponse): void {
-    this._hasOAuthToken.set(response.hasOAuthToken);
     this._hasApiKey.set(response.hasApiKey);
     this._authMethod.set(response.authMethod);
     this._selectedProviderId.set(response.anthropicProviderId);
@@ -779,5 +748,8 @@ export class AuthStateService {
     // Populate Codex auth status (TASK_2025_199)
     this._codexAuthenticated.set(response.codexAuthenticated ?? false);
     this._codexTokenStale.set(response.codexTokenStale ?? false);
+
+    // Populate Claude CLI availability
+    this._claudeCliInstalled.set(response.claudeCliInstalled ?? false);
   }
 }

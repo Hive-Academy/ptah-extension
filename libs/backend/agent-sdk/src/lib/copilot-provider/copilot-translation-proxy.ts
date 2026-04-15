@@ -199,7 +199,7 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
             ) {
               try {
                 resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-              } catch (e) {
+              } catch {
                 reject(new Error('Invalid JSON from /models'));
               }
             } else {

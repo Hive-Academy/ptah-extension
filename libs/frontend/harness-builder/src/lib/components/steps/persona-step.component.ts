@@ -254,6 +254,9 @@ export class PersonaStepComponent {
         enhancedSections: {},
       });
 
+      // Pre-populate MCP server suggestions
+      this.state.setSuggestedMcpServers(response.suggestedMcpServers ?? []);
+
       this.suggestionReasoning.set(response.reasoning);
     } catch (err) {
       this.suggestionError.set(

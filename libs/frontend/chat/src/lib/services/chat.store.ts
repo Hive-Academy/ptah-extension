@@ -484,16 +484,16 @@ export class ChatStore {
     if (!ChatStore.SDK_NATIVE_COMMANDS.has(commandName)) return false;
 
     // If auth state hasn't loaded yet, don't block — let the backend decide.
-    // Blocking on stale defaults would incorrectly reject commands for OAuth users.
+    // Blocking on stale defaults would incorrectly reject commands before auth state is known.
     if (this.authState.isLoading()) return false;
 
     const authMethod = this.authState.persistedAuthMethod();
-    if (authMethod === 'oauth' || authMethod === 'apiKey') return false;
+    if (authMethod === 'apiKey') return false;
 
     // 'auto' picks the best available credential at runtime — allow if
     // Anthropic credentials exist, block only if none are configured.
     if (authMethod === 'auto') {
-      return !this.authState.hasOAuthToken() && !this.authState.hasApiKey();
+      return !this.authState.hasApiKey();
     }
     return true;
   }
@@ -524,7 +524,7 @@ export class ChatStore {
       role: 'assistant',
       rawContent:
         `The \`${commandName}\` command is a built-in Claude Agent SDK feature ` +
-        `that only works with direct Anthropic authentication (OAuth or API key).\n\n` +
+        `that only works with direct Anthropic authentication (API key).\n\n` +
         `Your current provider does not support this command. ` +
         `To use SDK commands like \`/compact\`, \`/context\`, \`/cost\`, and \`/review\`, ` +
         `switch to a direct Anthropic connection in **Settings > Authentication**.`,

@@ -105,7 +105,7 @@ export const TIER_ENV_VAR_MAP: Record<EnvMappedTier, keyof AuthEnv> = {
  *
  * The Claude Agent SDK resolves bare tier names ('haiku', 'sonnet', 'opus') in
  * subagent subprocesses by reading ANTHROPIC_DEFAULT_*_MODEL env vars. When using
- * direct Anthropic auth (API key / OAuth), these vars are never set because
+ * direct Anthropic auth (API key), these vars are never set because
  * ProviderModelsService.setModelTier() is only called for third-party providers.
  *
  * This function returns a Record that guarantees all three tier env vars are
@@ -239,7 +239,7 @@ export class SdkModelService {
    * Multi-strategy approach (in priority order):
    * 1. Return cached models if available (SDK or API source)
    * 2. Try SDK's supportedModels() — spawns subprocess with full auth config
-   * 3. Try /v1/models API — fast HTTP call, works for API key and some OAuth
+   * 3. Try /v1/models API — fast HTTP call, works for API key auth
    * 4. Fallback to hardcoded models (never cached, so next call retries)
    *
    * The SDK's supportedModels() is preferred because it returns the exact models
@@ -325,7 +325,7 @@ export class SdkModelService {
    * Normalize SDK models: resolve bare tier names in `.value` to full model IDs
    * and deduplicate.
    *
-   * For direct Anthropic auth (API key / OAuth): pass models through as-is.
+   * For direct Anthropic auth (API key): pass models through as-is.
    * The SDK returns the correct models for the account and the 'default' tier
    * works natively.
    *
@@ -410,10 +410,9 @@ export class SdkModelService {
 
     // Pre-flight auth check — no point spawning a subprocess without credentials
     const hasApiKey = !!this.authEnv.ANTHROPIC_API_KEY;
-    const hasOAuth = !!this.authEnv.CLAUDE_CODE_OAUTH_TOKEN;
     const hasAuthToken = !!this.authEnv.ANTHROPIC_AUTH_TOKEN;
 
-    if (!hasApiKey && !hasOAuth && !hasAuthToken) {
+    if (!hasApiKey && !hasAuthToken) {
       this.logger.warn(
         '[SdkModelService] No auth credentials in AuthEnv — SDK supportedModels() will fail',
       );
@@ -424,7 +423,6 @@ export class SdkModelService {
       '[SdkModelService] Fetching models via SDK supportedModels()',
       {
         hasApiKey,
-        hasOAuth,
         hasAuthToken,
         hasBaseUrl: !!this.authEnv.ANTHROPIC_BASE_URL,
         cliJsPath,
@@ -564,8 +562,8 @@ export class SdkModelService {
   /**
    * Fetch models via Anthropic /v1/models API and convert to ModelInfo format.
    *
-   * This is a fast HTTP call (no subprocess) that works for API key auth and
-   * may work for OAuth Bearer tokens. Returns models in ModelInfo format so
+   * This is a fast HTTP call (no subprocess) that works for API key auth.
+   * Returns models in ModelInfo format so
    * they can be used interchangeably with SDK's supportedModels() results.
    *
    * @returns ModelInfo[] converted from API models, empty array on failure
@@ -633,8 +631,7 @@ export class SdkModelService {
     // Need auth credentials
     const apiKey = this.authEnv.ANTHROPIC_API_KEY;
     const authToken = this.authEnv.ANTHROPIC_AUTH_TOKEN;
-    const oauthToken = this.authEnv.CLAUDE_CODE_OAUTH_TOKEN;
-    if (!apiKey && !authToken && !oauthToken) {
+    if (!apiKey && !authToken) {
       this.logger.debug('[SdkModelService] No auth credentials for /v1/models');
       return [];
     }
@@ -647,8 +644,6 @@ export class SdkModelService {
 
       if (apiKey) {
         headers['x-api-key'] = apiKey;
-      } else if (oauthToken) {
-        headers['Authorization'] = `Bearer ${oauthToken}`;
       } else if (authToken) {
         headers['Authorization'] = `Bearer ${authToken}`;
       }

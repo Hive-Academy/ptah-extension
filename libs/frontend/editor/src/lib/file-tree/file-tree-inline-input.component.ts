@@ -2,7 +2,6 @@ import {
   Component,
   input,
   output,
-  signal,
   ChangeDetectionStrategy,
   ElementRef,
   viewChild,

@@ -19,6 +19,7 @@ export * from './lib/types/cli-skill-sync.types';
 export * from './lib/types/auth-env.types';
 export * from './lib/types/ptah-cli.types';
 export * from './lib/types/agent-permission.types';
+export * from './lib/types/mcp-directory.types';
 
 // Type guards
 export * from './lib/type-guards/tool-input-guards';

@@ -151,7 +151,7 @@ export class ResponsesStreamTranslator {
    */
   constructor(
     private readonly model: string,
-    private readonly requestId: string
+    private readonly requestId: string,
   ) {}
 
   /**
@@ -249,7 +249,7 @@ export class ResponsesStreamTranslator {
    */
   private handleEvent(
     eventType: string,
-    event: ResponsesStreamEvent
+    event: ResponsesStreamEvent,
   ): string[] {
     switch (eventType) {
       case 'response.output_text.delta':
@@ -292,7 +292,7 @@ export class ResponsesStreamTranslator {
           type: 'content_block_start',
           index: this.blockIndex,
           content_block: { type: 'text', text: '' },
-        })
+        }),
       );
       this.inTextBlock = true;
     }
@@ -303,7 +303,7 @@ export class ResponsesStreamTranslator {
         type: 'content_block_delta',
         index: this.blockIndex,
         delta: { type: 'text_delta', text },
-      })
+      }),
     );
 
     return events;
@@ -331,7 +331,7 @@ export class ResponsesStreamTranslator {
           sseEvent('content_block_stop', {
             type: 'content_block_stop',
             index: this.blockIndex,
-          })
+          }),
         );
         this.blockIndex++;
         this.inTextBlock = false;
@@ -349,6 +349,7 @@ export class ResponsesStreamTranslator {
 
       // Emit content_block_start for this tool use if we have the name
       if (name) {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const toolCall = this.activeToolCalls.get(outputIndex)!;
         toolCall.started = true;
         events.push(
@@ -361,7 +362,7 @@ export class ResponsesStreamTranslator {
               name,
               input: {},
             },
-          })
+          }),
         );
       }
     }
@@ -374,7 +375,7 @@ export class ResponsesStreamTranslator {
    * Emits input_json_delta events for the accumulated arguments.
    */
   private handleFunctionCallArgumentsDelta(
-    event: ResponsesStreamEvent
+    event: ResponsesStreamEvent,
   ): string[] {
     const events: string[] = [];
     const outputIndex = event.output_index ?? 0;
@@ -415,7 +416,7 @@ export class ResponsesStreamTranslator {
           sseEvent('content_block_stop', {
             type: 'content_block_stop',
             index: this.blockIndex,
-          })
+          }),
         );
         this.blockIndex++;
         this.inTextBlock = false;
@@ -433,7 +434,7 @@ export class ResponsesStreamTranslator {
             name: toolCall.name,
             input: {},
           },
-        })
+        }),
       );
     }
 
@@ -447,7 +448,7 @@ export class ResponsesStreamTranslator {
             type: 'input_json_delta',
             partial_json: argumentsDelta,
           },
-        })
+        }),
       );
     }
 
@@ -470,7 +471,7 @@ export class ResponsesStreamTranslator {
           sseEvent('content_block_stop', {
             type: 'content_block_stop',
             index: toolCall.blockIndex,
-          })
+          }),
         );
         this.blockIndex = toolCall.blockIndex + 1;
       }
@@ -482,7 +483,7 @@ export class ResponsesStreamTranslator {
           sseEvent('content_block_stop', {
             type: 'content_block_stop',
             index: this.blockIndex,
-          })
+          }),
         );
         this.blockIndex++;
         this.inTextBlock = false;
@@ -529,7 +530,7 @@ export class ResponsesStreamTranslator {
         sseEvent('content_block_stop', {
           type: 'content_block_stop',
           index: this.blockIndex,
-        })
+        }),
       );
       this.inTextBlock = false;
     }
@@ -541,7 +542,7 @@ export class ResponsesStreamTranslator {
           sseEvent('content_block_stop', {
             type: 'content_block_stop',
             index: toolCall.blockIndex,
-          })
+          }),
         );
       }
     }
@@ -556,7 +557,7 @@ export class ResponsesStreamTranslator {
         type: 'message_delta',
         delta: { stop_reason: stopReason, stop_sequence: null },
         usage: { output_tokens: this.outputTokens },
-      })
+      }),
     );
 
     // message_stop

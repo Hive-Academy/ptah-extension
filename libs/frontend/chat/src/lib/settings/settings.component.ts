@@ -33,6 +33,7 @@ import { PluginStatusWidgetComponent } from '../components/molecules/setup-plugi
 import { PluginBrowserModalComponent } from '../components/molecules/setup-plugins/plugin-browser-modal.component';
 import { SetupStatusWidgetComponent } from '../components/molecules/setup-plugins/setup-status-widget.component';
 import { SkillShBrowserComponent } from '../components/molecules/setup-plugins/skill-sh-browser.component';
+import { McpDirectoryBrowserComponent } from '../components/molecules/setup-plugins/mcp-directory-browser.component';
 import {
   AppStateManager,
   ClaudeRpcService,
@@ -77,6 +78,7 @@ import { ChatStore } from '../services/chat.store';
     PluginBrowserModalComponent,
     SetupStatusWidgetComponent,
     SkillShBrowserComponent,
+    McpDirectoryBrowserComponent,
     LucideAngularModule,
   ],
   templateUrl: './settings.component.html',
@@ -197,7 +199,7 @@ export class SettingsComponent implements OnInit {
   }
 
   /** Handle plugins saved event from modal */
-  onPluginsSaved(enabledIds: string[]): void {
+  onPluginsSaved(_enabledIds: string[]): void {
     this.isPluginBrowserOpen.set(false);
     this.commandDiscovery.clearCache();
     // Trigger skill-sh-browser to reload installed skills list
