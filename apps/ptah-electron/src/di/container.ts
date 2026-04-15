@@ -227,7 +227,7 @@ export class ElectronDIContainer {
     // ========================================
     // PHASE 1.1b: AuthSecretsService (real implementation)
     // ========================================
-    // AuthSecretsService manages encrypted credential storage (OAuth tokens, API keys).
+    // AuthSecretsService manages encrypted credential storage (API keys).
     // Uses `import type` for vscode — no runtime vscode dependency.
     // Resolves EXTENSION_CONTEXT (shimmed in Phase 1.5) which provides secrets storage.
     // Required by: AuthManager, SdkAgentAdapter, PtahCliRegistry, auth RPC handlers.

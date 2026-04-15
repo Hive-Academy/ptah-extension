@@ -199,7 +199,7 @@ export class FilePickerService {
       const backendFailed = backendData?.success === false;
 
       if (result.success && !backendFailed && backendData?.files) {
-        const files = result.data!.files!;
+        const files = result.data!.files!; // eslint-disable-line @typescript-eslint/no-non-null-assertion
         const suggestions: FileSuggestion[] = files.map((file) => {
           // Normalize Windows backslashes for directory extraction
           const normalizedPath = file.relativePath.replace(/\\/g, '/');

@@ -1300,7 +1300,7 @@ export class EnhancedPromptsService {
    */
   private buildCombinedPrompt(
     output: PromptDesignerOutput,
-    sdkConfig?: EnhancedPromptsSdkConfig,
+    _sdkConfig?: EnhancedPromptsSdkConfig,
   ): string {
     const sections: string[] = [];
 

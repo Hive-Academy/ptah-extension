@@ -32,7 +32,7 @@ export class SettingsExportService {
     @inject(PLATFORM_TOKENS.SECRET_STORAGE)
     private readonly secretStorage: ISecretStorage,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
 
   /**
@@ -46,25 +46,22 @@ export class SettingsExportService {
    * @returns A complete, versioned export object ready for JSON serialization
    */
   async collectSettings(
-    source: 'vscode' | 'electron'
+    source: 'vscode' | 'electron',
   ): Promise<PtahSettingsExport> {
     this.logger.info('[SettingsExport] Collecting settings', { source });
 
-    const [licenseKey, oauthToken, apiKey, providerKeys, config] =
-      await Promise.all([
-        this.getSecret(SECRET_KEYS.LICENSE_KEY),
-        this.getSecret(SECRET_KEYS.OAUTH_TOKEN),
-        this.getSecret(SECRET_KEYS.API_KEY),
-        this.collectProviderKeys(),
-        this.collectConfigValues(),
-      ]);
+    const [licenseKey, apiKey, providerKeys, config] = await Promise.all([
+      this.getSecret(SECRET_KEYS.LICENSE_KEY),
+      this.getSecret(SECRET_KEYS.API_KEY),
+      this.collectProviderKeys(),
+      this.collectConfigValues(),
+    ]);
 
     const exportData: PtahSettingsExport = {
       version: SETTINGS_EXPORT_VERSION,
       exportedAt: new Date().toISOString(),
       source,
       auth: {
-        ...(oauthToken ? { oauthToken } : {}),
         ...(apiKey ? { apiKey } : {}),
         ...(Object.keys(providerKeys).length > 0 ? { providerKeys } : {}),
       },
@@ -151,7 +148,7 @@ export class SettingsExportService {
       try {
         const value = this.workspaceProvider.getConfiguration<unknown>(
           'ptah',
-          key
+          key,
         );
         if (value !== undefined) {
           config[key] = value;

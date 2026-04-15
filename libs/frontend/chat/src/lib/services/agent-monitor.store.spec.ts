@@ -5,8 +5,8 @@
  * that ensures agents display in the correct tab's sidebar.
  */
 
-import { TestBed, fakeAsync, tick } from '@angular/core/testing';
-import { AgentMonitorStore, MonitoredAgent } from './agent-monitor.store';
+import { TestBed } from '@angular/core/testing';
+import { AgentMonitorStore } from './agent-monitor.store';
 import { TabManagerService } from './tab-manager.service';
 import { VSCodeService } from '@ptah-extension/core';
 import { signal, computed } from '@angular/core';
@@ -54,6 +54,7 @@ describe('AgentMonitorStore', () => {
       status: 'running',
       startedAt: Date.now(),
       displayName: 'Gemini',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
     if (status !== 'running') {
       store.onAgentExited({
@@ -64,6 +65,7 @@ describe('AgentMonitorStore', () => {
         status,
         startedAt: Date.now(),
         exitCode: status === 'error' ? 1 : 0,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
     }
   }
@@ -98,7 +100,7 @@ describe('AgentMonitorStore', () => {
     it('should be a no-op when no agents match the tab ID', () => {
       spawnAgent('agent-1', 'tab_other');
 
-      const agentsBefore = store.agents();
+      const _agentsBefore = store.agents();
       store.resolveParentSessionId('tab_nonexistent', 'real-uuid-xyz');
       const agentsAfter = store.agents();
 
@@ -207,6 +209,7 @@ describe('AgentMonitorStore', () => {
         agentId: 'agent-2',
         type: 'tool',
         description: 'Allow file write',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
 
       mockActiveTab.set({ claudeSessionId: 'session-a' });

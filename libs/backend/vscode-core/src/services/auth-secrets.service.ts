@@ -4,7 +4,7 @@
  * Manages SDK authentication credentials using VS Code's SecretStorage.
  * SecretStorage provides encrypted, secure storage for sensitive data.
  *
- * TASK_2025_076: Secure credential storage for OAuth token and API key
+ * TASK_2025_076: Secure credential storage for API key
  *
  * @packageDocumentation
  */
@@ -17,7 +17,7 @@ import { TOKENS } from '../di/tokens';
 /**
  * Auth credential types supported by this service
  */
-export type AuthCredentialType = 'oauthToken' | 'apiKey';
+export type AuthCredentialType = 'apiKey';
 
 /**
  * Interface for auth secrets management
@@ -25,14 +25,14 @@ export type AuthCredentialType = 'oauthToken' | 'apiKey';
 export interface IAuthSecretsService {
   /**
    * Get credential from SecretStorage
-   * @param type - Credential type ('oauthToken' or 'apiKey')
+   * @param type - Credential type ('apiKey')
    * @returns Credential value or undefined if not set
    *
    * @example
    * ```typescript
-   * const token = await authSecrets.getCredential('oauthToken');
-   * if (token) {
-   *   console.log('OAuth token is configured');
+   * const key = await authSecrets.getCredential('apiKey');
+   * if (key) {
+   *   console.log('API key is configured');
    * }
    * ```
    */
@@ -40,14 +40,14 @@ export interface IAuthSecretsService {
 
   /**
    * Store credential in SecretStorage
-   * @param type - Credential type ('oauthToken' or 'apiKey')
+   * @param type - Credential type ('apiKey')
    * @param value - Credential value to store. Empty string deletes the credential.
    *
    * @example
    * ```typescript
-   * await authSecrets.setCredential('oauthToken', 'sk-ant-oat01-xxx');
+   * await authSecrets.setCredential('apiKey', 'sk-ant-api03-xxx');
    * // To delete:
-   * await authSecrets.setCredential('oauthToken', '');
+   * await authSecrets.setCredential('apiKey', '');
    * ```
    */
   setCredential(type: AuthCredentialType, value: string): Promise<void>;
@@ -71,7 +71,6 @@ export interface IAuthSecretsService {
    *
    * @example
    * ```typescript
-   * const hasOAuth = await authSecrets.hasCredential('oauthToken');
    * const hasApiKey = await authSecrets.hasCredential('apiKey');
    * ```
    */
@@ -104,6 +103,12 @@ export interface IAuthSecretsService {
    * @returns True if provider key exists and is non-empty
    */
   hasProviderKey(providerId: string): Promise<boolean>;
+
+  /**
+   * Delete legacy secrets that are no longer used.
+   * Call once during extension activation to clean up orphaned keys.
+   */
+  cleanupLegacySecrets(): Promise<void>;
 }
 
 /**
@@ -128,7 +133,6 @@ export class AuthSecretsService implements IAuthSecretsService {
    * Key mapping for credential types - single source of truth
    */
   private readonly KEY_MAP: Record<AuthCredentialType, string> = {
-    oauthToken: 'claudeOAuthToken',
     apiKey: 'anthropicApiKey',
   };
 
@@ -136,7 +140,7 @@ export class AuthSecretsService implements IAuthSecretsService {
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: vscode.ExtensionContext,
     @inject(TOKENS.LOGGER)
-    private readonly logger: Logger
+    private readonly logger: Logger,
   ) {
     this.logger.info('[AuthSecretsService.constructor] Service initialized');
   }
@@ -160,9 +164,9 @@ export class AuthSecretsService implements IAuthSecretsService {
    *
    * @example
    * ```typescript
-   * const token = await authSecrets.getCredential('oauthToken');
-   * if (token) {
-   *   console.log('OAuth token configured');
+   * const key = await authSecrets.getCredential('apiKey');
+   * if (key) {
+   *   console.log('API key configured');
    * }
    * ```
    */
@@ -189,8 +193,8 @@ export class AuthSecretsService implements IAuthSecretsService {
    *
    * @example
    * ```typescript
-   * await authSecrets.setCredential('oauthToken', 'sk-ant-oat01-...');
-   * console.log('OAuth token stored successfully');
+   * await authSecrets.setCredential('apiKey', 'sk-ant-api03-...');
+   * console.log('API key stored successfully');
    * ```
    */
   async setCredential(type: AuthCredentialType, value: string): Promise<void> {
@@ -232,7 +236,7 @@ export class AuthSecretsService implements IAuthSecretsService {
       '[AuthSecretsService.deleteCredential] Credential deleted',
       {
         type,
-      }
+      },
     );
   }
 
@@ -246,10 +250,10 @@ export class AuthSecretsService implements IAuthSecretsService {
    *
    * @example
    * ```typescript
-   * if (await authSecrets.hasCredential('oauthToken')) {
-   *   console.log('OAuth token is configured');
+   * if (await authSecrets.hasCredential('apiKey')) {
+   *   console.log('API key is configured');
    * } else {
-   *   console.log('Please configure OAuth token');
+   *   console.log('Please configure API key');
    * }
    * ```
    */
@@ -303,7 +307,7 @@ export class AuthSecretsService implements IAuthSecretsService {
       {
         providerId,
         valueLength: value.length,
-      }
+      },
     );
   }
 
@@ -318,7 +322,7 @@ export class AuthSecretsService implements IAuthSecretsService {
       '[AuthSecretsService.deleteProviderKey] Provider key deleted',
       {
         providerId,
-      }
+      },
     );
   }
 
@@ -329,5 +333,40 @@ export class AuthSecretsService implements IAuthSecretsService {
   async hasProviderKey(providerId: string): Promise<boolean> {
     const value = await this.getProviderKey(providerId);
     return !!value && value.length > 0;
+  }
+
+  // ================================================================
+  // Legacy secret cleanup
+  // ================================================================
+
+  /**
+   * Keys that were removed from the codebase but may still exist in storage.
+   * - `ptah.auth.claudeOAuthToken`: Removed for Anthropic TOS compliance.
+   *   The Claude Agent SDK spawns the CLI binary which uses its own credential store.
+   */
+  private readonly LEGACY_KEYS = ['ptah.auth.claudeOAuthToken'];
+
+  /**
+   * Delete legacy secrets that are no longer used.
+   * Safe to call multiple times — deleting a non-existent key is a no-op.
+   */
+  async cleanupLegacySecrets(): Promise<void> {
+    for (const key of this.LEGACY_KEYS) {
+      try {
+        await this.context.secrets.delete(key);
+        this.logger.info(
+          '[AuthSecretsService.cleanupLegacySecrets] Deleted legacy key',
+          { key },
+        );
+      } catch (error) {
+        this.logger.warn(
+          '[AuthSecretsService.cleanupLegacySecrets] Failed to delete legacy key',
+          {
+            key,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+    }
   }
 }

@@ -1097,8 +1097,6 @@ export class ChatInputComponent implements OnInit {
             (p) => p.id === anthropicProviderId,
           );
           label = provider?.name ?? 'Provider';
-        } else if (authMethod === 'oauth') {
-          label = 'OAuth';
         } else if (authMethod === 'apiKey') {
           label = 'API Key';
         } else {

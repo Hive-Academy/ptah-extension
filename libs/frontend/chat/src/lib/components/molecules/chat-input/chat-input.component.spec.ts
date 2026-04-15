@@ -422,8 +422,9 @@ describe('ChatInputComponent', () => {
 
   describe('slash command handling (namespace preservation)', () => {
     it('should preserve namespaced plugin commands with colon', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (component as any)._currentMessage.set(
-        '/ptah-core:orchestrate Create TASK_2025_004'
+        '/ptah-core:orchestrate Create TASK_2025_004',
       );
 
       await component.handleSend();
@@ -431,13 +432,14 @@ describe('ChatInputComponent', () => {
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         '/ptah-core:orchestrate Create TASK_2025_004',
         [],
-        undefined
+        undefined,
       );
     });
 
     it('should pass through commands as-is without modification', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (component as any)._currentMessage.set(
-        '/orchestrate:Create TASK_2025_004'
+        '/orchestrate:Create TASK_2025_004',
       );
 
       await component.handleSend();
@@ -445,11 +447,12 @@ describe('ChatInputComponent', () => {
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         '/orchestrate:Create TASK_2025_004',
         [],
-        undefined
+        undefined,
       );
     });
 
     it('should NOT modify regular messages', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (component as any)._currentMessage.set('Hello, world!');
 
       await component.handleSend();
@@ -457,11 +460,12 @@ describe('ChatInputComponent', () => {
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         'Hello, world!',
         [],
-        undefined
+        undefined,
       );
     });
 
     it('should pass through simple slash commands unchanged', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (component as any)._currentMessage.set('/compact');
 
       await component.handleSend();
@@ -469,11 +473,12 @@ describe('ChatInputComponent', () => {
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         '/compact',
         [],
-        undefined
+        undefined,
       );
     });
 
     it('should preserve colon in namespaced commands with args', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (component as any)._currentMessage.set('/ptah-core:review-code file.ts');
 
       await component.handleSend();
@@ -481,7 +486,7 @@ describe('ChatInputComponent', () => {
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         '/ptah-core:review-code file.ts',
         [],
-        undefined
+        undefined,
       );
     });
   });

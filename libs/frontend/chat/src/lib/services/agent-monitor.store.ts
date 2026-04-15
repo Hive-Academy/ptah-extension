@@ -602,6 +602,7 @@ export class AgentMonitorStore implements OnDestroy {
   ): [string, MonitoredAgent] | null {
     // Strategy 1: explicit resumedFromAgentId
     if (info.resumedFromAgentId && map.has(info.resumedFromAgentId)) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return [info.resumedFromAgentId, map.get(info.resumedFromAgentId)!];
     }
 

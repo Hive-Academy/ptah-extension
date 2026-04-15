@@ -30,6 +30,7 @@ import {
   ProviderModelsService,
   getAnthropicProvider,
   TIER_ENV_VAR_MAP,
+  ClaudeCliDetector,
 } from '@ptah-extension/agent-sdk';
 import type {
   CopilotAuthService,
@@ -64,6 +65,8 @@ export class AuthRpcHandlers {
     private readonly platformCommands: IPlatformCommands,
     @inject(TOKENS.PLATFORM_AUTH_PROVIDER)
     private readonly platformAuth: IPlatformAuthProvider,
+    @inject(SDK_TOKENS.SDK_CLI_DETECTOR)
+    private readonly cliDetector: ClaudeCliDetector,
   ) {}
 
   /**
@@ -131,17 +134,15 @@ export class AuthRpcHandlers {
         const safeParams: AuthGetAuthStatusParams = params ?? {};
 
         // Check SecretStorage for credentials
-        const hasOAuthToken =
-          await this.authSecretsService.hasCredential('oauthToken');
         const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
 
         // Get auth method from ConfigManager (non-sensitive)
         // Normalize legacy/invalid values (e.g. 'vscode-lm') to 'auto'
         const rawMethod = this.configManager.get<string>('authMethod');
-        const validMethods = ['oauth', 'apiKey', 'openrouter', 'auto'];
+        const validMethods = ['apiKey', 'claudeCli', 'openrouter', 'auto'];
         const authMethod = (
           rawMethod && validMethods.includes(rawMethod) ? rawMethod : 'auto'
-        ) as 'oauth' | 'apiKey' | 'openrouter' | 'auto';
+        ) as 'apiKey' | 'claudeCli' | 'openrouter' | 'auto';
 
         // TASK_2025_129 Batch 3: Get selected provider ID
         const anthropicProviderId = this.configManager.getWithDefault<string>(
@@ -218,8 +219,19 @@ export class AuthRpcHandlers {
           );
         }
 
+        // Check Claude CLI availability
+        let claudeCliInstalled = false;
+        try {
+          const cliHealth = await this.cliDetector.performHealthCheck();
+          claudeCliInstalled = cliHealth.available;
+        } catch (cliError) {
+          this.logger.warn(
+            'Claude CLI detection failed (non-fatal)',
+            cliError instanceof Error ? cliError : new Error(String(cliError)),
+          );
+        }
+
         this.logger.debug('RPC: auth:getAuthStatus result', {
-          hasOAuthToken,
           hasApiKey,
           hasOpenRouterKey,
           hasAnyProviderKey,
@@ -228,10 +240,10 @@ export class AuthRpcHandlers {
           copilotAuthenticated,
           codexAuthenticated,
           codexTokenStale,
+          claudeCliInstalled,
         });
 
         return {
-          hasOAuthToken,
           hasApiKey,
           hasOpenRouterKey,
           hasAnyProviderKey,
@@ -242,6 +254,7 @@ export class AuthRpcHandlers {
           copilotUsername,
           codexAuthenticated,
           codexTokenStale,
+          claudeCliInstalled,
         };
       } catch (error) {
         this.logger.error(
@@ -258,8 +271,7 @@ export class AuthRpcHandlers {
    */
   private registerSaveSettings(): void {
     const AuthSettingsSchema = z.object({
-      authMethod: z.enum(['oauth', 'apiKey', 'openrouter', 'auto']),
-      claudeOAuthToken: z.string().optional(),
+      authMethod: z.enum(['apiKey', 'claudeCli', 'openrouter', 'auto']),
       anthropicApiKey: z.string().optional(),
       openrouterApiKey: z.string().optional(),
       // TASK_2025_129 Batch 3: Selected Anthropic-compatible provider
@@ -279,12 +291,6 @@ export class AuthRpcHandlers {
           typeof params === 'object' && params !== null
             ? {
                 ...params,
-                claudeOAuthToken:
-                  'claudeOAuthToken' in params &&
-                  typeof params.claudeOAuthToken === 'string' &&
-                  params.claudeOAuthToken
-                    ? `***${params.claudeOAuthToken.slice(-4)}`
-                    : undefined,
                 anthropicApiKey:
                   'anthropicApiKey' in params &&
                   typeof params.anthropicApiKey === 'string' &&
@@ -310,18 +316,6 @@ export class AuthRpcHandlers {
         await this.configManager.set('authMethod', validated.authMethod);
 
         // Save credentials to SecretStorage (encrypted!)
-        if (validated.claudeOAuthToken !== undefined) {
-          if (validated.claudeOAuthToken.trim()) {
-            await this.authSecretsService.setCredential(
-              'oauthToken',
-              validated.claudeOAuthToken,
-            );
-          } else {
-            // Empty string = clear the credential
-            await this.authSecretsService.deleteCredential('oauthToken');
-          }
-        }
-
         if (validated.anthropicApiKey !== undefined) {
           if (validated.anthropicApiKey.trim()) {
             await this.authSecretsService.setCredential(

@@ -10,7 +10,7 @@
 // ============================================================
 
 /** Supported authentication methods */
-export type AuthMethod = 'oauth' | 'apiKey' | 'openrouter' | 'auto';
+export type AuthMethod = 'apiKey' | 'claudeCli' | 'openrouter' | 'auto';
 
 /** Parameters for auth:getHealth RPC method */
 export type AuthGetHealthParams = Record<string, never>;
@@ -30,7 +30,6 @@ export interface AuthGetHealthResponse {
 /** Parameters for auth:saveSettings RPC method */
 export interface AuthSaveSettingsParams {
   authMethod: AuthMethod;
-  claudeOAuthToken?: string;
   anthropicApiKey?: string;
   /** Provider API key - used for OpenRouter, Moonshot, Z.AI, etc. */
   openrouterApiKey?: string;
@@ -147,8 +146,6 @@ export interface AnthropicProviderInfo {
  * Only boolean flags indicating whether credentials are configured.
  */
 export interface AuthGetAuthStatusResponse {
-  /** Whether OAuth token is configured in SecretStorage */
-  hasOAuthToken: boolean;
   /** Whether API key is configured in SecretStorage */
   hasApiKey: boolean;
   /** Whether provider API key is configured for the currently selected provider */
@@ -169,4 +166,6 @@ export interface AuthGetAuthStatusResponse {
   codexAuthenticated?: boolean;
   /** Whether the Codex OAuth token is expired/stale (TASK_2025_199) */
   codexTokenStale?: boolean;
+  /** Whether Claude CLI is installed and detected on the system */
+  claudeCliInstalled?: boolean;
 }

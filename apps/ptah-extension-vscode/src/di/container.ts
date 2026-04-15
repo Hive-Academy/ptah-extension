@@ -57,6 +57,7 @@ import {
   AgentRpcHandlers, // TASK_2025_157: Agent Orchestration
   PtahCliRpcHandlers, // TASK_2025_167: Ptah CLI Management
   SkillsShRpcHandlers, // TASK_2025_204: Skills.sh Marketplace
+  McpDirectoryRpcHandlers, // MCP Server Directory
   WebSearchRpcHandlers, // TASK_2025_235: Web Search Settings
   HarnessRpcHandlers, // Harness Setup Builder
 } from '../services/rpc';
@@ -355,6 +356,9 @@ export class DIContainer {
     // TASK_2025_204: Skills.sh Marketplace RPC handlers
     container.registerSingleton(SkillsShRpcHandlers);
 
+    // MCP Server Directory RPC handlers
+    container.registerSingleton(McpDirectoryRpcHandlers);
+
     // Harness Setup Builder RPC handlers
     container.registerSingleton(HarnessRpcHandlers);
 
@@ -406,6 +410,7 @@ export class DIContainer {
           c.resolve(AgentRpcHandlers), // TASK_2025_157
           c.resolve(PtahCliRpcHandlers), // TASK_2025_167
           c.resolve(SkillsShRpcHandlers), // TASK_2025_204
+          c.resolve(McpDirectoryRpcHandlers), // MCP Server Directory
           c.resolve(WebSearchRpcHandlers), // TASK_2025_235
           c.resolve(HarnessRpcHandlers),
           c, // Pass container instance

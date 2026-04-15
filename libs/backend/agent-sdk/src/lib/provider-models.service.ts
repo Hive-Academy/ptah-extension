@@ -527,15 +527,17 @@ export class ProviderModelsService {
    * that needs to know which provider's tier config is active.
    *
    * Mapping:
-   *  - oauth / apiKey        → ANTHROPIC_DIRECT_PROVIDER_ID (Anthropic native)
+   *  - apiKey                → ANTHROPIC_DIRECT_PROVIDER_ID (Anthropic native)
    *  - openrouter            → saved anthropicProviderId (OpenRouter, Moonshot, etc.)
    *  - auto (no base URL)    → ANTHROPIC_DIRECT_PROVIDER_ID
    *  - auto (with base URL)  → saved anthropicProviderId
    */
   resolveActiveProviderId(): string {
-    const authMethod = this.config.getWithDefault<string>('authMethod', 'auto');
+    const rawMethod = this.config.getWithDefault<string>('authMethod', 'auto');
+    // Normalize legacy 'oauth' (removed for TOS compliance) to 'apiKey'
+    const authMethod = rawMethod === 'oauth' ? 'apiKey' : rawMethod;
 
-    if (authMethod === 'oauth' || authMethod === 'apiKey') {
+    if (authMethod === 'apiKey' || authMethod === 'claudeCli') {
       return ANTHROPIC_DIRECT_PROVIDER_ID;
     }
     if (authMethod === 'openrouter') {
