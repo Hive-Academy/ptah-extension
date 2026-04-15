@@ -96,6 +96,23 @@ import type { FileTreeNode } from '../models/file-tree.model';
 
         <!-- Right: Editor controls -->
         <div class="flex items-center gap-0.5 ml-auto">
+          <!-- Vim mode toggle (always visible) -->
+          <button
+            class="px-1.5 py-0.5 text-[10px] font-medium rounded transition-colors"
+            [class]="
+              vimModeService.enabled()
+                ? 'bg-primary/15 text-primary'
+                : 'text-base-content/30 hover:text-base-content/50 hover:bg-base-content/5'
+            "
+            [title]="
+              vimModeService.enabled() ? 'Disable Vim mode' : 'Enable Vim mode'
+            "
+            aria-label="Toggle Vim mode"
+            (click)="toggleVimMode()"
+          >
+            VIM
+          </button>
+
           <button
             class="btn btn-ghost btn-xs px-2 text-base-content/60 hover:text-base-content"
             [class.text-primary]="editorService.splitActive()"
@@ -408,7 +425,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
 export class EditorPanelComponent implements OnInit, OnDestroy {
   protected readonly editorService = inject(EditorService);
   protected readonly gitStatus = inject(GitStatusService);
-  private readonly vimModeService = inject(VimModeService);
+  protected readonly vimModeService = inject(VimModeService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly ngZone = inject(NgZone);
   protected readonly sidebarVisible = signal(true);
@@ -468,6 +485,10 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
   protected toggleSidebar(): void {
     this.sidebarVisible.update((v) => !v);
+  }
+
+  protected toggleVimMode(): void {
+    void this.vimModeService.toggle();
   }
 
   protected toggleTerminal(): void {

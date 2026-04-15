@@ -175,16 +175,20 @@ export const appConfig: ApplicationConfig = {
       baseUrl: './assets/monaco/vs',
       onMonacoLoad: () => {
         // Fix Monaco web workers for Electron's file:// protocol.
-        // Workers need absolute file:/// URLs; relative file:// URLs fail importScripts.
+        // Electron 35+ (Chromium 135+) defaults data: URL workers to type: 'module',
+        // which doesn't support importScripts(). Use getWorker() with a Blob URL
+        // and explicit { type: 'classic' } to ensure importScripts() works.
         const monacoVsUrl = new URL('./assets/monaco/vs', window.location.href)
           .href;
         (self as any).MonacoEnvironment = {
-          getWorkerUrl: (_moduleId: string, _label: string) => {
+          getWorker: (_moduleId: string, _label: string) => {
             const workerUrl = `${monacoVsUrl}/base/worker/workerMain.js`;
             const js = `self.MonacoEnvironment = { baseUrl: '${monacoVsUrl}/' };\nimportScripts('${workerUrl}');`;
-            return (
-              'data:text/javascript;charset=utf-8,' + encodeURIComponent(js)
-            );
+            const blob = new Blob([js], { type: 'application/javascript' });
+            const blobUrl = URL.createObjectURL(blob);
+            const worker = new Worker(blobUrl, { type: 'classic' as const });
+            URL.revokeObjectURL(blobUrl);
+            return worker;
           },
         };
       },

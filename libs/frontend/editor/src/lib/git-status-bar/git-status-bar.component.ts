@@ -11,7 +11,6 @@ import { LucideAngularModule, GitBranch } from 'lucide-angular';
 import { GitStatusService } from '../services/git-status.service';
 import { EditorService } from '../services/editor.service';
 import { WorktreeService } from '../services/worktree.service';
-import { VimModeService } from '../services/vim-mode.service';
 import { GitChangedFilesComponent } from './git-changed-files.component';
 
 /**
@@ -96,28 +95,6 @@ import { GitChangedFilesComponent } from './git-changed-files.component';
             {{ worktreeCount() }}wt
           </span>
         }
-
-        <!-- Spacer to push vim toggle to the right -->
-        <span class="flex-1"></span>
-
-        <!-- Vim mode toggle -->
-        <button
-          type="button"
-          class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium
-                 transition-colors"
-          [class]="
-            vimModeService.enabled()
-              ? 'bg-primary/15 text-primary'
-              : 'text-base-content/30 hover:text-base-content/50 hover:bg-base-content/5'
-          "
-          [title]="
-            vimModeService.enabled() ? 'Disable Vim mode' : 'Enable Vim mode'
-          "
-          aria-label="Toggle Vim mode"
-          (click)="toggleVimMode()"
-        >
-          VIM
-        </button>
       </div>
 
       <!-- Changed files panel (below status bar) -->
@@ -135,7 +112,6 @@ import { GitChangedFilesComponent } from './git-changed-files.component';
 export class GitStatusBarComponent {
   protected readonly gitStatus = inject(GitStatusService);
   protected readonly worktreeService = inject(WorktreeService);
-  protected readonly vimModeService = inject(VimModeService);
   private readonly editorService = inject(EditorService);
   private readonly elementRef = inject(ElementRef);
 
@@ -190,11 +166,6 @@ export class GitStatusBarComponent {
   /** Toggle the changed files panel visibility. */
   protected toggleChangedFiles(): void {
     this.showChangedFiles.update((v) => !v);
-  }
-
-  /** Toggle Vim mode and persist the preference. */
-  protected toggleVimMode(): void {
-    void this.vimModeService.toggle();
   }
 
   /**
