@@ -18,6 +18,7 @@ import {
   WORKSPACE_COORDINATOR,
   WIZARD_VIEW_COMPONENT,
   ORCHESTRA_CANVAS_COMPONENT,
+  HARNESS_BUILDER_COMPONENT,
 } from '@ptah-extension/core';
 import {
   ChatMessageHandler,
@@ -27,6 +28,7 @@ import {
 } from '@ptah-extension/chat';
 import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
+import { HarnessBuilderViewComponent } from '@ptah-extension/harness-builder';
 import { getMarkedExtensions } from './marked-extensions';
 // Removed Material animations import - using pure VS Code design system
 // REMOVED: Angular Router imports - incompatible with VS Code webviews
@@ -157,6 +159,11 @@ export const appConfig: ApplicationConfig = {
     // Orchestra canvas component: breaks circular dependency between chat and canvas.
     // canvas imports TabManagerService from chat, so chat cannot import canvas directly.
     { provide: ORCHESTRA_CANVAS_COMPONENT, useValue: OrchestraCanvasComponent },
+    // Harness builder component: breaks circular dependency between chat and harness-builder.
+    {
+      provide: HARNESS_BUILDER_COMPONENT,
+      useValue: HarnessBuilderViewComponent,
+    },
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',

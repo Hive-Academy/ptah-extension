@@ -219,6 +219,31 @@ import type {
 } from './rpc/rpc-terminal.types';
 
 import type {
+  HarnessInitializeParams,
+  HarnessInitializeResponse,
+  HarnessSuggestConfigParams,
+  HarnessSuggestConfigResponse,
+  HarnessSearchSkillsParams,
+  HarnessSearchSkillsResponse,
+  HarnessCreateSkillParams,
+  HarnessCreateSkillResponse,
+  HarnessDiscoverMcpParams,
+  HarnessDiscoverMcpResponse,
+  HarnessGeneratePromptParams,
+  HarnessGeneratePromptResponse,
+  HarnessGenerateClaudeMdParams,
+  HarnessGenerateClaudeMdResponse,
+  HarnessApplyParams,
+  HarnessApplyResponse,
+  HarnessSavePresetParams,
+  HarnessSavePresetResponse,
+  HarnessLoadPresetsParams,
+  HarnessLoadPresetsResponse,
+  HarnessChatParams,
+  HarnessChatResponse,
+} from './rpc/rpc-harness.types';
+
+import type {
   ContextGetAllFilesParams,
   ContextGetAllFilesResult,
   ContextGetFileSuggestionsParams,
@@ -922,6 +947,52 @@ export interface RpcMethodRegistry {
     result: TerminalCreateResult;
   };
   'terminal:kill': { params: TerminalKillParams; result: TerminalKillResult };
+
+  // ---- Harness Builder Methods ----
+  'harness:initialize': {
+    params: HarnessInitializeParams;
+    result: HarnessInitializeResponse;
+  };
+  'harness:suggest-config': {
+    params: HarnessSuggestConfigParams;
+    result: HarnessSuggestConfigResponse;
+  };
+  'harness:search-skills': {
+    params: HarnessSearchSkillsParams;
+    result: HarnessSearchSkillsResponse;
+  };
+  'harness:create-skill': {
+    params: HarnessCreateSkillParams;
+    result: HarnessCreateSkillResponse;
+  };
+  'harness:discover-mcp': {
+    params: HarnessDiscoverMcpParams;
+    result: HarnessDiscoverMcpResponse;
+  };
+  'harness:generate-prompt': {
+    params: HarnessGeneratePromptParams;
+    result: HarnessGeneratePromptResponse;
+  };
+  'harness:generate-claude-md': {
+    params: HarnessGenerateClaudeMdParams;
+    result: HarnessGenerateClaudeMdResponse;
+  };
+  'harness:apply': {
+    params: HarnessApplyParams;
+    result: HarnessApplyResponse;
+  };
+  'harness:save-preset': {
+    params: HarnessSavePresetParams;
+    result: HarnessSavePresetResponse;
+  };
+  'harness:load-presets': {
+    params: HarnessLoadPresetsParams;
+    result: HarnessLoadPresetsResponse;
+  };
+  'harness:chat': {
+    params: HarnessChatParams;
+    result: HarnessChatResponse;
+  };
 }
 
 /**
@@ -1142,6 +1213,19 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // Terminal Methods (TASK_2025_227)
   'terminal:create',
   'terminal:kill',
+
+  // Harness Builder Methods
+  'harness:initialize',
+  'harness:suggest-config',
+  'harness:search-skills',
+  'harness:create-skill',
+  'harness:discover-mcp',
+  'harness:generate-prompt',
+  'harness:generate-claude-md',
+  'harness:apply',
+  'harness:save-preset',
+  'harness:load-presets',
+  'harness:chat',
 ] as const;
 
 /**

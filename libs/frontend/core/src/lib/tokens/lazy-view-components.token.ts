@@ -35,3 +35,11 @@ export const WIZARD_VIEW_COMPONENT = new InjectionToken<Type<unknown>>(
 export const ORCHESTRA_CANVAS_COMPONENT = new InjectionToken<Type<unknown>>(
   'ORCHESTRA_CANVAS_COMPONENT',
 );
+
+/**
+ * Token for HarnessBuilderViewComponent — breaks circular dependency between
+ * @ptah-extension/harness-builder and @ptah-extension/chat (AppShellComponent renders the view).
+ */
+export const HARNESS_BUILDER_COMPONENT = new InjectionToken<Type<unknown>>(
+  'HARNESS_BUILDER_COMPONENT',
+);
