@@ -44,7 +44,6 @@ import {
   StreamTransformer,
   SdkModuleLoader,
   SdkModelService,
-  type ApiModelEntry,
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
   type CompactionStartCallback,
@@ -394,11 +393,12 @@ export class SdkAgentAdapter implements IAIProvider {
   }
 
   /**
-   * Get all available models from the Anthropic /v1/models API
-   * TASK_2025_237: Enables dynamic model discovery beyond SDK's 3 tier slots
+   * Get all available models from the Anthropic /v1/models API.
+   * Returns ModelInfo[] (same shape as getSupportedModels) for uniform handling.
+   * API models already have full IDs (e.g., 'claude-sonnet-4-5-20250514').
    */
-  async getApiModels(): Promise<ApiModelEntry[]> {
-    return this.modelService.fetchApiModels();
+  async getApiModels(): Promise<ModelInfo[]> {
+    return this.modelService.getApiModelsNormalized();
   }
 
   /**

@@ -69,6 +69,7 @@ import {
   PluginRpcHandlers,
   PtahCliRpcHandlers,
   WebSearchRpcHandlers,
+  HarnessRpcHandlers,
   // Tier 3 handlers (local, VS Code-specific)
   FileRpcHandlers,
   CommandRpcHandlers,
@@ -137,6 +138,8 @@ export class RpcMethodRegistrationService {
     private readonly skillsShHandlers: SkillsShRpcHandlers, // TASK_2025_204
     @inject(WebSearchRpcHandlers)
     private readonly webSearchHandlers: WebSearchRpcHandlers, // TASK_2025_235
+    @inject(HarnessRpcHandlers)
+    private readonly harnessHandlers: HarnessRpcHandlers,
     @inject('DependencyContainer')
     private readonly container: DependencyContainer,
   ) {
@@ -176,6 +179,7 @@ export class RpcMethodRegistrationService {
     this.ptahCliHandlers.register(); // TASK_2025_167
     this.skillsShHandlers.register(); // TASK_2025_204
     this.webSearchHandlers.register(); // TASK_2025_235
+    this.harnessHandlers.register();
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),

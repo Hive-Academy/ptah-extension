@@ -345,12 +345,21 @@ export class InlineAgentBubbleComponent {
   readonly StopCircleIcon = StopCircle;
   // TASK_2025_109: PlayCircleIcon removed - Resume button no longer needed
 
-  // Collapse state - expanded by default
+  // Collapse state - expanded by default, auto-collapsed for background agents
   readonly isCollapsed = signal(false);
 
   // TASK_2025_109: isResuming signal removed - Resume button no longer needed
 
   constructor() {
+    // Auto-collapse background agents so they don't interfere with the
+    // active session's streaming. Users can manually expand if needed.
+    // Runs once on init and when a node transitions to background mid-stream.
+    effect(() => {
+      if (this.isBackground()) {
+        this.isCollapsed.set(true);
+      }
+    });
+
     // Setup observer after initial render
     afterNextRender(
       () => {

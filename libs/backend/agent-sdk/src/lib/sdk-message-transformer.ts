@@ -54,6 +54,7 @@ import {
   isUserMessage,
   isAssistantMessage,
   isCompactBoundary,
+  isLocalCommandOutput,
 } from './types/sdk-types/claude-sdk.types';
 
 // Re-export isResultMessage for backward compatibility with stream-transformer.ts
@@ -263,6 +264,43 @@ export class SdkMessageTransformer {
         };
 
         return [compactionCompleteEvent];
+      }
+
+      if (isLocalCommandOutput(sdkMessage)) {
+        // Local slash command output (e.g., /cost, /context).
+        // Emit as an assistant message with the command output text.
+        this.logger.info(
+          '[SdkMessageTransformer] Local command output received',
+          { contentLength: sdkMessage.content.length },
+        );
+        const messageId = `cmd_${generateEventId()}`;
+        const events: FlatStreamEventUnion[] = [
+          {
+            id: generateEventId(),
+            eventType: 'message_start',
+            timestamp: Date.now(),
+            sessionId: sessionId || sdkMessage.session_id || '',
+            messageId,
+            role: 'assistant',
+          } as MessageStartEvent,
+          {
+            id: generateEventId(),
+            eventType: 'text_delta',
+            timestamp: Date.now(),
+            sessionId: sessionId || sdkMessage.session_id || '',
+            messageId,
+            delta: sdkMessage.content,
+            blockIndex: 0,
+          } as TextDeltaEvent,
+          {
+            id: generateEventId(),
+            eventType: 'message_complete',
+            timestamp: Date.now(),
+            sessionId: sessionId || sdkMessage.session_id || '',
+            messageId,
+          } as MessageCompleteEvent,
+        ];
+        return events;
       }
 
       if (isResultMessage(sdkMessage)) {

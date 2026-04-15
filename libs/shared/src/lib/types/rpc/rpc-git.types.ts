@@ -11,6 +11,8 @@ export interface GitFileStatus {
   status: 'M' | 'A' | 'D' | 'R' | 'C' | '??' | '!';
   /** Whether the change is staged (index) vs unstaged (worktree) */
   staged: boolean;
+  /** Whether this entry is a directory (untracked directories from git status) */
+  isDirectory?: boolean;
 }
 
 /** Branch ahead/behind information */

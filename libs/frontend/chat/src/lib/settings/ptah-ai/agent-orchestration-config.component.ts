@@ -6,7 +6,7 @@ import {
   signal,
   OnInit,
 } from '@angular/core';
-import { TitleCasePipe } from '@angular/common';
+
 import {
   LucideAngularModule,
   Terminal,
@@ -36,7 +36,7 @@ import type {
 @Component({
   selector: 'ptah-agent-orchestration-config',
   standalone: true,
-  imports: [LucideAngularModule, TitleCasePipe],
+  imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="border border-secondary/30 rounded-md bg-secondary/5">

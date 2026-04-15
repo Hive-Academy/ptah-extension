@@ -283,23 +283,24 @@ export class ProviderRpcHandlers {
         try {
           if (hasApiKey) {
             // API key auth: /v1/models returns all specific model versions
+            // getApiModels() returns ModelInfo[] with .value as full model ID
             const apiModels = await this.sdkAdapter.getApiModels();
             if (apiModels.length > 0) {
               this.logger.info(
                 `[ProviderRpc] Fetched ${apiModels.length} models from /v1/models (API key)`,
               );
               return apiModels.map((m) => ({
-                id: m.id,
+                id: m.value,
                 name: m.displayName,
-                description: getModelPricingDescription(m.id),
-                contextLength: getModelContextWindow(m.id),
+                description: getModelPricingDescription(m.value),
+                contextLength: getModelContextWindow(m.value),
                 supportsToolUse: true,
               }));
             }
           }
 
           // OAuth auth (or API key /v1/models returned empty):
-          // SDK's supportedModels() handles OAuth internally
+          // getSupportedModels() returns ModelInfo[] with .value already normalized
           const sdkModels = await this.sdkAdapter.getSupportedModels();
           if (sdkModels.length > 0) {
             this.logger.info(

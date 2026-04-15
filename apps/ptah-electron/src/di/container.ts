@@ -140,6 +140,7 @@ import {
   ProviderRpcHandlers,
   LlmRpcHandlers,
   WebSearchRpcHandlers,
+  HarnessRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific RPC handler classes (TASK_2025_203 Batch 5)
@@ -712,8 +713,8 @@ export class ElectronDIContainer {
           // getRecordingDir
           () =>
             workspaceProvider.getConfiguration<string>(
-              'ptah.browser',
-              'recordingDir',
+              'ptah',
+              'browser.recordingDir',
               '',
             ) ?? '',
         ),
@@ -790,6 +791,9 @@ export class ElectronDIContainer {
     // TASK_2025_241: WebSearchRpcHandlers - web search settings management (API keys, config, testing)
     container.registerSingleton(WebSearchRpcHandlers);
 
+    // Harness Setup Builder RPC handlers
+    container.registerSingleton(HarnessRpcHandlers);
+
     logger.info(
       '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
       {
@@ -811,6 +815,7 @@ export class ElectronDIContainer {
           'ProviderRpcHandlers',
           'LlmRpcHandlers',
           'WebSearchRpcHandlers',
+          'HarnessRpcHandlers',
         ],
       },
     );

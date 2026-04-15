@@ -36,6 +36,7 @@ import {
   Sparkles,
   MessageSquare,
   LayoutGrid,
+  Wrench,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
@@ -231,6 +232,17 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
             >
               <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
               Dashboard
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.currentView() === 'setup-hub'"
+              [attr.aria-selected]="appState.currentView() === 'setup-hub'"
+              title="Setup Hub"
+              (click)="openSetupHub()"
+            >
+              <lucide-angular [img]="WrenchIcon" class="w-3.5 h-3.5" />
+              Setup
             </button>
             <button
               role="tab"
@@ -530,6 +542,7 @@ export class ElectronShellComponent {
   readonly SparklesIcon = Sparkles;
   readonly MessageSquareIcon = MessageSquare;
   readonly LayoutGridIcon = LayoutGrid;
+  readonly WrenchIcon = Wrench;
 
   // Asset URIs
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
@@ -553,5 +566,9 @@ export class ElectronShellComponent {
 
   openDashboard(): void {
     this.appState.setCurrentView('analytics');
+  }
+
+  openSetupHub(): void {
+    this.appState.setCurrentView('setup-hub');
   }
 }

@@ -112,7 +112,7 @@ const EFFORT_OPTIONS: readonly EffortOption[] = [
       >
         <lucide-angular
           [img]="BrainIcon"
-          [class]="'w-3 h-3 ' + (selectedOption()?.textColor ?? '')"
+          [class]="'w-3 h-3 ' + selectedOption().textColor"
         />
         <!-- Level bars indicator -->
         <div class="flex items-end gap-px h-3">
@@ -120,20 +120,17 @@ const EFFORT_OPTIONS: readonly EffortOption[] = [
             <div
               [class]="
                 'w-[3px] rounded-[1px] transition-all ' +
-                (bar < (selectedOption()?.bars ?? 0)
-                  ? (selectedOption()?.dotColor ?? '') + ' opacity-100'
+                (bar < selectedOption().bars
+                  ? selectedOption().dotColor + ' opacity-100'
                   : 'bg-base-content/20 opacity-60')
               "
               [style.height.px]="4 + bar * 2.5"
             ></div>
           }
         </div>
-        <span
-          [class]="
-            'text-[10px] font-mono ' + (selectedOption()?.textColor ?? '')
-          "
-          >{{ selectedLabel() }}</span
-        >
+        <span [class]="'text-[10px] font-mono ' + selectedOption().textColor">{{
+          selectedLabel()
+        }}</span>
         <lucide-angular
           [img]="ChevronDownIcon"
           class="w-2.5 h-2.5 flex-shrink-0 opacity-60"
@@ -260,7 +257,7 @@ export class EffortSelectorComponent {
   });
 
   readonly selectedLabel = computed(() => {
-    return this.selectedOption()?.label ?? 'Default';
+    return this.selectedOption().label;
   });
 
   readonly effortChanged = output<EffortLevel | undefined>();

@@ -963,6 +963,19 @@ export function isCompactBoundary(
 }
 
 /**
+ * Check if message is a local slash command output (e.g. /cost, /context)
+ */
+export function isLocalCommandOutput(
+  msg: SDKMessage,
+): msg is SDKLocalCommandOutputMessage {
+  return (
+    msg.type === 'system' &&
+    'subtype' in msg &&
+    msg.subtype === 'local_command_output'
+  );
+}
+
+/**
  * Check if message is a user message (not replay)
  */
 export function isUserMessage(msg: SDKMessage): msg is SDKUserMessage {
