@@ -968,6 +968,21 @@ export class ChatStore {
         // Also clear the visual streaming indicator and session manager state
         this.tabManager.markTabIdle(result.tabId);
         this.sessionManager.setStatus('loaded');
+
+        // Reload session from disk to show the post-compaction state.
+        // The SDK writes the compaction summary as a user message to the
+        // session JSONL, but it's NOT emitted in the live stream. Without
+        // this reload, the tab shows a clean slate until manually reopened.
+        const reloadSessionId =
+          compactionTab.claudeSessionId ?? result.compactionSessionId;
+        if (reloadSessionId) {
+          this.sessionLoader.switchSession(reloadSessionId).catch((err) => {
+            console.warn(
+              '[ChatStore] Failed to reload session after compaction:',
+              err,
+            );
+          });
+        }
       }
       return;
     }

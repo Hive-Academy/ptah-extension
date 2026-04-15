@@ -6,6 +6,7 @@
  *
  * Handled message types:
  * - CHAT_CHUNK: Streaming events from SDK
+ * - CHAT_COMPLETE: Chat completion signal (marks tab idle)
  * - CHAT_ERROR: Chat error signal
  * - PERMISSION_REQUEST: Permission prompt from backend
  * - AGENT_SUMMARY_CHUNK: Real-time agent summary streaming
@@ -14,13 +15,6 @@
  * - ASK_USER_QUESTION_REQUEST: AskUserQuestion tool from SDK
  * - PERMISSION_AUTO_RESOLVED: Always Allow sibling resolution
  * - PERMISSION_SESSION_CLEANUP: Session abort cleanup
- *
- * NOTE: CHAT_COMPLETE is intentionally NOT handled here. It fires per-turn
- * (on every message_complete), not at session end. Handling it would mark
- * the tab idle mid-session during multi-turn tool-use conversations.
- * SESSION_STATS is the authoritative completion signal (TASK_2025_101).
- * Slash commands use maxTurns: 1 on the backend to ensure clean termination
- * and SESSION_STATS delivery.
  */
 
 import { Injectable, inject } from '@angular/core';
