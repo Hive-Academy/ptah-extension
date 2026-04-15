@@ -69,12 +69,11 @@ export interface ConfigAutopilotGetResult {
   permissionLevel: PermissionLevel;
 }
 
-/** Model information from SDK for config:models-list response */
+/** Model information for config:models-list response. IDs are always full model IDs (e.g., 'claude-opus-4-6'). */
 export interface SdkModelInfo {
-  id: string; // Model value from SDK (e.g., 'sonnet', 'opus', 'claude-sonnet-4-5-20250514')
+  id: string; // Full model ID (e.g., 'claude-opus-4-6', 'claude-sonnet-4-5-20250514')
   name: string; // Display name (e.g., 'Claude Sonnet 4')
   description: string; // Model description
-  apiName: string; // Same as id (for compatibility)
   isSelected: boolean; // Whether this model is currently selected
   isRecommended?: boolean; // Whether this model is recommended
   providerModelId: string | null; // Actual provider model (e.g., 'openai/gpt-5.1-codex-max' when using OpenRouter tier overrides)

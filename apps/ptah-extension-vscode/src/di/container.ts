@@ -58,6 +58,7 @@ import {
   PtahCliRpcHandlers, // TASK_2025_167: Ptah CLI Management
   SkillsShRpcHandlers, // TASK_2025_204: Skills.sh Marketplace
   WebSearchRpcHandlers, // TASK_2025_235: Web Search Settings
+  HarnessRpcHandlers, // Harness Setup Builder
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
@@ -98,6 +99,7 @@ import {
   PLATFORM_TOKENS,
   FILE_BASED_SETTINGS_KEYS,
 } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
 // Platform abstraction implementations (TASK_2025_203)
 import {
@@ -353,6 +355,9 @@ export class DIContainer {
     // TASK_2025_204: Skills.sh Marketplace RPC handlers
     container.registerSingleton(SkillsShRpcHandlers);
 
+    // Harness Setup Builder RPC handlers
+    container.registerSingleton(HarnessRpcHandlers);
+
     // TASK_2025_148: Wizard Generation RPC handlers (requires container for lazy resolution)
     // TASK_2025_203: Added WORKSPACE_PROVIDER injection
     container.register(WizardGenerationRpcHandlers, {
@@ -402,6 +407,7 @@ export class DIContainer {
           c.resolve(PtahCliRpcHandlers), // TASK_2025_167
           c.resolve(SkillsShRpcHandlers), // TASK_2025_204
           c.resolve(WebSearchRpcHandlers), // TASK_2025_235
+          c.resolve(HarnessRpcHandlers),
           c, // Pass container instance
         );
       },
@@ -430,15 +436,22 @@ export class DIContainer {
     // ChromeLauncherBrowserCapabilities uses chrome-launcher + chrome-remote-interface
     // to launch and control Chrome for browser automation tools.
     // Headless/viewport are agent-controlled via ptah_browser_navigate params.
-    container.register(BROWSER_CAPABILITIES_TOKEN, {
-      useValue: new ChromeLauncherBrowserCapabilities(
-        // getRecordingDir
-        () =>
-          vscode.workspace
-            .getConfiguration('ptah.browser')
-            .get<string>('recordingDir', '') ?? '',
-      ),
-    });
+    {
+      const workspaceProvider = container.resolve<IWorkspaceProvider>(
+        PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      );
+      container.register(BROWSER_CAPABILITIES_TOKEN, {
+        useValue: new ChromeLauncherBrowserCapabilities(
+          // getRecordingDir — routed via file-based settings for Electron parity
+          () =>
+            workspaceProvider.getConfiguration<string>(
+              'ptah',
+              'browser.recordingDir',
+              '',
+            ) ?? '',
+        ),
+      });
+    }
 
     // ========================================
     // PHASE 2.7: Agent SDK Integration (TASK_2025_044 Batch 3)

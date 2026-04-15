@@ -139,6 +139,7 @@
     "marked": "^17.0.0",
     "marked-terminal": "^7.3.0",
     "monaco-editor": "^0.55.1",
+    "monaco-vim": "^0.4.4",
     "ngx-monaco-editor-v2": "^21.1.4",
     "node-pty": "^1.0.0",
     "p-limit": "^7.1.1",

@@ -342,7 +342,9 @@ export class ElectronSkillsShRpcHandlers {
         if (params.skillId) {
           args.push('--skill', params.skillId);
         }
-        args.push('--agent', '*');
+        // Only install for Claude Code — installing for all agents ('*')
+        // pollutes the workspace with 28+ tool-specific directories.
+        args.push('--agent', 'claude-code');
         args.push('-y');
         if (params.scope === 'global') {
           args.push('-g');

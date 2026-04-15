@@ -22,11 +22,12 @@ import {
   Wrench,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import { BrowserSettingsComponent } from './browser-settings.component';
 
 @Component({
   selector: 'ptah-mcp-port-config',
   standalone: true,
-  imports: [LucideAngularModule, FormsModule],
+  imports: [LucideAngularModule, FormsModule, BrowserSettingsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'mt-4 block' },
   template: `
@@ -135,6 +136,8 @@ import { ClaudeRpcService } from '@ptah-extension/core';
         }
       </div>
     </div>
+
+    <ptah-browser-settings />
   `,
 })
 export class McpPortConfigComponent implements OnInit {
@@ -245,11 +248,13 @@ export class McpPortConfigComponent implements OnInit {
       const result = await this.rpcService.call('agent:setConfig', {
         mcpPort: port,
       });
-      if (result.isSuccess()) {
+      if (result.isSuccess() && result.data?.success !== false) {
         this.savedPort.set(port);
         this.saveSuccess.set(true);
       } else {
-        this.validationError.set(result.error ?? 'Failed to save port');
+        this.validationError.set(
+          result.data?.error ?? result.error ?? 'Failed to save port',
+        );
       }
     } catch {
       this.validationError.set('Failed to save port');
@@ -276,7 +281,7 @@ export class McpPortConfigComponent implements OnInit {
       const result = await this.rpcService.call('agent:setConfig', {
         disabledMcpNamespaces: updated,
       });
-      if (result.isSuccess()) {
+      if (result.isSuccess() && result.data?.success !== false) {
         this.savedDisabledNamespaces.set(updated);
         this.namespaceSaveSuccess.set(true);
         setTimeout(() => this.namespaceSaveSuccess.set(false), 2000);

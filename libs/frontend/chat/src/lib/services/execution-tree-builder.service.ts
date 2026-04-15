@@ -534,7 +534,14 @@ export class ExecutionTreeBuilderService {
             agentStarts = [...state.events.values()].filter(
               (e) =>
                 e.eventType === 'agent_start' &&
-                (e as AgentStartEvent).agentType === agentType,
+                (e as AgentStartEvent).agentType === agentType &&
+                // Only match agent_starts that belong to THIS tool or aren't
+                // correlated to a different tool yet. A backfilled parentToolUseId
+                // in toolu_* format pointing to a different tool means this
+                // agent_start was already claimed by another tool_start.
+                (!e.parentToolUseId ||
+                  e.parentToolUseId === toolStart.toolCallId ||
+                  !e.parentToolUseId.startsWith('toolu_')),
             ) as AgentStartEvent[];
 
             // BUGFIX: Sort by timestamp proximity to the tool_start.
@@ -675,6 +682,10 @@ export class ExecutionTreeBuilderService {
             // Filter out already-consumed agent_starts to handle parallel agents of same type.
             // BUGFIX: Use timestamp proximity instead of .find() to avoid matching
             // historical agents when multiple agents of the same type exist.
+            // BUGFIX: Only match hooks whose parentToolUseId matches THIS tool_start's
+            // toolCallId (or is not yet backfilled). Without this check, when the same
+            // agent type is spawned in multiple batches, a new placeholder would match
+            // the previous batch's hook and render its stale accumulated summary content.
             let hookAgentStart: AgentStartEvent | undefined;
             let bestPlaceholderTimeDiff = Infinity;
             for (const e of state.events.values()) {
@@ -684,7 +695,12 @@ export class ExecutionTreeBuilderService {
                 (e as AgentStartEvent).agentType === agentType &&
                 !usedAgentEventIds.has(e.id) &&
                 (!(e as AgentStartEvent).agentId ||
-                  !usedAgentEventIds.has((e as AgentStartEvent).agentId ?? ''))
+                  !usedAgentEventIds.has(
+                    (e as AgentStartEvent).agentId ?? '',
+                  )) &&
+                // Only match hooks that belong to THIS tool or aren't yet correlated
+                (!e.parentToolUseId ||
+                  e.parentToolUseId === toolStart.toolCallId)
               ) {
                 const timeDiff = Math.abs(e.timestamp - toolStart.timestamp);
                 if (timeDiff < bestPlaceholderTimeDiff) {

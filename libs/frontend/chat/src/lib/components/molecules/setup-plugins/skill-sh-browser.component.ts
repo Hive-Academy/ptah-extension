@@ -325,7 +325,7 @@ interface DisplaySkillEntry extends SkillShEntry {
                 >
                   <div class="flex-1 min-w-0">
                     <div class="text-xs font-medium">{{ skill.name }}</div>
-                    @if (skill.agents?.length) {
+                    @if (skill.agents.length) {
                       <div class="flex flex-wrap gap-1 mt-0.5">
                         @for (agent of skill.agents; track agent) {
                           <span
@@ -369,7 +369,7 @@ interface DisplaySkillEntry extends SkillShEntry {
                 >
                   <div class="flex-1 min-w-0">
                     <div class="text-xs font-medium">{{ skill.name }}</div>
-                    @if (skill.agents?.length) {
+                    @if (skill.agents.length) {
                       <div class="flex flex-wrap gap-1 mt-0.5">
                         @for (agent of skill.agents; track agent) {
                           <span

@@ -17,7 +17,9 @@ export type ViewType =
   | 'settings'
   | 'setup-wizard'
   | 'welcome'
-  | 'orchestra-canvas';
+  | 'orchestra-canvas'
+  | 'harness-builder'
+  | 'setup-hub';
 
 /** Layout mode for the chat view content area: single tab or canvas grid */
 export type LayoutMode = 'single' | 'grid';
@@ -59,6 +61,8 @@ export class AppStateManager implements MessageHandler {
       'setup-wizard',
       'welcome',
       'orchestra-canvas',
+      'harness-builder',
+      'setup-hub',
     ];
     if (view && validViews.includes(view as ViewType)) {
       this.handleViewSwitch(view as ViewType);

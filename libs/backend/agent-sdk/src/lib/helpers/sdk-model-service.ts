@@ -23,12 +23,10 @@ import { SdkModuleLoader } from './sdk-module-loader';
 /**
  * Model entry from the Anthropic /v1/models API
  */
-export interface ApiModelEntry {
-  /** Full model ID (e.g., 'claude-sonnet-4-5-20250514') */
+/** Internal type for /v1/models API response entries. Not exported — consumers use ModelInfo[]. */
+interface ApiModelEntry {
   id: string;
-  /** Human-readable name (e.g., 'Claude Sonnet 4.5') */
   displayName: string;
-  /** ISO timestamp */
   createdAt: string;
 }
 
@@ -68,6 +66,22 @@ function isModelTier(value: string): value is ModelTier {
 /** Type guard: check if a string is an EnvMappedTier key */
 function isEnvMappedTier(value: string): value is EnvMappedTier {
   return value in TIER_ENV_VAR_MAP;
+}
+
+/**
+ * Detect which tier family a full Claude model ID belongs to.
+ * e.g., 'claude-sonnet-4-6' → 'sonnet', 'claude-opus-4-6' → 'opus'
+ *
+ * Used by resolveModelId() to check provider overrides for full Claude IDs.
+ * When using non-Anthropic providers, 'claude-sonnet-4-6' must map to the
+ * provider's equivalent (e.g., 'glm-5.1' for Z.AI).
+ */
+function detectTierFromClaudeId(model: string): EnvMappedTier | null {
+  const lower = model.toLowerCase();
+  if (lower.includes('opus')) return 'opus';
+  if (lower.includes('sonnet')) return 'sonnet';
+  if (lower.includes('haiku')) return 'haiku';
+  return null;
 }
 
 /**
@@ -117,16 +131,28 @@ export function buildTierEnvDefaults(authEnv: AuthEnv): Record<string, string> {
  * (e.g., RPC handlers). Uses the same resolution priority as the instance
  * method:
  *
- * 1. Already a full ID (starts with 'claude-') → return as-is
- * 2. Env var override (if authEnv provided) → use provider-specific mapping
- * 3. Known tier in TIER_TO_MODEL_ID → return default mapping
- * 4. Unknown → return as-is
+ * 1. Full Claude ID with provider override → return provider model
+ * 2. Full Claude ID without override → return as-is
+ * 3. Bare tier with env var override → use provider-specific mapping
+ * 4. Known tier in TIER_TO_MODEL_ID → return default mapping
+ * 5. Unknown → return as-is
  *
  * @param model - Model string (could be full ID or bare tier name)
  * @param authEnv - Optional AuthEnv for env var override checks (proxy providers)
  */
 export function resolveModelIdStatic(model: string, authEnv?: AuthEnv): string {
   if (model.startsWith('claude-')) {
+    // Check provider override for full Claude IDs (same as instance method)
+    if (authEnv) {
+      const tier = detectTierFromClaudeId(model);
+      if (tier) {
+        const envKey = TIER_ENV_VAR_MAP[tier];
+        const override = authEnv[envKey];
+        if (override && override !== model) {
+          return override;
+        }
+      }
+    }
     return model;
   }
   const tierLower = model.toLowerCase();
@@ -231,22 +257,134 @@ export class SdkModelService {
     // Strategy 1: SDK's supportedModels() — authoritative, account-filtered
     const sdkModels = await this.fetchModelsViaSdk();
     if (sdkModels.length > 0) {
-      this.cachedModels = sdkModels;
-      return sdkModels;
+      this.logger.info('[SdkModelService] RAW from SDK supportedModels()', {
+        source: 'sdk',
+        raw: sdkModels.map((m) => ({
+          value: m.value,
+          displayName: m.displayName,
+        })),
+      });
+      this.cachedModels = this.normalizeModels(sdkModels);
+      this.logger.info(
+        '[SdkModelService] NORMALIZED models returned to consumers',
+        {
+          source: 'sdk',
+          normalized: this.cachedModels.map((m) => ({
+            value: m.value,
+            displayName: m.displayName,
+          })),
+        },
+      );
+      return this.cachedModels;
     }
 
     // Strategy 2: /v1/models API — fast HTTP, but returns ALL models (not filtered)
+    // API models already have full IDs (e.g., 'claude-sonnet-4-5-20250514')
     const apiModels = await this.fetchModelsViaApi();
     if (apiModels.length > 0) {
+      this.logger.info(
+        '[SdkModelService] Models from /v1/models API (already full IDs)',
+        {
+          source: 'api',
+          models: apiModels.map((m) => ({
+            value: m.value,
+            displayName: m.displayName,
+          })),
+        },
+      );
       this.cachedModels = apiModels;
-      return apiModels;
+      return this.cachedModels;
     }
 
     // Fallback: hardcoded models — NOT cached so next call retries
+    // FALLBACK_MODELS already use full IDs via TIER_TO_MODEL_ID
     this.logger.warn(
-      '[SdkModelService] All model fetch strategies failed, using hardcoded fallback',
+      '[SdkModelService] All strategies failed, using FALLBACK_MODELS',
+      {
+        source: 'fallback',
+        models: FALLBACK_MODELS.map((m) => ({
+          value: m.value,
+          displayName: m.displayName,
+        })),
+      },
     );
     return FALLBACK_MODELS;
+  }
+
+  /**
+   * Check if a non-Anthropic provider is active (e.g., Copilot, Codex, OpenRouter).
+   * When true, model values need normalization to provider-specific IDs.
+   * When false (direct Anthropic), SDK models are passed through as-is.
+   */
+  private isThirdPartyProvider(): boolean {
+    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+    return !!baseUrl && !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
+  }
+
+  /**
+   * Normalize SDK models: resolve bare tier names in `.value` to full model IDs
+   * and deduplicate.
+   *
+   * For direct Anthropic auth (API key / OAuth): pass models through as-is.
+   * The SDK returns the correct models for the account and the 'default' tier
+   * works natively.
+   *
+   * For third-party providers: resolve bare tier names to provider-specific
+   * model IDs via ANTHROPIC_DEFAULT_*_MODEL env vars, and replace the 'default'
+   * meta-tier with 'sonnet' to avoid stale-cache issues (if env vars aren't set
+   * at cache time, 'default' resolves to claude-sonnet-4-6 instead of the
+   * provider's model).
+   */
+  private normalizeModels(models: ModelInfo[]): ModelInfo[] {
+    // Direct Anthropic: no normalization needed — SDK models are authoritative
+    if (!this.isThirdPartyProvider()) {
+      this.logger.debug(
+        '[SdkModelService] Direct Anthropic provider — returning SDK models as-is',
+      );
+      return models;
+    }
+
+    // Third-party provider: resolve tier names to provider-specific model IDs
+    const seen = new Set<string>();
+    const normalized: ModelInfo[] = [];
+
+    for (const m of models) {
+      // Replace 'default' meta-tier with 'sonnet' before resolving.
+      // 'default' always maps to sonnet but can cache the wrong value
+      // when env vars aren't set at cache time.
+      const value = m.value.toLowerCase() === 'default' ? 'sonnet' : m.value;
+
+      const resolvedValue = this.resolveModelId(value);
+      if (seen.has(resolvedValue)) continue;
+      seen.add(resolvedValue);
+
+      normalized.push({
+        ...m,
+        value: resolvedValue,
+        ...(m.value.toLowerCase() === 'default' && {
+          displayName: 'Sonnet',
+        }),
+      });
+    }
+
+    if (normalized.length !== models.length) {
+      this.logger.debug(
+        `[SdkModelService] Normalized ${models.length} SDK models to ${normalized.length} (deduplicated)`,
+      );
+    }
+
+    return normalized;
+  }
+
+  /**
+   * Get all available models from the Anthropic /v1/models API as ModelInfo[].
+   * Public counterpart of fetchModelsViaApi() — same shape as getSupportedModels()
+   * so callers can merge both lists uniformly using `.value` / `.displayName`.
+   *
+   * API models already have full IDs (e.g., 'claude-sonnet-4-5-20250514').
+   */
+  async getApiModelsNormalized(): Promise<ModelInfo[]> {
+    return this.fetchModelsViaApi();
   }
 
   /**
@@ -572,33 +710,16 @@ export class SdkModelService {
   }
 
   /**
-   * Get default model - first from supported models
+   * Get default model - first from supported models.
    *
-   * Returns a full model ID suitable for the SDK's query() function.
-   * Resolves SDK's 'default' tier and bare tier names to full model IDs.
+   * getSupportedModels() already normalizes values to full model IDs,
+   * so no additional resolution is needed here.
    *
    * @returns Full model ID string (e.g., 'claude-sonnet-4-6')
    */
   async getDefaultModel(): Promise<string> {
     const models = await this.getSupportedModels();
-    const first = models[0];
-    if (!first) return DEFAULT_FALLBACK_MODEL_ID;
-
-    // If SDK returns 'default' as the value, resolve to a full model ID
-    if (first.value.toLowerCase() === 'default') {
-      const desc = (
-        (first.displayName || '') +
-        ' ' +
-        (first.description || '')
-      ).toLowerCase();
-      if (desc.includes('opus')) return this.resolveModelId('opus');
-      if (desc.includes('sonnet')) return this.resolveModelId('sonnet');
-      if (desc.includes('haiku')) return this.resolveModelId('haiku');
-      return this.resolveModelId('sonnet'); // safe fallback
-    }
-
-    // Ensure the returned value is a full model ID, not a bare tier name
-    return this.resolveModelId(first.value);
+    return models[0]?.value ?? DEFAULT_FALLBACK_MODEL_ID;
   }
 
   /**
@@ -609,17 +730,33 @@ export class SdkModelService {
    * fallback models must be resolved to full IDs.
    *
    * Resolution priority:
-   * 1. Already a full ID (starts with 'claude-') → return as-is
-   * 2. Env var override (ANTHROPIC_DEFAULT_*_MODEL) → use override
-   * 3. Known tier mapping → use hardcoded default
-   * 4. Unknown → return as-is (let SDK handle it)
+   * 1. Full Claude ID with active provider override → return provider model
+   *    (e.g., 'claude-sonnet-4-6' → 'glm-5.1' when ANTHROPIC_DEFAULT_SONNET_MODEL is set)
+   * 2. Full Claude ID without override → return as-is
+   * 3. Bare tier with env var override → use override
+   * 4. Bare tier without override → use hardcoded default
+   * 5. Unknown → return as-is (let SDK handle it)
    *
    * @param model - Model string (could be full ID or bare tier name)
-   * @returns Full model ID
+   * @returns Full model ID (provider-specific when overrides are active)
    */
   resolveModelId(model: string): string {
-    // Already a full model ID — no resolution needed
+    // Full Claude model ID — check if a provider override should replace it.
+    // When using non-Anthropic providers (Z.AI, Ollama Cloud, Codex, Copilot),
+    // the env vars ANTHROPIC_DEFAULT_*_MODEL point to provider-specific models.
+    // Without this check, 'claude-sonnet-4-6' gets sent to Z.AI which rejects it.
     if (model.startsWith('claude-')) {
+      const tier = detectTierFromClaudeId(model);
+      if (tier) {
+        const envKey = TIER_ENV_VAR_MAP[tier];
+        const override = this.authEnv[envKey];
+        if (override && override !== model) {
+          this.logger.debug(
+            `[SdkModelService] Provider override: '${model}' (${tier} tier) → '${override}' via ${envKey}`,
+          );
+          return override;
+        }
+      }
       return model;
     }
 

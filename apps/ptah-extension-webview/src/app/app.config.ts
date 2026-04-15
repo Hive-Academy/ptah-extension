@@ -18,6 +18,8 @@ import {
   WORKSPACE_COORDINATOR,
   WIZARD_VIEW_COMPONENT,
   ORCHESTRA_CANVAS_COMPONENT,
+  HARNESS_BUILDER_COMPONENT,
+  SETUP_HUB_COMPONENT,
 } from '@ptah-extension/core';
 import {
   ChatMessageHandler,
@@ -27,6 +29,10 @@ import {
 } from '@ptah-extension/chat';
 import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
+import {
+  HarnessBuilderViewComponent,
+  SetupHubComponent,
+} from '@ptah-extension/harness-builder';
 import { getMarkedExtensions } from './marked-extensions';
 // Removed Material animations import - using pure VS Code design system
 // REMOVED: Angular Router imports - incompatible with VS Code webviews
@@ -157,21 +163,32 @@ export const appConfig: ApplicationConfig = {
     // Orchestra canvas component: breaks circular dependency between chat and canvas.
     // canvas imports TabManagerService from chat, so chat cannot import canvas directly.
     { provide: ORCHESTRA_CANVAS_COMPONENT, useValue: OrchestraCanvasComponent },
+    // Harness builder component: breaks circular dependency between chat and harness-builder.
+    {
+      provide: HARNESS_BUILDER_COMPONENT,
+      useValue: HarnessBuilderViewComponent,
+    },
+    // Setup hub component: breaks circular dependency between chat and harness-builder.
+    { provide: SETUP_HUB_COMPONENT, useValue: SetupHubComponent },
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',
       onMonacoLoad: () => {
         // Fix Monaco web workers for Electron's file:// protocol.
-        // Workers need absolute file:/// URLs; relative file:// URLs fail importScripts.
+        // Electron 35+ (Chromium 135+) defaults data: URL workers to type: 'module',
+        // which doesn't support importScripts(). Use getWorker() with a Blob URL
+        // and explicit { type: 'classic' } to ensure importScripts() works.
         const monacoVsUrl = new URL('./assets/monaco/vs', window.location.href)
           .href;
         (self as any).MonacoEnvironment = {
-          getWorkerUrl: (_moduleId: string, _label: string) => {
+          getWorker: (_moduleId: string, _label: string) => {
             const workerUrl = `${monacoVsUrl}/base/worker/workerMain.js`;
             const js = `self.MonacoEnvironment = { baseUrl: '${monacoVsUrl}/' };\nimportScripts('${workerUrl}');`;
-            return (
-              'data:text/javascript;charset=utf-8,' + encodeURIComponent(js)
-            );
+            const blob = new Blob([js], { type: 'application/javascript' });
+            const blobUrl = URL.createObjectURL(blob);
+            const worker = new Worker(blobUrl, { type: 'classic' as const });
+            URL.revokeObjectURL(blobUrl);
+            return worker;
           },
         };
       },

@@ -31,6 +31,7 @@ import {
   isStreamEvent,
   isMessageStart,
   isCompactBoundary,
+  isLocalCommandOutput,
 } from '../types/sdk-types/claude-sdk.types';
 import { resolveActualModelForPricing } from './anthropic-provider-registry';
 
@@ -427,11 +428,13 @@ export class StreamTransformer {
             // SDK sends tool_result content blocks in user messages after tool execution.
             // Without this, tools remain in __streaming: true state forever.
             // Also process compact_boundary (type: 'system') to emit compaction_complete events.
+            // Also process local_command_output (type: 'system') for /cost, /context output.
             if (
               sdkMessage.type === 'stream_event' ||
               sdkMessage.type === 'assistant' ||
               sdkMessage.type === 'user' ||
-              isCompactBoundary(sdkMessage)
+              isCompactBoundary(sdkMessage) ||
+              isLocalCommandOutput(sdkMessage)
             ) {
               // TASK_2025_092: Use effectiveSessionId (real UUID) for events
               // This ensures events have the real sessionId for proper routing

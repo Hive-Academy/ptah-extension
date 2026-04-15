@@ -60,6 +60,7 @@ import {
   ProviderRpcHandlers,
   LlmRpcHandlers,
   WebSearchRpcHandlers,
+  HarnessRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific handler classes
@@ -123,6 +124,8 @@ export class ElectronRpcMethodRegistrationService {
     @inject(LlmRpcHandlers) private readonly llmHandlers: LlmRpcHandlers,
     @inject(WebSearchRpcHandlers)
     private readonly webSearchHandlers: WebSearchRpcHandlers,
+    @inject(HarnessRpcHandlers)
+    private readonly harnessHandlers: HarnessRpcHandlers,
     // Electron-specific handlers
     @inject(ElectronWorkspaceRpcHandlers)
     private readonly workspaceHandlers: ElectronWorkspaceRpcHandlers,
@@ -212,6 +215,7 @@ export class ElectronRpcMethodRegistrationService {
       { name: 'ProviderRpcHandlers', handler: this.providerHandlers },
       { name: 'LlmRpcHandlers', handler: this.llmHandlers },
       { name: 'WebSearchRpcHandlers', handler: this.webSearchHandlers },
+      { name: 'HarnessRpcHandlers', handler: this.harnessHandlers },
     ];
 
     for (const { name, handler } of sharedHandlers) {

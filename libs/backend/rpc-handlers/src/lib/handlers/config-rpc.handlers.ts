@@ -20,9 +20,7 @@ import {
   SdkPermissionHandler,
   ProviderModelsService,
   SDK_TOKENS,
-  DEFAULT_PROVIDER_ID,
-  ANTHROPIC_DIRECT_PROVIDER_ID,
-  TIER_TO_MODEL_ID,
+  DEFAULT_FALLBACK_MODEL_ID,
   resolveModelIdStatic,
 } from '@ptah-extension/agent-sdk';
 import {
@@ -113,12 +111,18 @@ export class ConfigRpcHandlers {
       try {
         const { model, sessionId } = params;
 
-        this.logger.debug('RPC: config:model-switch called', {
-          model,
-          sessionId,
-        });
+        // LOG 3/3: What the frontend sends back on model selection
+        this.logger.info(
+          '[ModelDiag] config:model-switch RECEIVED from frontend',
+          {
+            model,
+            sessionId: sessionId ?? null,
+            startsWithClaude: model.startsWith('claude-'),
+          },
+        );
 
-        // Save the model (now using full API name)
+        // Frontend sends full model IDs from the normalized models list.
+        // No resolution needed — getSupportedModels() normalizes at source.
         await this.configManager.set('model.selected', model);
 
         // Sync to active SDK session if provided
@@ -162,11 +166,20 @@ export class ConfigRpcHandlers {
         try {
           this.logger.debug('RPC: config:model-get called');
 
-          const raw =
-            this.configManager.get<string>('model.selected') || 'default';
-          const model = resolveModelIdStatic(raw, this.authEnv);
+          const stored = this.configManager.get<string>('model.selected') || '';
 
-          return { model };
+          // Legacy migration: old configs may have bare tier names.
+          // Resolve once and re-save so future reads are already clean.
+          if (stored && !stored.startsWith('claude-')) {
+            const resolved = resolveModelIdStatic(stored, this.authEnv);
+            this.logger.info(
+              `RPC: config:model-get migrating legacy value '${stored}' → '${resolved}'`,
+            );
+            await this.configManager.set('model.selected', resolved);
+            return { model: resolved };
+          }
+
+          return { model: stored || DEFAULT_FALLBACK_MODEL_ID };
         } catch (error) {
           this.logger.error(
             'RPC: config:model-get failed',
@@ -320,68 +333,27 @@ export class ConfigRpcHandlers {
         try {
           this.logger.debug('RPC: config:models-list called');
 
-          // Get saved model preference. Resolve bare tier names and 'default'
-          // to full model IDs via the canonical resolver.
-          const rawSaved =
-            this.configManager.get<string>('model.selected') || 'default';
-          const savedModel = resolveModelIdStatic(rawSaved, this.authEnv);
+          // Saved model preference — already a full ID (normalized on save).
+          // Legacy bare tier names are migrated in config:model-get.
+          const savedModel =
+            this.configManager.get<string>('model.selected') ||
+            DEFAULT_FALLBACK_MODEL_ID;
 
-          // Fetch SDK tier models (always available, 3 slots)
+          // Both return ModelInfo[] with full IDs in .value (normalized at source)
           const sdkModels = await this.sdkAdapter.getSupportedModels();
-
-          // Fetch API models in parallel (all available versions, non-blocking)
           const apiModels = await this.sdkAdapter.getApiModels();
 
-          // Check if an Anthropic-compatible provider is active and get tier overrides
-          const authMethod = this.configManager.getWithDefault<string>(
-            'authMethod',
-            'auto',
-          );
-          let tierOverrides: ReturnType<
-            ProviderModelsService['getModelTiers']
-          > | null = null;
+          // Get provider tier overrides (for OpenRouter etc.)
+          const tierOverrides = this.getTierOverrides();
 
-          // TASK_2025_270: Apply tier overrides for ALL auth methods.
-          // For 'oauth'/'apiKey': use 'anthropic' virtual provider ID
-          // For 'openrouter': use the configured third-party provider ID
-          // For 'auto': detect which auth actually resolved by checking env
-          const tierProviderId = (() => {
-            if (authMethod === 'oauth' || authMethod === 'apiKey')
-              return ANTHROPIC_DIRECT_PROVIDER_ID;
-            if (authMethod === 'openrouter')
-              return this.configManager.getWithDefault<string>(
-                'anthropicProviderId',
-                DEFAULT_PROVIDER_ID,
-              );
-            // 'auto' mode: provider auth sets ANTHROPIC_BASE_URL, direct auth does not
-            if (!process.env['ANTHROPIC_BASE_URL'])
-              return ANTHROPIC_DIRECT_PROVIDER_ID;
-            return this.configManager.getWithDefault<string>(
-              'anthropicProviderId',
-              DEFAULT_PROVIDER_ID,
-            );
-          })();
-
-          try {
-            tierOverrides = this.providerModels.getModelTiers(tierProviderId);
-          } catch (e) {
-            this.logger.warn(
-              'Failed to read provider tier overrides',
-              e instanceof Error ? e : new Error(String(e)),
-            );
-          }
-
-          // --- Phase 1: Build SDK tier models (recommended shortcuts) ---
-          // The SDK may return 'default' as a model value (which maps to sonnet).
-          // Instead of filtering it out (which loses sonnet entirely when the SDK
-          // doesn't return a separate 'sonnet' entry), resolve it to the actual
-          // tier model ID. De-duplicate by resolved ID to avoid duplicate entries.
-          const sdkModelIds = new Set<string>();
+          // --- Build unified model list ---
+          // SDK models come first (recommended tier shortcuts), then API models
+          // not already covered. Both sources have .value as full model IDs.
+          const sdkModelIds = new Set(sdkModels.map((m) => m.value));
           const models: Array<{
             id: string;
             name: string;
             description: string;
-            apiName: string;
             isSelected: boolean;
             isRecommended: boolean;
             providerModelId: string | null;
@@ -389,101 +361,68 @@ export class ConfigRpcHandlers {
           }> = [];
 
           for (const m of sdkModels) {
-            const valueLower = m.value.toLowerCase();
-            const displayLower = (m.displayName || '').toLowerCase();
-            const descLower = (m.description || '').toLowerCase();
-
             const tier = this.detectModelTier(
-              valueLower,
-              displayLower,
-              descLower,
+              m.value.toLowerCase(),
+              (m.displayName || '').toLowerCase(),
+              (m.description || '').toLowerCase(),
             );
 
-            // Resolve bare tier names AND 'default' to full model IDs via the
-            // canonical resolver (single source of truth in sdk-model-service).
-            const resolvedValue = resolveModelIdStatic(m.value, this.authEnv);
-            if (resolvedValue !== m.value) {
-              this.logger.info(
-                `Resolved SDK model '${m.value}' to '${resolvedValue}'`,
-                { displayName: m.displayName },
-              );
-            }
+            const providerModelId =
+              tierOverrides && tier ? (tierOverrides[tier] ?? null) : null;
 
-            // De-duplicate by resolved ID — 'default' and an explicit tier
-            // may resolve to the same model ID
-            if (sdkModelIds.has(resolvedValue)) {
-              this.logger.debug(
-                `Skipping duplicate SDK model '${m.value}' (resolved to '${resolvedValue}')`,
-              );
-              continue;
-            }
-
-            sdkModelIds.add(resolvedValue);
-
-            // Apply provider tier overrides
-            let providerModelId: string | null = null;
-            if (tierOverrides && tier) {
-              providerModelId = tierOverrides[tier] ?? null;
-            }
-
-            const description = providerModelId
-              ? getModelPricingDescription(providerModelId)
-              : m.description;
-
-            // Also check resolved value for sonnet (e.g. 'default' resolved to sonnet tier)
-            const resolvedLower = resolvedValue.toLowerCase();
             models.push({
-              id: resolvedValue,
+              id: m.value,
               name: m.displayName,
-              description,
-              apiName: resolvedValue,
-              isSelected: resolvedValue === savedModel,
-              isRecommended:
-                valueLower.includes('sonnet') ||
-                displayLower.includes('sonnet') ||
-                resolvedLower.includes('sonnet'),
+              description: providerModelId
+                ? getModelPricingDescription(providerModelId)
+                : m.description,
+              isSelected: m.value === savedModel,
+              isRecommended: m.value.toLowerCase().includes('sonnet'),
               providerModelId,
               tier,
             });
           }
 
-          // --- Phase 2: Add API models not already covered by SDK tiers ---
-          for (const apiModel of apiModels) {
-            // Skip if already represented by an SDK tier model
-            if (sdkModelIds.has(apiModel.id)) continue;
+          for (const m of apiModels) {
+            if (sdkModelIds.has(m.value)) continue;
 
-            const idLower = apiModel.id.toLowerCase();
-            const nameLower = apiModel.displayName.toLowerCase();
-            const tier = this.detectModelTier(idLower, nameLower, '');
+            const tier = this.detectModelTier(
+              m.value.toLowerCase(),
+              (m.displayName || '').toLowerCase(),
+              '',
+            );
 
-            // Apply provider tier overrides
-            let providerModelId: string | null = null;
-            if (tierOverrides && tier) {
-              providerModelId = tierOverrides[tier] ?? null;
-            }
-
-            const description = providerModelId
-              ? getModelPricingDescription(providerModelId)
-              : getModelPricingDescription(apiModel.id);
+            const providerModelId =
+              tierOverrides && tier ? (tierOverrides[tier] ?? null) : null;
 
             models.push({
-              id: apiModel.id,
-              name: apiModel.displayName,
-              description,
-              apiName: apiModel.id,
-              isSelected: apiModel.id === savedModel,
+              id: m.value,
+              name: m.displayName,
+              description: providerModelId
+                ? getModelPricingDescription(providerModelId)
+                : getModelPricingDescription(m.value),
+              isSelected: m.value === savedModel,
               isRecommended: false,
               providerModelId,
               tier,
             });
           }
 
-          this.logger.debug('RPC: config:models-list merged', {
-            sdkCount: sdkModels.length,
-            apiCount: apiModels.length,
-            totalCount: models.length,
-            modelIds: models.map((m) => m.id),
-          });
+          // LOG 2/3: What the dropdown will show (sent to frontend)
+          this.logger.info(
+            '[ModelDiag] config:models-list SENDING to frontend dropdown',
+            {
+              savedModel,
+              tierOverrides: tierOverrides ?? 'none',
+              models: models.map((m) => ({
+                id: m.id,
+                name: m.name,
+                isSelected: m.isSelected,
+                tier: m.tier ?? 'none',
+                providerModelId: m.providerModelId ?? 'none',
+              })),
+            },
+          );
 
           return { models };
         } catch (error) {
@@ -495,6 +434,25 @@ export class ConfigRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * Get provider tier overrides for model mapping (OpenRouter etc.).
+   * Delegates provider resolution to ProviderModelsService (single source of truth).
+   */
+  private getTierOverrides(): ReturnType<
+    ProviderModelsService['getModelTiers']
+  > | null {
+    try {
+      const providerId = this.providerModels.resolveActiveProviderId();
+      return this.providerModels.getModelTiers(providerId);
+    } catch (e) {
+      this.logger.warn(
+        'Failed to read provider tier overrides',
+        e instanceof Error ? e : new Error(String(e)),
+      );
+      return null;
+    }
   }
 
   /**
