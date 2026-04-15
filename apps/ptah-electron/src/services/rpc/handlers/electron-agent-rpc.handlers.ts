@@ -288,25 +288,11 @@ export class ElectronAgentRpcHandlers {
         // Browser settings — write via workspace provider (not stateStorage) because
         // browser.allowLocalhost routes through FILE_BASED_SETTINGS_KEYS to ~/.ptah/settings.json.
         if (params.browserAllowLocalhost !== undefined) {
-          if ('setConfiguration' in this.workspace) {
-            await (
-              this.workspace as IWorkspaceProvider & {
-                setConfiguration: (
-                  s: string,
-                  k: string,
-                  v: unknown,
-                ) => Promise<void>;
-              }
-            ).setConfiguration(
-              'ptah',
-              'browser.allowLocalhost',
-              params.browserAllowLocalhost,
-            );
-          } else {
-            this.logger.warn(
-              'Cannot persist browserAllowLocalhost: workspace provider does not support setConfiguration',
-            );
-          }
+          await this.workspace.setConfiguration(
+            'ptah',
+            'browser.allowLocalhost',
+            params.browserAllowLocalhost,
+          );
         }
 
         this.logger.debug('RPC: agent:setConfig success');

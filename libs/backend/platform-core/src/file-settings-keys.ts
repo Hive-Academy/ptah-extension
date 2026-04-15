@@ -77,6 +77,9 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // Browser automation (TASK_2025_244)
   'browser.allowLocalhost',
   'browser.recordingDir',
+
+  // Editor preferences (TASK_2025_283)
+  'editor.vimMode',
 ]);
 
 /**
@@ -148,4 +151,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // Browser automation (TASK_2025_244)
   'browser.allowLocalhost': false,
   'browser.recordingDir': '',
+
+  // Editor preferences (TASK_2025_283)
+  'editor.vimMode': false,
 };

@@ -39,18 +39,6 @@ import * as path from 'path';
 import * as os from 'os';
 
 /**
- * Extended workspace provider interface that includes setConfiguration.
- * This method is available on VscodeWorkspaceProvider at runtime but
- * is not part of the IWorkspaceProvider interface contract.
- *
- * TASK_2025_247: Used for writing config values through the platform
- * abstraction layer so file-based keys are routed to ~/.ptah/settings.json.
- */
-interface IWorkspaceProviderWithSet extends IWorkspaceProvider {
-  setConfiguration(section: string, key: string, value: unknown): Promise<void>;
-}
-
-/**
  * RPC handlers for agent orchestration operations.
  *
  * TASK_2025_157: Agent Orchestration Settings UI
@@ -62,8 +50,6 @@ interface IWorkspaceProviderWithSet extends IWorkspaceProvider {
  */
 @injectable()
 export class AgentRpcHandlers {
-  private readonly workspaceProvider: IWorkspaceProviderWithSet;
-
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -76,12 +62,8 @@ export class AgentRpcHandlers {
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    workspaceProvider: IWorkspaceProvider,
-  ) {
-    // VscodeWorkspaceProvider has setConfiguration() at runtime.
-    // Cast to extended interface for type-safe access.
-    this.workspaceProvider = workspaceProvider as IWorkspaceProviderWithSet;
-  }
+    private readonly workspaceProvider: IWorkspaceProvider,
+  ) {}
 
   /**
    * Register all agent orchestration RPC methods
