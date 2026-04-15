@@ -3,7 +3,7 @@
   <div class="flex-1 flex flex-col min-w-0">
     <!-- Session Stats Summary (only when there are messages) -->
     @if (resolvedMessages().length > 0) {
-      <div class="px-3 py-2 bg-base-200/30">
+      <div class="p-1 bg-base-200/30">
         <ptah-session-stats-summary
           [messages]="resolvedMessages()"
           [preloadedStats]="resolvedPreloadedStats()"
@@ -17,7 +17,7 @@
     <!-- TASK_2025_142/143: Trial & community banners moved to header notification bell -->
 
     <!-- TASK_2025_098: Compaction Notification Banner -->
-    <div class="px-4">
+    <div class="px-2">
       <ptah-compaction-notification [isCompacting]="resolvedIsCompacting()" />
     </div>
 

@@ -119,7 +119,7 @@ import { AgentCardComponent } from '../molecules/agent-card/agent-card.component
               type="button"
               class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all shrink-0 cursor-pointer"
               [ngClass]="
-                agent.agentId === effectiveSelectedAgent()?.agentId
+                agent.agentId === effectiveSelectedAgent().agentId
                   ? 'border-primary bg-primary/10 shadow-sm'
                   : 'border-base-300 bg-base-100 hover:border-primary/30 hover:bg-primary/5'
               "
