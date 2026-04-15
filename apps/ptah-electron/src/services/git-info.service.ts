@@ -627,9 +627,16 @@ export class GitInfoService {
         const filePath = parts.slice(10).join(' ');
         files.push({ path: filePath, status: 'M', staged: false });
       } else if (line.startsWith('? ')) {
-        // Untracked entry
-        const filePath = line.substring(2);
-        files.push({ path: filePath, status: '??', staged: false });
+        // Untracked entry — directories have a trailing '/'
+        const rawPath = line.substring(2);
+        const isDir = rawPath.endsWith('/');
+        const filePath = isDir ? rawPath.slice(0, -1) : rawPath;
+        files.push({
+          path: filePath,
+          status: '??',
+          staged: false,
+          ...(isDir && { isDirectory: true }),
+        });
       }
     }
 

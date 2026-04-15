@@ -7,6 +7,7 @@ import {
   OnDestroy,
   ChangeDetectionStrategy,
   NgZone,
+  afterNextRender,
 } from '@angular/core';
 import { NgClass } from '@angular/common';
 import {
@@ -371,6 +372,39 @@ import type { FileTreeNode } from '../models/file-tree.model';
           <div class="modal-backdrop" (click)="deleteTarget.set(null)"></div>
         </div>
       }
+
+      <!-- Name input modal (new file/folder/rename) -->
+      @if (inputDialogTitle()) {
+        <div class="modal modal-open z-50">
+          <div class="modal-box max-w-sm">
+            <h3 class="font-bold text-base">{{ inputDialogTitle() }}</h3>
+            <input
+              #nameInput
+              type="text"
+              class="input input-bordered input-sm w-full mt-3"
+              [value]="inputDialogValue()"
+              (keydown.enter)="submitInputDialog(nameInput.value)"
+              (keydown.escape)="closeInputDialog()"
+              placeholder="Enter name..."
+            />
+            @if (inputDialogError()) {
+              <p class="text-error text-xs mt-1">{{ inputDialogError() }}</p>
+            }
+            <div class="modal-action">
+              <button class="btn btn-sm" (click)="closeInputDialog()">
+                Cancel
+              </button>
+              <button
+                class="btn btn-sm btn-primary"
+                (click)="submitInputDialog(nameInput.value)"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+          <div class="modal-backdrop" (click)="closeInputDialog()"></div>
+        </div>
+      }
     </div>
   `,
   styles: `
@@ -567,6 +601,12 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   protected readonly ctxMenuNode = signal<FileTreeNode | null>(null);
   protected readonly deleteTarget = signal<FileTreeNode | null>(null);
 
+  // Input dialog state (replaces window.prompt which is unavailable in Electron)
+  protected readonly inputDialogTitle = signal('');
+  protected readonly inputDialogValue = signal('');
+  protected readonly inputDialogError = signal('');
+  private inputDialogCallback: ((name: string) => void) | null = null;
+
   protected onContextMenu(event: {
     event: MouseEvent;
     node: FileTreeNode | null;
@@ -588,45 +628,39 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     switch (action.type) {
       case 'newFile':
       case 'newFolder': {
-        // Determine the parent directory
+        const type = action.type === 'newFile' ? 'file' : 'folder';
         const targetDir = node?.type === 'directory' ? node : null;
+        let dirPath: string;
+
         if (targetDir) {
-          // For directory nodes, the inline input is handled by the node itself
-          // We need to find the node component and trigger it.
-          // For simplicity, create directly with a default name.
-          // The inline input is already wired into the node component.
-          this.createInDirectory(
-            targetDir,
-            action.type === 'newFile' ? 'file' : 'folder',
-          );
+          dirPath = targetDir.path.replace(/\\/g, '/');
         } else if (node) {
-          // Right-clicked on a file — create sibling in parent directory
           const parentPath = node.path.replace(/\\/g, '/');
-          const dir = parentPath.substring(0, parentPath.lastIndexOf('/'));
-          this.createInPath(dir, action.type === 'newFile' ? 'file' : 'folder');
+          dirPath = parentPath.substring(0, parentPath.lastIndexOf('/'));
         } else {
-          // Blank area — create in workspace root
           const root = this.editorService.activeWorkspacePath;
-          if (root) {
-            this.createInPath(
-              root.replace(/\\/g, '/'),
-              action.type === 'newFile' ? 'file' : 'folder',
-            );
-          }
+          if (!root) return;
+          dirPath = root.replace(/\\/g, '/');
         }
+
+        this.openInputDialog(
+          type === 'file' ? 'New file name' : 'New folder name',
+          '',
+          (name) => {
+            const newPath = dirPath + '/' + name;
+            if (type === 'file') {
+              void this.editorService.createFile(newPath);
+            } else {
+              void this.editorService.createFolder(newPath);
+            }
+          },
+        );
         break;
       }
       case 'rename':
         if (node) {
-          // Trigger rename via prompt (inline rename is handled by node component)
-          const oldName = node.name;
-          const newName = prompt('Rename to:', oldName);
-          if (
-            newName &&
-            newName !== oldName &&
-            !newName.includes('/') &&
-            !newName.includes('\\')
-          ) {
+          this.openInputDialog('Rename to', node.name, (newName) => {
+            if (newName === node.name) return;
             const currentPath = node.path.replace(/\\/g, '/');
             const parentPath = currentPath.substring(
               0,
@@ -636,7 +670,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
               currentPath,
               parentPath + '/' + newName,
             );
-          }
+          });
         }
         break;
       case 'delete':
@@ -662,39 +696,52 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     );
   }
 
-  /**
-   * Create a new file or folder inside a directory node.
-   * Uses prompt() for name input since the inline input in the node
-   * requires a reference to the specific node component instance.
-   */
-  private createInDirectory(
-    dirNode: FileTreeNode,
-    type: 'file' | 'folder',
+  private openInputDialog(
+    title: string,
+    initialValue: string,
+    callback: (name: string) => void,
   ): void {
-    const name = prompt(
-      type === 'file' ? 'New file name:' : 'New folder name:',
-    );
-    if (!name || name.includes('/') || name.includes('\\')) return;
-    const dirPath = dirNode.path.replace(/\\/g, '/');
-    const newPath = dirPath + '/' + name;
-    if (type === 'file') {
-      void this.editorService.createFile(newPath);
-    } else {
-      void this.editorService.createFolder(newPath);
-    }
+    this.inputDialogTitle.set(title);
+    this.inputDialogValue.set(initialValue);
+    this.inputDialogError.set('');
+    this.inputDialogCallback = callback;
+
+    // Auto-focus the input after the modal renders
+    afterNextRender(() => {
+      const input = document.querySelector<HTMLInputElement>(
+        '.modal-open input[type="text"]',
+      );
+      if (input) {
+        input.focus();
+        // For rename, select just the filename part (before last dot)
+        if (initialValue) {
+          const dotIdx = initialValue.lastIndexOf('.');
+          input.setSelectionRange(0, dotIdx > 0 ? dotIdx : initialValue.length);
+        }
+      }
+    });
   }
 
-  private createInPath(dirPath: string, type: 'file' | 'folder'): void {
-    const name = prompt(
-      type === 'file' ? 'New file name:' : 'New folder name:',
-    );
-    if (!name || name.includes('/') || name.includes('\\')) return;
-    const newPath = dirPath + '/' + name;
-    if (type === 'file') {
-      void this.editorService.createFile(newPath);
-    } else {
-      void this.editorService.createFolder(newPath);
+  protected submitInputDialog(value: string): void {
+    const name = value.trim();
+    if (!name) {
+      this.inputDialogError.set('Name cannot be empty.');
+      return;
     }
+    if (name.includes('/') || name.includes('\\')) {
+      this.inputDialogError.set('Name cannot contain / or \\.');
+      return;
+    }
+    const cb = this.inputDialogCallback;
+    this.closeInputDialog();
+    cb?.(name);
+  }
+
+  protected closeInputDialog(): void {
+    this.inputDialogTitle.set('');
+    this.inputDialogValue.set('');
+    this.inputDialogError.set('');
+    this.inputDialogCallback = null;
   }
 
   protected dismissError(): void {
