@@ -1,20 +1,26 @@
 /**
  * Chat Message Handler - Routes chat-related VS Code messages to ChatStore
  *
- * Implements the MessageHandler interface to handle 9 message types that were
+ * Implements the MessageHandler interface to handle message types that were
  * previously routed through VSCodeService's fragile lazy setter pattern.
  *
  * Handled message types:
  * - CHAT_CHUNK: Streaming events from SDK
- * - CHAT_COMPLETE: Chat completion signal
  * - CHAT_ERROR: Chat error signal
  * - PERMISSION_REQUEST: Permission prompt from backend
  * - AGENT_SUMMARY_CHUNK: Real-time agent summary streaming
- * - SESSION_STATS: Cost/token data after completion
+ * - SESSION_STATS: Cost/token data after completion (authoritative completion signal)
  * - SESSION_ID_RESOLVED: Real SDK UUID resolution
  * - ASK_USER_QUESTION_REQUEST: AskUserQuestion tool from SDK
  * - PERMISSION_AUTO_RESOLVED: Always Allow sibling resolution
  * - PERMISSION_SESSION_CLEANUP: Session abort cleanup
+ *
+ * NOTE: CHAT_COMPLETE is intentionally NOT handled here. It fires per-turn
+ * (on every message_complete), not at session end. Handling it would mark
+ * the tab idle mid-session during multi-turn tool-use conversations.
+ * SESSION_STATS is the authoritative completion signal (TASK_2025_101).
+ * Slash commands use maxTurns: 1 on the backend to ensure clean termination
+ * and SESSION_STATS delivery.
  */
 
 import { Injectable, inject } from '@angular/core';
@@ -30,7 +36,9 @@ export class ChatMessageHandler implements MessageHandler {
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
-    MESSAGE_TYPES.CHAT_COMPLETE,
+    // CHAT_COMPLETE intentionally not registered — SESSION_STATS is authoritative (TASK_2025_101)
+    // CHAT_COMPLETE fires per-turn (on message_complete), not at session end.
+    // Handling it here would mark tabs idle mid-session during multi-turn tool-use.
     MESSAGE_TYPES.CHAT_ERROR,
     MESSAGE_TYPES.PERMISSION_REQUEST,
     MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
@@ -45,9 +53,6 @@ export class ChatMessageHandler implements MessageHandler {
     switch (message.type) {
       case MESSAGE_TYPES.CHAT_CHUNK:
         this.handleChatChunk(message.payload);
-        break;
-      case MESSAGE_TYPES.CHAT_COMPLETE:
-        this.handleChatComplete(message.payload);
         break;
       case MESSAGE_TYPES.CHAT_ERROR:
         this.handleChatError(message.payload);
@@ -92,32 +97,6 @@ export class ChatMessageHandler implements MessageHandler {
     };
 
     this.chatStore.processStreamEvent(event, tabId, sessionId);
-  }
-
-  // CHAT_COMPLETE: Mark tab idle as safety net
-  // SESSION_STATS remains the authoritative completion signal (TASK_2025_101),
-  // but slash commands (/compact, /context, /cost) may not produce a result
-  // message, so SESSION_STATS never fires. CHAT_COMPLETE is the fallback
-  // that ensures the tab exits "streaming" state. markTabIdle is idempotent,
-  // so calling it twice (from both SESSION_STATS and CHAT_COMPLETE) is safe.
-  private handleChatComplete(payload: unknown): void {
-    const { tabId, sessionId } =
-      (payload as { tabId?: string; sessionId?: string }) ?? {};
-
-    // Route by tabId (primary) then sessionId fallback
-    let targetTabId = tabId;
-    if (!targetTabId && sessionId) {
-      const tab = this.chatStore.findTabBySessionId(sessionId);
-      targetTabId = tab?.id ?? undefined;
-    }
-    if (!targetTabId) {
-      targetTabId = this.chatStore.getActiveTabId() ?? undefined;
-    }
-    if (targetTabId) {
-      this.chatStore.markTabIdle(targetTabId);
-      // Also clear compaction state in case this was a /compact command
-      this.chatStore.clearCompactionStateForTab(targetTabId);
-    }
   }
 
   // CHAT_ERROR: Chat error signal

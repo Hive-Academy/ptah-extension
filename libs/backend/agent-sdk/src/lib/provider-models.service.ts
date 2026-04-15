@@ -27,6 +27,8 @@ import type {
 import { updatePricingMap } from '@ptah-extension/shared';
 import {
   getAnthropicProvider,
+  ANTHROPIC_DIRECT_PROVIDER_ID,
+  DEFAULT_PROVIDER_ID,
   type AnthropicProvider,
 } from './helpers/anthropic-provider-registry';
 import { TIER_ENV_VAR_MAP } from './helpers/sdk-model-service';
@@ -514,6 +516,41 @@ export class ProviderModelsService {
 
     this.logger.info(
       `[ProviderModelsService] Switched active provider tiers to ${providerId}`,
+    );
+  }
+
+  /**
+   * Resolve the active provider ID based on the current auth method.
+   *
+   * Single source of truth for auth-method → provider-ID mapping.
+   * Used by config:models-list (tier overrides) and anywhere else
+   * that needs to know which provider's tier config is active.
+   *
+   * Mapping:
+   *  - oauth / apiKey        → ANTHROPIC_DIRECT_PROVIDER_ID (Anthropic native)
+   *  - openrouter            → saved anthropicProviderId (OpenRouter, Moonshot, etc.)
+   *  - auto (no base URL)    → ANTHROPIC_DIRECT_PROVIDER_ID
+   *  - auto (with base URL)  → saved anthropicProviderId
+   */
+  resolveActiveProviderId(): string {
+    const authMethod = this.config.getWithDefault<string>('authMethod', 'auto');
+
+    if (authMethod === 'oauth' || authMethod === 'apiKey') {
+      return ANTHROPIC_DIRECT_PROVIDER_ID;
+    }
+    if (authMethod === 'openrouter') {
+      return this.config.getWithDefault<string>(
+        'anthropicProviderId',
+        DEFAULT_PROVIDER_ID,
+      );
+    }
+    // 'auto' — check whether a custom base URL is configured
+    if (!process.env['ANTHROPIC_BASE_URL']) {
+      return ANTHROPIC_DIRECT_PROVIDER_ID;
+    }
+    return this.config.getWithDefault<string>(
+      'anthropicProviderId',
+      DEFAULT_PROVIDER_ID,
     );
   }
 

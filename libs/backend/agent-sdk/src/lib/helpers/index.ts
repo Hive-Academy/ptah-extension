@@ -71,7 +71,6 @@ export {
   resolveModelIdStatic,
   type ModelTier,
   type EnvMappedTier,
-  type ApiModelEntry,
 } from './sdk-model-service';
 // Slash command interceptor (TASK_2025_184)
 export {

@@ -623,11 +623,12 @@ export class ChatRpcHandlers {
             pluginCount: pluginPaths?.length ?? 0,
           });
 
-          // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
+          // Get current model: prefer frontend-provided model, then config, then fallback.
+          // All sources provide full model IDs (frontend from normalized list, config from normalized save).
           const currentModel =
             options?.model ||
             this.configManager.get<string>('model.selected') ||
-            'default';
+            DEFAULT_FALLBACK_MODEL_ID;
 
           // TASK_2025_093: tabId is now the primary tracking key
           // SDK generates real UUID in system init message
@@ -653,7 +654,7 @@ export class ChatRpcHandlers {
           const stream = await this.sdkAdapter.startChatSession({
             tabId, // REQUIRED: Primary tracking key for multi-tab isolation
             workspaceId: workspacePath,
-            model: options?.model || currentModel,
+            model: currentModel,
             systemPrompt: options?.systemPrompt,
             projectPath: workspacePath,
             name,
@@ -768,7 +769,8 @@ export class ChatRpcHandlers {
               },
             );
 
-            // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
+            // Get current model: prefer frontend-provided model, then config, then fallback.
+            // All sources provide full model IDs (normalized at source).
             const currentModel =
               params.model ||
               this.configManager.getWithDefault<string>(

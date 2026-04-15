@@ -29,6 +29,7 @@ import {
   AISessionConfig,
   ISdkPermissionHandler,
   InlineImageAttachment,
+  type AuthEnv,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import {
@@ -46,6 +47,7 @@ import type {
   WorktreeRemovedCallback,
 } from './worktree-hook-handler';
 import { SlashCommandInterceptor } from './slash-command-interceptor';
+import { resolveModelIdStatic } from './sdk-model-service';
 
 // Re-export for backward compatibility with other files
 export type { SDKUserMessage, ContentBlock };
@@ -217,6 +219,8 @@ export class SessionLifecycleManager {
     // TASK_2025_264: AgentSessionWatcherService for stopping file watchers on session end
     @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
     private agentSessionWatcher: AgentSessionWatcherService,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
   ) {}
 
   /**
@@ -1090,8 +1094,12 @@ export class SessionLifecycleManager {
    * Set session model
    * Extracted from SdkAgentAdapter to consolidate session control
    *
+   * Resolves bare tier names ('opus', 'sonnet', 'haiku') to full model IDs
+   * before passing to the SDK. The SDK's setModel() requires full model IDs
+   * like 'claude-opus-4-6' — bare tier names cause "can't access model" errors.
+   *
    * @param sessionId - Session to update
-   * @param model - Model ID to set
+   * @param model - Model ID or bare tier name to set
    */
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {
     let session = this.activeSessions.get(sessionId as string);
@@ -1114,13 +1122,22 @@ export class SessionLifecycleManager {
       throw new Error(`Session query not initialized: ${sessionId}`);
     }
 
+    // Resolve model through provider overrides (e.g., claude-sonnet-4-6 → glm-5.1 on Z.AI)
+    // and bare tier names (e.g., 'sonnet' → 'claude-sonnet-4-6' on direct Anthropic).
+    const resolvedModel = resolveModelIdStatic(model, this.authEnv);
+    if (resolvedModel !== model) {
+      this.logger.info(
+        `[SessionLifecycle] Model resolved: '${model}' → '${resolvedModel}'`,
+      );
+    }
+
     this.logger.info(
-      `[SessionLifecycle] Setting model for ${sessionId}: ${model}`,
+      `[SessionLifecycle] Setting model for ${sessionId}: ${resolvedModel}`,
     );
 
     try {
-      await session.query.setModel(model);
-      session.currentModel = model;
+      await session.query.setModel(resolvedModel);
+      session.currentModel = resolvedModel;
       this.logger.info(`[SessionLifecycle] Model set for ${sessionId}`);
     } catch (error) {
       this.logger.error(

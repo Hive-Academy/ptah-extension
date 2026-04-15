@@ -22,10 +22,7 @@ export {
 } from './theme.service';
 
 // Model & Autopilot State Services (TASK_2025_035)
-export {
-  ModelStateService,
-  type ModelInfoWithSelection,
-} from './model-state.service';
+export { ModelStateService } from './model-state.service';
 export { AutopilotStateService } from './autopilot-state.service';
 
 // Effort State Service (reasoning effort persistence)
