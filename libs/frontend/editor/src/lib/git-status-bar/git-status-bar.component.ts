@@ -7,13 +7,12 @@ import {
   ChangeDetectionStrategy,
   ElementRef,
 } from '@angular/core';
-import { LucideAngularModule, GitBranch, FolderOpen } from 'lucide-angular';
-import { ElectronLayoutService } from '@ptah-extension/core';
+import { LucideAngularModule, GitBranch } from 'lucide-angular';
 import { GitStatusService } from '../services/git-status.service';
 import { EditorService } from '../services/editor.service';
 import { WorktreeService } from '../services/worktree.service';
+import { VimModeService } from '../services/vim-mode.service';
 import { GitChangedFilesComponent } from './git-changed-files.component';
-import type { GitWorktreeInfo } from '@ptah-extension/shared';
 
 /**
  * GitStatusBarComponent - Horizontal bar showing git branch info, ahead/behind counts,
@@ -87,68 +86,38 @@ import type { GitWorktreeInfo } from '@ptah-extension/shared';
           </button>
         }
 
-        <!-- Worktrees - minimal indicator only when multiple exist -->
+        <!-- Worktrees - minimal count indicator (full list in sidebar) -->
         @if (worktreeCount() > 1) {
-          <button
-            type="button"
-            class="flex items-center gap-1 px-2 py-0.5 rounded
-                   text-base-content/50 hover:text-base-content hover:bg-base-content/5
-                   transition-colors"
+          <span
+            class="text-[11px] text-base-content/40 px-1"
             [class.ml-auto]="!gitStatus.hasChanges()"
-            [title]="worktreeCount() + ' worktrees'"
-            (click)="toggleWorktreeList()"
+            [title]="worktreeCount() + ' worktrees (see Worktrees tab)'"
           >
-            <span class="text-[11px]">{{ worktreeCount() }}wt</span>
-          </button>
-
-          <!-- Worktree dropdown list -->
-          @if (showWorktreeList()) {
-            <div
-              class="absolute left-0 top-full mt-1 z-50 min-w-[280px] max-w-[400px]
-                     bg-base-300 border border-base-content/10 rounded-lg shadow-lg
-                     py-1 text-xs"
-              role="listbox"
-              aria-label="Worktree list"
-            >
-              <div
-                class="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider
-                       opacity-50 border-b border-base-content/5"
-              >
-                Git Worktrees
-              </div>
-              @for (wt of worktreeService.worktrees(); track wt.path) {
-                <button
-                  type="button"
-                  class="flex items-center gap-2 w-full px-3 py-1.5 text-left
-                         hover:bg-base-content/10 transition-colors"
-                  [class.bg-primary]="wt.isMain"
-                  [class.bg-opacity-10]="wt.isMain"
-                  role="option"
-                  [attr.aria-selected]="wt.isMain"
-                  [title]="'Open ' + wt.path + ' in file explorer'"
-                  (click)="onWorktreeSelect(wt)"
-                >
-                  <lucide-angular
-                    [img]="wt.isMain ? GitBranchIcon : FolderOpenIcon"
-                    class="w-3.5 h-3.5 flex-shrink-0 opacity-60"
-                    aria-hidden="true"
-                  />
-                  <div class="flex flex-col min-w-0 gap-0.5">
-                    <span class="font-medium truncate">
-                      {{ extractBranchName(wt.branch) }}
-                      @if (wt.isMain) {
-                        <span class="text-primary opacity-70 ml-1">(main)</span>
-                      }
-                    </span>
-                    <span class="opacity-40 truncate text-[10px]">{{
-                      wt.path
-                    }}</span>
-                  </div>
-                </button>
-              }
-            </div>
-          }
+            {{ worktreeCount() }}wt
+          </span>
         }
+
+        <!-- Spacer to push vim toggle to the right -->
+        <span class="flex-1"></span>
+
+        <!-- Vim mode toggle -->
+        <button
+          type="button"
+          class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium
+                 transition-colors"
+          [class]="
+            vimModeService.enabled()
+              ? 'bg-primary/15 text-primary'
+              : 'text-base-content/30 hover:text-base-content/50 hover:bg-base-content/5'
+          "
+          [title]="
+            vimModeService.enabled() ? 'Disable Vim mode' : 'Enable Vim mode'
+          "
+          aria-label="Toggle Vim mode"
+          (click)="toggleVimMode()"
+        >
+          VIM
+        </button>
       </div>
 
       <!-- Changed files panel (below status bar) -->
@@ -166,8 +135,8 @@ import type { GitWorktreeInfo } from '@ptah-extension/shared';
 export class GitStatusBarComponent {
   protected readonly gitStatus = inject(GitStatusService);
   protected readonly worktreeService = inject(WorktreeService);
+  protected readonly vimModeService = inject(VimModeService);
   private readonly editorService = inject(EditorService);
-  private readonly layoutService = inject(ElectronLayoutService);
   private readonly elementRef = inject(ElementRef);
 
   /** Close dropdowns/panels when clicking outside the component. */
@@ -177,7 +146,6 @@ export class GitStatusBarComponent {
       target instanceof Node &&
       !this.elementRef.nativeElement.contains(target)
     ) {
-      if (this.showWorktreeList()) this.showWorktreeList.set(false);
       if (this.showChangedFiles()) this.showChangedFiles.set(false);
     }
   }
@@ -187,17 +155,13 @@ export class GitStatusBarComponent {
   // ============================================================================
 
   protected readonly GitBranchIcon = GitBranch;
-  protected readonly FolderOpenIcon = FolderOpen;
 
   // ============================================================================
-  // WORKTREE STATE
+  // STATE
   // ============================================================================
 
   /** Whether the changed files panel is visible. */
   protected readonly showChangedFiles = signal(false);
-
-  /** Whether the worktree list dropdown is visible. */
-  protected readonly showWorktreeList = signal(false);
 
   /** Number of active worktrees, derived from WorktreeService. */
   protected readonly worktreeCount = computed(
@@ -220,43 +184,17 @@ export class GitStatusBarComponent {
   }
 
   // ============================================================================
-  // WORKTREE LIST ACTIONS
-  // ============================================================================
-
-  /** Toggle the worktree list dropdown. */
-  protected toggleWorktreeList(): void {
-    this.showWorktreeList.update((v) => !v);
-  }
-
-  /**
-   * Handle worktree selection from the dropdown.
-   * Adds the worktree as a workspace folder and switches to it,
-   * which triggers the file tree to reload with the worktree's files.
-   */
-  protected onWorktreeSelect(worktree: GitWorktreeInfo): void {
-    this.showWorktreeList.set(false);
-    if (worktree.path) {
-      void this.layoutService.addFolderByPath(worktree.path);
-    }
-  }
-
-  /**
-   * Display-friendly branch name with fallback for detached HEAD.
-   * parseWorktreeList() already strips refs/heads/ prefix, so this
-   * is purely a null/detached-state fallback.
-   */
-  protected extractBranchName(branch: string | undefined): string {
-    if (!branch) return '(detached)';
-    return branch;
-  }
-
-  // ============================================================================
-  // CHANGED FILES PANEL ACTIONS
+  // ACTIONS
   // ============================================================================
 
   /** Toggle the changed files panel visibility. */
   protected toggleChangedFiles(): void {
     this.showChangedFiles.update((v) => !v);
+  }
+
+  /** Toggle Vim mode and persist the preference. */
+  protected toggleVimMode(): void {
+    void this.vimModeService.toggle();
   }
 
   /**
