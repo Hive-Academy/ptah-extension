@@ -312,36 +312,58 @@ export class SdkModelService {
   }
 
   /**
+   * Check if a non-Anthropic provider is active (e.g., Copilot, Codex, OpenRouter).
+   * When true, model values need normalization to provider-specific IDs.
+   * When false (direct Anthropic), SDK models are passed through as-is.
+   */
+  private isThirdPartyProvider(): boolean {
+    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+    return !!baseUrl && !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
+  }
+
+  /**
    * Normalize SDK models: resolve bare tier names in `.value` to full model IDs
-   * and deduplicate (e.g., 'default' and 'sonnet' both resolve to the same ID).
+   * and deduplicate.
    *
-   * Filters out the 'default' meta-tier — it always maps to sonnet and adds no
-   * value in the dropdown. Keeping it causes issues with non-Anthropic providers:
-   * if env vars aren't set yet when models are cached, 'default' resolves to
-   * 'claude-sonnet-4-6' instead of the provider's model, and the cached value
-   * persists for the session lifetime.
+   * For direct Anthropic auth (API key / OAuth): pass models through as-is.
+   * The SDK returns the correct models for the account and the 'default' tier
+   * works natively.
    *
-   * This is the SINGLE normalization point. After this, all consumers can trust
-   * that `.value` contains a full model ID suitable for SDK's setModel().
+   * For third-party providers: resolve bare tier names to provider-specific
+   * model IDs via ANTHROPIC_DEFAULT_*_MODEL env vars, and replace the 'default'
+   * meta-tier with 'sonnet' to avoid stale-cache issues (if env vars aren't set
+   * at cache time, 'default' resolves to claude-sonnet-4-6 instead of the
+   * provider's model).
    */
   private normalizeModels(models: ModelInfo[]): ModelInfo[] {
+    // Direct Anthropic: no normalization needed — SDK models are authoritative
+    if (!this.isThirdPartyProvider()) {
+      this.logger.debug(
+        '[SdkModelService] Direct Anthropic provider — returning SDK models as-is',
+      );
+      return models;
+    }
+
+    // Third-party provider: resolve tier names to provider-specific model IDs
     const seen = new Set<string>();
     const normalized: ModelInfo[] = [];
 
     for (const m of models) {
-      // Skip 'default' meta-tier — it always maps to sonnet and is redundant
-      // in the dropdown. It also causes provider mapping bugs when env vars
-      // aren't set at cache time (resolves to claude-sonnet-4-6 instead of
-      // the provider's model like gpt-5.4).
-      if (m.value.toLowerCase() === 'default') continue;
+      // Replace 'default' meta-tier with 'sonnet' before resolving.
+      // 'default' always maps to sonnet but can cache the wrong value
+      // when env vars aren't set at cache time.
+      const value = m.value.toLowerCase() === 'default' ? 'sonnet' : m.value;
 
-      const resolvedValue = this.resolveModelId(m.value);
+      const resolvedValue = this.resolveModelId(value);
       if (seen.has(resolvedValue)) continue;
       seen.add(resolvedValue);
 
       normalized.push({
         ...m,
         value: resolvedValue,
+        ...(m.value.toLowerCase() === 'default' && {
+          displayName: 'Sonnet',
+        }),
       });
     }
 
