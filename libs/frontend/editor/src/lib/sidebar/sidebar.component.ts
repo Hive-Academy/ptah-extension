@@ -11,6 +11,7 @@ import type { GitFileStatus } from '@ptah-extension/shared';
 import { FileTreeComponent } from '../file-tree/file-tree.component';
 import { SourceControlPanelComponent } from '../source-control/source-control-panel.component';
 import { SearchPanelComponent } from '../search/search-panel.component';
+import { WorktreePanelComponent } from '../worktree/worktree-panel.component';
 
 /**
  * SidebarComponent - Tabbed container switching between Explorer and Source Control panels.
@@ -30,6 +31,7 @@ import { SearchPanelComponent } from '../search/search-panel.component';
     FileTreeComponent,
     SourceControlPanelComponent,
     SearchPanelComponent,
+    WorktreePanelComponent,
   ],
   template: `
     <aside
@@ -89,6 +91,20 @@ import { SearchPanelComponent } from '../search/search-panel.component';
         >
           Search
         </button>
+
+        <button
+          class="px-2.5 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1.5"
+          role="tab"
+          [attr.aria-selected]="activeTab() === 'worktrees'"
+          [class]="
+            activeTab() === 'worktrees'
+              ? 'text-base-content bg-base-content/10'
+              : 'text-base-content/50 hover:text-base-content/70 hover:bg-base-content/5'
+          "
+          (click)="activeTab.set('worktrees')"
+        >
+          Worktrees
+        </button>
       </div>
 
       <!-- Tab content -->
@@ -113,6 +129,9 @@ import { SearchPanelComponent } from '../search/search-panel.component';
             <ptah-search-panel
               (searchResultSelected)="searchResultSelected.emit($event)"
             />
+          }
+          @case ('worktrees') {
+            <ptah-worktree-panel />
           }
         }
       </div>
@@ -143,7 +162,7 @@ export class SidebarComponent {
 
   // Tab state
   protected readonly activeTab = signal<
-    'explorer' | 'source-control' | 'search'
+    'explorer' | 'source-control' | 'search' | 'worktrees'
   >('explorer');
 
   // Computed
