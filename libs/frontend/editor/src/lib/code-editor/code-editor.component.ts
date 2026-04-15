@@ -9,11 +9,15 @@ import {
   inject,
   DestroyRef,
   OnInit,
+  ViewChild,
+  ElementRef,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { EditorComponent } from 'ngx-monaco-editor-v2';
 import { MarkdownComponent } from 'ngx-markdown';
 import { LucideAngularModule, Eye, Code } from 'lucide-angular';
+import { VimModeService } from '../services/vim-mode.service';
+import { EditorService } from '../services/editor.service';
 
 /**
  * CodeEditorComponent - Monaco editor wrapper with language detection and save support.
@@ -40,60 +44,69 @@ import { LucideAngularModule, Eye, Code } from 'lucide-angular';
   ],
   template: `
     @if (filePath()) {
-    <div class="h-full w-full flex flex-col">
-      <div
-        class="flex items-center gap-2 px-3 py-1.5 bg-base-300 border-b border-base-300 text-xs"
-      >
-        <span class="opacity-60 truncate" [attr.title]="filePath()">{{
-          fileName()
-        }}</span>
-        @if (isDirty()) {
-        <span class="badge badge-xs badge-warning">Modified</span>
-        }
-        <div class="ml-auto flex items-center">
-          @if (isMarkdownFile()) {
-          <button
-            class="btn btn-ghost btn-xs gap-1"
-            [attr.aria-label]="
-              showPreview() ? 'Switch to editor' : 'Switch to preview'
-            "
-            [title]="showPreview() ? 'Edit markdown' : 'Preview markdown'"
-            (click)="togglePreview()"
-          >
-            <lucide-angular
-              [img]="showPreview() ? CodeIcon : EyeIcon"
-              class="w-3.5 h-3.5"
+      <div class="h-full w-full flex flex-col">
+        <div
+          class="flex items-center gap-2 px-3 py-1.5 bg-base-300 border-b border-base-300 text-xs"
+        >
+          <span class="opacity-60 truncate" [attr.title]="filePath()">{{
+            fileName()
+          }}</span>
+          @if (isDirty()) {
+            <span class="badge badge-xs badge-warning">Modified</span>
+          }
+          <div class="ml-auto flex items-center">
+            @if (isMarkdownFile()) {
+              <button
+                class="btn btn-ghost btn-xs gap-1"
+                [attr.aria-label]="
+                  showPreview() ? 'Switch to editor' : 'Switch to preview'
+                "
+                [title]="showPreview() ? 'Edit markdown' : 'Preview markdown'"
+                (click)="togglePreview()"
+              >
+                <lucide-angular
+                  [img]="showPreview() ? CodeIcon : EyeIcon"
+                  class="w-3.5 h-3.5"
+                />
+                <span>{{ showPreview() ? 'Edit' : 'Preview' }}</span>
+              </button>
+            }
+          </div>
+        </div>
+        <div class="flex-1 min-h-0">
+          @if (showPreview() && isMarkdownFile()) {
+            <div
+              class="h-full overflow-y-auto bg-base-100 p-6 prose prose-invert max-w-none"
+            >
+              <markdown [data]="editorContent" />
+            </div>
+          } @else {
+            <ngx-monaco-editor
+              class="h-full"
+              [options]="editorOptions()"
+              [(ngModel)]="editorContent"
+              (ngModelChange)="onContentChange()"
+              (onInit)="onEditorInit($event)"
             />
-            <span>{{ showPreview() ? 'Edit' : 'Preview' }}</span>
-          </button>
           }
         </div>
-      </div>
-      <div class="flex-1 min-h-0">
-        @if (showPreview() && isMarkdownFile()) {
-        <div
-          class="h-full overflow-y-auto bg-base-100 p-6 prose prose-invert max-w-none"
-        >
-          <markdown [data]="editorContent" />
-        </div>
-        } @else {
-        <ngx-monaco-editor
-          class="h-full"
-          [options]="editorOptions()"
-          [(ngModel)]="editorContent"
-          (ngModelChange)="onContentChange()"
-          (onInit)="onEditorInit($event)"
-        />
+        @if (vimModeService.enabled() && isFocused()) {
+          <div
+            #vimStatusBar
+            class="h-6 bg-base-300 border-t border-base-content/10 text-xs px-2 flex items-center font-mono text-base-content/70 flex-shrink-0"
+            aria-label="Vim status"
+          ></div>
         }
       </div>
-    </div>
     } @else {
-    <div class="h-full w-full flex items-center justify-center bg-base-100">
-      <div class="text-center opacity-40">
-        <p class="text-lg mb-2">No file open</p>
-        <p class="text-sm">Select a file from the explorer to start editing</p>
+      <div class="h-full w-full flex items-center justify-center bg-base-100">
+        <div class="text-center opacity-40">
+          <p class="text-lg mb-2">No file open</p>
+          <p class="text-sm">
+            Select a file from the explorer to start editing
+          </p>
+        </div>
       </div>
-    </div>
     }
   `,
   styles: `
@@ -113,11 +126,26 @@ export class CodeEditorComponent implements OnInit {
   readonly filePath = input<string | undefined>(undefined);
   readonly content = input<string>('');
 
+  /**
+   * Whether this editor pane currently has focus.
+   * When false, vim mode is detached from this instance.
+   * Defaults to true for non-split (single pane) usage.
+   */
+  readonly isFocused = input(true);
+
   readonly contentChanged = output<string>();
   readonly fileSaved = output<{ filePath: string; content: string }>();
 
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly vimModeService = inject(VimModeService);
+  private readonly editorService = inject(EditorService);
+
+  /** Reference to the vim status bar DOM element. */
+  @ViewChild('vimStatusBar') vimStatusBarRef?: ElementRef<HTMLElement>;
+
+  /** The Monaco editor instance, captured from onEditorInit. */
+  private monacoEditor: unknown = null;
 
   protected editorContent = '';
   private lastSavedContent = '';
@@ -167,13 +195,56 @@ export class CodeEditorComponent implements OnInit {
         this.showPreview.set(false);
       }
     });
+
+    // Vim mode attachment effect: watch enabled state AND isFocused state.
+    // Vim mode only attaches to the focused pane's editor. When isFocused becomes
+    // false (e.g., user clicks the other split pane), vim detaches from this instance.
+    // The @ViewChild inside @if means vimStatusBarRef is only available after the @if renders,
+    // so we use a microtask to wait for the DOM update.
+    effect(() => {
+      const enabled = this.vimModeService.enabled();
+      const focused = this.isFocused();
+      if (enabled && focused && this.monacoEditor) {
+        // Defer to allow the @if block to render the #vimStatusBar element
+        Promise.resolve().then(() => {
+          if (this.vimStatusBarRef?.nativeElement && this.monacoEditor) {
+            this.vimModeService.attachToEditor(
+              this.monacoEditor,
+              this.vimStatusBarRef.nativeElement,
+            );
+          }
+        });
+      } else if (!enabled || !focused) {
+        this.vimModeService.detach();
+      }
+    });
+
+    // Clean up vim mode when the component is destroyed
+    this.destroyRef.onDestroy(() => {
+      this.vimModeService.detach();
+    });
+
+    // Watch targetLine from EditorService and reveal line in Monaco when set.
+    // This is a one-shot signal: read it, reveal, then clear.
+    effect(() => {
+      const line = this.editorService.targetLine();
+      if (line !== undefined && this.monacoEditor) {
+        const editor = this.monacoEditor as {
+          revealLineInCenter: (line: number) => void;
+          setPosition: (pos: { lineNumber: number; column: number }) => void;
+        };
+        editor.revealLineInCenter(line);
+        editor.setPosition({ lineNumber: line, column: 1 });
+        this.editorService.clearTargetLine();
+      }
+    });
   }
 
   ngOnInit(): void {
     this.keydownHandler = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 's') {
-        // Only handle save when we have an active file
-        if (this.filePath()) {
+        // Only handle save when this pane has focus and has an active file
+        if (this.isFocused() && this.filePath()) {
           event.preventDefault();
           this.saveFile();
         }
@@ -192,8 +263,22 @@ export class CodeEditorComponent implements OnInit {
     this.showPreview.update((v) => !v);
   }
 
-  protected onEditorInit(_editor: unknown): void {
-    // Editor initialized; content sync is handled by the effect
+  protected onEditorInit(editor: unknown): void {
+    // Capture the Monaco editor instance for vim mode attachment
+    this.monacoEditor = editor;
+
+    // If vim mode is already enabled and this pane is focused,
+    // attach immediately once the status bar element is available
+    if (this.vimModeService.enabled() && this.isFocused()) {
+      Promise.resolve().then(() => {
+        if (this.vimStatusBarRef?.nativeElement && this.monacoEditor) {
+          this.vimModeService.attachToEditor(
+            this.monacoEditor,
+            this.vimStatusBarRef.nativeElement,
+          );
+        }
+      });
+    }
   }
 
   /**

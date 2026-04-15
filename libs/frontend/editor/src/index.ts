@@ -31,10 +31,18 @@
 
 // Models
 export type { FileTreeNode } from './lib/models/file-tree.model';
+export type {
+  SearchMatch,
+  SearchFileResult,
+  SearchInFilesParams,
+  SearchInFilesResult,
+} from './lib/models/search.model';
 
 // Components
 export { FileTreeComponent } from './lib/file-tree/file-tree.component';
 export { FileTreeNodeComponent } from './lib/file-tree/file-tree-node.component';
+export { FileTreeContextMenuComponent } from './lib/file-tree/file-tree-context-menu.component';
+export { FileTreeInlineInputComponent } from './lib/file-tree/file-tree-inline-input.component';
 export { CodeEditorComponent } from './lib/code-editor/code-editor.component';
 export { DiffViewComponent } from './lib/diff-view/diff-view.component';
 export { EditorPanelComponent } from './lib/editor-panel/editor-panel.component';
@@ -46,6 +54,7 @@ export { AddWorktreeDialogComponent } from './lib/worktree/add-worktree-dialog.c
 export { SidebarComponent } from './lib/sidebar/sidebar.component';
 export { SourceControlPanelComponent } from './lib/source-control/source-control-panel.component';
 export { SourceControlFileComponent } from './lib/source-control/source-control-file.component';
+export { SearchPanelComponent } from './lib/search/search-panel.component';
 
 // Services
 export { EditorService } from './lib/services/editor.service';
@@ -53,6 +62,7 @@ export type { EditorTab } from './lib/services/editor.service';
 export { GitStatusService } from './lib/services/git-status.service';
 export { TerminalService } from './lib/services/terminal.service';
 export { WorktreeService } from './lib/services/worktree.service';
+export { VimModeService } from './lib/services/vim-mode.service';
 export { SourceControlService } from './lib/services/source-control.service';
 
 // Utilities
