@@ -263,10 +263,15 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     }
 
     this.gitStatus.startPolling();
+
+    // Listen for file:tree-changed push events from the backend so the
+    // file explorer updates when files are added/deleted (e.g. git pull).
+    this.editorService.startFileTreeWatcher();
   }
 
   ngOnDestroy(): void {
     this.gitStatus.stopPolling();
+    this.editorService.stopFileTreeWatcher();
     this.cleanupResizeListeners();
   }
 

@@ -25,9 +25,13 @@ import type { GitInfoService } from './git-info.service';
 /** Message type used for pushing git status to the renderer. */
 const GIT_STATUS_UPDATE = 'git:status-update';
 
+/** Message type used for pushing file tree invalidation to the renderer. */
+const FILE_TREE_CHANGED = 'file:tree-changed';
+
 export class GitWatcherService {
   private watchers: fs.FSWatcher[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private treeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private workspacePath: string | null = null;
   private broadcastFn: ((type: string, payload: unknown) => void) | null = null;
   private isDisposed = false;
@@ -37,6 +41,9 @@ export class GitWatcherService {
 
   /** Debounce interval for workspace file changes (ms). Longer to avoid noise. */
   private static readonly WORKSPACE_DEBOUNCE_MS = 2000;
+
+  /** Debounce interval for file tree refresh (ms). Longer to batch bulk operations like git pull. */
+  private static readonly TREE_DEBOUNCE_MS = 3000;
 
   constructor(
     private readonly gitInfo: GitInfoService,
@@ -94,9 +101,9 @@ export class GitWatcherService {
       this.watchDirectory(refsDir, GitWatcherService.GIT_DEBOUNCE_MS);
     }
 
-    // Watch workspace root for file modifications (unstaged changes).
-    // Uses a longer debounce since file edits are frequent.
-    this.watchDirectory(workspacePath, GitWatcherService.WORKSPACE_DEBOUNCE_MS);
+    // Watch workspace root recursively for file modifications (unstaged changes)
+    // and structural changes (file add/delete for tree refresh).
+    this.watchWorkspaceRoot(workspacePath);
 
     // Push initial state immediately
     this.fetchAndPush();
@@ -121,6 +128,11 @@ export class GitWatcherService {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
+    }
+
+    if (this.treeDebounceTimer) {
+      clearTimeout(this.treeDebounceTimer);
+      this.treeDebounceTimer = null;
     }
 
     for (const watcher of this.watchers) {
@@ -183,6 +195,90 @@ export class GitWatcherService {
         error: err instanceof Error ? err.message : String(err),
       } as unknown as Error);
     }
+  }
+
+  /**
+   * Watch the workspace root recursively for both git status changes
+   * and structural changes (file add/delete/rename).
+   *
+   * - All file events schedule a git status update (existing behavior).
+   * - 'rename' events (file add/delete) also schedule a file tree refresh
+   *   push to the renderer so the file explorer stays in sync.
+   *
+   * Uses recursive: true which is natively supported on Windows and macOS.
+   */
+  private watchWorkspaceRoot(dirPath: string): void {
+    try {
+      const watcher = fs.watch(
+        dirPath,
+        { recursive: true },
+        (eventType, filename) => {
+          // Skip .git directory changes — handled by dedicated git watchers
+          if (
+            typeof filename === 'string' &&
+            (filename.startsWith('.git/') ||
+              filename.startsWith('.git\\') ||
+              filename === '.git')
+          ) {
+            return;
+          }
+
+          // Skip node_modules and dist to avoid noise
+          if (typeof filename === 'string') {
+            if (
+              filename.startsWith('node_modules/') ||
+              filename.startsWith('node_modules\\') ||
+              filename.startsWith('dist/') ||
+              filename.startsWith('dist\\')
+            ) {
+              return;
+            }
+          }
+
+          // Always update git status (debounced)
+          this.scheduleUpdate(GitWatcherService.WORKSPACE_DEBOUNCE_MS);
+
+          // 'rename' events indicate file/directory add, delete, or rename —
+          // these require a file tree refresh
+          if (eventType === 'rename') {
+            this.scheduleTreeRefresh();
+          }
+        },
+      );
+
+      watcher.on('error', (err) => {
+        this.logger.warn('[GitWatcher] Workspace watcher error', {
+          dirPath,
+          error: err.message,
+        } as unknown as Error);
+      });
+
+      this.watchers.push(watcher);
+    } catch (err) {
+      this.logger.warn('[GitWatcher] Failed to watch workspace root', {
+        dirPath,
+        error: err instanceof Error ? err.message : String(err),
+      } as unknown as Error);
+    }
+  }
+
+  /**
+   * Schedule a debounced file tree refresh push.
+   * Uses a longer debounce than git status to batch bulk operations (e.g. git pull).
+   */
+  private scheduleTreeRefresh(): void {
+    if (this.isDisposed) return;
+
+    if (this.treeDebounceTimer) {
+      clearTimeout(this.treeDebounceTimer);
+    }
+
+    this.treeDebounceTimer = setTimeout(() => {
+      this.treeDebounceTimer = null;
+      if (!this.isDisposed && this.broadcastFn) {
+        this.broadcastFn(FILE_TREE_CHANGED, {});
+      }
+    }, GitWatcherService.TREE_DEBOUNCE_MS);
   }
 
   /**

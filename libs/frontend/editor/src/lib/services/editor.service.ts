@@ -80,6 +80,13 @@ export class EditorService {
   /** Counter for stale-response protection in loadFileTree(). */
   private _loadFileTreeRequestId = 0;
 
+  /** Handler for backend file:tree-changed push events. */
+  private _treeMessageHandler: ((event: MessageEvent) => void) | null = null;
+
+  /** Debounce timer for frontend-side tree refresh coalescing. */
+  private _treeRefreshDebounceTimer: ReturnType<typeof setTimeout> | null =
+    null;
+
   // ============================================================================
   // SIGNAL STATE
   // ============================================================================
@@ -198,6 +205,51 @@ export class EditorService {
    */
   get activeWorkspacePath(): string | null {
     return this._activeWorkspacePath;
+  }
+
+  // ============================================================================
+  // FILE TREE WATCHING
+  // ============================================================================
+
+  /**
+   * Start listening for file:tree-changed push events from the backend.
+   * When a structural change (file add/delete) is detected in the workspace,
+   * the backend pushes this event and we reload the file tree.
+   *
+   * Uses a frontend-side debounce (500ms) on top of the backend debounce (3s)
+   * to coalesce rapid events during bulk operations.
+   */
+  startFileTreeWatcher(): void {
+    if (this._treeMessageHandler) return;
+
+    this._treeMessageHandler = (event: MessageEvent) => {
+      const data = event.data;
+      if (data?.type === 'file:tree-changed') {
+        if (this._treeRefreshDebounceTimer) {
+          clearTimeout(this._treeRefreshDebounceTimer);
+        }
+        this._treeRefreshDebounceTimer = setTimeout(() => {
+          this._treeRefreshDebounceTimer = null;
+          this.loadFileTree();
+        }, 500);
+      }
+    };
+    window.addEventListener('message', this._treeMessageHandler);
+  }
+
+  /**
+   * Stop listening for file:tree-changed push events.
+   * Called when the editor panel is destroyed.
+   */
+  stopFileTreeWatcher(): void {
+    if (this._treeMessageHandler) {
+      window.removeEventListener('message', this._treeMessageHandler);
+      this._treeMessageHandler = null;
+    }
+    if (this._treeRefreshDebounceTimer) {
+      clearTimeout(this._treeRefreshDebounceTimer);
+      this._treeRefreshDebounceTimer = null;
+    }
   }
 
   // ============================================================================
