@@ -3,7 +3,6 @@ import { LucideAngularModule, Palette, Check } from 'lucide-angular';
 import {
   ThemeService,
   type ThemeName,
-  type ThemeInfo,
   DAISYUI_THEMES,
 } from '@ptah-extension/core';
 

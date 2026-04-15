@@ -92,6 +92,18 @@ export type HarnessWizardStep =
   | 'mcp'
   | 'review';
 
+// ─── MCP Server Suggestion ──────────────────────────────
+
+/** Suggested MCP server from persona-based AI suggestions */
+export interface McpServerSuggestion {
+  /** Search query to find this server in the MCP Registry */
+  query: string;
+  /** Human-readable display name */
+  displayName: string;
+  /** Why this server was suggested for the persona */
+  reason: string;
+}
+
 // ─── Skill Browser Types ────────────────────────────────
 
 export interface SkillSummary {
@@ -146,6 +158,7 @@ export interface HarnessSuggestConfigParams {
 export interface HarnessSuggestConfigResponse {
   suggestedAgents: Record<string, AgentOverride>;
   suggestedSkills: string[];
+  suggestedMcpServers: McpServerSuggestion[];
   suggestedPrompt: string;
   reasoning: string;
 }

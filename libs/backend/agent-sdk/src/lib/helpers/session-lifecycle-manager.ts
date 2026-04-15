@@ -770,10 +770,10 @@ export class SessionLifecycleManager {
       const session = this.getActiveSession(sessionId);
       if (session) {
         const sdkUserMessage = await this.messageFactory.createUserMessage({
-          content: initialPrompt!.content,
+          content: initialPrompt!.content, // eslint-disable-line @typescript-eslint/no-non-null-assertion
           sessionId,
-          files: initialPrompt!.files,
-          images: initialPrompt!.images,
+          files: initialPrompt!.files, // eslint-disable-line @typescript-eslint/no-non-null-assertion
+          images: initialPrompt!.images, // eslint-disable-line @typescript-eslint/no-non-null-assertion
         });
         session.messageQueue.push(sdkUserMessage);
         this.logger.info(

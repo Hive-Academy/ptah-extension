@@ -9,7 +9,6 @@ export interface AuthEnv {
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_BASE_URL?: string;
   ANTHROPIC_AUTH_TOKEN?: string;
-  CLAUDE_CODE_OAUTH_TOKEN?: string;
   ANTHROPIC_DEFAULT_SONNET_MODEL?: string;
   ANTHROPIC_DEFAULT_OPUS_MODEL?: string;
   ANTHROPIC_DEFAULT_HAIKU_MODEL?: string;

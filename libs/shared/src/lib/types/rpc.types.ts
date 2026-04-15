@@ -191,6 +191,21 @@ import type {
 } from './rpc/rpc-agents.types';
 
 import type {
+  McpDirectorySearchParams,
+  McpDirectorySearchResult,
+  McpDirectoryGetDetailsParams,
+  McpDirectoryGetDetailsResult,
+  McpDirectoryInstallParams,
+  McpDirectoryInstallResult,
+  McpDirectoryUninstallParams,
+  McpDirectoryUninstallResult,
+  McpDirectoryListInstalledParams,
+  McpDirectoryListInstalledResult,
+  McpDirectoryGetPopularParams,
+  McpDirectoryGetPopularResult,
+} from './mcp-directory.types';
+
+import type {
   GitInfoParams,
   GitInfoResult,
   GitWorktreesParams,
@@ -754,6 +769,32 @@ export interface RpcMethodRegistry {
     result: SkillDetectionResult;
   };
 
+  // ---- MCP Server Directory Methods ----
+  'mcpDirectory:search': {
+    params: McpDirectorySearchParams;
+    result: McpDirectorySearchResult;
+  };
+  'mcpDirectory:getDetails': {
+    params: McpDirectoryGetDetailsParams;
+    result: McpDirectoryGetDetailsResult;
+  };
+  'mcpDirectory:install': {
+    params: McpDirectoryInstallParams;
+    result: McpDirectoryInstallResult;
+  };
+  'mcpDirectory:uninstall': {
+    params: McpDirectoryUninstallParams;
+    result: McpDirectoryUninstallResult;
+  };
+  'mcpDirectory:listInstalled': {
+    params: McpDirectoryListInstalledParams;
+    result: McpDirectoryListInstalledResult;
+  };
+  'mcpDirectory:getPopular': {
+    params: McpDirectoryGetPopularParams;
+    result: McpDirectoryGetPopularResult;
+  };
+
   // ---- Workspace Methods (Electron desktop) ----
   'workspace:getInfo': {
     params: Record<string, never>;
@@ -1173,6 +1214,14 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'skillsSh:uninstall',
   'skillsSh:getPopular',
   'skillsSh:detectRecommended',
+
+  // MCP Server Directory Methods
+  'mcpDirectory:search',
+  'mcpDirectory:getDetails',
+  'mcpDirectory:install',
+  'mcpDirectory:uninstall',
+  'mcpDirectory:listInstalled',
+  'mcpDirectory:getPopular',
 
   // Workspace Methods (Electron desktop)
   'workspace:getInfo',

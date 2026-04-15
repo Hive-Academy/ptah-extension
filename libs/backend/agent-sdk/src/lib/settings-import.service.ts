@@ -44,7 +44,7 @@ export class SettingsImportService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.SECRET_STORAGE)
-    private readonly secretStorage: ISecretStorage
+    private readonly secretStorage: ISecretStorage,
   ) {}
 
   /**
@@ -56,7 +56,7 @@ export class SettingsImportService {
    */
   async importSettings(
     data: PtahSettingsExport,
-    options: SettingsImportOptions = {}
+    options: SettingsImportOptions = {},
   ): Promise<SettingsImportResult> {
     const { overwrite = false } = options;
 
@@ -90,25 +90,19 @@ export class SettingsImportService {
       SECRET_KEYS.LICENSE_KEY,
       data.licenseKey,
       overwrite,
-      result
-    );
-    await this.importSecret(
-      SECRET_KEYS.OAUTH_TOKEN,
-      data.auth.oauthToken,
-      overwrite,
-      result
+      result,
     );
     await this.importSecret(
       SECRET_KEYS.API_KEY,
       data.auth.apiKey,
       overwrite,
-      result
+      result,
     );
 
     // Step 3: Import per-provider keys (validated against known provider IDs)
     if (data.auth.providerKeys) {
       for (const [providerId, value] of Object.entries(
-        data.auth.providerKeys
+        data.auth.providerKeys,
       )) {
         if (!KNOWN_PROVIDER_IDS.includes(providerId as KnownProviderId)) {
           result.skipped.push(`provider:${providerId} (unknown provider ID)`);
@@ -162,7 +156,7 @@ export class SettingsImportService {
 
     if (obj['version'] !== SETTINGS_EXPORT_VERSION) {
       return `Unsupported schema version: ${String(
-        obj['version']
+        obj['version'],
       )}. Expected version ${SETTINGS_EXPORT_VERSION}`;
     }
 
@@ -204,7 +198,7 @@ export class SettingsImportService {
     key: string,
     value: string | undefined,
     overwrite: boolean,
-    result: SettingsImportResult
+    result: SettingsImportResult,
   ): Promise<void> {
     if (!value) {
       return; // Nothing to import for this key

@@ -2,10 +2,10 @@
  * Authentication Manager - Handles SDK authentication configuration
  *
  * Responsibilities:
- * - Anthropic-compatible provider (OpenRouter, Moonshot, Z.AI), OAuth token and API key detection
+ * - Anthropic-compatible provider (OpenRouter, Moonshot, Z.AI) and API key detection
  * - Environment variable setup
  * - Token format validation
- * - Authentication priority logic (Anthropic Provider > OAuth > API Key)
+ * - Authentication priority logic (Anthropic Provider > API Key)
  *
  * TASK_2025_091: Added OpenRouter as highest-priority auth method
  * TASK_2025_129 Batch 3: Generalized to support multiple Anthropic-compatible providers
@@ -44,6 +44,7 @@ import {
 } from '../local-provider';
 import { LocalModelTranslationProxy } from '../local-provider/local-model-translation-proxy';
 import type { OllamaModelDiscoveryService } from '../local-provider/ollama-model-discovery.service';
+import type { ClaudeCliDetector } from '../detector/claude-cli-detector';
 
 export interface AuthResult {
   configured: boolean;
@@ -52,7 +53,7 @@ export interface AuthResult {
 }
 
 export interface AuthConfig {
-  method: 'oauth' | 'apiKey' | 'openrouter' | 'auto';
+  method: 'apiKey' | 'claudeCli' | 'openrouter' | 'auto';
 }
 
 /** All auth-related environment variable names (single source of truth) */
@@ -60,7 +61,6 @@ const AUTH_ENV_VARS = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_AUTH_TOKEN',
-  'CLAUDE_CODE_OAUTH_TOKEN',
 ] as const;
 
 /** Snapshot of env values captured before cleanup, used for shell fallback detection */
@@ -68,7 +68,6 @@ interface EnvSnapshot {
   ANTHROPIC_API_KEY: string | undefined;
   ANTHROPIC_BASE_URL: string | undefined;
   ANTHROPIC_AUTH_TOKEN: string | undefined;
-  CLAUDE_CODE_OAUTH_TOKEN: string | undefined;
 }
 
 /**
@@ -98,6 +97,8 @@ export class AuthManager {
     private ollamaDiscovery: OllamaModelDiscoveryService,
     @inject(SDK_TOKENS.SDK_LM_STUDIO_PROXY)
     private lmStudioProxy: LocalModelTranslationProxy,
+    @inject(SDK_TOKENS.SDK_CLI_DETECTOR)
+    private cliDetector: ClaudeCliDetector,
   ) {}
 
   /**
@@ -133,8 +134,8 @@ export class AuthManager {
   private async doConfigureAuthentication(
     rawAuthMethod: string,
   ): Promise<AuthResult> {
-    // Normalize: treat unknown/legacy values (e.g. 'vscode-lm') as 'auto'
-    const validMethods = new Set(['oauth', 'apiKey', 'openrouter', 'auto']);
+    // Normalize: treat unknown/legacy values (e.g. 'vscode-lm', 'oauth') as 'auto'
+    const validMethods = new Set(['apiKey', 'claudeCli', 'openrouter', 'auto']);
     const authMethod = validMethods.has(rawAuthMethod) ? rawAuthMethod : 'auto';
 
     if (rawAuthMethod !== authMethod) {
@@ -162,7 +163,7 @@ export class AuthManager {
       if (providerResult.configured) {
         authConfigured = true;
         authDetails.push(...providerResult.details);
-        // Skip OAuth and API key when provider is configured
+        // Skip API key when provider is configured
         this.logger.info(
           `[AuthManager] Authentication configured: ${authDetails.join(', ')}`,
         );
@@ -176,32 +177,33 @@ export class AuthManager {
       }
     }
 
-    // Priority 2: OAuth token (from Claude Max/Pro subscription)
-    // NOTE: As of SDK v0.1.8+, CLAUDE_CODE_OAUTH_TOKEN is supported and will use your subscription
-    // Get token via: claude setup-token
-    if (authMethod === 'oauth' || authMethod === 'auto') {
-      const oauthResult = await this.configureOAuthToken(envSnapshot);
-      if (oauthResult.configured) {
+    // Priority 2: Claude CLI (uses CLI's own credential store from `claude login`)
+    // When selected, we don't set any API key — the SDK reads credentials from the CLI automatically.
+    if (authMethod === 'claudeCli') {
+      const cliResult = await this.configureClaudeCli();
+      if (cliResult.configured) {
         authConfigured = true;
-        authDetails.push(...oauthResult.details);
+        authDetails.push(...cliResult.details);
+        this.logger.info(
+          `[AuthManager] Authentication configured: ${authDetails.join(', ')}`,
+        );
+        this.logEnvSummary();
+        return { configured: true, details: authDetails };
+      }
+      // Surface CLI error directly when explicitly selected
+      if (cliResult.errorMessage) {
+        this.logEnvSummary();
+        return cliResult;
       }
     }
 
-    // Priority 3: API key (pay-per-token billing, separate from subscription)
-    // NOTE: API key takes precedence over OAuth token if both are set
-    // In 'auto' mode with OAuth token, we skip API key to use subscription
-    const hasOAuthToken = authDetails.some((d) => d.includes('OAuth token'));
-
-    if ((authMethod === 'apiKey' || authMethod === 'auto') && !hasOAuthToken) {
+    // Priority 3: API key (pay-per-token billing)
+    if (authMethod === 'apiKey' || authMethod === 'auto') {
       const apiKeyResult = await this.configureAPIKey(envSnapshot);
       if (apiKeyResult.configured) {
         authConfigured = true;
         authDetails.push(...apiKeyResult.details);
       }
-    } else if (hasOAuthToken && authMethod === 'auto') {
-      this.logger.info(
-        '[AuthManager] Skipping API key check - using OAuth token from subscription',
-      );
     }
 
     // No auth configured — expected on first install, not an error
@@ -213,7 +215,7 @@ export class AuthManager {
         '[AuthManager] Option 1 (Provider): Configure in Settings > Authentication > Provider tab',
       );
       this.logger.debug(
-        '[AuthManager] Option 2 (Subscription): Run "claude setup-token" and paste the token',
+        '[AuthManager] Option 2 (Claude CLI): Run "claude login" to authenticate',
       );
       this.logger.debug(
         '[AuthManager] Option 3 (API Key): Get from https://console.anthropic.com/settings/keys',
@@ -239,89 +241,58 @@ export class AuthManager {
   }
 
   /**
-   * Configure OAuth token authentication
-   * Reads from SecretStorage (primary) or env snapshot (fallback)
+   * Configure Claude CLI authentication.
+   *
+   * When selected, NO API key env vars are set. The Claude Agent SDK automatically
+   * reads credentials from the CLI's own credential store (~/.claude/).
+   * Users authenticate via `claude login` in their terminal.
+   *
+   * This supports users with Claude Max/Pro subscriptions who don't have
+   * a separate API key.
    */
-  private async configureOAuthToken(
-    envSnapshot: EnvSnapshot,
-  ): Promise<AuthResult> {
-    const oauthToken = await this.authSecrets.getCredential('oauthToken');
-    const envOAuthToken = envSnapshot.CLAUDE_CODE_OAUTH_TOKEN;
-    const details: string[] = [];
+  private async configureClaudeCli(): Promise<AuthResult> {
+    this.logger.info('[AuthManager] Configuring Claude CLI authentication');
 
-    if (oauthToken?.trim()) {
-      const tokenLength = oauthToken.length;
-      const isOAuthFormat = oauthToken.startsWith('sk-ant-oat01-');
+    // Verify CLI is installed
+    const health = await this.cliDetector.performHealthCheck();
 
-      this.logger.info(
-        `[AuthManager] Found OAuth token in SecretStorage (length: ${tokenLength}, OAuth format: ${isOAuthFormat})`,
+    if (!health.available) {
+      this.logger.warn(
+        `[AuthManager] Claude CLI not found: ${health.error ?? 'not installed'}`,
       );
-
-      if (!isOAuthFormat) {
-        this.logger.warn(
-          '[AuthManager] WARNING: OAuth token does not start with "sk-ant-oat01-". Get token via: claude setup-token',
-        );
-      }
-
-      this.authEnv.CLAUDE_CODE_OAUTH_TOKEN = oauthToken.trim();
-
-      this.logger.info(
-        '[AuthManager] Using OAuth token from Claude Max/Pro subscription',
-      );
-
-      details.push(
-        `OAuth token from SecretStorage (subscription mode${
-          !isOAuthFormat ? ', format may be invalid' : ''
-        })`,
-      );
-
-      try {
-        this.providerModels.applyPersistedTiers(ANTHROPIC_DIRECT_PROVIDER_ID);
-      } catch (e) {
-        this.logger.warn(
-          '[AuthManager] Failed to apply tier mappings for direct auth',
-          e instanceof Error ? e : new Error(String(e)),
-        );
-      }
-
-      return { configured: true, details };
-    } else if (envOAuthToken) {
-      const tokenLength = envOAuthToken.length;
-      const isOAuthFormat = envOAuthToken.startsWith('sk-ant-oat01-');
-
-      this.logger.info(
-        `[AuthManager] Found OAuth token in environment (length: ${tokenLength}, OAuth format: ${isOAuthFormat})`,
-      );
-
-      // Restore the token from snapshot (it was cleared in clean slate)
-      this.authEnv.CLAUDE_CODE_OAUTH_TOKEN = envOAuthToken;
-
-      this.logger.info(
-        '[AuthManager] Using OAuth token from environment (subscription mode)',
-      );
-
-      details.push(
-        `OAuth token from environment (subscription mode${
-          !isOAuthFormat ? ', format may be invalid' : ''
-        })`,
-      );
-
-      try {
-        this.providerModels.applyPersistedTiers(ANTHROPIC_DIRECT_PROVIDER_ID);
-      } catch (e) {
-        this.logger.warn(
-          '[AuthManager] Failed to apply tier mappings for direct auth',
-          e instanceof Error ? e : new Error(String(e)),
-        );
-      }
-
-      return { configured: true, details };
-    } else {
-      this.logger.debug(
-        '[AuthManager] No OAuth token found in SecretStorage or environment',
-      );
-      return { configured: false, details: [] };
+      return {
+        configured: false,
+        details: [],
+        errorMessage:
+          'Claude CLI is not installed. Install it with: npm install -g @anthropic-ai/claude-code',
+      };
     }
+
+    this.logger.info(
+      `[AuthManager] Claude CLI found at ${health.path} (v${health.version ?? 'unknown'})`,
+    );
+
+    // Don't set any API key env vars — the SDK will use the CLI's credential store.
+    // Apply direct provider tier mappings (same as API key mode).
+    try {
+      this.providerModels.applyPersistedTiers(ANTHROPIC_DIRECT_PROVIDER_ID);
+    } catch (e) {
+      this.logger.warn(
+        '[AuthManager] Failed to apply tier mappings for CLI auth',
+        e instanceof Error ? e : new Error(String(e)),
+      );
+    }
+
+    this.logger.info(
+      '[AuthManager] Using Claude CLI authentication (credentials managed by CLI)',
+    );
+
+    return {
+      configured: true,
+      details: [
+        `Claude CLI v${health.version ?? 'unknown'} (credentials managed by CLI at ${health.path})`,
+      ],
+    };
   }
 
   /**
@@ -639,6 +610,7 @@ export class AuthManager {
     let proxyUrl: string;
     try {
       if (this.copilotProxy.isRunning()) {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         proxyUrl = this.copilotProxy.getUrl()!;
         this.logger.info(
           `[AuthManager] Translation proxy already running at ${proxyUrl}`,
@@ -727,6 +699,7 @@ export class AuthManager {
     let proxyUrl: string;
     try {
       if (this.codexProxy.isRunning()) {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         proxyUrl = this.codexProxy.getUrl()!;
         this.logger.info(
           `[AuthManager] Codex translation proxy already running at ${proxyUrl}`,
@@ -803,6 +776,7 @@ export class AuthManager {
     let proxyUrl: string;
     try {
       if (proxy.isRunning()) {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         proxyUrl = proxy.getUrl()!;
         this.logger.info(
           `[AuthManager] ${providerName} translation proxy already running at ${proxyUrl}`,
@@ -1003,7 +977,6 @@ export class AuthManager {
       ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'],
       ANTHROPIC_BASE_URL: process.env['ANTHROPIC_BASE_URL'],
       ANTHROPIC_AUTH_TOKEN: process.env['ANTHROPIC_AUTH_TOKEN'],
-      CLAUDE_CODE_OAUTH_TOKEN: process.env['CLAUDE_CODE_OAUTH_TOKEN'],
     };
   }
 
