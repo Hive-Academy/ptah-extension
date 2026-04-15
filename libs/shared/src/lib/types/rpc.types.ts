@@ -832,6 +832,24 @@ export interface RpcMethodRegistry {
     };
   };
 
+  // ---- Electron File CRUD Methods ----
+  'editor:createFile': {
+    params: { filePath: string; content?: string };
+    result: { success: boolean; error?: string };
+  };
+  'editor:createFolder': {
+    params: { folderPath: string };
+    result: { success: boolean; error?: string };
+  };
+  'editor:renameItem': {
+    params: { oldPath: string; newPath: string };
+    result: { success: boolean; error?: string };
+  };
+  'editor:deleteItem': {
+    params: { itemPath: string; isDirectory: boolean };
+    result: { success: boolean; error?: string };
+  };
+
   // ---- Electron File Methods (TASK_2025_203) ----
   'file:read': {
     params: { path: string };
@@ -1172,6 +1190,10 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'editor:saveFile',
   'editor:getFileTree',
   'editor:getDirectoryChildren',
+  'editor:createFile',
+  'editor:createFolder',
+  'editor:renameItem',
+  'editor:deleteItem',
 
   // Electron File Methods (TASK_2025_203)
   'file:read',
