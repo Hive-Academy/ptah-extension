@@ -94,6 +94,8 @@ export interface AgentOrchestrationConfig {
   disabledClis: string[];
   /** MCP tool namespace groups disabled by the user (e.g., ['browser', 'git']). Empty array means all enabled. */
   disabledMcpNamespaces: string[];
+  /** Whether the browser automation tools can navigate to localhost URLs (default: false) */
+  browserAllowLocalhost: boolean;
 }
 
 /** CLI model option for agent:listCliModels */
@@ -137,6 +139,8 @@ export interface AgentSetConfigParams {
   disabledClis?: string[];
   /** MCP tool namespace groups to disable (e.g., ['browser', 'git']). Empty array enables all. */
   disabledMcpNamespaces?: string[];
+  /** Whether the browser automation tools can navigate to localhost URLs */
+  browserAllowLocalhost?: boolean;
 }
 
 // ============================================================

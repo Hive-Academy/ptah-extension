@@ -7,15 +7,6 @@ import {
   DAISYUI_THEMES,
 } from '@ptah-extension/core';
 
-/**
- * ThemeToggleComponent - DaisyUI theme picker dropdown
- *
- * Displays a dropdown with all available DaisyUI themes.
- * Each theme shows 4 color preview dots (primary, secondary, accent, neutral)
- * and a checkmark for the currently active theme.
- *
- * Replaces the previous simple dark/light toggle to support all 34 themes.
- */
 @Component({
   selector: 'ptah-theme-toggle',
   standalone: true,
@@ -31,48 +22,96 @@ import {
         <lucide-angular [img]="PaletteIcon" class="w-4 h-4" />
         <span class="icon-btn-label text-xs">Theme</span>
       </div>
-      <ul
+      <div
         tabindex="0"
-        class="dropdown-content z-[1] menu p-2 shadow-lg bg-base-200 rounded-box w-56 max-h-96 overflow-y-auto flex-nowrap"
+        class="dropdown-content z-[1] p-2 shadow-lg bg-base-200 rounded-box w-64 max-h-[28rem] overflow-y-auto"
       >
-        <li class="menu-title text-xs opacity-60">Theme</li>
-        @for (theme of themes; track theme.name) {
-          <li>
+        <!-- Dark Themes -->
+        <div
+          class="px-2 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider opacity-50"
+        >
+          Dark
+        </div>
+        <div class="grid grid-cols-1 gap-0.5 mb-2">
+          @for (theme of darkThemes; track theme.name) {
             <button
-              class="flex items-center gap-2 px-2 py-1.5"
-              [class.active]="currentTheme() === theme.name"
+              class="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg text-sm transition-colors hover:bg-base-300"
+              [class.bg-base-300]="currentTheme() === theme.name"
               [attr.data-theme]="theme.name"
               (click)="selectTheme(theme.name)"
             >
-              <!-- Color preview dots -->
-              <div class="flex gap-0.5">
+              <div class="flex gap-1 shrink-0">
                 <span
-                  class="w-2 h-2 rounded-full shrink-0"
+                  class="w-3 h-3 rounded-full"
                   [style.background-color]="'oklch(var(--p))'"
                 ></span>
                 <span
-                  class="w-2 h-2 rounded-full shrink-0"
+                  class="w-3 h-3 rounded-full"
                   [style.background-color]="'oklch(var(--s))'"
                 ></span>
                 <span
-                  class="w-2 h-2 rounded-full shrink-0"
+                  class="w-3 h-3 rounded-full"
                   [style.background-color]="'oklch(var(--a))'"
                 ></span>
                 <span
-                  class="w-2 h-2 rounded-full shrink-0"
+                  class="w-3 h-3 rounded-full"
                   [style.background-color]="'oklch(var(--n))'"
                 ></span>
               </div>
-              <!-- Theme name -->
-              <span class="flex-1 text-sm">{{ theme.label }}</span>
-              <!-- Active checkmark -->
+              <span class="flex-1 text-left truncate">{{ theme.label }}</span>
               @if (currentTheme() === theme.name) {
-                <lucide-angular [img]="CheckIcon" class="w-4 h-4 shrink-0" />
+                <lucide-angular
+                  [img]="CheckIcon"
+                  class="w-3.5 h-3.5 shrink-0 opacity-70"
+                />
               }
             </button>
-          </li>
-        }
-      </ul>
+          }
+        </div>
+
+        <!-- Light Themes -->
+        <div
+          class="px-2 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider opacity-50"
+        >
+          Light
+        </div>
+        <div class="grid grid-cols-1 gap-0.5">
+          @for (theme of lightThemes; track theme.name) {
+            <button
+              class="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg text-sm transition-colors hover:bg-base-300"
+              [class.bg-base-300]="currentTheme() === theme.name"
+              [attr.data-theme]="theme.name"
+              (click)="selectTheme(theme.name)"
+            >
+              <div class="flex gap-1 shrink-0">
+                <span
+                  class="w-3 h-3 rounded-full"
+                  [style.background-color]="'oklch(var(--p))'"
+                ></span>
+                <span
+                  class="w-3 h-3 rounded-full"
+                  [style.background-color]="'oklch(var(--s))'"
+                ></span>
+                <span
+                  class="w-3 h-3 rounded-full"
+                  [style.background-color]="'oklch(var(--a))'"
+                ></span>
+                <span
+                  class="w-3 h-3 rounded-full"
+                  [style.background-color]="'oklch(var(--n))'"
+                ></span>
+              </div>
+              <span class="flex-1 text-left truncate">{{ theme.label }}</span>
+              @if (currentTheme() === theme.name) {
+                <lucide-angular
+                  [img]="CheckIcon"
+                  class="w-3.5 h-3.5 shrink-0 opacity-70"
+                />
+              }
+            </button>
+          }
+        </div>
+      </div>
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -81,7 +120,8 @@ export class ThemeToggleComponent {
   private readonly themeService = inject(ThemeService);
 
   readonly currentTheme = this.themeService.currentTheme;
-  readonly themes: readonly ThemeInfo[] = DAISYUI_THEMES;
+  readonly darkThemes = DAISYUI_THEMES.filter((t) => t.isDark);
+  readonly lightThemes = DAISYUI_THEMES.filter((t) => !t.isDark);
 
   protected readonly PaletteIcon = Palette;
   protected readonly CheckIcon = Check;

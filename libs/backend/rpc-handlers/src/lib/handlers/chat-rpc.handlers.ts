@@ -623,11 +623,12 @@ export class ChatRpcHandlers {
             pluginCount: pluginPaths?.length ?? 0,
           });
 
-          // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
+          // Get current model: prefer frontend-provided model, then config, then fallback.
+          // All sources provide full model IDs (frontend from normalized list, config from normalized save).
           const currentModel =
             options?.model ||
             this.configManager.get<string>('model.selected') ||
-            'default';
+            DEFAULT_FALLBACK_MODEL_ID;
 
           // TASK_2025_093: tabId is now the primary tracking key
           // SDK generates real UUID in system init message
@@ -653,7 +654,7 @@ export class ChatRpcHandlers {
           const stream = await this.sdkAdapter.startChatSession({
             tabId, // REQUIRED: Primary tracking key for multi-tab isolation
             workspaceId: workspacePath,
-            model: options?.model || currentModel,
+            model: currentModel,
             systemPrompt: options?.systemPrompt,
             projectPath: workspacePath,
             name,
@@ -768,7 +769,8 @@ export class ChatRpcHandlers {
               },
             );
 
-            // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
+            // Get current model: prefer frontend-provided model, then config, then fallback.
+            // All sources provide full model IDs (normalized at source).
             const currentModel =
               params.model ||
               this.configManager.getWithDefault<string>(
@@ -1460,6 +1462,13 @@ IMPORTANT INSTRUCTIONS:
     let childMetadataSaved = false;
     const isPtahCliSession = this.ptahCliSessions.has(tabId);
 
+    // Track whether the stream exited normally (not via abort/error).
+    // Used in the finally block to decide whether to clean up the session.
+    // When a slash command replaces an existing session (e.g., /compact on an active chat),
+    // the OLD stream is aborted and a NEW stream starts with the same sessionId.
+    // The finally block must NOT clean up on abort — it would kill the replacement session.
+    let streamExitedNormally = false;
+
     try {
       for await (const event of stream) {
         eventCount++;
@@ -1580,6 +1589,9 @@ IMPORTANT INSTRUCTIONS:
           },
         );
       }
+
+      // Stream completed without error — safe to clean up in finally block
+      streamExitedNormally = true;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -1644,16 +1656,19 @@ IMPORTANT INSTRUCTIONS:
       // Note: ptahCliSdkSessionIds is NOT cleaned up here — it must persist
       // until persistCliSessionReference reads it (agent may exit later).
 
-      // TASK_2025_COMPACT_FIX: Clean up the session from activeSessions when the
-      // stream ends naturally (e.g., slash commands with maxTurns: 1). Without this,
-      // chat:continue sees the session as "active" and calls sendMessage on a dead
-      // query instead of resuming properly. For multi-turn sessions (with streamInput),
-      // the loop only exits on abort, which already calls endSession.
-      if (this.sdkAdapter.isSessionActive(sessionId)) {
+      // Clean up the session from activeSessions when the stream ends NORMALLY
+      // (e.g., slash commands that terminate after execution). Without this,
+      // chat:continue sees the session as "active" and calls sendMessage on a dead query.
+      //
+      // CRITICAL: Only clean up on normal exit, NOT on abort/error. When a slash
+      // command replaces a session (e.g., /compact on active chat), the old stream
+      // is aborted and a new stream starts with the same sessionId. Cleaning up on
+      // abort would kill the replacement session — a race condition.
+      if (streamExitedNormally && this.sdkAdapter.isSessionActive(sessionId)) {
         try {
           await this.sdkAdapter.endSession(sessionId);
           this.logger.info(
-            `[RPC] Session ${sessionId} cleaned up after stream completion`,
+            `[RPC] Session ${sessionId} cleaned up after natural stream completion`,
           );
         } catch {
           // Best-effort cleanup — session may have already been ended

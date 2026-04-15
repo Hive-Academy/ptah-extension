@@ -19,4 +19,6 @@ export {
 export {
   WIZARD_VIEW_COMPONENT,
   ORCHESTRA_CANVAS_COMPONENT,
+  HARNESS_BUILDER_COMPONENT,
+  SETUP_HUB_COMPONENT,
 } from './lib/tokens/lazy-view-components.token';

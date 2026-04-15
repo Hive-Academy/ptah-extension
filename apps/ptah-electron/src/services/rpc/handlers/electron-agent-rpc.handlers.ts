@@ -175,6 +175,16 @@ export class ElectronAgentRpcHandlers {
                 'agentOrchestration.disabledMcpNamespaces',
                 [],
               ) ?? [],
+            // Browser settings — read from workspace provider (not stateStorage) because
+            // browser.allowLocalhost is in FILE_BASED_SETTINGS_KEYS and must route through
+            // PtahFileSettingsManager (~/.ptah/settings.json) for parity with the MCP
+            // browser namespace read path in PtahApiBuilderService.
+            browserAllowLocalhost:
+              this.workspace.getConfiguration<boolean>(
+                'ptah',
+                'browser.allowLocalhost',
+                false,
+              ) ?? false,
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -273,6 +283,15 @@ export class ElectronAgentRpcHandlers {
           await this.stateStorage.update(
             'agentOrchestration.disabledMcpNamespaces',
             params.disabledMcpNamespaces,
+          );
+        }
+        // Browser settings — write via workspace provider (not stateStorage) because
+        // browser.allowLocalhost routes through FILE_BASED_SETTINGS_KEYS to ~/.ptah/settings.json.
+        if (params.browserAllowLocalhost !== undefined) {
+          await this.workspace.setConfiguration(
+            'ptah',
+            'browser.allowLocalhost',
+            params.browserAllowLocalhost,
           );
         }
 

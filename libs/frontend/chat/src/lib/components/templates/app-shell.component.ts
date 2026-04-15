@@ -48,6 +48,8 @@ import {
   ClaudeRpcService,
   WIZARD_VIEW_COMPONENT,
   ORCHESTRA_CANVAS_COMPONENT,
+  HARNESS_BUILDER_COMPONENT,
+  SETUP_HUB_COMPONENT,
 } from '@ptah-extension/core';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
@@ -116,6 +118,8 @@ export class AppShellComponent {
     'settings',
     'welcome',
     'analytics',
+    'harness-builder',
+    'setup-hub',
   ] as const;
 
   readonly chatStore = inject(ChatStore);
@@ -152,6 +156,20 @@ export class AppShellComponent {
    */
   readonly orchestraCanvasComponent =
     inject(ORCHESTRA_CANVAS_COMPONENT, { optional: true }) ?? null;
+
+  /**
+   * HarnessBuilderViewComponent provided via DI token — breaks circular dependency.
+   * Provided by the application bootstrapper (app.config.ts).
+   */
+  readonly harnessBuilderComponent =
+    inject(HARNESS_BUILDER_COMPONENT, { optional: true }) ?? null;
+
+  /**
+   * SetupHubComponent provided via DI token — breaks circular dependency.
+   * Provided by the application bootstrapper (app.config.ts).
+   */
+  readonly setupHubComponent =
+    inject(SETUP_HUB_COMPONENT, { optional: true }) ?? null;
 
   // Sidebar state: default open in Electron (more space), hidden in VS Code sidebar
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);

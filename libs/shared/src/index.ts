@@ -38,6 +38,9 @@ export * from './lib/types/setup-wizard.types';
 export * from './lib/types/new-project.types';
 export * from './lib/data/new-project-questions';
 
+// Harness builder types
+export * from './lib/types/rpc/rpc-harness.types';
+
 // Constants
 export * from './lib/constants/trial.constants';
 export * from './lib/constants/environment.constants';

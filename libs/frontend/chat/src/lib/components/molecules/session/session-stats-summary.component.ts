@@ -60,7 +60,26 @@ export interface ModelUsageEntry {
   standalone: true,
   template: `
     @if (hasStats()) {
-      <div class="stats-grid" style="container-type: inline-size">
+      <div class="stats-grid relative" style="container-type: inline-size">
+        <!-- Context warning overlay progress bar -->
+        @if (showContextWarning()) {
+          <div
+            class="context-warning-overlay"
+            [title]="
+              'Context usage: ' +
+              liveModelStats()!.contextPercent +
+              '% — auto-compaction approaching'
+            "
+          >
+            <div
+              class="context-warning-bar"
+              [class.context-warning-critical]="
+                liveModelStats()!.contextPercent >= 90
+              "
+              [style.width.%]="warningFillPercent()"
+            ></div>
+          </div>
+        }
         <!-- Collapsed: compact summary bar -->
         @if (isStatsCollapsed()) {
           <div
@@ -550,6 +569,57 @@ export interface ModelUsageEntry {
           grid-template-columns: repeat(4, minmax(0, 1fr));
         }
       }
+
+      .context-warning-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+        border-radius: 0.25rem;
+        overflow: hidden;
+      }
+
+      .context-warning-bar {
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          oklch(0.795 0.184 86.047 / 0.08),
+          oklch(0.795 0.184 86.047 / 0.15)
+        );
+        border-right: 2px solid oklch(0.795 0.184 86.047 / 0.5);
+        transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+        animation: context-warning-pulse 3s ease-in-out infinite;
+      }
+
+      .context-warning-bar.context-warning-critical {
+        background: linear-gradient(
+          90deg,
+          oklch(0.637 0.237 25.331 / 0.08),
+          oklch(0.637 0.237 25.331 / 0.18)
+        );
+        border-right-color: oklch(0.637 0.237 25.331 / 0.6);
+        animation: context-warning-pulse-critical 2s ease-in-out infinite;
+      }
+
+      @keyframes context-warning-pulse {
+        0%,
+        100% {
+          opacity: 0.7;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+
+      @keyframes context-warning-pulse-critical {
+        0%,
+        100% {
+          opacity: 0.6;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -594,6 +664,17 @@ export class SessionStatsSummaryComponent {
 
   /** Whether the per-model breakdown table is expanded */
   readonly isExpanded = signal(false);
+
+  /** Whether context usage exceeds the warning threshold (70%) */
+  readonly showContextWarning = computed(
+    () => (this.liveModelStats()?.contextPercent ?? 0) >= 70,
+  );
+
+  /** Progress bar fill: maps 70-100% context to 0-100% bar width */
+  readonly warningFillPercent = computed(() => {
+    const pct = this.liveModelStats()?.contextPercent ?? 0;
+    return Math.min(100, Math.max(0, ((pct - 70) / 30) * 100));
+  });
 
   /** Whether there are multiple models to display */
   readonly hasMultipleModels = computed(

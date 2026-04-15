@@ -124,6 +124,11 @@ export class ChatStore {
         console.warn('[ChatStore] Failed to restore CLI sessions:', err);
       });
 
+      // Load auth state so persistedAuthMethod() is populated for slash command checks
+      this.authState.loadAuthStatus().catch((err) => {
+        console.error('[ChatStore] Failed to load auth status:', err);
+      });
+
       // TASK_2025_142: Fetch license status for trial banners
       this.fetchLicenseStatus().catch((err) => {
         console.error('[ChatStore] Failed to fetch license status:', err);
@@ -478,9 +483,19 @@ export class ChatStore {
 
     if (!ChatStore.SDK_NATIVE_COMMANDS.has(commandName)) return false;
 
-    // Check if user is on a direct Anthropic provider
+    // If auth state hasn't loaded yet, don't block — let the backend decide.
+    // Blocking on stale defaults would incorrectly reject commands for OAuth users.
+    if (this.authState.isLoading()) return false;
+
     const authMethod = this.authState.persistedAuthMethod();
-    return authMethod !== 'oauth' && authMethod !== 'apiKey';
+    if (authMethod === 'oauth' || authMethod === 'apiKey') return false;
+
+    // 'auto' picks the best available credential at runtime — allow if
+    // Anthropic credentials exist, block only if none are configured.
+    if (authMethod === 'auto') {
+      return !this.authState.hasOAuthToken() && !this.authState.hasApiKey();
+    }
+    return true;
   }
 
   /**
@@ -673,26 +688,18 @@ export class ChatStore {
    * Public accessor for marking a tab idle from external handlers.
    * Used by ChatMessageHandler to handle CHAT_COMPLETE fallback.
    *
-   * TASK_2025_COMPACT_FIX: Also resets tab status to 'loaded' and clears
-   * streaming/queue state. Previously this was visual-only (removing from
-   * _streamingTabIds set), which left tab.status stuck on 'streaming' —
-   * causing subsequent messages to be queued instead of sent.
+   * IMPORTANT: This must remain lightweight — only removing the visual streaming
+   * indicator. CHAT_COMPLETE fires per-turn (on every message_complete), NOT only
+   * at session end. Aggressively resetting streamingState/status here would destroy
+   * accumulated events mid-session in multi-turn tool-use conversations.
+   *
+   * Full state reset (streamingState: null, status: 'loaded') is handled by:
+   * - finalizeCurrentMessage (via SESSION_STATS — the authoritative completion signal)
+   * - handleError (explicit error path)
+   * - handleCompaction (compaction-specific path)
    */
   markTabIdle(tabId: string): void {
     this.tabManager.markTabIdle(tabId);
-    // Safety net: ensure tab status is definitively 'loaded' and queue is cleared.
-    // updateTab is a no-op for properties that already match, so this is safe
-    // to call even when SESSION_STATS already reset the status.
-    const tab = this.tabManager.tabs().find((t) => t.id === tabId);
-    if (tab && (tab.status === 'streaming' || tab.status === 'resuming')) {
-      this.tabManager.updateTab(tabId, {
-        status: 'loaded',
-        streamingState: null,
-        queuedContent: null,
-        queuedOptions: null,
-      });
-      this.sessionManager.setStatus('loaded');
-    }
   }
 
   /**
@@ -961,6 +968,21 @@ export class ChatStore {
         // Also clear the visual streaming indicator and session manager state
         this.tabManager.markTabIdle(result.tabId);
         this.sessionManager.setStatus('loaded');
+
+        // Reload session from disk to show the post-compaction state.
+        // The SDK writes the compaction summary as a user message to the
+        // session JSONL, but it's NOT emitted in the live stream. Without
+        // this reload, the tab shows a clean slate until manually reopened.
+        const reloadSessionId =
+          compactionTab.claudeSessionId ?? result.compactionSessionId;
+        if (reloadSessionId) {
+          this.sessionLoader.switchSession(reloadSessionId).catch((err) => {
+            console.warn(
+              '[ChatStore] Failed to reload session after compaction:',
+              err,
+            );
+          });
+        }
       }
       return;
     }

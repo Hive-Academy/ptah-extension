@@ -14,7 +14,7 @@
  */
 
 /**
- * All 29 settings keys that route to file-based storage (~/.ptah/settings.json).
+ * Settings keys that route to file-based storage (~/.ptah/settings.json).
  *
  * Used by VscodeWorkspaceProvider and ElectronWorkspaceProvider for routing:
  *   if (section === 'ptah' && FILE_BASED_SETTINGS_KEYS.has(key)) {
@@ -73,6 +73,13 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
 
   // CLI agent configurations
   'ptahCliAgents',
+
+  // Browser automation (TASK_2025_244)
+  'browser.allowLocalhost',
+  'browser.recordingDir',
+
+  // Editor preferences (TASK_2025_283)
+  'editor.vimMode',
 ]);
 
 /**
@@ -140,4 +147,11 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
 
   // CLI agent configurations
   ptahCliAgents: [],
+
+  // Browser automation (TASK_2025_244)
+  'browser.allowLocalhost': false,
+  'browser.recordingDir': '',
+
+  // Editor preferences (TASK_2025_283)
+  'editor.vimMode': false,
 };

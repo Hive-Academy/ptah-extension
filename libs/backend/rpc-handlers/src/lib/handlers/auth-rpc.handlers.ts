@@ -29,6 +29,7 @@ import {
   DEFAULT_PROVIDER_ID,
   ProviderModelsService,
   getAnthropicProvider,
+  TIER_ENV_VAR_MAP,
 } from '@ptah-extension/agent-sdk';
 import type {
   CopilotAuthService,
@@ -484,6 +485,9 @@ export class AuthRpcHandlers {
         // Auto-map default tier models if no mappings exist yet
         await this.autoMapProviderTiers('github-copilot');
 
+        // Clear cached models so they're re-fetched with provider-specific IDs
+        await this.sdkAdapter.reset();
+
         this.logger.info('RPC: auth:copilotLogin succeeded', { username });
         return { success: true, username };
       } catch (error) {
@@ -597,10 +601,12 @@ export class AuthRpcHandlers {
       const currentTiers = this.providerModels.getModelTiers(providerId);
       const { defaultTiers } = provider;
 
-      const tiers = ['sonnet', 'opus', 'haiku'] as const;
+      const tierNames = Object.keys(TIER_ENV_VAR_MAP) as Array<
+        keyof typeof TIER_ENV_VAR_MAP
+      >;
       const promises: Promise<void>[] = [];
-      for (const tier of tiers) {
-        if (!currentTiers[tier]) {
+      for (const tier of tierNames) {
+        if (!currentTiers[tier] && defaultTiers[tier]) {
           promises.push(
             this.providerModels.setModelTier(
               providerId,

@@ -51,6 +51,9 @@
       "@ptah-extension/rpc-handlers": [
         "libs/backend/rpc-handlers/src/index.ts"
       ],
+      "@ptah-extension/harness-builder": [
+        "libs/frontend/harness-builder/src/index.ts"
+      ],
       "@ptah-extension/setup-wizard": [
         "libs/frontend/setup-wizard/src/index.ts"
       ],
