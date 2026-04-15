@@ -43,3 +43,11 @@ export const ORCHESTRA_CANVAS_COMPONENT = new InjectionToken<Type<unknown>>(
 export const HARNESS_BUILDER_COMPONENT = new InjectionToken<Type<unknown>>(
   'HARNESS_BUILDER_COMPONENT',
 );
+
+/**
+ * Token for SetupHubComponent — breaks circular dependency between
+ * @ptah-extension/harness-builder and @ptah-extension/chat (AppShellComponent renders the view).
+ */
+export const SETUP_HUB_COMPONENT = new InjectionToken<Type<unknown>>(
+  'SETUP_HUB_COMPONENT',
+);

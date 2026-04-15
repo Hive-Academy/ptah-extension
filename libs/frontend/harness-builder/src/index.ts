@@ -5,6 +5,9 @@ export { HarnessRpcService } from './lib/services/harness-rpc.service';
 // Main View Component
 export { HarnessBuilderViewComponent } from './lib/components/harness-builder-view.component';
 
+// Setup Hub Component
+export { SetupHubComponent } from './lib/components/setup-hub.component';
+
 // Step Components
 export { PersonaStepComponent } from './lib/components/steps/persona-step.component';
 export { AgentsStepComponent } from './lib/components/steps/agents-step.component';
