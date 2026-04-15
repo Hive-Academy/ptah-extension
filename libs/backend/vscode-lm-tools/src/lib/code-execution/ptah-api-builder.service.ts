@@ -479,8 +479,8 @@ export class PtahAPIBuilder {
           getDisabledClis: () => {
             return (
               this.workspaceProvider.getConfiguration<string[]>(
-                'ptah.agentOrchestration',
-                'disabledClis',
+                'ptah',
+                'agentOrchestration.disabledClis',
                 [],
               ) ?? []
             );
@@ -524,8 +524,8 @@ export class PtahAPIBuilder {
           capabilities: this.resolveBrowserCapabilities(),
           getAllowLocalhost: () =>
             this.workspaceProvider.getConfiguration<boolean>(
-              'ptah.browser',
-              'allowLocalhost',
+              'ptah',
+              'browser.allowLocalhost',
               false,
             ) ?? false,
           // Note: recordingDir is configured via capabilities constructor, not namespace deps

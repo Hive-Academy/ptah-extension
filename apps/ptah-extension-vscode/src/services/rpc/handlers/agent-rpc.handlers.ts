@@ -182,6 +182,13 @@ export class AgentRpcHandlers {
                 'mcpPort',
                 51820,
               ) ?? 51820,
+            // Browser settings (file-based, under ptah.browser namespace)
+            browserAllowLocalhost:
+              this.workspaceProvider.getConfiguration<boolean>(
+                'ptah',
+                'browser.allowLocalhost',
+                false,
+              ) ?? false,
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -388,6 +395,15 @@ export class AgentRpcHandlers {
         params.disabledMcpNamespaces.length > 0
           ? params.disabledMcpNamespaces
           : undefined,
+      );
+    }
+
+    // Browser settings (file-based, under ptah.browser namespace)
+    if (params.browserAllowLocalhost !== undefined) {
+      await this.workspaceProvider.setConfiguration(
+        'ptah',
+        'browser.allowLocalhost',
+        params.browserAllowLocalhost,
       );
     }
 
