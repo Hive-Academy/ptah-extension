@@ -51,6 +51,7 @@ export { TerminalComponent } from './lib/terminal/terminal.component';
 export { TerminalTabBarComponent } from './lib/terminal/terminal-tab-bar.component';
 export { TerminalPanelComponent } from './lib/terminal/terminal-panel.component';
 export { AddWorktreeDialogComponent } from './lib/worktree/add-worktree-dialog.component';
+export { WorktreePanelComponent } from './lib/worktree/worktree-panel.component';
 export { SidebarComponent } from './lib/sidebar/sidebar.component';
 export { SourceControlPanelComponent } from './lib/source-control/source-control-panel.component';
 export { SourceControlFileComponent } from './lib/source-control/source-control-file.component';

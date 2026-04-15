@@ -96,17 +96,6 @@ import type { FileTreeNode } from '../models/file-tree.model';
 
         <!-- Right: Editor controls -->
         <div class="flex items-center gap-0.5 ml-auto">
-          <!-- Vim mode indicator (subtle pill when active) -->
-          @if (vimModeService.enabled()) {
-            <button
-              class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-              title="Disable Vim mode"
-              (click)="toggleVimMode()"
-            >
-              VIM
-            </button>
-          }
-
           <button
             class="btn btn-ghost btn-xs px-2 text-base-content/60 hover:text-base-content"
             [class.text-primary]="editorService.splitActive()"
@@ -419,7 +408,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
 export class EditorPanelComponent implements OnInit, OnDestroy {
   protected readonly editorService = inject(EditorService);
   protected readonly gitStatus = inject(GitStatusService);
-  protected readonly vimModeService = inject(VimModeService);
+  private readonly vimModeService = inject(VimModeService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly ngZone = inject(NgZone);
   protected readonly sidebarVisible = signal(true);
@@ -479,10 +468,6 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
   protected toggleSidebar(): void {
     this.sidebarVisible.update((v) => !v);
-  }
-
-  protected toggleVimMode(): void {
-    void this.vimModeService.toggle();
   }
 
   protected toggleTerminal(): void {
