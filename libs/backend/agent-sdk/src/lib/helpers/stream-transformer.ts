@@ -496,9 +496,6 @@ export class StreamTransformer {
                 '[StreamTransformer] SDK requires valid API key from console.anthropic.com',
               );
               logger.error(
-                '[StreamTransformer] OR OAuth token from "claude setup-token"',
-              );
-              logger.error(
                 `[StreamTransformer] Current: ANTHROPIC_API_KEY=${
                   authEnv.ANTHROPIC_API_KEY
                     ? `SET (${authEnv.ANTHROPIC_API_KEY.substring(0, 10)}...)`

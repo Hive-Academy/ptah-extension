@@ -25,8 +25,6 @@ import { injectable, inject } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
-  WorktreeCreateHookInput,
-  WorktreeRemoveHookInput,
   HookCallbackMatcher,
   HookEvent,
   HookJSONOutput,

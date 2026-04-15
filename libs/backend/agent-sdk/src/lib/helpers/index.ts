@@ -111,3 +111,6 @@ export {
   type SkillJunctionActivateOptions,
   type SkillJunctionResult,
 } from './skill-junction.service';
+
+// MCP Server Directory (discovery + installation)
+export * from './mcp-directory';

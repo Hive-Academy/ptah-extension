@@ -82,6 +82,9 @@ export type {
   ProviderStaticModel,
 } from './lib/helpers';
 
+// CLI detector (Claude CLI availability check)
+export { ClaudeCliDetector } from './lib/detector/claude-cli-detector';
+
 // Shared prompt-building functions (used by SdkQueryOptionsBuilder and PtahCliAdapter)
 export {
   assembleSystemPrompt,
@@ -305,6 +308,16 @@ export type {
   PhaseTracker,
   StreamProcessorResult,
 } from './lib/stream-processing';
+
+// ============================================================
+// MCP Server Directory (discovery + installation)
+// ============================================================
+export {
+  McpRegistryProvider,
+  McpInstallService,
+  McpInstallManifestTracker,
+} from './lib/helpers';
+export type { IMcpServerInstaller } from './lib/helpers';
 
 // ============================================================
 // MCP Port Management

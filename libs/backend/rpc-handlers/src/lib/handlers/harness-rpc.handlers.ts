@@ -27,7 +27,11 @@ import {
   SDK_TOKENS,
   PluginLoaderService,
   SkillJunctionService,
+  McpRegistryProvider,
+  SdkStreamProcessor,
+  isSuccessResult,
 } from '@ptah-extension/agent-sdk';
+import type { InternalQueryService } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
@@ -60,8 +64,18 @@ import type {
   HarnessPreset,
   HarnessConfig,
   AgentOverride,
+  McpServerSuggestion,
   HarnessWizardStep,
 } from '@ptah-extension/shared';
+
+/** Structured output shape from the LLM suggestion call */
+interface LlmSuggestionOutput {
+  selectedAgentIds: string[];
+  selectedSkillIds: string[];
+  mcpSearchTerms: string[];
+  systemPrompt: string;
+  reasoning: string;
+}
 
 /** Directory name under ~/.ptah/ for harness presets */
 const HARNESSES_DIR = 'harnesses';
@@ -85,6 +99,8 @@ function getHarnessesDir(): string {
  */
 @injectable()
 export class HarnessRpcHandlers {
+  private readonly registryProvider = new McpRegistryProvider();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -94,6 +110,8 @@ export class HarnessRpcHandlers {
     private readonly skillJunction: SkillJunctionService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
+    private readonly internalQueryService: InternalQueryService,
   ) {}
 
   /**
@@ -179,9 +197,10 @@ export class HarnessRpcHandlers {
   /**
    * harness:suggest-config - AI-powered config suggestion based on persona.
    *
-   * Analyzes the persona description and goals to suggest appropriate agents,
-   * skills, and a system prompt. Uses keyword matching for now; will be
-   * replaced with actual AI generation in a future iteration.
+   * Uses InternalQueryService with structured JSON output to let the LLM
+   * dynamically decide which agents, skills, MCP servers, and system prompt
+   * best fit the persona. Falls back to a keyword heuristic if the LLM
+   * is unavailable.
    */
   private registerSuggestConfig(): void {
     this.rpcHandler.registerMethod<
@@ -194,9 +213,13 @@ export class HarnessRpcHandlers {
           goalCount: params.goals.length,
         });
 
-        const result = this.buildSuggestionFromPersona(
+        const availableSkills = this.discoverAvailableSkills();
+        const availableAgents = this.getAvailableAgents();
+        const result = await this.buildSuggestionFromPersona(
           params.personaDescription,
           params.goals,
+          availableSkills,
+          availableAgents,
         );
 
         this.logger.debug('RPC: harness:suggest-config success', {
@@ -848,103 +871,440 @@ export class HarnessRpcHandlers {
   }
 
   /**
-   * Build a config suggestion based on keyword matching in the persona description.
+   * Build a config suggestion by asking the AI to analyze the persona
+   * and select the most appropriate agents, skills, and MCP servers.
    *
-   * Analyzes the description and goals for keywords related to content creation,
-   * development, testing, etc. and suggests appropriate agents and skills.
-   *
-   * TODO: Replace with actual AI generation using SdkInternalQueryService
+   * Uses InternalQueryService with structured JSON output to let the LLM
+   * dynamically decide what's relevant — no hardcoded keyword maps.
+   * Falls back to a basic heuristic if the LLM call fails.
    */
-  private buildSuggestionFromPersona(
+  private async buildSuggestionFromPersona(
     description: string,
     goals: string[],
-  ): HarnessSuggestConfigResponse {
-    const text = `${description} ${goals.join(' ')}`.toLowerCase();
+    availableSkills: SkillSummary[],
+    availableAgents: AvailableAgent[],
+  ): Promise<HarnessSuggestConfigResponse> {
+    try {
+      return await this.buildSuggestionViaAgent(
+        description,
+        goals,
+        availableSkills,
+        availableAgents,
+      );
+    } catch (error) {
+      this.logger.warn(
+        'LLM-powered suggestion failed, falling back to heuristic',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      return this.buildSuggestionFallback(description, goals);
+    }
+  }
 
+  /**
+   * LLM-powered suggestion engine.
+   *
+   * Sends the persona, available agents, and available skills to the AI agent
+   * via InternalQueryService with a structured output schema. The AI analyzes
+   * the persona and returns the best-fit agents, skills, MCP search terms,
+   * a system prompt, and reasoning — all decided dynamically.
+   */
+  private async buildSuggestionViaAgent(
+    description: string,
+    goals: string[],
+    availableSkills: SkillSummary[],
+    availableAgents: AvailableAgent[],
+  ): Promise<HarnessSuggestConfigResponse> {
+    const workspaceRoot =
+      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+
+    // Build agent catalog for the prompt
+    const agentList = availableAgents
+      .map(
+        (a) =>
+          `- id: "${a.id}" | name: "${a.name}" | type: ${a.type} | description: ${a.description}`,
+      )
+      .join('\n');
+
+    // Build skill catalog for the prompt (cap at 50 to avoid prompt bloat)
+    const skillList = availableSkills
+      .slice(0, 50)
+      .map(
+        (s) =>
+          `- id: "${s.id}" | name: "${s.name}" | description: ${s.description}`,
+      )
+      .join('\n');
+
+    const prompt = `You are configuring an AI coding assistant harness for a user. Analyze their persona and select the most appropriate configuration.
+
+## User Persona
+**Description:** ${description}
+**Goals:** ${goals.length > 0 ? goals.join(', ') : 'General development assistance'}
+
+## Available Agents
+These are the CLI/subagent tools the user can enable:
+${agentList}
+
+## Available Skills
+These are plugin skills that can be activated:
+${skillList || '(no skills available)'}
+
+## Your Task
+Based on the persona description and goals, return a JSON object with:
+
+1. **selectedAgentIds**: Array of agent IDs to enable. Pick agents whose capabilities best match the persona's workflow. Enable at least 1 agent.
+2. **selectedSkillIds**: Array of skill IDs to activate. Pick skills whose descriptions match the persona's needs. Can be empty if no skills are relevant.
+3. **mcpSearchTerms**: Array of 3-6 specific technology keywords to search the MCP Server Registry for relevant tools (e.g., "github", "postgresql", "docker", "playwright"). These should be concrete technology names, not generic terms.
+4. **systemPrompt**: A concise system prompt (2-4 sentences) tailored to this persona that instructs the AI assistant on how to behave.
+5. **reasoning**: A brief explanation (2-3 sentences) of why you chose these specific agents, skills, and tools for this persona.
+
+Return ONLY the JSON object matching the schema.`;
+
+    const outputSchema = {
+      type: 'object',
+      properties: {
+        selectedAgentIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Agent IDs to enable',
+        },
+        selectedSkillIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Skill IDs to activate',
+        },
+        mcpSearchTerms: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Technology keywords for MCP Registry search',
+        },
+        systemPrompt: {
+          type: 'string',
+          description: 'Tailored system prompt for the persona',
+        },
+        reasoning: {
+          type: 'string',
+          description: 'Explanation of the suggestions',
+        },
+      },
+      required: [
+        'selectedAgentIds',
+        'selectedSkillIds',
+        'mcpSearchTerms',
+        'systemPrompt',
+        'reasoning',
+      ],
+      additionalProperties: false,
+    };
+
+    // AbortController with 45-second timeout to prevent hanging
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), 45_000);
+
+    const handle = await this.internalQueryService.execute({
+      cwd: workspaceRoot,
+      model: 'sonnet',
+      prompt,
+      systemPromptAppend:
+        'You are a configuration advisor. Analyze the user persona and select the best agents, skills, and tools. Be specific and practical in your choices. Do NOT use any tools — just analyze the information provided and return the structured JSON.',
+      isPremium: false,
+      mcpServerRunning: false,
+      maxTurns: 1,
+      outputFormat: { type: 'json_schema', schema: outputSchema },
+      abortController,
+    });
+
+    let rawOutput: unknown | null = null;
+
+    try {
+      // Use SdkStreamProcessor for consistent stream consumption
+      const processor = new SdkStreamProcessor({
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
+        emitter: { emit: () => {} },
+        logger: this.logger,
+        serviceTag: '[HarnessSuggest]',
+      });
+      const result = await processor.process(handle.stream);
+      rawOutput = result.structuredOutput;
+    } finally {
+      clearTimeout(timeout);
+      handle.close();
+    }
+
+    // ── Runtime validation of LLM output shape ──
+
+    const output = this.validateSuggestionOutput(rawOutput);
+
+    // ── Map validated output to HarnessSuggestConfigResponse ──
+
+    // Build agent overrides from selected IDs
+    const validAgentIds = new Set(availableAgents.map((a) => a.id));
     const suggestedAgents: Record<string, AgentOverride> = {};
-    const suggestedSkills: string[] = [];
-    const reasoningParts: string[] = [];
-
-    // Content/marketing persona
-    if (
-      text.includes('content') ||
-      text.includes('marketing') ||
-      text.includes('writing') ||
-      text.includes('blog') ||
-      text.includes('documentation')
-    ) {
-      suggestedAgents['ptah-cli'] = { enabled: true };
-      suggestedAgents['gemini'] = { enabled: true };
-      reasoningParts.push(
-        'Content-oriented persona detected: enabled Ptah CLI for orchestration and Gemini for generation.',
-      );
+    for (const agentId of output.selectedAgentIds) {
+      if (validAgentIds.has(agentId)) {
+        suggestedAgents[agentId] = { enabled: true };
+      }
     }
-
-    // Developer persona
-    if (
-      text.includes('developer') ||
-      text.includes('coding') ||
-      text.includes('programming') ||
-      text.includes('engineer') ||
-      text.includes('backend') ||
-      text.includes('frontend') ||
-      text.includes('fullstack')
-    ) {
-      suggestedAgents['copilot'] = { enabled: true };
-      suggestedAgents['codex'] = { enabled: true };
-      suggestedAgents['ptah-cli'] = { enabled: true };
-      reasoningParts.push(
-        'Developer persona detected: enabled Copilot for code suggestions, Codex for completion, and Ptah CLI for multi-agent workflows.',
-      );
-    }
-
-    // Testing/QA persona
-    if (
-      text.includes('test') ||
-      text.includes('quality') ||
-      text.includes('qa') ||
-      text.includes('review')
-    ) {
-      suggestedAgents['ptah-cli'] = { enabled: true };
-      suggestedAgents['copilot'] = { enabled: true };
-      reasoningParts.push(
-        'Testing/QA persona detected: enabled Ptah CLI for orchestrated test generation and Copilot for code review.',
-      );
-    }
-
-    // DevOps persona
-    if (
-      text.includes('devops') ||
-      text.includes('infrastructure') ||
-      text.includes('ci/cd') ||
-      text.includes('deployment') ||
-      text.includes('docker') ||
-      text.includes('kubernetes')
-    ) {
-      suggestedAgents['gemini'] = { enabled: true };
-      suggestedAgents['ptah-cli'] = { enabled: true };
-      reasoningParts.push(
-        'DevOps persona detected: enabled Gemini for infrastructure analysis and Ptah CLI for automation.',
-      );
-    }
-
-    // Default: enable ptah-cli if nothing matched
+    // Ensure at least ptah-cli is enabled
     if (Object.keys(suggestedAgents).length === 0) {
       suggestedAgents['ptah-cli'] = { enabled: true };
-      suggestedAgents['copilot'] = { enabled: true };
-      reasoningParts.push(
-        'General persona detected: enabled Ptah CLI and Copilot as a balanced default.',
+    }
+
+    // Filter skill IDs to only valid ones
+    const validSkillIds = new Set(availableSkills.map((s) => s.id));
+    const suggestedSkills = output.selectedSkillIds.filter((id) =>
+      validSkillIds.has(id),
+    );
+
+    // Search MCP Registry using AI-selected keywords
+    const suggestedMcpServers = await this.suggestMcpServersFromRegistry(
+      output.mcpSearchTerms,
+    );
+
+    this.logger.info('LLM-powered suggestion completed', {
+      agentCount: Object.keys(suggestedAgents).length,
+      skillCount: suggestedSkills.length,
+      mcpCount: suggestedMcpServers.length,
+      searchTerms: output.mcpSearchTerms,
+    });
+
+    return {
+      suggestedAgents,
+      suggestedSkills,
+      suggestedMcpServers,
+      suggestedPrompt: output.systemPrompt,
+      reasoning: output.reasoning,
+    };
+  }
+
+  /**
+   * Validate the raw structured output from the LLM matches
+   * the expected LlmSuggestionOutput shape. Throws if invalid.
+   */
+  private validateSuggestionOutput(raw: unknown): LlmSuggestionOutput {
+    if (!raw || typeof raw !== 'object') {
+      throw new Error('LLM did not return structured output');
+    }
+
+    const obj = raw as Record<string, unknown>;
+
+    if (
+      !Array.isArray(obj['selectedAgentIds']) ||
+      !Array.isArray(obj['selectedSkillIds']) ||
+      !Array.isArray(obj['mcpSearchTerms']) ||
+      typeof obj['systemPrompt'] !== 'string' ||
+      typeof obj['reasoning'] !== 'string'
+    ) {
+      throw new Error(
+        'LLM returned malformed structured output: missing or wrong-typed fields',
       );
     }
+
+    return {
+      selectedAgentIds: obj['selectedAgentIds'] as string[],
+      selectedSkillIds: obj['selectedSkillIds'] as string[],
+      mcpSearchTerms: obj['mcpSearchTerms'] as string[],
+      systemPrompt: obj['systemPrompt'] as string,
+      reasoning: obj['reasoning'] as string,
+    };
+  }
+
+  /**
+   * Fallback heuristic suggestion when the LLM is unavailable.
+   *
+   * Uses basic defaults — enables ptah-cli + copilot, generates a
+   * simple system prompt, and searches the MCP registry with extracted keywords.
+   */
+  private async buildSuggestionFallback(
+    description: string,
+    goals: string[],
+  ): Promise<HarnessSuggestConfigResponse> {
+    const text = `${description} ${goals.join(' ')}`.toLowerCase();
+
+    // Default agents
+    const suggestedAgents: Record<string, AgentOverride> = {
+      'ptah-cli': { enabled: true },
+      copilot: { enabled: true },
+    };
+
+    // MCP server suggestions via keyword extraction fallback
+    const keywords = this.extractSearchableKeywords(text);
+    const suggestedMcpServers =
+      await this.suggestMcpServersFromRegistry(keywords);
 
     const suggestedPrompt = `You are a ${description || 'helpful assistant'}. Your goals are: ${goals.length > 0 ? goals.join(', ') : 'assist with development tasks'}.`;
 
     return {
       suggestedAgents,
-      suggestedSkills,
+      suggestedSkills: [],
+      suggestedMcpServers,
       suggestedPrompt,
-      reasoning: reasoningParts.join(' '),
+      reasoning:
+        'Using default configuration (AI suggestion unavailable). Enabled Ptah CLI and Copilot as a balanced starting point. Adjust agents and skills in subsequent steps.',
     };
+  }
+
+  /**
+   * Search the live MCP Registry for servers matching the given keywords.
+   *
+   * Searches the Official MCP Registry for each keyword in parallel,
+   * deduplicates, and returns the top results. Keywords are either
+   * AI-selected (from buildSuggestionViaAgent) or extracted via
+   * heuristic (from buildSuggestionFallback).
+   */
+  private async suggestMcpServersFromRegistry(
+    keywords: string[],
+  ): Promise<McpServerSuggestion[]> {
+    if (keywords.length === 0) return [];
+
+    // Search the registry for each keyword in parallel (cap at 6 keywords)
+    const searchResults = await Promise.allSettled(
+      keywords.slice(0, 6).map(async (keyword) => {
+        const result = await this.registryProvider.listServers({
+          query: keyword,
+          limit: 3,
+        });
+        return { keyword, servers: result.servers };
+      }),
+    );
+
+    // Collect results, deduplicate by server name
+    const seen = new Set<string>();
+    const suggestions: McpServerSuggestion[] = [];
+
+    for (const outcome of searchResults) {
+      if (outcome.status !== 'fulfilled') continue;
+
+      const { keyword, servers } = outcome.value;
+      for (const server of servers) {
+        if (seen.has(server.name)) continue;
+        seen.add(server.name);
+
+        const displayName = server.name.split('/').pop() || server.name;
+
+        suggestions.push({
+          query: server.name,
+          displayName,
+          reason:
+            server.description || `Matched your persona keyword "${keyword}"`,
+        });
+      }
+    }
+
+    // Return top 8 suggestions
+    return suggestions.slice(0, 8);
+  }
+
+  /**
+   * Extract searchable keywords from persona text (fallback path).
+   *
+   * Used when the LLM suggestion engine is unavailable. Filters out
+   * common English stop words and generic role descriptors, keeping
+   * technology-specific terms for MCP registry search.
+   */
+  private extractSearchableKeywords(text: string): string[] {
+    const stopWords = new Set([
+      // Common English
+      'the',
+      'and',
+      'for',
+      'with',
+      'that',
+      'this',
+      'from',
+      'your',
+      'have',
+      'are',
+      'was',
+      'will',
+      'can',
+      'want',
+      'need',
+      'work',
+      'help',
+      'use',
+      'like',
+      'also',
+      'make',
+      'get',
+      'set',
+      'new',
+      'all',
+      'any',
+      'but',
+      'not',
+      'our',
+      'out',
+      'who',
+      'how',
+      'its',
+      'may',
+      'more',
+      'most',
+      'been',
+      'such',
+      'than',
+      'them',
+      'then',
+      'some',
+      'into',
+      'over',
+      'just',
+      'about',
+      'would',
+      'could',
+      'should',
+      'being',
+      'other',
+      'each',
+      'which',
+      'their',
+      'there',
+      // Generic role/job words (not useful as registry search terms)
+      'developer',
+      'engineer',
+      'architect',
+      'designer',
+      'manager',
+      'lead',
+      'senior',
+      'junior',
+      'mid',
+      'level',
+      'full',
+      'stack',
+      'fullstack',
+      'full-stack',
+      'software',
+      'coding',
+      'programming',
+      'building',
+      'working',
+      'projects',
+      'applications',
+      'systems',
+      'team',
+      'role',
+      'goal',
+      'goals',
+      'experience',
+      'focus',
+      'responsible',
+      'creating',
+      'developing',
+      'using',
+      'tools',
+      'looking',
+      'assist',
+      'tasks',
+      'write',
+      'code',
+    ]);
+
+    return text
+      .split(/[\s,./;:!?()[\]{}]+/)
+      .map((w) => w.toLowerCase())
+      .filter((w) => w.length >= 3 && !stopWords.has(w))
+      .filter((w, i, arr) => arr.indexOf(w) === i);
   }
 
   /**

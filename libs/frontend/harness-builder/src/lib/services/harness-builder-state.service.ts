@@ -22,6 +22,7 @@ import type {
   PersonaDefinition,
   HarnessPreset,
   SkillSummary,
+  McpServerSuggestion,
 } from '@ptah-extension/shared';
 
 /** Chat message stored in the wizard AI chat history */
@@ -64,6 +65,7 @@ export class HarnessBuilderStateService {
   private readonly _error = signal<string | null>(null);
   private readonly _chatMessages = signal<HarnessChatMessage[]>([]);
   private readonly _completedSteps = signal<Set<HarnessWizardStep>>(new Set());
+  private readonly _suggestedMcpServers = signal<McpServerSuggestion[]>([]);
 
   // ─── Workspace context (from initialize) ─────────────────
 
@@ -85,6 +87,7 @@ export class HarnessBuilderStateService {
   public readonly error = this._error.asReadonly();
   public readonly chatMessages = this._chatMessages.asReadonly();
   public readonly completedSteps = this._completedSteps.asReadonly();
+  public readonly suggestedMcpServers = this._suggestedMcpServers.asReadonly();
   public readonly workspaceContext = this._workspaceContext.asReadonly();
 
   // ─── Computed signals ────────────────────────────────────
@@ -218,6 +221,10 @@ export class HarnessBuilderStateService {
     this._config.update((cfg) => ({ ...cfg, claudeMd }));
   }
 
+  public setSuggestedMcpServers(servers: McpServerSuggestion[]): void {
+    this._suggestedMcpServers.set(servers);
+  }
+
   // ─── Chat methods ────────────────────────────────────────
 
   public addChatMessage(message: HarnessChatMessage): void {
@@ -246,6 +253,7 @@ export class HarnessBuilderStateService {
     this._error.set(null);
     this._chatMessages.set([]);
     this._completedSteps.set(new Set());
+    this._suggestedMcpServers.set([]);
     this._workspaceContext.set(null);
   }
 }

@@ -31,7 +31,7 @@ export class ConfigWatcher {
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager,
     @inject(PLATFORM_TOKENS.SECRET_STORAGE)
-    private secretStorage: ISecretStorage
+    private secretStorage: ISecretStorage,
   ) {}
 
   /**
@@ -57,7 +57,6 @@ export class ConfigWatcher {
     // Watch SecretStorage for credential changes
     this.secretsDisposable = this.secretStorage.onDidChange((event) => {
       if (
-        event.key === 'ptah.auth.claudeOAuthToken' ||
         event.key === 'ptah.auth.anthropicApiKey' ||
         event.key === 'ptah.auth.openrouterApiKey' // TASK_2025_091: OpenRouter key
       ) {
@@ -68,7 +67,7 @@ export class ConfigWatcher {
     });
 
     this.logger.debug(
-      `[ConfigWatcher] Registered ${watchKeys.length} config watchers + 1 secrets watcher`
+      `[ConfigWatcher] Registered ${watchKeys.length} config watchers + 1 secrets watcher`,
     );
   }
 
@@ -77,12 +76,12 @@ export class ConfigWatcher {
    */
   private async handleConfigChange(
     key: string,
-    reinitCallback: ReinitCallback
+    reinitCallback: ReinitCallback,
   ): Promise<void> {
     // Prevent concurrent re-initialization
     if (this.isReinitializing) {
       this.logger.debug(
-        `[ConfigWatcher] Skipping re-init for ${key} - already in progress`
+        `[ConfigWatcher] Skipping re-init for ${key} - already in progress`,
       );
       return;
     }
@@ -90,16 +89,16 @@ export class ConfigWatcher {
     try {
       this.isReinitializing = true;
       this.logger.info(
-        `[ConfigWatcher] Configuration changed (${key}), re-initializing...`
+        `[ConfigWatcher] Configuration changed (${key}), re-initializing...`,
       );
       await reinitCallback();
       this.logger.info(
-        '[ConfigWatcher] Re-initialization complete after config change'
+        '[ConfigWatcher] Re-initialization complete after config change',
       );
     } catch (error) {
       this.logger.error(
         '[ConfigWatcher] Re-initialization failed',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     } finally {
       this.isReinitializing = false;

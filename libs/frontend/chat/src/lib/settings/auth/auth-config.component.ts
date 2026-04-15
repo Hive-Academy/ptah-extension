@@ -39,8 +39,8 @@ import type {
  * Patterns: Signal delegation to AuthStateService, local form signals only
  *
  * Responsibilities:
- * - Display authentication method selection (Provider, OAuth, API Key, Auto-detect)
- * - Collect credential inputs (OAuth token, API key, provider key)
+ * - Display authentication method selection (Provider, API Key, Auto-detect)
+ * - Collect credential inputs (API key, provider key)
  * - Delegate save/delete/test operations to AuthStateService
  * - Display connection status and error messages from service
  *
@@ -90,9 +90,6 @@ export class AuthConfigComponent implements OnInit {
 
   // --- Local form signals (text input values only) ---
 
-  /** OAuth token text input value */
-  readonly oauthToken = signal('');
-
   /** API key text input value */
   readonly apiKey = signal('');
 
@@ -101,7 +98,6 @@ export class AuthConfigComponent implements OnInit {
 
   // --- Local toggle signals for showing credential replacement inputs ---
 
-  readonly isReplacingOAuth = signal(false);
   readonly isReplacingApiKey = signal(false);
   readonly isReplacingProviderKey = signal(false);
 
@@ -143,12 +139,12 @@ export class AuthConfigComponent implements OnInit {
   /**
    * Computed: which tile is currently being VIEWED in the provider tile grid.
    * This controls which provider's config form is shown, NOT which provider is active.
-   * Claude tile is viewed when authMethod is 'apiKey' or 'oauth'.
+   * Claude tile is viewed when authMethod is 'apiKey' or 'claudeCli'.
    * Provider tiles are viewed when authMethod is 'openrouter' or 'auto'.
    */
   readonly selectedTileId = computed(() => {
     const method = this.authState.authMethod();
-    if (method === 'apiKey' || method === 'oauth') {
+    if (method === 'apiKey' || method === 'claudeCli') {
       return 'claude';
     }
     return this.authState.selectedProviderId();
@@ -177,12 +173,12 @@ export class AuthConfigComponent implements OnInit {
   });
 
   /**
-   * Computed: which Claude auth mode is active ('apiKey' or 'oauth').
+   * Computed: which Claude auth mode is active ('apiKey' or 'claudeCli').
    * Defaults to 'apiKey' when authMethod is neither.
    */
-  readonly claudeAuthMode = computed<'apiKey' | 'oauth'>(() => {
+  readonly claudeAuthMode = computed<'apiKey' | 'claudeCli'>(() => {
     const method = this.authState.authMethod();
-    return method === 'oauth' ? 'oauth' : 'apiKey';
+    return method === 'claudeCli' ? 'claudeCli' : 'apiKey';
   });
 
   /**
@@ -195,17 +191,15 @@ export class AuthConfigComponent implements OnInit {
    */
   readonly canSaveAndTest = computed(() => {
     const method = this.authState.authMethod();
-    const hasNewOAuth = this.oauthToken().trim().length > 0;
     const hasNewApiKey = this.apiKey().trim().length > 0;
     const hasNewProviderKey = this.providerKey().trim().length > 0;
-    const hasExistingOAuth = this.authState.hasOAuthToken();
     const hasExistingApiKey = this.authState.hasApiKey();
     const hasExistingProviderKey = this.authState.hasProviderKey();
 
     // Claude tile: check credential matching the active auth mode
     if (this.selectedTileId() === 'claude') {
-      if (this.claudeAuthMode() === 'oauth') {
-        return hasNewOAuth || hasExistingOAuth;
+      if (this.claudeAuthMode() === 'claudeCli') {
+        return this.authState.claudeCliInstalled();
       }
       return hasNewApiKey || hasExistingApiKey;
     }
@@ -223,18 +217,16 @@ export class AuthConfigComponent implements OnInit {
     }
 
     switch (method) {
-      case 'oauth':
-        return hasNewOAuth || hasExistingOAuth;
+      case 'claudeCli':
+        return this.authState.claudeCliInstalled();
       case 'apiKey':
         return hasNewApiKey || hasExistingApiKey;
       case 'openrouter':
         return hasNewProviderKey || hasExistingProviderKey;
       case 'auto':
         return (
-          hasNewOAuth ||
           hasNewApiKey ||
           hasNewProviderKey ||
-          hasExistingOAuth ||
           hasExistingApiKey ||
           hasExistingProviderKey
         );
@@ -299,10 +291,6 @@ export class AuthConfigComponent implements OnInit {
     const params: AuthSaveSettingsParams = {
       authMethod: currentMethod,
       // Only send credentials relevant to the selected auth method
-      claudeOAuthToken:
-        currentMethod === 'oauth'
-          ? this.oauthToken().trim() || undefined
-          : undefined,
       anthropicApiKey:
         currentMethod === 'apiKey'
           ? this.apiKey().trim() || undefined
@@ -319,11 +307,9 @@ export class AuthConfigComponent implements OnInit {
     // After save completes, check if it was successful
     if (this.authState.connectionStatus() === 'success') {
       // Reset replacement toggles
-      this.isReplacingOAuth.set(false);
       this.isReplacingApiKey.set(false);
       this.isReplacingProviderKey.set(false);
       // Clear local form inputs (service has refreshed auth status)
-      this.oauthToken.set('');
       this.apiKey.set('');
       this.providerKey.set('');
       // Notify parent components
@@ -347,7 +333,6 @@ export class AuthConfigComponent implements OnInit {
     }
 
     this.authState.setAuthMethod(method);
-    this.isReplacingOAuth.set(false);
     this.isReplacingApiKey.set(false);
     this.isReplacingProviderKey.set(false);
   }
@@ -378,23 +363,22 @@ export class AuthConfigComponent implements OnInit {
   }
 
   /**
-   * Handle tile selection from the provider tile grid.
-   * Maps each tile to the appropriate (authMethod, selectedProviderId) pair.
+   * Switch between API Key and Claude CLI within the Claude auth section.
    */
-  /**
-   * Switch between API Key and OAuth within the Claude auth section.
-   */
-  onClaudeAuthModeChange(mode: 'apiKey' | 'oauth'): void {
+  onClaudeAuthModeChange(mode: 'apiKey' | 'claudeCli'): void {
     this.authState.setAuthMethod(mode);
-    this.isReplacingOAuth.set(false);
     this.isReplacingApiKey.set(false);
   }
 
+  /**
+   * Handle tile selection from the provider tile grid.
+   * Maps each tile to the appropriate (authMethod, selectedProviderId) pair.
+   */
   onTileSelect(tileId: string): void {
     if (tileId === 'claude') {
       // Preserve current claude auth mode if already on claude tile
       const current = this.authState.authMethod();
-      if (current !== 'apiKey' && current !== 'oauth') {
+      if (current !== 'apiKey' && current !== 'claudeCli') {
         this.authState.setAuthMethod('apiKey');
       }
     } else {
@@ -402,7 +386,6 @@ export class AuthConfigComponent implements OnInit {
       this.authState.setSelectedProviderId(tileId);
       this.authState.checkProviderKeyStatus(tileId);
     }
-    this.isReplacingOAuth.set(false);
     this.isReplacingApiKey.set(false);
     this.isReplacingProviderKey.set(false);
   }
@@ -423,16 +406,6 @@ export class AuthConfigComponent implements OnInit {
     } catch (error) {
       console.error('[AuthConfigComponent] Failed to reload window:', error);
     }
-  }
-
-  /**
-   * Delete OAuth token from SecretStorage.
-   * Delegates to AuthStateService which handles RPC call and state refresh.
-   */
-  async deleteOAuthToken(): Promise<void> {
-    await this.authState.deleteOAuthToken();
-    this.oauthToken.set('');
-    this.authStatusChanged.emit();
   }
 
   /**

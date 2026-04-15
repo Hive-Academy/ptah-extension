@@ -2,7 +2,7 @@
 echo "🔍 Running pre-commit checks..."
 
 # Run lint-staged
-npx lint-staged --no-stash
+npx lint-staged --no-stash --concurrent false
 
 # Check if orchestration skill files were changed
 SKILL_FILES_CHANGED=$(git diff --cached --name-only | grep -E "^\.claude/skills/" || true)

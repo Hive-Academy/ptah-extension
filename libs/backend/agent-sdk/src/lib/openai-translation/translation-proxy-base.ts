@@ -117,9 +117,10 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
    */
   async start(): Promise<{ port: number; url: string }> {
     if (this.server) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const url = this.getUrl()!;
       this.logger.info(`${this.logPrefix} Already running at ${url}`);
-      return { port: this.port!, url };
+      return { port: this.port!, url }; // eslint-disable-line @typescript-eslint/no-non-null-assertion
     }
 
     return new Promise<{ port: number; url: string }>((resolve, reject) => {

@@ -312,7 +312,6 @@ export class AppShellComponent {
           if (this.currentView() !== 'chat') return;
           const data = rpcResult.data;
           const hasAnyAuth =
-            data.hasOAuthToken ||
             data.hasApiKey ||
             data.hasOpenRouterKey ||
             data.hasAnyProviderKey ||

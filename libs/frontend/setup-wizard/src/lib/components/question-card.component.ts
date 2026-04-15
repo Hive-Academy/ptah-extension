@@ -127,17 +127,17 @@ export class QuestionCardComponent {
   /**
    * The discovery question to render.
    */
-  readonly question = input.required<DiscoveryQuestion>();
+  public readonly question = input.required<DiscoveryQuestion>();
 
   /**
    * Current answer value for this question.
    */
-  readonly value = input<AnswerValue | undefined>();
+  public readonly value = input<AnswerValue | undefined>();
 
   /**
    * Emits when the answer value changes.
    */
-  valueChange = output<AnswerValue>();
+  public valueChange = output<AnswerValue>();
 
   /**
    * Get the current value as a string for text inputs.
