@@ -256,6 +256,7 @@ export interface HarnessGenerateClaudeMdResponse {
 /** harness:apply — Apply the full harness config to workspace */
 export interface HarnessApplyParams {
   config: HarnessConfig;
+  outputFormat: string;
 }
 export interface HarnessApplyResponse {
   appliedPaths: string[];

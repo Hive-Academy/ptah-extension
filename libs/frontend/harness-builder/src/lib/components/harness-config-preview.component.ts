@@ -231,7 +231,7 @@ export class HarnessConfigPreviewComponent {
     const skills = this.state.config().skills;
     const names: string[] = [];
     if (skills?.selectedSkills) {
-      names.push(...skills.selectedSkills.map((s) => s.name));
+      names.push(...skills.selectedSkills);
     }
     if (skills?.createdSkills) {
       names.push(...skills.createdSkills.map((s) => s.name));

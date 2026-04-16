@@ -1,19 +1,3 @@
-/**
- * HarnessBuilderViewComponent
- *
- * Main shell component for the Harness Setup Builder wizard.
- * This is the top-level component injected via HARNESS_BUILDER_COMPONENT DI token.
- *
- * Layout:
- * - Header with title and close button
- * - Horizontal step indicator (HarnessStepperComponent)
- * - Two-panel body: step content (left) + AI chat panel (right)
- * - Footer with Back/Next navigation buttons
- *
- * On init, calls harness:initialize to populate workspace context,
- * available agents, skills, and presets.
- */
-
 import {
   Component,
   ChangeDetectionStrategy,
@@ -21,43 +5,35 @@ import {
   OnInit,
   signal,
   computed,
+  viewChild,
+  ElementRef,
+  effect,
 } from '@angular/core';
 import {
   LucideAngularModule,
   X,
-  ChevronLeft,
-  ChevronRight,
+  Send,
+  Settings,
   Loader2,
+  CheckCircle,
+  Sparkles,
 } from 'lucide-angular';
+import { FormsModule } from '@angular/forms';
 import { WebviewNavigationService } from '@ptah-extension/core';
 import { HarnessBuilderStateService } from '../services/harness-builder-state.service';
 import { HarnessRpcService } from '../services/harness-rpc.service';
 import { HarnessStreamingService } from '../services/harness-streaming.service';
-import { HarnessStepperComponent } from './harness-stepper.component';
-import { HarnessChatPanelComponent } from './harness-chat-panel.component';
 import { HarnessExecutionViewComponent } from './harness-execution-view.component';
-import { DescribeStepComponent } from './steps/describe-step.component';
-import { AgentsStepComponent } from './steps/agents-step.component';
-import { SkillsStepComponent } from './steps/skills-step.component';
-import { PromptsStepComponent } from './steps/prompts-step.component';
-import { McpStepComponent } from './steps/mcp-step.component';
-import { ReviewStepComponent } from './steps/review-step.component';
-import type { HarnessWizardStep } from '@ptah-extension/shared';
+import { HarnessConfigPreviewComponent } from './harness-config-preview.component';
 
 @Component({
   selector: 'ptah-harness-builder-view',
   standalone: true,
   imports: [
     LucideAngularModule,
-    HarnessStepperComponent,
-    HarnessChatPanelComponent,
+    FormsModule,
     HarnessExecutionViewComponent,
-    DescribeStepComponent,
-    AgentsStepComponent,
-    SkillsStepComponent,
-    PromptsStepComponent,
-    McpStepComponent,
-    ReviewStepComponent,
+    HarnessConfigPreviewComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
@@ -99,142 +75,260 @@ import type { HarnessWizardStep } from '@ptah-extension/shared';
       </div>
     }
 
-    <!-- Main wizard -->
+    <!-- Main conversational UI -->
     @else {
       <!-- Header -->
       <header
         class="flex items-center justify-between px-4 py-3 border-b border-base-300 bg-base-100 shrink-0"
       >
-        <h1 class="text-base font-bold text-base-content">
-          Harness Setup Builder
-        </h1>
-        <button
-          class="btn btn-ghost btn-sm btn-circle"
-          (click)="close()"
-          aria-label="Close harness builder"
-        >
-          <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true" />
-        </button>
-      </header>
-
-      <!-- Stepper -->
-      <div class="px-4 py-3 border-b border-base-300 bg-base-100 shrink-0">
-        <ptah-harness-stepper
-          [currentStep]="currentStep()"
-          [completedSteps]="completedSteps()"
-          (stepClicked)="onStepClicked($event)"
-        />
-      </div>
-
-      <!-- Body: execution takeover OR step content + chat panel -->
-      @if (showExecutionView()) {
-        <div class="flex-1 min-h-0 overflow-hidden">
-          <ptah-harness-execution-view />
+        <div class="flex items-center gap-2">
+          <h1 class="text-base font-bold text-base-content">Harness Builder</h1>
+          @if (state.configSummary() !== 'No configuration yet') {
+            <span class="text-xs text-base-content/40 hidden sm:inline">
+              {{ state.configSummary() }}
+            </span>
+          }
         </div>
-      } @else {
-        <div class="flex flex-1 min-h-0 overflow-hidden">
-          <!-- Step content -->
-          <main class="flex-1 overflow-y-auto p-4" role="main">
-            @switch (currentStep()) {
-              @case ('persona') {
-                <ptah-describe-step />
-              }
-              @case ('agents') {
-                <ptah-agents-step />
-              }
-              @case ('skills') {
-                <ptah-skills-step />
-              }
-              @case ('prompts') {
-                <ptah-prompts-step />
-              }
-              @case ('mcp') {
-                <ptah-mcp-step />
-              }
-              @case ('review') {
-                <ptah-review-step />
-              }
-            }
-          </main>
-
-          <!-- AI Chat Panel (right side) -->
-          <aside class="w-72 border-l border-base-300 shrink-0 hidden md:block">
-            <ptah-harness-chat-panel />
-          </aside>
-        </div>
-      }
-
-      <!-- Footer navigation -->
-      <footer
-        class="flex items-center justify-between px-4 py-3 border-t border-base-300 bg-base-100 shrink-0"
-      >
-        <button
-          class="btn btn-outline btn-sm gap-1"
-          (click)="previousStep()"
-          [disabled]="isFirstStep()"
-        >
-          <lucide-angular
-            [img]="ChevronLeftIcon"
-            class="w-4 h-4"
-            aria-hidden="true"
-          />
-          Back
-        </button>
-
-        <span class="text-xs text-base-content/50">
-          Step {{ currentStepIndex() + 1 }} of 6
-        </span>
-
-        @if (!isLastStep()) {
+        <div class="flex items-center gap-1">
           <button
-            class="btn btn-primary btn-sm gap-1"
-            (click)="nextStep()"
-            [disabled]="!canProceed()"
+            class="btn btn-ghost btn-sm btn-circle"
+            (click)="showConfigPreview.set(!showConfigPreview())"
+            aria-label="Toggle config preview"
+            [class.btn-active]="showConfigPreview()"
           >
-            Next
             <lucide-angular
-              [img]="ChevronRightIcon"
+              [img]="SettingsIcon"
               class="w-4 h-4"
               aria-hidden="true"
             />
           </button>
-        } @else {
-          <!-- On the review step, the apply button is inside the step content -->
-          <div></div>
+          <button
+            class="btn btn-ghost btn-sm btn-circle"
+            (click)="close()"
+            aria-label="Close harness builder"
+          >
+            <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true" />
+          </button>
+        </div>
+      </header>
+
+      <!-- Body -->
+      <div class="flex flex-1 min-h-0 overflow-hidden">
+        <!-- Conversation area -->
+        <div class="flex flex-col flex-1 min-w-0">
+          <!-- Scrollable transcript -->
+          <div
+            #scrollContainer
+            class="flex-1 overflow-y-auto p-4 space-y-4"
+            role="log"
+            aria-label="Conversation transcript"
+          >
+            <!-- Welcome message when no conversation yet -->
+            @if (state.conversationMessages().length === 0 && !isProcessing()) {
+              <div
+                class="flex flex-col items-center justify-center h-full text-center px-4"
+              >
+                <lucide-angular
+                  [img]="SparklesIcon"
+                  class="w-10 h-10 text-primary/40 mb-4"
+                  aria-hidden="true"
+                />
+                <h2 class="text-lg font-semibold text-base-content mb-2">
+                  Describe your harness
+                </h2>
+                <p class="text-sm text-base-content/50 max-w-md">
+                  Tell me what you're building and I'll configure the agents,
+                  skills, prompts, and MCP servers for your workspace.
+                </p>
+              </div>
+            }
+
+            <!-- Conversation messages -->
+            @for (msg of state.conversationMessages(); track $index) {
+              @if (msg.role === 'user') {
+                <div class="flex justify-end">
+                  <div
+                    class="max-w-[85%] px-4 py-3 rounded-2xl rounded-br-md bg-primary text-primary-content text-sm whitespace-pre-wrap"
+                  >
+                    {{ msg.content }}
+                  </div>
+                </div>
+              } @else {
+                <div class="flex justify-start">
+                  <div
+                    class="max-w-[85%] px-4 py-3 rounded-2xl rounded-bl-md bg-base-200 text-base-content text-sm whitespace-pre-wrap leading-relaxed"
+                  >
+                    {{ msg.content }}
+                  </div>
+                </div>
+              }
+            }
+
+            <!-- Live streaming execution view -->
+            @if (showExecutionView()) {
+              <div
+                class="rounded-xl border border-base-300 overflow-hidden max-h-[60vh]"
+              >
+                <ptah-harness-execution-view />
+              </div>
+            }
+
+            <!-- Processing indicator (no streaming events yet) -->
+            @if (isProcessing() && !showExecutionView()) {
+              <div class="flex justify-start">
+                <div class="px-4 py-3 rounded-2xl rounded-bl-md bg-base-200">
+                  <span
+                    class="loading loading-dots loading-sm text-base-content/50"
+                  ></span>
+                </div>
+              </div>
+            }
+          </div>
+
+          <!-- Input bar -->
+          <div class="px-4 py-3 border-t border-base-300 bg-base-100 shrink-0">
+            <!-- Config complete banner -->
+            @if (state.isConfigComplete() && !isProcessing()) {
+              <div
+                class="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-success/10 border border-success/20"
+              >
+                <lucide-angular
+                  [img]="CheckCircleIcon"
+                  class="w-4 h-4 text-success shrink-0"
+                  aria-hidden="true"
+                />
+                <span class="text-sm text-success flex-1">
+                  Configuration looks ready to apply.
+                </span>
+                <button
+                  class="btn btn-success btn-sm"
+                  (click)="applyConfig()"
+                  [disabled]="isApplying()"
+                >
+                  @if (isApplying()) {
+                    <span class="loading loading-spinner loading-xs"></span>
+                  }
+                  Apply to Workspace
+                </button>
+              </div>
+            }
+
+            <div class="flex items-end gap-2">
+              <textarea
+                #messageInput
+                class="textarea textarea-bordered flex-1 min-h-[44px] max-h-40 resize-none text-sm leading-relaxed"
+                placeholder="Describe what you want to build..."
+                [(ngModel)]="messageText"
+                (keydown)="onKeydown($event)"
+                [disabled]="isProcessing()"
+                rows="1"
+              ></textarea>
+              <button
+                class="btn btn-primary btn-sm h-[44px] w-[44px] p-0"
+                (click)="sendMessage()"
+                [disabled]="!canSend()"
+                aria-label="Send message"
+              >
+                @if (isProcessing()) {
+                  <span class="loading loading-spinner loading-xs"></span>
+                } @else {
+                  <lucide-angular
+                    [img]="SendIcon"
+                    class="w-4 h-4"
+                    aria-hidden="true"
+                  />
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Config preview panel (right side, togglable) -->
+        @if (showConfigPreview()) {
+          <aside
+            class="w-72 border-l border-base-300 bg-base-100 overflow-y-auto shrink-0 p-3"
+          >
+            <div class="flex items-center justify-between mb-3">
+              <span
+                class="text-xs font-semibold text-base-content/70 uppercase tracking-wider"
+              >
+                Config Preview
+              </span>
+            </div>
+            <ptah-harness-config-preview />
+
+            <!-- Manual apply button in the panel -->
+            @if (hasAnyConfig()) {
+              <div class="mt-4 pt-3 border-t border-base-300">
+                <button
+                  class="btn btn-primary btn-sm w-full"
+                  (click)="applyConfig()"
+                  [disabled]="isApplying() || isProcessing()"
+                >
+                  @if (isApplying()) {
+                    <span class="loading loading-spinner loading-xs"></span>
+                  }
+                  Apply to Workspace
+                </button>
+              </div>
+            }
+          </aside>
         }
-      </footer>
+      </div>
     }
   `,
 })
 export class HarnessBuilderViewComponent implements OnInit {
-  private readonly state = inject(HarnessBuilderStateService);
+  protected readonly state = inject(HarnessBuilderStateService);
   private readonly rpc = inject(HarnessRpcService);
   private readonly navigation = inject(WebviewNavigationService);
   private readonly streaming = inject(HarnessStreamingService);
 
-  // Icons
   protected readonly XIcon = X;
-  protected readonly ChevronLeftIcon = ChevronLeft;
-  protected readonly ChevronRightIcon = ChevronRight;
+  protected readonly SendIcon = Send;
+  protected readonly SettingsIcon = Settings;
   protected readonly Loader2Icon = Loader2;
+  protected readonly CheckCircleIcon = CheckCircle;
+  protected readonly SparklesIcon = Sparkles;
 
-  // Expose individual readonly signals for the template
-  readonly currentStep = this.state.currentStep;
-  readonly completedSteps = this.state.completedSteps;
-  readonly isFirstStep = this.state.isFirstStep;
-  readonly isLastStep = this.state.isLastStep;
-  readonly canProceed = this.state.canProceed;
-  readonly currentStepIndex = this.state.currentStepIndex;
+  private readonly scrollContainer =
+    viewChild<ElementRef<HTMLDivElement>>('scrollContainer');
 
-  readonly showExecutionView = computed(
+  readonly isInitializing = signal(true);
+  readonly initError = signal<string | null>(null);
+  readonly isProcessing = signal(false);
+  readonly isApplying = signal(false);
+  readonly showConfigPreview = signal(false);
+
+  protected messageText = '';
+
+  protected readonly showExecutionView = computed(
     () =>
       this.streaming.isStreaming() ||
       this.streaming.completionResult() !== null,
   );
 
-  // Initialization state
-  public readonly isInitializing = signal(true);
-  public readonly initError = signal<string | null>(null);
+  protected readonly canSend = computed(
+    () => this.messageText.trim().length > 0 && !this.isProcessing(),
+  );
+
+  protected readonly hasAnyConfig = computed(() => {
+    const cfg = this.state.config();
+    return !!(cfg.persona || cfg.agents || cfg.skills || cfg.prompt || cfg.mcp);
+  });
+
+  constructor() {
+    effect(() => {
+      this.state.conversationMessages();
+      this.streaming.blocks();
+      const container = this.scrollContainer()?.nativeElement;
+      if (container) {
+        requestAnimationFrame(() => {
+          container.scrollTop = container.scrollHeight;
+        });
+      }
+    });
+  }
 
   public ngOnInit(): void {
     this.initializeBuilder();
@@ -273,20 +367,77 @@ export class HarnessBuilderViewComponent implements OnInit {
     this.navigation.navigateToView('chat');
   }
 
-  public nextStep(): void {
-    this.state.nextStep();
+  protected onKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      this.sendMessage();
+    }
   }
 
-  public previousStep(): void {
-    this.state.previousStep();
+  protected async sendMessage(): Promise<void> {
+    const text = this.messageText.trim();
+    if (!text || this.isProcessing()) return;
+
+    this.messageText = '';
+    this.isProcessing.set(true);
+    this.streaming.reset();
+
+    this.state.addConversationMessage({ role: 'user', content: text });
+
+    try {
+      const response = await this.rpc.converse({
+        message: text,
+        history: this.state.conversationMessages().slice(0, -1),
+        config: this.state.config(),
+        workspaceContext: this.state.workspaceContext() ?? undefined,
+      });
+
+      if (response.configUpdates) {
+        this.state.applyConfigUpdates(response.configUpdates);
+      }
+
+      if (response.isConfigComplete) {
+        this.state.setConfigComplete(true);
+      }
+
+      this.state.addConversationMessage({
+        role: 'assistant',
+        content: response.reply,
+      });
+    } catch (err) {
+      const errorMsg =
+        err instanceof Error ? err.message : 'Something went wrong';
+      this.state.addConversationMessage({
+        role: 'assistant',
+        content: `I encountered an error: ${errorMsg}. Please try again.`,
+      });
+    } finally {
+      this.isProcessing.set(false);
+    }
   }
 
-  public onStepClicked(step: HarnessWizardStep): void {
-    if (
-      this.state.completedSteps().has(step) ||
-      step === this.state.currentStep()
-    ) {
-      this.state.goToStep(step);
+  protected async applyConfig(): Promise<void> {
+    this.isApplying.set(true);
+
+    try {
+      const config = this.state.config();
+      await this.rpc.apply({
+        config: config as any,
+        outputFormat: 'claude-md',
+      });
+      this.state.addConversationMessage({
+        role: 'assistant',
+        content: 'Configuration has been applied to your workspace.',
+      });
+    } catch (err) {
+      const errorMsg =
+        err instanceof Error ? err.message : 'Failed to apply configuration';
+      this.state.addConversationMessage({
+        role: 'assistant',
+        content: `Failed to apply: ${errorMsg}`,
+      });
+    } finally {
+      this.isApplying.set(false);
     }
   }
 }

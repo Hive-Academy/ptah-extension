@@ -2,6 +2,7 @@ import {
   Component,
   ChangeDetectionStrategy,
   input,
+  output,
   computed,
   signal,
   inject,
@@ -21,6 +22,8 @@ import {
 import { Clipboard } from '@angular/cdk/clipboard';
 import { MarkdownModule } from 'ngx-markdown';
 import { TypingCursorComponent } from '../../atoms/typing-cursor.component';
+import { PermissionRequestCardComponent } from '../permissions/permission-request-card.component';
+import { QuestionCardComponent } from '../question-card.component';
 import { generateAgentColor } from '../../../utils/agent-color.utils';
 import type {
   StreamingState,
@@ -32,6 +35,10 @@ import type {
   ToolStartEvent,
   ToolResultEvent,
   AgentStartEvent,
+  PermissionRequest,
+  PermissionResponse,
+  AskUserQuestionRequest,
+  AskUserQuestionResponse,
 } from '@ptah-extension/shared';
 
 interface AgentEntry {
@@ -57,7 +64,6 @@ interface ToolSummaryEntry {
   errors: number;
   names: string[];
   tools: { name: string; status: 'running' | 'complete' | 'error' }[];
-  isExpanded: boolean;
 }
 
 interface TextEntry {
@@ -66,7 +72,22 @@ interface TextEntry {
   isStreaming?: boolean;
 }
 
-type FeedEntry = AgentEntry | ToolSummaryEntry | TextEntry;
+interface PermissionEntry {
+  type: 'permission';
+  request: PermissionRequest;
+}
+
+interface QuestionEntry {
+  type: 'question';
+  request: AskUserQuestionRequest;
+}
+
+type FeedEntry =
+  | AgentEntry
+  | ToolSummaryEntry
+  | TextEntry
+  | PermissionEntry
+  | QuestionEntry;
 
 /**
  * CompactSessionActivityComponent - Agent-focused compacted feed.
@@ -90,6 +111,8 @@ type FeedEntry = AgentEntry | ToolSummaryEntry | TextEntry;
     MarkdownModule,
     TypingCursorComponent,
     DecimalPipe,
+    PermissionRequestCardComponent,
+    QuestionCardComponent,
   ],
   host: { class: 'flex flex-col min-h-0' },
   styles: [
@@ -293,7 +316,7 @@ type FeedEntry = AgentEntry | ToolSummaryEntry | TextEntry;
                 </div>
                 <button
                   type="button"
-                  class="absolute top-1 right-1 btn btn-xs btn-ghost btn-square opacity-0 group-hover:opacity-100 transition-opacity"
+                  class="absolute top-1 right-1 btn btn-xs btn-ghost btn-square opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                   [class.text-success]="copiedIndex() === $index"
                   (click)="copyText(entry.textContent, $index)"
                   [title]="copiedIndex() === $index ? 'Copied!' : 'Copy'"
@@ -303,6 +326,22 @@ type FeedEntry = AgentEntry | ToolSummaryEntry | TextEntry;
                     class="w-3 h-3"
                   />
                 </button>
+              </div>
+            }
+            @case ('permission') {
+              <div class="py-1">
+                <ptah-permission-request-card
+                  [request]="entry.request"
+                  (responded)="permissionResponded.emit($event)"
+                />
+              </div>
+            }
+            @case ('question') {
+              <div class="py-1">
+                <ptah-question-card
+                  [request]="entry.request"
+                  (answered)="questionAnswered.emit($event)"
+                />
               </div>
             }
           }
@@ -323,6 +362,11 @@ export class CompactSessionActivityComponent {
   readonly messages = input<ExecutionChatMessage[]>([]);
   readonly maxEntries = input<number>(50);
   readonly isSessionStreaming = input<boolean>(false);
+  readonly permissionRequests = input<PermissionRequest[]>([]);
+  readonly questionRequests = input<AskUserQuestionRequest[]>([]);
+
+  readonly permissionResponded = output<PermissionResponse>();
+  readonly questionAnswered = output<AskUserQuestionResponse>();
 
   protected readonly CheckIcon = Check;
   protected readonly AlertCircleIcon = AlertCircle;
@@ -380,10 +424,21 @@ export class CompactSessionActivityComponent {
 
   readonly feedEntries = computed((): FeedEntry[] => {
     const state = this.streamingState();
+    let entries: FeedEntry[];
     if (state && state.events.size > 0) {
-      return this.buildFeedFromEvents(state);
+      entries = this.buildFeedFromEvents(state);
+    } else {
+      entries = this.buildFeedFromMessages();
     }
-    return this.buildFeedFromMessages();
+
+    for (const req of this.permissionRequests()) {
+      entries.push({ type: 'permission', request: req });
+    }
+    for (const req of this.questionRequests()) {
+      entries.push({ type: 'question', request: req });
+    }
+
+    return entries;
   });
 
   /**
@@ -474,7 +529,6 @@ export class CompactSessionActivityComponent {
             name: n,
             status: 'complete' as const,
           })),
-          isExpanded: false,
         });
         pendingTools = [];
       };
@@ -522,7 +576,6 @@ export class CompactSessionActivityComponent {
         errors,
         names,
         tools: [...pendingTools],
-        isExpanded: false,
       });
       pendingTools = [];
     };
@@ -549,7 +602,7 @@ export class CompactSessionActivityComponent {
           type: 'agent',
           name: agent.agentType,
           description: agent.agentDescription,
-          status: result ? 'complete' : 'running',
+          status: result ? (result.isError ? 'error' : 'complete') : 'running',
           agentId: agent.agentId,
           toolCallId: agent.toolCallId,
           textContent,

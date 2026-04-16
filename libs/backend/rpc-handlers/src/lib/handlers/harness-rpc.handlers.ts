@@ -244,9 +244,7 @@ export class HarnessRpcHandlers {
           isError: event.isError,
           timestamp: event.timestamp,
         };
-        this.webviewManager
-          .broadcastMessage('harness:stream', payload)
-          .catch(() => {});
+        this.webviewManager.broadcastMessage('harness:stream', payload);
       },
     };
     return { emitter, operationId };
@@ -265,9 +263,7 @@ export class HarnessRpcHandlers {
       error,
       timestamp: Date.now(),
     };
-    this.webviewManager
-      .broadcastMessage('harness:stream-complete', payload)
-      .catch(() => {});
+    this.webviewManager.broadcastMessage('harness:stream-complete', payload);
   }
 
   /**
@@ -3210,8 +3206,8 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
         const workspaceRoot =
           this.workspaceProvider.getWorkspaceFolders()?.[0] ?? process.cwd();
 
-        const availableAgents = await this.getAvailableAgents();
-        const availableSkills = await this.getAvailableSkills();
+        const availableAgents = this.getAvailableAgents();
+        const availableSkills = this.discoverAvailableSkills();
 
         const agentList = availableAgents
           .map(

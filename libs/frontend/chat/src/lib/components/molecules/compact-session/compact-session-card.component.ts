@@ -20,6 +20,10 @@ import { CompactSessionInputComponent } from './compact-session-input.component'
 import type { TabState } from '../../../services/chat.types';
 import { ChatStore } from '../../../services/chat.store';
 import { TabManagerService } from '../../../services/tab-manager.service';
+import type {
+  PermissionResponse,
+  AskUserQuestionResponse,
+} from '@ptah-extension/shared';
 
 /**
  * CompactSessionCardComponent - Condensed card view of a session.
@@ -79,6 +83,11 @@ import { TabManagerService } from '../../../services/tab-manager.service';
           [streamingState]="tab().streamingState"
           [messages]="tab().messages"
           [maxEntries]="50"
+          [permissionRequests]="sessionPermissions()"
+          [questionRequests]="sessionQuestions()"
+          [isSessionStreaming]="isStreaming()"
+          (permissionResponded)="onPermissionResponse($event)"
+          (questionAnswered)="onQuestionResponse($event)"
         />
 
         <!-- Mini input pinned at bottom -->
@@ -147,6 +156,20 @@ export class CompactSessionCardComponent {
     );
   });
 
+  readonly sessionPermissions = computed(() => {
+    const permissions = this.chatStore.permissionRequests();
+    const sessionId = this.tab().claudeSessionId;
+    if (!sessionId) return permissions;
+    return permissions.filter((p) => p.sessionId === sessionId);
+  });
+
+  readonly sessionQuestions = computed(() => {
+    const questions = this.chatStore.questionRequests();
+    const sessionId = this.tab().claudeSessionId;
+    if (!sessionId) return questions;
+    return questions.filter((q) => q.sessionId === sessionId);
+  });
+
   onSend(message: string): void {
     const tabId = this.tab().id;
     this.chatStore.sendOrQueueMessage(message, { tabId });
@@ -154,5 +177,13 @@ export class CompactSessionCardComponent {
 
   onStop(): void {
     this.chatStore.abortWithConfirmation();
+  }
+
+  onPermissionResponse(response: PermissionResponse): void {
+    this.chatStore.handlePermissionResponse(response);
+  }
+
+  onQuestionResponse(response: AskUserQuestionResponse): void {
+    this.chatStore.handleQuestionResponse(response);
   }
 }

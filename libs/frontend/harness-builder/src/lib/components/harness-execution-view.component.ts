@@ -19,7 +19,7 @@ import {
   ChevronRight,
 } from 'lucide-angular';
 import { HarnessStreamingService } from '../services/harness-streaming.service';
-import type { StreamBlock } from '../services/harness-streaming.service';
+// import type { StreamBlock } from '../services/harness-streaming.service';
 
 @Component({
   selector: 'ptah-harness-execution-view',
