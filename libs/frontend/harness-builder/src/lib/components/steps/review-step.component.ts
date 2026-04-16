@@ -2,8 +2,8 @@
  * ReviewStepComponent
  *
  * Step 6: Review & Apply. Summary cards for each configuration section,
- * CLAUDE.md preview panel, "Apply to Workspace" button, and "Save as Preset"
- * button with name/description inputs.
+ * comprehensive PRD document generation, CLAUDE.md preview panel,
+ * "Apply to Workspace" button, and "Save as Preset" button.
  */
 
 import {
@@ -25,6 +25,7 @@ import {
   Download,
   Save,
   Sparkles,
+  ScrollText,
 } from 'lucide-angular';
 import type { HarnessConfig } from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from '../../services/harness-builder-state.service';
@@ -48,7 +49,7 @@ import { HarnessRpcService } from '../../services/harness-rpc.service';
           Review Configuration
         </h2>
         <p class="text-sm text-base-content/60 mt-1">
-          Review your harness configuration before applying it to the workspace.
+          Review your harness configuration, generate documents, and apply.
         </p>
       </div>
 
@@ -87,11 +88,17 @@ import { HarnessRpcService } from '../../services/harness-rpc.service';
             <span class="font-medium text-sm">Agents</span>
           </div>
           <p class="text-xs text-base-content/70">
-            {{ enabledAgentCount() }} agent(s) enabled
+            {{ enabledAgentCount() }} CLI agent(s) +
+            {{ customSubagentCount() }} custom subagent(s)
           </p>
           <div class="flex flex-wrap gap-1 mt-1">
             @for (name of enabledAgentNames(); track name) {
               <span class="badge badge-xs badge-primary badge-outline">{{
+                name
+              }}</span>
+            }
+            @for (name of customSubagentNames(); track name) {
+              <span class="badge badge-xs badge-secondary badge-outline">{{
                 name
               }}</span>
             }
@@ -109,7 +116,8 @@ import { HarnessRpcService } from '../../services/harness-rpc.service';
             <span class="font-medium text-sm">Skills</span>
           </div>
           <p class="text-xs text-base-content/70">
-            {{ config().skills?.selectedSkills?.length ?? 0 }} skill(s) selected
+            {{ config().skills?.selectedSkills?.length ?? 0 }} skill(s)
+            selected, {{ config().skills?.createdSkills?.length ?? 0 }} created
           </p>
         </div>
 
@@ -146,6 +154,41 @@ import { HarnessRpcService } from '../../services/harness-rpc.service';
             {{ enabledServerCount() }} server(s) enabled
           </p>
         </div>
+      </div>
+
+      <!-- Generate PRD Document -->
+      <div class="space-y-3">
+        <div class="divider text-xs text-base-content/40">
+          Requirements Document
+        </div>
+
+        <button
+          class="btn btn-secondary w-full gap-2"
+          (click)="generateDocument()"
+          [disabled]="isGeneratingDoc()"
+        >
+          @if (isGeneratingDoc()) {
+            <span class="loading loading-spinner loading-sm"></span>
+            Generating Document...
+          } @else {
+            <lucide-angular
+              [img]="ScrollTextIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Generate Requirements Document
+          }
+        </button>
+
+        @if (generatedDocument()) {
+          <div
+            class="bg-base-200 rounded-lg p-4 text-xs font-mono whitespace-pre-wrap overflow-y-auto max-h-96 border border-secondary/20"
+            role="region"
+            aria-label="Generated requirements document"
+          >
+            {{ generatedDocument() }}
+          </div>
+        }
       </div>
 
       <!-- CLAUDE.md Preview -->
@@ -287,6 +330,7 @@ export class ReviewStepComponent {
   protected readonly DownloadIcon = Download;
   protected readonly SaveIcon = Save;
   protected readonly SparklesIcon = Sparkles;
+  protected readonly ScrollTextIcon = ScrollText;
 
   // Local state
   public readonly isApplying = signal(false);
@@ -301,8 +345,13 @@ export class ReviewStepComponent {
   public readonly isGeneratingPreview = signal(false);
   public readonly claudeMdPreview = signal('');
   public readonly presetName = signal('');
+  public readonly isGeneratingDoc = signal(false);
 
   public readonly config = computed(() => this.state.config());
+
+  public readonly generatedDocument = computed(() =>
+    this.state.generatedDocument(),
+  );
 
   public readonly enabledAgentCount = computed(() => {
     const agents = this.config().agents?.enabledAgents ?? {};
@@ -314,6 +363,14 @@ export class ReviewStepComponent {
     return Object.entries(agents)
       .filter(([, v]) => v.enabled)
       .map(([k]) => k);
+  });
+
+  public readonly customSubagentCount = computed(() => {
+    return (this.config().agents?.customSubagents ?? []).length;
+  });
+
+  public readonly customSubagentNames = computed(() => {
+    return (this.config().agents?.customSubagents ?? []).map((s) => s.name);
   });
 
   public readonly enabledServerCount = computed(() => {
@@ -341,6 +398,31 @@ export class ReviewStepComponent {
     };
   }
 
+  public async generateDocument(): Promise<void> {
+    if (this.isGeneratingDoc()) return;
+
+    this.isGeneratingDoc.set(true);
+
+    try {
+      const fullConfig = this.buildFullConfig(
+        this.config().name ?? this.config().persona?.label ?? 'harness',
+      );
+
+      const response = await this.rpc.generateDocument({
+        config: fullConfig,
+        workspaceContext: this.state.workspaceContext() ?? undefined,
+      });
+
+      this.state.setGeneratedDocument(response.document);
+    } catch (err) {
+      this.state.setGeneratedDocument(
+        `Error generating document: ${err instanceof Error ? err.message : 'Unknown error'}`,
+      );
+    } finally {
+      this.isGeneratingDoc.set(false);
+    }
+  }
+
   public async generateClaudeMdPreview(): Promise<void> {
     if (this.isGeneratingPreview()) return;
 
@@ -349,7 +431,7 @@ export class ReviewStepComponent {
       const cfg = this.config();
       const response = await this.rpc.generateClaudeMd({
         config: {
-          name: cfg.name ?? 'harness',
+          name: cfg.name ?? cfg.persona?.label ?? 'harness',
           persona: cfg.persona ?? { label: '', description: '', goals: [] },
           agents: cfg.agents ?? { enabledAgents: {} },
           skills: cfg.skills ?? { selectedSkills: [], createdSkills: [] },
@@ -375,7 +457,9 @@ export class ReviewStepComponent {
     this.applyResult.set(null);
 
     try {
-      const fullConfig = this.buildFullConfig(this.config().name ?? 'harness');
+      const fullConfig = this.buildFullConfig(
+        this.config().name ?? this.config().persona?.label ?? 'harness',
+      );
 
       const response = await this.rpc.apply({ config: fullConfig });
       this.applyResult.set(response);

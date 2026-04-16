@@ -729,7 +729,8 @@ export class McpStepComponent implements OnInit {
 
   // ===== Helpers =====
 
-  getDisplayName(name: string): string {
+  getDisplayName(name: string | null | undefined): string {
+    if (!name) return 'Unknown Server';
     const parts = name.split('/');
     return parts[parts.length - 1] || name;
   }
@@ -747,7 +748,8 @@ export class McpStepComponent implements OnInit {
     );
   }
 
-  private deriveServerKey(name: string): string {
+  private deriveServerKey(name: string | null | undefined): string {
+    if (!name) return 'unknown-server';
     const parts = name.split('/');
     return parts[parts.length - 1] || name;
   }
