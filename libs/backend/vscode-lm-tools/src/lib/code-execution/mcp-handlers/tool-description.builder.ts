@@ -937,6 +937,123 @@ export function buildBrowserRecordStopTool(): MCPToolDefinition {
   };
 }
 
+// ========================================
+// Harness Builder MCP Tools (TASK_2025_285)
+// ========================================
+
+/**
+ * Build the ptah_harness_search_skills tool definition
+ * Search available skills from enabled plugins
+ */
+export function buildHarnessSearchSkillsTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_harness_search_skills',
+    description:
+      'Search available skills from enabled plugins. Returns skill IDs, names, descriptions, ' +
+      'plugin IDs, and disabled status. Use an optional query to filter by name or description ' +
+      '(case-insensitive substring match). Omit query to list all skills.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Optional search query to filter skills by name or description',
+        },
+      },
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_harness_create_skill tool definition
+ * Create a new skill file on disk
+ */
+export function buildHarnessCreateSkillTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_harness_create_skill',
+    description:
+      'Create a new skill file. Writes a SKILL.md file to ' +
+      '~/.ptah/plugins/ptah-hrnss-{name}/skills/{name}/SKILL.md with YAML frontmatter ' +
+      'and the provided markdown content. Returns the skill ID and file path.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description:
+            'Skill name (will be sanitized to kebab-case for file paths)',
+        },
+        description: {
+          type: 'string',
+          description: 'Brief description of what this skill does',
+        },
+        content: {
+          type: 'string',
+          description:
+            'Full markdown content for the SKILL.md body (instructions, examples, constraints)',
+        },
+        allowedTools: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional list of tools this skill is allowed to use',
+        },
+      },
+      required: ['name', 'description', 'content'],
+    },
+    annotations: { destructiveHint: false, idempotentHint: false },
+  };
+}
+
+/**
+ * Build the ptah_harness_search_mcp_registry tool definition
+ * Search the official MCP server registry
+ */
+export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_harness_search_mcp_registry',
+    description:
+      'Search the official MCP Server Registry for servers matching a query. ' +
+      'Returns server names and descriptions. Use specific technology keywords ' +
+      '(e.g., "github", "postgresql", "slack") for best results.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query — use specific technology or tool names',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of results to return (default: 10)',
+        },
+      },
+      required: ['query'],
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  };
+}
+
+/**
+ * Build the harness_list_installed_mcp tool definition
+ * List MCP servers configured in the workspace
+ */
+export function buildHarnessListInstalledMcpTool(): MCPToolDefinition {
+  return {
+    name: 'harness_list_installed_mcp',
+    description:
+      'List MCP servers already installed and configured in the workspace. ' +
+      'Reads from .vscode/mcp.json and .mcp.json in the workspace root. ' +
+      'Use this to check what servers are already available before searching the registry.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
 /**
  * Build comprehensive execute_code tool description with full API reference.
  * Uses progressive disclosure: top namespaces inline, rest via ptah.help().

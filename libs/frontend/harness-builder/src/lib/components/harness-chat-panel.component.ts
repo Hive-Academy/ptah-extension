@@ -25,7 +25,7 @@ import {
 } from 'lucide-angular';
 import type {
   HarnessChatAction,
-  CustomSubagentDefinition,
+  HarnessSubagentDefinition,
 } from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from '../services/harness-builder-state.service';
 import { HarnessRpcService } from '../services/harness-rpc.service';
@@ -214,7 +214,7 @@ export class HarnessChatPanelComponent {
                 enabled: !current?.enabled,
               },
             },
-            customSubagents: this.state.config().agents?.customSubagents,
+            harnessSubagents: this.state.config().agents?.harnessSubagents,
           });
         }
         break;
@@ -262,21 +262,21 @@ export class HarnessChatPanelComponent {
 
       case 'add-subagent':
         if (action.payload['id'] && action.payload['name']) {
-          const subagent: CustomSubagentDefinition = {
-            id: (action.payload['id'] as string) || 'custom-agent',
-            name: (action.payload['name'] as string) || 'Custom Agent',
+          const subagent: HarnessSubagentDefinition = {
+            id: (action.payload['id'] as string) || 'harness-agent',
+            name: (action.payload['name'] as string) || 'Harness Agent',
             description: (action.payload['description'] as string) || '',
             role: (action.payload['role'] as string) || '',
             tools: (action.payload['tools'] as string[]) || [],
             executionMode:
               (action.payload[
                 'executionMode'
-              ] as string as CustomSubagentDefinition['executionMode']) ||
+              ] as string as HarnessSubagentDefinition['executionMode']) ||
               'on-demand',
             triggers: action.payload['triggers'] as string[] | undefined,
             instructions: (action.payload['instructions'] as string) || '',
           };
-          this.state.addCustomSubagent(subagent);
+          this.state.addHarnessSubagent(subagent);
         }
         break;
 

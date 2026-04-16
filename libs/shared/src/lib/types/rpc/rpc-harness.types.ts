@@ -41,8 +41,8 @@ export interface PersonaDefinition {
 /** Agent configuration: which agents are enabled and their overrides */
 export interface HarnessAgentConfig {
   enabledAgents: Record<string, AgentOverride>;
-  /** Custom subagents designed by AI for the persona's workflow */
-  customSubagents?: CustomSubagentDefinition[];
+  /** Harness subagents designed by AI for the persona's workflow */
+  harnessSubagents?: HarnessSubagentDefinition[];
 }
 
 /** Per-agent override settings */
@@ -53,8 +53,8 @@ export interface AgentOverride {
   customInstructions?: string;
 }
 
-/** Custom subagent designed by AI for a specific workflow role */
-export interface CustomSubagentDefinition {
+/** Harness subagent designed by AI for a specific workflow role */
+export interface HarnessSubagentDefinition {
   /** Machine-readable ID (kebab-case) */
   id: string;
   /** Human-readable name (e.g., "Sentiment Watchdog") */
@@ -156,7 +156,7 @@ export interface SkillSummary {
   id: string;
   name: string;
   description: string;
-  source: 'builtin' | 'plugin' | 'custom';
+  source: 'builtin' | 'plugin' | 'harness';
   isActive: boolean;
 }
 
@@ -202,8 +202,8 @@ export interface HarnessSuggestConfigResponse {
   suggestedMcpServers: McpServerSuggestion[];
   suggestedPrompt: string;
   reasoning: string;
-  /** AI-designed custom subagent fleet for the persona */
-  suggestedSubagents?: CustomSubagentDefinition[];
+  /** AI-designed harness subagent fleet for the persona */
+  suggestedSubagents?: HarnessSubagentDefinition[];
   /** AI-generated skill specifications for the persona */
   suggestedSkillSpecs?: GeneratedSkillSpec[];
 }
@@ -312,7 +312,7 @@ export interface HarnessDesignAgentsParams {
   workspaceContext?: HarnessWorkspaceContext;
 }
 export interface HarnessDesignAgentsResponse {
-  subagents: CustomSubagentDefinition[];
+  subagents: HarnessSubagentDefinition[];
   reasoning: string;
 }
 
@@ -320,7 +320,7 @@ export interface HarnessDesignAgentsResponse {
 export interface HarnessGenerateSkillsParams {
   persona: PersonaDefinition;
   existingSkills: string[];
-  customSubagents?: CustomSubagentDefinition[];
+  harnessSubagents?: HarnessSubagentDefinition[];
 }
 export interface HarnessGenerateSkillsResponse {
   skills: GeneratedSkillSpec[];
@@ -349,8 +349,8 @@ export interface HarnessAnalyzeIntentResponse {
   persona: PersonaDefinition;
   /** Suggested agent configuration */
   suggestedAgents: Record<string, AgentOverride>;
-  /** Custom subagent fleet designed for the intent */
-  suggestedSubagents: CustomSubagentDefinition[];
+  /** Harness subagent fleet designed for the intent */
+  suggestedSubagents: HarnessSubagentDefinition[];
   /** IDs of existing skills to select */
   suggestedSkills: string[];
   /** New skill specs to create */

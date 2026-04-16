@@ -156,7 +156,7 @@ import { HarnessRpcService } from '../../services/harness-rpc.service';
               />
               <div class="text-xs font-medium text-base-content/70">Agents</div>
               <div class="text-sm font-bold">
-                {{ enabledAgentCount() + customSubagentCount() || 'None' }}
+                {{ enabledAgentCount() + harnessSubagentCount() || 'None' }}
               </div>
             </div>
 
@@ -258,8 +258,8 @@ export class DescribeStepComponent {
     return Object.values(agents).filter((a) => a.enabled).length;
   });
 
-  public readonly customSubagentCount = computed(
-    () => (this.state.config().agents?.customSubagents ?? []).length,
+  public readonly harnessSubagentCount = computed(
+    () => (this.state.config().agents?.harnessSubagents ?? []).length,
   );
 
   public readonly skillCount = computed(() => {
