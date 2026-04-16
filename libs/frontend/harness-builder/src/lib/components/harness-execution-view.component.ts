@@ -18,13 +18,13 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-angular';
+import { MarkdownModule } from 'ngx-markdown';
 import { HarnessStreamingService } from '../services/harness-streaming.service';
-// import type { StreamBlock } from '../services/harness-streaming.service';
 
 @Component({
   selector: 'ptah-harness-execution-view',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, MarkdownModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
@@ -102,20 +102,18 @@ import { HarnessStreamingService } from '../services/harness-streaming.service';
                   />
                   Thinking
                 </div>
-                <p
-                  class="text-xs text-base-content/70 whitespace-pre-wrap leading-relaxed"
-                >
-                  {{ block.content }}
-                </p>
+                <markdown
+                  [data]="block.content"
+                  class="prose prose-xs prose-invert max-w-none text-xs text-base-content/70 leading-relaxed"
+                />
               </div>
             }
             @case ('text') {
               <div class="px-4 py-3">
-                <div
-                  class="prose prose-sm prose-invert max-w-none text-base-content whitespace-pre-wrap leading-relaxed"
-                >
-                  {{ block.content }}
-                </div>
+                <markdown
+                  [data]="block.content"
+                  class="prose prose-sm prose-invert max-w-none text-base-content leading-relaxed"
+                />
               </div>
             }
             @case ('tool') {

@@ -665,29 +665,28 @@ export class HarnessRpcHandlers {
       'harness:apply',
       async (params) => {
         try {
+          const config = this.normalizeHarnessConfig(params.config);
+
           this.logger.debug('RPC: harness:apply called', {
-            configName: params.config.name,
-            generateClaudeMd: params.config.claudeMd.generateProjectClaudeMd,
-            skillCount: params.config.skills.selectedSkills.length,
+            configName: config.name,
+            generateClaudeMd: config.claudeMd.generateProjectClaudeMd,
+            skillCount: config.skills.selectedSkills.length,
           });
 
           const appliedPaths: string[] = [];
           const warnings: string[] = [];
 
           // 1. Save harness config as preset
-          const presetPath = await this.writePresetToDisk(
-            params.config.name,
-            params.config,
-          );
+          const presetPath = await this.writePresetToDisk(config.name, config);
           appliedPaths.push(presetPath);
 
           // 2. Generate and write CLAUDE.md if requested
-          if (params.config.claudeMd.generateProjectClaudeMd) {
+          if (config.claudeMd.generateProjectClaudeMd) {
             const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
             if (workspaceRoot) {
               const result = await this.writeClaudeMdToWorkspace(
                 workspaceRoot,
-                params.config,
+                config,
               );
               if (result.backupPath) {
                 appliedPaths.push(result.backupPath);
@@ -702,7 +701,7 @@ export class HarnessRpcHandlers {
 
           // 3. Update ~/.ptah/settings.json with agent configuration
           try {
-            await this.updatePtahSettings(params.config);
+            await this.updatePtahSettings(config);
             appliedPaths.push(path.join(getPtahHome(), 'settings.json'));
           } catch (settingsError) {
             const msg =
@@ -717,7 +716,7 @@ export class HarnessRpcHandlers {
           }
 
           // 4. Create skill junctions for selected skills
-          if (params.config.skills.selectedSkills.length > 0) {
+          if (config.skills.selectedSkills.length > 0) {
             try {
               const pluginPaths = this.pluginLoader.resolveCurrentPluginPaths();
               const disabledSkillIds = this.pluginLoader.getDisabledSkillIds();
@@ -2007,6 +2006,49 @@ Return ONLY the JSON object matching the schema.`;
       JSON.stringify(existingSettings, null, 2),
       'utf-8',
     );
+  }
+
+  /**
+   * Fill in missing fields with safe defaults so partial configs from the
+   * conversational builder are applyable without schema violations.
+   */
+  private normalizeHarnessConfig(
+    config: Partial<HarnessConfig> | HarnessConfig,
+  ): HarnessConfig {
+    const now = new Date().toISOString();
+    return {
+      name:
+        config.name && config.name.trim().length > 0 ? config.name : 'harness',
+      persona: config.persona ?? {
+        label: '',
+        description: '',
+        goals: [],
+      },
+      agents: {
+        enabledAgents: config.agents?.enabledAgents ?? {},
+        harnessSubagents: config.agents?.harnessSubagents ?? [],
+      },
+      skills: {
+        selectedSkills: config.skills?.selectedSkills ?? [],
+        createdSkills: config.skills?.createdSkills ?? [],
+      },
+      prompt: {
+        systemPrompt: config.prompt?.systemPrompt ?? '',
+        enhancedSections: config.prompt?.enhancedSections ?? {},
+      },
+      mcp: {
+        servers: config.mcp?.servers ?? [],
+        enabledTools: config.mcp?.enabledTools ?? {},
+      },
+      claudeMd: {
+        generateProjectClaudeMd:
+          config.claudeMd?.generateProjectClaudeMd ?? true,
+        customSections: config.claudeMd?.customSections ?? {},
+        previewContent: config.claudeMd?.previewContent ?? '',
+      },
+      createdAt: config.createdAt ?? now,
+      updatedAt: now,
+    };
   }
 
   /**

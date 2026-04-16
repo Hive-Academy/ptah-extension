@@ -282,15 +282,32 @@ export class SdkModelService {
     });
 
     if (!isThirdParty) {
-      // Direct Anthropic auth (CLI or API key): pass through everything the
-      // SDK returns, only resolving bare tier names to full model IDs.
-      // No filtering, no deduplication — the SDK is authoritative.
-      // Supplement with any tiers the SDK didn't return.
-      const resolved = models.map((m) => ({
+      // Direct Anthropic auth (CLI or API key): resolve bare tier names to
+      // full model IDs. The "default" meta-tier resolves to the same ID as
+      // another tier (currently sonnet), so merge it: tag the matching model
+      // as recommended instead of creating a duplicate entry.
+      const defaultModel = models.find(
+        (m) => m.value.toLowerCase() === 'default',
+      );
+      const realModels = models.filter(
+        (m) => m.value.toLowerCase() !== 'default',
+      );
+
+      const resolved = realModels.map((m) => ({
         ...m,
         value: this.resolveModelId(m.value),
       }));
 
+      // Mark the model that "default" points to as recommended
+      if (defaultModel) {
+        const defaultResolved = this.resolveModelId('default');
+        const match = resolved.find((m) => m.value === defaultResolved);
+        if (match) {
+          match.displayName = `${match.displayName} (recommended)`;
+        }
+      }
+
+      // Supplement with any core tiers the SDK didn't return
       const resolvedIds = new Set(resolved.map((m) => m.value));
       const coreTiers = ['opus', 'sonnet', 'haiku'] as const;
 

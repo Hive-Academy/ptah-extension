@@ -17,8 +17,11 @@ import {
   Loader2,
   CheckCircle,
   Sparkles,
+  Activity,
+  PanelRightClose,
 } from 'lucide-angular';
 import { FormsModule } from '@angular/forms';
+import { MarkdownModule } from 'ngx-markdown';
 import { WebviewNavigationService } from '@ptah-extension/core';
 import { HarnessBuilderStateService } from '../services/harness-builder-state.service';
 import { HarnessRpcService } from '../services/harness-rpc.service';
@@ -32,6 +35,7 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
   imports: [
     LucideAngularModule,
     FormsModule,
+    MarkdownModule,
     HarnessExecutionViewComponent,
     HarnessConfigPreviewComponent,
   ],
@@ -91,16 +95,19 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
         </div>
         <div class="flex items-center gap-1">
           <button
-            class="btn btn-ghost btn-sm btn-circle"
-            (click)="showConfigPreview.set(!showConfigPreview())"
-            aria-label="Toggle config preview"
-            [class.btn-active]="showConfigPreview()"
+            class="btn btn-ghost btn-sm"
+            (click)="toggleSidePanel()"
+            aria-label="Toggle side panel"
+            [class.btn-active]="showSidePanel()"
           >
             <lucide-angular
-              [img]="SettingsIcon"
+              [img]="PanelRightCloseIcon"
               class="w-4 h-4"
               aria-hidden="true"
             />
+            <span class="hidden sm:inline text-xs">
+              {{ showSidePanel() ? 'Hide panel' : 'Show panel' }}
+            </span>
           </button>
           <button
             class="btn btn-ghost btn-sm btn-circle"
@@ -112,10 +119,10 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
         </div>
       </header>
 
-      <!-- Body -->
+      <!-- Body: split layout -->
       <div class="flex flex-1 min-h-0 overflow-hidden">
-        <!-- Conversation area -->
-        <div class="flex flex-col flex-1 min-w-0">
+        <!-- LEFT: Conversation area -->
+        <div class="flex flex-col flex-1 min-w-0 border-r border-base-300">
           <!-- Scrollable transcript -->
           <div
             #scrollContainer
@@ -154,33 +161,47 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
                   </div>
                 </div>
               } @else {
-                <div class="flex justify-start">
+                <div class="flex justify-start w-full">
                   <div
-                    class="max-w-[85%] px-4 py-3 rounded-2xl rounded-bl-md bg-base-200 text-base-content text-sm whitespace-pre-wrap leading-relaxed"
+                    class="max-w-[90%] px-4 py-3 rounded-2xl rounded-bl-md bg-base-200 text-base-content text-sm leading-relaxed"
                   >
-                    {{ msg.content }}
+                    <markdown
+                      [data]="msg.content"
+                      class="prose prose-sm prose-invert max-w-none"
+                    />
                   </div>
                 </div>
               }
             }
 
-            <!-- Live streaming execution view -->
-            @if (showExecutionView()) {
-              <div
-                class="rounded-xl border border-base-300 overflow-hidden max-h-[60vh]"
-              >
-                <ptah-harness-execution-view />
-              </div>
-            }
-
             <!-- Processing indicator (no streaming events yet) -->
-            @if (isProcessing() && !showExecutionView()) {
+            @if (isProcessing() && !streaming.isStreaming()) {
               <div class="flex justify-start">
                 <div class="px-4 py-3 rounded-2xl rounded-bl-md bg-base-200">
                   <span
                     class="loading loading-dots loading-sm text-base-content/50"
                   ></span>
                 </div>
+              </div>
+            }
+
+            <!-- Streaming hint — points user to right panel -->
+            @if (streaming.isStreaming() && !showSidePanel()) {
+              <div
+                class="flex items-center gap-2 px-3 py-2 rounded-lg bg-info/10 border border-info/20 text-xs text-info"
+              >
+                <lucide-angular
+                  [img]="ActivityIcon"
+                  class="w-3.5 h-3.5 animate-pulse"
+                  aria-hidden="true"
+                />
+                Agent is working — open the side panel to watch live.
+                <button
+                  class="btn btn-ghost btn-xs ml-auto"
+                  (click)="openSidePanelTab('execution')"
+                >
+                  Show
+                </button>
               </div>
             }
           </div>
@@ -243,33 +264,86 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
           </div>
         </div>
 
-        <!-- Config preview panel (right side, togglable) -->
-        @if (showConfigPreview()) {
-          <aside
-            class="w-72 border-l border-base-300 bg-base-100 overflow-y-auto shrink-0 p-3"
-          >
-            <div class="flex items-center justify-between mb-3">
-              <span
-                class="text-xs font-semibold text-base-content/70 uppercase tracking-wider"
+        <!-- RIGHT: Side panel (execution + config tabs) -->
+        @if (showSidePanel()) {
+          <aside class="flex flex-col w-[420px] bg-base-100 shrink-0 min-h-0">
+            <!-- Tab header -->
+            <div
+              class="flex items-center gap-1 px-2 py-1.5 border-b border-base-300 bg-base-200/40 shrink-0"
+            >
+              <button
+                class="btn btn-ghost btn-xs flex-1 gap-1"
+                [class.btn-active]="sidePanelTab() === 'execution'"
+                (click)="sidePanelTab.set('execution')"
               >
-                Config Preview
-              </span>
+                <lucide-angular
+                  [img]="ActivityIcon"
+                  class="w-3.5 h-3.5"
+                  [class.animate-pulse]="streaming.isStreaming()"
+                  aria-hidden="true"
+                />
+                Execution
+                @if (streaming.isStreaming()) {
+                  <span
+                    class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"
+                  ></span>
+                }
+              </button>
+              <button
+                class="btn btn-ghost btn-xs flex-1 gap-1"
+                [class.btn-active]="sidePanelTab() === 'config'"
+                (click)="sidePanelTab.set('config')"
+              >
+                <lucide-angular
+                  [img]="SettingsIcon"
+                  class="w-3.5 h-3.5"
+                  aria-hidden="true"
+                />
+                Config
+              </button>
             </div>
-            <ptah-harness-config-preview />
 
-            <!-- Manual apply button in the panel -->
-            @if (hasAnyConfig()) {
-              <div class="mt-4 pt-3 border-t border-base-300">
-                <button
-                  class="btn btn-primary btn-sm w-full"
-                  (click)="applyConfig()"
-                  [disabled]="isApplying() || isProcessing()"
-                >
-                  @if (isApplying()) {
-                    <span class="loading loading-spinner loading-xs"></span>
-                  }
-                  Apply to Workspace
-                </button>
+            <!-- Tab content -->
+            @if (sidePanelTab() === 'execution') {
+              <div class="flex-1 min-h-0 overflow-hidden">
+                @if (showExecutionView()) {
+                  <ptah-harness-execution-view />
+                } @else {
+                  <div
+                    class="flex items-center justify-center h-full text-center px-4"
+                  >
+                    <div>
+                      <lucide-angular
+                        [img]="ActivityIcon"
+                        class="w-8 h-8 text-base-content/20 mx-auto mb-2"
+                        aria-hidden="true"
+                      />
+                      <p class="text-xs text-base-content/40">
+                        Agent execution will appear here when you send a
+                        message.
+                      </p>
+                    </div>
+                  </div>
+                }
+              </div>
+            } @else {
+              <div class="flex-1 min-h-0 overflow-y-auto p-3">
+                <ptah-harness-config-preview />
+
+                @if (hasAnyConfig()) {
+                  <div class="mt-4 pt-3 border-t border-base-300">
+                    <button
+                      class="btn btn-primary btn-sm w-full"
+                      (click)="applyConfig()"
+                      [disabled]="isApplying() || isProcessing()"
+                    >
+                      @if (isApplying()) {
+                        <span class="loading loading-spinner loading-xs"></span>
+                      }
+                      Apply to Workspace
+                    </button>
+                  </div>
+                }
               </div>
             }
           </aside>
@@ -282,7 +356,7 @@ export class HarnessBuilderViewComponent implements OnInit {
   protected readonly state = inject(HarnessBuilderStateService);
   private readonly rpc = inject(HarnessRpcService);
   private readonly navigation = inject(WebviewNavigationService);
-  private readonly streaming = inject(HarnessStreamingService);
+  protected readonly streaming = inject(HarnessStreamingService);
 
   protected readonly XIcon = X;
   protected readonly SendIcon = Send;
@@ -290,6 +364,8 @@ export class HarnessBuilderViewComponent implements OnInit {
   protected readonly Loader2Icon = Loader2;
   protected readonly CheckCircleIcon = CheckCircle;
   protected readonly SparklesIcon = Sparkles;
+  protected readonly ActivityIcon = Activity;
+  protected readonly PanelRightCloseIcon = PanelRightClose;
 
   private readonly scrollContainer =
     viewChild<ElementRef<HTMLDivElement>>('scrollContainer');
@@ -298,7 +374,8 @@ export class HarnessBuilderViewComponent implements OnInit {
   readonly initError = signal<string | null>(null);
   readonly isProcessing = signal(false);
   readonly isApplying = signal(false);
-  readonly showConfigPreview = signal(false);
+  readonly showSidePanel = signal(true);
+  readonly sidePanelTab = signal<'execution' | 'config'>('execution');
 
   protected messageText = '';
 
@@ -320,7 +397,6 @@ export class HarnessBuilderViewComponent implements OnInit {
   constructor() {
     effect(() => {
       this.state.conversationMessages();
-      this.streaming.blocks();
       const container = this.scrollContainer()?.nativeElement;
       if (container) {
         requestAnimationFrame(() => {
@@ -328,6 +404,21 @@ export class HarnessBuilderViewComponent implements OnInit {
         });
       }
     });
+
+    effect(() => {
+      if (this.streaming.isStreaming() && this.showSidePanel()) {
+        this.sidePanelTab.set('execution');
+      }
+    });
+  }
+
+  protected toggleSidePanel(): void {
+    this.showSidePanel.set(!this.showSidePanel());
+  }
+
+  protected openSidePanelTab(tab: 'execution' | 'config'): void {
+    this.showSidePanel.set(true);
+    this.sidePanelTab.set(tab);
   }
 
   public ngOnInit(): void {
@@ -420,9 +511,43 @@ export class HarnessBuilderViewComponent implements OnInit {
     this.isApplying.set(true);
 
     try {
-      const config = this.state.config();
+      const now = new Date().toISOString();
+      const partial = this.state.config();
+      const workspaceName =
+        this.state.workspaceContext()?.projectName ?? 'harness';
+      const fullConfig = {
+        name:
+          partial.name && partial.name.trim().length > 0
+            ? partial.name
+            : workspaceName,
+        persona: partial.persona ?? { label: '', description: '', goals: [] },
+        agents: {
+          enabledAgents: partial.agents?.enabledAgents ?? {},
+          harnessSubagents: partial.agents?.harnessSubagents ?? [],
+        },
+        skills: {
+          selectedSkills: partial.skills?.selectedSkills ?? [],
+          createdSkills: partial.skills?.createdSkills ?? [],
+        },
+        prompt: {
+          systemPrompt: partial.prompt?.systemPrompt ?? '',
+          enhancedSections: partial.prompt?.enhancedSections ?? {},
+        },
+        mcp: {
+          servers: partial.mcp?.servers ?? [],
+          enabledTools: partial.mcp?.enabledTools ?? {},
+        },
+        claudeMd: {
+          generateProjectClaudeMd:
+            partial.claudeMd?.generateProjectClaudeMd ?? true,
+          customSections: partial.claudeMd?.customSections ?? {},
+          previewContent: partial.claudeMd?.previewContent ?? '',
+        },
+        createdAt: partial.createdAt ?? now,
+        updatedAt: now,
+      };
       await this.rpc.apply({
-        config: config as any,
+        config: fullConfig,
         outputFormat: 'claude-md',
       });
       this.state.addConversationMessage({

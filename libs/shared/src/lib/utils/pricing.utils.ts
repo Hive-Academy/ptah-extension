@@ -187,6 +187,11 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 0,
     provider: 'github-copilot',
   },
+  'claude-opus-4.7': {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    provider: 'github-copilot',
+  },
   'claude-opus-4.6': {
     inputCostPerToken: 0,
     outputCostPerToken: 0,
@@ -499,6 +504,8 @@ export function formatModelDisplayName(modelId: string): string {
 
   // Anthropic Claude models
   if (withoutDate.includes('opus')) {
+    if (withoutDate.includes('4.7') || withoutDate.includes('4-7'))
+      return 'Opus 4.7';
     if (withoutDate.includes('4.6') || withoutDate.includes('4-6'))
       return 'Opus 4.6';
     if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))

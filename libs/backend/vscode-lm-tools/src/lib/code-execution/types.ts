@@ -427,6 +427,8 @@ export interface BrowserScreenshotResult {
   data: string;
   /** Image format (png, jpeg, webp) */
   format: string;
+  /** Absolute file path if the screenshot was saved to disk */
+  filePath?: string;
   /** Error message if screenshot failed */
   error?: string;
 }
