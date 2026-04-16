@@ -1,9 +1,10 @@
 /**
  * HarnessChatPanelComponent
  *
- * Embedded AI chat panel for contextual assistance in each wizard step.
- * Displays chat history filtered to the current step, with a text input
- * for sending messages and suggested action chips from AI responses.
+ * Embedded AI chat panel for collaborative harness building.
+ * Powered by real LLM responses with full configuration awareness.
+ * The AI can suggest concrete actions (add agents, create skills, etc.)
+ * that can be applied with one click via action chips.
  *
  * Uses DaisyUI chat bubble styling for message display.
  */
@@ -22,7 +23,10 @@ import {
   Sparkles,
   MessageCircle,
 } from 'lucide-angular';
-import type { HarnessChatAction } from '@ptah-extension/shared';
+import type {
+  HarnessChatAction,
+  CustomSubagentDefinition,
+} from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from '../services/harness-builder-state.service';
 import { HarnessRpcService } from '../services/harness-rpc.service';
 
@@ -61,7 +65,8 @@ import { HarnessRpcService } from '../services/harness-rpc.service';
               aria-hidden="true"
             />
             <p class="text-xs text-base-content/60">
-              Ask the AI assistant for help with this step
+              Ask me anything about building your harness. I can help design
+              agents, create skills, configure MCP servers, and more.
             </p>
           </div>
         }
@@ -73,7 +78,7 @@ import { HarnessRpcService } from '../services/harness-rpc.service';
             [class.chat-start]="msg.role === 'assistant'"
           >
             <div
-              class="chat-bubble text-xs"
+              class="chat-bubble text-xs whitespace-pre-wrap"
               [class.chat-bubble-primary]="msg.role === 'user'"
               [class.chat-bubble-accent]="msg.role === 'assistant'"
             >
@@ -209,9 +214,11 @@ export class HarnessChatPanelComponent {
                 enabled: !current?.enabled,
               },
             },
+            customSubagents: this.state.config().agents?.customSubagents,
           });
         }
         break;
+
       case 'add-skill':
         if (action.payload['skillId']) {
           const currentSkills =
@@ -225,6 +232,7 @@ export class HarnessChatPanelComponent {
           }
         }
         break;
+
       case 'update-prompt':
         if (action.payload['prompt']) {
           this.state.updatePrompt({
@@ -234,6 +242,7 @@ export class HarnessChatPanelComponent {
           });
         }
         break;
+
       case 'add-mcp-server':
         if (action.payload['name'] && action.payload['url']) {
           const currentServers = this.state.config().mcp?.servers ?? [];
@@ -250,7 +259,56 @@ export class HarnessChatPanelComponent {
           });
         }
         break;
+
+      case 'add-subagent':
+        if (action.payload['id'] && action.payload['name']) {
+          const subagent: CustomSubagentDefinition = {
+            id: (action.payload['id'] as string) || 'custom-agent',
+            name: (action.payload['name'] as string) || 'Custom Agent',
+            description: (action.payload['description'] as string) || '',
+            role: (action.payload['role'] as string) || '',
+            tools: (action.payload['tools'] as string[]) || [],
+            executionMode:
+              (action.payload[
+                'executionMode'
+              ] as string as CustomSubagentDefinition['executionMode']) ||
+              'on-demand',
+            triggers: action.payload['triggers'] as string[] | undefined,
+            instructions: (action.payload['instructions'] as string) || '',
+          };
+          this.state.addCustomSubagent(subagent);
+        }
+        break;
+
+      case 'create-skill':
+        if (action.payload['name'] && action.payload['content']) {
+          // Add to created skills and trigger creation
+          const currentSkills = this.state.config().skills;
+          this.state.updateSkills({
+            selectedSkills: currentSkills?.selectedSkills ?? [],
+            createdSkills: [
+              ...(currentSkills?.createdSkills ?? []),
+              {
+                name: action.payload['name'] as string,
+                description: (action.payload['description'] as string) || '',
+                content: action.payload['content'] as string,
+              },
+            ],
+          });
+          // Also create the skill file via RPC (fire and forget)
+          this.rpc
+            .createSkill({
+              name: action.payload['name'] as string,
+              description: (action.payload['description'] as string) || '',
+              content: action.payload['content'] as string,
+            })
+            .catch(() => {
+              // Silently handle — the skill is already in state
+            });
+        }
+        break;
     }
+
     // Add a message noting the action was applied
     this.state.addChatMessage({
       role: 'assistant',

@@ -33,7 +33,7 @@ import { HarnessBuilderStateService } from '../services/harness-builder-state.se
 import { HarnessRpcService } from '../services/harness-rpc.service';
 import { HarnessStepperComponent } from './harness-stepper.component';
 import { HarnessChatPanelComponent } from './harness-chat-panel.component';
-import { PersonaStepComponent } from './steps/persona-step.component';
+import { DescribeStepComponent } from './steps/describe-step.component';
 import { AgentsStepComponent } from './steps/agents-step.component';
 import { SkillsStepComponent } from './steps/skills-step.component';
 import { PromptsStepComponent } from './steps/prompts-step.component';
@@ -48,7 +48,7 @@ import type { HarnessWizardStep } from '@ptah-extension/shared';
     LucideAngularModule,
     HarnessStepperComponent,
     HarnessChatPanelComponent,
-    PersonaStepComponent,
+    DescribeStepComponent,
     AgentsStepComponent,
     SkillsStepComponent,
     PromptsStepComponent,
@@ -128,7 +128,7 @@ import type { HarnessWizardStep } from '@ptah-extension/shared';
         <main class="flex-1 overflow-y-auto p-4" role="main">
           @switch (currentStep()) {
             @case ('persona') {
-              <ptah-persona-step />
+              <ptah-describe-step />
             }
             @case ('agents') {
               <ptah-agents-step />

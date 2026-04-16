@@ -212,7 +212,7 @@ export class SdkAgentAdapter implements IAIProvider {
       // Step 1: Configure authentication FIRST (not dependent on CLI)
       // TASK_2025_194: Auth runs before CLI detection so third-party providers
       // (Z.AI, OpenRouter) work even without Claude CLI installed.
-      const authMethod = this.config.get<string>('authMethod') || 'auto';
+      const authMethod = this.config.get<string>('authMethod') || 'apiKey';
       const authResult =
         await this.authManager.configureAuthentication(authMethod);
 
