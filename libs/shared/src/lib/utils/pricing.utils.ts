@@ -161,6 +161,44 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   },
 
   // ============================================================================
+  // GitHub Copilot Model Aliases (subscription — $0)
+  //
+  // Copilot model IDs use dot notation (e.g., claude-sonnet-4.6) while the
+  // Anthropic entries above use dash notation (e.g., claude-sonnet-4-6).
+  // seedStaticModelPricing() seeds these at $0 during provider activation,
+  // but if pricing is looked up before seeding completes, the partial-match
+  // logic won't match dots against dashes and the default fallback ($3/$15)
+  // would be returned — incorrectly showing cost for a free subscription model.
+  // These entries act as a safety net so Copilot Claude models always resolve
+  // to $0 regardless of initialization order.
+  // ============================================================================
+  'claude-sonnet-4.6': {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    provider: 'github-copilot',
+  },
+  'claude-opus-4.6': {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    provider: 'github-copilot',
+  },
+  'claude-opus-4.5': {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    provider: 'github-copilot',
+  },
+  'claude-sonnet-4.5': {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    provider: 'github-copilot',
+  },
+  'claude-haiku-4.5': {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    provider: 'github-copilot',
+  },
+
+  // ============================================================================
   // OpenRouter Model ID Aliases
   // These map OpenRouter's naming convention to the same pricing
   // ============================================================================
@@ -217,6 +255,17 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 1.5e-6, // $1.50 per 1M tokens
     maxTokens: 16_385,
     provider: 'openai',
+  },
+
+  // ============================================================================
+  // Local Provider Models (Ollama, LM Studio — free inference)
+  // ============================================================================
+  local: {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    cacheReadCostPerToken: 0,
+    cacheCreationCostPerToken: 0,
+    provider: 'local',
   },
 
   // ============================================================================

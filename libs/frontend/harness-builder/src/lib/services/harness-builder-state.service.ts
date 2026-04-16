@@ -23,7 +23,7 @@ import type {
   HarnessPreset,
   SkillSummary,
   McpServerSuggestion,
-  CustomSubagentDefinition,
+  HarnessSubagentDefinition,
   GeneratedSkillSpec,
   HarnessAnalyzeIntentResponse,
 } from '@ptah-extension/shared';
@@ -250,34 +250,34 @@ export class HarnessBuilderStateService {
     this._generatedDocument.set(document);
   }
 
-  public addCustomSubagent(subagent: CustomSubagentDefinition): void {
+  public addHarnessSubagent(subagent: HarnessSubagentDefinition): void {
     this._config.update((cfg) => ({
       ...cfg,
       agents: {
         enabledAgents: cfg.agents?.enabledAgents ?? {},
-        customSubagents: [...(cfg.agents?.customSubagents ?? []), subagent],
+        harnessSubagents: [...(cfg.agents?.harnessSubagents ?? []), subagent],
       },
     }));
   }
 
-  public removeCustomSubagent(subagentId: string): void {
+  public removeHarnessSubagent(subagentId: string): void {
     this._config.update((cfg) => ({
       ...cfg,
       agents: {
         enabledAgents: cfg.agents?.enabledAgents ?? {},
-        customSubagents: (cfg.agents?.customSubagents ?? []).filter(
+        harnessSubagents: (cfg.agents?.harnessSubagents ?? []).filter(
           (s) => s.id !== subagentId,
         ),
       },
     }));
   }
 
-  public setCustomSubagents(subagents: CustomSubagentDefinition[]): void {
+  public setHarnessSubagents(subagents: HarnessSubagentDefinition[]): void {
     this._config.update((cfg) => ({
       ...cfg,
       agents: {
         enabledAgents: cfg.agents?.enabledAgents ?? {},
-        customSubagents: subagents,
+        harnessSubagents: subagents,
       },
     }));
   }
@@ -299,7 +299,7 @@ export class HarnessBuilderStateService {
     // Agents — merge suggested agents + custom subagents
     this.updateAgents({
       enabledAgents: response.suggestedAgents,
-      customSubagents: response.suggestedSubagents,
+      harnessSubagents: response.suggestedSubagents,
     });
 
     // Skills

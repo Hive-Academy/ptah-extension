@@ -17,12 +17,7 @@
  * @see https://docs.z.ai/devpack/tool/claude
  */
 
-import {
-  updatePricingMap,
-  type ModelPricing,
-  type AuthEnv,
-} from '@ptah-extension/shared';
-import { TIER_ENV_VAR_MAP } from './sdk-model-service';
+import { updatePricingMap, type ModelPricing } from '@ptah-extension/shared';
 import { COPILOT_PROVIDER_ENTRY } from '../copilot-provider';
 import { CODEX_PROVIDER_ENTRY } from '../codex-provider';
 import {
@@ -163,6 +158,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
         outputCostPerToken: 3e-6, // $3.00 per 1M tokens
+        cacheReadCostPerToken: 0.023e-6, // 10% of input
+        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
       },
       {
         id: 'kimi-k2-0905-preview',
@@ -172,6 +169,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
         outputCostPerToken: 3e-6, // $3.00 per 1M tokens
+        cacheReadCostPerToken: 0.023e-6, // 10% of input
+        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
       },
       {
         id: 'kimi-k2-thinking',
@@ -181,6 +180,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.4e-6, // $0.40 per 1M tokens
         outputCostPerToken: 1.75e-6, // $1.75 per 1M tokens
+        cacheReadCostPerToken: 0.04e-6, // 10% of input
+        cacheCreationCostPerToken: 0.5e-6, // 125% of input
       },
       {
         id: 'kimi-k2.5',
@@ -190,6 +191,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
         outputCostPerToken: 3e-6, // $3.00 per 1M tokens
+        cacheReadCostPerToken: 0.023e-6, // 10% of input
+        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
       },
     ],
   },
@@ -220,6 +223,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 1.0e-6, // $1.00 per 1M tokens (estimated, standalone API pricing TBD)
         outputCostPerToken: 3.2e-6, // $3.20 per 1M tokens (estimated, standalone API pricing TBD)
+        cacheReadCostPerToken: 0.1e-6, // 10% of input
+        cacheCreationCostPerToken: 1.25e-6, // 125% of input
       },
       {
         id: 'glm-5',
@@ -229,6 +234,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 1.0e-6, // $1.00 per 1M tokens
         outputCostPerToken: 3.2e-6, // $3.20 per 1M tokens
+        cacheReadCostPerToken: 0.1e-6, // 10% of input
+        cacheCreationCostPerToken: 1.25e-6, // 125% of input
       },
       {
         id: 'glm-5-turbo',
@@ -238,6 +245,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 1.2e-6, // $1.20 per 1M tokens
         outputCostPerToken: 4.0e-6, // $4.00 per 1M tokens
+        cacheReadCostPerToken: 0.12e-6, // 10% of input
+        cacheCreationCostPerToken: 1.5e-6, // 125% of input
       },
       {
         id: 'glm-5-code',
@@ -247,6 +256,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 1.2e-6, // $1.20 per 1M tokens
         outputCostPerToken: 5.0e-6, // $5.00 per 1M tokens
+        cacheReadCostPerToken: 0.12e-6, // 10% of input
+        cacheCreationCostPerToken: 1.5e-6, // 125% of input
       },
       {
         id: 'glm-4.7',
@@ -256,6 +267,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.6e-6, // $0.60 per 1M tokens
         outputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
+        cacheReadCostPerToken: 0.06e-6, // 10% of input
+        cacheCreationCostPerToken: 0.75e-6, // 125% of input
       },
       {
         id: 'glm-4.7-flashx',
@@ -265,6 +278,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.07e-6, // $0.07 per 1M tokens
         outputCostPerToken: 0.4e-6, // $0.40 per 1M tokens
+        cacheReadCostPerToken: 0.007e-6, // 10% of input
+        cacheCreationCostPerToken: 0.0875e-6, // 125% of input
       },
       {
         id: 'glm-4.7-flash',
@@ -274,6 +289,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0, // Free
         outputCostPerToken: 0, // Free
+        cacheReadCostPerToken: 0, // Free
+        cacheCreationCostPerToken: 0, // Free
       },
       {
         id: 'glm-4.6',
@@ -283,6 +300,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.6e-6, // $0.60 per 1M tokens
         outputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
+        cacheReadCostPerToken: 0.06e-6, // 10% of input
+        cacheCreationCostPerToken: 0.75e-6, // 125% of input
       },
       {
         id: 'glm-4.5-x',
@@ -292,6 +311,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
         outputCostPerToken: 8.9e-6, // $8.90 per 1M tokens
+        cacheReadCostPerToken: 0.22e-6, // 10% of input
+        cacheCreationCostPerToken: 2.75e-6, // 125% of input
       },
       {
         id: 'glm-4.5',
@@ -301,6 +322,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.6e-6, // $0.60 per 1M tokens
         outputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
+        cacheReadCostPerToken: 0.06e-6, // 10% of input
+        cacheCreationCostPerToken: 0.75e-6, // 125% of input
       },
       {
         id: 'glm-4.5-airx',
@@ -310,6 +333,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 1.1e-6, // $1.10 per 1M tokens
         outputCostPerToken: 4.5e-6, // $4.50 per 1M tokens
+        cacheReadCostPerToken: 0.11e-6, // 10% of input
+        cacheCreationCostPerToken: 1.375e-6, // 125% of input
       },
       {
         id: 'glm-4.5-air',
@@ -319,6 +344,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.2e-6, // $0.20 per 1M tokens
         outputCostPerToken: 1.1e-6, // $1.10 per 1M tokens
+        cacheReadCostPerToken: 0.02e-6, // 10% of input
+        cacheCreationCostPerToken: 0.25e-6, // 125% of input
       },
       {
         id: 'glm-4.5-flash',
@@ -328,6 +355,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0, // Free
         outputCostPerToken: 0, // Free
+        cacheReadCostPerToken: 0, // Free
+        cacheCreationCostPerToken: 0, // Free
       },
     ],
   },
@@ -441,49 +470,4 @@ export function seedStaticModelPricing(providerId: string): void {
   if (Object.keys(entries).length > 0) {
     updatePricingMap(entries);
   }
-}
-
-/**
- * Resolve the actual provider model ID for pricing purposes.
- *
- * When using third-party providers (Moonshot, Z.AI), the SDK reports
- * model IDs like "claude-opus-4-..." because it sends Anthropic-format
- * requests. The actual model being used is configured via tier env vars
- * (ANTHROPIC_DEFAULT_OPUS_MODEL, etc.).
- *
- * This function detects the proxy scenario and returns the real model ID.
- *
- * @param modelId - Model ID as reported by the SDK (may be an Anthropic alias)
- * @returns The actual model ID for pricing lookup
- */
-export function resolveActualModelForPricing(
-  modelId: string,
-  authEnv?: AuthEnv,
-): string {
-  if (!modelId) return modelId;
-
-  // TASK_2025_164: Prefer AuthEnv values, fall back to process.env for backward compat
-  const baseUrl =
-    authEnv?.ANTHROPIC_BASE_URL ?? process.env['ANTHROPIC_BASE_URL'];
-
-  // If no base URL or pointing to Anthropic directly, model is already correct
-  if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
-    return modelId;
-  }
-
-  // Third-party provider detected — check if modelId looks like an Anthropic model
-  // and resolve to the actual provider model via tier env var overrides.
-  // Uses TIER_ENV_VAR_MAP (canonical source) instead of fragile substring matching.
-  const lower = modelId.toLowerCase();
-
-  for (const [tier, envKey] of Object.entries(TIER_ENV_VAR_MAP)) {
-    if (lower.includes(tier)) {
-      const override = authEnv?.[envKey] ?? process.env[envKey];
-      if (override) return override;
-      break; // Only match the first tier — 'opus', 'sonnet', 'haiku' are mutually exclusive
-    }
-  }
-
-  // Not an Anthropic model alias, or no tier override set — return as-is
-  return modelId;
 }

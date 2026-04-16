@@ -44,7 +44,7 @@ import {
  *
  * TASK_2025_128: Freemium Model Conversion
  * - Community: FREE forever - Core visual editor features (no Paddle)
- * - Pro: $5/month, $50/year (30-day trial) - Community + MCP server + all premium features
+ * - Pro: $5/month, $50/year (100-day trial) - Community + MCP server + all premium features
  *
  * Community tier has no billing toggle (always free).
  * Pro plan has monthly/yearly toggle.

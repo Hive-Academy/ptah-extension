@@ -79,6 +79,11 @@ export * from './molecules/setup-plugins/skill-sh-browser.component';
 export * from './molecules/setup-plugins/mcp-directory-browser.component';
 
 // ============================================================================
+// MOLECULES - Compact Session
+// ============================================================================
+export * from './molecules/compact-session/compact-session-card.component';
+
+// ============================================================================
 // MOLECULES - Agent Card (WIP - separate refactor)
 // ============================================================================
 export * from './molecules/agent-card/agent-card.component';

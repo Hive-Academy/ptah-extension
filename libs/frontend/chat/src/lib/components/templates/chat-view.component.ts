@@ -15,6 +15,9 @@ import {
 import {
   LucideAngularModule,
   Bell,
+  Clock,
+  Pencil,
+  Trash2,
   ChevronUp,
   ChevronDown,
 } from 'lucide-angular';
@@ -28,6 +31,7 @@ import { SessionStatsSummaryComponent } from '../molecules/session/session-stats
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { CompactionNotificationComponent } from '../molecules/notifications/compaction-notification.component';
 import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
+import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
 import { PanelResizeService } from '../../services/panel-resize.service';
@@ -78,6 +82,7 @@ import type { SubagentRecord } from '@ptah-extension/shared';
     ResumeNotificationBannerComponent,
     CompactionNotificationComponent,
     SidebarTabComponent,
+    CompactSessionCardComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -101,6 +106,9 @@ export class ChatViewComponent {
 
   /** Lucide icon references for template binding */
   protected readonly BellIcon = Bell;
+  protected readonly ClockIcon = Clock;
+  protected readonly PencilIcon = Pencil;
+  protected readonly TrashIcon = Trash2;
   protected readonly ChevronUpIcon = ChevronUp;
   protected readonly ChevronDownIcon = ChevronDown;
 
@@ -309,6 +317,36 @@ export class ChatViewComponent {
     const tabId = ctx();
     if (!tabId) return null;
     return this._tabManager.tabs().find((t) => t.id === tabId) ?? null;
+  });
+
+  /**
+   * Resolved view mode: 'full' or 'compact', scoped to tile or active tab.
+   * When compact, the chat view renders a CompactSessionCard instead of the full message list.
+   */
+  readonly resolvedViewMode = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (!tabId) return 'full' as const;
+      return (
+        this._tabManager.tabs().find((t) => t.id === tabId)?.viewMode ?? 'full'
+      );
+    }
+    return this._tabManager.activeTabViewMode();
+  });
+
+  /**
+   * The full TabState for the active tab (for compact card rendering).
+   * Returns the active tab or tile-scoped tab.
+   */
+  readonly resolvedActiveTab = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (!tabId) return null;
+      return this._tabManager.tabs().find((t) => t.id === tabId) ?? null;
+    }
+    return this._tabManager.activeTab();
   });
 
   readonly resolvedPreloadedStats = computed(() => {
@@ -605,13 +643,29 @@ export class ChatViewComponent {
   }
 
   /**
+   * Edit queued message — pushes content back to the input and clears the queue.
+   * Uses restoreContentToInput so the user can modify and re-send.
+   */
+  editQueue(): void {
+    const content = this.resolvedQueuedContent();
+    if (!content) return;
+
+    const tabId = this.resolvedTabId() ?? undefined;
+    this.chatStore.clearQueuedContent(tabId);
+
+    const chatInput = this.chatInputRef();
+    if (chatInput) {
+      chatInput.restoreContentToInput(content);
+    }
+  }
+
+  /**
    * Cancel queued message (user-requested cancellation).
    * Uses resolvedTabId to target the correct tab in both single and canvas modes.
    */
   cancelQueue(): void {
     const tabId = this.resolvedTabId() ?? undefined;
     this.chatStore.clearQueuedContent(tabId);
-    console.log('[ChatViewComponent] Queued content cancelled by user');
   }
 
   /**
@@ -657,6 +711,14 @@ export class ChatViewComponent {
   /** Handle "New Session" request from context warning bar */
   onNewSessionFromContextWarning(): void {
     this._tabManager.createTab('New Session');
+  }
+
+  /** Switch the current tab from compact back to full view */
+  expandToFullView(): void {
+    const tabId = this.resolvedTabId();
+    if (tabId) {
+      this._tabManager.toggleTabViewMode(tabId);
+    }
   }
 
   private scrollToBottom(behavior: ScrollBehavior = 'smooth'): void {

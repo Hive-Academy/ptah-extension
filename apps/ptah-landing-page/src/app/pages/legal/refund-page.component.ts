@@ -48,7 +48,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
               Ptah Pro includes a
-              <strong class="text-white/90">30-day free trial</strong>. During
+              <strong class="text-white/90">100-day free trial</strong>. During
               the trial period:
             </p>
             <ul
