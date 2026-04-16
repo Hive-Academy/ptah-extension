@@ -137,6 +137,11 @@ export class AuthManager {
 
     this.logger.debug(`[AuthManager] Configuring auth method: ${authMethod}`);
 
+    // Capture env snapshot before clean slate wipe (strategies may need fallback values)
+    const envSnapshot = {
+      ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'],
+    };
+
     // Step 2: Clean slate - clear ALL auth and tier env vars
     this.clearAllAuthEnvVars();
     this.providerModels.clearAllTierEnvVars();
@@ -181,6 +186,7 @@ export class AuthManager {
     const result = await strategy.configure({
       providerId,
       authEnv: this.authEnv,
+      envSnapshot,
     });
 
     // Track active strategy for future teardown

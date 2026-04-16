@@ -106,6 +106,16 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     try {
       if (this.copilotProxy.isRunning()) {
         proxyUrl = this.copilotProxy.getUrl() ?? '';
+        if (!proxyUrl) {
+          this.logger.error(
+            `[${this.name}] Proxy reports running but returned no URL`,
+          );
+          return {
+            configured: false,
+            details: [],
+            errorMessage: 'Translation proxy URL unavailable. Try restarting.',
+          };
+        }
         this.logger.info(
           `[${this.name}] Translation proxy already running at ${proxyUrl}`,
         );
@@ -122,7 +132,12 @@ export class OAuthProxyStrategy implements IAuthStrategy {
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      return { configured: false, details: [] };
+      return {
+        configured: false,
+        details: [],
+        errorMessage:
+          'Failed to start Copilot translation proxy. Check if the port is available.',
+      };
     }
 
     // Step 3: Point SDK at the proxy
@@ -190,6 +205,16 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     try {
       if (this.codexProxy.isRunning()) {
         proxyUrl = this.codexProxy.getUrl() ?? '';
+        if (!proxyUrl) {
+          this.logger.error(
+            `[${this.name}] Proxy reports running but returned no URL`,
+          );
+          return {
+            configured: false,
+            details: [],
+            errorMessage: 'Translation proxy URL unavailable. Try restarting.',
+          };
+        }
         this.logger.info(
           `[${this.name}] Codex translation proxy already running at ${proxyUrl}`,
         );
@@ -206,7 +231,12 @@ export class OAuthProxyStrategy implements IAuthStrategy {
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      return { configured: false, details: [] };
+      return {
+        configured: false,
+        details: [],
+        errorMessage:
+          'Failed to start Codex translation proxy. Check if the port is available.',
+      };
     }
 
     // Step 3: Point SDK at the Codex proxy

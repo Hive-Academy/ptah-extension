@@ -30,6 +30,8 @@ export interface AuthConfigureContext {
   providerId: string;
   /** The shared mutable AuthEnv singleton — strategies write their env vars here */
   authEnv: AuthEnv;
+  /** Process.env values captured before clean slate wipe (for fallback detection) */
+  envSnapshot?: { ANTHROPIC_API_KEY?: string };
 }
 
 /**

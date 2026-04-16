@@ -152,7 +152,6 @@ import {
   ElectronFileRpcHandlers,
   ElectronConfigExtendedRpcHandlers,
   ElectronCommandRpcHandlers,
-  ElectronAuthExtendedRpcHandlers,
   ElectronSettingsRpcHandlers,
   ElectronAgentRpcHandlers,
   ElectronSkillsShRpcHandlers,
@@ -850,7 +849,6 @@ export class ElectronDIContainer {
         ),
     });
     container.registerSingleton(ElectronCommandRpcHandlers);
-    container.registerSingleton(ElectronAuthExtendedRpcHandlers);
     container.registerSingleton(ElectronSettingsRpcHandlers);
     container.registerSingleton(ElectronAgentRpcHandlers);
     container.registerSingleton(ElectronSkillsShRpcHandlers);
@@ -882,7 +880,6 @@ export class ElectronDIContainer {
           'ElectronFileRpcHandlers',
           'ElectronConfigExtendedRpcHandlers',
           'ElectronCommandRpcHandlers',
-          'ElectronAuthExtendedRpcHandlers',
           'ElectronSettingsRpcHandlers',
           'ElectronAgentRpcHandlers',
           'ElectronSkillsShRpcHandlers',

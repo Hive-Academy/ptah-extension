@@ -56,6 +56,16 @@ export class LocalProxyStrategy implements IAuthStrategy {
     try {
       if (proxy.isRunning()) {
         proxyUrl = proxy.getUrl() ?? '';
+        if (!proxyUrl) {
+          this.logger.error(
+            `[${this.name}] Proxy reports running but returned no URL`,
+          );
+          return {
+            configured: false,
+            details: [],
+            errorMessage: 'Translation proxy URL unavailable. Try restarting.',
+          };
+        }
         this.logger.info(
           `[${this.name}] LM Studio translation proxy already running at ${proxyUrl}`,
         );

@@ -47,14 +47,14 @@ export class ApiKeyStrategy implements IAuthStrategy {
   ) {}
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
-    const { providerId, authEnv } = context;
+    const { providerId, authEnv, envSnapshot } = context;
 
     // Direct Anthropic API key flow (providerId is 'anthropic' or legacy 'apiKey' path)
     if (
       providerId === ANTHROPIC_DIRECT_PROVIDER_ID ||
       providerId === 'apiKey'
     ) {
-      return this.configureDirectApiKey(authEnv);
+      return this.configureDirectApiKey(authEnv, envSnapshot);
     }
 
     // Third-party Anthropic-compatible provider (OpenRouter, Moonshot, Z.AI)
@@ -71,10 +71,10 @@ export class ApiKeyStrategy implements IAuthStrategy {
    */
   private async configureDirectApiKey(
     authEnv: AuthEnv,
+    envSnapshot?: { ANTHROPIC_API_KEY?: string },
   ): Promise<AuthConfigureResult> {
-    // Capture env snapshot before clean slate wiped it
-    // (AuthManager already cleared env, but process.env may have had a user-set key)
-    const envApiKey = process.env['ANTHROPIC_API_KEY'];
+    // Read from snapshot captured before AuthManager's clean slate wipe
+    const envApiKey = envSnapshot?.ANTHROPIC_API_KEY;
 
     const apiKey = await this.authSecrets.getCredential('apiKey');
     const details: string[] = [];
@@ -122,6 +122,7 @@ export class ApiKeyStrategy implements IAuthStrategy {
 
       // Restore the key from env (it was cleared in clean slate)
       authEnv.ANTHROPIC_API_KEY = envApiKey;
+      process.env['ANTHROPIC_API_KEY'] = envApiKey;
 
       details.push(
         `API key from environment (pay-per-token, format ${
