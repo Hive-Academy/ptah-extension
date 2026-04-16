@@ -42,7 +42,7 @@ import type {
  * await authState.loadAuthStatus();
  *
  * // Save and test connection
- * await authState.saveAndTest({ authMethod: 'openrouter', openrouterApiKey: 'sk-...' });
+ * await authState.saveAndTest({ authMethod: 'thirdParty', providerApiKey: 'sk-...' });
  * ```
  */
 @Injectable({ providedIn: 'root' })
@@ -215,7 +215,7 @@ export class AuthStateService {
 
   /**
    * Whether provider model mapping section should be shown.
-   * ONLY when authMethod is 'openrouter' AND the selected provider has credentials.
+   * ONLY when authMethod is 'thirdParty' AND the selected provider has credentials.
    * For OAuth providers (e.g., GitHub Copilot): shown when OAuth is authenticated.
    * For API key providers: shown when a provider key is configured.
    * Fixes Critical Issue #3: previously ignored authMethod check.
@@ -227,8 +227,8 @@ export class AuthStateService {
     // Direct Anthropic auth: model mapping not needed — SDK handles tiers natively
     if (method === 'apiKey' || method === 'claudeCli') return false;
 
-    // OpenRouter: check provider-level credentials
-    if (method !== 'openrouter') return false;
+    // Third-party provider: check provider-level credentials
+    if (method !== 'thirdParty') return false;
 
     // OAuth providers use their own auth, not API keys
     const provider = this.selectedProvider();
@@ -520,7 +520,7 @@ export class AuthStateService {
    * Fixes Critical Issue #1: takes explicit providerId parameter instead of
    * relying on potentially stale persisted state.
    *
-   * Calls auth:saveSettings with empty openrouterApiKey AND the explicit
+   * Calls auth:saveSettings with empty providerApiKey AND the explicit
    * anthropicProviderId to ensure the correct provider's key is deleted.
    *
    * @param providerId - The provider whose key should be deleted
@@ -529,7 +529,7 @@ export class AuthStateService {
     try {
       const result = await this.rpc.call('auth:saveSettings', {
         authMethod: this._authMethod(),
-        openrouterApiKey: '',
+        providerApiKey: '',
         anthropicProviderId: providerId,
       });
 

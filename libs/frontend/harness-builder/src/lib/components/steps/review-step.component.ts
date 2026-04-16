@@ -30,6 +30,7 @@ import {
 import type { HarnessConfig } from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from '../../services/harness-builder-state.service';
 import { HarnessRpcService } from '../../services/harness-rpc.service';
+import { HarnessStreamingService } from '../../services/harness-streaming.service';
 
 @Component({
   selector: 'ptah-review-step',
@@ -319,6 +320,7 @@ import { HarnessRpcService } from '../../services/harness-rpc.service';
 export class ReviewStepComponent {
   private readonly state = inject(HarnessBuilderStateService);
   private readonly rpc = inject(HarnessRpcService);
+  private readonly streaming = inject(HarnessStreamingService);
 
   // Icons
   protected readonly CheckCircleIcon = CheckCircle;
@@ -402,6 +404,7 @@ export class ReviewStepComponent {
     if (this.isGeneratingDoc()) return;
 
     this.isGeneratingDoc.set(true);
+    this.streaming.reset();
 
     try {
       const fullConfig = this.buildFullConfig(

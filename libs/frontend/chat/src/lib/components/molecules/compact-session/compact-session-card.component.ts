@@ -16,12 +16,10 @@ import {
 import { CompactSessionHeaderComponent } from './compact-session-header.component';
 import { CompactSessionStatsComponent } from './compact-session-stats.component';
 import { CompactSessionActivityComponent } from './compact-session-activity.component';
-import { CompactSessionTextComponent } from './compact-session-text.component';
 import { CompactSessionInputComponent } from './compact-session-input.component';
-import type { TabState, StreamingState } from '../../../services/chat.types';
+import type { TabState } from '../../../services/chat.types';
 import { ChatStore } from '../../../services/chat.store';
 import { TabManagerService } from '../../../services/tab-manager.service';
-import { ExecutionTreeBuilderService } from '../../../services/execution-tree-builder.service';
 
 /**
  * CompactSessionCardComponent - Condensed card view of a session.
@@ -47,18 +45,19 @@ import { ExecutionTreeBuilderService } from '../../../services/execution-tree-bu
     CompactSessionHeaderComponent,
     CompactSessionStatsComponent,
     CompactSessionActivityComponent,
-    CompactSessionTextComponent,
     CompactSessionInputComponent,
   ],
+  host: { class: 'flex flex-col h-full' },
   template: `
     <div
-      class="rounded-lg border overflow-hidden transition-colors duration-150"
+      class="flex flex-col h-full border overflow-hidden transition-colors duration-150"
       [class.border-primary/30]="isStreaming()"
       [class.border-base-content/10]="!isStreaming()"
       [class.bg-base-200/30]="true"
     >
       <!-- Header (always visible) -->
       <ptah-compact-session-header
+        class="shrink-0"
         [title]="tab().title"
         [status]="tab().status"
       />
@@ -67,26 +66,24 @@ import { ExecutionTreeBuilderService } from '../../../services/execution-tree-bu
         <!-- Stats bar -->
         @if (hasStats()) {
           <ptah-compact-session-stats
+            class="shrink-0"
             [messages]="tab().messages"
             [preloadedStats]="tab().preloadedStats ?? null"
             [liveModelStats]="tab().liveModelStats ?? null"
           />
         }
 
-        <!-- Activity feed -->
+        <!-- Activity feed fills all remaining space -->
         <ptah-compact-session-activity
+          class="flex-1 min-h-0"
           [streamingState]="tab().streamingState"
-          [maxEntries]="5"
+          [messages]="tab().messages"
+          [maxEntries]="50"
         />
 
-        <!-- Latest text -->
-        <ptah-compact-session-text
-          [streamingState]="tab().streamingState"
-          [lastMessageContent]="lastAssistantText()"
-        />
-
-        <!-- Mini input -->
+        <!-- Mini input pinned at bottom -->
         <ptah-compact-session-input
+          class="shrink-0"
           [isStreaming]="isStreaming()"
           (messageSent)="onSend($event)"
           (stopRequested)="onStop()"
@@ -95,7 +92,7 @@ import { ExecutionTreeBuilderService } from '../../../services/execution-tree-bu
 
       <!-- Footer: collapse toggle + expand to full button -->
       <div
-        class="flex items-center justify-between px-3 py-1 bg-base-300/30 border-t border-base-content/5"
+        class="flex items-center justify-between px-3 py-1 bg-base-300/30 border-t border-base-content/5 shrink-0"
       >
         <button
           class="btn btn-ghost btn-xs gap-1 text-[10px] text-base-content/50 hover:text-base-content/80"
@@ -148,18 +145,6 @@ export class CompactSessionCardComponent {
       tab.preloadedStats != null ||
       tab.liveModelStats != null
     );
-  });
-
-  /** Extract last assistant message text for display when not streaming */
-  readonly lastAssistantText = computed((): string | null => {
-    const messages = this.tab().messages;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg.role === 'assistant' && msg.rawContent) {
-        return msg.rawContent;
-      }
-    }
-    return null;
   });
 
   onSend(message: string): void {

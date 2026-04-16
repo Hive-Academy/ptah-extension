@@ -20,6 +20,7 @@ import {
   inject,
   OnInit,
   signal,
+  computed,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -31,8 +32,10 @@ import {
 import { WebviewNavigationService } from '@ptah-extension/core';
 import { HarnessBuilderStateService } from '../services/harness-builder-state.service';
 import { HarnessRpcService } from '../services/harness-rpc.service';
+import { HarnessStreamingService } from '../services/harness-streaming.service';
 import { HarnessStepperComponent } from './harness-stepper.component';
 import { HarnessChatPanelComponent } from './harness-chat-panel.component';
+import { HarnessExecutionViewComponent } from './harness-execution-view.component';
 import { DescribeStepComponent } from './steps/describe-step.component';
 import { AgentsStepComponent } from './steps/agents-step.component';
 import { SkillsStepComponent } from './steps/skills-step.component';
@@ -48,6 +51,7 @@ import type { HarnessWizardStep } from '@ptah-extension/shared';
     LucideAngularModule,
     HarnessStepperComponent,
     HarnessChatPanelComponent,
+    HarnessExecutionViewComponent,
     DescribeStepComponent,
     AgentsStepComponent,
     SkillsStepComponent,
@@ -122,37 +126,43 @@ import type { HarnessWizardStep } from '@ptah-extension/shared';
         />
       </div>
 
-      <!-- Body: step content + chat panel -->
-      <div class="flex flex-1 min-h-0 overflow-hidden">
-        <!-- Step content -->
-        <main class="flex-1 overflow-y-auto p-4" role="main">
-          @switch (currentStep()) {
-            @case ('persona') {
-              <ptah-describe-step />
+      <!-- Body: execution takeover OR step content + chat panel -->
+      @if (showExecutionView()) {
+        <div class="flex-1 min-h-0 overflow-hidden">
+          <ptah-harness-execution-view />
+        </div>
+      } @else {
+        <div class="flex flex-1 min-h-0 overflow-hidden">
+          <!-- Step content -->
+          <main class="flex-1 overflow-y-auto p-4" role="main">
+            @switch (currentStep()) {
+              @case ('persona') {
+                <ptah-describe-step />
+              }
+              @case ('agents') {
+                <ptah-agents-step />
+              }
+              @case ('skills') {
+                <ptah-skills-step />
+              }
+              @case ('prompts') {
+                <ptah-prompts-step />
+              }
+              @case ('mcp') {
+                <ptah-mcp-step />
+              }
+              @case ('review') {
+                <ptah-review-step />
+              }
             }
-            @case ('agents') {
-              <ptah-agents-step />
-            }
-            @case ('skills') {
-              <ptah-skills-step />
-            }
-            @case ('prompts') {
-              <ptah-prompts-step />
-            }
-            @case ('mcp') {
-              <ptah-mcp-step />
-            }
-            @case ('review') {
-              <ptah-review-step />
-            }
-          }
-        </main>
+          </main>
 
-        <!-- AI Chat Panel (right side) -->
-        <aside class="w-72 border-l border-base-300 shrink-0 hidden md:block">
-          <ptah-harness-chat-panel />
-        </aside>
-      </div>
+          <!-- AI Chat Panel (right side) -->
+          <aside class="w-72 border-l border-base-300 shrink-0 hidden md:block">
+            <ptah-harness-chat-panel />
+          </aside>
+        </div>
+      }
 
       <!-- Footer navigation -->
       <footer
@@ -200,6 +210,7 @@ export class HarnessBuilderViewComponent implements OnInit {
   private readonly state = inject(HarnessBuilderStateService);
   private readonly rpc = inject(HarnessRpcService);
   private readonly navigation = inject(WebviewNavigationService);
+  private readonly streaming = inject(HarnessStreamingService);
 
   // Icons
   protected readonly XIcon = X;
@@ -214,6 +225,12 @@ export class HarnessBuilderViewComponent implements OnInit {
   readonly isLastStep = this.state.isLastStep;
   readonly canProceed = this.state.canProceed;
   readonly currentStepIndex = this.state.currentStepIndex;
+
+  readonly showExecutionView = computed(
+    () =>
+      this.streaming.isStreaming() ||
+      this.streaming.completionResult() !== null,
+  );
 
   // Initialization state
   public readonly isInitializing = signal(true);

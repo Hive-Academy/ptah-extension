@@ -31,6 +31,7 @@ import type {
 } from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from '../../services/harness-builder-state.service';
 import { HarnessRpcService } from '../../services/harness-rpc.service';
+import { HarnessStreamingService } from '../../services/harness-streaming.service';
 import { ConfigCardComponent } from '../atoms/config-card.component';
 
 @Component({
@@ -242,6 +243,7 @@ import { ConfigCardComponent } from '../atoms/config-card.component';
 export class AgentsStepComponent implements OnInit {
   private readonly state = inject(HarnessBuilderStateService);
   private readonly rpc = inject(HarnessRpcService);
+  private readonly streaming = inject(HarnessStreamingService);
 
   protected readonly BotIcon = Bot;
   protected readonly SparklesIcon = Sparkles;
@@ -367,6 +369,7 @@ export class AgentsStepComponent implements OnInit {
     this.isDesigning.set(true);
     this.designError.set(null);
     this.designReasoning.set(null);
+    this.streaming.reset();
 
     try {
       const enabledAgentIds = Object.entries(this.enabledAgents())

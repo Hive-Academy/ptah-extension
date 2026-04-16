@@ -139,10 +139,19 @@ export class AuthRpcHandlers {
         // Get auth method from ConfigManager (non-sensitive)
         // Normalize legacy/invalid values (e.g. 'vscode-lm', 'auto') to 'apiKey'
         const rawMethod = this.configManager.get<string>('authMethod');
-        const validMethods = ['apiKey', 'claudeCli', 'openrouter'];
+        const validMethods = [
+          'apiKey',
+          'claudeCli',
+          'thirdParty',
+          'openrouter',
+        ];
         const authMethod = (
-          rawMethod && validMethods.includes(rawMethod) ? rawMethod : 'apiKey'
-        ) as 'apiKey' | 'claudeCli' | 'openrouter';
+          rawMethod && validMethods.includes(rawMethod)
+            ? rawMethod === 'openrouter'
+              ? 'thirdParty'
+              : rawMethod
+            : 'apiKey'
+        ) as 'apiKey' | 'claudeCli' | 'thirdParty';
 
         // TASK_2025_129 Batch 3: Get selected provider ID
         const anthropicProviderId = this.configManager.getWithDefault<string>(
@@ -271,9 +280,9 @@ export class AuthRpcHandlers {
    */
   private registerSaveSettings(): void {
     const AuthSettingsSchema = z.object({
-      authMethod: z.enum(['apiKey', 'claudeCli', 'openrouter']),
+      authMethod: z.enum(['apiKey', 'claudeCli', 'thirdParty']),
       anthropicApiKey: z.string().optional(),
-      openrouterApiKey: z.string().optional(),
+      providerApiKey: z.string().optional(),
       // TASK_2025_129 Batch 3: Selected Anthropic-compatible provider
       // Validated against known provider IDs from the registry
       anthropicProviderId: z
@@ -297,11 +306,11 @@ export class AuthRpcHandlers {
                   params.anthropicApiKey
                     ? `***${params.anthropicApiKey.slice(-4)}`
                     : undefined,
-                openrouterApiKey:
-                  'openrouterApiKey' in params &&
-                  typeof params.openrouterApiKey === 'string' &&
-                  params.openrouterApiKey
-                    ? `***${params.openrouterApiKey.slice(-4)}`
+                providerApiKey:
+                  'providerApiKey' in params &&
+                  typeof params.providerApiKey === 'string' &&
+                  params.providerApiKey
+                    ? `***${params.providerApiKey.slice(-4)}`
                     : undefined,
               }
             : params;
@@ -330,7 +339,7 @@ export class AuthRpcHandlers {
 
         // Per-provider API key handling: store key under the selected provider's slot
         // This prevents overwriting keys when switching between providers
-        if (validated.openrouterApiKey !== undefined) {
+        if (validated.providerApiKey !== undefined) {
           const targetProviderId =
             validated.anthropicProviderId ??
             this.configManager.getWithDefault<string>(
@@ -338,10 +347,10 @@ export class AuthRpcHandlers {
               DEFAULT_PROVIDER_ID,
             );
 
-          if (validated.openrouterApiKey.trim()) {
+          if (validated.providerApiKey.trim()) {
             await this.authSecretsService.setProviderKey(
               targetProviderId,
-              validated.openrouterApiKey,
+              validated.providerApiKey,
             );
           } else {
             // Empty string = clear the provider's key

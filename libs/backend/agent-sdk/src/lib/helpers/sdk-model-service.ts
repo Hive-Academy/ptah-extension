@@ -14,7 +14,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { Logger, TOKENS, ConfigManager } from '@ptah-extension/vscode-core';
 import { AuthEnv } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { ModelInfo } from '../types/sdk-types/claude-sdk.types';
@@ -50,7 +50,7 @@ export type EnvMappedTier = Exclude<ModelTier, 'default'>;
  * MAINTENANCE: Update these when new Claude model versions are released.
  */
 export const TIER_TO_MODEL_ID: Record<ModelTier, string> = {
-  opus: 'claude-opus-4-6',
+  opus: 'claude-opus-4-7',
   sonnet: 'claude-sonnet-4-6',
   haiku: 'claude-haiku-4-5-20251001',
   default: 'claude-sonnet-4-6',
@@ -110,7 +110,7 @@ export function buildTierEnvDefaults(authEnv: AuthEnv): Record<string, string> {
 const FALLBACK_MODELS: ModelInfo[] = [
   {
     value: TIER_TO_MODEL_ID['opus'],
-    displayName: 'Claude Opus 4.6',
+    displayName: 'Claude Opus 4.7',
     description: 'Most capable for complex work',
   },
   {
@@ -163,84 +163,86 @@ export class SdkModelService {
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: ModelResolver,
+    @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
   ) {}
 
   /**
-   * Get supported models from the best available source.
+   * Get supported models using the strategy appropriate for the active auth method.
    *
-   * Multi-strategy approach (in priority order):
-   * 1. Return cached models if available (SDK or API source)
-   * 2. Try SDK's supportedModels() — spawns subprocess with full auth config
-   * 3. Try /v1/models API — fast HTTP call, works for API key auth
-   * 4. Fallback to hardcoded models (never cached, so next call retries)
-   *
-   * The SDK's supportedModels() is preferred because it returns the exact models
-   * the account has access to (filtered by subscription/permissions), while
-   * /v1/models returns all available models regardless of access.
+   * - API key auth: /v1/models HTTP endpoint (has credentials for direct API call)
+   * - CLI auth: SDK's supportedModels() (credentials in ~/.claude/, not in env)
+   * - Third-party providers: SDK's supportedModels() (proxy handles auth)
    *
    * @returns Array of ModelInfo with value (API ID), displayName, and description
    */
   async getSupportedModels(): Promise<ModelInfo[]> {
-    // Return cached if a previous call succeeded
     if (this.cachedModels.length > 0) {
       return this.cachedModels;
     }
 
-    // Strategy 1: SDK's supportedModels() — authoritative, account-filtered
-    const sdkModels = await this.fetchModelsViaSdk();
-    if (sdkModels.length > 0) {
-      this.logger.info('[SdkModelService] RAW from SDK supportedModels()', {
-        source: 'sdk',
-        raw: sdkModels.map((m) => ({
+    const rawAuthMethod = this.config.get<string>('authMethod') || 'apiKey';
+    const authMethod =
+      rawAuthMethod === 'openrouter' ? 'thirdParty' : rawAuthMethod;
+
+    this.logger.info('[SdkModelService] Fetching models', {
+      authMethod,
+      rawAuthMethod: rawAuthMethod !== authMethod ? rawAuthMethod : undefined,
+      hasApiKey: !!this.authEnv.ANTHROPIC_API_KEY,
+      hasBaseUrl: !!this.authEnv.ANTHROPIC_BASE_URL,
+      isThirdPartyProvider: this.isThirdPartyProvider(),
+    });
+
+    let models: ModelInfo[];
+
+    if (authMethod === 'apiKey' && this.authEnv.ANTHROPIC_API_KEY) {
+      // API key auth: prefer /v1/models (full list), fall back to SDK
+      models = await this.fetchModelsForApiKey();
+    } else {
+      // CLI auth or third-party: SDK bridge handles its own auth
+      models = await this.fetchModelsViaSdk();
+      if (models.length > 0) {
+        models = this.normalizeModels(models);
+      }
+    }
+
+    if (models.length > 0) {
+      this.cachedModels = models;
+      this.logger.info('[SdkModelService] Models resolved', {
+        authMethod,
+        count: models.length,
+        models: models.map((m) => ({
           value: m.value,
           displayName: m.displayName,
         })),
       });
-      this.cachedModels = this.normalizeModels(sdkModels);
-      this.logger.info(
-        '[SdkModelService] NORMALIZED models returned to consumers',
-        {
-          source: 'sdk',
-          normalized: this.cachedModels.map((m) => ({
-            value: m.value,
-            displayName: m.displayName,
-          })),
-        },
-      );
       return this.cachedModels;
     }
 
-    // Strategy 2: /v1/models API — fast HTTP, but returns ALL models (not filtered)
-    // API models already have full IDs (e.g., 'claude-sonnet-4-5-20250514')
+    this.logger.error(
+      '[SdkModelService] Model fetch failed — returning empty list',
+      { authMethod },
+    );
+    return [];
+  }
+
+  /**
+   * API key auth: try /v1/models first (full model list), fall back to SDK tier slots.
+   */
+  private async fetchModelsForApiKey(): Promise<ModelInfo[]> {
     const apiModels = await this.fetchModelsViaApi();
     if (apiModels.length > 0) {
-      this.logger.info(
-        '[SdkModelService] Models from /v1/models API (already full IDs)',
-        {
-          source: 'api',
-          models: apiModels.map((m) => ({
-            value: m.value,
-            displayName: m.displayName,
-          })),
-        },
-      );
-      this.cachedModels = apiModels;
-      return this.cachedModels;
+      this.logger.info('[SdkModelService] Models from /v1/models API', {
+        count: apiModels.length,
+      });
+      return apiModels;
     }
 
-    // Fallback: hardcoded models — NOT cached so next call retries
-    // FALLBACK_MODELS already use full IDs via TIER_TO_MODEL_ID
+    // API call failed (network, rate limit, etc.) — try SDK as fallback
     this.logger.warn(
-      '[SdkModelService] All strategies failed, using FALLBACK_MODELS',
-      {
-        source: 'fallback',
-        models: FALLBACK_MODELS.map((m) => ({
-          value: m.value,
-          displayName: m.displayName,
-        })),
-      },
+      '[SdkModelService] /v1/models failed for API key auth, trying SDK',
     );
-    return FALLBACK_MODELS;
+    const sdkModels = await this.fetchModelsViaSdk();
+    return sdkModels.length > 0 ? this.normalizeModels(sdkModels) : [];
   }
 
   /**
@@ -268,15 +270,21 @@ export class SdkModelService {
    * provider's model).
    */
   private normalizeModels(models: ModelInfo[]): ModelInfo[] {
-    // Direct Anthropic: no normalization needed — SDK models are authoritative
-    if (!this.isThirdPartyProvider()) {
-      this.logger.debug(
-        '[SdkModelService] Direct Anthropic provider — returning SDK models as-is',
-      );
-      return models;
-    }
+    const isThirdParty = this.isThirdPartyProvider();
 
-    // Third-party provider: resolve tier names to provider-specific model IDs
+    this.logger.info('[SdkModelService] normalizeModels input', {
+      count: models.length,
+      isThirdParty,
+      rawValues: models.map((m) => ({
+        value: m.value,
+        displayName: m.displayName,
+      })),
+    });
+
+    // Resolve bare tier names to full model IDs for ALL auth methods.
+    // For CLI auth, SDK returns bare tiers ("opus", "sonnet", "haiku") which
+    // need resolution to specific versions (e.g., "claude-opus-4-7") for UI.
+    // For third-party providers, tiers map to provider-specific model IDs.
     const seen = new Set<string>();
     const normalized: ModelInfo[] = [];
 
@@ -340,24 +348,23 @@ export class SdkModelService {
       return [];
     }
 
-    // Pre-flight auth check — no point spawning a subprocess without credentials
+    // No pre-flight auth check — the SDK bridge can authenticate via CLI's
+    // credential store (~/.claude/) even when authEnv has no explicit credentials.
+    // Blocking here caused CLI auth users to always fall through to hardcoded fallback.
     const hasApiKey = !!this.authEnv.ANTHROPIC_API_KEY;
     const hasAuthToken = !!this.authEnv.ANTHROPIC_AUTH_TOKEN;
 
-    if (!hasApiKey && !hasAuthToken) {
-      this.logger.warn(
-        '[SdkModelService] No auth credentials in AuthEnv — SDK supportedModels() will fail',
-      );
-      return [];
-    }
-
-    this.logger.debug(
+    this.logger.info(
       '[SdkModelService] Fetching models via SDK supportedModels()',
       {
         hasApiKey,
         hasAuthToken,
         hasBaseUrl: !!this.authEnv.ANTHROPIC_BASE_URL,
         cliJsPath,
+        note:
+          !hasApiKey && !hasAuthToken
+            ? 'No env credentials — SDK will use CLI credential store'
+            : undefined,
       },
     );
 

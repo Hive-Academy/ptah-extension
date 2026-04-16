@@ -31,6 +31,7 @@ import {
 } from 'lucide-angular';
 import { HarnessBuilderStateService } from '../../services/harness-builder-state.service';
 import { HarnessRpcService } from '../../services/harness-rpc.service';
+import { HarnessStreamingService } from '../../services/harness-streaming.service';
 
 @Component({
   selector: 'ptah-describe-step',
@@ -228,6 +229,7 @@ import { HarnessRpcService } from '../../services/harness-rpc.service';
 export class DescribeStepComponent {
   private readonly state = inject(HarnessBuilderStateService);
   private readonly rpc = inject(HarnessRpcService);
+  private readonly streaming = inject(HarnessStreamingService);
 
   // Icons
   protected readonly SparklesIcon = Sparkles;
@@ -297,6 +299,7 @@ export class DescribeStepComponent {
     this.isAnalyzing.set(true);
     this.analysisError.set(null);
     this.analysisReasoning.set(null);
+    this.streaming.reset();
 
     try {
       const response = await this.rpc.analyzeIntent({

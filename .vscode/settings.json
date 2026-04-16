@@ -1,6 +1,5 @@
 {
-  "ptah.authMethod": "claudeCli",
-  "ptah.model.selected": "claude-opus-4-6",
+  "ptah.model.selected": "claude-opus-4-7",
   "ptah.reasoningEffort": "high",
   "ptah.autopilot.enabled": true,
   "ptah.autopilot.permissionLevel": "yolo"
