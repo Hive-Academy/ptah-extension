@@ -281,19 +281,40 @@ export class SdkModelService {
       })),
     });
 
-    // Resolve bare tier names to full model IDs for ALL auth methods.
-    // For CLI auth, SDK returns bare tiers ("opus", "sonnet", "haiku") which
-    // need resolution to specific versions (e.g., "claude-opus-4-7") for UI.
-    // For third-party providers, tiers map to provider-specific model IDs.
+    if (!isThirdParty) {
+      // Direct Anthropic auth (CLI or API key): pass through everything the
+      // SDK returns, only resolving bare tier names to full model IDs.
+      // No filtering, no deduplication — the SDK is authoritative.
+      // Supplement with any tiers the SDK didn't return.
+      const resolved = models.map((m) => ({
+        ...m,
+        value: this.resolveModelId(m.value),
+      }));
+
+      const resolvedIds = new Set(resolved.map((m) => m.value));
+      const coreTiers = ['opus', 'sonnet', 'haiku'] as const;
+
+      for (const tier of coreTiers) {
+        const fullId = TIER_TO_MODEL_ID[tier];
+        if (!resolvedIds.has(fullId)) {
+          resolved.push({
+            value: fullId,
+            displayName: tier.charAt(0).toUpperCase() + tier.slice(1),
+            description: '',
+          });
+        }
+      }
+
+      return resolved;
+    }
+
+    // Third-party providers: resolve tiers to provider-specific model IDs
+    // and deduplicate (different tiers may map to the same provider model).
     const seen = new Set<string>();
     const normalized: ModelInfo[] = [];
 
     for (const m of models) {
-      // Replace 'default' meta-tier with 'sonnet' before resolving.
-      // 'default' always maps to sonnet but can cache the wrong value
-      // when env vars aren't set at cache time.
       const value = m.value.toLowerCase() === 'default' ? 'sonnet' : m.value;
-
       const resolvedValue = this.resolveModelId(value);
       if (seen.has(resolvedValue)) continue;
       seen.add(resolvedValue);
