@@ -256,6 +256,14 @@ import type {
   HarnessLoadPresetsResponse,
   HarnessChatParams,
   HarnessChatResponse,
+  HarnessDesignAgentsParams,
+  HarnessDesignAgentsResponse,
+  HarnessGenerateSkillsParams,
+  HarnessGenerateSkillsResponse,
+  HarnessGenerateDocumentParams,
+  HarnessGenerateDocumentResponse,
+  HarnessAnalyzeIntentParams,
+  HarnessAnalyzeIntentResponse,
 } from './rpc/rpc-harness.types';
 
 import type {
@@ -1052,6 +1060,22 @@ export interface RpcMethodRegistry {
     params: HarnessChatParams;
     result: HarnessChatResponse;
   };
+  'harness:design-agents': {
+    params: HarnessDesignAgentsParams;
+    result: HarnessDesignAgentsResponse;
+  };
+  'harness:generate-skills': {
+    params: HarnessGenerateSkillsParams;
+    result: HarnessGenerateSkillsResponse;
+  };
+  'harness:generate-document': {
+    params: HarnessGenerateDocumentParams;
+    result: HarnessGenerateDocumentResponse;
+  };
+  'harness:analyze-intent': {
+    params: HarnessAnalyzeIntentParams;
+    result: HarnessAnalyzeIntentResponse;
+  };
 }
 
 /**
@@ -1297,6 +1321,10 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'harness:save-preset',
   'harness:load-presets',
   'harness:chat',
+  'harness:design-agents',
+  'harness:generate-skills',
+  'harness:generate-document',
+  'harness:analyze-intent',
 ] as const;
 
 /**

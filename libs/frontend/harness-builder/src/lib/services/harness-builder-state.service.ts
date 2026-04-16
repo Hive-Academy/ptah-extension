@@ -23,6 +23,9 @@ import type {
   HarnessPreset,
   SkillSummary,
   McpServerSuggestion,
+  CustomSubagentDefinition,
+  GeneratedSkillSpec,
+  HarnessAnalyzeIntentResponse,
 } from '@ptah-extension/shared';
 
 /** Chat message stored in the wizard AI chat history */
@@ -44,7 +47,7 @@ const STEP_ORDER: HarnessWizardStep[] = [
 
 /** Human-readable labels for each step */
 export const STEP_LABELS: Record<HarnessWizardStep, string> = {
-  persona: 'Persona',
+  persona: 'Describe',
   agents: 'Agents',
   skills: 'Skills',
   prompts: 'Prompts',
@@ -66,6 +69,11 @@ export class HarnessBuilderStateService {
   private readonly _chatMessages = signal<HarnessChatMessage[]>([]);
   private readonly _completedSteps = signal<Set<HarnessWizardStep>>(new Set());
   private readonly _suggestedMcpServers = signal<McpServerSuggestion[]>([]);
+  private readonly _generatedSkillSpecs = signal<GeneratedSkillSpec[]>([]);
+  private readonly _generatedDocument = signal<string>('');
+  private readonly _intentAnalyzed = signal<boolean>(false);
+  private readonly _intentSummary = signal<string>('');
+  private readonly _intentInput = signal<string>('');
 
   // ─── Workspace context (from initialize) ─────────────────
 
@@ -89,6 +97,11 @@ export class HarnessBuilderStateService {
   public readonly completedSteps = this._completedSteps.asReadonly();
   public readonly suggestedMcpServers = this._suggestedMcpServers.asReadonly();
   public readonly workspaceContext = this._workspaceContext.asReadonly();
+  public readonly generatedSkillSpecs = this._generatedSkillSpecs.asReadonly();
+  public readonly generatedDocument = this._generatedDocument.asReadonly();
+  public readonly intentAnalyzed = this._intentAnalyzed.asReadonly();
+  public readonly intentSummary = this._intentSummary.asReadonly();
+  public readonly intentInput = this._intentInput.asReadonly();
 
   // ─── Computed signals ────────────────────────────────────
 
@@ -108,8 +121,12 @@ export class HarnessBuilderStateService {
     const cfg = this._config();
     switch (this._currentStep()) {
       case 'persona':
-        return !!(
-          cfg.persona?.description && cfg.persona.description.trim().length > 0
+        return (
+          (this._intentAnalyzed() && !!cfg.persona?.label) ||
+          !!(
+            cfg.persona?.description &&
+            cfg.persona.description.trim().length > 0
+          )
         );
       case 'agents':
         return !!(
@@ -225,6 +242,94 @@ export class HarnessBuilderStateService {
     this._suggestedMcpServers.set(servers);
   }
 
+  public setGeneratedSkillSpecs(specs: GeneratedSkillSpec[]): void {
+    this._generatedSkillSpecs.set(specs);
+  }
+
+  public setGeneratedDocument(document: string): void {
+    this._generatedDocument.set(document);
+  }
+
+  public addCustomSubagent(subagent: CustomSubagentDefinition): void {
+    this._config.update((cfg) => ({
+      ...cfg,
+      agents: {
+        enabledAgents: cfg.agents?.enabledAgents ?? {},
+        customSubagents: [...(cfg.agents?.customSubagents ?? []), subagent],
+      },
+    }));
+  }
+
+  public removeCustomSubagent(subagentId: string): void {
+    this._config.update((cfg) => ({
+      ...cfg,
+      agents: {
+        enabledAgents: cfg.agents?.enabledAgents ?? {},
+        customSubagents: (cfg.agents?.customSubagents ?? []).filter(
+          (s) => s.id !== subagentId,
+        ),
+      },
+    }));
+  }
+
+  public setCustomSubagents(subagents: CustomSubagentDefinition[]): void {
+    this._config.update((cfg) => ({
+      ...cfg,
+      agents: {
+        enabledAgents: cfg.agents?.enabledAgents ?? {},
+        customSubagents: subagents,
+      },
+    }));
+  }
+
+  // ─── Intent Analysis ─────────────────────────────────────
+
+  /** Persist the freeform intent input text across step navigation */
+  public setIntentInput(text: string): void {
+    this._intentInput.set(text);
+  }
+
+  /** Bulk-populate all steps from the AI's intent analysis */
+  public applyIntentAnalysis(response: HarnessAnalyzeIntentResponse): void {
+    this._completedSteps.set(new Set());
+
+    // Persona
+    this.updatePersona(response.persona);
+
+    // Agents — merge suggested agents + custom subagents
+    this.updateAgents({
+      enabledAgents: response.suggestedAgents,
+      customSubagents: response.suggestedSubagents,
+    });
+
+    // Skills
+    this.updateSkills({
+      selectedSkills: response.suggestedSkills,
+      createdSkills: response.suggestedSkillSpecs.map((spec) => ({
+        name: spec.name,
+        description: spec.description,
+        content: spec.content,
+        allowedTools: spec.requiredTools,
+      })),
+    });
+
+    // Generated skill specs (for the skills step to display)
+    this.setGeneratedSkillSpecs(response.suggestedSkillSpecs);
+
+    // Prompt
+    this.updatePrompt({
+      systemPrompt: response.suggestedPrompt,
+      enhancedSections: {},
+    });
+
+    // MCP server suggestions
+    this.setSuggestedMcpServers(response.suggestedMcpServers);
+
+    // Mark intent as analyzed
+    this._intentAnalyzed.set(true);
+    this._intentSummary.set(response.summary);
+  }
+
   // ─── Chat methods ────────────────────────────────────────
 
   public addChatMessage(message: HarnessChatMessage): void {
@@ -255,5 +360,10 @@ export class HarnessBuilderStateService {
     this._completedSteps.set(new Set());
     this._suggestedMcpServers.set([]);
     this._workspaceContext.set(null);
+    this._generatedSkillSpecs.set([]);
+    this._generatedDocument.set('');
+    this._intentAnalyzed.set(false);
+    this._intentSummary.set('');
+    this._intentInput.set('');
   }
 }

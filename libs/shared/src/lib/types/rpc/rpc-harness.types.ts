@@ -5,6 +5,16 @@
  * The harness builder configures: agents, skills, system prompts, MCP servers, and CLAUDE.md.
  */
 
+// ─── Common Types ────────────────────────────────────────
+
+/** Workspace context describing the current project environment for harness operations */
+export interface HarnessWorkspaceContext {
+  projectName: string;
+  projectType: string;
+  frameworks: string[];
+  languages: string[];
+}
+
 // ─── Data Model ──────────────────────────────────────────
 
 /** Top-level harness configuration output */
@@ -31,6 +41,8 @@ export interface PersonaDefinition {
 /** Agent configuration: which agents are enabled and their overrides */
 export interface HarnessAgentConfig {
   enabledAgents: Record<string, AgentOverride>;
+  /** Custom subagents designed by AI for the persona's workflow */
+  customSubagents?: CustomSubagentDefinition[];
 }
 
 /** Per-agent override settings */
@@ -39,6 +51,40 @@ export interface AgentOverride {
   modelTier?: 'opus' | 'sonnet' | 'haiku';
   autoApprove?: boolean;
   customInstructions?: string;
+}
+
+/** Custom subagent designed by AI for a specific workflow role */
+export interface CustomSubagentDefinition {
+  /** Machine-readable ID (kebab-case) */
+  id: string;
+  /** Human-readable name (e.g., "Sentiment Watchdog") */
+  name: string;
+  /** What this subagent does */
+  description: string;
+  /** The specialized role/persona for this subagent */
+  role: string;
+  /** Tools this subagent should have access to */
+  tools: string[];
+  /** Whether this runs in background or on-demand */
+  executionMode: 'background' | 'on-demand' | 'scheduled';
+  /** Trigger conditions for when this subagent activates */
+  triggers?: string[];
+  /** Custom instructions for this subagent's behavior */
+  instructions: string;
+}
+
+/** AI-generated skill specification (before writing to disk) */
+export interface GeneratedSkillSpec {
+  /** Skill name */
+  name: string;
+  /** What the skill does */
+  description: string;
+  /** Full markdown content for SKILL.md */
+  content: string;
+  /** Tools the skill requires */
+  requiredTools?: string[];
+  /** Why this skill was suggested for the persona */
+  reasoning: string;
 }
 
 /** Skill configuration: selected and newly created skills */
@@ -139,12 +185,7 @@ export interface HarnessPreset {
 /** harness:initialize — Start a harness builder session */
 export type HarnessInitializeParams = Record<string, never>;
 export interface HarnessInitializeResponse {
-  workspaceContext: {
-    projectName: string;
-    projectType: string;
-    frameworks: string[];
-    languages: string[];
-  };
+  workspaceContext: HarnessWorkspaceContext;
   availableAgents: AvailableAgent[];
   availableSkills: SkillSummary[];
   existingPresets: HarnessPreset[];
@@ -161,6 +202,10 @@ export interface HarnessSuggestConfigResponse {
   suggestedMcpServers: McpServerSuggestion[];
   suggestedPrompt: string;
   reasoning: string;
+  /** AI-designed custom subagent fleet for the persona */
+  suggestedSubagents?: CustomSubagentDefinition[];
+  /** AI-generated skill specifications for the persona */
+  suggestedSkillSpecs?: GeneratedSkillSpec[];
 }
 
 /** harness:search-skills — Search available skills */
@@ -247,7 +292,75 @@ export interface HarnessChatResponse {
 
 /** Action suggested by AI chat in the wizard */
 export interface HarnessChatAction {
-  type: 'toggle-agent' | 'add-skill' | 'update-prompt' | 'add-mcp-server';
+  type:
+    | 'toggle-agent'
+    | 'add-skill'
+    | 'update-prompt'
+    | 'add-mcp-server'
+    | 'add-subagent'
+    | 'create-skill';
   label: string;
   payload: Record<string, unknown>;
+}
+
+// ─── New Collaborative RPC Contracts ──────────────────
+
+/** harness:design-agents — AI designs a custom subagent fleet for the persona */
+export interface HarnessDesignAgentsParams {
+  persona: PersonaDefinition;
+  existingAgents: string[];
+  workspaceContext?: HarnessWorkspaceContext;
+}
+export interface HarnessDesignAgentsResponse {
+  subagents: CustomSubagentDefinition[];
+  reasoning: string;
+}
+
+/** harness:generate-skills — AI generates specialized skill specs for the persona */
+export interface HarnessGenerateSkillsParams {
+  persona: PersonaDefinition;
+  existingSkills: string[];
+  customSubagents?: CustomSubagentDefinition[];
+}
+export interface HarnessGenerateSkillsResponse {
+  skills: GeneratedSkillSpec[];
+  reasoning: string;
+}
+
+/** harness:generate-document — Generate comprehensive PRD/requirements document */
+export interface HarnessGenerateDocumentParams {
+  config: HarnessConfig;
+  workspaceContext?: HarnessWorkspaceContext;
+}
+export interface HarnessGenerateDocumentResponse {
+  document: string;
+  sections: Record<string, string>;
+}
+
+/** harness:analyze-intent — AI architects a complete harness from freeform input */
+export interface HarnessAnalyzeIntentParams {
+  /** Freeform text: a PRD, a simple instruction, a description — anything */
+  input: string;
+  /** Workspace context from initialization */
+  workspaceContext?: HarnessWorkspaceContext;
+}
+export interface HarnessAnalyzeIntentResponse {
+  /** AI-derived persona from the input */
+  persona: PersonaDefinition;
+  /** Suggested agent configuration */
+  suggestedAgents: Record<string, AgentOverride>;
+  /** Custom subagent fleet designed for the intent */
+  suggestedSubagents: CustomSubagentDefinition[];
+  /** IDs of existing skills to select */
+  suggestedSkills: string[];
+  /** New skill specs to create */
+  suggestedSkillSpecs: GeneratedSkillSpec[];
+  /** Generated system prompt */
+  suggestedPrompt: string;
+  /** MCP server suggestions */
+  suggestedMcpServers: McpServerSuggestion[];
+  /** High-level summary of what the AI understood */
+  summary: string;
+  /** Detailed reasoning */
+  reasoning: string;
 }
