@@ -158,6 +158,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
         outputCostPerToken: 3e-6, // $3.00 per 1M tokens
+        cacheReadCostPerToken: 0.023e-6, // 10% of input
+        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
       },
       {
         id: 'kimi-k2-0905-preview',
@@ -167,6 +169,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
         outputCostPerToken: 3e-6, // $3.00 per 1M tokens
+        cacheReadCostPerToken: 0.023e-6, // 10% of input
+        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
       },
       {
         id: 'kimi-k2-thinking',
@@ -176,6 +180,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.4e-6, // $0.40 per 1M tokens
         outputCostPerToken: 1.75e-6, // $1.75 per 1M tokens
+        cacheReadCostPerToken: 0.04e-6, // 10% of input
+        cacheCreationCostPerToken: 0.5e-6, // 125% of input
       },
       {
         id: 'kimi-k2.5',
@@ -185,6 +191,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
         outputCostPerToken: 3e-6, // $3.00 per 1M tokens
+        cacheReadCostPerToken: 0.023e-6, // 10% of input
+        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
       },
     ],
   },
@@ -215,6 +223,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 1.0e-6, // $1.00 per 1M tokens (estimated, standalone API pricing TBD)
         outputCostPerToken: 3.2e-6, // $3.20 per 1M tokens (estimated, standalone API pricing TBD)
+        cacheReadCostPerToken: 0.1e-6, // 10% of input
+        cacheCreationCostPerToken: 1.25e-6, // 125% of input
       },
       {
         id: 'glm-5',
@@ -224,6 +234,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 1.0e-6, // $1.00 per 1M tokens
         outputCostPerToken: 3.2e-6, // $3.20 per 1M tokens
+        cacheReadCostPerToken: 0.1e-6, // 10% of input
+        cacheCreationCostPerToken: 1.25e-6, // 125% of input
       },
       {
         id: 'glm-5-turbo',
@@ -233,6 +245,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 1.2e-6, // $1.20 per 1M tokens
         outputCostPerToken: 4.0e-6, // $4.00 per 1M tokens
+        cacheReadCostPerToken: 0.12e-6, // 10% of input
+        cacheCreationCostPerToken: 1.5e-6, // 125% of input
       },
       {
         id: 'glm-5-code',
@@ -242,6 +256,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 1.2e-6, // $1.20 per 1M tokens
         outputCostPerToken: 5.0e-6, // $5.00 per 1M tokens
+        cacheReadCostPerToken: 0.12e-6, // 10% of input
+        cacheCreationCostPerToken: 1.5e-6, // 125% of input
       },
       {
         id: 'glm-4.7',
@@ -251,6 +267,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.6e-6, // $0.60 per 1M tokens
         outputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
+        cacheReadCostPerToken: 0.06e-6, // 10% of input
+        cacheCreationCostPerToken: 0.75e-6, // 125% of input
       },
       {
         id: 'glm-4.7-flashx',
@@ -260,6 +278,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.07e-6, // $0.07 per 1M tokens
         outputCostPerToken: 0.4e-6, // $0.40 per 1M tokens
+        cacheReadCostPerToken: 0.007e-6, // 10% of input
+        cacheCreationCostPerToken: 0.0875e-6, // 125% of input
       },
       {
         id: 'glm-4.7-flash',
@@ -269,6 +289,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0, // Free
         outputCostPerToken: 0, // Free
+        cacheReadCostPerToken: 0, // Free
+        cacheCreationCostPerToken: 0, // Free
       },
       {
         id: 'glm-4.6',
@@ -278,6 +300,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.6e-6, // $0.60 per 1M tokens
         outputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
+        cacheReadCostPerToken: 0.06e-6, // 10% of input
+        cacheCreationCostPerToken: 0.75e-6, // 125% of input
       },
       {
         id: 'glm-4.5-x',
@@ -287,6 +311,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
         outputCostPerToken: 8.9e-6, // $8.90 per 1M tokens
+        cacheReadCostPerToken: 0.22e-6, // 10% of input
+        cacheCreationCostPerToken: 2.75e-6, // 125% of input
       },
       {
         id: 'glm-4.5',
@@ -296,6 +322,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.6e-6, // $0.60 per 1M tokens
         outputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
+        cacheReadCostPerToken: 0.06e-6, // 10% of input
+        cacheCreationCostPerToken: 0.75e-6, // 125% of input
       },
       {
         id: 'glm-4.5-airx',
@@ -305,6 +333,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 1.1e-6, // $1.10 per 1M tokens
         outputCostPerToken: 4.5e-6, // $4.50 per 1M tokens
+        cacheReadCostPerToken: 0.11e-6, // 10% of input
+        cacheCreationCostPerToken: 1.375e-6, // 125% of input
       },
       {
         id: 'glm-4.5-air',
@@ -314,6 +344,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.2e-6, // $0.20 per 1M tokens
         outputCostPerToken: 1.1e-6, // $1.10 per 1M tokens
+        cacheReadCostPerToken: 0.02e-6, // 10% of input
+        cacheCreationCostPerToken: 0.25e-6, // 125% of input
       },
       {
         id: 'glm-4.5-flash',
@@ -323,6 +355,8 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0, // Free
         outputCostPerToken: 0, // Free
+        cacheReadCostPerToken: 0, // Free
+        cacheCreationCostPerToken: 0, // Free
       },
     ],
   },

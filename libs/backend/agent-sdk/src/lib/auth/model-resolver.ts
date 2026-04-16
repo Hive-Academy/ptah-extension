@@ -161,8 +161,23 @@ export class ModelResolver {
       return modelId;
     }
 
+    // Local provider (Ollama, LM Studio) — free inference, use zero-cost pricing
+    if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+      return 'local';
+    }
+
     // Third-party provider — resolve via tier override to get real model
-    return this.resolve(modelId, env);
+    const resolved = this.resolve(modelId, env);
+
+    // If unresolved (no tier override set), log for visibility — pricing map
+    // fallback in findModelPricing() will handle it
+    if (resolved === modelId) {
+      this.logger.debug(
+        `[ModelResolver] resolveForPricing: no tier override for '${modelId}' on third-party provider — pricing map will use fallback`,
+      );
+    }
+
+    return resolved;
   }
 
   /**
