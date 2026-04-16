@@ -878,7 +878,7 @@ export class AuthController {
    * → Redirect to: https://accounts.google.com/o/oauth2/auth?...
    */
   /**
-   * Auto-generate a 30-day Pro trial license if the user has no active license.
+   * Auto-generate a 100-day Pro trial license if the user has no active license.
    *
    * Non-blocking: errors are logged but do not affect the auth flow.
    * Idempotent: if user already has a license, this is a no-op.

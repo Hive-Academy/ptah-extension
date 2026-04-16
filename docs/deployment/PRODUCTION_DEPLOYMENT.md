@@ -72,13 +72,13 @@ Dashboard: <https://vendors.paddle.com/>
 
 **Create Product & Prices:**
 
-| Step | Action                                                                  |
-| ---- | ----------------------------------------------------------------------- |
-| 1    | Create product: **Ptah Pro**                                            |
-| 2    | Create price: **Pro Monthly** — $5/month, 30-day trial → copy `pri_...` |
-| 3    | Create price: **Pro Yearly** — $50/year, 30-day trial → copy `pri_...`  |
-| 4    | Copy **API Key** (`pdl_live_...`) from Developer Tools > Authentication |
-| 5    | Copy **Client-Side Token** (`live_...`) from same page                  |
+| Step | Action                                                                   |
+| ---- | ------------------------------------------------------------------------ |
+| 1    | Create product: **Ptah Pro**                                             |
+| 2    | Create price: **Pro Monthly** — $5/month, 100-day trial → copy `pri_...` |
+| 3    | Create price: **Pro Yearly** — $50/year, 100-day trial → copy `pri_...`  |
+| 4    | Copy **API Key** (`pdl_live_...`) from Developer Tools > Authentication  |
+| 5    | Copy **Client-Side Token** (`live_...`) from same page                   |
 
 **Configure Webhook:**
 
@@ -180,7 +180,7 @@ WORKOS_LOGOUT_REDIRECT_URI=https://ptah.live
 MAGIC_LINK_TTL_MS=300000
 
 # Trial duration in days. Default: 30
-# Only set to override for testing. Leave unset for standard 30-day trial.
+# Only set to override for testing. Leave unset for standard 100-day trial.
 # TRIAL_DURATION_DAYS=30
 ```
 

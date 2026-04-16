@@ -5,7 +5,7 @@
  *
  * TASK_2025_128: Freemium Model Conversion
  * - Community: FREE forever (no Paddle, install from VS Code marketplace)
- * - Pro: $5/month, $50/year (30-day trial, Paddle checkout)
+ * - Pro: $5/month, $50/year (100-day trial, Paddle checkout)
  *
  * Evidence: TASK_2025_121 - Two-Tier Paid Extension Model
  * Evidence: TASK_2025_128 - Freemium Model Conversion

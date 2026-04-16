@@ -23,7 +23,9 @@
  * Default trial duration in days
  * This matches the shared constant TRIAL_DURATION_DAYS
  */
-const DEFAULT_TRIAL_DURATION_DAYS = 30;
+const DEFAULT_TRIAL_DURATION_DAYS = process.env['TRIAL_DURATION_DAYS']
+  ? parseInt(process.env['TRIAL_DURATION_DAYS'], 10)
+  : 30;
 
 /**
  * Get the configured trial duration in days

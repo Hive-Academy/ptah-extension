@@ -49,6 +49,10 @@ import {
   buildBrowserStatusTool,
   buildBrowserRecordStartTool,
   buildBrowserRecordStopTool,
+  buildHarnessSearchSkillsTool,
+  buildHarnessCreateSkillTool,
+  buildHarnessSearchMcpRegistryTool,
+  buildHarnessListInstalledMcpTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -267,6 +271,16 @@ function handleToolsList(
           buildBrowserStatusTool(),
           buildBrowserRecordStartTool(),
           buildBrowserRecordStopTool(),
+        ]
+      : []),
+
+    // === Harness builder namespace (TASK_2025_285) ===
+    ...(!disabled.has('harness')
+      ? [
+          buildHarnessSearchSkillsTool(),
+          buildHarnessCreateSkillTool(),
+          buildHarnessSearchMcpRegistryTool(),
+          buildHarnessListInstalledMcpTool(),
         ]
       : []),
   ];
@@ -1019,6 +1033,142 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatBrowserRecordStop(recordStopResult),
+          deps,
+        );
+      }
+
+      // Harness builder tools (TASK_2025_285)
+      case 'ptah_harness_search_skills': {
+        if (!ptahAPI.harness) {
+          return createToolSuccessResponse(
+            request,
+            JSON.stringify({
+              skills: [],
+              error: 'Harness namespace not available',
+            }),
+            deps,
+          );
+        }
+        const { query: skillQuery } = args as { query?: string };
+        const skills = await ptahAPI.harness.searchSkills(skillQuery);
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify({ skills, count: skills.length }),
+          deps,
+        );
+      }
+
+      case 'ptah_harness_create_skill': {
+        if (!ptahAPI.harness) {
+          return createToolSuccessResponse(
+            request,
+            JSON.stringify({ error: 'Harness namespace not available' }),
+            deps,
+          );
+        }
+        const {
+          name: skillName,
+          description: skillDescription,
+          content: skillContent,
+          allowedTools,
+        } = args as {
+          name: string;
+          description: string;
+          content: string;
+          allowedTools?: string[];
+        };
+
+        if (!skillName || !skillDescription || !skillContent) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "name", "description", and "content" are required.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const createResult = await ptahAPI.harness.createSkill(
+          skillName,
+          skillDescription,
+          skillContent,
+          allowedTools,
+        );
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(createResult),
+          deps,
+        );
+      }
+
+      case 'ptah_harness_search_mcp_registry': {
+        if (!ptahAPI.harness) {
+          return createToolSuccessResponse(
+            request,
+            JSON.stringify({
+              servers: [],
+              error: 'Harness namespace not available',
+            }),
+            deps,
+          );
+        }
+        const { query: registryQuery, limit: registryLimit } = args as {
+          query: string;
+          limit?: number;
+        };
+
+        if (!registryQuery || typeof registryQuery !== 'string') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "query" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const registryResult = await ptahAPI.harness.searchMcpRegistry(
+          registryQuery,
+          registryLimit,
+        );
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(registryResult),
+          deps,
+        );
+      }
+
+      case 'ptah_harness_list_installed_mcp': {
+        if (!ptahAPI.harness) {
+          return createToolSuccessResponse(
+            request,
+            JSON.stringify({
+              servers: [],
+              error: 'Harness namespace not available',
+            }),
+            deps,
+          );
+        }
+        const installedServers =
+          await ptahAPI.harness.listInstalledMcpServers();
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify({
+            servers: installedServers,
+            count: installedServers.length,
+          }),
           deps,
         );
       }

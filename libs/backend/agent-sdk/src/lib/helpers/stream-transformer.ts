@@ -33,7 +33,7 @@ import {
   isCompactBoundary,
   isLocalCommandOutput,
 } from '../types/sdk-types/claude-sdk.types';
-import { resolveActualModelForPricing } from './anthropic-provider-registry';
+import type { ModelResolver } from '../auth/model-resolver';
 
 /**
  * Callback type for notifying when real session ID is received from SDK.
@@ -200,6 +200,8 @@ export class StreamTransformer {
     @inject(SDK_TOKENS.SDK_MESSAGE_TRANSFORMER)
     private readonly messageTransformer: SdkMessageTransformer,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: ModelResolver,
   ) {}
 
   /**
@@ -221,6 +223,7 @@ export class StreamTransformer {
     const logger = this.logger;
     const messageTransformer = this.messageTransformer;
     const authEnv = this.authEnv;
+    const modelResolver = this.modelResolver;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -323,7 +326,7 @@ export class StreamTransformer {
 
                     // Resolve actual model for accurate pricing (e.g., "claude-opus-4-..." → "kimi-k2.5")
                     // TASK_2025_164: Pass authEnv for provider-aware resolution
-                    const resolvedModel = resolveActualModelForPricing(
+                    const resolvedModel = modelResolver.resolveForPricing(
                       model,
                       authEnv,
                     );
@@ -389,7 +392,7 @@ export class StreamTransformer {
                   recalculatedTotalCost > 0
                     ? recalculatedTotalCost
                     : calculateMessageCost(
-                        resolveActualModelForPricing(initialModel, authEnv),
+                        modelResolver.resolveForPricing(initialModel, authEnv),
                         {
                           input: sdkMessage.usage.input_tokens,
                           output: sdkMessage.usage.output_tokens,

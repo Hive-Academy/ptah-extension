@@ -21,8 +21,8 @@ import {
   ProviderModelsService,
   SDK_TOKENS,
   DEFAULT_FALLBACK_MODEL_ID,
-  resolveModelIdStatic,
 } from '@ptah-extension/agent-sdk';
+import type { ModelResolver } from '@ptah-extension/agent-sdk';
 import {
   PermissionLevel,
   ConfigModelSwitchParams,
@@ -36,7 +36,6 @@ import {
   ConfigEffortSetResult,
   ConfigEffortGetResult,
   getModelPricingDescription,
-  type AuthEnv,
   type EffortLevel,
 } from '@ptah-extension/shared';
 
@@ -56,8 +55,8 @@ export class ConfigRpcHandlers {
     private readonly providerModels: ProviderModelsService,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
     private readonly permissionHandler: SdkPermissionHandler,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV)
-    private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: ModelResolver,
   ) {}
 
   /**
@@ -171,7 +170,7 @@ export class ConfigRpcHandlers {
           // Legacy migration: old configs may have bare tier names.
           // Resolve once and re-save so future reads are already clean.
           if (stored && !stored.startsWith('claude-')) {
-            const resolved = resolveModelIdStatic(stored, this.authEnv);
+            const resolved = this.modelResolver.resolve(stored);
             this.logger.info(
               `RPC: config:model-get migrating legacy value '${stored}' → '${resolved}'`,
             );
@@ -361,10 +360,8 @@ export class ConfigRpcHandlers {
           }> = [];
 
           for (const m of sdkModels) {
-            const tier = this.detectModelTier(
-              m.value.toLowerCase(),
-              (m.displayName || '').toLowerCase(),
-              (m.description || '').toLowerCase(),
+            const tier = this.modelResolver.detectTier(
+              `${m.value.toLowerCase()} ${(m.displayName || '').toLowerCase()} ${(m.description || '').toLowerCase()}`,
             );
 
             const providerModelId =
@@ -386,10 +383,8 @@ export class ConfigRpcHandlers {
           for (const m of apiModels) {
             if (sdkModelIds.has(m.value)) continue;
 
-            const tier = this.detectModelTier(
-              m.value.toLowerCase(),
-              (m.displayName || '').toLowerCase(),
-              '',
+            const tier = this.modelResolver.detectTier(
+              `${m.value.toLowerCase()} ${(m.displayName || '').toLowerCase()}`,
             );
 
             const providerModelId =
@@ -453,25 +448,6 @@ export class ConfigRpcHandlers {
       );
       return null;
     }
-  }
-
-  /**
-   * Detect which tier family a model belongs to based on its value and metadata.
-   * Used for provider override mapping — even full model IDs like
-   * 'claude-sonnet-4-5-20250514' belong to the 'sonnet' tier family.
-   *
-   * @returns The detected tier, or undefined for unrecognized models
-   */
-  private detectModelTier(
-    valueLower: string,
-    displayLower: string,
-    descLower: string,
-  ): 'opus' | 'sonnet' | 'haiku' | undefined {
-    const combined = `${valueLower} ${displayLower} ${descLower}`;
-    if (combined.includes('opus')) return 'opus';
-    if (combined.includes('sonnet')) return 'sonnet';
-    if (combined.includes('haiku')) return 'haiku';
-    return undefined;
   }
 
   /**

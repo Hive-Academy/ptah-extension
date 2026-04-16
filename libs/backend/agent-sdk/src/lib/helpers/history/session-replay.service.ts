@@ -27,14 +27,13 @@
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 import {
   calculateMessageCost,
-  AuthEnv,
   isAgentDispatchTool,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { inject, injectable } from 'tsyringe';
 import { SDK_TOKENS } from '../../di/tokens';
 import { extractTokenUsage } from '../usage-extraction.utils';
-import { resolveActualModelForPricing } from '../anthropic-provider-registry';
+import type { ModelResolver } from '../../auth/model-resolver';
 import { AgentCorrelationService } from './agent-correlation.service';
 import type { MessageUsageData } from './history-event-factory';
 import { HistoryEventFactory } from './history-event-factory';
@@ -58,7 +57,8 @@ export class SessionReplayService {
     private readonly correlationService: AgentCorrelationService,
     @inject(SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY)
     private readonly eventFactory: HistoryEventFactory,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: ModelResolver,
   ) {}
 
   /**
@@ -265,7 +265,7 @@ export class SessionReplayService {
           if (tokenUsage) {
             // TASK_2025_164: Pass authEnv for provider-aware model resolution
             const cost = calculateMessageCost(
-              resolveActualModelForPricing(msgModel, this.authEnv),
+              this.modelResolver.resolveForPricing(msgModel),
               {
                 input: tokenUsage.input,
                 output: tokenUsage.output,
@@ -621,7 +621,7 @@ export class SessionReplayService {
             tokenUsage: { input: tokenUsage.input, output: tokenUsage.output },
             model: agentMsgModel || undefined,
             cost: calculateMessageCost(
-              resolveActualModelForPricing(agentMsgModel, this.authEnv),
+              this.modelResolver.resolveForPricing(agentMsgModel),
               {
                 input: tokenUsage.input,
                 output: tokenUsage.output,

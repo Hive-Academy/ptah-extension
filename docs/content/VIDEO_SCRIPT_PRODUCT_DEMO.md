@@ -143,7 +143,7 @@ _Navigate to /pricing. The pyramid background loads with radial gold glow. The "
 
 "Ptah has a free tier — forever. Community plan gives you the visual interface, real-time streaming, session history, and basic workspace context. No credit card, no strings.
 
-Pro is five dollars a month. You get the setup wizard, MCP server, workspace intelligence, 200+ models via OpenRouter, project-adaptive agents, and real-time cost tracking. And you start with a 30-day free trial."
+Pro is five dollars a month. You get the setup wizard, MCP server, workspace intelligence, 200+ models via OpenRouter, project-adaptive agents, and real-time cost tracking. And you start with a 100-day free trial."
 
 #### On-Screen
 
@@ -607,7 +607,7 @@ _Landing page CTA section: "Start Your Free Trial" with amber gradient button_
 
 #### Narration
 
-"Install Ptah from the VS Code Marketplace. 30-day Pro trial. No credit card. Cancel anytime.
+"Install Ptah from the VS Code Marketplace. 100-day Pro trial. No credit card. Cancel anytime.
 
 Your AI coding orchestra is ready."
 

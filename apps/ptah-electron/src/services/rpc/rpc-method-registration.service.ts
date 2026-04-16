@@ -14,9 +14,9 @@
  * 1. Shared handlers (17 handlers from @ptah-extension/rpc-handlers)
  *    - Session, Chat, Config, Auth, Context, Setup, License, WizardGeneration,
  *      Autocomplete, Subagent, Plugin, PtahCli, EnhancedPrompts, Quality, Provider, LLM, WebSearch
- * 2. Electron-specific handlers (10 handlers from ./handlers/)
- *    - Workspace, Editor, File, ConfigExtended, Command, AuthExtended, Settings,
- *      Agent, SkillsSh, Layout
+ * 2. Electron-specific handlers (11 handlers from ./handlers/)
+ *    - Workspace, Editor, File, ConfigExtended, Command, Settings,
+ *      Agent, SkillsSh, Layout, Git, Terminal
  */
 
 import { injectable, inject, container } from 'tsyringe';
@@ -70,7 +70,6 @@ import {
   ElectronFileRpcHandlers,
   ElectronConfigExtendedRpcHandlers,
   ElectronCommandRpcHandlers,
-  ElectronAuthExtendedRpcHandlers,
   ElectronSettingsRpcHandlers,
   ElectronAgentRpcHandlers,
   ElectronSkillsShRpcHandlers,
@@ -137,8 +136,6 @@ export class ElectronRpcMethodRegistrationService {
     private readonly configExtendedHandlers: ElectronConfigExtendedRpcHandlers,
     @inject(ElectronCommandRpcHandlers)
     private readonly commandHandlers: ElectronCommandRpcHandlers,
-    @inject(ElectronAuthExtendedRpcHandlers)
-    private readonly authExtendedHandlers: ElectronAuthExtendedRpcHandlers,
     @inject(ElectronSettingsRpcHandlers)
     private readonly settingsHandlers: ElectronSettingsRpcHandlers,
     @inject(ElectronAgentRpcHandlers)
@@ -920,10 +917,6 @@ export class ElectronRpcMethodRegistrationService {
         handler: this.configExtendedHandlers,
       },
       { name: 'ElectronCommandRpcHandlers', handler: this.commandHandlers },
-      {
-        name: 'ElectronAuthExtendedRpcHandlers',
-        handler: this.authExtendedHandlers,
-      },
       {
         name: 'ElectronSettingsRpcHandlers',
         handler: this.settingsHandlers,

@@ -89,7 +89,7 @@ import { HarnessRpcService } from '../../services/harness-rpc.service';
           </div>
           <p class="text-xs text-base-content/70">
             {{ enabledAgentCount() }} CLI agent(s) +
-            {{ customSubagentCount() }} custom subagent(s)
+            {{ harnessSubagentCount() }} harness subagent(s)
           </p>
           <div class="flex flex-wrap gap-1 mt-1">
             @for (name of enabledAgentNames(); track name) {
@@ -97,7 +97,7 @@ import { HarnessRpcService } from '../../services/harness-rpc.service';
                 name
               }}</span>
             }
-            @for (name of customSubagentNames(); track name) {
+            @for (name of harnessSubagentNames(); track name) {
               <span class="badge badge-xs badge-secondary badge-outline">{{
                 name
               }}</span>
@@ -365,12 +365,12 @@ export class ReviewStepComponent {
       .map(([k]) => k);
   });
 
-  public readonly customSubagentCount = computed(() => {
-    return (this.config().agents?.customSubagents ?? []).length;
+  public readonly harnessSubagentCount = computed(() => {
+    return (this.config().agents?.harnessSubagents ?? []).length;
   });
 
-  public readonly customSubagentNames = computed(() => {
-    return (this.config().agents?.customSubagents ?? []).map((s) => s.name);
+  public readonly harnessSubagentNames = computed(() => {
+    return (this.config().agents?.harnessSubagents ?? []).map((s) => s.name);
   });
 
   public readonly enabledServerCount = computed(() => {

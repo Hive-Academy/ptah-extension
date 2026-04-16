@@ -28,10 +28,7 @@ import {
   PLATFORM_TOKENS,
   ContentDownloadService,
 } from '@ptah-extension/platform-core';
-import type {
-  ISecretStorage,
-  IStateStorage,
-} from '@ptah-extension/platform-core';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
@@ -363,26 +360,6 @@ if (!gotLock) {
     }
 
     // ========================================
-    // PHASE 3: Load API Key from Secret Storage
-    // ========================================
-    // Load saved Anthropic API key and set in environment for Claude Agent SDK.
-    try {
-      const secretStorage = container.resolve<ISecretStorage>(
-        PLATFORM_TOKENS.SECRET_STORAGE,
-      );
-      const apiKey = await secretStorage.get('ptah.apiKey.anthropic');
-      if (apiKey) {
-        process.env['ANTHROPIC_API_KEY'] = apiKey;
-        console.log('[Ptah Electron] API key loaded from secret storage');
-      }
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Failed to load API key from secret storage:',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-
-    // ========================================
     // PHASE 3.5: License Verification
     // ========================================
     // Check license status before creating the window. If the license is invalid
@@ -436,8 +413,8 @@ if (!gotLock) {
     // ========================================
     // Initialize the SDK agent adapter so chat:start works.
     // Mirrors VS Code extension Step 7 (main.ts:568-589).
-    // Must happen AFTER Phase 3 (API key loaded into env) and BEFORE Phase 4.5 (RPC registration).
-    // The adapter reads ANTHROPIC_API_KEY from process.env (set in Phase 3).
+    // Must happen AFTER Phase 3.5 (license check) and BEFORE Phase 4.5 (RPC registration).
+    // AuthManager.configureAuthentication() reads API keys from AuthSecretsService.
     try {
       const sdkAdapter = container.resolve(TOKENS.SDK_AGENT_ADAPTER) as {
         initialize: () => Promise<boolean>;
