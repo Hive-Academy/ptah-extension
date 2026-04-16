@@ -21,6 +21,7 @@ import {
   ProviderModelsService,
   SDK_TOKENS,
   DEFAULT_FALLBACK_MODEL_ID,
+  TIER_TO_MODEL_ID,
 } from '@ptah-extension/agent-sdk';
 import type { ModelResolver } from '@ptah-extension/agent-sdk';
 import {
@@ -176,6 +177,27 @@ export class ConfigRpcHandlers {
             );
             await this.configManager.set('model.selected', resolved);
             return { model: resolved };
+          }
+
+          // Stale "latest" migration: if stored model is a tier's previous
+          // "latest" alias (e.g., claude-opus-4-6) that has since been
+          // superseded, migrate to the current version. Only migrates IDs
+          // without a date suffix (dated versions like -20251101 are
+          // intentional specific-version selections).
+          if (stored) {
+            const tier = this.modelResolver.detectTier(stored);
+            if (tier) {
+              const currentLatest =
+                TIER_TO_MODEL_ID[tier as keyof typeof TIER_TO_MODEL_ID];
+              const hasDateSuffix = /-\d{8}$/.test(stored);
+              if (!hasDateSuffix && stored !== currentLatest) {
+                this.logger.info(
+                  `RPC: config:model-get migrating stale model '${stored}' → '${currentLatest}'`,
+                );
+                await this.configManager.set('model.selected', currentLatest);
+                return { model: currentLatest };
+              }
+            }
           }
 
           return { model: stored || DEFAULT_FALLBACK_MODEL_ID };
@@ -342,8 +364,21 @@ export class ConfigRpcHandlers {
           const sdkModels = await this.sdkAdapter.getSupportedModels();
           const apiModels = await this.sdkAdapter.getApiModels();
 
+          this.logger.info('RPC: config:models-list sources', {
+            sdkCount: sdkModels.length,
+            apiCount: apiModels.length,
+            sdkValues: sdkModels.map((m) => m.value),
+            apiValues: apiModels.map((m) => m.value).slice(0, 10),
+          });
+
           // Get provider tier overrides (for OpenRouter etc.)
           const tierOverrides = this.getTierOverrides();
+
+          this.logger.info('RPC: config:models-list tier context', {
+            activeProviderId: this.providerModels.resolveActiveProviderId(),
+            tierOverrides: tierOverrides ?? 'null',
+            savedModel,
+          });
 
           // --- Build unified model list ---
           // SDK models come first (recommended tier shortcuts), then API models

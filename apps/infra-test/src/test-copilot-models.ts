@@ -17,8 +17,8 @@ const MODEL_FORMATS = [
   'copilot/claude-sonnet-4-5', // Copilot-prefixed SDK format
   'gpt-5.2', // Known valid Copilot model
   'copilot/gpt-5.2', // With prefix
-  'claude-opus-4-6', // Opus (SDK format)
-  'copilot/claude-opus-4-6', // Opus with prefix
+  'claude-opus-4-7', // Opus (SDK format)
+  'copilot/claude-opus-4-7', // Opus with prefix
 ];
 
 const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token';

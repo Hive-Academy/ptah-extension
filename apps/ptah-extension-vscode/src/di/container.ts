@@ -448,12 +448,19 @@ export class DIContainer {
       container.register(BROWSER_CAPABILITIES_TOKEN, {
         useValue: new ChromeLauncherBrowserCapabilities(
           // getRecordingDir — routed via file-based settings for Electron parity
-          () =>
-            workspaceProvider.getConfiguration<string>(
-              'ptah',
-              'browser.recordingDir',
-              '',
-            ) ?? '',
+          // Defaults to {workspace}/.ptah/recordings/ when no explicit dir is configured
+          () => {
+            const configured =
+              workspaceProvider.getConfiguration<string>(
+                'ptah',
+                'browser.recordingDir',
+                '',
+              ) ?? '';
+            if (configured) return configured;
+            const wsRoot = workspaceProvider.getWorkspaceRoot();
+            if (wsRoot) return `${wsRoot}/.ptah/recordings`;
+            return '';
+          },
         ),
       });
     }

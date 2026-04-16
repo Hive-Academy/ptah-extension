@@ -264,6 +264,8 @@ import type {
   HarnessGenerateDocumentResponse,
   HarnessAnalyzeIntentParams,
   HarnessAnalyzeIntentResponse,
+  HarnessConverseParams,
+  HarnessConverseResponse,
 } from './rpc/rpc-harness.types';
 
 import type {
@@ -1076,6 +1078,10 @@ export interface RpcMethodRegistry {
     params: HarnessAnalyzeIntentParams;
     result: HarnessAnalyzeIntentResponse;
   };
+  'harness:converse': {
+    params: HarnessConverseParams;
+    result: HarnessConverseResponse;
+  };
 }
 
 /**
@@ -1325,6 +1331,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'harness:generate-skills',
   'harness:generate-document',
   'harness:analyze-intent',
+  'harness:converse',
 ] as const;
 
 /**

@@ -28,8 +28,8 @@ const COPILOT_STATIC_MODELS: ProviderStaticModel[] = [
     outputCostPerToken: 0,
   },
   {
-    id: 'claude-opus-4.6',
-    name: 'Claude Opus 4.6',
+    id: 'claude-opus-4.7',
+    name: 'Claude Opus 4.7',
     description: 'Latest Opus — highest intelligence (200K context)',
     contextLength: 200000,
     supportsToolUse: true,

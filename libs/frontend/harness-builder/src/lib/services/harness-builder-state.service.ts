@@ -1,13 +1,3 @@
-/**
- * HarnessBuilderStateService
- *
- * Signal-based state management for the 6-step Harness Setup Builder wizard.
- * Manages wizard step progression, configuration accumulation, AI chat history,
- * and computed readiness signals for each step.
- *
- * Pattern: Facade over Angular signals — mirrors SetupWizardStateService approach.
- */
-
 import { computed, Injectable, signal } from '@angular/core';
 import type {
   AvailableAgent,
@@ -16,7 +6,6 @@ import type {
   HarnessMcpConfig,
   HarnessPromptConfig,
   HarnessSkillConfig,
-  HarnessWizardStep,
   HarnessClaudeMdConfig,
   HarnessAgentConfig,
   PersonaDefinition,
@@ -26,48 +15,19 @@ import type {
   HarnessSubagentDefinition,
   GeneratedSkillSpec,
   HarnessAnalyzeIntentResponse,
+  HarnessConversationMessage,
 } from '@ptah-extension/shared';
-
-/** Chat message stored in the wizard AI chat history */
-export interface HarnessChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  step: HarnessWizardStep;
-}
-
-/** Ordered wizard steps for index-based navigation */
-const STEP_ORDER: HarnessWizardStep[] = [
-  'persona',
-  'agents',
-  'skills',
-  'prompts',
-  'mcp',
-  'review',
-];
-
-/** Human-readable labels for each step */
-export const STEP_LABELS: Record<HarnessWizardStep, string> = {
-  persona: 'Describe',
-  agents: 'Agents',
-  skills: 'Skills',
-  prompts: 'Prompts',
-  mcp: 'MCP',
-  review: 'Review',
-};
 
 @Injectable({ providedIn: 'root' })
 export class HarnessBuilderStateService {
-  // ─── Core wizard state (private, mutated only within service) ──
+  // ─── Core state ─────────────────────────────────────────
 
-  private readonly _currentStep = signal<HarnessWizardStep>('persona');
   private readonly _config = signal<Partial<HarnessConfig>>({});
   private readonly _availableAgents = signal<AvailableAgent[]>([]);
   private readonly _availableSkills = signal<SkillSummary[]>([]);
   private readonly _existingPresets = signal<HarnessPreset[]>([]);
   private readonly _isLoading = signal<boolean>(false);
   private readonly _error = signal<string | null>(null);
-  private readonly _chatMessages = signal<HarnessChatMessage[]>([]);
-  private readonly _completedSteps = signal<Set<HarnessWizardStep>>(new Set());
   private readonly _suggestedMcpServers = signal<McpServerSuggestion[]>([]);
   private readonly _generatedSkillSpecs = signal<GeneratedSkillSpec[]>([]);
   private readonly _generatedDocument = signal<string>('');
@@ -75,7 +35,14 @@ export class HarnessBuilderStateService {
   private readonly _intentSummary = signal<string>('');
   private readonly _intentInput = signal<string>('');
 
-  // ─── Workspace context (from initialize) ─────────────────
+  // ─── Conversation state ─────────────────────────────────
+
+  private readonly _conversationMessages = signal<HarnessConversationMessage[]>(
+    [],
+  );
+  private readonly _isConfigComplete = signal<boolean>(false);
+
+  // ─── Workspace context (from initialize) ────────────────
 
   private readonly _workspaceContext = signal<{
     projectName: string;
@@ -84,17 +51,14 @@ export class HarnessBuilderStateService {
     languages: string[];
   } | null>(null);
 
-  // ─── Public readonly accessors ───────────────────────────
+  // ─── Public readonly accessors ──────────────────────────
 
-  public readonly currentStep = this._currentStep.asReadonly();
   public readonly config = this._config.asReadonly();
   public readonly availableAgents = this._availableAgents.asReadonly();
   public readonly availableSkills = this._availableSkills.asReadonly();
   public readonly existingPresets = this._existingPresets.asReadonly();
   public readonly isLoading = this._isLoading.asReadonly();
   public readonly error = this._error.asReadonly();
-  public readonly chatMessages = this._chatMessages.asReadonly();
-  public readonly completedSteps = this._completedSteps.asReadonly();
   public readonly suggestedMcpServers = this._suggestedMcpServers.asReadonly();
   public readonly workspaceContext = this._workspaceContext.asReadonly();
   public readonly generatedSkillSpecs = this._generatedSkillSpecs.asReadonly();
@@ -102,53 +66,12 @@ export class HarnessBuilderStateService {
   public readonly intentAnalyzed = this._intentAnalyzed.asReadonly();
   public readonly intentSummary = this._intentSummary.asReadonly();
   public readonly intentInput = this._intentInput.asReadonly();
+  public readonly conversationMessages =
+    this._conversationMessages.asReadonly();
+  public readonly isConfigComplete = this._isConfigComplete.asReadonly();
 
-  // ─── Computed signals ────────────────────────────────────
+  // ─── Computed signals ───────────────────────────────────
 
-  /** Numeric index of the current step (0-based) */
-  public readonly currentStepIndex = computed(() =>
-    STEP_ORDER.indexOf(this._currentStep()),
-  );
-
-  /** Chat messages filtered to the current step */
-  public readonly stepChatMessages = computed(() => {
-    const step = this._currentStep();
-    return this._chatMessages().filter((m) => m.step === step);
-  });
-
-  /** Whether the user can proceed from the current step */
-  public readonly canProceed = computed(() => {
-    const cfg = this._config();
-    switch (this._currentStep()) {
-      case 'persona':
-        return (
-          (this._intentAnalyzed() && !!cfg.persona?.label) ||
-          !!(
-            cfg.persona?.description &&
-            cfg.persona.description.trim().length > 0
-          )
-        );
-      case 'agents':
-        return !!(
-          cfg.agents?.enabledAgents &&
-          Object.keys(cfg.agents.enabledAgents).length > 0
-        );
-      case 'skills':
-        return true;
-      case 'prompts':
-        return !!(
-          cfg.prompt?.systemPrompt && cfg.prompt.systemPrompt.trim().length > 0
-        );
-      case 'mcp':
-        return true;
-      case 'review':
-        return true;
-      default:
-        return false;
-    }
-  });
-
-  /** Summary text for the review step */
   public readonly configSummary = computed(() => {
     const cfg = this._config();
     const parts: string[] = [];
@@ -176,43 +99,67 @@ export class HarnessBuilderStateService {
     return parts.join(' | ') || 'No configuration yet';
   });
 
-  /** Whether the wizard is on the first step */
-  public readonly isFirstStep = computed(() => this.currentStepIndex() === 0);
+  // ─── Conversation methods ───────────────────────────────
 
-  /** Whether the wizard is on the last step */
-  public readonly isLastStep = computed(
-    () => this.currentStepIndex() === STEP_ORDER.length - 1,
-  );
-
-  // ─── Navigation methods ──────────────────────────────────
-
-  public goToStep(step: HarnessWizardStep): void {
-    this._currentStep.set(step);
-    this._error.set(null);
+  public addConversationMessage(msg: HarnessConversationMessage): void {
+    this._conversationMessages.update((msgs) => [...msgs, msg]);
   }
 
-  public nextStep(): void {
-    const idx = this.currentStepIndex();
-    if (idx < STEP_ORDER.length - 1) {
-      this._completedSteps.update((steps) => {
-        const next = new Set(steps);
-        next.add(this._currentStep());
-        return next;
-      });
-      this._currentStep.set(STEP_ORDER[idx + 1]);
-      this._error.set(null);
-    }
+  public setConfigComplete(complete: boolean): void {
+    this._isConfigComplete.set(complete);
   }
 
-  public previousStep(): void {
-    const idx = this.currentStepIndex();
-    if (idx > 0) {
-      this._currentStep.set(STEP_ORDER[idx - 1]);
-      this._error.set(null);
-    }
-  }
+  // ─── Config update methods ──────────────────────────────
 
-  // ─── Config update methods ───────────────────────────────
+  public applyConfigUpdates(updates: Partial<HarnessConfig>): void {
+    this._config.update((cfg) => {
+      const merged = { ...cfg };
+
+      if (updates.persona) {
+        merged.persona = {
+          ...cfg.persona,
+          ...updates.persona,
+        } as typeof cfg.persona;
+      }
+      if (updates.agents) {
+        merged.agents = {
+          enabledAgents: {
+            ...(cfg.agents?.enabledAgents ?? {}),
+            ...(updates.agents.enabledAgents ?? {}),
+          },
+          harnessSubagents:
+            updates.agents.harnessSubagents ??
+            cfg.agents?.harnessSubagents ??
+            [],
+        };
+      }
+      if (updates.skills) {
+        merged.skills = {
+          selectedSkills:
+            updates.skills.selectedSkills ?? cfg.skills?.selectedSkills ?? [],
+          createdSkills:
+            updates.skills.createdSkills ?? cfg.skills?.createdSkills ?? [],
+        };
+      }
+      if (updates.prompt) {
+        merged.prompt = {
+          ...cfg.prompt,
+          ...updates.prompt,
+        } as typeof cfg.prompt;
+      }
+      if (updates.mcp) {
+        merged.mcp = updates.mcp;
+      }
+      if (updates.claudeMd) {
+        merged.claudeMd = {
+          ...cfg.claudeMd,
+          ...updates.claudeMd,
+        } as typeof cfg.claudeMd;
+      }
+
+      return merged;
+    });
+  }
 
   public updatePersona(persona: PersonaDefinition): void {
     this._config.update((cfg) => ({ ...cfg, persona }));
@@ -282,27 +229,20 @@ export class HarnessBuilderStateService {
     }));
   }
 
-  // ─── Intent Analysis ─────────────────────────────────────
+  // ─── Intent Analysis ────────────────────────────────────
 
-  /** Persist the freeform intent input text across step navigation */
   public setIntentInput(text: string): void {
     this._intentInput.set(text);
   }
 
-  /** Bulk-populate all steps from the AI's intent analysis */
   public applyIntentAnalysis(response: HarnessAnalyzeIntentResponse): void {
-    this._completedSteps.set(new Set());
-
-    // Persona
     this.updatePersona(response.persona);
 
-    // Agents — merge suggested agents + custom subagents
     this.updateAgents({
       enabledAgents: response.suggestedAgents,
       harnessSubagents: response.suggestedSubagents,
     });
 
-    // Skills
     this.updateSkills({
       selectedSkills: response.suggestedSkills,
       createdSkills: response.suggestedSkillSpecs.map((spec) => ({
@@ -313,32 +253,31 @@ export class HarnessBuilderStateService {
       })),
     });
 
-    // Generated skill specs (for the skills step to display)
     this.setGeneratedSkillSpecs(response.suggestedSkillSpecs);
 
-    // Prompt
     this.updatePrompt({
       systemPrompt: response.suggestedPrompt,
       enhancedSections: {},
     });
 
-    // MCP server suggestions
     this.setSuggestedMcpServers(response.suggestedMcpServers);
 
-    // Mark intent as analyzed
     this._intentAnalyzed.set(true);
     this._intentSummary.set(response.summary);
   }
 
-  // ─── Chat methods ────────────────────────────────────────
+  // ─── Loading state ──────────────────────────────────────
 
-  public addChatMessage(message: HarnessChatMessage): void {
-    this._chatMessages.update((msgs) => [...msgs, message]);
+  public setLoading(loading: boolean): void {
+    this._isLoading.set(loading);
   }
 
-  // ─── Initialization ──────────────────────────────────────
+  public setError(error: string | null): void {
+    this._error.set(error);
+  }
 
-  /** Populate state from the backend initialization response */
+  // ─── Initialization ─────────────────────────────────────
+
   public initialize(response: HarnessInitializeResponse): void {
     this._availableAgents.set(response.availableAgents);
     this._availableSkills.set(response.availableSkills);
@@ -347,17 +286,13 @@ export class HarnessBuilderStateService {
     this._error.set(null);
   }
 
-  /** Reset wizard to initial state */
   public reset(): void {
-    this._currentStep.set('persona');
     this._config.set({});
     this._availableAgents.set([]);
     this._availableSkills.set([]);
     this._existingPresets.set([]);
     this._isLoading.set(false);
     this._error.set(null);
-    this._chatMessages.set([]);
-    this._completedSteps.set(new Set());
     this._suggestedMcpServers.set([]);
     this._workspaceContext.set(null);
     this._generatedSkillSpecs.set([]);
@@ -365,5 +300,7 @@ export class HarnessBuilderStateService {
     this._intentAnalyzed.set(false);
     this._intentSummary.set('');
     this._intentInput.set('');
+    this._conversationMessages.set([]);
+    this._isConfigComplete.set(false);
   }
 }

@@ -1,15 +1,11 @@
 import { Injectable, computed, signal, inject } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat';
+import { CanvasLayoutService } from './canvas-layout.service';
 
 export interface CanvasTile {
   tabId: string;
   position: { x: number; y: number; w: number; h: number };
 }
-
-// Named constants for canvas grid layout
-const CANVAS_COLS_PER_ROW = 3;
-const CANVAS_TILE_W = 4; // 12-column grid ÷ 3 tiles per row
-const CANVAS_TILE_H = 6;
 
 /**
  * CanvasStore — scoped per OrchestraCanvasComponent (not providedIn: 'root').
@@ -24,6 +20,7 @@ const CANVAS_TILE_H = 6;
 @Injectable()
 export class CanvasStore {
   private readonly tabManager = inject(TabManagerService);
+  private readonly layoutService = inject(CanvasLayoutService);
 
   static readonly MAX_TILES = 9;
 
@@ -151,18 +148,15 @@ export class CanvasStore {
    * Centralizes the position calculation to avoid duplication.
    */
   private appendTile(tabId: string): void {
-    const count = this._tiles().length;
-    this._tiles.update((tiles) => [
-      ...tiles,
-      {
-        tabId,
-        position: {
-          x: (count % CANVAS_COLS_PER_ROW) * CANVAS_TILE_W,
-          y: Math.floor(count / CANVAS_COLS_PER_ROW) * CANVAS_TILE_H,
-          w: CANVAS_TILE_W,
-          h: CANVAS_TILE_H,
-        },
-      },
-    ]);
+    const newCount = this._tiles().length + 1;
+    const layout = this.layoutService.computeLayout(newCount);
+    const position = layout.tiles[newCount - 1] ?? {
+      x: 0,
+      y: 0,
+      w: 4,
+      h: 6,
+    };
+
+    this._tiles.update((tiles) => [...tiles, { tabId, position }]);
   }
 }

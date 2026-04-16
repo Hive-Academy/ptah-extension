@@ -54,6 +54,8 @@ import type {
   HarnessGenerateDocumentResponse,
   HarnessAnalyzeIntentParams,
   HarnessAnalyzeIntentResponse,
+  HarnessConverseParams,
+  HarnessConverseResponse,
 } from '@ptah-extension/shared';
 
 @Injectable({ providedIn: 'root' })
@@ -288,5 +290,17 @@ export class HarnessRpcService {
       return result.data;
     }
     throw new Error(result.error || 'Failed to analyze intent');
+  }
+
+  public async converse(
+    params: HarnessConverseParams,
+  ): Promise<HarnessConverseResponse> {
+    const result = await this.rpcService.call('harness:converse', params, {
+      timeout: 300_000,
+    });
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to get conversation response');
   }
 }
