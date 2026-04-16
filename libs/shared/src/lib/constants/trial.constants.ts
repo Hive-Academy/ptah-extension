@@ -21,6 +21,4 @@
  * which defaults to this value. For testing, set the env var to
  * a shorter duration (e.g., 1 day).
  */
-export const TRIAL_DURATION_DAYS = process.env['TRIAL_DURATION_DAYS']
-  ? parseInt(process.env['TRIAL_DURATION_DAYS'], 10)
-  : 100;
+export const TRIAL_DURATION_DAYS = 100;
