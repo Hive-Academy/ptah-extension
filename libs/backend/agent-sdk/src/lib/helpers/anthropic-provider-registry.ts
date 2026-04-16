@@ -456,34 +456,32 @@ export function seedStaticModelPricing(providerId: string): void {
  * @param modelId - Model ID as reported by the SDK (may be an Anthropic alias)
  * @returns The actual model ID for pricing lookup
  */
+/**
+ * @deprecated Use ModelResolver.resolveForPricing() instead.
+ * Kept for backward compatibility — logic duplicated in ModelResolver.resolveForPricing().
+ */
 export function resolveActualModelForPricing(
   modelId: string,
   authEnv?: AuthEnv,
 ): string {
   if (!modelId) return modelId;
 
-  // TASK_2025_164: Prefer AuthEnv values, fall back to process.env for backward compat
   const baseUrl =
     authEnv?.ANTHROPIC_BASE_URL ?? process.env['ANTHROPIC_BASE_URL'];
 
-  // If no base URL or pointing to Anthropic directly, model is already correct
   if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
     return modelId;
   }
 
-  // Third-party provider detected — check if modelId looks like an Anthropic model
-  // and resolve to the actual provider model via tier env var overrides.
-  // Uses TIER_ENV_VAR_MAP (canonical source) instead of fragile substring matching.
   const lower = modelId.toLowerCase();
 
   for (const [tier, envKey] of Object.entries(TIER_ENV_VAR_MAP)) {
     if (lower.includes(tier)) {
       const override = authEnv?.[envKey] ?? process.env[envKey];
       if (override) return override;
-      break; // Only match the first tier — 'opus', 'sonnet', 'haiku' are mutually exclusive
+      break;
     }
   }
 
-  // Not an Anthropic model alias, or no tier override set — return as-is
   return modelId;
 }

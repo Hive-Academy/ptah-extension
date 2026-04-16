@@ -71,6 +71,14 @@ import {
 } from '../local-provider';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
+import { ModelResolver } from '../auth/model-resolver';
+import {
+  ApiKeyStrategy,
+  OAuthProxyStrategy,
+  LocalNativeStrategy,
+  LocalProxyStrategy,
+  CliStrategy,
+} from '../auth/strategies';
 
 /**
  * Register all agent-sdk services in DI container
@@ -443,6 +451,51 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_LM_STUDIO_PROXY,
     { useClass: LmStudioTranslationProxy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // ============================================================
+  // Auth Strategies (TASK_AUTH_REFACTOR Phase 2)
+  // 5 strategies extract auth logic from the AuthManager god class
+  // Must be registered before AuthManager resolves (which depends on these)
+  // ============================================================
+
+  container.register(
+    SDK_TOKENS.SDK_API_KEY_STRATEGY,
+    { useClass: ApiKeyStrategy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_OAUTH_PROXY_STRATEGY,
+    { useClass: OAuthProxyStrategy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_LOCAL_NATIVE_STRATEGY,
+    { useClass: LocalNativeStrategy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_LOCAL_PROXY_STRATEGY,
+    { useClass: LocalProxyStrategy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_CLI_STRATEGY,
+    { useClass: CliStrategy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // ============================================================
+  // ModelResolver - Single source of truth for tier→model resolution (TASK_AUTH_REFACTOR)
+  // ============================================================
+  container.register(
+    SDK_TOKENS.SDK_MODEL_RESOLVER,
+    { useClass: ModelResolver },
     { lifecycle: Lifecycle.Singleton },
   );
 

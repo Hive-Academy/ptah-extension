@@ -324,5 +324,18 @@ export type { IMcpServerInstaller } from './lib/helpers';
 // ============================================================
 export { setPtahMcpPort } from './lib/constants';
 
+// ============================================================
+// Auth Strategy System (TASK_AUTH_REFACTOR)
+// Clean auth abstraction replacing scattered if/else logic
+// ============================================================
+export { ModelResolver } from './lib/auth';
+export type {
+  IAuthStrategy,
+  AuthConfigureResult,
+  AuthConfigureContext,
+  ModelFetcherFn,
+  IModelFetcherProvider,
+} from './lib/auth';
+
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';

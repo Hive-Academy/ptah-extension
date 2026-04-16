@@ -19,6 +19,7 @@ import { AuthEnv } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { ModelInfo } from '../types/sdk-types/claude-sdk.types';
 import { SdkModuleLoader } from './sdk-module-loader';
+import type { ModelResolver } from '../auth/model-resolver';
 
 /**
  * Model entry from the Anthropic /v1/models API
@@ -140,9 +141,12 @@ export function buildTierEnvDefaults(authEnv: AuthEnv): Record<string, string> {
  * @param model - Model string (could be full ID or bare tier name)
  * @param authEnv - Optional AuthEnv for env var override checks (proxy providers)
  */
+/**
+ * @deprecated Use ModelResolver.resolve() or ModelResolver.resolveStatic() instead.
+ * Kept for backward compatibility — logic duplicated in ModelResolver.resolveStatic().
+ */
 export function resolveModelIdStatic(model: string, authEnv?: AuthEnv): string {
   if (model.startsWith('claude-')) {
-    // Check provider override for full Claude IDs (same as instance method)
     if (authEnv) {
       const tier = detectTierFromClaudeId(model);
       if (tier) {
@@ -157,7 +161,6 @@ export function resolveModelIdStatic(model: string, authEnv?: AuthEnv): string {
   }
   const tierLower = model.toLowerCase();
 
-  // Check env var overrides (set by ProviderModelsService for proxy providers)
   if (authEnv && isEnvMappedTier(tierLower)) {
     const envKey = TIER_ENV_VAR_MAP[tierLower];
     const override = authEnv[envKey];
@@ -231,6 +234,8 @@ export class SdkModelService {
     @inject(SDK_TOKENS.SDK_MODULE_LOADER)
     private readonly moduleLoader: SdkModuleLoader,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: ModelResolver,
   ) {}
 
   /**
@@ -735,78 +740,18 @@ export class SdkModelService {
    * @param model - Model string (could be full ID or bare tier name)
    * @returns Full model ID (provider-specific when overrides are active)
    */
+  /**
+   * Resolve a model identifier to the actual model ID to use.
+   * Delegates to ModelResolver.resolve() — the single source of truth.
+   */
   resolveModelId(model: string): string {
-    // Full Claude model ID — check if a provider override should replace it.
-    // When using non-Anthropic providers (Z.AI, Ollama Cloud, Codex, Copilot),
-    // the env vars ANTHROPIC_DEFAULT_*_MODEL point to provider-specific models.
-    // Without this check, 'claude-sonnet-4-6' gets sent to Z.AI which rejects it.
-    if (model.startsWith('claude-')) {
-      const tier = detectTierFromClaudeId(model);
-      if (tier) {
-        const envKey = TIER_ENV_VAR_MAP[tier];
-        const override = this.authEnv[envKey];
-        if (override && override !== model) {
-          this.logger.debug(
-            `[SdkModelService] Provider override: '${model}' (${tier} tier) → '${override}' via ${envKey}`,
-          );
-          return override;
-        }
-      }
-      return model;
-    }
-
-    const tierLower = model.toLowerCase();
-
-    // 'default' maps to sonnet tier — check sonnet's env var override first.
-    // This ensures proxy providers (Codex, Copilot) that set ANTHROPIC_DEFAULT_SONNET_MODEL
-    // to a provider-specific model (e.g., 'gpt-5.3-codex') get the correct mapping
-    // even when the user selects "Default (recommended)".
-    if (tierLower === 'default') {
-      const sonnetEnvKey = TIER_ENV_VAR_MAP['sonnet'];
-      const sonnetOverride = this.authEnv[sonnetEnvKey];
-      if (sonnetOverride) {
-        this.logger.debug(
-          `[SdkModelService] Resolved '${model}' to '${sonnetOverride}' via ${sonnetEnvKey} (default → sonnet tier)`,
-        );
-        return sonnetOverride;
-      }
-      // No env override — use hardcoded default
-      const knownId = TIER_TO_MODEL_ID['default'];
+    const resolved = this.modelResolver.resolve(model);
+    if (resolved !== model) {
       this.logger.debug(
-        `[SdkModelService] Resolved '${model}' to '${knownId}' (hardcoded default)`,
+        `[SdkModelService] Resolved '${model}' → '${resolved}' via ModelResolver`,
       );
-      return knownId;
     }
-
-    // Check env var overrides first (set by ProviderModelsService.setModelTier).
-    // Only check known tiers that have corresponding env vars — avoids
-    // constructing invalid env key names from arbitrary input.
-    if (isEnvMappedTier(tierLower)) {
-      const envVarKey = TIER_ENV_VAR_MAP[tierLower];
-      const envOverride = this.authEnv[envVarKey];
-      if (envOverride) {
-        this.logger.debug(
-          `[SdkModelService] Resolved '${model}' to '${envOverride}' via ${envVarKey}`,
-        );
-        return envOverride;
-      }
-    }
-
-    // Fall back to known tier-to-model-ID mapping
-    if (isModelTier(tierLower)) {
-      const knownId = TIER_TO_MODEL_ID[tierLower];
-      this.logger.debug(
-        `[SdkModelService] Resolved bare tier name '${model}' to '${knownId}'`,
-      );
-      return knownId;
-    }
-
-    // Unknown model identifier — return as-is and let SDK handle it.
-    // This is expected for third-party provider models (e.g., 'kimi-k2-pro').
-    this.logger.debug(
-      `[SdkModelService] Unknown model identifier '${model}', passing through to SDK`,
-    );
-    return model;
+    return resolved;
   }
 
   /**
