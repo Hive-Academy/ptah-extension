@@ -364,3 +364,60 @@ export interface HarnessAnalyzeIntentResponse {
   /** Detailed reasoning */
   reasoning: string;
 }
+
+// ─── Harness Streaming Types ────────────────────────────
+
+/** Operation types that can produce streaming events */
+export type HarnessStreamOperation =
+  | 'analyze-intent'
+  | 'suggest-config'
+  | 'design-agents'
+  | 'generate-skills'
+  | 'generate-document'
+  | 'chat';
+
+/** Streaming event payload broadcast from backend during harness operations */
+export interface HarnessStreamPayload {
+  /** Which operation produced this event */
+  operation: HarnessStreamOperation;
+  /** Unique operation instance ID (for correlating events) */
+  operationId: string;
+  /** Event kind matching SdkStreamProcessor's StreamEvent kinds */
+  kind:
+    | 'text'
+    | 'thinking'
+    | 'tool_start'
+    | 'tool_input'
+    | 'tool_result'
+    | 'error'
+    | 'status';
+  /** Text content (text output, thinking preview, error message, or status) */
+  content: string;
+  /** Tool name (for tool_start, tool_input, tool_result) */
+  toolName?: string;
+  /** Tool call ID (for correlating tool_start with tool_result) */
+  toolCallId?: string;
+  /** Whether this is an error result */
+  isError?: boolean;
+  /** Timestamp */
+  timestamp: number;
+}
+
+/** Completion event sent when a harness operation finishes */
+export interface HarnessStreamCompletePayload {
+  /** Which operation completed */
+  operation: HarnessStreamOperation;
+  /** The operation instance ID */
+  operationId: string;
+  /** Whether the operation succeeded */
+  success: boolean;
+  /** Error message if failed */
+  error?: string;
+  /** Timestamp */
+  timestamp: number;
+}
+
+/** Discriminated union for all harness streaming messages */
+export type HarnessStreamMessage =
+  | { type: 'harness:stream'; payload: HarnessStreamPayload }
+  | { type: 'harness:stream-complete'; payload: HarnessStreamCompletePayload };

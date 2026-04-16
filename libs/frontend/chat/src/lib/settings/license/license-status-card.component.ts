@@ -254,7 +254,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
                 >
               </div>
               <p class="text-xs text-base-content/60 mb-2">
-                Your 30-day Pro trial has ended. Upgrade to restore Pro
+                Your 100-day Pro trial has ended. Upgrade to restore Pro
                 features.
               </p>
               <button
