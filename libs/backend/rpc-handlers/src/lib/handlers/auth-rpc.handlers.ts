@@ -137,12 +137,12 @@ export class AuthRpcHandlers {
         const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
 
         // Get auth method from ConfigManager (non-sensitive)
-        // Normalize legacy/invalid values (e.g. 'vscode-lm') to 'auto'
+        // Normalize legacy/invalid values (e.g. 'vscode-lm', 'auto') to 'apiKey'
         const rawMethod = this.configManager.get<string>('authMethod');
-        const validMethods = ['apiKey', 'claudeCli', 'openrouter', 'auto'];
+        const validMethods = ['apiKey', 'claudeCli', 'openrouter'];
         const authMethod = (
-          rawMethod && validMethods.includes(rawMethod) ? rawMethod : 'auto'
-        ) as 'apiKey' | 'claudeCli' | 'openrouter' | 'auto';
+          rawMethod && validMethods.includes(rawMethod) ? rawMethod : 'apiKey'
+        ) as 'apiKey' | 'claudeCli' | 'openrouter';
 
         // TASK_2025_129 Batch 3: Get selected provider ID
         const anthropicProviderId = this.configManager.getWithDefault<string>(
@@ -271,7 +271,7 @@ export class AuthRpcHandlers {
    */
   private registerSaveSettings(): void {
     const AuthSettingsSchema = z.object({
-      authMethod: z.enum(['apiKey', 'claudeCli', 'openrouter', 'auto']),
+      authMethod: z.enum(['apiKey', 'claudeCli', 'openrouter']),
       anthropicApiKey: z.string().optional(),
       openrouterApiKey: z.string().optional(),
       // TASK_2025_129 Batch 3: Selected Anthropic-compatible provider

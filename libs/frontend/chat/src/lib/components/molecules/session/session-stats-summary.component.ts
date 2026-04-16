@@ -4,6 +4,7 @@ import {
   input,
   computed,
   signal,
+  output,
 } from '@angular/core';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
 import {
@@ -60,26 +61,7 @@ export interface ModelUsageEntry {
   standalone: true,
   template: `
     @if (hasStats()) {
-      <div class="stats-grid relative" style="container-type: inline-size">
-        <!-- Context warning overlay progress bar -->
-        @if (showContextWarning()) {
-          <div
-            class="context-warning-overlay"
-            [title]="
-              'Context usage: ' +
-              liveModelStats()!.contextPercent +
-              '% — auto-compaction approaching'
-            "
-          >
-            <div
-              class="context-warning-bar"
-              [class.context-warning-critical]="
-                liveModelStats()!.contextPercent >= 90
-              "
-              [style.width.%]="warningFillPercent()"
-            ></div>
-          </div>
-        }
+      <div class="stats-grid" style="container-type: inline-size">
         <!-- Collapsed: compact summary bar -->
         @if (isStatsCollapsed()) {
           <div
@@ -551,6 +533,37 @@ export interface ModelUsageEntry {
             </div>
           }
         }
+
+        <!-- Context usage progress bar — always visible when context data exists -->
+        @if (liveModelStats()) {
+          <div class="mt-1.5" [title]="contextTooltip()">
+            <div class="context-bar-track">
+              <div
+                class="context-bar-fill"
+                [class.context-bar-warning]="showContextWarning()"
+                [class.context-bar-critical]="
+                  liveModelStats()!.contextPercent >= 90
+                "
+                [style.width.%]="liveModelStats()!.contextPercent"
+              ></div>
+            </div>
+            @if (showContextWarning()) {
+              <div class="flex items-center justify-between mt-1 gap-2">
+                <span class="text-[10px] text-warning leading-tight">
+                  Context {{ liveModelStats()!.contextPercent }}% full —
+                  consider compacting or starting a new session
+                </span>
+                <button
+                  type="button"
+                  class="text-[10px] font-medium text-warning hover:text-warning-content bg-warning/15 hover:bg-warning/25 border border-warning/30 rounded px-1.5 py-0.5 whitespace-nowrap transition-colors"
+                  (click)="newSessionRequested.emit()"
+                >
+                  New Session
+                </button>
+              </div>
+            }
+          </div>
+        }
       </div>
     }
   `,
@@ -570,51 +583,52 @@ export interface ModelUsageEntry {
         }
       }
 
-      .context-warning-overlay {
-        position: absolute;
-        inset: 0;
-        z-index: 1;
-        pointer-events: none;
-        border-radius: 0.25rem;
+      .context-bar-track {
+        height: 4px;
+        border-radius: 2px;
+        background: oklch(0.3 0 0 / 0.4);
         overflow: hidden;
       }
 
-      .context-warning-bar {
+      .context-bar-fill {
         height: 100%;
-        background: linear-gradient(
-          90deg,
-          oklch(0.795 0.184 86.047 / 0.08),
-          oklch(0.795 0.184 86.047 / 0.15)
-        );
-        border-right: 2px solid oklch(0.795 0.184 86.047 / 0.5);
+        border-radius: 2px;
+        background: oklch(0.72 0.15 200 / 0.5);
         transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
-        animation: context-warning-pulse 3s ease-in-out infinite;
       }
 
-      .context-warning-bar.context-warning-critical {
+      .context-bar-fill.context-bar-warning {
         background: linear-gradient(
           90deg,
-          oklch(0.637 0.237 25.331 / 0.08),
-          oklch(0.637 0.237 25.331 / 0.18)
+          oklch(0.795 0.184 86.047 / 0.7),
+          oklch(0.795 0.184 86.047 / 0.9)
         );
-        border-right-color: oklch(0.637 0.237 25.331 / 0.6);
-        animation: context-warning-pulse-critical 2s ease-in-out infinite;
+        animation: context-bar-pulse 3s ease-in-out infinite;
       }
 
-      @keyframes context-warning-pulse {
+      .context-bar-fill.context-bar-critical {
+        background: linear-gradient(
+          90deg,
+          oklch(0.637 0.237 25.331 / 0.7),
+          oklch(0.637 0.237 25.331 / 0.95)
+        );
+        animation: context-bar-pulse-critical 1.5s ease-in-out infinite;
+      }
+
+      @keyframes context-bar-pulse {
         0%,
         100% {
-          opacity: 0.7;
+          opacity: 0.75;
         }
         50% {
           opacity: 1;
         }
       }
 
-      @keyframes context-warning-pulse-critical {
+      @keyframes context-bar-pulse-critical {
         0%,
         100% {
-          opacity: 0.6;
+          opacity: 0.65;
         }
         50% {
           opacity: 1;
@@ -659,6 +673,9 @@ export class SessionStatsSummaryComponent {
   /** Number of context compactions in this session */
   readonly compactionCount = input<number>(0);
 
+  /** Emitted when user clicks "New Session" from the context warning */
+  readonly newSessionRequested = output<void>();
+
   /** Whether the stats section is collapsed to a compact bar */
   readonly isStatsCollapsed = signal(true);
 
@@ -669,12 +686,6 @@ export class SessionStatsSummaryComponent {
   readonly showContextWarning = computed(
     () => (this.liveModelStats()?.contextPercent ?? 0) >= 70,
   );
-
-  /** Progress bar fill: maps 70-100% context to 0-100% bar width */
-  readonly warningFillPercent = computed(() => {
-    const pct = this.liveModelStats()?.contextPercent ?? 0;
-    return Math.min(100, Math.max(0, ((pct - 70) / 30) * 100));
-  });
 
   /** Whether there are multiple models to display */
   readonly hasMultipleModels = computed(

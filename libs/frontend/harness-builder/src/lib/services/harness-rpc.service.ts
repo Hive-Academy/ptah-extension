@@ -19,6 +19,10 @@
  * - harness:save-preset      — Save config as reusable preset
  * - harness:load-presets     — List saved presets
  * - harness:chat             — Step-contextual AI chat message
+ * - harness:design-agents    — AI designs a custom subagent fleet
+ * - harness:generate-skills  — AI generates specialized skill specs
+ * - harness:generate-document — Generate comprehensive PRD document
+ * - harness:analyze-intent   — AI architects complete harness from freeform input
  */
 
 import { Injectable, inject } from '@angular/core';
@@ -42,6 +46,14 @@ import type {
   HarnessLoadPresetsResponse,
   HarnessChatParams,
   HarnessChatResponse,
+  HarnessDesignAgentsParams,
+  HarnessDesignAgentsResponse,
+  HarnessGenerateSkillsParams,
+  HarnessGenerateSkillsResponse,
+  HarnessGenerateDocumentParams,
+  HarnessGenerateDocumentResponse,
+  HarnessAnalyzeIntentParams,
+  HarnessAnalyzeIntentResponse,
 } from '@ptah-extension/shared';
 
 @Injectable({ providedIn: 'root' })
@@ -205,5 +217,76 @@ export class HarnessRpcService {
       return result.data;
     }
     throw new Error(result.error || 'Failed to get chat response');
+  }
+
+  /**
+   * AI-design a custom subagent fleet based on persona and goals.
+   * Uses a 2-minute timeout since this involves LLM processing.
+   */
+  public async designAgents(
+    params: HarnessDesignAgentsParams,
+  ): Promise<HarnessDesignAgentsResponse> {
+    const result = await this.rpcService.call('harness:design-agents', params, {
+      timeout: 120_000,
+    });
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to design agent fleet');
+  }
+
+  /**
+   * AI-generate specialized skill specs for the persona.
+   * Uses a 2-minute timeout since this involves LLM processing.
+   */
+  public async generateSkills(
+    params: HarnessGenerateSkillsParams,
+  ): Promise<HarnessGenerateSkillsResponse> {
+    const result = await this.rpcService.call(
+      'harness:generate-skills',
+      params,
+      { timeout: 120_000 },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to generate skills');
+  }
+
+  /**
+   * Generate a comprehensive PRD/requirements document from config.
+   * Uses a 2-minute timeout since this involves LLM processing.
+   */
+  public async generateDocument(
+    params: HarnessGenerateDocumentParams,
+  ): Promise<HarnessGenerateDocumentResponse> {
+    const result = await this.rpcService.call(
+      'harness:generate-document',
+      params,
+      { timeout: 120_000 },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to generate requirements document');
+  }
+
+  /**
+   * AI-architect a complete harness from freeform input.
+   * Accepts any text: PRD, simple instruction, or description.
+   * Uses a 3-minute timeout since this is the most comprehensive LLM call.
+   */
+  public async analyzeIntent(
+    params: HarnessAnalyzeIntentParams,
+  ): Promise<HarnessAnalyzeIntentResponse> {
+    const result = await this.rpcService.call(
+      'harness:analyze-intent',
+      params,
+      { timeout: 180_000 },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to analyze intent');
   }
 }

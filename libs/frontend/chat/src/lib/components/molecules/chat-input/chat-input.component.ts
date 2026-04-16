@@ -1099,8 +1099,10 @@ export class ChatInputComponent implements OnInit {
           label = provider?.name ?? 'Provider';
         } else if (authMethod === 'apiKey') {
           label = 'API Key';
+        } else if (authMethod === 'claudeCli') {
+          label = 'Claude CLI';
         } else {
-          label = 'Auto';
+          label = 'API Key';
         }
 
         this.authMethodLabel.set(label);

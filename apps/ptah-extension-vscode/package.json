@@ -194,13 +194,12 @@
         "ptah.authMethod": {
           "type": "string",
           "enum": [
-            "auto",
-            "oauth",
             "apiKey",
+            "claudeCli",
             "openrouter"
           ],
-          "default": "auto",
-          "description": "Authentication method for Ptah. 'auto' will try Provider first, then API key."
+          "default": "apiKey",
+          "description": "Authentication method for Ptah. 'apiKey' uses a direct Anthropic API key, 'claudeCli' uses Claude CLI credentials from 'claude login', 'openrouter' routes through a configured third-party provider."
         },
         "ptah.model.selected": {
           "type": "string",

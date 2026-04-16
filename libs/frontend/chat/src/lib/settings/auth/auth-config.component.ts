@@ -140,7 +140,7 @@ export class AuthConfigComponent implements OnInit {
    * Computed: which tile is currently being VIEWED in the provider tile grid.
    * This controls which provider's config form is shown, NOT which provider is active.
    * Claude tile is viewed when authMethod is 'apiKey' or 'claudeCli'.
-   * Provider tiles are viewed when authMethod is 'openrouter' or 'auto'.
+   * Provider tiles are viewed when authMethod is 'openrouter'.
    */
   readonly selectedTileId = computed(() => {
     const method = this.authState.authMethod();
@@ -223,13 +223,6 @@ export class AuthConfigComponent implements OnInit {
         return hasNewApiKey || hasExistingApiKey;
       case 'openrouter':
         return hasNewProviderKey || hasExistingProviderKey;
-      case 'auto':
-        return (
-          hasNewApiKey ||
-          hasNewProviderKey ||
-          hasExistingApiKey ||
-          hasExistingProviderKey
-        );
       default:
         return false;
     }
@@ -296,7 +289,7 @@ export class AuthConfigComponent implements OnInit {
           ? this.apiKey().trim() || undefined
           : undefined,
       openrouterApiKey:
-        currentMethod === 'openrouter' || currentMethod === 'auto'
+        currentMethod === 'openrouter'
           ? this.providerKey().trim() || undefined
           : undefined,
       anthropicProviderId: this.authState.selectedProviderId(),

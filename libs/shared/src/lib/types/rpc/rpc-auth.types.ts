@@ -10,7 +10,7 @@
 // ============================================================
 
 /** Supported authentication methods */
-export type AuthMethod = 'apiKey' | 'claudeCli' | 'openrouter' | 'auto';
+export type AuthMethod = 'apiKey' | 'claudeCli' | 'openrouter';
 
 /** Parameters for auth:getHealth RPC method */
 export type AuthGetHealthParams = Record<string, never>;

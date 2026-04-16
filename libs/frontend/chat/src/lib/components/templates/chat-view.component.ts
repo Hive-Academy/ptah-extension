@@ -654,6 +654,11 @@ export class ChatViewComponent {
     }
   }
 
+  /** Handle "New Session" request from context warning bar */
+  onNewSessionFromContextWarning(): void {
+    this._tabManager.createTab('New Session');
+  }
+
   private scrollToBottom(behavior: ScrollBehavior = 'smooth'): void {
     const containerRef = this.messageContainerRef();
     if (!containerRef) return;
