@@ -51,8 +51,9 @@ Navigate to a URL (http/https only). Starts browser session if none exists. Retu
 - headless: false (default) = visible browser, true = no window
 - viewport: { width, height } — default 1920x1080
 
-### ptah_browser_screenshot { format?, quality?, fullPage? }
+### ptah_browser_screenshot { format?, quality?, fullPage?, saveTo? }
 Capture a screenshot. Returns base64-encoded image data. Use for visual verification.
+- saveTo: filename (e.g. "homepage.png") saves to {workspace}/.ptah/screenshots/; absolute path also supported. Omit to return data only.
 
 ### ptah_browser_evaluate { expression }
 Execute JavaScript in the page context. Supports async expressions. Max 64KB.
@@ -97,7 +98,7 @@ ptah_browser_screenshot {} — tablet layout verification
 Start recording the browser session as a GIF. Frames captured via CDP. Stop with ptah_browser_record_stop.
 
 ### ptah_browser_record_stop (no parameters)
-Stop recording. Assembles frames into GIF file. Returns file path, frame count, duration, file size.
+Stop recording. Assembles frames into GIF file saved to {workspace}/.ptah/recordings/ (or ptah.browser.recordingDir setting). Returns file path, frame count, duration, file size.
 
 ### Browser Recording
 Use recording for audit trails, debugging, and demonstrating steps to users:

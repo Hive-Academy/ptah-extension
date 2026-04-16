@@ -911,10 +911,13 @@ export function formatBrowserScreenshot(
     }
 
     const sizeKB = Math.round((result.data.length * 3) / 4 / 1024);
+    const savedLine = result.filePath
+      ? `  \n**Saved to:** \`${result.filePath}\``
+      : '';
     return json2md([
       { h2: 'Screenshot Captured' },
       {
-        p: `**Format:** ${result.format}  \n**Size:** ~${sizeKB}KB  \n**Data (base64):**`,
+        p: `**Format:** ${result.format}  \n**Size:** ~${sizeKB}KB${savedLine}  \n**Data (base64):**`,
       },
       { code: { content: result.data } },
     ]);

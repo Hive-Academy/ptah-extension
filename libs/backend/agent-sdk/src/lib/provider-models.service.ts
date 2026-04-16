@@ -528,21 +528,22 @@ export class ProviderModelsService {
    *
    * Mapping:
    *  - apiKey / claudeCli     → ANTHROPIC_DIRECT_PROVIDER_ID (Anthropic native)
-   *  - openrouter             → saved anthropicProviderId (OpenRouter, Moonshot, etc.)
+   *  - thirdParty             → saved anthropicProviderId (OpenRouter, Moonshot, etc.)
    */
   resolveActiveProviderId(): string {
     const rawMethod = this.config.getWithDefault<string>(
       'authMethod',
       'apiKey',
     );
-    // Normalize legacy values ('oauth', 'auto') to 'apiKey'
-    const authMethod =
-      rawMethod === 'oauth' || rawMethod === 'auto' ? 'apiKey' : rawMethod;
+    // Normalize legacy values ('oauth', 'auto' → 'apiKey', 'openrouter' → 'thirdParty')
+    let authMethod = rawMethod;
+    if (rawMethod === 'oauth' || rawMethod === 'auto') authMethod = 'apiKey';
+    if (rawMethod === 'openrouter') authMethod = 'thirdParty';
 
     if (authMethod === 'apiKey' || authMethod === 'claudeCli') {
       return ANTHROPIC_DIRECT_PROVIDER_ID;
     }
-    if (authMethod === 'openrouter') {
+    if (authMethod === 'thirdParty') {
       return this.config.getWithDefault<string>(
         'anthropicProviderId',
         DEFAULT_PROVIDER_ID,

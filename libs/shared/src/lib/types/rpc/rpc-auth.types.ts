@@ -10,7 +10,7 @@
 // ============================================================
 
 /** Supported authentication methods */
-export type AuthMethod = 'apiKey' | 'claudeCli' | 'openrouter';
+export type AuthMethod = 'apiKey' | 'claudeCli' | 'thirdParty';
 
 /** Parameters for auth:getHealth RPC method */
 export type AuthGetHealthParams = Record<string, never>;
@@ -32,7 +32,7 @@ export interface AuthSaveSettingsParams {
   authMethod: AuthMethod;
   anthropicApiKey?: string;
   /** Provider API key - used for OpenRouter, Moonshot, Z.AI, etc. */
-  openrouterApiKey?: string;
+  providerApiKey?: string;
   /** Selected Anthropic-compatible provider ID (TASK_2025_129 Batch 3) */
   anthropicProviderId?: string;
 }

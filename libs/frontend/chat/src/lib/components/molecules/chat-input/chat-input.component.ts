@@ -1092,7 +1092,7 @@ export class ChatInputComponent implements OnInit {
           result.data;
 
         let label: string;
-        if (authMethod === 'openrouter') {
+        if (authMethod === 'thirdParty') {
           const provider = availableProviders?.find(
             (p) => p.id === anthropicProviderId,
           );

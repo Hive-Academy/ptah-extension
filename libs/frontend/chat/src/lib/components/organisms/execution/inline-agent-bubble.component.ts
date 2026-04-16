@@ -34,6 +34,7 @@ import { NgClass } from '@angular/common';
 import { formatModelDisplayName } from '@ptah-extension/shared';
 import { TokenBadgeComponent } from '../../atoms/token-badge.component';
 import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
+import { generateAgentColor } from '../../../utils/agent-color.utils';
 
 /**
  * InlineAgentBubbleComponent - Unified agent rendering for both streaming and replay
@@ -510,50 +511,9 @@ export class InlineAgentBubbleComponent {
   // Computed: agent color based on type
   // Built-in Claude agents get fixed oklch colors for theme consistency
   // Custom agents get dynamically generated colors based on name hash
-  readonly agentColor = computed(() => {
-    const agentType = this.node().agentType || '';
-
-    // Built-in agents with oklch colors for theme consistency
-    // Using oklch ensures colors work well on both light and dark backgrounds
-    const builtinColors: Record<string, string> = {
-      Explore: 'oklch(0.6 0.18 145)', // Green
-      Plan: 'oklch(0.55 0.2 300)', // Purple
-      'general-purpose': 'oklch(0.55 0.2 265)', // Indigo
-      'claude-code-guide': 'oklch(0.6 0.18 210)', // Sky blue
-      'statusline-setup': 'oklch(0.55 0.05 250)', // Slate
-    };
-
-    if (builtinColors[agentType]) {
-      return builtinColors[agentType];
-    }
-
-    // Generate consistent color for custom agents based on name hash
-    return this.generateColorFromString(agentType);
-  });
-
-  /**
-   * Generate a consistent oklch color from a string
-   * Same string always produces the same color
-   * TASK_2025_100 Batch 4: Updated default fallback to theme-aware oklch format
-   * TASK_2025_100 QA Fix: Converted from HSL to oklch for theme consistency
-   */
-  private generateColorFromString(str: string): string {
-    if (!str) return 'oklch(var(--bc) / 0.5)'; // Theme-aware gray for empty strings
-
-    // Simple hash function
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    }
-
-    // Convert hash to hue (0-360)
-    const hue = Math.abs(hash % 360);
-
-    // Use oklch for theme-aware generated colors
-    // L=0.55 provides good contrast on both light and dark backgrounds
-    // C=0.15 gives vibrant but not oversaturated colors
-    return `oklch(0.55 0.15 ${hue})`;
-  }
+  readonly agentColor = computed(() =>
+    generateAgentColor(this.node().agentType || ''),
+  );
 
   /**
    * Computed: footer background color — a subtle tint derived from agentColor().

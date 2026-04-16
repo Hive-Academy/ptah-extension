@@ -34,7 +34,11 @@ import {
   McpRegistryProvider,
   SdkStreamProcessor,
 } from '@ptah-extension/agent-sdk';
-import type { InternalQueryService } from '@ptah-extension/agent-sdk';
+import type {
+  InternalQueryService,
+  StreamEventEmitter,
+  StreamEvent,
+} from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
@@ -70,6 +74,8 @@ import type {
   HarnessGenerateDocumentResponse,
   HarnessAnalyzeIntentParams,
   HarnessAnalyzeIntentResponse,
+  HarnessConverseParams,
+  HarnessConverseResponse,
   AvailableAgent,
   SkillSummary,
   HarnessPreset,
@@ -80,6 +86,9 @@ import type {
   HarnessSubagentDefinition,
   GeneratedSkillSpec,
   HarnessChatAction,
+  HarnessStreamPayload,
+  HarnessStreamCompletePayload,
+  HarnessStreamOperation,
 } from '@ptah-extension/shared';
 
 /** Structured output shape from the LLM suggestion call */
@@ -160,6 +169,23 @@ interface LlmChatOutput {
   }>;
 }
 
+/** Structured output shape from the conversational harness call */
+interface LlmConverseOutput {
+  reply: string;
+  configUpdates?: Partial<HarnessConfig>;
+  isConfigComplete?: boolean;
+}
+
+/**
+ * Local interface for webview broadcasting.
+ * Uses `string` for message type because harness stream types are not members
+ * of StrictMessageType. The underlying WebviewManager.broadcastMessage
+ * implementation accepts any message type via postMessage.
+ */
+interface WebviewBroadcaster {
+  broadcastMessage(type: string, payload: unknown): Promise<void>;
+}
+
 /** Directory name under ~/.ptah/ for harness presets */
 const HARNESSES_DIR = 'harnesses';
 
@@ -195,7 +221,50 @@ export class HarnessRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
     private readonly internalQueryService: InternalQueryService,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: WebviewBroadcaster,
   ) {}
+
+  // ─── Streaming Helpers ──────────────────────────────
+
+  private createStreamEmitter(operation: HarnessStreamOperation): {
+    emitter: StreamEventEmitter;
+    operationId: string;
+  } {
+    const operationId = `${operation}-${Date.now()}`;
+    const emitter: StreamEventEmitter = {
+      emit: (event: StreamEvent) => {
+        const payload: HarnessStreamPayload = {
+          operation,
+          operationId,
+          kind: event.kind,
+          content: event.content,
+          toolName: event.toolName,
+          toolCallId: event.toolCallId,
+          isError: event.isError,
+          timestamp: event.timestamp,
+        };
+        this.webviewManager.broadcastMessage('harness:stream', payload);
+      },
+    };
+    return { emitter, operationId };
+  }
+
+  private broadcastStreamComplete(
+    operation: HarnessStreamOperation,
+    operationId: string,
+    success: boolean,
+    error?: string,
+  ): void {
+    const payload: HarnessStreamCompletePayload = {
+      operation,
+      operationId,
+      success,
+      error,
+      timestamp: Date.now(),
+    };
+    this.webviewManager.broadcastMessage('harness:stream-complete', payload);
+  }
 
   /**
    * Register all harness RPC methods
@@ -216,6 +285,7 @@ export class HarnessRpcHandlers {
     this.registerGenerateSkills();
     this.registerGenerateDocument();
     this.registerAnalyzeIntent();
+    this.registerConverse();
 
     this.logger.debug('Harness RPC handlers registered', {
       methods: [
@@ -234,6 +304,7 @@ export class HarnessRpcHandlers {
         'harness:generate-skills',
         'harness:generate-document',
         'harness:analyze-intent',
+        'harness:converse',
       ],
     });
   }
@@ -594,29 +665,28 @@ export class HarnessRpcHandlers {
       'harness:apply',
       async (params) => {
         try {
+          const config = this.normalizeHarnessConfig(params.config);
+
           this.logger.debug('RPC: harness:apply called', {
-            configName: params.config.name,
-            generateClaudeMd: params.config.claudeMd.generateProjectClaudeMd,
-            skillCount: params.config.skills.selectedSkills.length,
+            configName: config.name,
+            generateClaudeMd: config.claudeMd.generateProjectClaudeMd,
+            skillCount: config.skills.selectedSkills.length,
           });
 
           const appliedPaths: string[] = [];
           const warnings: string[] = [];
 
           // 1. Save harness config as preset
-          const presetPath = await this.writePresetToDisk(
-            params.config.name,
-            params.config,
-          );
+          const presetPath = await this.writePresetToDisk(config.name, config);
           appliedPaths.push(presetPath);
 
           // 2. Generate and write CLAUDE.md if requested
-          if (params.config.claudeMd.generateProjectClaudeMd) {
+          if (config.claudeMd.generateProjectClaudeMd) {
             const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
             if (workspaceRoot) {
               const result = await this.writeClaudeMdToWorkspace(
                 workspaceRoot,
-                params.config,
+                config,
               );
               if (result.backupPath) {
                 appliedPaths.push(result.backupPath);
@@ -631,7 +701,7 @@ export class HarnessRpcHandlers {
 
           // 3. Update ~/.ptah/settings.json with agent configuration
           try {
-            await this.updatePtahSettings(params.config);
+            await this.updatePtahSettings(config);
             appliedPaths.push(path.join(getPtahHome(), 'settings.json'));
           } catch (settingsError) {
             const msg =
@@ -646,7 +716,7 @@ export class HarnessRpcHandlers {
           }
 
           // 4. Create skill junctions for selected skills
-          if (params.config.skills.selectedSkills.length > 0) {
+          if (config.skills.selectedSkills.length > 0) {
             try {
               const pluginPaths = this.pluginLoader.resolveCurrentPluginPaths();
               const disabledSkillIds = this.pluginLoader.getDisabledSkillIds();
@@ -1299,6 +1369,9 @@ Return ONLY the JSON object matching the schema.`;
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), 45_000);
 
+    const { emitter: streamEmitter, operationId } =
+      this.createStreamEmitter('suggest-config');
+
     const handle = await this.internalQueryService.execute({
       cwd: workspaceRoot,
       model: 'sonnet',
@@ -1307,7 +1380,7 @@ Return ONLY the JSON object matching the schema.`;
         'You are a configuration advisor. Analyze the user persona and select the best agents, skills, and tools. Be specific and practical in your choices. Do NOT use any tools — just analyze the information provided and return the structured JSON.',
       isPremium: false,
       mcpServerRunning: false,
-      maxTurns: 1,
+      maxTurns: 6,
       outputFormat: { type: 'json_schema', schema: outputSchema },
       abortController,
     });
@@ -1315,15 +1388,14 @@ Return ONLY the JSON object matching the schema.`;
     let rawOutput: unknown | null = null;
 
     try {
-      // Use SdkStreamProcessor for consistent stream consumption
       const processor = new SdkStreamProcessor({
-        // eslint-disable-next-line @typescript-eslint/no-empty-function
-        emitter: { emit: () => {} },
+        emitter: streamEmitter,
         logger: this.logger,
         serviceTag: '[HarnessSuggest]',
       });
       const result = await processor.process(handle.stream);
       rawOutput = result.structuredOutput;
+      this.broadcastStreamComplete('suggest-config', operationId, true);
     } finally {
       clearTimeout(timeout);
       handle.close();
@@ -1937,6 +2009,49 @@ Return ONLY the JSON object matching the schema.`;
   }
 
   /**
+   * Fill in missing fields with safe defaults so partial configs from the
+   * conversational builder are applyable without schema violations.
+   */
+  private normalizeHarnessConfig(
+    config: Partial<HarnessConfig> | HarnessConfig,
+  ): HarnessConfig {
+    const now = new Date().toISOString();
+    return {
+      name:
+        config.name && config.name.trim().length > 0 ? config.name : 'harness',
+      persona: config.persona ?? {
+        label: '',
+        description: '',
+        goals: [],
+      },
+      agents: {
+        enabledAgents: config.agents?.enabledAgents ?? {},
+        harnessSubagents: config.agents?.harnessSubagents ?? [],
+      },
+      skills: {
+        selectedSkills: config.skills?.selectedSkills ?? [],
+        createdSkills: config.skills?.createdSkills ?? [],
+      },
+      prompt: {
+        systemPrompt: config.prompt?.systemPrompt ?? '',
+        enhancedSections: config.prompt?.enhancedSections ?? {},
+      },
+      mcp: {
+        servers: config.mcp?.servers ?? [],
+        enabledTools: config.mcp?.enabledTools ?? {},
+      },
+      claudeMd: {
+        generateProjectClaudeMd:
+          config.claudeMd?.generateProjectClaudeMd ?? true,
+        customSections: config.claudeMd?.customSections ?? {},
+        previewContent: config.claudeMd?.previewContent ?? '',
+      },
+      createdAt: config.createdAt ?? now,
+      updatedAt: now,
+    };
+  }
+
+  /**
    * Write a preset to disk at ~/.ptah/harnesses/{name}.json.
    *
    * Handles filename collisions: if the sanitized name maps to an existing file
@@ -2121,6 +2236,9 @@ Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly rel
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), 30_000);
 
+    const { emitter: chatEmitter, operationId: chatOpId } =
+      this.createStreamEmitter('chat');
+
     const handle = await this.internalQueryService.execute({
       cwd: workspaceRoot,
       model: 'sonnet',
@@ -2129,15 +2247,14 @@ Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly rel
         'You are a harness architect. Be specific, practical, and collaborative. Always suggest concrete next steps. Return valid JSON matching the schema.',
       isPremium: false,
       mcpServerRunning: false,
-      maxTurns: 1,
+      maxTurns: 10,
       outputFormat: { type: 'json_schema', schema: outputSchema },
       abortController,
     });
 
     try {
       const processor = new SdkStreamProcessor({
-        // eslint-disable-next-line @typescript-eslint/no-empty-function
-        emitter: { emit: () => {} },
+        emitter: chatEmitter,
         logger: this.logger,
         serviceTag: '[HarnessChat]',
       });
@@ -2168,6 +2285,7 @@ Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly rel
           payload: a.payload ?? {},
         }));
 
+      this.broadcastStreamComplete('chat', chatOpId, true);
       return {
         reply: output.reply,
         suggestedActions:
@@ -2364,6 +2482,9 @@ Return ONLY the JSON object matching the schema.`;
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), 45_000);
 
+    const { emitter: agentsEmitter, operationId: agentsOpId } =
+      this.createStreamEmitter('design-agents');
+
     const handle = await this.internalQueryService.execute({
       cwd: workspaceRoot,
       model: 'sonnet',
@@ -2372,15 +2493,14 @@ Return ONLY the JSON object matching the schema.`;
         "You are a subagent fleet architect. Design creative, practical subagents that automate the user's most valuable workflows. Be specific about tools and triggers. Do NOT use any tools — just analyze and return structured JSON.",
       isPremium: false,
       mcpServerRunning: false,
-      maxTurns: 1,
+      maxTurns: 6,
       outputFormat: { type: 'json_schema', schema: outputSchema },
       abortController,
     });
 
     try {
       const processor = new SdkStreamProcessor({
-        // eslint-disable-next-line @typescript-eslint/no-empty-function
-        emitter: { emit: () => {} },
+        emitter: agentsEmitter,
         logger: this.logger,
         serviceTag: '[HarnessDesignAgents]',
       });
@@ -2409,6 +2529,7 @@ Return ONLY the JSON object matching the schema.`;
           instructions: s.instructions || '',
         }));
 
+      this.broadcastStreamComplete('design-agents', agentsOpId, true);
       return {
         subagents,
         reasoning:
@@ -2500,6 +2621,9 @@ Return ONLY the JSON object matching the schema.`;
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), 45_000);
 
+    const { emitter: skillsEmitter, operationId: skillsOpId } =
+      this.createStreamEmitter('generate-skills');
+
     const handle = await this.internalQueryService.execute({
       cwd: workspaceRoot,
       model: 'sonnet',
@@ -2508,15 +2632,14 @@ Return ONLY the JSON object matching the schema.`;
         'You are a skill designer. Create practical, detailed skills that automate high-value workflows. Include complete SKILL.md content — not stubs. Do NOT use any tools — just analyze and return structured JSON.',
       isPremium: false,
       mcpServerRunning: false,
-      maxTurns: 1,
+      maxTurns: 6,
       outputFormat: { type: 'json_schema', schema: outputSchema },
       abortController,
     });
 
     try {
       const processor = new SdkStreamProcessor({
-        // eslint-disable-next-line @typescript-eslint/no-empty-function
-        emitter: { emit: () => {} },
+        emitter: skillsEmitter,
         logger: this.logger,
         serviceTag: '[HarnessGenerateSkills]',
       });
@@ -2539,6 +2662,7 @@ Return ONLY the JSON object matching the schema.`;
           reasoning: s.reasoning || 'Designed for persona workflow.',
         }));
 
+      this.broadcastStreamComplete('generate-skills', skillsOpId, true);
       return {
         skills,
         reasoning:
@@ -2648,6 +2772,9 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), 60_000);
 
+    const { emitter: docEmitter, operationId: docOpId } =
+      this.createStreamEmitter('generate-document');
+
     const handle = await this.internalQueryService.execute({
       cwd: workspaceRoot,
       model: 'sonnet',
@@ -2658,15 +2785,14 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
         'You are a technical product manager writing a PRD. Be thorough, specific, and professional. The document should be 800-1500 words. Return valid JSON with the markdown document. Do NOT use any tools.',
       isPremium: false,
       mcpServerRunning: false,
-      maxTurns: 1,
+      maxTurns: 6,
       outputFormat: { type: 'json_schema', schema: docOutputSchema },
       abortController,
     });
 
     try {
       const processor = new SdkStreamProcessor({
-        // eslint-disable-next-line @typescript-eslint/no-empty-function
-        emitter: { emit: () => {} },
+        emitter: docEmitter,
         logger: this.logger,
         serviceTag: '[HarnessGenerateDoc]',
       });
@@ -2678,6 +2804,7 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
       // Parse sections from the document for structured access
       const sections = this.parseSectionsFromDocument(document);
 
+      this.broadcastStreamComplete('generate-document', docOpId, true);
       return { document, sections };
     } finally {
       clearTimeout(timeout);
@@ -2975,6 +3102,9 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), 150_000);
 
+    const { emitter: intentEmitter, operationId: intentOpId } =
+      this.createStreamEmitter('analyze-intent');
+
     const handle = await this.internalQueryService.execute({
       cwd: workspaceRoot,
       model: 'sonnet',
@@ -2983,15 +3113,14 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
         "You are a harness architect. Analyze the user's freeform input and design a complete AI coding harness. Be creative but practical. Extract maximum value from whatever input format the user provides — PRD, instruction, or description. Do NOT use any tools — just analyze and return structured JSON.",
       isPremium: false,
       mcpServerRunning: false,
-      maxTurns: 1,
+      maxTurns: 10,
       outputFormat: { type: 'json_schema', schema: outputSchema },
       abortController,
     });
 
     try {
       const processor = new SdkStreamProcessor({
-        // eslint-disable-next-line @typescript-eslint/no-empty-function
-        emitter: { emit: () => {} },
+        emitter: intentEmitter,
         logger: this.logger,
         serviceTag: '[HarnessAnalyzeIntent]',
       });
@@ -3071,6 +3200,7 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
         );
       }
 
+      this.broadcastStreamComplete('analyze-intent', intentOpId, true);
       return {
         persona: {
           label: output.persona.label || 'Custom Persona',
@@ -3089,10 +3219,206 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
           output.summary || 'Harness configuration generated from your input.',
         reasoning: output.reasoning || '',
       };
+    } catch (error) {
+      this.broadcastStreamComplete(
+        'analyze-intent',
+        intentOpId,
+        false,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
     } finally {
       clearTimeout(timeout);
       handle.close();
     }
+  }
+
+  // ─── Conversational Harness ─────────────────────────────
+
+  private registerConverse(): void {
+    this.rpcHandler.registerMethod<
+      HarnessConverseParams,
+      HarnessConverseResponse
+    >('harness:converse', async (params) => {
+      try {
+        this.logger.debug('RPC: harness:converse called');
+
+        const { message, history, config, workspaceContext } = params;
+
+        const workspaceRoot =
+          this.workspaceProvider.getWorkspaceFolders()?.[0] ?? process.cwd();
+
+        const availableAgents = this.getAvailableAgents();
+        const availableSkills = this.discoverAvailableSkills();
+
+        const agentList = availableAgents
+          .map(
+            (a) =>
+              `- ${a.id}: ${a.name} (${a.type}, ${a.available ? 'available' : 'unavailable'})`,
+          )
+          .join('\n');
+
+        const skillList = availableSkills
+          .map((s) => `- ${s.id}: ${s.name} — ${s.description}`)
+          .join('\n');
+
+        const contextBlock = workspaceContext
+          ? `Project: ${workspaceContext.projectName} (${workspaceContext.projectType})\nFrameworks: ${workspaceContext.frameworks.join(', ')}\nLanguages: ${workspaceContext.languages.join(', ')}`
+          : 'No workspace context available.';
+
+        const historyBlock =
+          history.length > 0
+            ? history
+                .map(
+                  (m) =>
+                    `**${m.role === 'user' ? 'User' : 'Assistant'}**: ${m.content}`,
+                )
+                .join('\n\n')
+            : '(No prior messages — this is the start of the conversation.)';
+
+        const prompt = `You are a harness architect having a conversation with a user to build their AI coding assistant configuration.
+
+## Conversation History
+${historyBlock}
+
+## Current Configuration
+\`\`\`json
+${JSON.stringify(config, null, 2)}
+\`\`\`
+
+## Available Agents
+${agentList}
+
+## Available Skills
+${skillList}
+
+## Workspace
+${contextBlock}
+
+## User's Message
+${message}
+
+## Instructions
+Respond conversationally. Ask clarifying questions when the user's intent is unclear.
+When you understand what the user needs, include configUpdates with the changes.
+configUpdates is a partial HarnessConfig — only include fields you want to change.
+Set isConfigComplete to true when you believe the configuration is ready to apply.
+Be proactive: suggest agents, skills, subagents, system prompts, and MCP servers.
+If this is the first message, analyze the user's intent and propose a complete initial configuration.`;
+
+        const outputSchema = {
+          type: 'object' as const,
+          properties: {
+            reply: {
+              type: 'string',
+              description: 'Conversational reply to the user',
+            },
+            configUpdates: {
+              type: 'object',
+              description: 'Partial HarnessConfig updates to merge',
+              properties: {
+                persona: {
+                  type: 'object',
+                  properties: {
+                    label: { type: 'string' },
+                    description: { type: 'string' },
+                    goals: { type: 'array', items: { type: 'string' } },
+                  },
+                },
+                agents: {
+                  type: 'object',
+                  properties: {
+                    enabledAgents: { type: 'object' },
+                    harnessSubagents: { type: 'array' },
+                  },
+                },
+                skills: {
+                  type: 'object',
+                  properties: {
+                    selectedSkills: {
+                      type: 'array',
+                      items: { type: 'string' },
+                    },
+                    createdSkills: { type: 'array' },
+                  },
+                },
+                prompt: {
+                  type: 'object',
+                  properties: {
+                    systemPrompt: { type: 'string' },
+                    enhancedSections: { type: 'object' },
+                  },
+                },
+                mcp: {
+                  type: 'object',
+                  properties: {
+                    servers: { type: 'array' },
+                    enabledTools: { type: 'object' },
+                  },
+                },
+              },
+            },
+            isConfigComplete: { type: 'boolean' },
+          },
+          required: ['reply'],
+          additionalProperties: false,
+        };
+
+        const abortController = new AbortController();
+        const timeout = setTimeout(() => abortController.abort(), 300_000);
+
+        const { emitter: converseEmitter, operationId: converseOpId } =
+          this.createStreamEmitter('converse');
+
+        const handle = await this.internalQueryService.execute({
+          cwd: workspaceRoot,
+          model: 'sonnet',
+          prompt,
+          systemPromptAppend:
+            'You are a harness architect. Be conversational, specific, and proactive. Propose complete configurations when you have enough context. Ask clarifying questions when you need more information.',
+          isPremium: false,
+          mcpServerRunning: false,
+          outputFormat: { type: 'json_schema', schema: outputSchema },
+          abortController,
+        });
+
+        try {
+          const processor = new SdkStreamProcessor({
+            emitter: converseEmitter,
+            logger: this.logger,
+            serviceTag: '[HarnessConverse]',
+          });
+          const result = await processor.process(handle.stream);
+          const output = result.structuredOutput as LlmConverseOutput | null;
+
+          this.broadcastStreamComplete('converse', converseOpId, true);
+
+          return {
+            reply:
+              output?.reply ??
+              'I understand. Could you tell me more about what you want to build?',
+            configUpdates: output?.configUpdates,
+            isConfigComplete: output?.isConfigComplete,
+          };
+        } catch (error) {
+          this.broadcastStreamComplete(
+            'converse',
+            converseOpId,
+            false,
+            error instanceof Error ? error.message : String(error),
+          );
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+          handle.close();
+        }
+      } catch (error) {
+        this.logger.error('harness:converse failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    });
   }
 
   /**
