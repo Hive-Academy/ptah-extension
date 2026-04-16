@@ -709,13 +709,19 @@ export class ElectronDIContainer {
       );
       container.register(BROWSER_CAPABILITIES_TOKEN, {
         useValue: new ChromeLauncherBrowserCapabilities(
-          // getRecordingDir
-          () =>
-            workspaceProvider.getConfiguration<string>(
-              'ptah',
-              'browser.recordingDir',
-              '',
-            ) ?? '',
+          // getRecordingDir — defaults to {workspace}/.ptah/recordings/
+          () => {
+            const configured =
+              workspaceProvider.getConfiguration<string>(
+                'ptah',
+                'browser.recordingDir',
+                '',
+              ) ?? '';
+            if (configured) return configured;
+            const wsRoot = workspaceProvider.getWorkspaceRoot();
+            if (wsRoot) return `${wsRoot}/.ptah/recordings`;
+            return '';
+          },
         ),
       });
     }

@@ -700,6 +700,7 @@ export function buildBrowserScreenshotTool(): MCPToolDefinition {
     name: 'ptah_browser_screenshot',
     description:
       'Take a screenshot of the current browser page. Returns the image as base64-encoded data. ' +
+      'Optionally saves the screenshot to disk in the workspace. ' +
       'Use this for visual verification of UI changes, layout inspection, or capturing test evidence.',
     inputSchema: {
       type: 'object',
@@ -718,6 +719,13 @@ export function buildBrowserScreenshotTool(): MCPToolDefinition {
           type: 'boolean',
           description:
             'Capture the full scrollable page instead of just the viewport (default: false)',
+        },
+        saveTo: {
+          type: 'string',
+          description:
+            'Save screenshot to disk. Use a filename (e.g. "homepage.png") to save under .ptah/screenshots/ in the workspace, ' +
+            'or an absolute path. The file extension determines the format if not specified. ' +
+            'Omit to return base64 data only without saving.',
         },
       },
     },

@@ -59,7 +59,7 @@ import type { AuthEnv } from '@ptah-extension/shared';
 const ANTHROPIC_TIER_FALLBACK: ProviderModelInfo[] = [
   {
     id: TIER_TO_MODEL_ID['opus'],
-    name: 'Claude Opus 4.6',
+    name: 'Claude Opus 4.7',
     description: 'Most capable for complex work',
     contextLength: 200000,
     supportsToolUse: true,

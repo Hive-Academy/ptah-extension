@@ -1,10 +1,6 @@
 /**
  * Authentication Strategy Types - TASK_AUTH_REFACTOR Phase 1
  *
- * Replaces the conceptual confusion in the legacy AuthMethod type
- * ('apiKey' | 'claudeCli' | 'openrouter') where 'openrouter' is a provider,
- * not an auth method.
- *
  * The 5 strategies map 1:1 to actual authentication flows:
  * - api-key:       Direct API key (Anthropic, OpenRouter, Moonshot, Z.AI)
  * - oauth-proxy:   OAuth token + translation proxy (Copilot, Codex)
@@ -29,7 +25,7 @@ export type AuthStrategyType =
  * Identical to AuthMethod in rpc-auth.types.ts — this is a semantic alias
  * that signals "this is the stored/transmitted format, not the internal one."
  */
-export type LegacyAuthMethod = 'apiKey' | 'claudeCli' | 'openrouter';
+export type LegacyAuthMethod = 'apiKey' | 'claudeCli' | 'thirdParty';
 
 /**
  * Map a legacy auth method + provider metadata to the correct strategy.
@@ -41,13 +37,13 @@ export type LegacyAuthMethod = 'apiKey' | 'claudeCli' | 'openrouter';
  * Decision tree:
  *   legacyMethod === 'claudeCli'                              → 'cli'
  *   legacyMethod === 'apiKey'                                 → 'api-key'
- *   legacyMethod === 'openrouter' (i.e., "use a provider"):
+ *   legacyMethod === 'thirdParty' (i.e., "use a provider"):
  *     provider.authType === 'oauth' && provider.requiresProxy → 'oauth-proxy'
  *     provider.authType === 'none'  && !provider.requiresProxy→ 'local-native'
  *     provider.authType === 'none'  && provider.requiresProxy → 'local-proxy'
  *     otherwise (apiKey providers like OpenRouter/Moonshot/Z.AI)→ 'api-key'
  *
- * @param legacyMethod - The stored config value ('apiKey' | 'claudeCli' | 'openrouter')
+ * @param legacyMethod - The stored config value ('apiKey' | 'claudeCli' | 'thirdParty')
  * @param provider - Optional provider metadata from the provider registry
  */
 export function resolveStrategy(
@@ -60,7 +56,7 @@ export function resolveStrategy(
   if (legacyMethod === 'claudeCli') return 'cli';
   if (legacyMethod === 'apiKey') return 'api-key';
 
-  // legacyMethod === 'openrouter' — determine from provider entry
+  // legacyMethod === 'thirdParty' — determine from provider entry
   if (!provider) return 'api-key'; // fallback when no provider metadata
 
   if (provider.authType === 'oauth' && provider.requiresProxy)
@@ -70,5 +66,5 @@ export function resolveStrategy(
   if (provider.authType === 'none' && provider.requiresProxy)
     return 'local-proxy';
 
-  return 'api-key'; // default for API-key providers (openrouter, moonshot, z-ai)
+  return 'api-key'; // default for API-key providers (OpenRouter, Moonshot, Z.AI)
 }

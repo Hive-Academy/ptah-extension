@@ -256,6 +256,7 @@ export interface HarnessGenerateClaudeMdResponse {
 /** harness:apply — Apply the full harness config to workspace */
 export interface HarnessApplyParams {
   config: HarnessConfig;
+  outputFormat: string;
 }
 export interface HarnessApplyResponse {
   appliedPaths: string[];
@@ -365,6 +366,27 @@ export interface HarnessAnalyzeIntentResponse {
   reasoning: string;
 }
 
+// ─── Conversational Harness Types ───────────────────────
+
+export interface HarnessConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/** harness:converse — Send a message in the conversational harness builder */
+export interface HarnessConverseParams {
+  message: string;
+  history: HarnessConversationMessage[];
+  config: Partial<HarnessConfig>;
+  workspaceContext?: HarnessWorkspaceContext;
+}
+
+export interface HarnessConverseResponse {
+  reply: string;
+  configUpdates?: Partial<HarnessConfig>;
+  isConfigComplete?: boolean;
+}
+
 // ─── Harness Streaming Types ────────────────────────────
 
 /** Operation types that can produce streaming events */
@@ -374,7 +396,8 @@ export type HarnessStreamOperation =
   | 'design-agents'
   | 'generate-skills'
   | 'generate-document'
-  | 'chat';
+  | 'chat'
+  | 'converse';
 
 /** Streaming event payload broadcast from backend during harness operations */
 export interface HarnessStreamPayload {

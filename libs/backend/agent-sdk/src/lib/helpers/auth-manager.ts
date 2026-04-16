@@ -37,7 +37,7 @@ export interface AuthResult {
 }
 
 export interface AuthConfig {
-  method: 'apiKey' | 'claudeCli' | 'openrouter';
+  method: 'apiKey' | 'claudeCli' | 'thirdParty';
 }
 
 /** All auth-related environment variable names (single source of truth) */
@@ -123,15 +123,17 @@ export class AuthManager {
   private async doConfigureAuthentication(
     rawAuthMethod: string,
   ): Promise<AuthResult> {
-    // Step 1: Normalize legacy method
-    const validMethods = new Set<string>(['apiKey', 'claudeCli', 'openrouter']);
+    // Step 1: Normalize legacy method (migrate 'openrouter' → 'thirdParty')
+    const normalized =
+      rawAuthMethod === 'openrouter' ? 'thirdParty' : rawAuthMethod;
+    const validMethods = new Set<string>(['apiKey', 'claudeCli', 'thirdParty']);
     const authMethod = (
-      validMethods.has(rawAuthMethod) ? rawAuthMethod : 'apiKey'
+      validMethods.has(normalized) ? normalized : 'apiKey'
     ) as LegacyAuthMethod;
 
     if (rawAuthMethod !== authMethod) {
       this.logger.warn(
-        `[AuthManager] Unknown/legacy auth method '${rawAuthMethod}', falling back to 'apiKey'`,
+        `[AuthManager] Normalized auth method '${rawAuthMethod}' → '${authMethod}'`,
       );
     }
 
@@ -250,7 +252,7 @@ export class AuthManager {
    * Resolve the provider ID and strategy type from a legacy auth method.
    *
    * For 'apiKey' and 'claudeCli', the mapping is straightforward.
-   * For 'openrouter' (which means "use configured provider"), we look up the
+   * For 'thirdParty' (which means "use configured provider"), we look up the
    * provider entry from the registry to determine the correct strategy.
    */
   private resolveProviderAndStrategy(authMethod: LegacyAuthMethod): {
@@ -271,14 +273,14 @@ export class AuthManager {
       };
     }
 
-    // authMethod === 'openrouter' — determine from configured provider
+    // authMethod === 'thirdParty' — determine from configured provider
     const providerId = this.config.getWithDefault<string>(
       'anthropicProviderId',
       DEFAULT_PROVIDER_ID,
     );
 
     const provider = getAnthropicProvider(providerId);
-    const strategyType = resolveStrategy('openrouter', provider);
+    const strategyType = resolveStrategy('thirdParty', provider);
 
     return { providerId, strategyType };
   }

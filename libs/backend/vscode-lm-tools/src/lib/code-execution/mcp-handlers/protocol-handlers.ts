@@ -7,6 +7,8 @@
  * - tools/call: Execute a tool
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
 import type { CliType } from '@ptah-extension/shared';
 import type { PermissionPromptService } from '../../permission/permission-prompt.service';
@@ -813,16 +815,42 @@ async function handleIndividualTool(
       }
 
       case 'ptah_browser_screenshot': {
-        const { format, quality, fullPage } = args as {
+        const { format, quality, fullPage, saveTo } = args as {
           format?: 'png' | 'jpeg' | 'webp';
           quality?: number;
           fullPage?: boolean;
+          saveTo?: string;
         };
         const screenshotResult = await ptahAPI.browser.screenshot({
           format,
           quality,
           fullPage,
         });
+
+        // Save to disk if requested
+        if (saveTo && screenshotResult.data && !screenshotResult.error) {
+          try {
+            const filePath = await resolveScreenshotPath(
+              saveTo,
+              screenshotResult.format,
+              ptahAPI,
+            );
+            const dir = path.dirname(filePath);
+            if (!fs.existsSync(dir)) {
+              fs.mkdirSync(dir, { recursive: true });
+            }
+            fs.writeFileSync(
+              filePath,
+              Buffer.from(screenshotResult.data, 'base64'),
+            );
+            screenshotResult.filePath = filePath;
+          } catch (saveError) {
+            deps.logger.warn(
+              `Failed to save screenshot: ${saveError instanceof Error ? saveError.message : String(saveError)}`,
+              'ProtocolHandlers',
+            );
+          }
+        }
 
         // Return as MCP image content type so the AI model can visually inspect
         if (screenshotResult.data && !screenshotResult.error) {
@@ -836,6 +864,10 @@ async function handleIndividualTool(
           const text = formatBrowserScreenshot(screenshotResult);
           deps.onToolResult?.(request.id.toString(), text, false);
 
+          const savedNote = screenshotResult.filePath
+            ? ` | Saved to: ${screenshotResult.filePath}`
+            : '';
+
           return {
             jsonrpc: '2.0',
             id: request.id,
@@ -848,7 +880,7 @@ async function handleIndividualTool(
                 },
                 {
                   type: 'text',
-                  text: `Screenshot captured (${screenshotResult.format}, ~${Math.round((screenshotResult.data.length * 3) / 4 / 1024)}KB)`,
+                  text: `Screenshot captured (${screenshotResult.format}, ~${Math.round((screenshotResult.data.length * 3) / 4 / 1024)}KB)${savedNote}`,
                 },
               ],
             },
@@ -1357,4 +1389,42 @@ function createErrorResponse(
       ...(data && { data }),
     },
   };
+}
+
+/**
+ * Resolve the screenshot file path from the saveTo parameter.
+ * - Absolute paths are used as-is.
+ * - Relative paths / filenames are placed under {workspace}/.ptah/screenshots/
+ * - If no extension, the format is appended.
+ */
+async function resolveScreenshotPath(
+  saveTo: string,
+  format: string,
+  ptahAPI: PtahAPI,
+): Promise<string> {
+  let filePath = saveTo.trim();
+
+  const ext = path.extname(filePath);
+  if (!ext) {
+    filePath = `${filePath}.${format}`;
+  }
+
+  if (path.isAbsolute(filePath)) {
+    return filePath;
+  }
+
+  let workspaceRoot: string | undefined;
+  try {
+    const info = await ptahAPI.workspace.getInfo();
+    workspaceRoot = info?.path;
+  } catch {
+    // Fall through to cwd
+  }
+
+  return path.join(
+    workspaceRoot || process.cwd(),
+    '.ptah',
+    'screenshots',
+    filePath,
+  );
 }

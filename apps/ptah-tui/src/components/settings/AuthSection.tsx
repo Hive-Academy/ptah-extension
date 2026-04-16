@@ -829,8 +829,8 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
       if (!value.trim()) return;
 
       await runSaveAndTest({
-        authMethod: 'openrouter',
-        openrouterApiKey: value.trim(),
+        authMethod: 'thirdParty',
+        providerApiKey: value.trim(),
         anthropicProviderId: selectedTileId,
       });
     },
@@ -842,7 +842,7 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
       await runSaveAndTest({ authMethod: 'apiKey' });
     } else {
       await runSaveAndTest({
-        authMethod: 'openrouter',
+        authMethod: 'thirdParty',
         anthropicProviderId: selectedTileId,
       });
     }

@@ -13,7 +13,7 @@
     "async-mutex": "*",
     "chokidar": "*",
     "cross-spawn": "*",
-    "electron-updater": "*",
+    "electron-updater": "^6.0.0",
     "eventemitter3": "*",
     "fast-glob": "*",
     "gray-matter": "*",
