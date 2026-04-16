@@ -53,7 +53,7 @@ export interface AuthResult {
 }
 
 export interface AuthConfig {
-  method: 'apiKey' | 'claudeCli' | 'openrouter' | 'auto';
+  method: 'apiKey' | 'claudeCli' | 'openrouter';
 }
 
 /** All auth-related environment variable names (single source of truth) */
@@ -134,13 +134,15 @@ export class AuthManager {
   private async doConfigureAuthentication(
     rawAuthMethod: string,
   ): Promise<AuthResult> {
-    // Normalize: treat unknown/legacy values (e.g. 'vscode-lm', 'oauth') as 'auto'
-    const validMethods = new Set(['apiKey', 'claudeCli', 'openrouter', 'auto']);
-    const authMethod = validMethods.has(rawAuthMethod) ? rawAuthMethod : 'auto';
+    // Normalize: treat unknown/legacy values (e.g. 'vscode-lm', 'oauth', 'auto') as 'apiKey'
+    const validMethods = new Set(['apiKey', 'claudeCli', 'openrouter']);
+    const authMethod = validMethods.has(rawAuthMethod)
+      ? rawAuthMethod
+      : 'apiKey';
 
     if (rawAuthMethod !== authMethod) {
       this.logger.warn(
-        `[AuthManager] Unknown auth method '${rawAuthMethod}', falling back to 'auto'`,
+        `[AuthManager] Unknown/legacy auth method '${rawAuthMethod}', falling back to 'apiKey'`,
       );
     }
 
@@ -158,7 +160,7 @@ export class AuthManager {
 
     // TASK_2025_129 Batch 3: Priority 1 - Anthropic-compatible provider
     // Supports OpenRouter, Moonshot (Kimi), Z.AI (GLM), and future providers
-    if (authMethod === 'openrouter' || authMethod === 'auto') {
+    if (authMethod === 'openrouter') {
       const providerResult = await this.configureAnthropicProvider();
       if (providerResult.configured) {
         authConfigured = true;
@@ -198,7 +200,7 @@ export class AuthManager {
     }
 
     // Priority 3: API key (pay-per-token billing)
-    if (authMethod === 'apiKey' || authMethod === 'auto') {
+    if (authMethod === 'apiKey') {
       const apiKeyResult = await this.configureAPIKey(envSnapshot);
       if (apiKeyResult.configured) {
         authConfigured = true;

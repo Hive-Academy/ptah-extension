@@ -10,6 +10,7 @@
           [liveModelStats]="resolvedLiveModelStats()"
           [modelUsageList]="resolvedModelUsageList()"
           [compactionCount]="resolvedCompactionCount()"
+          (newSessionRequested)="onNewSessionFromContextWarning()"
         />
       </div>
     }

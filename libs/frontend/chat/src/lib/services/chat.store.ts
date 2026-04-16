@@ -488,13 +488,8 @@ export class ChatStore {
     if (this.authState.isLoading()) return false;
 
     const authMethod = this.authState.persistedAuthMethod();
-    if (authMethod === 'apiKey') return false;
+    if (authMethod === 'apiKey' || authMethod === 'claudeCli') return false;
 
-    // 'auto' picks the best available credential at runtime — allow if
-    // Anthropic credentials exist, block only if none are configured.
-    if (authMethod === 'auto') {
-      return !this.authState.hasApiKey();
-    }
     return true;
   }
 

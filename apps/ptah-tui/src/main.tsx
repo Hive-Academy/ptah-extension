@@ -5,7 +5,7 @@ import { render } from 'ink';
 import { TuiDIContainer, type TuiBootstrapResult } from './di/container';
 import { TuiRpcMethodRegistrationService } from './services/tui-rpc-method-registration.service';
 import { App } from './components/App.js';
-import { TOKENS, type IAuthSecretsService } from '@ptah-extension/vscode-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
 
 /**
  * Check if stdin supports raw mode (required by Ink for keyboard input).
@@ -54,16 +54,6 @@ async function main(): Promise<void> {
     rpcService.registerAll();
 
     logger.info('[TUI Main] DI container and RPC methods initialized');
-
-    // Clean up legacy secrets (e.g. removed OAuth token) — best-effort, non-blocking
-    container
-      .resolve<IAuthSecretsService>(TOKENS.AUTH_SECRETS_SERVICE)
-      .cleanupLegacySecrets()
-      .catch((err) =>
-        logger.warn('[TUI Main] Legacy secret cleanup failed', {
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      );
 
     // Phase 3: Render Ink App
     const app = render(

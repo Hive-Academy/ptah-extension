@@ -382,20 +382,6 @@ if (!gotLock) {
       );
     }
 
-    // Clean up legacy secrets (e.g. removed OAuth token) — best-effort, non-blocking
-    try {
-      const secretStorage = container.resolve<ISecretStorage>(
-        PLATFORM_TOKENS.SECRET_STORAGE,
-      );
-      await secretStorage.delete('ptah.auth.claudeOAuthToken');
-      console.log('[Ptah Electron] Legacy OAuth secret cleaned up');
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Legacy secret cleanup failed:',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-
     // ========================================
     // PHASE 3.5: License Verification
     // ========================================

@@ -13,6 +13,10 @@
  * - harness:save-preset - Save config as named preset
  * - harness:load-presets - List saved presets
  * - harness:chat - Step-contextual AI chat
+ * - harness:design-agents - AI designs a custom subagent fleet
+ * - harness:generate-skills - AI generates specialized skill specs
+ * - harness:generate-document - Generate comprehensive PRD/requirements document
+ * - harness:analyze-intent - AI architects a complete harness from freeform input
  *
  * The harness builder configures agents, skills, system prompts,
  * MCP servers, and CLAUDE.md generation for a workspace.
@@ -29,7 +33,6 @@ import {
   SkillJunctionService,
   McpRegistryProvider,
   SdkStreamProcessor,
-  isSuccessResult,
 } from '@ptah-extension/agent-sdk';
 import type { InternalQueryService } from '@ptah-extension/agent-sdk';
 import {
@@ -59,6 +62,14 @@ import type {
   HarnessLoadPresetsResponse,
   HarnessChatParams,
   HarnessChatResponse,
+  HarnessDesignAgentsParams,
+  HarnessDesignAgentsResponse,
+  HarnessGenerateSkillsParams,
+  HarnessGenerateSkillsResponse,
+  HarnessGenerateDocumentParams,
+  HarnessGenerateDocumentResponse,
+  HarnessAnalyzeIntentParams,
+  HarnessAnalyzeIntentResponse,
   AvailableAgent,
   SkillSummary,
   HarnessPreset,
@@ -66,6 +77,9 @@ import type {
   AgentOverride,
   McpServerSuggestion,
   HarnessWizardStep,
+  CustomSubagentDefinition,
+  GeneratedSkillSpec,
+  HarnessChatAction,
 } from '@ptah-extension/shared';
 
 /** Structured output shape from the LLM suggestion call */
@@ -75,6 +89,75 @@ interface LlmSuggestionOutput {
   mcpSearchTerms: string[];
   systemPrompt: string;
   reasoning: string;
+}
+
+/** Structured output shape from the LLM subagent design call */
+interface LlmSubagentDesignOutput {
+  subagents: Array<{
+    id: string;
+    name: string;
+    description: string;
+    role: string;
+    tools: string[];
+    executionMode: 'background' | 'on-demand' | 'scheduled';
+    triggers?: string[];
+    instructions: string;
+  }>;
+  reasoning: string;
+}
+
+/** Structured output shape from the LLM skill generation call */
+interface LlmSkillGenerationOutput {
+  skills: Array<{
+    name: string;
+    description: string;
+    content: string;
+    requiredTools?: string[];
+    reasoning: string;
+  }>;
+  reasoning: string;
+}
+
+/** Structured output shape from the LLM intent analysis call */
+interface LlmIntentAnalysisOutput {
+  persona: {
+    label: string;
+    description: string;
+    goals: string[];
+  };
+  selectedAgentIds: string[];
+  subagents: Array<{
+    id: string;
+    name: string;
+    description: string;
+    role: string;
+    tools: string[];
+    executionMode: 'background' | 'on-demand' | 'scheduled';
+    triggers?: string[];
+    instructions: string;
+  }>;
+  selectedSkillIds: string[];
+  skillSpecs: Array<{
+    name: string;
+    description: string;
+    content: string;
+    requiredTools?: string[];
+    reasoning: string;
+  }>;
+  systemPrompt: string;
+  mcpSearchTerms: string[];
+  summary: string;
+  reasoning: string;
+}
+
+/** Structured output shape from the LLM chat call */
+interface LlmChatOutput {
+  reply: string;
+  suggestedActions?: Array<{
+    type: string;
+    label: string;
+    payload: Record<string, unknown>;
+  }>;
 }
 
 /** Directory name under ~/.ptah/ for harness presets */
@@ -129,6 +212,10 @@ export class HarnessRpcHandlers {
     this.registerSavePreset();
     this.registerLoadPresets();
     this.registerChat();
+    this.registerDesignAgents();
+    this.registerGenerateSkills();
+    this.registerGenerateDocument();
+    this.registerAnalyzeIntent();
 
     this.logger.debug('Harness RPC handlers registered', {
       methods: [
@@ -143,6 +230,10 @@ export class HarnessRpcHandlers {
         'harness:save-preset',
         'harness:load-presets',
         'harness:chat',
+        'harness:design-agents',
+        'harness:generate-skills',
+        'harness:generate-document',
+        'harness:analyze-intent',
       ],
     });
   }
@@ -666,11 +757,12 @@ export class HarnessRpcHandlers {
   // ─── AI Chat ───────────────────────────────────────────
 
   /**
-   * harness:chat - Step-contextual AI chat message.
+   * harness:chat - Intelligent AI chat for collaborative harness building.
    *
-   * Provides contextual help based on the current wizard step.
-   * Returns a stub response with helpful text; will be replaced
-   * with actual AI agent sessions in a future iteration.
+   * Uses InternalQueryService for real LLM-powered responses with full
+   * awareness of the current step, persona, and configuration state.
+   * The AI can suggest concrete actions (add agents, create skills, etc.)
+   * that the frontend can apply with one click.
    */
   private registerChat(): void {
     this.rpcHandler.registerMethod<HarnessChatParams, HarnessChatResponse>(
@@ -682,23 +774,230 @@ export class HarnessRpcHandlers {
             messageLength: params.message.length,
           });
 
-          const reply = this.buildChatReply(params.step, params.message);
+          const result = await this.buildIntelligentChatReply(
+            params.step,
+            params.message,
+            params.context,
+          );
 
           this.logger.debug('RPC: harness:chat success', {
-            replyLength: reply.length,
+            replyLength: result.reply.length,
+            actionCount: result.suggestedActions?.length ?? 0,
           });
 
-          // TODO: Replace with actual AI agent session for interactive chat
-          return { reply };
+          return result;
         } catch (error) {
           this.logger.error(
             'RPC: harness:chat failed',
             error instanceof Error ? error : new Error(String(error)),
           );
-          throw error;
+          // Graceful fallback to stub if LLM fails
+          return {
+            reply: this.buildChatReplyFallback(params.step, params.message),
+          };
         }
       },
     );
+  }
+
+  // ─── Subagent Fleet Design ─────────────────────────────
+
+  /**
+   * harness:design-agents - AI designs a custom subagent fleet for the persona.
+   *
+   * Analyzes the persona's role, goals, and workflow to create specialized
+   * subagent definitions — each with a distinct role, tools, execution mode,
+   * and trigger conditions. This is the core of the collaborative workflow:
+   * the AI designs the agent architecture, the user refines it.
+   */
+  private registerDesignAgents(): void {
+    this.rpcHandler.registerMethod<
+      HarnessDesignAgentsParams,
+      HarnessDesignAgentsResponse
+    >('harness:design-agents', async (params) => {
+      try {
+        this.logger.debug('RPC: harness:design-agents called', {
+          personaLabel: params.persona.label,
+          goalCount: params.persona.goals.length,
+        });
+
+        const result = await this.designSubagentFleet(
+          params.persona,
+          params.existingAgents,
+          params.workspaceContext,
+        );
+
+        this.logger.debug('RPC: harness:design-agents success', {
+          subagentCount: result.subagents.length,
+        });
+
+        return result;
+      } catch (error) {
+        this.logger.error(
+          'RPC: harness:design-agents failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        throw error;
+      }
+    });
+  }
+
+  // ─── Skill Generation ─────────────────────────────────
+
+  /**
+   * harness:generate-skills - AI generates specialized skill specs for the persona.
+   *
+   * Creates skill markdown content tailored to the persona's workflow.
+   * Each skill is a complete SKILL.md specification that can be written
+   * to disk and activated. Skills are designed to work with the custom
+   * subagent fleet if one was designed.
+   */
+  private registerGenerateSkills(): void {
+    this.rpcHandler.registerMethod<
+      HarnessGenerateSkillsParams,
+      HarnessGenerateSkillsResponse
+    >('harness:generate-skills', async (params) => {
+      try {
+        this.logger.debug('RPC: harness:generate-skills called', {
+          personaLabel: params.persona.label,
+          existingSkillCount: params.existingSkills.length,
+          subagentCount: params.customSubagents?.length ?? 0,
+        });
+
+        const result = await this.generateSkillSpecs(
+          params.persona,
+          params.existingSkills,
+          params.customSubagents,
+        );
+
+        this.logger.debug('RPC: harness:generate-skills success', {
+          generatedSkillCount: result.skills.length,
+        });
+
+        return result;
+      } catch (error) {
+        this.logger.error(
+          'RPC: harness:generate-skills failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        throw error;
+      }
+    });
+  }
+
+  // ─── Document Generation ──────────────────────────────
+
+  /**
+   * harness:generate-document - Generate comprehensive PRD/requirements document.
+   *
+   * Produces a complete requirements document from the harness configuration,
+   * similar to a Product Requirements Document. Includes persona profile,
+   * subagent fleet architecture, skill library, security guardrails,
+   * MCP server topology, and implementation roadmap.
+   */
+  private registerGenerateDocument(): void {
+    this.rpcHandler.registerMethod<
+      HarnessGenerateDocumentParams,
+      HarnessGenerateDocumentResponse
+    >('harness:generate-document', async (params) => {
+      try {
+        this.logger.debug('RPC: harness:generate-document called', {
+          configName: params.config.name,
+        });
+
+        const result = await this.generateComprehensiveDocument(
+          params.config,
+          params.workspaceContext,
+        );
+
+        this.logger.debug('RPC: harness:generate-document success', {
+          documentLength: result.document.length,
+          sectionCount: Object.keys(result.sections).length,
+        });
+
+        return result;
+      } catch (error) {
+        this.logger.error(
+          'RPC: harness:generate-document failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        throw error;
+      }
+    });
+  }
+
+  // ─── Intent Analysis ───────────────────────────────────
+
+  /**
+   * harness:analyze-intent - AI architects a complete harness from freeform input.
+   *
+   * Accepts any text — a PRD document, a simple instruction like "build a harness
+   * for real-estate marketing", or a detailed description. The AI analyzes the
+   * intent and returns a complete harness blueprint: persona, subagent fleet,
+   * skill specs, system prompt, and MCP server recommendations.
+   */
+  private registerAnalyzeIntent(): void {
+    this.rpcHandler.registerMethod<
+      HarnessAnalyzeIntentParams,
+      HarnessAnalyzeIntentResponse
+    >('harness:analyze-intent', async (params) => {
+      try {
+        if (
+          !params.input ||
+          typeof params.input !== 'string' ||
+          params.input.trim().length < 10
+        ) {
+          throw new Error('Input must be at least 10 characters for analysis');
+        }
+
+        this.logger.debug('RPC: harness:analyze-intent called', {
+          inputLength: params.input.length,
+          hasWorkspaceContext: !!params.workspaceContext,
+        });
+
+        const availableSkills = this.discoverAvailableSkills();
+        const availableAgents = this.getAvailableAgents();
+
+        let result: HarnessAnalyzeIntentResponse;
+        try {
+          result = await this.analyzeIntentViaAgent(
+            params.input,
+            availableSkills,
+            availableAgents,
+            params.workspaceContext,
+          );
+        } catch (llmError) {
+          this.logger.warn(
+            'LLM-powered intent analysis failed, falling back to heuristic',
+            {
+              error:
+                llmError instanceof Error ? llmError.message : String(llmError),
+            },
+          );
+          result = this.buildAnalyzeIntentFallback(
+            params.input,
+            availableAgents,
+            availableSkills,
+          );
+        }
+
+        this.logger.debug('RPC: harness:analyze-intent success', {
+          personaLabel: result.persona.label,
+          agentCount: Object.keys(result.suggestedAgents).length,
+          subagentCount: result.suggestedSubagents.length,
+          skillSpecCount: result.suggestedSkillSpecs.length,
+          mcpCount: result.suggestedMcpServers.length,
+        });
+
+        return result;
+      } catch (error) {
+        this.logger.error(
+          'RPC: harness:analyze-intent failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        throw error;
+      }
+    });
   }
 
   // ─── Private Helpers ───────────────────────────────────
@@ -1144,6 +1443,87 @@ Return ONLY the JSON object matching the schema.`;
   }
 
   /**
+   * Fallback heuristic for intent analysis when the LLM is unavailable.
+   *
+   * Extracts a basic persona from the input text, enables all available agents
+   * by default, and returns empty subagents/skills. Produces a basic system
+   * prompt derived from the input so the user has a working starting point.
+   */
+  private buildAnalyzeIntentFallback(
+    input: string,
+    availableAgents: AvailableAgent[],
+    availableSkills: SkillSummary[],
+  ): HarnessAnalyzeIntentResponse {
+    // Extract a basic persona from the input
+    const firstSentence =
+      input
+        .split(/[.!?\n]/)
+        .find((s) => s.trim().length > 0)
+        ?.trim() || input.trim();
+    const labelWords = firstSentence.split(/\s+/).slice(0, 4).join(' ');
+    const label =
+      labelWords.length > 50 ? labelWords.substring(0, 50) + '...' : labelWords;
+
+    // Extract goals from keywords in the input
+    const goalKeywords = [
+      'build',
+      'create',
+      'develop',
+      'test',
+      'deploy',
+      'automate',
+      'analyze',
+      'optimize',
+      'monitor',
+      'integrate',
+      'design',
+      'implement',
+      'migrate',
+      'refactor',
+    ];
+    const inputLower = input.toLowerCase();
+    const goals = goalKeywords
+      .filter((kw) => inputLower.includes(kw))
+      .map((kw) => `${kw.charAt(0).toUpperCase() + kw.slice(1)} as described`);
+    if (goals.length === 0) {
+      goals.push('Assist with development tasks');
+    }
+
+    // Enable all available agents by default
+    const suggestedAgents: Record<string, AgentOverride> = {};
+    for (const agent of availableAgents) {
+      suggestedAgents[agent.id] = { enabled: true };
+    }
+    if (Object.keys(suggestedAgents).length === 0) {
+      suggestedAgents['ptah-cli'] = { enabled: true };
+    }
+
+    const description =
+      firstSentence.length > 200
+        ? firstSentence.substring(0, 200) + '...'
+        : firstSentence;
+
+    const suggestedPrompt = `You are a coding assistant. The user described their needs as: "${description}". Help them accomplish their goals effectively.`;
+
+    return {
+      persona: {
+        label,
+        description,
+        goals,
+      },
+      suggestedAgents,
+      suggestedSubagents: [],
+      suggestedSkills: availableSkills.map((s) => s.id),
+      suggestedSkillSpecs: [],
+      suggestedPrompt,
+      suggestedMcpServers: [],
+      summary: 'Basic configuration generated (AI analysis unavailable)',
+      reasoning:
+        'AI-powered intent analysis was unavailable. A basic configuration has been generated using heuristics. You can refine each section in the subsequent wizard steps.',
+    };
+  }
+
+  /**
    * Search the live MCP Registry for servers matching the given keywords.
    *
    * Searches the Official MCP Registry for each keyword in parallel,
@@ -1179,7 +1559,8 @@ Return ONLY the JSON object matching the schema.`;
         if (seen.has(server.name)) continue;
         seen.add(server.name);
 
-        const displayName = server.name.split('/').pop() || server.name;
+        const displayName =
+          server.name?.split('/').pop() || server.name || 'Unknown Server';
 
         suggestions.push({
           query: server.name,
@@ -1411,6 +1792,28 @@ Return ONLY the JSON object matching the schema.`;
       lines.push('');
     }
 
+    // Custom Subagent Fleet
+    const customSubagents = config.agents.customSubagents ?? [];
+    if (customSubagents.length > 0) {
+      lines.push('## Custom Subagent Fleet');
+      lines.push('');
+      for (const sub of customSubagents) {
+        lines.push(`### ${sub.name}`);
+        lines.push('');
+        lines.push(sub.description);
+        lines.push('');
+        lines.push(`- **Role**: ${sub.role}`);
+        lines.push(`- **Execution Mode**: ${sub.executionMode}`);
+        lines.push(`- **Tools**: ${sub.tools.join(', ')}`);
+        if (sub.triggers && sub.triggers.length > 0) {
+          lines.push(`- **Triggers**: ${sub.triggers.join(', ')}`);
+        }
+        lines.push('');
+        lines.push(`**Instructions**: ${sub.instructions}`);
+        lines.push('');
+      }
+    }
+
     // Skills
     if (config.skills.selectedSkills.length > 0) {
       lines.push('## Skills');
@@ -1640,30 +2043,1056 @@ Return ONLY the JSON object matching the schema.`;
     return presets;
   }
 
+  // ─── Intelligent Chat ──────────────────────────────────
+
   /**
-   * Build a contextual chat reply based on the current wizard step.
+   * Build an intelligent AI-powered chat reply using InternalQueryService.
    *
-   * TODO: Replace with actual AI agent session using SdkInternalQueryService
+   * The AI is fully context-aware: it knows the current wizard step,
+   * the persona, the configuration state, and can suggest concrete
+   * actions (add agents, create skills, etc.) that the frontend
+   * can apply with one click.
    */
-  private buildChatReply(step: HarnessWizardStep, message: string): string {
-    const stepGuidance: Record<HarnessWizardStep, string> = {
-      persona:
-        'I can help you define your persona. Describe your role and goals, and I will suggest a configuration that matches your workflow. Try describing what kind of work you primarily do.',
-      agents:
-        'I can help you choose agents. Each agent specializes in different tasks: Copilot for code suggestions, Codex for code completion, Gemini for analysis, and Ptah CLI for multi-agent orchestration. Which aspects of development do you need help with?',
-      skills:
-        'I can help you select skills. Skills extend agent capabilities with specialized knowledge and tools. You can search for existing skills or create custom ones tailored to your workflow.',
-      prompts:
-        'I can help you refine your system prompt. The prompt shapes how agents respond to your requests. Consider including your preferred coding style, project conventions, and any specific guidelines you want agents to follow.',
-      mcp: 'I can help you configure MCP servers. MCP servers provide additional tools like workspace analysis, code execution, and browser automation. The built-in Ptah MCP server covers most common needs.',
-      review:
-        'Your harness configuration is ready for review. Check each section to make sure it matches your workflow. You can go back to any step to make changes before applying.',
+  private async buildIntelligentChatReply(
+    step: HarnessWizardStep,
+    message: string,
+    context: Partial<HarnessConfig>,
+  ): Promise<HarnessChatResponse> {
+    const workspaceRoot =
+      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+
+    const stepContext = this.buildStepContextSummary(step, context);
+
+    const prompt = `You are an AI harness architect collaborating with a user to build their perfect AI coding assistant configuration. You're helping them in the "${step}" step of a 6-step wizard (Persona → Agents → Skills → Prompts → MCP → Review).
+
+## Current Configuration State
+${stepContext}
+
+## User's Message
+${message}
+
+## Your Role
+You are a collaborative partner, not just an advisor. Based on the current step and their message:
+
+**Persona step**: Help them articulate their role, workflow, and goals. Ask clarifying questions. Suggest goals they might not have considered. If they describe a complex workflow, suggest breaking it into subagent roles.
+
+**Agents step**: Help them design their agent architecture. Go beyond the 4 CLI agents — suggest custom subagent roles with specific responsibilities, tools, and execution modes. Think like the PRD example: "Sentiment Watchdog", "Lead Router", "Market Intelligence Scout".
+
+**Skills step**: Help them design specialized skills. Each skill should be a specific capability — like "podcast-transcript-analyzer", "vibe-mimic-writing", "intent-scorer". Suggest skills that would automate their repetitive workflows.
+
+**Prompts step**: Help refine the system prompt. Include voice/tone guidelines, approval gates, security guardrails, and workflow-specific instructions.
+
+**MCP step**: Recommend MCP servers based on their actual workflow needs. Explain what each server provides and why it's relevant.
+
+**Review step**: Help them evaluate completeness. Identify gaps. Suggest improvements. Offer to generate a comprehensive requirements document.
+
+## Response Format
+Return a JSON object with:
+- "reply": Your markdown-formatted response (be conversational but specific, include concrete suggestions)
+- "suggestedActions": Optional array of actions the user can apply with one click. Each action has:
+  - "type": One of "toggle-agent", "add-skill", "update-prompt", "add-mcp-server", "add-subagent", "create-skill"
+  - "label": Short button text (e.g., "Add Sentiment Watchdog agent")
+  - "payload": Data for the action (agent details, skill content, etc.)
+
+Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly relevant to the user's message.`;
+
+    const outputSchema = {
+      type: 'object',
+      properties: {
+        reply: { type: 'string', description: 'Markdown-formatted response' },
+        suggestedActions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string' },
+              label: { type: 'string' },
+              payload: { type: 'object' },
+            },
+            required: ['type', 'label', 'payload'],
+          },
+          description: 'Optional clickable actions',
+        },
+      },
+      required: ['reply'],
+      additionalProperties: false,
     };
 
-    const guidance =
-      stepGuidance[step] || 'How can I help you with the harness setup?';
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), 30_000);
 
-    return `${guidance}\n\nRegarding your question: "${message}" - this is a preview of the harness AI chat. Full AI-powered responses will be available in a future update.`;
+    const handle = await this.internalQueryService.execute({
+      cwd: workspaceRoot,
+      model: 'sonnet',
+      prompt,
+      systemPromptAppend:
+        'You are a harness architect. Be specific, practical, and collaborative. Always suggest concrete next steps. Return valid JSON matching the schema.',
+      isPremium: false,
+      mcpServerRunning: false,
+      maxTurns: 1,
+      outputFormat: { type: 'json_schema', schema: outputSchema },
+      abortController,
+    });
+
+    try {
+      const processor = new SdkStreamProcessor({
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
+        emitter: { emit: () => {} },
+        logger: this.logger,
+        serviceTag: '[HarnessChat]',
+      });
+      const result = await processor.process(handle.stream);
+      const output = result.structuredOutput as LlmChatOutput | null;
+
+      if (!output?.reply) {
+        return { reply: this.buildChatReplyFallback(step, message) };
+      }
+
+      // Validate and filter suggested actions to valid types
+      const validTypes = new Set([
+        'toggle-agent',
+        'add-skill',
+        'update-prompt',
+        'add-mcp-server',
+        'add-subagent',
+        'create-skill',
+      ]);
+
+      const suggestedActions: HarnessChatAction[] = (
+        output.suggestedActions ?? []
+      )
+        .filter((a) => validTypes.has(a.type))
+        .map((a) => ({
+          type: a.type as HarnessChatAction['type'],
+          label: a.label,
+          payload: a.payload ?? {},
+        }));
+
+      return {
+        reply: output.reply,
+        suggestedActions:
+          suggestedActions.length > 0 ? suggestedActions : undefined,
+      };
+    } finally {
+      clearTimeout(timeout);
+      handle.close();
+    }
+  }
+
+  /**
+   * Build a summary of the current step's state for AI context.
+   */
+  private buildStepContextSummary(
+    step: HarnessWizardStep,
+    context: Partial<HarnessConfig>,
+  ): string {
+    const parts: string[] = [];
+
+    if (context.persona) {
+      parts.push(
+        `**Persona**: "${context.persona.label}" — ${context.persona.description}`,
+      );
+      if (context.persona.goals.length > 0) {
+        parts.push(`**Goals**: ${context.persona.goals.join(', ')}`);
+      }
+    }
+
+    if (context.agents?.enabledAgents) {
+      const enabled = Object.entries(context.agents.enabledAgents)
+        .filter(([, v]) => v.enabled)
+        .map(([k]) => k);
+      if (enabled.length > 0) {
+        parts.push(`**Enabled Agents**: ${enabled.join(', ')}`);
+      }
+    }
+
+    if (
+      context.agents?.customSubagents &&
+      context.agents.customSubagents.length > 0
+    ) {
+      const subagents = context.agents.customSubagents.map(
+        (s) => `${s.name} (${s.executionMode})`,
+      );
+      parts.push(`**Custom Subagents**: ${subagents.join(', ')}`);
+    }
+
+    if (
+      context.skills?.selectedSkills &&
+      context.skills.selectedSkills.length > 0
+    ) {
+      parts.push(
+        `**Selected Skills**: ${context.skills.selectedSkills.join(', ')}`,
+      );
+    }
+
+    if (context.prompt?.systemPrompt) {
+      parts.push(
+        `**System Prompt**: ${context.prompt.systemPrompt.slice(0, 200)}...`,
+      );
+    }
+
+    if (context.mcp?.servers && context.mcp.servers.length > 0) {
+      const servers = context.mcp.servers
+        .filter((s) => s.enabled)
+        .map((s) => s.name);
+      parts.push(`**MCP Servers**: ${servers.join(', ')}`);
+    }
+
+    parts.push(`**Current Step**: ${step}`);
+
+    return parts.length > 0 ? parts.join('\n') : '(No configuration yet)';
+  }
+
+  /**
+   * Fallback chat reply when the LLM is unavailable.
+   */
+  private buildChatReplyFallback(
+    step: HarnessWizardStep,
+    _message: string,
+  ): string {
+    const stepGuidance: Record<HarnessWizardStep, string> = {
+      persona:
+        "Describe your role, workflow, and goals. I'll help you design a custom agent fleet with specialized subagents, skills, and tools tailored to your work. The more detail you provide, the better the harness I can help you build.",
+      agents:
+        'Beyond the CLI agents, I can help you design **custom subagents** — specialized agents with distinct roles, tools, and trigger conditions. Click "Design Agent Fleet" to have AI architect your subagent team, or describe the kind of agents you need.',
+      skills:
+        'I can help you create **specialized skills** — markdown instruction sets that give your agents domain expertise. Click "Generate Skills" to have AI design skills for your workflow, or describe what capabilities you need.',
+      prompts:
+        'I can help refine your system prompt with voice/tone guidelines, approval gates, security guardrails, and workflow-specific instructions. Describe how you want your agents to behave.',
+      mcp: 'I can help you find and configure MCP servers that match your workflow. Describe the tools and integrations you need.',
+      review:
+        'Your configuration is ready for review. I can generate a comprehensive requirements document from your harness. Click "Generate Document" to produce a full PRD.',
+    };
+
+    return stepGuidance[step] ?? 'How can I help you build your harness?';
+  }
+
+  // ─── Subagent Fleet Design (Implementation) ───────────
+
+  /**
+   * Design a custom subagent fleet using the LLM.
+   *
+   * The AI analyzes the persona and designs specialized subagents,
+   * each with a distinct role, toolset, execution mode, and triggers.
+   */
+  private async designSubagentFleet(
+    persona: HarnessDesignAgentsParams['persona'],
+    existingAgents: string[],
+    workspaceContext?: HarnessDesignAgentsParams['workspaceContext'],
+  ): Promise<HarnessDesignAgentsResponse> {
+    const workspaceRoot =
+      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+
+    const contextInfo = workspaceContext
+      ? `\n## Workspace Context\n- Project: ${workspaceContext.projectName}\n- Type: ${workspaceContext.projectType}\n- Frameworks: ${workspaceContext.frameworks.join(', ') || 'none detected'}\n- Languages: ${workspaceContext.languages.join(', ') || 'none detected'}`
+      : '';
+
+    const prompt = `You are designing a custom subagent fleet for an AI coding harness. Each subagent is a specialized worker with a distinct role in the user's workflow.
+
+## User Persona
+**Name**: ${persona.label}
+**Description**: ${persona.description}
+**Goals**: ${persona.goals.length > 0 ? persona.goals.join(', ') : 'General development assistance'}
+${contextInfo}
+
+## Existing CLI Agents Already Enabled
+${existingAgents.length > 0 ? existingAgents.join(', ') : '(none)'}
+
+## Your Task
+Design 2-5 custom subagents that would transform this user's workflow. Each subagent should be:
+
+1. **Specialized** — one clear responsibility, not a generalist
+2. **Actionable** — has specific tools and triggers
+3. **Complementary** — works with other subagents, not redundant
+
+Think creatively based on the persona. Examples of great subagent designs:
+- "Sentiment Watchdog" — monitors social media comments, categorizes by sentiment
+- "Code Quality Guardian" — runs on every commit, flags regressions
+- "Documentation Sync Agent" — detects code changes, updates docs automatically
+- "Dependency Scout" — monitors package updates, flags security advisories
+- "Performance Monitor" — tracks build times, bundle sizes, lighthouse scores
+
+For each subagent, specify:
+- **id**: kebab-case identifier
+- **name**: Human-readable name
+- **description**: What it does (1-2 sentences)
+- **role**: The specialized persona prompt for this subagent
+- **tools**: Array of tool names it needs (e.g., "web-search", "file-read", "git-log", "browser", "code-execute")
+- **executionMode**: "background" (always running), "on-demand" (user-triggered), or "scheduled" (periodic)
+- **triggers**: When this agent activates (e.g., "on-commit", "every-4-hours", "on-user-request")
+- **instructions**: Detailed behavior instructions (3-5 sentences)
+
+Return ONLY the JSON object matching the schema.`;
+
+    const outputSchema = {
+      type: 'object',
+      properties: {
+        subagents: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              description: { type: 'string' },
+              role: { type: 'string' },
+              tools: { type: 'array', items: { type: 'string' } },
+              executionMode: {
+                type: 'string',
+                enum: ['background', 'on-demand', 'scheduled'],
+              },
+              triggers: { type: 'array', items: { type: 'string' } },
+              instructions: { type: 'string' },
+            },
+            required: [
+              'id',
+              'name',
+              'description',
+              'role',
+              'tools',
+              'executionMode',
+              'instructions',
+            ],
+          },
+        },
+        reasoning: { type: 'string' },
+      },
+      required: ['subagents', 'reasoning'],
+      additionalProperties: false,
+    };
+
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), 45_000);
+
+    const handle = await this.internalQueryService.execute({
+      cwd: workspaceRoot,
+      model: 'sonnet',
+      prompt,
+      systemPromptAppend:
+        "You are a subagent fleet architect. Design creative, practical subagents that automate the user's most valuable workflows. Be specific about tools and triggers. Do NOT use any tools — just analyze and return structured JSON.",
+      isPremium: false,
+      mcpServerRunning: false,
+      maxTurns: 1,
+      outputFormat: { type: 'json_schema', schema: outputSchema },
+      abortController,
+    });
+
+    try {
+      const processor = new SdkStreamProcessor({
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
+        emitter: { emit: () => {} },
+        logger: this.logger,
+        serviceTag: '[HarnessDesignAgents]',
+      });
+      const result = await processor.process(handle.stream);
+      const output = result.structuredOutput as LlmSubagentDesignOutput | null;
+
+      if (!output?.subagents || !Array.isArray(output.subagents)) {
+        throw new Error('LLM did not return valid subagent designs');
+      }
+
+      // Validate and sanitize each subagent
+      const subagents: CustomSubagentDefinition[] = output.subagents
+        .filter((s) => s.id && s.name && s.description)
+        .map((s) => ({
+          id: s.id,
+          name: s.name,
+          description: s.description,
+          role: s.role || s.description,
+          tools: Array.isArray(s.tools) ? s.tools : [],
+          executionMode: (['background', 'on-demand', 'scheduled'].includes(
+            s.executionMode,
+          )
+            ? s.executionMode
+            : 'on-demand') as CustomSubagentDefinition['executionMode'],
+          triggers: Array.isArray(s.triggers) ? s.triggers : undefined,
+          instructions: s.instructions || '',
+        }));
+
+      return {
+        subagents,
+        reasoning:
+          output.reasoning ||
+          'Subagent fleet designed based on persona analysis.',
+      };
+    } finally {
+      clearTimeout(timeout);
+      handle.close();
+    }
+  }
+
+  // ─── Skill Generation (Implementation) ────────────────
+
+  /**
+   * Generate specialized skill specifications using the LLM.
+   *
+   * Creates complete SKILL.md content tailored to the persona's workflow.
+   * If custom subagents are provided, skills are designed to support them.
+   */
+  private async generateSkillSpecs(
+    persona: HarnessGenerateSkillsParams['persona'],
+    existingSkills: string[],
+    customSubagents?: CustomSubagentDefinition[],
+  ): Promise<HarnessGenerateSkillsResponse> {
+    const workspaceRoot =
+      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+
+    const subagentContext =
+      customSubagents && customSubagents.length > 0
+        ? `\n## Custom Subagent Fleet\nThese subagents are designed for this persona — create skills that support their workflows:\n${customSubagents.map((s) => `- **${s.name}** (${s.executionMode}): ${s.description}`).join('\n')}`
+        : '';
+
+    const prompt = `You are creating specialized skill files for an AI coding harness. Skills are markdown instruction sets that give agents domain expertise.
+
+## User Persona
+**Name**: ${persona.label}
+**Description**: ${persona.description}
+**Goals**: ${persona.goals.length > 0 ? persona.goals.join(', ') : 'General development assistance'}
+${subagentContext}
+
+## Already Available Skills
+${existingSkills.length > 0 ? existingSkills.join(', ') : '(none)'}
+
+## Your Task
+Design 2-4 specialized skills that would be most valuable for this persona. Each skill should:
+
+1. **Solve a specific workflow problem** — not generic, but targeted
+2. **Include complete instructions** — the full markdown content for SKILL.md
+3. **Be actionable** — give the AI clear steps, constraints, and output formats
+
+For each skill, provide:
+- **name**: Skill name (kebab-case, e.g., "podcast-transcript-analyzer")
+- **description**: What this skill does (1 sentence)
+- **content**: Complete SKILL.md markdown content including:
+  - A clear title and description
+  - Step-by-step instructions for the AI
+  - Input/output format specifications
+  - Constraints and guardrails
+  - Example usage scenarios
+- **requiredTools**: Tools this skill needs (e.g., ["web-search", "file-read"])
+- **reasoning**: Why this skill is valuable for this persona (1-2 sentences)
+
+Return ONLY the JSON object matching the schema.`;
+
+    const outputSchema = {
+      type: 'object',
+      properties: {
+        skills: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              description: { type: 'string' },
+              content: { type: 'string' },
+              requiredTools: { type: 'array', items: { type: 'string' } },
+              reasoning: { type: 'string' },
+            },
+            required: ['name', 'description', 'content', 'reasoning'],
+          },
+        },
+        reasoning: { type: 'string' },
+      },
+      required: ['skills', 'reasoning'],
+      additionalProperties: false,
+    };
+
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), 45_000);
+
+    const handle = await this.internalQueryService.execute({
+      cwd: workspaceRoot,
+      model: 'sonnet',
+      prompt,
+      systemPromptAppend:
+        'You are a skill designer. Create practical, detailed skills that automate high-value workflows. Include complete SKILL.md content — not stubs. Do NOT use any tools — just analyze and return structured JSON.',
+      isPremium: false,
+      mcpServerRunning: false,
+      maxTurns: 1,
+      outputFormat: { type: 'json_schema', schema: outputSchema },
+      abortController,
+    });
+
+    try {
+      const processor = new SdkStreamProcessor({
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
+        emitter: { emit: () => {} },
+        logger: this.logger,
+        serviceTag: '[HarnessGenerateSkills]',
+      });
+      const result = await processor.process(handle.stream);
+      const output = result.structuredOutput as LlmSkillGenerationOutput | null;
+
+      if (!output?.skills || !Array.isArray(output.skills)) {
+        throw new Error('LLM did not return valid skill specifications');
+      }
+
+      const skills: GeneratedSkillSpec[] = output.skills
+        .filter((s) => s.name && s.description && s.content)
+        .map((s) => ({
+          name: s.name,
+          description: s.description,
+          content: s.content,
+          requiredTools: Array.isArray(s.requiredTools)
+            ? s.requiredTools
+            : undefined,
+          reasoning: s.reasoning || 'Designed for persona workflow.',
+        }));
+
+      return {
+        skills,
+        reasoning:
+          output.reasoning || 'Skills designed based on persona analysis.',
+      };
+    } finally {
+      clearTimeout(timeout);
+      handle.close();
+    }
+  }
+
+  // ─── Document Generation (Implementation) ─────────────
+
+  /**
+   * Generate a comprehensive PRD/requirements document from the harness config.
+   *
+   * Uses the LLM to produce a professional-grade document that covers:
+   * persona profile, subagent architecture, skill library, security
+   * guardrails, MCP topology, and implementation roadmap.
+   */
+  private async generateComprehensiveDocument(
+    config: HarnessConfig,
+    workspaceContext?: HarnessGenerateDocumentParams['workspaceContext'],
+  ): Promise<HarnessGenerateDocumentResponse> {
+    const workspaceRoot =
+      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+
+    // Build a detailed config summary for the LLM
+    const enabledAgents = Object.entries(config.agents.enabledAgents)
+      .filter(([, v]) => v.enabled)
+      .map(
+        ([k, v]) =>
+          `${k} (tier: ${v.modelTier ?? 'default'}, auto-approve: ${v.autoApprove ?? false})`,
+      );
+
+    const customSubagents = config.agents.customSubagents ?? [];
+    const subagentSummary =
+      customSubagents.length > 0
+        ? customSubagents
+            .map(
+              (s) =>
+                `- **${s.name}** (${s.executionMode}): ${s.description}\n  Tools: ${s.tools.join(', ')}\n  Triggers: ${s.triggers?.join(', ') ?? 'on-demand'}\n  Instructions: ${s.instructions}`,
+            )
+            .join('\n')
+        : '(none designed)';
+
+    const enabledServers = config.mcp.servers.filter((s) => s.enabled);
+    const contextInfo = workspaceContext
+      ? `Project: ${workspaceContext.projectName} (${workspaceContext.projectType}), Frameworks: ${workspaceContext.frameworks.join(', ')}, Languages: ${workspaceContext.languages.join(', ')}`
+      : 'No workspace context';
+
+    const prompt = `Generate a comprehensive Product Requirements Document (PRD) for an AI harness configuration. This document should be professional-grade and cover every aspect of the harness architecture.
+
+## Harness Configuration Data
+
+**Name**: ${config.name}
+**Workspace**: ${contextInfo}
+
+### Persona
+- **Label**: ${config.persona.label}
+- **Description**: ${config.persona.description}
+- **Goals**: ${config.persona.goals.join(', ') || '(none)'}
+
+### CLI Agents
+${enabledAgents.length > 0 ? enabledAgents.join('\n') : '(none enabled)'}
+
+### Custom Subagent Fleet
+${subagentSummary}
+
+### Skills
+- **Selected**: ${config.skills.selectedSkills.join(', ') || '(none)'}
+- **Created**: ${config.skills.createdSkills.map((s) => s.name).join(', ') || '(none)'}
+
+### System Prompt
+${config.prompt.systemPrompt || '(not configured)'}
+
+### MCP Servers
+${enabledServers.map((s) => `- ${s.name}: ${s.description ?? s.url}`).join('\n') || '(none)'}
+
+## Document Requirements
+
+Generate a comprehensive PRD with these sections:
+
+1. **Objective** — 2-3 sentence summary of what this harness achieves
+2. **Target User Profile** — Detailed persona analysis with platform/workflow strategy
+3. **Core Harness Architecture** — How the components work together (memory, skills, agents)
+4. **The Subagent Fleet** — Detailed description of each subagent's role, responsibilities, and interactions
+5. **Specialized Skill Library** — Each skill with its purpose and how it fits the workflow
+6. **Security & Human-in-the-Loop Guardrails** — Approval gates, runtime gatekeepers, deny-and-continue patterns, adversarial input protection
+7. **MCP Server Topology** — What each server provides and how they integrate
+8. **Implementation Roadmap** — Phased rollout with priorities
+
+Write in a professional but engaging tone. Use markdown formatting with headers, bullet points, and bold emphasis. Make it feel like a real product document, not a config dump.`;
+
+    const docOutputSchema = {
+      type: 'object',
+      properties: {
+        document: {
+          type: 'string',
+          description: 'The complete markdown PRD document',
+        },
+      },
+      required: ['document'],
+      additionalProperties: false,
+    };
+
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), 60_000);
+
+    const handle = await this.internalQueryService.execute({
+      cwd: workspaceRoot,
+      model: 'sonnet',
+      prompt:
+        prompt +
+        '\n\nReturn a JSON object with a single "document" field containing the full markdown PRD as a string.',
+      systemPromptAppend:
+        'You are a technical product manager writing a PRD. Be thorough, specific, and professional. The document should be 800-1500 words. Return valid JSON with the markdown document. Do NOT use any tools.',
+      isPremium: false,
+      mcpServerRunning: false,
+      maxTurns: 1,
+      outputFormat: { type: 'json_schema', schema: docOutputSchema },
+      abortController,
+    });
+
+    try {
+      const processor = new SdkStreamProcessor({
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
+        emitter: { emit: () => {} },
+        logger: this.logger,
+        serviceTag: '[HarnessGenerateDoc]',
+      });
+      const result = await processor.process(handle.stream);
+      const output = result.structuredOutput as { document: string } | null;
+
+      const document = output?.document || this.buildFallbackDocument(config);
+
+      // Parse sections from the document for structured access
+      const sections = this.parseSectionsFromDocument(document);
+
+      return { document, sections };
+    } finally {
+      clearTimeout(timeout);
+      handle.close();
+    }
+  }
+
+  /**
+   * Parse section headers from a markdown document into a record.
+   */
+  private parseSectionsFromDocument(document: string): Record<string, string> {
+    const sections: Record<string, string> = {};
+    const lines = document.split('\n');
+    let currentSection = 'header';
+    let currentContent: string[] = [];
+
+    for (const line of lines) {
+      const headerMatch = /^#{1,3}\s+(?:\d+\.\s+)?(.+)$/.exec(line);
+      if (headerMatch) {
+        if (currentContent.length > 0) {
+          sections[currentSection] = currentContent.join('\n').trim();
+        }
+        currentSection = headerMatch[1]
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '');
+        currentContent = [];
+      } else {
+        currentContent.push(line);
+      }
+    }
+
+    if (currentContent.length > 0) {
+      sections[currentSection] = currentContent.join('\n').trim();
+    }
+
+    return sections;
+  }
+
+  /**
+   * Fallback document when LLM is unavailable.
+   */
+  private buildFallbackDocument(config: HarnessConfig): string {
+    const lines: string[] = [];
+    lines.push(`# ${config.name} — Harness Requirements Document`);
+    lines.push('');
+    lines.push(
+      `> Generated by Ptah Harness Builder on ${new Date().toISOString().split('T')[0]}`,
+    );
+    lines.push('');
+    lines.push('## 1. Objective');
+    lines.push('');
+    lines.push(
+      `This harness configures an AI coding assistant for the "${config.persona.label}" persona.`,
+    );
+    lines.push('');
+    lines.push('## 2. Persona');
+    lines.push('');
+    lines.push(config.persona.description || '(No description provided)');
+    lines.push('');
+
+    if (config.persona.goals.length > 0) {
+      lines.push('### Goals');
+      for (const goal of config.persona.goals) {
+        lines.push(`- ${goal}`);
+      }
+      lines.push('');
+    }
+
+    const enabledAgentIds = Object.entries(config.agents.enabledAgents)
+      .filter(([, v]) => v.enabled)
+      .map(([k]) => k);
+    if (enabledAgentIds.length > 0) {
+      lines.push('## 3. Agents');
+      lines.push('');
+      for (const id of enabledAgentIds) {
+        lines.push(`- **${id}**`);
+      }
+      lines.push('');
+    }
+
+    const customSubagents = config.agents.customSubagents ?? [];
+    if (customSubagents.length > 0) {
+      lines.push('## 4. Custom Subagent Fleet');
+      lines.push('');
+      for (const sub of customSubagents) {
+        lines.push(`### ${sub.name}`);
+        lines.push(`- **Role**: ${sub.role}`);
+        lines.push(`- **Mode**: ${sub.executionMode}`);
+        lines.push(`- **Tools**: ${sub.tools.join(', ')}`);
+        lines.push(`- **Description**: ${sub.description}`);
+        lines.push('');
+      }
+    }
+
+    if (
+      config.skills.selectedSkills.length > 0 ||
+      config.skills.createdSkills.length > 0
+    ) {
+      lines.push('## 5. Skills');
+      lines.push('');
+      for (const skill of config.skills.selectedSkills) {
+        lines.push(`- ${skill}`);
+      }
+      for (const skill of config.skills.createdSkills) {
+        lines.push(`- ${skill.name}: ${skill.description}`);
+      }
+      lines.push('');
+    }
+
+    if (config.prompt.systemPrompt) {
+      lines.push('## 6. System Prompt');
+      lines.push('');
+      lines.push(config.prompt.systemPrompt);
+      lines.push('');
+    }
+
+    lines.push('## 7. Security & Guardrails');
+    lines.push('');
+    lines.push('- Approval gates for state-changing actions');
+    lines.push('- Runtime permission checks before tool execution');
+    lines.push('- Deny-and-continue fallback pattern');
+    lines.push('- Adversarial input protection for external data');
+    lines.push('');
+
+    return lines.join('\n');
+  }
+
+  // ─── Intent Analysis (Implementation) ──────────────────
+
+  /**
+   * LLM-powered intent analysis engine.
+   *
+   * Takes freeform user input (PRD, instruction, description) and generates
+   * a complete harness blueprint via a single LLM call with structured output.
+   * The AI figures out the persona, subagent fleet, skill specs, system prompt,
+   * and MCP server recommendations — all from the raw input.
+   */
+  private async analyzeIntentViaAgent(
+    input: string,
+    availableSkills: SkillSummary[],
+    availableAgents: AvailableAgent[],
+    workspaceContext?: HarnessAnalyzeIntentParams['workspaceContext'],
+  ): Promise<HarnessAnalyzeIntentResponse> {
+    const workspaceRoot =
+      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+
+    // Build catalogs for the prompt
+    const agentList = availableAgents
+      .map(
+        (a) =>
+          `- id: "${a.id}" | name: "${a.name}" | type: ${a.type} | description: ${a.description}`,
+      )
+      .join('\n');
+
+    const skillList = availableSkills
+      .slice(0, 50)
+      .map(
+        (s) =>
+          `- id: "${s.id}" | name: "${s.name}" | description: ${s.description}`,
+      )
+      .join('\n');
+
+    const contextInfo = workspaceContext
+      ? `\n## Workspace Context\n- Project: ${workspaceContext.projectName}\n- Type: ${workspaceContext.projectType}\n- Frameworks: ${workspaceContext.frameworks.join(', ') || 'none detected'}\n- Languages: ${workspaceContext.languages.join(', ') || 'none detected'}`
+      : '';
+
+    const prompt = `You are an AI harness architect. The user has provided freeform input describing what they want to build. Your job is to analyze this input — whether it's a PRD document, a simple instruction, or a detailed description — and architect a COMPLETE harness configuration.
+
+## User Input
+${input}
+${contextInfo}
+
+## Available CLI Agents
+${agentList}
+
+## Available Skills
+${skillList || '(no skills available)'}
+
+## Your Task
+Analyze the user's input and generate a comprehensive harness blueprint. You must figure out:
+
+1. **persona**: The user's role/persona derived from their input
+   - **label**: Short role name (e.g., "Real Estate Marketing Lead", "Full-Stack Developer")
+   - **description**: Detailed description of the persona and workflow (2-4 sentences)
+   - **goals**: Array of 3-6 specific goals extracted from the input
+
+2. **selectedAgentIds**: Which CLI agents to enable from the available list
+
+3. **subagents**: Design 2-5 custom subagents tailored to the input. Each subagent should be:
+   - Specialized with one clear responsibility
+   - Have specific tools and triggers
+   - Complement other subagents in the fleet
+   Include: id (kebab-case), name, description, role, tools[], executionMode (background/on-demand/scheduled), triggers[], instructions
+
+4. **selectedSkillIds**: Which existing skills to activate (from the available list)
+
+5. **skillSpecs**: Design 1-3 NEW skills that don't exist yet. Each needs:
+   - name (kebab-case), description, content (complete SKILL.md markdown), requiredTools[], reasoning
+
+6. **systemPrompt**: A comprehensive system prompt (4-8 sentences) tailored to the user's needs
+
+7. **mcpSearchTerms**: Array of 3-6 technology keywords for MCP server discovery (concrete tech names like "github", "postgresql", "slack")
+
+8. **summary**: A 1-2 sentence summary of what you understood from the input and what you've architected
+
+9. **reasoning**: Detailed explanation (3-5 sentences) of your design decisions
+
+Be creative and thorough. If the input is a PRD, extract everything. If it's a simple instruction, infer intelligently. Return ONLY the JSON object matching the schema.`;
+
+    const outputSchema = {
+      type: 'object',
+      properties: {
+        persona: {
+          type: 'object',
+          properties: {
+            label: { type: 'string' },
+            description: { type: 'string' },
+            goals: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['label', 'description', 'goals'],
+        },
+        selectedAgentIds: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        subagents: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              description: { type: 'string' },
+              role: { type: 'string' },
+              tools: { type: 'array', items: { type: 'string' } },
+              executionMode: {
+                type: 'string',
+                enum: ['background', 'on-demand', 'scheduled'],
+              },
+              triggers: { type: 'array', items: { type: 'string' } },
+              instructions: { type: 'string' },
+            },
+            required: [
+              'id',
+              'name',
+              'description',
+              'role',
+              'tools',
+              'executionMode',
+              'instructions',
+            ],
+          },
+        },
+        selectedSkillIds: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        skillSpecs: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              description: { type: 'string' },
+              content: { type: 'string' },
+              requiredTools: { type: 'array', items: { type: 'string' } },
+              reasoning: { type: 'string' },
+            },
+            required: ['name', 'description', 'content', 'reasoning'],
+          },
+        },
+        systemPrompt: { type: 'string' },
+        mcpSearchTerms: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        summary: { type: 'string' },
+        reasoning: { type: 'string' },
+      },
+      required: [
+        'persona',
+        'selectedAgentIds',
+        'subagents',
+        'selectedSkillIds',
+        'skillSpecs',
+        'systemPrompt',
+        'mcpSearchTerms',
+        'summary',
+        'reasoning',
+      ],
+      additionalProperties: false,
+    };
+
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), 150_000);
+
+    const handle = await this.internalQueryService.execute({
+      cwd: workspaceRoot,
+      model: 'sonnet',
+      prompt,
+      systemPromptAppend:
+        "You are a harness architect. Analyze the user's freeform input and design a complete AI coding harness. Be creative but practical. Extract maximum value from whatever input format the user provides — PRD, instruction, or description. Do NOT use any tools — just analyze and return structured JSON.",
+      isPremium: false,
+      mcpServerRunning: false,
+      maxTurns: 1,
+      outputFormat: { type: 'json_schema', schema: outputSchema },
+      abortController,
+    });
+
+    try {
+      const processor = new SdkStreamProcessor({
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
+        emitter: { emit: () => {} },
+        logger: this.logger,
+        serviceTag: '[HarnessAnalyzeIntent]',
+      });
+      const result = await processor.process(handle.stream);
+      const output = result.structuredOutput as LlmIntentAnalysisOutput | null;
+
+      if (!output?.persona || !output?.systemPrompt) {
+        throw new Error('LLM did not return a valid intent analysis');
+      }
+
+      // Validate and map agent IDs
+      const validAgentIds = new Set(availableAgents.map((a) => a.id));
+      const suggestedAgents: Record<string, AgentOverride> = {};
+      for (const agentId of output.selectedAgentIds ?? []) {
+        if (validAgentIds.has(agentId)) {
+          suggestedAgents[agentId] = { enabled: true };
+        }
+      }
+      if (Object.keys(suggestedAgents).length === 0) {
+        suggestedAgents['ptah-cli'] = { enabled: true };
+      }
+
+      // Validate and map subagents
+      const suggestedSubagents: CustomSubagentDefinition[] = (
+        output.subagents ?? []
+      )
+        .filter((s) => s.id && s.name && s.description)
+        .map((s) => ({
+          id: s.id,
+          name: s.name,
+          description: s.description,
+          role: s.role || s.description,
+          tools: Array.isArray(s.tools) ? s.tools : [],
+          executionMode: (['background', 'on-demand', 'scheduled'].includes(
+            s.executionMode,
+          )
+            ? s.executionMode
+            : 'on-demand') as CustomSubagentDefinition['executionMode'],
+          triggers: Array.isArray(s.triggers) ? s.triggers : undefined,
+          instructions: s.instructions || '',
+        }));
+
+      // Validate skill IDs
+      const validSkillIds = new Set(availableSkills.map((s) => s.id));
+      const suggestedSkills = (output.selectedSkillIds ?? []).filter((id) =>
+        validSkillIds.has(id),
+      );
+
+      // Validate skill specs
+      const suggestedSkillSpecs: GeneratedSkillSpec[] = (
+        output.skillSpecs ?? []
+      )
+        .filter((s) => s.name && s.content)
+        .map((s) => ({
+          name: s.name,
+          description: s.description || '',
+          content: s.content,
+          requiredTools: Array.isArray(s.requiredTools)
+            ? s.requiredTools
+            : undefined,
+          reasoning: s.reasoning || '',
+        }));
+
+      // Search MCP Registry using AI-selected keywords
+      let suggestedMcpServers: McpServerSuggestion[] = [];
+      try {
+        suggestedMcpServers = await this.suggestMcpServersFromRegistry(
+          output.mcpSearchTerms ?? [],
+        );
+      } catch (mcpError) {
+        this.logger.warn(
+          'MCP registry search failed during intent analysis, continuing without MCP suggestions',
+          {
+            error:
+              mcpError instanceof Error ? mcpError.message : String(mcpError),
+          },
+        );
+      }
+
+      return {
+        persona: {
+          label: output.persona.label || 'Custom Persona',
+          description: output.persona.description || '',
+          goals: Array.isArray(output.persona.goals)
+            ? output.persona.goals
+            : [],
+        },
+        suggestedAgents,
+        suggestedSubagents,
+        suggestedSkills,
+        suggestedSkillSpecs,
+        suggestedPrompt: output.systemPrompt,
+        suggestedMcpServers,
+        summary:
+          output.summary || 'Harness configuration generated from your input.',
+        reasoning: output.reasoning || '',
+      };
+    } finally {
+      clearTimeout(timeout);
+      handle.close();
+    }
   }
 
   /**

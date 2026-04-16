@@ -15,7 +15,7 @@ import {
 } from '@angular/core';
 import {
   LucideAngularModule,
-  User,
+  Wand2,
   Bot,
   Wrench,
   FileText,
@@ -32,7 +32,7 @@ interface StepDefinition {
 }
 
 const STEPS: StepDefinition[] = [
-  { id: 'persona', label: 'Persona', icon: User },
+  { id: 'persona', label: 'Describe', icon: Wand2 },
   { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'skills', label: 'Skills', icon: Wrench },
   { id: 'prompts', label: 'Prompts', icon: FileText },

@@ -1,5 +1,5 @@
 {
-  "ptah.authMethod": "oauth",
+  "ptah.authMethod": "claudeCli",
   "ptah.model.selected": "claude-opus-4-6",
   "ptah.reasoningEffort": "high",
   "ptah.autopilot.enabled": true,

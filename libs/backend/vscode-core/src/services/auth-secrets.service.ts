@@ -103,12 +103,6 @@ export interface IAuthSecretsService {
    * @returns True if provider key exists and is non-empty
    */
   hasProviderKey(providerId: string): Promise<boolean>;
-
-  /**
-   * Delete legacy secrets that are no longer used.
-   * Call once during extension activation to clean up orphaned keys.
-   */
-  cleanupLegacySecrets(): Promise<void>;
 }
 
 /**
@@ -333,40 +327,5 @@ export class AuthSecretsService implements IAuthSecretsService {
   async hasProviderKey(providerId: string): Promise<boolean> {
     const value = await this.getProviderKey(providerId);
     return !!value && value.length > 0;
-  }
-
-  // ================================================================
-  // Legacy secret cleanup
-  // ================================================================
-
-  /**
-   * Keys that were removed from the codebase but may still exist in storage.
-   * - `ptah.auth.claudeOAuthToken`: Removed for Anthropic TOS compliance.
-   *   The Claude Agent SDK spawns the CLI binary which uses its own credential store.
-   */
-  private readonly LEGACY_KEYS = ['ptah.auth.claudeOAuthToken'];
-
-  /**
-   * Delete legacy secrets that are no longer used.
-   * Safe to call multiple times — deleting a non-existent key is a no-op.
-   */
-  async cleanupLegacySecrets(): Promise<void> {
-    for (const key of this.LEGACY_KEYS) {
-      try {
-        await this.context.secrets.delete(key);
-        this.logger.info(
-          '[AuthSecretsService.cleanupLegacySecrets] Deleted legacy key',
-          { key },
-        );
-      } catch (error) {
-        this.logger.warn(
-          '[AuthSecretsService.cleanupLegacySecrets] Failed to delete legacy key',
-          {
-            key,
-            error: error instanceof Error ? error.message : String(error),
-          },
-        );
-      }
-    }
   }
 }
