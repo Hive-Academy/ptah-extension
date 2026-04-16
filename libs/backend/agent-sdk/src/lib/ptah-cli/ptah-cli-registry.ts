@@ -41,6 +41,7 @@ import type { SubagentHookHandler } from '../helpers/subagent-hook-handler';
 import type { CompactionHookHandler } from '../helpers/compaction-hook-handler';
 import type { CompactionConfigProvider } from '../helpers/compaction-config-provider';
 import type { ProviderModelsService } from '../provider-models.service';
+import type { ModelResolver } from '../auth/model-resolver';
 import {
   ANTHROPIC_PROVIDERS,
   getAnthropicProvider,
@@ -109,6 +110,8 @@ export class PtahCliRegistry {
     private readonly configPersistence: PtahCliConfigPersistence,
     @inject(SDK_TOKENS.SDK_PTAH_CLI_SPAWN_OPTIONS)
     private readonly spawnOptionsService: PtahCliSpawnOptions,
+    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: ModelResolver,
   ) {
     this.logger.info('[PtahCliRegistry] Registry initialized');
   }
@@ -345,6 +348,7 @@ export class PtahCliRegistry {
       this.subagentHookHandler,
       this.compactionHookHandler,
       this.compactionConfigProvider,
+      this.modelResolver,
     );
 
     const success = await adapter.initialize();
@@ -405,6 +409,10 @@ export class PtahCliRegistry {
         this.moduleLoader,
         this.messageTransformer,
         this.permissionHandler,
+        undefined, // subagentHookHandler - not needed for test
+        undefined, // compactionHookHandler - not needed for test
+        undefined, // compactionConfigProvider - not needed for test
+        this.modelResolver,
       );
       const initSuccess = await testAdapter.initialize();
       if (!initSuccess) {

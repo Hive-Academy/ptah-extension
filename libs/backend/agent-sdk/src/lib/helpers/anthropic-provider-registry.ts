@@ -17,12 +17,7 @@
  * @see https://docs.z.ai/devpack/tool/claude
  */
 
-import {
-  updatePricingMap,
-  type ModelPricing,
-  type AuthEnv,
-} from '@ptah-extension/shared';
-import { TIER_ENV_VAR_MAP } from './sdk-model-service';
+import { updatePricingMap, type ModelPricing } from '@ptah-extension/shared';
 import { COPILOT_PROVIDER_ENTRY } from '../copilot-provider';
 import { CODEX_PROVIDER_ENTRY } from '../codex-provider';
 import {
@@ -441,47 +436,4 @@ export function seedStaticModelPricing(providerId: string): void {
   if (Object.keys(entries).length > 0) {
     updatePricingMap(entries);
   }
-}
-
-/**
- * Resolve the actual provider model ID for pricing purposes.
- *
- * When using third-party providers (Moonshot, Z.AI), the SDK reports
- * model IDs like "claude-opus-4-..." because it sends Anthropic-format
- * requests. The actual model being used is configured via tier env vars
- * (ANTHROPIC_DEFAULT_OPUS_MODEL, etc.).
- *
- * This function detects the proxy scenario and returns the real model ID.
- *
- * @param modelId - Model ID as reported by the SDK (may be an Anthropic alias)
- * @returns The actual model ID for pricing lookup
- */
-/**
- * @deprecated Use ModelResolver.resolveForPricing() instead.
- * Kept for backward compatibility — logic duplicated in ModelResolver.resolveForPricing().
- */
-export function resolveActualModelForPricing(
-  modelId: string,
-  authEnv?: AuthEnv,
-): string {
-  if (!modelId) return modelId;
-
-  const baseUrl =
-    authEnv?.ANTHROPIC_BASE_URL ?? process.env['ANTHROPIC_BASE_URL'];
-
-  if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
-    return modelId;
-  }
-
-  const lower = modelId.toLowerCase();
-
-  for (const [tier, envKey] of Object.entries(TIER_ENV_VAR_MAP)) {
-    if (lower.includes(tier)) {
-      const override = authEnv?.[envKey] ?? process.env[envKey];
-      if (override) return override;
-      break;
-    }
-  }
-
-  return modelId;
 }

@@ -13,12 +13,6 @@ export type {
   AuthConfigureContext,
 } from './auth-strategy.types';
 
-// Model fetcher interface
-export type {
-  ModelFetcherFn,
-  IModelFetcherProvider,
-} from './model-fetcher.types';
-
 // ModelResolver - single source of truth for tier→model resolution
 export { ModelResolver } from './model-resolver';
 

@@ -35,8 +35,8 @@ import {
   TOKENS,
   type SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
-import { resolveActualModelForPricing } from './helpers/anthropic-provider-registry';
 import { SDK_TOKENS } from './di/tokens';
+import type { ModelResolver } from './auth/model-resolver';
 import {
   SDKMessage,
   SDKAssistantMessage,
@@ -144,6 +144,8 @@ export class SdkMessageTransformer {
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
+    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: ModelResolver,
   ) {}
 
   /**
@@ -156,6 +158,7 @@ export class SdkMessageTransformer {
       this.logger,
       this.authEnv,
       this.subagentRegistry,
+      this.modelResolver,
     );
   }
 
@@ -990,7 +993,7 @@ export class SdkMessageTransformer {
     // TASK_2025_164: Pass authEnv for provider-aware model resolution
     const cost = tokenUsage
       ? calculateMessageCost(
-          resolveActualModelForPricing(message.model || '', this.authEnv),
+          this.modelResolver.resolveForPricing(message.model || ''),
           tokenUsage,
         )
       : undefined;

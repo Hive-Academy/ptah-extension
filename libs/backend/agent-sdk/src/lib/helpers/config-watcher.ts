@@ -55,13 +55,11 @@ export class ConfigWatcher {
     }
 
     // Watch SecretStorage for credential changes
+    // Use prefix match to catch all auth-related secrets:
+    // ptah.auth.anthropicApiKey, ptah.auth.openrouterApiKey, ptah.auth.provider.* etc.
     this.secretsDisposable = this.secretStorage.onDidChange((event) => {
-      if (
-        event.key === 'ptah.auth.anthropicApiKey' ||
-        event.key === 'ptah.auth.openrouterApiKey' // TASK_2025_091: OpenRouter key
-      ) {
+      if (event.key.startsWith('ptah.auth.')) {
         this.logger.info('[ConfigWatcher] Secret changed', { key: event.key });
-        // Use the same callback as config changes
         void this.handleConfigChange(event.key, reinitCallback);
       }
     });

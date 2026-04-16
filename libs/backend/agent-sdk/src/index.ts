@@ -64,7 +64,6 @@ export {
   TIER_ENV_VAR_MAP,
   DEFAULT_FALLBACK_MODEL_ID,
   buildTierEnvDefaults,
-  resolveModelIdStatic,
 } from './lib/helpers';
 
 // Anthropic-compatible provider registry (TASK_2025_129 Batch 3)
@@ -333,8 +332,6 @@ export type {
   IAuthStrategy,
   AuthConfigureResult,
   AuthConfigureContext,
-  ModelFetcherFn,
-  IModelFetcherProvider,
 } from './lib/auth';
 
 // Library version
