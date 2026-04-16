@@ -59,7 +59,7 @@ export class AuthStateService {
   private readonly _providerKeyMap = signal<Map<string, boolean>>(new Map());
 
   /** Current auth method preference (UI-local until saved) */
-  private readonly _authMethod = signal<AuthMethod>('auto');
+  private readonly _authMethod = signal<AuthMethod>('apiKey');
 
   /** Currently selected Anthropic-compatible provider ID */
   private readonly _selectedProviderId = signal('openrouter');
@@ -106,7 +106,7 @@ export class AuthStateService {
    * Persisted auth method — the last value successfully saved to/loaded from the backend.
    * Unlike _authMethod (which changes on tile click), this only updates on load or successful save.
    */
-  private readonly _persistedAuthMethod = signal<AuthMethod>('auto');
+  private readonly _persistedAuthMethod = signal<AuthMethod>('apiKey');
 
   /**
    * Persisted provider ID — the last value successfully saved to/loaded from the backend.
@@ -215,7 +215,7 @@ export class AuthStateService {
 
   /**
    * Whether provider model mapping section should be shown.
-   * ONLY when authMethod is 'openrouter' or 'auto' AND the selected provider has credentials.
+   * ONLY when authMethod is 'openrouter' AND the selected provider has credentials.
    * For OAuth providers (e.g., GitHub Copilot): shown when OAuth is authenticated.
    * For API key providers: shown when a provider key is configured.
    * Fixes Critical Issue #3: previously ignored authMethod check.
@@ -227,8 +227,8 @@ export class AuthStateService {
     // Direct Anthropic auth: model mapping not needed — SDK handles tiers natively
     if (method === 'apiKey' || method === 'claudeCli') return false;
 
-    // OpenRouter/auto: check provider-level credentials
-    if (method !== 'openrouter' && method !== 'auto') return false;
+    // OpenRouter: check provider-level credentials
+    if (method !== 'openrouter') return false;
 
     // OAuth providers use their own auth, not API keys
     const provider = this.selectedProvider();

@@ -22,6 +22,9 @@
  *   }
  */
 export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
+  // Authentication method (shared across VS Code + Electron)
+  'authMethod',
+
   // Provider selection
   'anthropicProviderId',
 
@@ -96,6 +99,9 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
  * - Array settings default to [] (empty array)
  */
 export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
+  // Authentication method
+  authMethod: 'apiKey',
+
   // Provider selection
   anthropicProviderId: 'openrouter',
 
