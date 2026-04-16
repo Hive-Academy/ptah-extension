@@ -3,8 +3,9 @@ import {
   ChangeDetectionStrategy,
   input,
   output,
+  computed,
 } from '@angular/core';
-import { LucideAngularModule, X } from 'lucide-angular';
+import { LucideAngularModule, X, Minimize2, Maximize2 } from 'lucide-angular';
 import { TabState } from '../../../services/chat.types';
 
 /**
@@ -38,6 +39,20 @@ import { TabState } from '../../../services/chat.types';
         {{ tab().title || 'New Chat' }}
       </span>
 
+      <!-- View mode toggle (hover-reveal) -->
+      <button
+        class="btn btn-ghost btn-xs btn-circle w-4 h-4 min-h-0 p-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+        (click)="onToggleViewMode($event)"
+        [title]="
+          isCompactMode() ? 'Switch to full view' : 'Switch to compact view'
+        "
+      >
+        <lucide-angular
+          [img]="isCompactMode() ? MaximizeIcon : MinimizeIcon"
+          class="w-2.5 h-2.5"
+        />
+      </button>
+
       <!-- Close button (hover-reveal) -->
       <button
         class="btn btn-ghost btn-xs btn-circle w-4 h-4 min-h-0 p-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
@@ -58,11 +73,23 @@ export class TabItemComponent {
 
   readonly tabSelect = output<string>();
   readonly tabClose = output<string>();
+  readonly viewModeToggle = output<string>();
 
   readonly XIcon = X;
+  readonly MinimizeIcon = Minimize2;
+  readonly MaximizeIcon = Maximize2;
+
+  readonly isCompactMode = computed(
+    () => (this.tab().viewMode ?? 'full') === 'compact',
+  );
 
   protected onClose(event: Event): void {
     event.stopPropagation();
     this.tabClose.emit(this.tab().id);
+  }
+
+  protected onToggleViewMode(event: Event): void {
+    event.stopPropagation();
+    this.viewModeToggle.emit(this.tab().id);
   }
 }
