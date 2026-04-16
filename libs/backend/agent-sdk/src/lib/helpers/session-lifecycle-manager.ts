@@ -47,7 +47,7 @@ import type {
   WorktreeRemovedCallback,
 } from './worktree-hook-handler';
 import { SlashCommandInterceptor } from './slash-command-interceptor';
-import { resolveModelIdStatic } from './sdk-model-service';
+import type { ModelResolver } from '../auth/model-resolver';
 
 // Re-export for backward compatibility with other files
 export type { SDKUserMessage, ContentBlock };
@@ -221,6 +221,8 @@ export class SessionLifecycleManager {
     private agentSessionWatcher: AgentSessionWatcherService,
     @inject(SDK_TOKENS.SDK_AUTH_ENV)
     private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: ModelResolver,
   ) {}
 
   /**
@@ -1125,7 +1127,7 @@ export class SessionLifecycleManager {
 
     // Resolve model through provider overrides (e.g., claude-sonnet-4-6 → glm-5.1 on Z.AI)
     // and bare tier names (e.g., 'sonnet' → 'claude-sonnet-4-6' on direct Anthropic).
-    const resolvedModel = resolveModelIdStatic(model, this.authEnv);
+    const resolvedModel = this.modelResolver.resolve(model);
     if (resolvedModel !== model) {
       this.logger.info(
         `[SessionLifecycle] Model resolved: '${model}' → '${resolvedModel}'`,

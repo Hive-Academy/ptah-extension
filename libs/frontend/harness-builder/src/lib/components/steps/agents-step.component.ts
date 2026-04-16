@@ -27,7 +27,7 @@ import {
 } from 'lucide-angular';
 import type {
   AgentOverride,
-  CustomSubagentDefinition,
+  HarnessSubagentDefinition,
 } from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from '../../services/harness-builder-state.service';
 import { HarnessRpcService } from '../../services/harness-rpc.service';
@@ -165,10 +165,10 @@ import { ConfigCardComponent } from '../atoms/config-card.component';
           </div>
         }
 
-        <!-- Custom subagent cards -->
-        @if (customSubagents().length > 0) {
+        <!-- Harness subagent cards -->
+        @if (harnessSubagents().length > 0) {
           <div class="space-y-3">
-            @for (sub of customSubagents(); track sub.id) {
+            @for (sub of harnessSubagents(); track sub.id) {
               <div
                 class="card bg-base-200 border border-base-300 p-4 space-y-2"
               >
@@ -234,7 +234,7 @@ import { ConfigCardComponent } from '../atoms/config-card.component';
       <!-- Summary -->
       <div class="text-xs text-base-content/50 text-right">
         {{ enabledCount() }} CLI agent(s) +
-        {{ customSubagents().length }} custom subagent(s)
+        {{ harnessSubagents().length }} harness subagent(s)
       </div>
     </div>
   `,
@@ -261,8 +261,8 @@ export class AgentsStepComponent implements OnInit {
     () => this.state.config().agents?.enabledAgents ?? {},
   );
 
-  public readonly customSubagents = computed(
-    () => this.state.config().agents?.customSubagents ?? [],
+  public readonly harnessSubagents = computed(
+    () => this.state.config().agents?.harnessSubagents ?? [],
   );
 
   public readonly enabledCount = computed(
@@ -309,7 +309,7 @@ export class AgentsStepComponent implements OnInit {
     };
     this.state.updateAgents({
       enabledAgents: current,
-      customSubagents: this.customSubagents(),
+      harnessSubagents: this.harnessSubagents(),
     });
   }
 
@@ -322,7 +322,7 @@ export class AgentsStepComponent implements OnInit {
       current[agentId] = { ...current[agentId], modelTier: tier };
       this.state.updateAgents({
         enabledAgents: current,
-        customSubagents: this.customSubagents(),
+        harnessSubagents: this.harnessSubagents(),
       });
     }
   }
@@ -336,17 +336,17 @@ export class AgentsStepComponent implements OnInit {
       };
       this.state.updateAgents({
         enabledAgents: current,
-        customSubagents: this.customSubagents(),
+        harnessSubagents: this.harnessSubagents(),
       });
     }
   }
 
   public removeSubagent(subagentId: string): void {
-    this.state.removeCustomSubagent(subagentId);
+    this.state.removeHarnessSubagent(subagentId);
   }
 
   public getExecutionModeIcon(
-    mode: CustomSubagentDefinition['executionMode'],
+    mode: HarnessSubagentDefinition['executionMode'],
   ): typeof Zap {
     switch (mode) {
       case 'background':
@@ -380,7 +380,7 @@ export class AgentsStepComponent implements OnInit {
       });
 
       // Set the designed subagents
-      this.state.setCustomSubagents(response.subagents);
+      this.state.setHarnessSubagents(response.subagents);
       this.designReasoning.set(response.reasoning);
     } catch (err) {
       this.designError.set(

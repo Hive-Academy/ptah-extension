@@ -120,6 +120,14 @@ export const SDK_TOKENS = {
   /** Settings Export/Import Services (TASK_2025_210) */
   SDK_SETTINGS_EXPORT: Symbol.for('SdkSettingsExport'),
   SDK_SETTINGS_IMPORT: Symbol.for('SdkSettingsImport'),
+
+  /** Auth Strategy Services (TASK_AUTH_REFACTOR) */
+  SDK_API_KEY_STRATEGY: Symbol.for('SdkApiKeyStrategy'),
+  SDK_OAUTH_PROXY_STRATEGY: Symbol.for('SdkOAuthProxyStrategy'),
+  SDK_LOCAL_NATIVE_STRATEGY: Symbol.for('SdkLocalNativeStrategy'),
+  SDK_LOCAL_PROXY_STRATEGY: Symbol.for('SdkLocalProxyStrategy'),
+  SDK_CLI_STRATEGY: Symbol.for('SdkCliStrategy'),
+  SDK_MODEL_RESOLVER: Symbol.for('SdkModelResolver'),
 } as const;
 
 /**

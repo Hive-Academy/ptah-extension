@@ -64,7 +64,6 @@ export {
   TIER_ENV_VAR_MAP,
   DEFAULT_FALLBACK_MODEL_ID,
   buildTierEnvDefaults,
-  resolveModelIdStatic,
 } from './lib/helpers';
 
 // Anthropic-compatible provider registry (TASK_2025_129 Batch 3)
@@ -323,6 +322,17 @@ export type { IMcpServerInstaller } from './lib/helpers';
 // MCP Port Management
 // ============================================================
 export { setPtahMcpPort } from './lib/constants';
+
+// ============================================================
+// Auth Strategy System (TASK_AUTH_REFACTOR)
+// Clean auth abstraction replacing scattered if/else logic
+// ============================================================
+export { ModelResolver } from './lib/auth';
+export type {
+  IAuthStrategy,
+  AuthConfigureResult,
+  AuthConfigureContext,
+} from './lib/auth';
 
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';

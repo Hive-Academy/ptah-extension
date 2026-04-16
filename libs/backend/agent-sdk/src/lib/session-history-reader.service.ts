@@ -23,13 +23,12 @@
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
-import { AuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { extractTokenUsage } from './helpers/usage-extraction.utils';
 import { calculateMessageCost } from '@ptah-extension/shared';
-import { resolveActualModelForPricing } from './helpers/anthropic-provider-registry';
 import { SDK_TOKENS } from './di/tokens';
+import type { ModelResolver } from './auth/model-resolver';
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import type { HistoryEventFactory } from './helpers/history/history-event-factory';
@@ -59,7 +58,8 @@ export class SessionHistoryReaderService {
     private readonly replayService: SessionReplayService,
     @inject(SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY)
     private readonly eventFactory: HistoryEventFactory,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv
+    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: ModelResolver,
   ) {}
 
   /**
@@ -85,7 +85,7 @@ export class SessionHistoryReaderService {
    */
   async readSessionHistory(
     sessionId: string,
-    workspacePath: string
+    workspacePath: string,
   ): Promise<{
     events: FlatStreamEventUnion[];
     stats: {
@@ -114,9 +114,8 @@ export class SessionHistoryReaderService {
       this.validateSessionId(sessionId);
 
       // 1. Find the sessions directory (delegate to jsonlReader)
-      const sessionsDir = await this.jsonlReader.findSessionsDirectory(
-        workspacePath
-      );
+      const sessionsDir =
+        await this.jsonlReader.findSessionsDirectory(workspacePath);
       if (!sessionsDir) {
         this.logger.warn('[SessionHistoryReader] Sessions directory not found');
         return { events: [], stats: null };
@@ -137,14 +136,14 @@ export class SessionHistoryReaderService {
       // 3. Load agent sessions (delegate to jsonlReader)
       const agentSessions = await this.jsonlReader.loadAgentSessions(
         sessionsDir,
-        sessionId
+        sessionId,
       );
 
       // 4. Replay and convert to stream events (delegate to replayService)
       const events = this.replayService.replayToStreamEvents(
         sessionId,
         mainMessages,
-        agentSessions
+        agentSessions,
       );
 
       // 5. Aggregate usage stats from all messages (kept in facade - simple utility logic)
@@ -162,7 +161,7 @@ export class SessionHistoryReaderService {
     } catch (error) {
       this.logger.error(
         '[SessionHistoryReader] Failed to read session history',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
       return { events: [], stats: null };
     }
@@ -180,7 +179,7 @@ export class SessionHistoryReaderService {
    */
   async readHistoryAsMessages(
     sessionId: string,
-    workspacePath: string
+    workspacePath: string,
   ): Promise<
     {
       id: string;
@@ -193,9 +192,8 @@ export class SessionHistoryReaderService {
       // Validate sessionId to prevent path traversal
       this.validateSessionId(sessionId);
 
-      const sessionsDir = await this.jsonlReader.findSessionsDirectory(
-        workspacePath
-      );
+      const sessionsDir =
+        await this.jsonlReader.findSessionsDirectory(workspacePath);
       if (!sessionsDir) {
         this.logger.warn('[SessionHistoryReader] Sessions directory not found');
         return [];
@@ -214,7 +212,7 @@ export class SessionHistoryReaderService {
         ) {
           startIndex = i + 1;
           this.logger.info(
-            `[SessionHistoryReader] Found compact_boundary at index ${i}, skipping pre-compaction messages`
+            `[SessionHistoryReader] Found compact_boundary at index ${i}, skipping pre-compaction messages`,
           );
           break;
         }
@@ -239,7 +237,7 @@ export class SessionHistoryReaderService {
 
         // Extract text content using event factory utility
         const content = this.eventFactory.extractTextContent(
-          msg.message.content
+          msg.message.content,
         );
         if (!content) continue;
 
@@ -262,7 +260,7 @@ export class SessionHistoryReaderService {
     } catch (error) {
       this.logger.error(
         '[SessionHistoryReader] Failed to read history as messages',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
       return [];
     }
@@ -282,7 +280,7 @@ export class SessionHistoryReaderService {
    */
   private aggregateUsageStats(
     mainMessages: SessionHistoryMessage[],
-    agentSessions: AgentSessionData[]
+    agentSessions: AgentSessionData[],
   ): {
     totalCost: number;
     tokens: {
@@ -324,12 +322,9 @@ export class SessionHistoryReaderService {
       input: number,
       output: number,
       cacheRead: number,
-      cacheCreation: number
+      cacheCreation: number,
     ): void => {
-      const resolvedModel = resolveActualModelForPricing(
-        rawModel,
-        this.authEnv
-      );
+      const resolvedModel = this.modelResolver.resolveForPricing(rawModel);
       const modelKey = resolvedModel || rawModel || 'unknown';
       const existing = perModelUsage.get(modelKey) || {
         input: 0,
@@ -347,9 +342,25 @@ export class SessionHistoryReaderService {
       perModelUsage.set(modelKey, existing);
     };
 
-    // Aggregate from main session messages
+    // Find the last compact_boundary — only aggregate stats from post-compaction
+    // messages. Pre-compaction tokens were consumed in a context that no longer
+    // exists; including them inflates CTX% and cost after compaction.
+    let statsStartIndex = 0;
+    for (let i = mainMessages.length - 1; i >= 0; i--) {
+      if (
+        mainMessages[i].type === 'system' &&
+        mainMessages[i].subtype === 'compact_boundary'
+      ) {
+        statsStartIndex = i + 1;
+        break;
+      }
+    }
+    const effectiveStatsMessages =
+      statsStartIndex > 0 ? mainMessages.slice(statsStartIndex) : mainMessages;
+
+    // Detect model from ALL messages (system init is pre-compaction but model
+    // name is metadata, not usage — it stays valid after compaction).
     for (const msg of mainMessages) {
-      // Detect model from system init message
       if (
         !detectedModel &&
         msg.type === 'system' &&
@@ -357,8 +368,12 @@ export class SessionHistoryReaderService {
         msg.model
       ) {
         detectedModel = String(msg.model);
+        break;
       }
+    }
 
+    // Aggregate from main session messages (post-compaction only)
+    for (const msg of effectiveStatsMessages) {
       if (msg.usage) {
         hasAnyUsage = true;
         const tokens = extractTokenUsage(msg.usage);
@@ -381,7 +396,7 @@ export class SessionHistoryReaderService {
               tokens.input,
               tokens.output,
               tokens.cacheRead ?? 0,
-              tokens.cacheCreation ?? 0
+              tokens.cacheCreation ?? 0,
             );
           }
         }
@@ -415,7 +430,7 @@ export class SessionHistoryReaderService {
                 tokens.input,
                 tokens.output,
                 tokens.cacheRead ?? 0,
-                tokens.cacheCreation ?? 0
+                tokens.cacheCreation ?? 0,
               );
             }
           }
@@ -443,13 +458,13 @@ export class SessionHistoryReaderService {
       modelUsageList.length > 0
         ? modelUsageList.reduce((sum, entry) => sum + entry.costUSD, 0)
         : calculateMessageCost(
-            resolveActualModelForPricing(detectedModel || '', this.authEnv),
+            this.modelResolver.resolveForPricing(detectedModel || ''),
             {
               input: totalInput,
               output: totalOutput,
               cacheHit: totalCacheRead,
               cacheCreation: totalCacheCreation,
-            }
+            },
           );
 
     return {

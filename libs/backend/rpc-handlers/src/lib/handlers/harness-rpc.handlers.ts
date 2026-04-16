@@ -77,7 +77,7 @@ import type {
   AgentOverride,
   McpServerSuggestion,
   HarnessWizardStep,
-  CustomSubagentDefinition,
+  HarnessSubagentDefinition,
   GeneratedSkillSpec,
   HarnessChatAction,
 } from '@ptah-extension/shared';
@@ -406,7 +406,7 @@ export class HarnessRpcHandlers {
         const pluginDir = path.join(
           getPtahHome(),
           'plugins',
-          `custom-${sanitizedName}`,
+          `ptah-harness-${sanitizedName}`,
         );
         const skillDir = path.join(pluginDir, 'skills', sanitizedName);
         const skillMdPath = path.join(skillDir, 'SKILL.md');
@@ -861,13 +861,13 @@ export class HarnessRpcHandlers {
         this.logger.debug('RPC: harness:generate-skills called', {
           personaLabel: params.persona.label,
           existingSkillCount: params.existingSkills.length,
-          subagentCount: params.customSubagents?.length ?? 0,
+          subagentCount: params.harnessSubagents?.length ?? 0,
         });
 
         const result = await this.generateSkillSpecs(
           params.persona,
           params.existingSkills,
-          params.customSubagents,
+          params.harnessSubagents,
         );
 
         this.logger.debug('RPC: harness:generate-skills success', {
@@ -1156,8 +1156,8 @@ export class HarnessRpcHandlers {
         id: skill.skillId,
         name: skill.displayName,
         description: skill.description,
-        source: skill.pluginId.startsWith('custom-')
-          ? ('custom' as const)
+        source: skill.pluginId.startsWith('ptah-harness-')
+          ? ('harness' as const)
           : ('plugin' as const),
         isActive: !disabledSkillIds.has(skill.skillId),
       }));
@@ -1792,12 +1792,12 @@ Return ONLY the JSON object matching the schema.`;
       lines.push('');
     }
 
-    // Custom Subagent Fleet
-    const customSubagents = config.agents.customSubagents ?? [];
-    if (customSubagents.length > 0) {
-      lines.push('## Custom Subagent Fleet');
+    // Harness Subagent Fleet
+    const harnessSubagents = config.agents.harnessSubagents ?? [];
+    if (harnessSubagents.length > 0) {
+      lines.push('## Harness Subagent Fleet');
       lines.push('');
-      for (const sub of customSubagents) {
+      for (const sub of harnessSubagents) {
         lines.push(`### ${sub.name}`);
         lines.push('');
         lines.push(sub.description);
@@ -2207,13 +2207,13 @@ Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly rel
     }
 
     if (
-      context.agents?.customSubagents &&
-      context.agents.customSubagents.length > 0
+      context.agents?.harnessSubagents &&
+      context.agents.harnessSubagents.length > 0
     ) {
-      const subagents = context.agents.customSubagents.map(
+      const subagents = context.agents.harnessSubagents.map(
         (s) => `${s.name} (${s.executionMode})`,
       );
-      parts.push(`**Custom Subagents**: ${subagents.join(', ')}`);
+      parts.push(`**Harness Subagents**: ${subagents.join(', ')}`);
     }
 
     if (
@@ -2392,7 +2392,7 @@ Return ONLY the JSON object matching the schema.`;
       }
 
       // Validate and sanitize each subagent
-      const subagents: CustomSubagentDefinition[] = output.subagents
+      const subagents: HarnessSubagentDefinition[] = output.subagents
         .filter((s) => s.id && s.name && s.description)
         .map((s) => ({
           id: s.id,
@@ -2404,7 +2404,7 @@ Return ONLY the JSON object matching the schema.`;
             s.executionMode,
           )
             ? s.executionMode
-            : 'on-demand') as CustomSubagentDefinition['executionMode'],
+            : 'on-demand') as HarnessSubagentDefinition['executionMode'],
           triggers: Array.isArray(s.triggers) ? s.triggers : undefined,
           instructions: s.instructions || '',
         }));
@@ -2432,14 +2432,14 @@ Return ONLY the JSON object matching the schema.`;
   private async generateSkillSpecs(
     persona: HarnessGenerateSkillsParams['persona'],
     existingSkills: string[],
-    customSubagents?: CustomSubagentDefinition[],
+    harnessSubagents?: HarnessSubagentDefinition[],
   ): Promise<HarnessGenerateSkillsResponse> {
     const workspaceRoot =
       this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
 
     const subagentContext =
-      customSubagents && customSubagents.length > 0
-        ? `\n## Custom Subagent Fleet\nThese subagents are designed for this persona — create skills that support their workflows:\n${customSubagents.map((s) => `- **${s.name}** (${s.executionMode}): ${s.description}`).join('\n')}`
+      harnessSubagents && harnessSubagents.length > 0
+        ? `\n## Harness Subagent Fleet\nThese subagents are designed for this persona — create skills that support their workflows:\n${harnessSubagents.map((s) => `- **${s.name}** (${s.executionMode}): ${s.description}`).join('\n')}`
         : '';
 
     const prompt = `You are creating specialized skill files for an AI coding harness. Skills are markdown instruction sets that give agents domain expertise.
@@ -2574,10 +2574,10 @@ Return ONLY the JSON object matching the schema.`;
           `${k} (tier: ${v.modelTier ?? 'default'}, auto-approve: ${v.autoApprove ?? false})`,
       );
 
-    const customSubagents = config.agents.customSubagents ?? [];
+    const harnessSubagents = config.agents.harnessSubagents ?? [];
     const subagentSummary =
-      customSubagents.length > 0
-        ? customSubagents
+      harnessSubagents.length > 0
+        ? harnessSubagents
             .map(
               (s) =>
                 `- **${s.name}** (${s.executionMode}): ${s.description}\n  Tools: ${s.tools.join(', ')}\n  Triggers: ${s.triggers?.join(', ') ?? 'on-demand'}\n  Instructions: ${s.instructions}`,
@@ -2759,11 +2759,11 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
       lines.push('');
     }
 
-    const customSubagents = config.agents.customSubagents ?? [];
-    if (customSubagents.length > 0) {
-      lines.push('## 4. Custom Subagent Fleet');
+    const harnessSubagents = config.agents.harnessSubagents ?? [];
+    if (harnessSubagents.length > 0) {
+      lines.push('## 4. Harness Subagent Fleet');
       lines.push('');
-      for (const sub of customSubagents) {
+      for (const sub of harnessSubagents) {
         lines.push(`### ${sub.name}`);
         lines.push(`- **Role**: ${sub.role}`);
         lines.push(`- **Mode**: ${sub.executionMode}`);
@@ -3015,7 +3015,7 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
       }
 
       // Validate and map subagents
-      const suggestedSubagents: CustomSubagentDefinition[] = (
+      const suggestedSubagents: HarnessSubagentDefinition[] = (
         output.subagents ?? []
       )
         .filter((s) => s.id && s.name && s.description)
@@ -3029,7 +3029,7 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
             s.executionMode,
           )
             ? s.executionMode
-            : 'on-demand') as CustomSubagentDefinition['executionMode'],
+            : 'on-demand') as HarnessSubagentDefinition['executionMode'],
           triggers: Array.isArray(s.triggers) ? s.triggers : undefined,
           instructions: s.instructions || '',
         }));

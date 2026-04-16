@@ -195,7 +195,7 @@ export class JwtTokenService {
    * TASK_2025_128: Freemium model (Community + Pro)
    * - 'community': Free tier (always valid, no active license)
    * - 'pro': Active Pro subscription
-   * - 'trial_pro': Pro plan during 30-day trial
+   * - 'trial_pro': Pro plan during 100-day trial
    * - 'expired': License revoked or subscription past_due/canceled
    */
   private async determineTier(

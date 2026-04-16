@@ -68,7 +68,6 @@ export {
   TIER_ENV_VAR_MAP,
   DEFAULT_FALLBACK_MODEL_ID,
   buildTierEnvDefaults,
-  resolveModelIdStatic,
   type ModelTier,
   type EnvMappedTier,
 } from './sdk-model-service';

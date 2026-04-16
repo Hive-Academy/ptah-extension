@@ -125,6 +125,13 @@ export function createEmptyStreamingState(): StreamingState {
 }
 
 /**
+ * View mode for a tab - controls how the session is rendered.
+ * 'full' = standard chat view with full message list and input
+ * 'compact' = condensed card view with activity feed and mini input
+ */
+export type TabViewMode = 'full' | 'compact';
+
+/**
  * Session lifecycle status values.
  * Tracks the current state of session operations.
  */
@@ -284,6 +291,12 @@ export interface TabState {
    * otherwise falls back to 'claude_code'.
    */
   preset?: 'claude_code' | 'enhanced';
+
+  /**
+   * View mode: 'full' (default chat view) or 'compact' (condensed card view).
+   * Each tab can independently switch between modes.
+   */
+  viewMode?: TabViewMode;
 
   /**
    * Whether context compaction is currently in progress for this tab.

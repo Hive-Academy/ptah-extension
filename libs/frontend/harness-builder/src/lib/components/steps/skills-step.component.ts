@@ -431,7 +431,7 @@ export class SkillsStepComponent {
       const response = await this.rpc.generateSkills({
         persona,
         existingSkills: this.selectedSkills(),
-        customSubagents: this.state.config().agents?.customSubagents,
+        harnessSubagents: this.state.config().agents?.harnessSubagents,
       });
 
       this.state.setGeneratedSkillSpecs(response.skills);
