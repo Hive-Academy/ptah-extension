@@ -655,7 +655,7 @@ export class ChatViewComponent {
 
     const chatInput = this.chatInputRef();
     if (chatInput) {
-      chatInput.restoreContentToInput(content, true);
+      chatInput.restoreContentToInput(content);
     }
   }
 

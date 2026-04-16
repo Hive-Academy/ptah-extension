@@ -18,6 +18,7 @@ import {
   TabManagerService,
   SESSION_CONTEXT,
 } from '@ptah-extension/chat';
+import { LucideAngularModule, Minimize2, Maximize2 } from 'lucide-angular';
 import { TileAgentIndicatorComponent } from './tile-agent-indicator.component';
 import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
 
@@ -43,6 +44,7 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     NgComponentOutlet,
+    LucideAngularModule,
     TileAgentIndicatorComponent,
     TileAgentMiniPanelComponent,
   ],
@@ -63,6 +65,18 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
           tabLabel()
         }}</span>
         <ptah-tile-agent-indicator [tabId]="tabId()" />
+        <button
+          class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-base-content"
+          (click)="onToggleViewMode($event)"
+          [title]="
+            isCompactMode() ? 'Switch to full view' : 'Switch to compact view'
+          "
+        >
+          <lucide-angular
+            [img]="isCompactMode() ? MaximizeIcon : MinimizeIcon"
+            class="w-3 h-3"
+          />
+        </button>
         <button
           class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-error"
           (click)="onClose($event)"
@@ -159,6 +173,9 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   // COMPUTED SIGNALS
   // ============================================================================
 
+  readonly MinimizeIcon = Minimize2;
+  readonly MaximizeIcon = Maximize2;
+
   /**
    * Display label for the tile header.
    * Prefers TabState.title (UI-derived label), then falls back to TabState.name
@@ -168,6 +185,11 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
     const tab = this.tabManager.tabs().find((t) => t.id === this.tabId());
     return tab?.title || tab?.name || `Tab ${this.tabId().slice(0, 8)}`;
   });
+
+  /** Whether this tile is in compact view mode. */
+  readonly isCompactMode = computed(
+    () => this.tabManager.getTabViewMode(this.tabId()) === 'compact',
+  );
 
   // ============================================================================
   // LIFECYCLE
@@ -204,6 +226,15 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
    */
   onTileClick(): void {
     this.focusRequested.emit(this.tabId());
+  }
+
+  /**
+   * Toggles compact/full view mode for this tile.
+   * Stops propagation to avoid triggering onTileClick / Gridstack drag.
+   */
+  onToggleViewMode(event: Event): void {
+    event.stopPropagation();
+    this.tabManager.toggleTabViewMode(this.tabId());
   }
 
   /**

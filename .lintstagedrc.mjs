@@ -7,7 +7,7 @@ export default {
     const tsFiles = files.filter((f) => /\.[tj]sx?$/.test(f));
     if (tsFiles.length > 0) {
       cmds.push(
-        'npx nx affected --target=lint --fix=true --max-warnings=-1',
+        'npx nx affected --target=lint --max-warnings=-1',
       );
     }
     return cmds;

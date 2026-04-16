@@ -55,4 +55,4 @@ nsis:
 publish:
   provider: github
   owner: Hive-Academy
-  repo: ptah-app
+  repo: ptah-extension
