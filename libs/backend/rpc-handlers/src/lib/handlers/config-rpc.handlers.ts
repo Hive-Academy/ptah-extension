@@ -468,13 +468,20 @@ export class ConfigRpcHandlers {
 
   /**
    * Get provider tier overrides for model mapping (OpenRouter etc.).
-   * Delegates provider resolution to ProviderModelsService (single source of truth).
+   *
+   * Returns null for direct Anthropic — tier→model-id remapping only applies
+   * to third-party providers that use different model IDs (e.g., OpenRouter's
+   * 'anthropic/claude-sonnet-4'). For api.anthropic.com, model IDs are valid
+   * as-is and the CLI/SDK handles tier resolution natively.
    */
   private getTierOverrides(): ReturnType<
     ProviderModelsService['getModelTiers']
   > | null {
     try {
       const providerId = this.providerModels.resolveActiveProviderId();
+      if (providerId === 'anthropic') {
+        return null;
+      }
       return this.providerModels.getModelTiers(providerId);
     } catch (e) {
       this.logger.warn(

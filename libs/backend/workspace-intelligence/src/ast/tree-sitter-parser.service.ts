@@ -5,7 +5,16 @@ import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { SupportedLanguage, LANGUAGE_QUERIES_MAP } from './tree-sitter.config';
 import { GenericAstNode } from './ast.types';
-import Parser from 'web-tree-sitter';
+import {
+  Parser,
+  Language,
+  Query,
+  Edit,
+  type Node as SyntaxNode,
+  type Tree,
+  type QueryCapture as TsQueryCapture,
+  type QueryMatch as TsQueryMatch,
+} from 'web-tree-sitter';
 
 /**
  * Public interface representing an edit delta for incremental parsing.
@@ -23,7 +32,7 @@ export interface EditDelta {
 
 /** Cache entry for storing parsed tree-sitter trees keyed by file path. */
 interface TreeCacheEntry {
-  tree: Parser.Tree;
+  tree: Tree;
   language: SupportedLanguage;
   lastAccessed: number;
   filePath: string;
@@ -96,7 +105,7 @@ function resolveWasmPath(filename: string): string {
 @injectable()
 export class TreeSitterParserService {
   private readonly parserCache: Map<SupportedLanguage, Parser> = new Map();
-  private readonly languageGrammars: Map<SupportedLanguage, Parser.Language> =
+  private readonly languageGrammars: Map<SupportedLanguage, Language> =
     new Map();
   private readonly treeCache: Map<string, TreeCacheEntry> = new Map();
   private readonly treeCacheMaxSize = 100;
@@ -157,8 +166,8 @@ export class TreeSitterParserService {
       });
 
       // Load language grammars from WASM files
-      const jsLanguage = await Parser.Language.load(jsWasmPath);
-      const tsLanguage = await Parser.Language.load(tsWasmPath);
+      const jsLanguage = await Language.load(jsWasmPath);
+      const tsLanguage = await Language.load(tsWasmPath);
 
       this.languageGrammars.set('javascript', jsLanguage);
       this.languageGrammars.set('typescript', tsLanguage);
@@ -188,7 +197,7 @@ export class TreeSitterParserService {
    */
   private async _getPreloadedGrammar(
     language: SupportedLanguage,
-  ): Promise<Result<Parser.Language, Error>> {
+  ): Promise<Result<Language, Error>> {
     if (!this.isInitialized) {
       this.logger.debug(
         `_getPreloadedGrammar: Service not initialized. Triggering initialize().`,
@@ -271,7 +280,7 @@ export class TreeSitterParserService {
 
     try {
       const parser = new Parser();
-      parser.setLanguage(grammarResult.value);
+      parser.setLanguage(grammarResult.value ?? null);
       this.parserCache.set(language, parser);
       this.logger.info(
         `Successfully created and cached parser for language: ${language}`,
@@ -322,7 +331,7 @@ export class TreeSitterParserService {
    * @private
    */
   private _convertNodeToGenericAst(
-    node: Parser.SyntaxNode,
+    node: SyntaxNode,
     currentDepth = 0,
     maxDepth: number | null = null, // Optional depth limit
   ): GenericAstNode {
@@ -361,7 +370,7 @@ export class TreeSitterParserService {
       },
       isNamed: node.isNamed,
       fieldName: null, // web-tree-sitter SyntaxNode does not expose fieldName
-      children: children.map((child: Parser.SyntaxNode) =>
+      children: children.map((child: SyntaxNode) =>
         this._convertNodeToGenericAst(child, currentDepth + 1, maxDepth),
       ),
     };
@@ -396,7 +405,7 @@ export class TreeSitterParserService {
       );
     }
 
-    let tree: Parser.Tree | undefined;
+    let tree: Tree | null = null;
     try {
       tree = parser.parse(content);
       if (!tree?.rootNode) {
@@ -464,7 +473,7 @@ export class TreeSitterParserService {
         grammarResult.error ?? new Error('Unknown grammar error'),
       );
     }
-    const grammar = grammarResult.value as Parser.Language;
+    const grammar = grammarResult.value;
 
     if (!parser) {
       return Result.err(
@@ -472,8 +481,14 @@ export class TreeSitterParserService {
       );
     }
 
-    let tree: Parser.Tree | undefined;
-    let tsQuery: Parser.Query | undefined;
+    if (!grammar) {
+      return Result.err(
+        new Error('Grammar instance is null or undefined before querying.'),
+      );
+    }
+
+    let tree: Tree | null = null;
+    let tsQuery: Query | undefined;
     try {
       tree = parser.parse(content);
 
@@ -481,34 +496,27 @@ export class TreeSitterParserService {
         throw new Error('Parsing resulted in an undefined tree or rootNode.');
       }
 
-      // Create query using the language's query method (web-tree-sitter API)
-      tsQuery = grammar.query(queryString);
+      // Create query via the Query constructor (web-tree-sitter 0.26 API)
+      tsQuery = new Query(grammar, queryString);
       const matches = tsQuery.matches(tree.rootNode);
 
       // Convert matches to our QueryMatch format
-      const results: QueryMatch[] = matches.map(
-        (match: {
-          pattern: number;
-          captures: { name: string; node: Parser.SyntaxNode }[];
-        }) => ({
-          pattern: match.pattern,
-          captures: match.captures.map(
-            (capture: { name: string; node: Parser.SyntaxNode }) => ({
-              name: capture.name,
-              node: this._convertNodeToGenericAst(capture.node, 0, 3), // Limit depth for captures
-              text: capture.node.text,
-              startPosition: {
-                row: capture.node.startPosition.row,
-                column: capture.node.startPosition.column,
-              },
-              endPosition: {
-                row: capture.node.endPosition.row,
-                column: capture.node.endPosition.column,
-              },
-            }),
-          ),
-        }),
-      );
+      const results: QueryMatch[] = matches.map((match: TsQueryMatch) => ({
+        pattern: match.patternIndex,
+        captures: match.captures.map((capture: TsQueryCapture) => ({
+          name: capture.name,
+          node: this._convertNodeToGenericAst(capture.node, 0, 3), // Limit depth for captures
+          text: capture.node.text,
+          startPosition: {
+            row: capture.node.startPosition.row,
+            column: capture.node.startPosition.column,
+          },
+          endPosition: {
+            row: capture.node.endPosition.row,
+            column: capture.node.endPosition.column,
+          },
+        })),
+      }));
 
       this.logger.debug(
         `Query returned ${results.length} matches for language: ${language}`,
@@ -739,15 +747,18 @@ export class TreeSitterParserService {
     }
 
     try {
-      // Apply the edit delta to the cached tree so tree-sitter knows what changed
-      cachedEntry.tree.edit({
-        startIndex: editDelta.startIndex,
-        oldEndIndex: editDelta.oldEndIndex,
-        newEndIndex: editDelta.newEndIndex,
-        startPosition: editDelta.startPosition,
-        oldEndPosition: editDelta.oldEndPosition,
-        newEndPosition: editDelta.newEndPosition,
-      });
+      // Apply the edit delta to the cached tree so tree-sitter knows what changed.
+      // web-tree-sitter 0.26+ requires an Edit class instance (not a plain object).
+      cachedEntry.tree.edit(
+        new Edit({
+          startIndex: editDelta.startIndex,
+          oldEndIndex: editDelta.oldEndIndex,
+          newEndIndex: editDelta.newEndIndex,
+          startPosition: editDelta.startPosition,
+          oldEndPosition: editDelta.oldEndPosition,
+          newEndPosition: editDelta.newEndPosition,
+        }),
+      );
 
       // Incremental parse: tree-sitter reuses unchanged subtrees from the old tree
       const newTree = parser.parse(content, cachedEntry.tree);
