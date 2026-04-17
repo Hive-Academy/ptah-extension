@@ -293,10 +293,28 @@ export class SdkModelService {
         (m) => m.value.toLowerCase() !== 'default',
       );
 
-      const resolved = realModels.map((m) => ({
-        ...m,
-        value: this.resolveModelId(m.value),
-      }));
+      // When the SDK returns a bare tier name ('opus', 'sonnet', 'haiku'),
+      // upgrade the displayName to the canonical versioned label from
+      // FALLBACK_MODELS so the UI shows e.g. "Claude Opus 4.7" not "Opus".
+      const fallbackByValue = new Map(
+        FALLBACK_MODELS.map((fm) => [fm.value, fm]),
+      );
+
+      const resolved = realModels.map((m) => {
+        const resolvedValue = this.resolveModelId(m.value);
+        const wasBareTier = m.value !== resolvedValue;
+        const fallback = fallbackByValue.get(resolvedValue);
+        return {
+          ...m,
+          value: resolvedValue,
+          ...(wasBareTier && fallback
+            ? {
+                displayName: fallback.displayName,
+                description: m.description || fallback.description,
+              }
+            : {}),
+        };
+      });
 
       // Mark the model that "default" points to as recommended
       if (defaultModel) {
@@ -304,21 +322,6 @@ export class SdkModelService {
         const match = resolved.find((m) => m.value === defaultResolved);
         if (match) {
           match.displayName = `${match.displayName} (recommended)`;
-        }
-      }
-
-      // Supplement with any core tiers the SDK didn't return
-      const resolvedIds = new Set(resolved.map((m) => m.value));
-      const coreTiers = ['opus', 'sonnet', 'haiku'] as const;
-
-      for (const tier of coreTiers) {
-        const fullId = TIER_TO_MODEL_ID[tier];
-        if (!resolvedIds.has(fullId)) {
-          resolved.push({
-            value: fullId,
-            displayName: tier.charAt(0).toUpperCase() + tier.slice(1),
-            description: '',
-          });
         }
       }
 

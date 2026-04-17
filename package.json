@@ -151,7 +151,7 @@
     "rxjs": "~7.8.0",
     "tsyringe": "^4.10.0",
     "uuid": "^11.1.0",
-    "web-tree-sitter": "^0.24.7",
+    "web-tree-sitter": "^0.26.8",
     "which": "^6.0.1",
     "zod": "^4.1.12",
     "zone.js": "0.16.1"
@@ -185,6 +185,7 @@
     "@types/cookie-parser": "^1.4.8",
     "@types/cross-spawn": "^6.0.6",
     "@types/dompurify": "^3.0.5",
+    "@jest/globals": "^30.0.0",
     "@types/jest": "^30.0.0",
     "@types/json2md": "^1.5.4",
     "@types/node": "^22.15.0",
