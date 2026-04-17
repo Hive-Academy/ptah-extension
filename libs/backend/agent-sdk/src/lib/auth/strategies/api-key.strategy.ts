@@ -211,13 +211,12 @@ export class ApiKeyStrategy implements IAuthStrategy {
   }
 
   private applyDirectProviderTiers(): void {
-    try {
-      this.providerModels.applyPersistedTiers(ANTHROPIC_DIRECT_PROVIDER_ID);
-    } catch (e) {
-      this.logger.warn(
-        `[${this.name}] Failed to apply tier mappings for direct auth`,
-        e instanceof Error ? e : new Error(String(e)),
-      );
-    }
+    // Direct Anthropic (API key or CLI auth): no tier overrides.
+    // ANTHROPIC_DEFAULT_*_MODEL env vars are meant for third-party providers
+    // (OpenRouter/Moonshot/Z.AI) that need to remap tier → provider model ID.
+    // For api.anthropic.com, model IDs are valid as-is and the CLI/SDK handles
+    // its own default resolution — setting these env vars pins resolution to
+    // stale values and breaks the native tier behavior.
+    this.providerModels.clearAllTierEnvVars();
   }
 }

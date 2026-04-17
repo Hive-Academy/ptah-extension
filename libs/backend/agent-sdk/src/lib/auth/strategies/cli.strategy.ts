@@ -21,7 +21,6 @@ import type {
 import { SDK_TOKENS } from '../../di/tokens';
 import type { ProviderModelsService } from '../../provider-models.service';
 import type { ClaudeCliDetector } from '../../detector/claude-cli-detector';
-import { ANTHROPIC_DIRECT_PROVIDER_ID } from '../../helpers/anthropic-provider-registry';
 
 @injectable()
 export class CliStrategy implements IAuthStrategy {
@@ -60,15 +59,12 @@ export class CliStrategy implements IAuthStrategy {
     );
 
     // Don't set any API key env vars - the SDK will use the CLI's credential store.
-    // Apply direct provider tier mappings (same as API key mode).
-    try {
-      this.providerModels.applyPersistedTiers(ANTHROPIC_DIRECT_PROVIDER_ID);
-    } catch (e) {
-      this.logger.warn(
-        `[${this.name}] Failed to apply tier mappings for CLI auth`,
-        e instanceof Error ? e : new Error(String(e)),
-      );
-    }
+    // Direct Anthropic (CLI auth): let the CLI resolve its own tiers natively.
+    // Don't apply persisted tier overrides — those are for third-party providers
+    // (OpenRouter/Moonshot/Z.AI) that need tier→provider-model mapping. Pinning
+    // the CLI's opus/sonnet/haiku via ANTHROPIC_DEFAULT_*_MODEL env vars blocks
+    // the CLI from returning its account-appropriate defaults.
+    this.providerModels.clearAllTierEnvVars();
 
     this.logger.info(
       `[${this.name}] Using Claude CLI authentication (credentials managed by CLI)`,
