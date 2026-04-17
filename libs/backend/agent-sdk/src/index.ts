@@ -238,6 +238,19 @@ export {
 export type { ICodexAuthService, CodexAuthFile } from './lib/codex-provider';
 
 // ============================================================
+// OpenRouter Provider
+// Universal OpenRouter integration via API key + translation proxy.
+// Unlike the legacy /v1/messages passthrough (Anthropic-family only), this
+// routes all providers (OpenAI, Google, Meta, etc.) through the local proxy.
+// ============================================================
+export {
+  OpenRouterAuthService,
+  OpenRouterTranslationProxy,
+  OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+} from './lib/openrouter-provider';
+export type { IOpenRouterAuthService } from './lib/openrouter-provider';
+
+// ============================================================
 // Local Model Providers (TASK_2025_265, updated TASK_2025_281)
 // Ollama (Anthropic-native) and LM Studio (translation proxy)
 // ============================================================

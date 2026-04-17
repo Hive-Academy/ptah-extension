@@ -51,6 +51,7 @@ import {
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
+import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../openrouter-provider/openrouter-provider.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT } from '../constants';
 
@@ -121,6 +122,9 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
   }
   if (authEnv.ANTHROPIC_AUTH_TOKEN === CODEX_PROXY_TOKEN_PLACEHOLDER) {
     return 'openai-codex';
+  }
+  if (authEnv.ANTHROPIC_AUTH_TOKEN === OPENROUTER_PROXY_TOKEN_PLACEHOLDER) {
+    return 'openrouter';
   }
 
   // Check which provider matches this base URL (derived from registry to prevent ID mismatches)

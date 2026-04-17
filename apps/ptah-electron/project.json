@@ -19,6 +19,8 @@
         "target": "node20",
         "bundle": true,
         "thirdParty": false,
+        "generatePackageJson": true,
+        "generateLockfile": true,
         "skipTypeCheck": true,
         "deleteOutputPath": false,
         "esbuildOptions": {
@@ -80,11 +82,6 @@
             "glob": "**/*",
             "input": "libs/backend/agent-generation/templates",
             "output": "templates"
-          },
-          {
-            "glob": "package.json",
-            "input": "apps/ptah-electron",
-            "output": "."
           },
           {
             "glob": "electron-builder.yml",
