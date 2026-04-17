@@ -78,52 +78,38 @@ export const TIER_ENV_VAR_MAP: Record<EnvMappedTier, keyof AuthEnv> = {
 /**
  * Build tier env var defaults for SDK subprocess environments.
  *
- * The Claude Agent SDK resolves bare tier names ('haiku', 'sonnet', 'opus') in
- * subagent subprocesses by reading ANTHROPIC_DEFAULT_*_MODEL env vars. When using
- * direct Anthropic auth (API key), these vars are never set because
- * ProviderModelsService.setModelTier() is only called for third-party providers.
+ * Only applies to third-party Anthropic-compatible providers (OpenRouter,
+ * Moonshot, Z.AI) where bare tier names in subagent subprocesses need to be
+ * remapped to provider-specific model IDs via ANTHROPIC_DEFAULT_*_MODEL.
  *
- * This function returns a Record that guarantees all three tier env vars are
- * present — using existing authEnv values when set (proxy provider), falling
- * back to TIER_TO_MODEL_ID defaults (direct Anthropic).
+ * For direct Anthropic (CLI or API key → api.anthropic.com), this returns an
+ * empty record. The CLI/SDK handles its own tier resolution natively, and
+ * setting these env vars pins resolution to our hardcoded defaults, blocking
+ * any updates the CLI account has to newer models.
  *
- * @param authEnv - Current AuthEnv (may have overrides from proxy provider)
- * @returns Record with guaranteed ANTHROPIC_DEFAULT_*_MODEL values
+ * @param authEnv - Current AuthEnv (must already reflect active provider)
+ * @returns Record of ANTHROPIC_DEFAULT_*_MODEL values (empty for direct Anthropic)
  */
 export function buildTierEnvDefaults(authEnv: AuthEnv): Record<string, string> {
+  const baseUrl = authEnv.ANTHROPIC_BASE_URL?.trim();
+  const isDirectAnthropic =
+    !baseUrl || /^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
+
+  if (isDirectAnthropic) {
+    return {};
+  }
+
   const defaults: Record<string, string> = {};
   for (const [tier, envKey] of Object.entries(TIER_ENV_VAR_MAP)) {
-    defaults[envKey] =
-      authEnv[envKey] || TIER_TO_MODEL_ID[tier as EnvMappedTier];
+    const value = authEnv[envKey];
+    if (value) {
+      defaults[envKey] = value;
+    } else {
+      defaults[envKey] = TIER_TO_MODEL_ID[tier as EnvMappedTier];
+    }
   }
   return defaults;
 }
-
-/**
- * Fallback models using full model IDs.
- * The SDK's query() function requires full model IDs (e.g., 'claude-opus-4-6'),
- * NOT bare tier names like 'opus'. When supportedModels() fails and we fall back
- * to these, the IDs must be API-valid so the SDK can use them directly.
- *
- * MAINTENANCE: Update these when new Claude model versions are released.
- */
-const FALLBACK_MODELS: ModelInfo[] = [
-  {
-    value: TIER_TO_MODEL_ID['opus'],
-    displayName: 'Claude Opus 4.7',
-    description: 'Most capable for complex work',
-  },
-  {
-    value: TIER_TO_MODEL_ID['sonnet'],
-    displayName: 'Claude Sonnet 4.6',
-    description: 'Best for everyday tasks',
-  },
-  {
-    value: TIER_TO_MODEL_ID['haiku'],
-    displayName: 'Claude Haiku 4.5',
-    description: 'Fastest for quick answers',
-  },
-];
 
 /** Cache TTL for API models (5 minutes) */
 const API_MODELS_CACHE_TTL = 5 * 60 * 1000;
@@ -282,47 +268,12 @@ export class SdkModelService {
     });
 
     if (!isThirdParty) {
-      // Direct Anthropic auth (CLI or API key): resolve bare tier names to
-      // full model IDs. The "default" meta-tier resolves to the same ID as
-      // another tier (currently sonnet), so merge it: tag the matching model
-      // as recommended instead of creating a duplicate entry.
-      const defaultModel = models.find(
-        (m) => m.value.toLowerCase() === 'default',
-      );
-      const realModels = models.filter(
-        (m) => m.value.toLowerCase() !== 'default',
-      );
-
-      const resolved = realModels.map((m) => ({
-        ...m,
-        value: this.resolveModelId(m.value),
-      }));
-
-      // Mark the model that "default" points to as recommended
-      if (defaultModel) {
-        const defaultResolved = this.resolveModelId('default');
-        const match = resolved.find((m) => m.value === defaultResolved);
-        if (match) {
-          match.displayName = `${match.displayName} (recommended)`;
-        }
-      }
-
-      // Supplement with any core tiers the SDK didn't return
-      const resolvedIds = new Set(resolved.map((m) => m.value));
-      const coreTiers = ['opus', 'sonnet', 'haiku'] as const;
-
-      for (const tier of coreTiers) {
-        const fullId = TIER_TO_MODEL_ID[tier];
-        if (!resolvedIds.has(fullId)) {
-          resolved.push({
-            value: fullId,
-            displayName: tier.charAt(0).toUpperCase() + tier.slice(1),
-            description: '',
-          });
-        }
-      }
-
-      return resolved;
+      // Direct Anthropic auth (CLI or API key): full passthrough.
+      // Show exactly what the SDK's supportedModels() returned — no filtering,
+      // no merging, no resolution, no displayName rewriting. Tier-name values
+      // ('default', 'sonnet', 'haiku') are resolved to full IDs downstream at
+      // query-build time (SdkQueryOptionsBuilder → ModelResolver).
+      return models;
     }
 
     // Third-party providers: resolve tiers to provider-specific model IDs

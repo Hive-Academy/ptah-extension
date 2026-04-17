@@ -110,6 +110,10 @@ export const SDK_TOKENS = {
   SDK_CODEX_AUTH: Symbol.for('SdkCodexAuth'),
   SDK_CODEX_PROXY: Symbol.for('SdkCodexProxy'),
 
+  /** OpenRouter Provider Services */
+  SDK_OPENROUTER_AUTH: Symbol.for('SdkOpenRouterAuth'),
+  SDK_OPENROUTER_PROXY: Symbol.for('SdkOpenRouterProxy'),
+
   /** Local Model Provider Services (TASK_2025_265, updated TASK_2025_281) */
   SDK_OLLAMA_DISCOVERY: Symbol.for('SdkOllamaDiscovery'),
   SDK_LM_STUDIO_PROXY: Symbol.for('SdkLmStudioProxy'),

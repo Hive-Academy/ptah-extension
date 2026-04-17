@@ -456,6 +456,7 @@ export function seedStaticModelPricing(providerId: string): void {
       cacheReadCostPerToken: model.cacheReadCostPerToken,
       cacheCreationCostPerToken: model.cacheCreationCostPerToken,
       provider: providerId,
+      maxTokens: model.contextLength,
     };
 
     // Exact key
