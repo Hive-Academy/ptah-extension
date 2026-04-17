@@ -66,6 +66,10 @@ import {
 } from '../copilot-provider';
 import { CodexAuthService, CodexTranslationProxy } from '../codex-provider';
 import {
+  OpenRouterAuthService,
+  OpenRouterTranslationProxy,
+} from '../openrouter-provider';
+import {
   OllamaModelDiscoveryService,
   LmStudioTranslationProxy,
 } from '../local-provider';
@@ -432,6 +436,25 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_CODEX_PROXY,
     { useClass: CodexTranslationProxy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // ============================================================
+  // OpenRouter Provider Services
+  // Auth service (reads API key from SecretStorage) and translation proxy
+  // (Anthropic <-> OpenAI Chat Completions). Must be registered before
+  // AuthManager resolves (which depends on these via ApiKeyStrategy).
+  // ============================================================
+
+  container.register(
+    SDK_TOKENS.SDK_OPENROUTER_AUTH,
+    { useClass: OpenRouterAuthService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_OPENROUTER_PROXY,
+    { useClass: OpenRouterTranslationProxy },
     { lifecycle: Lifecycle.Singleton },
   );
 

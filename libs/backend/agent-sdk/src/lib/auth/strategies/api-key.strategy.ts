@@ -31,6 +31,11 @@ import {
   seedStaticModelPricing,
   ANTHROPIC_DIRECT_PROVIDER_ID,
 } from '../../helpers/anthropic-provider-registry';
+import type { ITranslationProxy } from '../../openai-translation';
+import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../../openrouter-provider';
+
+/** Provider ID for OpenRouter — matches ANTHROPIC_PROVIDERS registry entry */
+const OPENROUTER_PROVIDER_ID = 'openrouter';
 
 @injectable()
 export class ApiKeyStrategy implements IAuthStrategy {
@@ -44,6 +49,8 @@ export class ApiKeyStrategy implements IAuthStrategy {
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_OPENROUTER_PROXY)
+    private readonly openRouterProxy: ITranslationProxy,
   ) {}
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
@@ -54,15 +61,160 @@ export class ApiKeyStrategy implements IAuthStrategy {
       providerId === ANTHROPIC_DIRECT_PROVIDER_ID ||
       providerId === 'apiKey'
     ) {
+      // Stop the OpenRouter proxy if switching away from OpenRouter
+      await this.stopOpenRouterProxyIfRunning();
       return this.configureDirectApiKey(authEnv, envSnapshot);
     }
 
-    // Third-party Anthropic-compatible provider (OpenRouter, Moonshot, Z.AI)
+    // OpenRouter uses a local translation proxy to support ALL providers
+    // (Anthropic, OpenAI, Google, Meta, etc.), not just Anthropic-family.
+    if (providerId === OPENROUTER_PROVIDER_ID) {
+      return this.configureOpenRouterProxy(providerId, authEnv);
+    }
+
+    // Third-party Anthropic-compatible providers that speak Anthropic protocol
+    // natively (Moonshot, Z.AI) — direct passthrough, no proxy.
+    await this.stopOpenRouterProxyIfRunning();
     return this.configureProviderApiKey(providerId, authEnv);
   }
 
   async teardown(): Promise<void> {
-    // API key strategy has no resources to tear down (no proxies, no caches)
+    // Stop the OpenRouter translation proxy if it was started by this strategy
+    await this.stopOpenRouterProxyIfRunning();
+  }
+
+  /**
+   * Stop the OpenRouter proxy if running.
+   * Called when switching away from OpenRouter or on teardown.
+   */
+  private async stopOpenRouterProxyIfRunning(): Promise<void> {
+    if (!this.openRouterProxy.isRunning()) {
+      return;
+    }
+    this.logger.info(
+      `[${this.name}] Stopping OpenRouter proxy (switching to different provider)`,
+    );
+    try {
+      await this.openRouterProxy.stop();
+    } catch (error) {
+      this.logger.warn(
+        `[${this.name}] Failed to stop OpenRouter proxy: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Configure OpenRouter via the local translation proxy.
+   *
+   * Reads the OpenRouter API key from SecretStorage, starts the local HTTP
+   * proxy (if not already running), and points the SDK at 127.0.0.1:<port>
+   * instead of openrouter.ai. The proxy handles Anthropic↔OpenAI translation
+   * so every OpenRouter model (not just Anthropic-family) works with the SDK.
+   */
+  private async configureOpenRouterProxy(
+    providerId: string,
+    authEnv: AuthEnv,
+  ): Promise<AuthConfigureResult> {
+    // Step 1: Verify API key is configured
+    const providerKey = await this.authSecrets.getProviderKey(providerId);
+    if (!providerKey?.trim()) {
+      this.logger.debug(
+        `[${this.name}] No OpenRouter API key found in SecretStorage`,
+      );
+      return { configured: false, details: [] };
+    }
+
+    const provider = getAnthropicProvider(providerId);
+    const providerName = provider?.name ?? providerId;
+    const keyLength = providerKey.length;
+    const hasExpectedPrefix = provider?.keyPrefix
+      ? providerKey.startsWith(provider.keyPrefix)
+      : true;
+
+    this.logger.info(
+      `[${this.name}] Found OpenRouter API key (length: ${keyLength}, valid format: ${hasExpectedPrefix})`,
+    );
+
+    if (!hasExpectedPrefix && provider?.keyPrefix) {
+      this.logger.warn(
+        `[${this.name}] WARNING: OpenRouter key does not start with "${provider.keyPrefix}". ` +
+          `Get valid keys from: ${provider.helpUrl}`,
+      );
+    }
+
+    // Step 2: Start the translation proxy
+    let proxyUrl: string;
+    try {
+      if (this.openRouterProxy.isRunning()) {
+        proxyUrl = this.openRouterProxy.getUrl() ?? '';
+        if (!proxyUrl) {
+          this.logger.error(
+            `[${this.name}] OpenRouter proxy reports running but returned no URL`,
+          );
+          return {
+            configured: false,
+            details: [],
+            errorMessage:
+              'OpenRouter translation proxy URL unavailable. Try restarting.',
+          };
+        }
+        this.logger.info(
+          `[${this.name}] OpenRouter translation proxy already running at ${proxyUrl}`,
+        );
+      } else {
+        const result = await this.openRouterProxy.start();
+        proxyUrl = result.url;
+        this.logger.info(
+          `[${this.name}] OpenRouter translation proxy started at ${proxyUrl}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `[${this.name}] Failed to start OpenRouter translation proxy: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return {
+        configured: false,
+        details: [],
+        errorMessage:
+          'Failed to start OpenRouter translation proxy. Check if a local port is available.',
+      };
+    }
+
+    // Step 3: Point SDK at the local proxy instead of openrouter.ai.
+    // The proxy handles auth itself via OpenRouterAuthService, so the SDK only
+    // needs a placeholder token. ANTHROPIC_API_KEY is left unset.
+    authEnv.ANTHROPIC_BASE_URL = proxyUrl;
+    authEnv.ANTHROPIC_AUTH_TOKEN = OPENROUTER_PROXY_TOKEN_PLACEHOLDER;
+    authEnv.ANTHROPIC_API_KEY = '';
+    process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
+    process.env['ANTHROPIC_AUTH_TOKEN'] = OPENROUTER_PROXY_TOKEN_PLACEHOLDER;
+    delete process.env['ANTHROPIC_API_KEY'];
+
+    // Step 4: Apply tier mappings and seed pricing for the provider
+    this.providerModels.switchActiveProvider(providerId);
+    seedStaticModelPricing(providerId);
+
+    this.logger.info(
+      `[${this.name}] Using ${providerName} via translation proxy (${proxyUrl})`,
+    );
+    this.logger.info(
+      `[${this.name}] Set ANTHROPIC_BASE_URL=${proxyUrl}, ANTHROPIC_AUTH_TOKEN=<proxy-managed>`,
+    );
+
+    return {
+      configured: true,
+      details: [
+        `${providerName} API key (routing via translation proxy at ${proxyUrl}${
+          !hasExpectedPrefix && provider?.keyPrefix
+            ? ', format may be invalid'
+            : ''
+        })`,
+      ],
+    };
   }
 
   /**
