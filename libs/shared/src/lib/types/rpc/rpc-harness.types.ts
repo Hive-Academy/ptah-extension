@@ -5,6 +5,8 @@
  * The harness builder configures: agents, skills, system prompts, MCP servers, and CLAUDE.md.
  */
 
+import type { FlatStreamEventUnion } from '../execution-node.types';
+
 // ─── Common Types ────────────────────────────────────────
 
 /** Workspace context describing the current project environment for harness operations */
@@ -441,6 +443,28 @@ export interface HarnessStreamCompletePayload {
 }
 
 /** Discriminated union for all harness streaming messages */
-export type HarnessStreamMessage =
-  | { type: 'harness:stream'; payload: HarnessStreamPayload }
-  | { type: 'harness:stream-complete'; payload: HarnessStreamCompletePayload };
+export type HarnessStreamMessage = {
+  type: 'harness:stream-complete';
+  payload: HarnessStreamCompletePayload;
+};
+
+// ─── Flat Stream Event Types (for inline execution visualization) ──
+
+/** Flat stream event payload for real-time execution visualization in the harness builder */
+export interface HarnessFlatStreamPayload {
+  /** Unique operation instance ID (correlates events to a specific converse/analyze call) */
+  operationId: string;
+  /** The flat stream event for ExecutionNode tree building */
+  event: FlatStreamEventUnion;
+}
+
+/** Completion event sent by the backend when a flat-stream operation finishes.
+ *  Differs from HarnessStreamCompletePayload — no `operation` or `timestamp` fields. */
+export interface HarnessFlatStreamCompletePayload {
+  /** The operation instance ID that completed */
+  operationId: string;
+  /** Whether the operation succeeded */
+  success: boolean;
+  /** Error message if the operation failed */
+  error?: string;
+}

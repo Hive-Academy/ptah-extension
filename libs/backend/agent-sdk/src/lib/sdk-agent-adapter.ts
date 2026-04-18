@@ -502,10 +502,7 @@ export class SdkAgentAdapter implements IAIProvider {
       },
     );
 
-    // Create callback that saves metadata AND notifies webview.
-    // projectPath should always be resolved by the caller (ChatRpcHandlers).
-    // os.homedir() is a safer fallback than process.cwd() which returns the
-    // app installation directory in VS Code extension host / Electron.
+    // projectPath is guaranteed by ChatRpcHandlers (validated before reaching here).
     const resolvedProjectPath = config?.projectPath || os.homedir();
     const sessionIdCallback = this.createSessionIdCallback(
       resolvedProjectPath,

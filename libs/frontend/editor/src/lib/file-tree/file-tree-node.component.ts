@@ -92,9 +92,9 @@ import type { GitFileStatus } from '@ptah-extension/shared';
           <span
             class="ml-auto text-[10px] font-mono flex-shrink-0"
             [class]="gitStatusColor()"
-            [title]="'Git: ' + nodeGitStatus()!.status"
+            [title]="gitStatusTitle()"
             aria-hidden="true"
-            >{{ nodeGitStatus()!.status }}</span
+            >{{ gitStatusLabel() }}</span
           >
         }
         @if (hasChangedChildren()) {
@@ -194,6 +194,38 @@ export class FileTreeNodeComponent {
    * M=warning (modified), A=success (added), D=error (deleted),
    * ??=info (untracked), default=muted.
    */
+  private static readonly STATUS_LABELS: Record<string, string> = {
+    M: 'M',
+    A: 'A',
+    D: 'D',
+    R: 'R',
+    C: 'C',
+    '??': 'U',
+    '!': 'I',
+  };
+
+  private static readonly STATUS_TITLES: Record<string, string> = {
+    M: 'Modified',
+    A: 'Added',
+    D: 'Deleted',
+    R: 'Renamed',
+    C: 'Copied',
+    '??': 'Untracked',
+    '!': 'Ignored',
+  };
+
+  readonly gitStatusLabel = computed((): string => {
+    const status = this.nodeGitStatus();
+    if (!status) return '';
+    return FileTreeNodeComponent.STATUS_LABELS[status.status] ?? status.status;
+  });
+
+  readonly gitStatusTitle = computed((): string => {
+    const status = this.nodeGitStatus();
+    if (!status) return '';
+    return FileTreeNodeComponent.STATUS_TITLES[status.status] ?? status.status;
+  });
+
   readonly gitStatusColor = computed((): string => {
     const status = this.nodeGitStatus();
     if (!status) return '';

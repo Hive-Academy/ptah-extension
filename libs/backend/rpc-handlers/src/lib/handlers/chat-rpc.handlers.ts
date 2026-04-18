@@ -545,9 +545,14 @@ export class ChatRpcHandlers {
           // IWorkspaceProvider (platform-aware). Never rely on process.cwd() which
           // returns the app installation directory in VS Code/Electron.
           const workspacePath =
-            params.workspacePath ||
-            this.workspaceProvider.getWorkspaceRoot() ||
-            '';
+            params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
+          if (!workspacePath) {
+            return {
+              success: false,
+              error:
+                'No workspace folder open. Please open a folder before starting a chat session.',
+            };
+          }
           this.logger.debug('RPC: chat:start called', {
             tabId,
             workspacePath,
@@ -701,9 +706,14 @@ export class ChatRpcHandlers {
           // Resolve workspace path: prefer frontend-provided value, fall back to
           // IWorkspaceProvider (platform-aware). Mirrors chat:start resolution.
           const workspacePath =
-            params.workspacePath ||
-            this.workspaceProvider.getWorkspaceRoot() ||
-            '';
+            params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
+          if (!workspacePath) {
+            return {
+              success: false,
+              error:
+                'No workspace folder open. Please open a folder before continuing a chat session.',
+            };
+          }
           this.logger.debug('RPC: chat:continue called', {
             sessionId,
             tabId,
@@ -1147,9 +1157,14 @@ IMPORTANT INSTRUCTIONS:
           // Resolve workspace path: prefer frontend-provided, fall back to
           // IWorkspaceProvider (platform-aware). Mirrors chat:start/continue.
           const resolvedWorkspacePath =
-            params.workspacePath ||
-            this.workspaceProvider.getWorkspaceRoot() ||
-            '';
+            params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
+          if (!resolvedWorkspacePath) {
+            return {
+              success: false,
+              error:
+                'No workspace folder open. Please open a folder before resuming a chat session.',
+            };
+          }
           this.logger.info('RPC: chat:resume called', {
             sessionId,
             workspacePath: params.workspacePath || '(empty)',

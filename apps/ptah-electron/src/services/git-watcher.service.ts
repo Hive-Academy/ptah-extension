@@ -28,13 +28,23 @@ const GIT_STATUS_UPDATE = 'git:status-update';
 /** Message type used for pushing file tree invalidation to the renderer. */
 const FILE_TREE_CHANGED = 'file:tree-changed';
 
+/** Message type used for pushing file content change notifications to the renderer. */
+const FILE_CONTENT_CHANGED = 'file:content-changed';
+
 export class GitWatcherService {
   private watchers: fs.FSWatcher[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private treeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly contentChangeTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
   private workspacePath: string | null = null;
   private broadcastFn: ((type: string, payload: unknown) => void) | null = null;
   private isDisposed = false;
+
+  /** Debounce interval for file content change notifications (ms). */
+  private static readonly CONTENT_CHANGE_DEBOUNCE_MS = 500;
 
   /** Debounce interval for .git changes (ms). Git operations fire multiple events. */
   private static readonly GIT_DEBOUNCE_MS = 500;
@@ -134,6 +144,11 @@ export class GitWatcherService {
       clearTimeout(this.treeDebounceTimer);
       this.treeDebounceTimer = null;
     }
+
+    for (const timer of this.contentChangeTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.contentChangeTimers.clear();
 
     for (const watcher of this.watchers) {
       try {
@@ -243,6 +258,10 @@ export class GitWatcherService {
           if (eventType === 'rename') {
             this.scheduleTreeRefresh();
           }
+
+          if (eventType === 'change' && filename) {
+            this.scheduleContentChange(dirPath, filename);
+          }
         },
       );
 
@@ -279,6 +298,32 @@ export class GitWatcherService {
         this.broadcastFn(FILE_TREE_CHANGED, {});
       }
     }, GitWatcherService.TREE_DEBOUNCE_MS);
+  }
+
+  /**
+   * Schedule a debounced content-change notification for a specific file.
+   * Each file gets its own debounce timer so rapid saves to the same file
+   * coalesce, but changes to different files are independent.
+   */
+  private scheduleContentChange(workspaceRoot: string, filename: string): void {
+    if (this.isDisposed) return;
+
+    const fullPath = path.join(workspaceRoot, filename).replace(/\\/g, '/');
+
+    const existing = this.contentChangeTimers.get(fullPath);
+    if (existing) {
+      clearTimeout(existing);
+    }
+
+    this.contentChangeTimers.set(
+      fullPath,
+      setTimeout(() => {
+        this.contentChangeTimers.delete(fullPath);
+        if (!this.isDisposed && this.broadcastFn) {
+          this.broadcastFn(FILE_CONTENT_CHANGED, { filePath: fullPath });
+        }
+      }, GitWatcherService.CONTENT_CHANGE_DEBOUNCE_MS),
+    );
   }
 
   /**

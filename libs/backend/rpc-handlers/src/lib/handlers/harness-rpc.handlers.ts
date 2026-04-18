@@ -33,11 +33,13 @@ import {
   SkillJunctionService,
   McpRegistryProvider,
   SdkStreamProcessor,
+  SdkMessageTransformer,
 } from '@ptah-extension/agent-sdk';
 import type {
   InternalQueryService,
   StreamEventEmitter,
   StreamEvent,
+  SDKMessage,
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
@@ -89,6 +91,10 @@ import type {
   HarnessStreamPayload,
   HarnessStreamCompletePayload,
   HarnessStreamOperation,
+} from '@ptah-extension/shared';
+import type {
+  HarnessFlatStreamPayload,
+  SessionId,
 } from '@ptah-extension/shared';
 
 /** Structured output shape from the LLM suggestion call */
@@ -223,7 +229,19 @@ export class HarnessRpcHandlers {
     private readonly internalQueryService: InternalQueryService,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewBroadcaster,
+    @inject(SDK_TOKENS.SDK_MESSAGE_TRANSFORMER)
+    private readonly messageTransformer: SdkMessageTransformer,
   ) {}
+
+  private requireWorkspaceRoot(): string {
+    const root = this.workspaceProvider.getWorkspaceRoot();
+    if (!root) {
+      throw new Error(
+        'No workspace folder open. Please open a folder before using the harness wizard.',
+      );
+    }
+    return root;
+  }
 
   // ─── Streaming Helpers ──────────────────────────────
 
@@ -248,6 +266,33 @@ export class HarnessRpcHandlers {
       },
     };
     return { emitter, operationId };
+  }
+
+  /**
+   * Tee an SDK message stream: yields each SDKMessage to the downstream consumer
+   * (SdkStreamProcessor) while also converting to FlatStreamEventUnion events
+   * and broadcasting them to the webview for real-time execution visualization.
+   */
+  private async *teeStreamWithFlatEvents(
+    stream: AsyncIterable<SDKMessage>,
+    operationId: string,
+  ): AsyncIterable<SDKMessage> {
+    const transformer = this.messageTransformer.createIsolated();
+    const harnessSessionId = `harness-${operationId}` as SessionId;
+
+    for await (const sdkMessage of stream) {
+      // Convert SDKMessage to FlatStreamEventUnion[] and broadcast each event
+      const flatEvents = transformer.transform(sdkMessage, harnessSessionId);
+      for (const event of flatEvents) {
+        this.webviewManager.broadcastMessage('harness:flat-stream', {
+          operationId,
+          event,
+        } satisfies HarnessFlatStreamPayload);
+      }
+
+      // Yield the original SDKMessage for SdkStreamProcessor
+      yield sdkMessage;
+    }
   }
 
   private broadcastStreamComplete(
@@ -491,9 +536,12 @@ export class HarnessRpcHandlers {
           .replace(/"/g, '\\"')
           .replace(/\n/g, '\\n');
 
+        // Sanitize tool names before embedding in YAML to prevent injection
+        // via newlines or special characters in a tool name string.
+        const safeToolName = (t: string) => t.replace(/[^\w:/.\\-]/g, '');
         const toolsSection =
           params.allowedTools && params.allowedTools.length > 0
-            ? `\nallowed_tools:\n${params.allowedTools.map((t) => `  - ${t}`).join('\n')}`
+            ? `\nallowed_tools:\n${params.allowedTools.map((t) => `  - ${safeToolName(t)}`).join('\n')}`
             : '';
 
         const skillContent = [
@@ -545,16 +593,86 @@ export class HarnessRpcHandlers {
       try {
         this.logger.debug('RPC: harness:discover-mcp called');
 
-        // TODO: Expand to discover MCP servers from workspace .mcp.json and user config
-        const servers = [
-          {
-            name: 'ptah-mcp',
-            url: 'http://localhost:0', // Port assigned dynamically at runtime
-            description:
-              'Built-in Ptah MCP server providing workspace analysis, code execution, browser automation, and agent orchestration tools',
-            enabled: true,
-          },
-        ];
+        const servers: Array<{
+          name: string;
+          url: string;
+          description?: string;
+          enabled: boolean;
+        }> = [];
+
+        // Always include built-in Ptah MCP server
+        servers.push({
+          name: 'ptah-mcp',
+          url: 'http://localhost:0', // Port assigned dynamically at runtime
+          description:
+            'Built-in Ptah MCP server providing workspace analysis, code execution, browser automation, and agent orchestration tools',
+          enabled: true,
+        });
+
+        // Discover workspace MCP servers from config files
+        const wsRoot = this.requireWorkspaceRoot();
+
+        // Read .vscode/mcp.json
+        // Use async readFile directly and handle ENOENT in catch to avoid
+        // blocking the event loop with existsSync and the TOCTOU race it creates.
+        // Only extract server names — never forward env/args/credentials to the webview.
+        const vscodeMcpPath = path.join(wsRoot, '.vscode', 'mcp.json');
+        try {
+          const raw = await fs.readFile(vscodeMcpPath, 'utf-8');
+          const parsed = JSON.parse(raw) as Record<string, unknown>;
+          const mcpServers =
+            (parsed['servers'] as Record<string, unknown>) ??
+            (parsed['mcpServers'] as Record<string, unknown>) ??
+            {};
+
+          // Extract only server names — env/args/command fields may contain
+          // credentials and must never be forwarded to the webview.
+          const serverNames = Object.keys(mcpServers);
+          for (const name of serverNames) {
+            servers.push({
+              name,
+              url: '',
+              description: 'From .vscode/mcp.json',
+              enabled: true,
+            });
+          }
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+            this.logger.warn(
+              `RPC: harness:discover-mcp failed to read .vscode/mcp.json: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+
+        // Read .mcp.json from workspace root
+        // Same pattern: async-only, name extraction only.
+        const rootMcpPath = path.join(wsRoot, '.mcp.json');
+        try {
+          const raw = await fs.readFile(rootMcpPath, 'utf-8');
+          const parsed = JSON.parse(raw) as Record<string, unknown>;
+          const mcpServers =
+            (parsed['servers'] as Record<string, unknown>) ??
+            (parsed['mcpServers'] as Record<string, unknown>) ??
+            {};
+
+          // Extract only server names — env/args/command fields may contain
+          // credentials and must never be forwarded to the webview.
+          const serverNames = Object.keys(mcpServers);
+          for (const name of serverNames) {
+            servers.push({
+              name,
+              url: '',
+              description: 'From .mcp.json',
+              enabled: true,
+            });
+          }
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+            this.logger.warn(
+              `RPC: harness:discover-mcp failed to read .mcp.json: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
 
         this.logger.debug('RPC: harness:discover-mcp success', {
           serverCount: servers.length,
@@ -1283,8 +1401,7 @@ export class HarnessRpcHandlers {
     availableSkills: SkillSummary[],
     availableAgents: AvailableAgent[],
   ): Promise<HarnessSuggestConfigResponse> {
-    const workspaceRoot =
-      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+    const workspaceRoot = this.requireWorkspaceRoot();
 
     // Build agent catalog for the prompt
     const agentList = availableAgents
@@ -1377,9 +1494,9 @@ Return ONLY the JSON object matching the schema.`;
       model: 'sonnet',
       prompt,
       systemPromptAppend:
-        'You are a configuration advisor. Analyze the user persona and select the best agents, skills, and tools. Be specific and practical in your choices. Do NOT use any tools — just analyze the information provided and return the structured JSON.',
-      isPremium: false,
-      mcpServerRunning: false,
+        "You are a configuration advisor. Analyze the user persona and select the best agents, skills, and tools. Be specific and practical in your choices. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",
+      isPremium: true,
+      mcpServerRunning: true,
       maxTurns: 6,
       outputFormat: { type: 'json_schema', schema: outputSchema },
       abortController,
@@ -1393,9 +1510,32 @@ Return ONLY the JSON object matching the schema.`;
         logger: this.logger,
         serviceTag: '[HarnessSuggest]',
       });
-      const result = await processor.process(handle.stream);
+      // Tee the stream so HarnessStreamingService receives harness:flat-stream events
+      // and can show real-time execution visualization in the UI.
+      const teedStream = this.teeStreamWithFlatEvents(
+        handle.stream,
+        operationId,
+      );
+      const result = await processor.process(teedStream);
       rawOutput = result.structuredOutput;
       this.broadcastStreamComplete('suggest-config', operationId, true);
+      this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+        operationId,
+        success: true,
+      });
+    } catch (error) {
+      this.broadcastStreamComplete(
+        'suggest-config',
+        operationId,
+        false,
+        error instanceof Error ? error.message : String(error),
+      );
+      this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+        operationId,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     } finally {
       clearTimeout(timeout);
       handle.close();
@@ -2173,8 +2313,7 @@ Return ONLY the JSON object matching the schema.`;
     message: string,
     context: Partial<HarnessConfig>,
   ): Promise<HarnessChatResponse> {
-    const workspaceRoot =
-      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+    const workspaceRoot = this.requireWorkspaceRoot();
 
     const stepContext = this.buildStepContextSummary(step, context);
 
@@ -2244,9 +2383,9 @@ Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly rel
       model: 'sonnet',
       prompt,
       systemPromptAppend:
-        'You are a harness architect. Be specific, practical, and collaborative. Always suggest concrete next steps. Return valid JSON matching the schema.',
-      isPremium: false,
-      mcpServerRunning: false,
+        "You are a harness architect. Be specific, practical, and collaborative. Always suggest concrete next steps. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace. Actively search for and recommend relevant skills and MCP servers beyond what the user explicitly asked for. After using tools, return valid JSON matching the schema.",
+      isPremium: true,
+      mcpServerRunning: true,
       maxTurns: 10,
       outputFormat: { type: 'json_schema', schema: outputSchema },
       abortController,
@@ -2258,10 +2397,18 @@ Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly rel
         logger: this.logger,
         serviceTag: '[HarnessChat]',
       });
-      const result = await processor.process(handle.stream);
+      // Tee the stream so HarnessStreamingService receives harness:flat-stream events
+      // and can show real-time execution visualization in the UI.
+      const teedStream = this.teeStreamWithFlatEvents(handle.stream, chatOpId);
+      const result = await processor.process(teedStream);
       const output = result.structuredOutput as LlmChatOutput | null;
 
       if (!output?.reply) {
+        this.broadcastStreamComplete('chat', chatOpId, true);
+        this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+          operationId: chatOpId,
+          success: true,
+        });
         return { reply: this.buildChatReplyFallback(step, message) };
       }
 
@@ -2286,11 +2433,28 @@ Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly rel
         }));
 
       this.broadcastStreamComplete('chat', chatOpId, true);
+      this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+        operationId: chatOpId,
+        success: true,
+      });
       return {
         reply: output.reply,
         suggestedActions:
           suggestedActions.length > 0 ? suggestedActions : undefined,
       };
+    } catch (error) {
+      this.broadcastStreamComplete(
+        'chat',
+        chatOpId,
+        false,
+        error instanceof Error ? error.message : String(error),
+      );
+      this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+        operationId: chatOpId,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     } finally {
       clearTimeout(timeout);
       handle.close();
@@ -2398,8 +2562,7 @@ Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly rel
     existingAgents: string[],
     workspaceContext?: HarnessDesignAgentsParams['workspaceContext'],
   ): Promise<HarnessDesignAgentsResponse> {
-    const workspaceRoot =
-      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+    const workspaceRoot = this.requireWorkspaceRoot();
 
     const contextInfo = workspaceContext
       ? `\n## Workspace Context\n- Project: ${workspaceContext.projectName}\n- Type: ${workspaceContext.projectType}\n- Frameworks: ${workspaceContext.frameworks.join(', ') || 'none detected'}\n- Languages: ${workspaceContext.languages.join(', ') || 'none detected'}`
@@ -2490,9 +2653,9 @@ Return ONLY the JSON object matching the schema.`;
       model: 'sonnet',
       prompt,
       systemPromptAppend:
-        "You are a subagent fleet architect. Design creative, practical subagents that automate the user's most valuable workflows. Be specific about tools and triggers. Do NOT use any tools — just analyze and return structured JSON.",
-      isPremium: false,
-      mcpServerRunning: false,
+        "You are a subagent fleet architect. Design creative, practical subagents that automate the user's most valuable workflows. Be specific about tools and triggers. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",
+      isPremium: true,
+      mcpServerRunning: true,
       maxTurns: 6,
       outputFormat: { type: 'json_schema', schema: outputSchema },
       abortController,
@@ -2504,7 +2667,13 @@ Return ONLY the JSON object matching the schema.`;
         logger: this.logger,
         serviceTag: '[HarnessDesignAgents]',
       });
-      const result = await processor.process(handle.stream);
+      // Tee the stream so HarnessStreamingService receives harness:flat-stream events
+      // and can show real-time execution visualization in the UI.
+      const teedStream = this.teeStreamWithFlatEvents(
+        handle.stream,
+        agentsOpId,
+      );
+      const result = await processor.process(teedStream);
       const output = result.structuredOutput as LlmSubagentDesignOutput | null;
 
       if (!output?.subagents || !Array.isArray(output.subagents)) {
@@ -2530,12 +2699,29 @@ Return ONLY the JSON object matching the schema.`;
         }));
 
       this.broadcastStreamComplete('design-agents', agentsOpId, true);
+      this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+        operationId: agentsOpId,
+        success: true,
+      });
       return {
         subagents,
         reasoning:
           output.reasoning ||
           'Subagent fleet designed based on persona analysis.',
       };
+    } catch (error) {
+      this.broadcastStreamComplete(
+        'design-agents',
+        agentsOpId,
+        false,
+        error instanceof Error ? error.message : String(error),
+      );
+      this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+        operationId: agentsOpId,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     } finally {
       clearTimeout(timeout);
       handle.close();
@@ -2555,8 +2741,7 @@ Return ONLY the JSON object matching the schema.`;
     existingSkills: string[],
     harnessSubagents?: HarnessSubagentDefinition[],
   ): Promise<HarnessGenerateSkillsResponse> {
-    const workspaceRoot =
-      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+    const workspaceRoot = this.requireWorkspaceRoot();
 
     const subagentContext =
       harnessSubagents && harnessSubagents.length > 0
@@ -2629,9 +2814,9 @@ Return ONLY the JSON object matching the schema.`;
       model: 'sonnet',
       prompt,
       systemPromptAppend:
-        'You are a skill designer. Create practical, detailed skills that automate high-value workflows. Include complete SKILL.md content — not stubs. Do NOT use any tools — just analyze and return structured JSON.',
-      isPremium: false,
-      mcpServerRunning: false,
+        "You are a skill designer. Create practical, detailed skills that automate high-value workflows. Include complete SKILL.md content — not stubs. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",
+      isPremium: true,
+      mcpServerRunning: true,
       maxTurns: 6,
       outputFormat: { type: 'json_schema', schema: outputSchema },
       abortController,
@@ -2643,7 +2828,13 @@ Return ONLY the JSON object matching the schema.`;
         logger: this.logger,
         serviceTag: '[HarnessGenerateSkills]',
       });
-      const result = await processor.process(handle.stream);
+      // Tee the stream so HarnessStreamingService receives harness:flat-stream events
+      // and can show real-time execution visualization in the UI.
+      const teedStream = this.teeStreamWithFlatEvents(
+        handle.stream,
+        skillsOpId,
+      );
+      const result = await processor.process(teedStream);
       const output = result.structuredOutput as LlmSkillGenerationOutput | null;
 
       if (!output?.skills || !Array.isArray(output.skills)) {
@@ -2663,11 +2854,28 @@ Return ONLY the JSON object matching the schema.`;
         }));
 
       this.broadcastStreamComplete('generate-skills', skillsOpId, true);
+      this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+        operationId: skillsOpId,
+        success: true,
+      });
       return {
         skills,
         reasoning:
           output.reasoning || 'Skills designed based on persona analysis.',
       };
+    } catch (error) {
+      this.broadcastStreamComplete(
+        'generate-skills',
+        skillsOpId,
+        false,
+        error instanceof Error ? error.message : String(error),
+      );
+      this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+        operationId: skillsOpId,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     } finally {
       clearTimeout(timeout);
       handle.close();
@@ -2687,8 +2895,7 @@ Return ONLY the JSON object matching the schema.`;
     config: HarnessConfig,
     workspaceContext?: HarnessGenerateDocumentParams['workspaceContext'],
   ): Promise<HarnessGenerateDocumentResponse> {
-    const workspaceRoot =
-      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+    const workspaceRoot = this.requireWorkspaceRoot();
 
     // Build a detailed config summary for the LLM
     const enabledAgents = Object.entries(config.agents.enabledAgents)
@@ -2782,9 +2989,9 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
         prompt +
         '\n\nReturn a JSON object with a single "document" field containing the full markdown PRD as a string.',
       systemPromptAppend:
-        'You are a technical product manager writing a PRD. Be thorough, specific, and professional. The document should be 800-1500 words. Return valid JSON with the markdown document. Do NOT use any tools.',
-      isPremium: false,
-      mcpServerRunning: false,
+        'You are a technical product manager writing a PRD. Be thorough, specific, and professional. The document should be 800-1500 words. Use the available ptah.harness tools to enhance your document: searchSkills(query?) to find existing skills relevant to the project, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed. After using tools, return valid JSON with the markdown document.',
+      isPremium: true,
+      mcpServerRunning: true,
       maxTurns: 6,
       outputFormat: { type: 'json_schema', schema: docOutputSchema },
       abortController,
@@ -2796,7 +3003,10 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
         logger: this.logger,
         serviceTag: '[HarnessGenerateDoc]',
       });
-      const result = await processor.process(handle.stream);
+      // Tee the stream so HarnessStreamingService receives harness:flat-stream events
+      // and can show real-time execution visualization in the UI.
+      const teedStream = this.teeStreamWithFlatEvents(handle.stream, docOpId);
+      const result = await processor.process(teedStream);
       const output = result.structuredOutput as { document: string } | null;
 
       const document = output?.document || this.buildFallbackDocument(config);
@@ -2805,7 +3015,24 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
       const sections = this.parseSectionsFromDocument(document);
 
       this.broadcastStreamComplete('generate-document', docOpId, true);
+      this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+        operationId: docOpId,
+        success: true,
+      });
       return { document, sections };
+    } catch (error) {
+      this.broadcastStreamComplete(
+        'generate-document',
+        docOpId,
+        false,
+        error instanceof Error ? error.message : String(error),
+      );
+      this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+        operationId: docOpId,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     } finally {
       clearTimeout(timeout);
       handle.close();
@@ -2949,8 +3176,7 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
     availableAgents: AvailableAgent[],
     workspaceContext?: HarnessAnalyzeIntentParams['workspaceContext'],
   ): Promise<HarnessAnalyzeIntentResponse> {
-    const workspaceRoot =
-      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+    const workspaceRoot = this.requireWorkspaceRoot();
 
     // Build catalogs for the prompt
     const agentList = availableAgents
@@ -3110,9 +3336,9 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
       model: 'sonnet',
       prompt,
       systemPromptAppend:
-        "You are a harness architect. Analyze the user's freeform input and design a complete AI coding harness. Be creative but practical. Extract maximum value from whatever input format the user provides — PRD, instruction, or description. Do NOT use any tools — just analyze and return structured JSON.",
-      isPremium: false,
-      mcpServerRunning: false,
+        "You are a harness architect. Analyze the user's freeform input and design a complete AI coding harness. Be creative but practical. Extract maximum value from whatever input format the user provides — PRD, instruction, or description. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace, createSkill(name, description, content, allowedTools?) to create custom skills. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",
+      isPremium: true,
+      mcpServerRunning: true,
       maxTurns: 10,
       outputFormat: { type: 'json_schema', schema: outputSchema },
       abortController,
@@ -3124,7 +3350,14 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
         logger: this.logger,
         serviceTag: '[HarnessAnalyzeIntent]',
       });
-      const result = await processor.process(handle.stream);
+
+      // Tee the stream: broadcast FlatStreamEventUnion events for inline
+      // execution visualization while feeding SDKMessages to SdkStreamProcessor
+      const teedStream = this.teeStreamWithFlatEvents(
+        handle.stream,
+        intentOpId,
+      );
+      const result = await processor.process(teedStream);
       const output = result.structuredOutput as LlmIntentAnalysisOutput | null;
 
       if (!output?.persona || !output?.systemPrompt) {
@@ -3201,6 +3434,10 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
       }
 
       this.broadcastStreamComplete('analyze-intent', intentOpId, true);
+      this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+        operationId: intentOpId,
+        success: true,
+      });
       return {
         persona: {
           label: output.persona.label || 'Custom Persona',
@@ -3226,6 +3463,11 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
         false,
         error instanceof Error ? error.message : String(error),
       );
+      this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+        operationId: intentOpId,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     } finally {
       clearTimeout(timeout);
@@ -3245,8 +3487,7 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
 
         const { message, history, config, workspaceContext } = params;
 
-        const workspaceRoot =
-          this.workspaceProvider.getWorkspaceFolders()?.[0] ?? process.cwd();
+        const workspaceRoot = this.requireWorkspaceRoot();
 
         const availableAgents = this.getAvailableAgents();
         const availableSkills = this.discoverAvailableSkills();
@@ -3375,9 +3616,10 @@ If this is the first message, analyze the user's intent and propose a complete i
           model: 'sonnet',
           prompt,
           systemPromptAppend:
-            'You are a harness architect. Be conversational, specific, and proactive. Propose complete configurations when you have enough context. Ask clarifying questions when you need more information.',
-          isPremium: false,
-          mcpServerRunning: false,
+            "You are a harness architect. Be conversational, specific, and proactive. Propose complete configurations when you have enough context. Ask clarifying questions when you need more information. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace, createSkill(name, description, content, allowedTools?) to create custom skills. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",
+          isPremium: true,
+          mcpServerRunning: true,
+          maxTurns: 8,
           outputFormat: { type: 'json_schema', schema: outputSchema },
           abortController,
         });
@@ -3388,10 +3630,21 @@ If this is the first message, analyze the user's intent and propose a complete i
             logger: this.logger,
             serviceTag: '[HarnessConverse]',
           });
-          const result = await processor.process(handle.stream);
+
+          // Tee the stream: broadcast FlatStreamEventUnion events for inline
+          // execution visualization while feeding SDKMessages to SdkStreamProcessor
+          const teedStream = this.teeStreamWithFlatEvents(
+            handle.stream,
+            converseOpId,
+          );
+          const result = await processor.process(teedStream);
           const output = result.structuredOutput as LlmConverseOutput | null;
 
           this.broadcastStreamComplete('converse', converseOpId, true);
+          this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+            operationId: converseOpId,
+            success: true,
+          });
 
           return {
             reply:
@@ -3407,6 +3660,11 @@ If this is the first message, analyze the user's intent and propose a complete i
             false,
             error instanceof Error ? error.message : String(error),
           );
+          this.webviewManager.broadcastMessage('harness:flat-stream-complete', {
+            operationId: converseOpId,
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
           throw error;
         } finally {
           clearTimeout(timeout);

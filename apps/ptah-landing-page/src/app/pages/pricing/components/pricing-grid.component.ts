@@ -450,7 +450,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     priceSubtext: 'per month',
     priceId: this.paddleConfig.proPriceIdMonthly,
     idealFor: 'For serious developers',
-    trialDays: 30,
+    trialDays: 100,
     features: [],
     standoutFeatures: [
       'All Community features included',
@@ -460,7 +460,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       'OpenRouter proxy (200+ models)',
       'Project-adaptive agent generation',
     ],
-    ctaText: 'Start 30-Day Free Trial',
+    ctaText: 'Start 100-Day Free Trial',
     ctaAction: 'checkout',
     highlight: true,
   };
@@ -476,7 +476,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     priceId: this.paddleConfig.proPriceIdYearly,
     idealFor: 'For serious developers',
     savings: 'Save ~17% vs monthly',
-    trialDays: 30,
+    trialDays: 100,
     features: [],
     standoutFeatures: [
       'All Community features included',
@@ -486,7 +486,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       'OpenRouter proxy (200+ models)',
       'Project-adaptive agent generation',
     ],
-    ctaText: 'Start 30-Day Free Trial',
+    ctaText: 'Start 100-Day Free Trial',
     ctaAction: 'checkout',
     highlight: true,
   };

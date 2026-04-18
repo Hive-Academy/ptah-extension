@@ -37,7 +37,7 @@ export interface ISetupWizardService {
   launchWizard(workspacePath: string): Promise<Result<void, Error>>;
   cancelWizard(
     sessionId: string,
-    saveProgress: boolean
+    saveProgress: boolean,
   ): Promise<Result<void, Error>>;
   getCurrentSession(): null;
 }
@@ -47,7 +47,7 @@ export class ElectronSetupWizardService implements ISetupWizardService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.WEBVIEW_MANAGER)
-    private readonly webviewManager: WebviewBroadcaster
+    private readonly webviewManager: WebviewBroadcaster,
   ) {}
 
   /**
@@ -63,14 +63,14 @@ export class ElectronSetupWizardService implements ISetupWizardService {
   async launchWizard(workspacePath: string): Promise<Result<void, Error>> {
     if (!workspacePath || !workspacePath.trim()) {
       this.logger.warn(
-        '[ElectronSetupWizardService] Cannot launch wizard: no workspace folder open'
+        '[ElectronSetupWizardService] Cannot launch wizard: no workspace folder open',
       );
       return Result.err(new Error('No workspace folder open'));
     }
 
     this.logger.info(
       '[ElectronSetupWizardService] Launching setup wizard via IPC navigation',
-      { workspacePath }
+      { workspacePath },
     );
 
     try {
@@ -80,12 +80,12 @@ export class ElectronSetupWizardService implements ISetupWizardService {
     } catch (error) {
       this.logger.error(
         '[ElectronSetupWizardService] Failed to broadcast wizard launch',
-        { error: error instanceof Error ? error.message : String(error) }
+        { error: error instanceof Error ? error.message : String(error) },
       );
       return Result.err(
         error instanceof Error
           ? error
-          : new Error('Failed to launch wizard view')
+          : new Error('Failed to launch wizard view'),
       );
     }
 
@@ -104,26 +104,26 @@ export class ElectronSetupWizardService implements ISetupWizardService {
    */
   async cancelWizard(
     sessionId: string,
-    saveProgress: boolean
+    saveProgress: boolean,
   ): Promise<Result<void, Error>> {
     this.logger.info(
       '[ElectronSetupWizardService] Cancelling wizard, navigating to chat',
-      { sessionId, saveProgress }
+      { sessionId, saveProgress },
     );
 
     try {
       await this.webviewManager.broadcastMessage(MESSAGE_TYPES.SWITCH_VIEW, {
-        view: 'chat',
+        view: 'orchestra-canvas',
       });
     } catch (error) {
       this.logger.error(
         '[ElectronSetupWizardService] Failed to broadcast wizard cancel',
-        { error: error instanceof Error ? error.message : String(error) }
+        { error: error instanceof Error ? error.message : String(error) },
       );
       return Result.err(
         error instanceof Error
           ? error
-          : new Error('Failed to cancel wizard view')
+          : new Error('Failed to cancel wizard view'),
       );
     }
 

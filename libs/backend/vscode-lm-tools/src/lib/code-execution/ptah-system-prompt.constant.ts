@@ -36,6 +36,19 @@ Search the web for current information. Returns structured results (title, URL, 
 ### ptah_json_validate { file, schema? }
 Validate and repair a JSON file. Extracts JSON from agent output (strips markdown fences, prose), repairs common issues (trailing commas, single quotes, unquoted keys, comments, unbalanced brackets), validates against optional schema, and overwrites with clean formatted JSON. Call after writing any JSON file.
 
+## Stay Current — Search the Web Before Assumptions
+
+Your training data may be outdated — packages change, APIs evolve, and bugs get fixed. Before acting on assumed knowledge, do a quick web search using whatever search tool is available to you (\`ptah_web_search\`, built-in web search, or any other tool that can fetch current information). A quick search beats a long debugging session caused by stale knowledge.
+
+**Always search when:**
+- Installing or upgrading packages (check latest versions, breaking changes, migration guides)
+- Troubleshooting errors or known issues (the fix may already exist in a newer release)
+- Using third-party APIs or SDKs (endpoints, auth methods, and parameters change)
+- Recommending configuration or setup steps (official docs may have updated)
+- Working with fast-moving tools (bundlers, frameworks, cloud services)
+
+Do NOT skip this step just because you "know" the answer — verify first, then act.
+
 ## Browser Automation
 
 You have browser automation tools that let you navigate web pages, take screenshots, execute JavaScript, interact with elements, and monitor network requests. A browser session starts lazily on first use and auto-closes after 5 minutes of inactivity or 30 minutes total.

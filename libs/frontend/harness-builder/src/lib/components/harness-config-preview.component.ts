@@ -54,16 +54,18 @@ import { HarnessBuilderStateService } from '../services/harness-builder-state.se
               </p>
             }
             @if (p.goals && p.goals.length > 0) {
-              <div class="mt-1.5 flex flex-wrap gap-1">
+              <ul
+                class="mt-1.5 space-y-1 text-xs text-base-content/60 list-disc list-inside"
+              >
                 @for (goal of p.goals.slice(0, 3); track goal) {
-                  <span class="badge badge-xs badge-outline">{{ goal }}</span>
+                  <li class="leading-tight">{{ goal }}</li>
                 }
                 @if (p.goals.length > 3) {
-                  <span class="badge badge-xs badge-ghost">
-                    +{{ p.goals.length - 3 }}
-                  </span>
+                  <li class="text-base-content/40">
+                    +{{ p.goals.length - 3 }} more
+                  </li>
                 }
-              </div>
+              </ul>
             }
           </div>
         </div>
