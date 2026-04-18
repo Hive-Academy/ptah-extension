@@ -212,10 +212,10 @@ export class IpcBridge {
    * - SDK_PERMISSION_RESPONSE: User approved/denied a permission prompt
    * - ASK_USER_QUESTION_RESPONSE: User answered a clarifying question
    */
-  private handleFireAndForgetMessage(
+  private async handleFireAndForgetMessage(
     type: string,
     msg: Record<string, unknown>,
-  ): void {
+  ): Promise<void> {
     const SDK_PERMISSION_HANDLER = Symbol.for('SdkPermissionHandler');
 
     switch (type) {
@@ -286,6 +286,32 @@ export class IpcBridge {
         } catch (error) {
           console.error(
             '[IpcBridge] Failed to process AskUserQuestion response',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        break;
+      }
+
+      case MESSAGE_TYPES.SETUP_WIZARD_COMPLETE: {
+        console.log(
+          '[IpcBridge] Setup wizard complete — switching to chat and reloading',
+        );
+        try {
+          // Navigate back to chat view (Electron equivalent of disposing the wizard panel)
+          this.sendToRenderer({
+            type: MESSAGE_TYPES.SWITCH_VIEW,
+            payload: { view: 'orchestra-canvas' },
+          });
+
+          // Reload after a short delay so the view switch reaches the renderer first,
+          // matching the same pattern used by command:execute → reloadWindow in auth flow
+          const platformCommands = this.container.resolve<{
+            reloadWindow(): Promise<void>;
+          }>(TOKENS.PLATFORM_COMMANDS);
+          setTimeout(() => platformCommands.reloadWindow(), 500);
+        } catch (error) {
+          console.error(
+            '[IpcBridge] Failed to handle wizard complete',
             error instanceof Error ? error.message : String(error),
           );
         }

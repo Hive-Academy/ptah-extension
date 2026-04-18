@@ -1,6 +1,11 @@
 import { computed, Injectable, signal } from '@angular/core';
+import {
+  createEmptyStreamingState,
+  type StreamingState,
+} from '@ptah-extension/chat';
 import type {
   AvailableAgent,
+  FlatStreamEventUnion,
   HarnessConfig,
   HarnessInitializeResponse,
   HarnessMcpConfig,
@@ -51,6 +56,14 @@ export class HarnessBuilderStateService {
     languages: string[];
   } | null>(null);
 
+  // ─── Streaming state for execution visualization ───────
+
+  private readonly _streamingState = signal<StreamingState>(
+    createEmptyStreamingState(),
+  );
+  private readonly _isStreaming = signal(false);
+  private readonly _currentOperationId = signal<string | null>(null);
+
   // ─── Public readonly accessors ──────────────────────────
 
   public readonly config = this._config.asReadonly();
@@ -69,6 +82,9 @@ export class HarnessBuilderStateService {
   public readonly conversationMessages =
     this._conversationMessages.asReadonly();
   public readonly isConfigComplete = this._isConfigComplete.asReadonly();
+  public readonly streamingState = this._streamingState.asReadonly();
+  public readonly isConversing = this._isStreaming.asReadonly();
+  public readonly currentOperationId = this._currentOperationId.asReadonly();
 
   // ─── Computed signals ───────────────────────────────────
 
@@ -286,6 +302,145 @@ export class HarnessBuilderStateService {
     this._error.set(null);
   }
 
+  // ─── Streaming methods ──────────────────────────────────
+
+  public accumulateFlatEvent(event: FlatStreamEventUnion): void {
+    this._streamingState.update((prev) => {
+      // Clone StreamingState -- never mutate the previous reference.
+      // This ensures Angular signal consumers detect changes correctly.
+      const state: StreamingState = {
+        events: new Map(prev.events),
+        messageEventIds: [...prev.messageEventIds],
+        toolCallMap: new Map(prev.toolCallMap),
+        textAccumulators: new Map(prev.textAccumulators),
+        toolInputAccumulators: new Map(prev.toolInputAccumulators),
+        agentSummaryAccumulators: new Map(prev.agentSummaryAccumulators),
+        agentContentBlocksMap: new Map(prev.agentContentBlocksMap),
+        currentMessageId: prev.currentMessageId,
+        currentTokenUsage: prev.currentTokenUsage,
+        eventsByMessage: new Map(prev.eventsByMessage),
+        pendingStats: prev.pendingStats,
+      };
+
+      // Store event by ID
+      state.events.set(event.id, event);
+
+      // Index by messageId
+      const messageEvents = [
+        ...(state.eventsByMessage.get(event.messageId) ?? []),
+        event,
+      ];
+      state.eventsByMessage.set(event.messageId, messageEvents);
+
+      // Handle event-type-specific accumulation
+      switch (event.eventType) {
+        case 'message_start':
+          if (!state.messageEventIds.includes(event.messageId)) {
+            state.messageEventIds.push(event.messageId);
+          }
+          state.currentMessageId = event.messageId;
+          break;
+
+        case 'text_delta': {
+          if (!state.messageEventIds.includes(event.messageId)) {
+            state.messageEventIds.push(event.messageId);
+          }
+          const textKey = `${event.messageId}-block-${event.blockIndex}`;
+          const existing = state.textAccumulators.get(textKey) ?? '';
+          state.textAccumulators.set(textKey, existing + event.delta);
+          break;
+        }
+
+        case 'thinking_start':
+          // Store the event -- tree builder needs it to create thinking nodes
+          break;
+
+        case 'thinking_delta': {
+          const thinkKey = `${event.messageId}-thinking-${event.blockIndex}`;
+          const existingThink = state.textAccumulators.get(thinkKey) ?? '';
+          state.textAccumulators.set(thinkKey, existingThink + event.delta);
+          break;
+        }
+
+        case 'tool_start': {
+          const toolChildren = [
+            ...(state.toolCallMap.get(event.toolCallId) ?? []),
+            event.id,
+          ];
+          state.toolCallMap.set(event.toolCallId, toolChildren);
+          break;
+        }
+
+        case 'tool_delta': {
+          const inputKey = `${event.toolCallId}-input`;
+          const existingInput = state.toolInputAccumulators.get(inputKey) ?? '';
+          state.toolInputAccumulators.set(
+            inputKey,
+            existingInput + event.delta,
+          );
+          const deltaToolChildren = [
+            ...(state.toolCallMap.get(event.toolCallId) ?? []),
+            event.id,
+          ];
+          state.toolCallMap.set(event.toolCallId, deltaToolChildren);
+          break;
+        }
+
+        case 'tool_result': {
+          const resultToolChildren = [
+            ...(state.toolCallMap.get(event.toolCallId) ?? []),
+            event.id,
+          ];
+          state.toolCallMap.set(event.toolCallId, resultToolChildren);
+          break;
+        }
+
+        case 'message_complete':
+          state.currentMessageId = null;
+          break;
+
+        // Events not needed for harness execution visualization
+        case 'message_delta':
+        case 'signature_delta':
+        case 'agent_start':
+        case 'compaction_start':
+        case 'compaction_complete':
+        case 'background_agent_started':
+        case 'background_agent_progress':
+        case 'background_agent_completed':
+        case 'background_agent_stopped':
+          break;
+
+        default: {
+          // Unknown event type — log and skip to avoid silent data loss
+          console.warn(
+            '[HarnessBuilderStateService] Unknown flat stream event type:',
+            (event as { eventType: string }).eventType,
+          );
+          break;
+        }
+      }
+
+      return state;
+    });
+  }
+
+  public startStreaming(operationId: string): void {
+    this._isStreaming.set(true);
+    this._currentOperationId.set(operationId);
+  }
+
+  public stopStreaming(): void {
+    this._isStreaming.set(false);
+    this._currentOperationId.set(null);
+  }
+
+  public resetStreamingState(): void {
+    this._streamingState.set(createEmptyStreamingState());
+    this._isStreaming.set(false);
+    this._currentOperationId.set(null);
+  }
+
   public reset(): void {
     this._config.set({});
     this._availableAgents.set([]);
@@ -302,5 +457,8 @@ export class HarnessBuilderStateService {
     this._intentInput.set('');
     this._conversationMessages.set([]);
     this._isConfigComplete.set(false);
+    this._streamingState.set(createEmptyStreamingState());
+    this._isStreaming.set(false);
+    this._currentOperationId.set(null);
   }
 }

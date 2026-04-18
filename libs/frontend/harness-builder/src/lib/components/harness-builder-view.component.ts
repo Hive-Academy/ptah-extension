@@ -17,16 +17,18 @@ import {
   Loader2,
   CheckCircle,
   Sparkles,
-  Activity,
   PanelRightClose,
 } from 'lucide-angular';
 import { FormsModule } from '@angular/forms';
 import { MarkdownModule } from 'ngx-markdown';
 import { WebviewNavigationService } from '@ptah-extension/core';
+import {
+  ExecutionNodeComponent,
+  ExecutionTreeBuilderService,
+} from '@ptah-extension/chat';
 import { HarnessBuilderStateService } from '../services/harness-builder-state.service';
 import { HarnessRpcService } from '../services/harness-rpc.service';
 import { HarnessStreamingService } from '../services/harness-streaming.service';
-import { HarnessExecutionViewComponent } from './harness-execution-view.component';
 import { HarnessConfigPreviewComponent } from './harness-config-preview.component';
 
 @Component({
@@ -36,7 +38,7 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
     LucideAngularModule,
     FormsModule,
     MarkdownModule,
-    HarnessExecutionViewComponent,
+    ExecutionNodeComponent,
     HarnessConfigPreviewComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -185,23 +187,15 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
               </div>
             }
 
-            <!-- Streaming hint — points user to right panel -->
-            @if (streaming.isStreaming() && !showSidePanel()) {
-              <div
-                class="flex items-center gap-2 px-3 py-2 rounded-lg bg-info/10 border border-info/20 text-xs text-info"
-              >
-                <lucide-angular
-                  [img]="ActivityIcon"
-                  class="w-3.5 h-3.5 animate-pulse"
-                  aria-hidden="true"
-                />
-                Agent is working — open the side panel to watch live.
-                <button
-                  class="btn btn-ghost btn-xs ml-auto"
-                  (click)="openSidePanelTab('execution')"
-                >
-                  Show
-                </button>
+            <!-- Inline execution nodes -->
+            @if (executionNodes().length > 0) {
+              <div class="space-y-1">
+                @for (node of executionNodes(); track node.id) {
+                  <ptah-execution-node
+                    [node]="node"
+                    [isStreaming]="streaming.isStreaming()"
+                  />
+                }
               </div>
             }
           </div>
@@ -264,88 +258,40 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
           </div>
         </div>
 
-        <!-- RIGHT: Side panel (execution + config tabs) -->
+        <!-- RIGHT: Side panel (config) -->
         @if (showSidePanel()) {
           <aside class="flex flex-col w-[420px] bg-base-100 shrink-0 min-h-0">
-            <!-- Tab header -->
+            <!-- Panel header -->
             <div
-              class="flex items-center gap-1 px-2 py-1.5 border-b border-base-300 bg-base-200/40 shrink-0"
+              class="flex items-center gap-2 px-3 py-2 border-b border-base-300 bg-base-200/40 shrink-0"
             >
-              <button
-                class="btn btn-ghost btn-xs flex-1 gap-1"
-                [class.btn-active]="sidePanelTab() === 'execution'"
-                (click)="sidePanelTab.set('execution')"
-              >
-                <lucide-angular
-                  [img]="ActivityIcon"
-                  class="w-3.5 h-3.5"
-                  [class.animate-pulse]="streaming.isStreaming()"
-                  aria-hidden="true"
-                />
-                Execution
-                @if (streaming.isStreaming()) {
-                  <span
-                    class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"
-                  ></span>
-                }
-              </button>
-              <button
-                class="btn btn-ghost btn-xs flex-1 gap-1"
-                [class.btn-active]="sidePanelTab() === 'config'"
-                (click)="sidePanelTab.set('config')"
-              >
-                <lucide-angular
-                  [img]="SettingsIcon"
-                  class="w-3.5 h-3.5"
-                  aria-hidden="true"
-                />
-                Config
-              </button>
+              <lucide-angular
+                [img]="SettingsIcon"
+                class="w-3.5 h-3.5"
+                aria-hidden="true"
+              />
+              <span class="text-xs font-medium">Config</span>
             </div>
 
-            <!-- Tab content -->
-            @if (sidePanelTab() === 'execution') {
-              <div class="flex-1 min-h-0 overflow-hidden">
-                @if (showExecutionView()) {
-                  <ptah-harness-execution-view />
-                } @else {
-                  <div
-                    class="flex items-center justify-center h-full text-center px-4"
-                  >
-                    <div>
-                      <lucide-angular
-                        [img]="ActivityIcon"
-                        class="w-8 h-8 text-base-content/20 mx-auto mb-2"
-                        aria-hidden="true"
-                      />
-                      <p class="text-xs text-base-content/40">
-                        Agent execution will appear here when you send a
-                        message.
-                      </p>
-                    </div>
-                  </div>
-                }
-              </div>
-            } @else {
-              <div class="flex-1 min-h-0 overflow-y-auto p-3">
-                <ptah-harness-config-preview />
+            <!-- Config content -->
+            <div class="flex-1 min-h-0 overflow-y-auto p-3">
+              <ptah-harness-config-preview />
 
-                @if (hasAnyConfig()) {
-                  <div class="mt-4 pt-3 border-t border-base-300">
-                    <button
-                      class="btn btn-primary btn-sm w-full"
-                      (click)="applyConfig()"
-                      [disabled]="isApplying() || isProcessing()"
-                    >
-                      @if (isApplying()) {
-                        <span class="loading loading-spinner loading-xs"></span>
-                      }
-                      Apply to Workspace
-                    </button>
-                  </div>
-                }
-              </div>
-            }
+              @if (hasAnyConfig()) {
+                <div class="mt-4 pt-3 border-t border-base-300">
+                  <button
+                    class="btn btn-primary btn-sm w-full"
+                    (click)="applyConfig()"
+                    [disabled]="isApplying() || isProcessing()"
+                  >
+                    @if (isApplying()) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    }
+                    Apply to Workspace
+                  </button>
+                </div>
+              }
+            </div>
           </aside>
         }
       </div>
@@ -357,6 +303,7 @@ export class HarnessBuilderViewComponent implements OnInit {
   private readonly rpc = inject(HarnessRpcService);
   private readonly navigation = inject(WebviewNavigationService);
   protected readonly streaming = inject(HarnessStreamingService);
+  private readonly treeBuilder = inject(ExecutionTreeBuilderService);
 
   protected readonly XIcon = X;
   protected readonly SendIcon = Send;
@@ -364,7 +311,6 @@ export class HarnessBuilderViewComponent implements OnInit {
   protected readonly Loader2Icon = Loader2;
   protected readonly CheckCircleIcon = CheckCircle;
   protected readonly SparklesIcon = Sparkles;
-  protected readonly ActivityIcon = Activity;
   protected readonly PanelRightCloseIcon = PanelRightClose;
 
   private readonly scrollContainer =
@@ -375,15 +321,15 @@ export class HarnessBuilderViewComponent implements OnInit {
   readonly isProcessing = signal(false);
   readonly isApplying = signal(false);
   readonly showSidePanel = signal(true);
-  readonly sidePanelTab = signal<'execution' | 'config'>('execution');
 
   protected messageText = '';
 
-  protected readonly showExecutionView = computed(
-    () =>
-      this.streaming.isStreaming() ||
-      this.streaming.completionResult() !== null,
-  );
+  protected readonly executionNodes = computed(() => {
+    const streamState = this.state.streamingState();
+    if (streamState.events.size === 0) return [];
+    const operationId = this.state.currentOperationId() ?? 'harness-converse';
+    return this.treeBuilder.buildTree(streamState, operationId);
+  });
 
   protected readonly canSend = computed(
     () => this.messageText.trim().length > 0 && !this.isProcessing(),
@@ -397,6 +343,7 @@ export class HarnessBuilderViewComponent implements OnInit {
   constructor() {
     effect(() => {
       this.state.conversationMessages();
+      this.state.streamingState();
       const container = this.scrollContainer()?.nativeElement;
       if (container) {
         requestAnimationFrame(() => {
@@ -404,21 +351,10 @@ export class HarnessBuilderViewComponent implements OnInit {
         });
       }
     });
-
-    effect(() => {
-      if (this.streaming.isStreaming() && this.showSidePanel()) {
-        this.sidePanelTab.set('execution');
-      }
-    });
   }
 
   protected toggleSidePanel(): void {
     this.showSidePanel.set(!this.showSidePanel());
-  }
-
-  protected openSidePanelTab(tab: 'execution' | 'config'): void {
-    this.showSidePanel.set(true);
-    this.sidePanelTab.set(tab);
   }
 
   public ngOnInit(): void {

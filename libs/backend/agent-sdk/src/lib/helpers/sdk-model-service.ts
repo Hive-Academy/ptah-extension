@@ -45,7 +45,9 @@ export type EnvMappedTier = Exclude<ModelTier, 'default'>;
  * The SDK's query() requires full model IDs (e.g., 'claude-opus-4-6').
  * Bare tier names like 'opus' cause "can't access model named opus" errors.
  *
- * 'default' maps to Sonnet as the best cost/capability balance for fallback.
+ * 'default' maps to Opus — the CLI SDK's recommended default tier is Opus 4.7.
+ * Storing 'default' (the tier name the CLI SDK returns from supportedModels())
+ * must resolve to the actual model the CLI uses, not an arbitrary cost-based fallback.
  *
  * MAINTENANCE: Update these when new Claude model versions are released.
  */
@@ -53,10 +55,10 @@ export const TIER_TO_MODEL_ID: Record<ModelTier, string> = {
   opus: 'claude-opus-4-7',
   sonnet: 'claude-sonnet-4-6',
   haiku: 'claude-haiku-4-5-20251001',
-  default: 'claude-sonnet-4-6',
+  default: 'claude-opus-4-7',
 };
 
-/** Default fallback model ID — Sonnet as the best cost/capability balance */
+/** Default fallback model ID — Opus as the CLI's recommended default */
 export const DEFAULT_FALLBACK_MODEL_ID = TIER_TO_MODEL_ID['default'];
 
 /**

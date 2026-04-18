@@ -146,6 +146,25 @@ export class EditorService {
   /** Whether a file is currently open */
   readonly hasActiveFile = computed(() => this._activeFilePath() !== undefined);
 
+  private readonly IMAGE_EXTENSIONS = new Set([
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.gif',
+    '.bmp',
+    '.svg',
+    '.webp',
+    '.ico',
+    '.avif',
+  ]);
+
+  readonly isActiveFileImage = computed(() => {
+    const path = this._activeFilePath();
+    if (!path) return false;
+    const ext = path.substring(path.lastIndexOf('.')).toLowerCase();
+    return this.IMAGE_EXTENSIONS.has(ext);
+  });
+
   /** The active diff tab, or null if the active tab is not a diff view */
   readonly activeDiffTab = computed(() => {
     const tabs = this._openTabs();
@@ -272,6 +291,10 @@ export class EditorService {
           this.loadFileTree();
         }, 500);
       }
+
+      if (data?.type === 'file:content-changed' && data?.data?.filePath) {
+        void this.handleFileContentChanged(data.data.filePath);
+      }
     };
     window.addEventListener('message', this._treeMessageHandler);
   }
@@ -289,6 +312,45 @@ export class EditorService {
       clearTimeout(this._treeRefreshDebounceTimer);
       this._treeRefreshDebounceTimer = null;
     }
+  }
+
+  /**
+   * Handle a file:content-changed push event from the backend.
+   * Re-reads the file content if the file is open in a non-dirty tab.
+   */
+  private async handleFileContentChanged(filePath: string): Promise<void> {
+    const tabs = this._openTabs();
+    const tab = tabs.find((t) => t.filePath === filePath);
+    if (!tab || tab.isDirty) return;
+
+    const result = await rpcCall<{ content: string; filePath: string }>(
+      this.vscodeService,
+      'editor:openFile',
+      { filePath },
+    );
+
+    if (!result.success || !result.data) return;
+
+    const newContent = result.data.content ?? '';
+    if (newContent === tab.content) return;
+
+    this._openTabs.update((currentTabs) =>
+      currentTabs.map((t) =>
+        t.filePath === filePath ? { ...t, content: newContent } : t,
+      ),
+    );
+
+    if (this._activeFilePath() === filePath) {
+      this._activeFileContent.set(newContent);
+    }
+
+    this._updateCachedActiveFile(
+      this._activeFilePath()!,
+      this._activeFilePath() === filePath
+        ? newContent
+        : this._activeFileContent(),
+    );
+    this._syncTabsToCache();
   }
 
   // ============================================================================
@@ -364,6 +426,21 @@ export class EditorService {
     }
 
     this._activeFilePath.set(filePath);
+
+    // Image files don't need content loading — they're rendered via file:// URL
+    const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
+    if (this.IMAGE_EXTENSIONS.has(ext)) {
+      const fileName = this._extractFileName(filePath);
+      this._activeFileContent.set('');
+      this._openTabs.update((tabs) => [
+        ...tabs,
+        { filePath, fileName, content: '', isDirty: false },
+      ]);
+      this._updateCachedActiveFile(filePath, '');
+      this._syncTabsToCache();
+      return;
+    }
+
     this._isLoading.set(true);
     this.clearError();
 

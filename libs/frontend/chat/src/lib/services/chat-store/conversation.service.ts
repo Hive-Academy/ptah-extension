@@ -348,8 +348,16 @@ export class ConversationService {
           '[ConversationService] Failed to start chat:',
           result.error,
         );
-        // Update tab status to loaded (failed)
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        const errorMessage = createExecutionChatMessage({
+          id: this.generateMessageId(),
+          role: 'assistant',
+          rawContent: result.error || 'Failed to start chat session.',
+        });
+        const currentTab = this.tabManager.activeTab();
+        this.tabManager.updateTab(activeTabId, {
+          status: 'loaded',
+          messages: [...(currentTab?.messages ?? []), errorMessage],
+        });
       } else {
         // Set status to 'streaming' after successful chat:start
         // Real sessionId will arrive with first streaming event
@@ -488,7 +496,16 @@ export class ConversationService {
           '[ConversationService] Failed to continue chat:',
           result.error,
         );
-        this.tabManager.updateTab(targetTabId, { status: 'loaded' });
+        const errorMsg = createExecutionChatMessage({
+          id: this.generateMessageId(),
+          role: 'assistant',
+          rawContent: result.error || 'Failed to continue chat session.',
+        });
+        const updatedTab = this.tabManager.activeTab();
+        this.tabManager.updateTab(targetTabId, {
+          status: 'loaded',
+          messages: [...(updatedTab?.messages ?? []), errorMsg],
+        });
       } else {
         this.sessionManager.setStatus('streaming');
         this.tabManager.updateTab(targetTabId, { status: 'streaming' });

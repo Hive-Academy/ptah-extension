@@ -73,7 +73,7 @@ import { LucideAngularModule, DollarSign } from 'lucide-angular';
                    bg-clip-text text-transparent
                    [filter:_drop-shadow(0_2px_0_#8a6d10)_drop-shadow(0_4px_8px_rgba(0,0,0,0.8))]"
           >
-            30 days free
+            100 days free
           </span>
           today
         </h1>
