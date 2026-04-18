@@ -74,9 +74,6 @@
   },
   "private": true,
   "dependencies": {
-    "@adminjs/express": "^6.1.0",
-    "@adminjs/nestjs": "^6.1.0",
-    "@adminjs/prisma": "^5.0.4",
     "@angular/common": "21.2.6",
     "@angular/compiler": "21.2.6",
     "@angular/core": "21.2.6",
@@ -107,7 +104,6 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5.5.0",
-    "adminjs": "^7.8.17",
     "axios": "^1.15.0",
     "chokidar": "^5.0.0",
     "chrome-launcher": "^1.2.1",
@@ -122,8 +118,6 @@
     "electron-updater": "^6.0.0",
     "eventemitter3": "^5.0.1",
     "exa-js": "^2.10.2",
-    "express-formidable": "^1.2.0",
-    "express-session": "^1.19.0",
     "fast-glob": "^3.3.0",
     "gifenc": "^1.0.3",
     "gpt-tokenizer": "^3.4.0",
@@ -192,7 +186,6 @@
     "@types/cookie-parser": "^1.4.8",
     "@types/cross-spawn": "^6.0.6",
     "@types/dompurify": "^3.0.5",
-    "@types/express-session": "^1.19.0",
     "@types/jest": "^30.0.0",
     "@types/json2md": "^1.5.4",
     "@types/node": "^22.15.0",
@@ -253,10 +246,6 @@
     "@hono/node-server": ">=1.19.13",
     "@module-federation/dts-plugin": {
       "axios": "1.15.0"
-    },
-    "@adminjs/prisma": {
-      "@prisma/client": "$@prisma/client",
-      "prisma": "$prisma"
     }
   }
 }

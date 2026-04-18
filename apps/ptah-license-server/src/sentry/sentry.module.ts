@@ -17,7 +17,7 @@ import {
 import { APP_FILTER } from '@nestjs/core';
 import * as Sentry from '@sentry/nestjs';
 
-import * as SentrySetup from '@sentry/nestjs/setup';
+import SentrySetup = require('@sentry/nestjs/setup');
 
 @Injectable()
 class SentryShutdownService implements OnApplicationShutdown {

@@ -14,7 +14,6 @@ import { TrialReminderModule } from '../trial-reminder/trial-reminder.module';
 import { ContactModule } from '../contact/contact.module';
 import { SessionModule } from '../session/session.module';
 import { HealthModule } from '../health/health.module';
-import { AdminModule } from '../admin/admin.module';
 
 /**
  * AppModule - Root application module
@@ -75,7 +74,6 @@ import { AdminModule } from '../admin/admin.module';
     ContactModule, // Contact form message handling
     SessionModule, // Training session request handling
     HealthModule, // Health check with DB validation (TASK_2025_180)
-    AdminModule, // TASK_2025_286: AdminJS admin panel
   ],
   providers: [
     // TASK_2025_125: Apply ThrottlerGuard globally to all routes
