@@ -62,6 +62,32 @@ export const TIER_TO_MODEL_ID: Record<ModelTier, string> = {
 export const DEFAULT_FALLBACK_MODEL_ID = TIER_TO_MODEL_ID['default'];
 
 /**
+ * Static fallback model list shown when both SDK supportedModels() and
+ * /v1/models API are unavailable (e.g., CLI auth with no network, or
+ * first-boot before the SDK bridge initializes).
+ *
+ * These are never cached — every call to getSupportedModels() retries
+ * the dynamic sources. The fallback just keeps the dropdown populated.
+ */
+const STATIC_FALLBACK_MODELS: ModelInfo[] = [
+  {
+    value: TIER_TO_MODEL_ID['opus'],
+    displayName: 'Claude Opus 4.7',
+    description: 'Most capable model for complex tasks',
+  },
+  {
+    value: TIER_TO_MODEL_ID['sonnet'],
+    displayName: 'Claude Sonnet 4.6',
+    description: 'Best balance of speed and intelligence',
+  },
+  {
+    value: TIER_TO_MODEL_ID['haiku'],
+    displayName: 'Claude Haiku 4.5',
+    description: 'Fastest and most compact model',
+  },
+];
+
+/**
  * Canonical mapping from tier names to their ANTHROPIC_DEFAULT_*_MODEL env var keys.
  * Single source of truth — all consumers must import this rather than defining their own.
  *
@@ -155,13 +181,15 @@ export class SdkModelService {
   ) {}
 
   /**
-   * Get supported models using the strategy appropriate for the active auth method.
+   * Get supported models for the active auth method.
    *
-   * - API key auth: /v1/models HTTP endpoint (has credentials for direct API call)
-   * - CLI auth: SDK's supportedModels() (credentials in ~/.claude/, not in env)
-   * - Third-party providers: SDK's supportedModels() (proxy handles auth)
+   * Tier mapping (ANTHROPIC_DEFAULT_*_MODEL resolution) applies ONLY to
+   * third-party providers. For Claude-native auth (API key, CLI), models
+   * are returned as-is from the source:
    *
-   * @returns Array of ModelInfo with value (API ID), displayName, and description
+   * - claudeCli  → query.supportedModels() directly (tier slots: opus/sonnet/haiku)
+   * - apiKey     → /v1/models API directly (full versioned model IDs)
+   * - thirdParty → query.supportedModels() + tier mapping to provider model IDs
    */
   async getSupportedModels(): Promise<ModelInfo[]> {
     if (this.cachedModels.length > 0) {
@@ -169,32 +197,46 @@ export class SdkModelService {
     }
 
     const rawAuthMethod = this.config.get<string>('authMethod') || 'apiKey';
-    const authMethod =
-      rawAuthMethod === 'openrouter' ? 'thirdParty' : rawAuthMethod;
+    // Normalize legacy/unknown values to the canonical 3-way enum used throughout the codebase.
+    // 'openrouter' was an old thirdParty alias; 'oauth'/'auto' were legacy apiKey variants.
+    let authMethod = rawAuthMethod;
+    if (rawAuthMethod === 'openrouter') authMethod = 'thirdParty';
+    else if (rawAuthMethod === 'oauth' || rawAuthMethod === 'auto')
+      authMethod = 'apiKey';
+    else if (!['apiKey', 'claudeCli', 'thirdParty'].includes(rawAuthMethod))
+      authMethod = 'apiKey';
 
     this.logger.info('[SdkModelService] Fetching models', {
       authMethod,
-      rawAuthMethod: rawAuthMethod !== authMethod ? rawAuthMethod : undefined,
       hasApiKey: !!this.authEnv.ANTHROPIC_API_KEY,
       hasBaseUrl: !!this.authEnv.ANTHROPIC_BASE_URL,
-      isThirdPartyProvider: this.isThirdPartyProvider(),
     });
 
     let models: ModelInfo[];
 
-    if (authMethod === 'apiKey' && this.authEnv.ANTHROPIC_API_KEY) {
-      // API key auth: prefer /v1/models (full list), fall back to SDK
+    if (authMethod === 'claudeCli') {
+      // Claude CLI: return query.supportedModels() directly — no env-var tier mapping.
+      // 'default' is preserved as a valid user choice meaning "let the SDK decide."
+      models = await this.fetchModelsViaSdk();
+    } else if (authMethod === 'apiKey') {
+      // Anthropic API key: /v1/models gives full versioned IDs — no tier mapping.
       models = await this.fetchModelsForApiKey();
     } else {
-      // CLI auth or third-party: SDK bridge handles its own auth
-      models = await this.fetchModelsViaSdk();
-      if (models.length > 0) {
-        models = this.normalizeModels(models);
-      }
+      // Third-party providers (Copilot, Codex, OpenRouter, Moonshot, Z.AI, etc.):
+      // SDK returns tier slots; map them to provider-specific model IDs
+      const sdkModels = await this.fetchModelsViaSdk();
+      models = sdkModels.length > 0 ? this.applyTierMapping(sdkModels) : [];
     }
 
     if (models.length > 0) {
-      this.cachedModels = models;
+      // Don't cache SDK tier-name fallback for apiKey auth — those are degraded results
+      // (bare tier names instead of full versioned IDs). Cache only when /v1/models succeeded.
+      const isDegradedApiKeyFallback =
+        authMethod === 'apiKey' &&
+        models.every((m) => !m.value.startsWith('claude-'));
+      if (!isDegradedApiKeyFallback) {
+        this.cachedModels = models;
+      }
       this.logger.info('[SdkModelService] Models resolved', {
         authMethod,
         count: models.length,
@@ -206,15 +248,16 @@ export class SdkModelService {
       return this.cachedModels;
     }
 
-    this.logger.error(
-      '[SdkModelService] Model fetch failed — returning empty list',
+    this.logger.warn(
+      '[SdkModelService] All model sources failed — using static fallback list',
       { authMethod },
     );
-    return [];
+    return STATIC_FALLBACK_MODELS;
   }
 
   /**
-   * API key auth: try /v1/models first (full model list), fall back to SDK tier slots.
+   * API key auth: try /v1/models first (full versioned list), fall back to
+   * SDK tier slots. No tier mapping — Anthropic native auth, IDs are valid as-is.
    */
   private async fetchModelsForApiKey(): Promise<ModelInfo[]> {
     const apiModels = await this.fetchModelsViaApi();
@@ -225,58 +268,30 @@ export class SdkModelService {
       return apiModels;
     }
 
-    // API call failed (network, rate limit, etc.) — try SDK as fallback
+    // API call failed (network, rate limit, etc.) — fall back to SDK tier slots.
     this.logger.warn(
       '[SdkModelService] /v1/models failed for API key auth, trying SDK',
     );
-    const sdkModels = await this.fetchModelsViaSdk();
-    return sdkModels.length > 0 ? this.normalizeModels(sdkModels) : [];
+    return await this.fetchModelsViaSdk();
   }
 
   /**
-   * Check if a non-Anthropic provider is active (e.g., Copilot, Codex, OpenRouter).
-   * When true, model values need normalization to provider-specific IDs.
-   * When false (direct Anthropic), SDK models are passed through as-is.
-   */
-  private isThirdPartyProvider(): boolean {
-    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
-    return !!baseUrl && !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
-  }
-
-  /**
-   * Normalize SDK models: resolve bare tier names in `.value` to full model IDs
-   * and deduplicate.
+   * Apply tier mapping for third-party providers only.
    *
-   * For direct Anthropic auth (API key): pass models through as-is.
-   * The SDK returns the correct models for the account and the 'default' tier
-   * works natively.
+   * Resolves bare tier names ('opus', 'sonnet', 'haiku') in SDK model values
+   * to provider-specific model IDs via ANTHROPIC_DEFAULT_*_MODEL env vars.
+   * Deduplicates entries where multiple tiers map to the same provider model.
    *
-   * For third-party providers: resolve bare tier names to provider-specific
-   * model IDs via ANTHROPIC_DEFAULT_*_MODEL env vars, and replace the 'default'
-   * meta-tier with 'sonnet' to avoid stale-cache issues (if env vars aren't set
-   * at cache time, 'default' resolves to claude-sonnet-4-6 instead of the
-   * provider's model).
+   * Only called for authMethod === 'thirdParty'. Never called for claudeCli or apiKey.
    */
-  private normalizeModels(models: ModelInfo[]): ModelInfo[] {
-    const isThirdParty = this.isThirdPartyProvider();
-
-    this.logger.info('[SdkModelService] normalizeModels input', {
+  private applyTierMapping(models: ModelInfo[]): ModelInfo[] {
+    this.logger.info('[SdkModelService] applyTierMapping (third-party)', {
       count: models.length,
-      isThirdParty,
       rawValues: models.map((m) => ({
         value: m.value,
         displayName: m.displayName,
       })),
     });
-
-    if (!isThirdParty) {
-      // Direct Anthropic auth (CLI or API key): full passthrough.
-      // Show exactly what the SDK's supportedModels() returned — no filtering,
-      // no merging, no resolution, no displayName rewriting. Tier-name values
-      // ('default', 'sonnet', 'haiku') are resolved to full IDs downstream at
-      // query-build time (SdkQueryOptionsBuilder → ModelResolver).
-      return models;
-    }
 
     // Third-party providers: resolve tiers to provider-specific model IDs
     // and deduplicate (different tiers may map to the same provider model).
@@ -284,23 +299,25 @@ export class SdkModelService {
     const normalized: ModelInfo[] = [];
 
     for (const m of models) {
-      const value = m.value.toLowerCase() === 'default' ? 'sonnet' : m.value;
-      const resolvedValue = this.resolveModelId(value);
+      // 'default' is an alias for 'opus' — skip it; the 'opus' entry covers it.
+      if (m.value.toLowerCase() === 'default') continue;
+      const resolvedValue = this.resolveModelId(m.value);
       if (seen.has(resolvedValue)) continue;
       seen.add(resolvedValue);
 
       normalized.push({
         ...m,
         value: resolvedValue,
-        ...(m.value.toLowerCase() === 'default' && {
-          displayName: 'Sonnet',
-        }),
       });
     }
 
-    if (normalized.length !== models.length) {
+    const defaultSkipped = models.filter(
+      (m) => m.value.toLowerCase() === 'default',
+    ).length;
+    const collisions = models.length - defaultSkipped - normalized.length;
+    if (collisions > 0) {
       this.logger.debug(
-        `[SdkModelService] Normalized ${models.length} SDK models to ${normalized.length} (deduplicated)`,
+        `[SdkModelService] applyTierMapping: ${collisions} duplicate(s) collapsed (${models.length} → ${normalized.length}, ${defaultSkipped} 'default' skipped)`,
       );
     }
 
@@ -647,24 +664,6 @@ export class SdkModelService {
     return models[0]?.value ?? DEFAULT_FALLBACK_MODEL_ID;
   }
 
-  /**
-   * Resolve a model identifier to a full model ID suitable for the SDK.
-   *
-   * The SDK's query() function requires full model IDs (e.g., 'claude-opus-4-6').
-   * Bare tier names ('opus', 'sonnet', 'haiku') stored in older configs or from
-   * fallback models must be resolved to full IDs.
-   *
-   * Resolution priority:
-   * 1. Full Claude ID with active provider override → return provider model
-   *    (e.g., 'claude-sonnet-4-6' → 'glm-5.1' when ANTHROPIC_DEFAULT_SONNET_MODEL is set)
-   * 2. Full Claude ID without override → return as-is
-   * 3. Bare tier with env var override → use override
-   * 4. Bare tier without override → use hardcoded default
-   * 5. Unknown → return as-is (let SDK handle it)
-   *
-   * @param model - Model string (could be full ID or bare tier name)
-   * @returns Full model ID (provider-specific when overrides are active)
-   */
   /**
    * Resolve a model identifier to the actual model ID to use.
    * Delegates to ModelResolver.resolve() — the single source of truth.
