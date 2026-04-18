@@ -391,7 +391,12 @@ export class ContextService {
 
     // Apply include patterns using IFileSystemProvider.findFiles
     for (const pattern of template.include) {
-      const files = await this.fsProvider.findFiles(pattern);
+      const files = await this.fsProvider.findFiles(
+        pattern,
+        undefined,
+        undefined,
+        workspaceRoot,
+      );
       for (const file of files) {
         this.includedFiles.add(file);
       }
@@ -399,7 +404,12 @@ export class ContextService {
 
     // Apply exclude patterns
     for (const pattern of template.exclude) {
-      const files = await this.fsProvider.findFiles(pattern);
+      const files = await this.fsProvider.findFiles(
+        pattern,
+        undefined,
+        undefined,
+        workspaceRoot,
+      );
       for (const file of files) {
         this.excludedFiles.add(file);
         this.includedFiles.delete(file); // Remove from included if it was there
@@ -524,6 +534,7 @@ export class ContextService {
         '**/*',
         `{${excludePatterns.join(',')}}`,
         this.MAX_SEARCH_RESULTS * 2,
+        workspaceFolders[0],
       );
 
       const results: FileSearchResult[] = [];
@@ -956,6 +967,7 @@ export class ContextService {
       searchPattern,
       excludePattern,
       maxResults,
+      workspaceRoot,
     );
 
     const results: FileSearchResult[] = [];
