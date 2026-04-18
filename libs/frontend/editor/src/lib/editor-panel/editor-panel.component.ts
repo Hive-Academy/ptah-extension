@@ -477,7 +477,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
       this.editorService.switchWorkspace(workspaceRoot);
     }
 
-    this.gitStatus.startPolling();
+    this.gitStatus.startListening();
 
     // Listen for file:tree-changed push events from the backend so the
     // file explorer updates when files are added/deleted (e.g. git pull).
@@ -488,7 +488,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.gitStatus.stopPolling();
+    this.gitStatus.stopListening();
     this.editorService.stopFileTreeWatcher();
     this.cleanupResizeListeners();
     this.cleanupSplitResizeListeners();
@@ -583,7 +583,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   protected onDiffRequested(relativePath: string): void {
-    const workspaceRoot = this.gitStatus.activeWorkspacePath;
+    const workspaceRoot = this.gitStatus.activeWorkspacePath();
     if (!workspaceRoot) return;
     const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
     const root = normalizedRoot.endsWith('/')
