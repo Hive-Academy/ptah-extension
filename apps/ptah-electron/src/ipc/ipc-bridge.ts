@@ -293,15 +293,25 @@ export class IpcBridge {
       }
 
       case MESSAGE_TYPES.SETUP_WIZARD_COMPLETE: {
-        console.log('[IpcBridge] Setup wizard complete — reloading window');
+        console.log(
+          '[IpcBridge] Setup wizard complete — switching to chat and reloading',
+        );
         try {
+          // Navigate back to chat view (Electron equivalent of disposing the wizard panel)
+          this.sendToRenderer({
+            type: MESSAGE_TYPES.SWITCH_VIEW,
+            payload: { view: 'orchestra-canvas' },
+          });
+
+          // Reload after a short delay so the view switch reaches the renderer first,
+          // matching the same pattern used by command:execute → reloadWindow in auth flow
           const platformCommands = this.container.resolve<{
             reloadWindow(): Promise<void>;
           }>(TOKENS.PLATFORM_COMMANDS);
-          await platformCommands.reloadWindow();
+          setTimeout(() => platformCommands.reloadWindow(), 500);
         } catch (error) {
           console.error(
-            '[IpcBridge] Failed to reload after wizard complete',
+            '[IpcBridge] Failed to handle wizard complete',
             error instanceof Error ? error.message : String(error),
           );
         }
