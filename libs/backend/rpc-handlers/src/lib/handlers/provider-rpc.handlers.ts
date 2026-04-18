@@ -30,7 +30,6 @@ import {
   getAnthropicProvider,
   COPILOT_PROVIDER_ENTRY,
   CODEX_PROVIDER_ENTRY,
-  TIER_TO_MODEL_ID,
 } from '@ptah-extension/agent-sdk';
 import { CliDetectionService } from '@ptah-extension/llm-abstraction';
 import {
@@ -47,38 +46,6 @@ import {
   getModelContextWindow,
 } from '@ptah-extension/shared';
 import type { AuthEnv } from '@ptah-extension/shared';
-
-/**
- * Last-resort fallback models for the 'anthropic' virtual provider.
- * Guarantees the model selector always shows tier slots even when
- * /v1/models API and SDK supportedModels() both return empty.
- *
- * Uses TIER_TO_MODEL_ID from sdk-model-service (single source of truth)
- * to avoid duplicating model IDs across files.
- */
-const ANTHROPIC_TIER_FALLBACK: ProviderModelInfo[] = [
-  {
-    id: TIER_TO_MODEL_ID['opus'],
-    name: 'Claude Opus 4.7',
-    description: 'Most capable for complex work',
-    contextLength: 200000,
-    supportsToolUse: true,
-  },
-  {
-    id: TIER_TO_MODEL_ID['sonnet'],
-    name: 'Claude Sonnet 4.6',
-    description: 'Best for everyday tasks',
-    contextLength: 200000,
-    supportsToolUse: true,
-  },
-  {
-    id: TIER_TO_MODEL_ID['haiku'],
-    name: 'Claude Haiku 4.5',
-    description: 'Fastest for quick answers',
-    contextLength: 200000,
-    supportsToolUse: true,
-  },
-];
 
 /**
  * RPC handlers for provider model operations
@@ -252,19 +219,18 @@ export class ProviderRpcHandlers {
   }
 
   /**
-   * Register a dynamic model fetcher for direct Anthropic auth (oauth/apiKey).
+   * Register a dynamic model fetcher for direct Anthropic auth (oauth/apiKey/claudeCli).
    *
    * TASK_2025_270: 'anthropic' is a virtual provider ID for direct Claude auth
    * users — it is NOT in the ANTHROPIC_PROVIDERS registry.
    *
-   * Routes based on the active credential type in authEnv:
-   * - API key: calls /v1/models directly (returns specific model versions)
-   * - OAuth token: uses SDK's query().supportedModels() (SDK handles OAuth
-   *   auth internally; /v1/models does not accept Bearer OAuth tokens)
+   * Cascade:
+   * 1. API key present → /v1/models API (returns specific model versions)
+   * 2. SDK supportedModels() (works for all auth methods including CLI/OAuth)
    *
-   * ProviderModelsService.fetchModels() checks dynamic fetchers BEFORE the
-   * registry lookup, so this fetcher is reached without throwing "Unknown provider".
-   * The service also provides caching automatically.
+   * Both paths populate contextLength dynamically from the pricing map.
+   * SdkModelService.getSupportedModels() provides its own static fallback
+   * when all dynamic sources fail, so no hardcoded tier list is needed here.
    */
   private registerAnthropicDirectFetcher(): void {
     this.providerModels.registerDynamicFetcher(
@@ -272,56 +238,48 @@ export class ProviderRpcHandlers {
       async (): Promise<ProviderModelInfo[]> => {
         const hasApiKey = !!this.authEnv.ANTHROPIC_API_KEY;
 
-        if (!hasApiKey) {
-          this.logger.debug(
-            '[ProviderRpc] No API key set, using tier fallback',
-          );
-          return ANTHROPIC_TIER_FALLBACK;
-        }
-
         try {
-          // API key auth: /v1/models returns all specific model versions
-          // getApiModels() returns ModelInfo[] with .value as full model ID
-          const apiModels = await this.sdkAdapter.getApiModels();
-          if (apiModels.length > 0) {
-            this.logger.info(
-              `[ProviderRpc] Fetched ${apiModels.length} models from /v1/models (API key)`,
-            );
-            return apiModels.map((m) => ({
-              id: m.value,
-              name: m.displayName,
-              description: getModelPricingDescription(m.value),
-              contextLength: getModelContextWindow(m.value),
-              supportsToolUse: true,
-            }));
+          if (hasApiKey) {
+            const apiModels = await this.sdkAdapter.getApiModels();
+            if (apiModels.length > 0) {
+              this.logger.info(
+                `[ProviderRpc] Fetched ${apiModels.length} models from /v1/models (API key)`,
+              );
+              return apiModels.map((m) => ({
+                id: m.value,
+                name: m.displayName,
+                description: getModelPricingDescription(m.value),
+                contextLength: getModelContextWindow(m.value),
+                supportsToolUse: true,
+              }));
+            }
           }
 
-          // API key /v1/models returned empty — try SDK supportedModels() as fallback
           const sdkModels = await this.sdkAdapter.getSupportedModels();
-          if (sdkModels.length > 0) {
-            this.logger.info(
-              `[ProviderRpc] Fetched ${sdkModels.length} models from SDK supportedModels() (API key fallback)`,
-            );
-            return sdkModels.map((m) => ({
-              id: m.value,
-              name: m.displayName,
-              description: m.description || getModelPricingDescription(m.value),
-              contextLength: getModelContextWindow(m.value),
-              supportsToolUse: true,
-            }));
-          }
-
-          this.logger.warn(
-            '[ProviderRpc] No models from API or SDK, using hardcoded tier fallback',
+          this.logger.info(
+            `[ProviderRpc] Fetched ${sdkModels.length} models from SDK supportedModels()`,
           );
-          return ANTHROPIC_TIER_FALLBACK;
+          return sdkModels.map((m) => ({
+            id: m.value,
+            name: m.displayName,
+            description: m.description || getModelPricingDescription(m.value),
+            contextLength: getModelContextWindow(m.value),
+            supportsToolUse: true,
+          }));
         } catch (error) {
           this.logger.warn(
-            `[ProviderRpc] Failed to fetch Anthropic direct models, using fallback: ${
+            `[ProviderRpc] Failed to fetch Anthropic direct models, falling back to SDK: ${
               error instanceof Error ? error.message : String(error)
             }`,
           );
-          return ANTHROPIC_TIER_FALLBACK;
+          const fallbackModels = await this.sdkAdapter.getSupportedModels();
+          return fallbackModels.map((m) => ({
+            id: m.value,
+            name: m.displayName,
+            description: m.description || getModelPricingDescription(m.value),
+            contextLength: getModelContextWindow(m.value),
+            supportsToolUse: true,
+          }));
         }
       },
     );

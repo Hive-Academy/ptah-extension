@@ -89,7 +89,7 @@ const SDK_PROVIDER_INFO: ProviderInfo = {
   description: 'Official Claude Agent SDK integration (in-process)',
   vendor: 'Anthropic',
   capabilities: SDK_CAPABILITIES,
-  maxContextTokens: 200000,
+  maxContextTokens: 1_000_000,
   supportedModels: [], // Dynamically populated via getSupportedModels()
 };
 

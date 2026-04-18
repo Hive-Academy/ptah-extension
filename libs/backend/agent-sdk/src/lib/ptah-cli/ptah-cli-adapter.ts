@@ -213,7 +213,7 @@ export class PtahCliAdapter implements IAIProvider {
         : `Ptah CLI: ${config.name}`,
       vendor: provider?.name ?? 'Unknown',
       capabilities: PTAH_CLI_CAPABILITIES,
-      maxContextTokens: 200000,
+      maxContextTokens: 1_000_000,
       supportedModels: [],
     };
   }
