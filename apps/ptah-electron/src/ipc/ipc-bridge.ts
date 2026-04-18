@@ -212,10 +212,10 @@ export class IpcBridge {
    * - SDK_PERMISSION_RESPONSE: User approved/denied a permission prompt
    * - ASK_USER_QUESTION_RESPONSE: User answered a clarifying question
    */
-  private handleFireAndForgetMessage(
+  private async handleFireAndForgetMessage(
     type: string,
     msg: Record<string, unknown>,
-  ): void {
+  ): Promise<void> {
     const SDK_PERMISSION_HANDLER = Symbol.for('SdkPermissionHandler');
 
     switch (type) {
@@ -286,6 +286,22 @@ export class IpcBridge {
         } catch (error) {
           console.error(
             '[IpcBridge] Failed to process AskUserQuestion response',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        break;
+      }
+
+      case MESSAGE_TYPES.SETUP_WIZARD_COMPLETE: {
+        console.log('[IpcBridge] Setup wizard complete — reloading window');
+        try {
+          const platformCommands = this.container.resolve<{
+            reloadWindow(): Promise<void>;
+          }>(TOKENS.PLATFORM_COMMANDS);
+          await platformCommands.reloadWindow();
+        } catch (error) {
+          console.error(
+            '[IpcBridge] Failed to reload after wizard complete',
             error instanceof Error ? error.message : String(error),
           );
         }
