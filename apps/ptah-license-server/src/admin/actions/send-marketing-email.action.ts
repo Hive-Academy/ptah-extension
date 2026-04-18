@@ -1,4 +1,4 @@
-import { Action, ActionResponse } from 'adminjs';
+import type { Action, ActionResponse } from 'adminjs';
 import { EmailService } from '../../email/services/email.service';
 
 /**

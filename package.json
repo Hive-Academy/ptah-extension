@@ -5,7 +5,7 @@
   "scripts": {
     "landing": "npx nx serve ptah-landing-page",
     "docker:up": "docker compose --profile webhook-testing up -d",
-    "docker:down": "docker compose down",
+    "docker:down": "docker compose --profile webhook-testing down ",
     "docker:logs": "docker compose logs -f license-server",
     "docker:db:start": "docker compose up -d postgres",
     "docker:db:stop": "docker compose stop postgres",
@@ -74,9 +74,9 @@
   },
   "private": true,
   "dependencies": {
-    "@adminjs/express": "^5.1.0",
-    "@adminjs/nestjs": "^5.1.1",
-    "@adminjs/prisma": "^3.0.1",
+    "@adminjs/express": "^6.1.0",
+    "@adminjs/nestjs": "^6.1.0",
+    "@adminjs/prisma": "^5.0.4",
     "@angular/common": "21.2.6",
     "@angular/compiler": "21.2.6",
     "@angular/core": "21.2.6",
@@ -107,7 +107,7 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5.5.0",
-    "adminjs": "^6.8.7",
+    "adminjs": "^7.8.17",
     "axios": "^1.15.0",
     "chokidar": "^5.0.0",
     "chrome-launcher": "^1.2.1",
@@ -253,6 +253,10 @@
     "@hono/node-server": ">=1.19.13",
     "@module-federation/dts-plugin": {
       "axios": "1.15.0"
+    },
+    "@adminjs/prisma": {
+      "@prisma/client": "$@prisma/client",
+      "prisma": "$prisma"
     }
   }
 }

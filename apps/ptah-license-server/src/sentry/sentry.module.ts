@@ -17,9 +17,7 @@ import {
 import { APP_FILTER } from '@nestjs/core';
 import * as Sentry from '@sentry/nestjs';
 
-// Uses import-require syntax (same pattern as cookie-parser in main.ts) because
-// moduleResolution: "node" can't resolve package.json "exports" subpaths.
-import SentrySetup = require('@sentry/nestjs/setup');
+import * as SentrySetup from '@sentry/nestjs/setup';
 
 @Injectable()
 class SentryShutdownService implements OnApplicationShutdown {
