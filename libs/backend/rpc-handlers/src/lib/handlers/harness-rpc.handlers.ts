@@ -233,6 +233,16 @@ export class HarnessRpcHandlers {
     private readonly messageTransformer: SdkMessageTransformer,
   ) {}
 
+  private requireWorkspaceRoot(): string {
+    const root = this.workspaceProvider.getWorkspaceRoot();
+    if (!root) {
+      throw new Error(
+        'No workspace folder open. Please open a folder before using the harness wizard.',
+      );
+    }
+    return root;
+  }
+
   // ─── Streaming Helpers ──────────────────────────────
 
   private createStreamEmitter(operation: HarnessStreamOperation): {
@@ -600,8 +610,7 @@ export class HarnessRpcHandlers {
         });
 
         // Discover workspace MCP servers from config files
-        const wsRoot =
-          this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+        const wsRoot = this.requireWorkspaceRoot();
 
         // Read .vscode/mcp.json
         // Use async readFile directly and handle ENOENT in catch to avoid
@@ -1392,8 +1401,7 @@ export class HarnessRpcHandlers {
     availableSkills: SkillSummary[],
     availableAgents: AvailableAgent[],
   ): Promise<HarnessSuggestConfigResponse> {
-    const workspaceRoot =
-      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+    const workspaceRoot = this.requireWorkspaceRoot();
 
     // Build agent catalog for the prompt
     const agentList = availableAgents
@@ -2305,8 +2313,7 @@ Return ONLY the JSON object matching the schema.`;
     message: string,
     context: Partial<HarnessConfig>,
   ): Promise<HarnessChatResponse> {
-    const workspaceRoot =
-      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+    const workspaceRoot = this.requireWorkspaceRoot();
 
     const stepContext = this.buildStepContextSummary(step, context);
 
@@ -2555,8 +2562,7 @@ Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly rel
     existingAgents: string[],
     workspaceContext?: HarnessDesignAgentsParams['workspaceContext'],
   ): Promise<HarnessDesignAgentsResponse> {
-    const workspaceRoot =
-      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+    const workspaceRoot = this.requireWorkspaceRoot();
 
     const contextInfo = workspaceContext
       ? `\n## Workspace Context\n- Project: ${workspaceContext.projectName}\n- Type: ${workspaceContext.projectType}\n- Frameworks: ${workspaceContext.frameworks.join(', ') || 'none detected'}\n- Languages: ${workspaceContext.languages.join(', ') || 'none detected'}`
@@ -2735,8 +2741,7 @@ Return ONLY the JSON object matching the schema.`;
     existingSkills: string[],
     harnessSubagents?: HarnessSubagentDefinition[],
   ): Promise<HarnessGenerateSkillsResponse> {
-    const workspaceRoot =
-      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+    const workspaceRoot = this.requireWorkspaceRoot();
 
     const subagentContext =
       harnessSubagents && harnessSubagents.length > 0
@@ -2890,8 +2895,7 @@ Return ONLY the JSON object matching the schema.`;
     config: HarnessConfig,
     workspaceContext?: HarnessGenerateDocumentParams['workspaceContext'],
   ): Promise<HarnessGenerateDocumentResponse> {
-    const workspaceRoot =
-      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+    const workspaceRoot = this.requireWorkspaceRoot();
 
     // Build a detailed config summary for the LLM
     const enabledAgents = Object.entries(config.agents.enabledAgents)
@@ -3172,8 +3176,7 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
     availableAgents: AvailableAgent[],
     workspaceContext?: HarnessAnalyzeIntentParams['workspaceContext'],
   ): Promise<HarnessAnalyzeIntentResponse> {
-    const workspaceRoot =
-      this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+    const workspaceRoot = this.requireWorkspaceRoot();
 
     // Build catalogs for the prompt
     const agentList = availableAgents
@@ -3484,8 +3487,7 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
 
         const { message, history, config, workspaceContext } = params;
 
-        const workspaceRoot =
-          this.workspaceProvider.getWorkspaceRoot() ?? process.cwd();
+        const workspaceRoot = this.requireWorkspaceRoot();
 
         const availableAgents = this.getAvailableAgents();
         const availableSkills = this.discoverAvailableSkills();
