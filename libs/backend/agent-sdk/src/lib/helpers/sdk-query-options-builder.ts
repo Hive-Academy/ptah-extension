@@ -454,16 +454,13 @@ export class SdkQueryOptionsBuilder {
     // The SDK's query() requires full model IDs like 'claude-opus-4-6' —
     // bare tier names cause "can't access model named opus" errors.
     const model = this.modelService.resolveModelId(sessionConfig.model);
-    const cwd = sessionConfig?.projectPath || require('os').homedir();
-
-    // Warn when falling back to os.homedir() — callers (ChatRpcHandlers)
-    // should always resolve projectPath from IWorkspaceProvider before reaching here.
     if (!sessionConfig?.projectPath) {
-      this.logger.warn(
-        `[SdkQueryOptionsBuilder] projectPath not provided — falling back to os.homedir(): ${cwd}. ` +
-          'Subagents will inherit this cwd. Ensure ChatRpcHandlers resolves workspace path.',
+      throw new Error(
+        'projectPath is required — cannot start an SDK session without a workspace folder. ' +
+          'Callers must resolve workspace path from IWorkspaceProvider before reaching here.',
       );
     }
+    const cwd = sessionConfig.projectPath;
 
     // Log resolved model and tier env vars for debugging (TASK_2025_132, TASK_2025_164: reads from AuthEnv)
     const envSonnet = this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL || 'default';

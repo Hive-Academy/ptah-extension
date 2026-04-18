@@ -43,7 +43,8 @@ COPY libs ./libs/
 
 # Install ALL dependencies (including devDependencies for build)
 # --ignore-scripts: skip native module compilation (e.g., node-pty is Electron-only)
-RUN npm ci --ignore-scripts
+# Then explicitly install esbuild so its platform-specific binary is available for Nx build.
+RUN npm ci --ignore-scripts && npm rebuild esbuild
 
 # Generate Prisma client
 RUN cd apps/ptah-license-server && npx prisma generate
