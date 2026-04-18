@@ -64,9 +64,9 @@ export class ModelResolver {
 
     const lower = model.toLowerCase();
 
-    // 'default' meta-tier → resolve as sonnet
+    // 'default' meta-tier → resolve as opus (TIER_TO_MODEL_ID['default'] = claude-opus-4-7)
     if (lower === 'default') {
-      return this.resolve('sonnet', env);
+      return this.resolve('opus', env);
     }
 
     // Known tier name
@@ -120,7 +120,7 @@ export class ModelResolver {
 
     const lower = model.toLowerCase();
     if (lower === 'default')
-      return ModelResolver.resolveStatic('sonnet', authEnv);
+      return ModelResolver.resolveStatic('opus', authEnv);
 
     if (lower in TIER_ENV_VAR_MAP && authEnv) {
       const envKey = TIER_ENV_VAR_MAP[lower as EnvMappedTier];
