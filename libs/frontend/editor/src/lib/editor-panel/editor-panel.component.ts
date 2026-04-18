@@ -240,6 +240,17 @@ import type { FileTreeNode } from '../models/file-tree.model';
                       "
                       [modifiedContent]="editorService.activeDiffTab()!.content"
                     />
+                  } @else if (editorService.isActiveFileImage()) {
+                    <div
+                      class="h-full w-full flex items-center justify-center bg-base-100 overflow-auto p-4"
+                    >
+                      <img
+                        [src]="imageFileUrl()"
+                        [alt]="editorService.activeFilePath()"
+                        class="max-w-full max-h-full object-contain"
+                        draggable="false"
+                      />
+                    </div>
                   } @else {
                     <ptah-code-editor
                       [filePath]="editorService.activeFilePath()"
@@ -525,6 +536,13 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   protected onPaneClick(pane: 'left' | 'right'): void {
     this.editorService.setFocusedPane(pane);
   }
+
+  protected readonly imageFileUrl = computed(() => {
+    const filePath = this.editorService.activeFilePath();
+    if (!filePath) return '';
+    const normalized = filePath.replace(/\\/g, '/');
+    return 'file:///' + normalized;
+  });
 
   /**
    * Display file name for the split pane header, derived from splitFilePath.
