@@ -166,7 +166,7 @@ export function computeCtaVariant(
 export function computeCtaText(variant: PlanCtaVariant): string {
   switch (variant) {
     case 'start-trial':
-      return 'Start 30-Day Free Trial';
+      return 'Start 100-Day Free Trial';
     case 'current-plan':
       return 'Manage Subscription';
     case 'upgrade':
@@ -184,7 +184,7 @@ export function computeCtaText(variant: PlanCtaVariant): string {
     case 'downgrade':
       return 'Downgrade';
     default:
-      return 'Start 30-Day Free Trial';
+      return 'Start 100-Day Free Trial';
   }
 }
 

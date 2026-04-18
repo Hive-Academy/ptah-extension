@@ -29,7 +29,13 @@
           "@nestjs/microservices",
           "@nestjs/websockets",
           "@nestjs/platform-socket.io",
-          "@sentry/nestjs"
+          "@sentry/nestjs",
+          "adminjs",
+          "@adminjs/nestjs",
+          "@adminjs/prisma",
+          "@adminjs/express",
+          "express-session",
+          "express-formidable"
         ],
         "assets": [
           {
