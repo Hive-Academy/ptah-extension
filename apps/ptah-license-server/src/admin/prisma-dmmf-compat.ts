@@ -1,0 +1,828 @@
+import { Logger } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+
+/**
+ * Prisma 7 DMMF Compatibility Layer for @adminjs/prisma@3
+ *
+ * @adminjs/prisma@3 was designed for Prisma 4 and accesses internal `_baseDmmf`
+ * property on PrismaClient. Prisma 7 removed `_baseDmmf` in favor of a different
+ * runtime data model format.
+ *
+ * This module creates a compatibility shim that attaches a `_baseDmmf`-like object
+ * to the PrismaService instance so @adminjs/prisma can function correctly.
+ *
+ * Properties that @adminjs/prisma accesses:
+ * - client._baseDmmf.datamodelEnumMap (Resource.js:26)
+ * - client._baseDmmf.modelMap (Database.js:13-14)
+ * - model.name (Resource.js:27 via helpers.lowerCase)
+ * - model.fields[].name, .kind, .type, .isId, .isRequired, .relationName, .relationToFields
+ */
+
+const logger = new Logger('PrismaDmmfCompat');
+
+interface DmmfField {
+  name: string;
+  kind: string;
+  type: string;
+  isId: boolean;
+  isRequired: boolean;
+  isList: boolean;
+  isUnique: boolean;
+  hasDefaultValue: boolean;
+  default?: unknown;
+  relationName?: string;
+  relationFromFields?: string[];
+  relationToFields?: string[];
+  dbName?: string | null;
+}
+
+interface DmmfModel {
+  name: string;
+  dbName: string | null;
+  fields: DmmfField[];
+}
+
+/**
+ * Build DMMF model definitions from Prisma schema knowledge.
+ *
+ * Since Prisma 7 no longer exposes _baseDmmf, we construct the DMMF
+ * models that @adminjs/prisma needs based on the known schema.
+ * This is maintained alongside the prisma/schema.prisma file.
+ */
+function buildModelDefinitions(): DmmfModel[] {
+  return [
+    {
+      name: 'User',
+      dbName: 'users',
+      fields: [
+        {
+          name: 'id',
+          kind: 'scalar',
+          type: 'String',
+          isId: true,
+          isRequired: true,
+          isList: false,
+          isUnique: true,
+          hasDefaultValue: true,
+          default: { name: 'uuid', args: [] },
+        },
+        {
+          name: 'workosId',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: false,
+          isList: false,
+          isUnique: true,
+          hasDefaultValue: false,
+          dbName: 'workos_id',
+        },
+        {
+          name: 'paddleCustomerId',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: false,
+          isList: false,
+          isUnique: true,
+          hasDefaultValue: false,
+          dbName: 'paddle_customer_id',
+        },
+        {
+          name: 'email',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: true,
+          hasDefaultValue: false,
+        },
+        {
+          name: 'firstName',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: false,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'first_name',
+        },
+        {
+          name: 'lastName',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: false,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'last_name',
+        },
+        {
+          name: 'emailVerified',
+          kind: 'scalar',
+          type: 'Boolean',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: false,
+          dbName: 'email_verified',
+        },
+        {
+          name: 'createdAt',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: { name: 'now', args: [] },
+          dbName: 'created_at',
+        },
+        {
+          name: 'updatedAt',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'updated_at',
+        },
+        {
+          name: 'licenses',
+          kind: 'object',
+          type: 'License',
+          isId: false,
+          isRequired: false,
+          isList: true,
+          isUnique: false,
+          hasDefaultValue: false,
+          relationName: 'LicenseToUser',
+        },
+        {
+          name: 'subscriptions',
+          kind: 'object',
+          type: 'Subscription',
+          isId: false,
+          isRequired: false,
+          isList: true,
+          isUnique: false,
+          hasDefaultValue: false,
+          relationName: 'SubscriptionToUser',
+        },
+        {
+          name: 'trialReminders',
+          kind: 'object',
+          type: 'TrialReminder',
+          isId: false,
+          isRequired: false,
+          isList: true,
+          isUnique: false,
+          hasDefaultValue: false,
+          relationName: 'TrialReminderToUser',
+        },
+        {
+          name: 'sessionRequests',
+          kind: 'object',
+          type: 'SessionRequest',
+          isId: false,
+          isRequired: false,
+          isList: true,
+          isUnique: false,
+          hasDefaultValue: false,
+          relationName: 'SessionRequestToUser',
+        },
+      ],
+    },
+    {
+      name: 'Subscription',
+      dbName: 'subscriptions',
+      fields: [
+        {
+          name: 'id',
+          kind: 'scalar',
+          type: 'String',
+          isId: true,
+          isRequired: true,
+          isList: false,
+          isUnique: true,
+          hasDefaultValue: true,
+          default: { name: 'uuid', args: [] },
+        },
+        {
+          name: 'userId',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'user_id',
+        },
+        {
+          name: 'paddleSubscriptionId',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: true,
+          hasDefaultValue: false,
+          dbName: 'paddle_subscription_id',
+        },
+        {
+          name: 'paddleCustomerId',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'paddle_customer_id',
+        },
+        {
+          name: 'status',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+        },
+        {
+          name: 'priceId',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'price_id',
+        },
+        {
+          name: 'currentPeriodEnd',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'current_period_end',
+        },
+        {
+          name: 'trialEnd',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: false,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'trial_end',
+        },
+        {
+          name: 'canceledAt',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: false,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'canceled_at',
+        },
+        {
+          name: 'createdAt',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: { name: 'now', args: [] },
+          dbName: 'created_at',
+        },
+        {
+          name: 'updatedAt',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'updated_at',
+        },
+        {
+          name: 'user',
+          kind: 'object',
+          type: 'User',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          relationName: 'SubscriptionToUser',
+          relationFromFields: ['userId'],
+          relationToFields: ['id'],
+        },
+      ],
+    },
+    {
+      name: 'License',
+      dbName: 'licenses',
+      fields: [
+        {
+          name: 'id',
+          kind: 'scalar',
+          type: 'String',
+          isId: true,
+          isRequired: true,
+          isList: false,
+          isUnique: true,
+          hasDefaultValue: true,
+          default: { name: 'uuid', args: [] },
+        },
+        {
+          name: 'userId',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'user_id',
+        },
+        {
+          name: 'licenseKey',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: true,
+          hasDefaultValue: false,
+          dbName: 'license_key',
+        },
+        {
+          name: 'plan',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+        },
+        {
+          name: 'status',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: 'active',
+        },
+        {
+          name: 'expiresAt',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: false,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'expires_at',
+        },
+        {
+          name: 'createdAt',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: { name: 'now', args: [] },
+          dbName: 'created_at',
+        },
+        {
+          name: 'createdBy',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: 'admin',
+          dbName: 'created_by',
+        },
+        {
+          name: 'user',
+          kind: 'object',
+          type: 'User',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          relationName: 'LicenseToUser',
+          relationFromFields: ['userId'],
+          relationToFields: ['id'],
+        },
+      ],
+    },
+    {
+      name: 'FailedWebhook',
+      dbName: 'failed_webhooks',
+      fields: [
+        {
+          name: 'id',
+          kind: 'scalar',
+          type: 'String',
+          isId: true,
+          isRequired: true,
+          isList: false,
+          isUnique: true,
+          hasDefaultValue: true,
+          default: { name: 'uuid', args: [] },
+        },
+        {
+          name: 'eventId',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'event_id',
+        },
+        {
+          name: 'eventType',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'event_type',
+        },
+        {
+          name: 'rawPayload',
+          kind: 'scalar',
+          type: 'Json',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'raw_payload',
+        },
+        {
+          name: 'errorMessage',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'error_message',
+        },
+        {
+          name: 'stackTrace',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: false,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'stack_trace',
+        },
+        {
+          name: 'attemptedAt',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: { name: 'now', args: [] },
+          dbName: 'attempted_at',
+        },
+        {
+          name: 'retryCount',
+          kind: 'scalar',
+          type: 'Int',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: 0,
+          dbName: 'retry_count',
+        },
+        {
+          name: 'resolved',
+          kind: 'scalar',
+          type: 'Boolean',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: false,
+        },
+        {
+          name: 'resolvedAt',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: false,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'resolved_at',
+        },
+      ],
+    },
+    {
+      name: 'TrialReminder',
+      dbName: 'trial_reminders',
+      fields: [
+        {
+          name: 'id',
+          kind: 'scalar',
+          type: 'String',
+          isId: true,
+          isRequired: true,
+          isList: false,
+          isUnique: true,
+          hasDefaultValue: true,
+          default: { name: 'uuid', args: [] },
+        },
+        {
+          name: 'userId',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'user_id',
+        },
+        {
+          name: 'user',
+          kind: 'object',
+          type: 'User',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          relationName: 'TrialReminderToUser',
+          relationFromFields: ['userId'],
+          relationToFields: ['id'],
+        },
+        {
+          name: 'reminderType',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'reminder_type',
+        },
+        {
+          name: 'sentAt',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: { name: 'now', args: [] },
+          dbName: 'sent_at',
+        },
+        {
+          name: 'emailSentTo',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'email_sent_to',
+        },
+      ],
+    },
+    {
+      name: 'SessionRequest',
+      dbName: 'session_requests',
+      fields: [
+        {
+          name: 'id',
+          kind: 'scalar',
+          type: 'String',
+          isId: true,
+          isRequired: true,
+          isList: false,
+          isUnique: true,
+          hasDefaultValue: true,
+          default: { name: 'uuid', args: [] },
+        },
+        {
+          name: 'userId',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'user_id',
+        },
+        {
+          name: 'user',
+          kind: 'object',
+          type: 'User',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          relationName: 'SessionRequestToUser',
+          relationFromFields: ['userId'],
+          relationToFields: ['id'],
+        },
+        {
+          name: 'sessionTopicId',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'session_topic_id',
+        },
+        {
+          name: 'additionalNotes',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: false,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'additional_notes',
+        },
+        {
+          name: 'isFreeSession',
+          kind: 'scalar',
+          type: 'Boolean',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: false,
+          dbName: 'is_free_session',
+        },
+        {
+          name: 'status',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: 'pending',
+        },
+        {
+          name: 'paymentStatus',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: 'none',
+          dbName: 'payment_status',
+        },
+        {
+          name: 'paddleTransactionId',
+          kind: 'scalar',
+          type: 'String',
+          isId: false,
+          isRequired: false,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'paddle_transaction_id',
+        },
+        {
+          name: 'scheduledAt',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: false,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'scheduled_at',
+        },
+        {
+          name: 'createdAt',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: true,
+          default: { name: 'now', args: [] },
+          dbName: 'created_at',
+        },
+        {
+          name: 'updatedAt',
+          kind: 'scalar',
+          type: 'DateTime',
+          isId: false,
+          isRequired: true,
+          isList: false,
+          isUnique: false,
+          hasDefaultValue: false,
+          dbName: 'updated_at',
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * Ensure PrismaService has a `_baseDmmf` property compatible with @adminjs/prisma@3.
+ *
+ * Call this before passing the PrismaService to AdminJS resource configuration.
+ * Idempotent -- safe to call multiple times.
+ */
+export function ensurePrismaDmmfCompat(prisma: PrismaService): void {
+  // If _baseDmmf already exists (e.g., older Prisma version), skip
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if ((prisma as any)['_baseDmmf']) {
+    logger.log(
+      'PrismaService already has _baseDmmf, skipping compatibility patch',
+    );
+    return;
+  }
+
+  const models = buildModelDefinitions();
+
+  // Build modelMap: { ModelName: DmmfModel }
+  const modelMap: Record<string, DmmfModel> = {};
+  for (const model of models) {
+    modelMap[model.name] = model;
+  }
+
+  // No enums in the current schema
+  const datamodelEnumMap: Record<string, unknown> = {};
+
+  // Attach _baseDmmf to the PrismaService instance
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (prisma as any)['_baseDmmf'] = {
+    modelMap,
+    datamodelEnumMap,
+  };
+
+  logger.log(
+    `Prisma 7 DMMF compatibility layer applied (${models.length} models registered)`,
+  );
+}

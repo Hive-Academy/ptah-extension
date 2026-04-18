@@ -43,7 +43,7 @@ async function bootstrap() {
   // Must be applied before other middleware to ensure headers are set on all responses
   app.use(
     helmet({
-      contentSecurityPolicy: false, // API server, not serving HTML
+      contentSecurityPolicy: false, // Disabled: AdminJS admin panel serves inline scripts/styles
       crossOriginEmbedderPolicy: false, // Allow API consumption from any origin (CORS handles this)
     }),
   );
@@ -84,7 +84,12 @@ async function bootstrap() {
     // Exclude webhook routes from the global prefix
     // Paddle webhooks expect: POST /webhooks/paddle (not /api/webhooks/paddle)
     // Note: NestJS 11+ uses path-to-regexp v8 which requires named parameters
-    exclude: ['webhooks/paddle', 'webhooks/paddle/{*path}'],
+    exclude: [
+      'webhooks/paddle',
+      'webhooks/paddle/{*path}',
+      'admin',
+      'admin/{*path}',
+    ],
   });
 
   // Flush Sentry events on graceful shutdown (SIGTERM from Docker)

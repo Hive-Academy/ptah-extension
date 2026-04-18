@@ -72,6 +72,7 @@ COPY package-lock.json ./root-package-lock.json
 # Install production dependencies
 # Note: We add the external packages that esbuild excludes but are needed at runtime
 # @sentry/nestjs: error tracking and performance monitoring (TASK_2025_251)
+# adminjs + adapters: admin panel (TASK_2025_286)
 RUN npm install --omit=dev \
     @workos-inc/node \
     @nestjs/config \
@@ -80,7 +81,13 @@ RUN npm install --omit=dev \
     resend \
     pg \
     prisma \
-    @sentry/nestjs
+    @sentry/nestjs \
+    adminjs@6 \
+    @adminjs/nestjs@5 \
+    @adminjs/prisma@3 \
+    @adminjs/express@5 \
+    express-session \
+    express-formidable
 
 # -----------------------------------------------------------------------------
 # Stage 3: Production - Minimal runtime image

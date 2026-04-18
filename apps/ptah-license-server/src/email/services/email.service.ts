@@ -67,6 +67,37 @@ export class EmailService {
    * @param params - Email parameters (email, magicLink)
    * @throws Error after 3 failed retry attempts
    */
+  /**
+   * Send a custom email with arbitrary subject and HTML content
+   *
+   * TASK_2025_286: Used by AdminJS marketing email bulk action
+   * to send custom marketing emails to selected users.
+   *
+   * @param params - Email parameters (to, subject, html)
+   * @throws Error after 3 failed retry attempts
+   */
+  async sendCustomEmail(params: {
+    to: string;
+    subject: string;
+    html: string;
+  }): Promise<void> {
+    const { to, subject, html } = params;
+
+    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
+    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
+
+    const msg = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [to],
+      subject,
+      html,
+    };
+
+    this.logger.log(`Sending custom email to ${to}: ${subject}`);
+    await this.sendWithRetry(msg, 3);
+    this.logger.log(`Custom email sent successfully to ${to}`);
+  }
+
   async sendMagicLink(params: {
     email: string;
     magicLink: string;
