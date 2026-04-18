@@ -28,9 +28,6 @@ files:
   - '!**/*.markdown'
   - '!**/{test,tests,docs,examples,__tests__,coverage,.github,.vscode}/**'
   - '!**/{CHANGELOG,HISTORY,AUTHORS,CONTRIBUTORS,NOTICE}*'
-  - '!**/node_modules/gpt-tokenizer/cjs/**'
-  - '!**/node_modules/gpt-tokenizer/src/**'
-  - '!**/node_modules/js-tiktoken/**'
 
 # TASK_2025_261: Extract Codex native binaries from ASAR archive.
 # The Codex SDK resolves platform-specific binaries via require.resolve(),
