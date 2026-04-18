@@ -26,7 +26,12 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import { injectable, inject } from 'tsyringe';
-import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  RpcHandler,
+  TOKENS,
+  ConfigManager,
+} from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
   PluginLoaderService,
@@ -34,6 +39,7 @@ import {
   McpRegistryProvider,
   SdkStreamProcessor,
   SdkMessageTransformer,
+  DEFAULT_FALLBACK_MODEL_ID,
 } from '@ptah-extension/agent-sdk';
 import type {
   InternalQueryService,
@@ -231,6 +237,8 @@ export class HarnessRpcHandlers {
     private readonly webviewManager: WebviewBroadcaster,
     @inject(SDK_TOKENS.SDK_MESSAGE_TRANSFORMER)
     private readonly messageTransformer: SdkMessageTransformer,
+    @inject(TOKENS.CONFIG_MANAGER)
+    private readonly configManager: ConfigManager,
   ) {}
 
   private requireWorkspaceRoot(): string {
@@ -1491,7 +1499,9 @@ Return ONLY the JSON object matching the schema.`;
 
     const handle = await this.internalQueryService.execute({
       cwd: workspaceRoot,
-      model: 'sonnet',
+      model:
+        this.configManager.get<string>('model.selected') ||
+        DEFAULT_FALLBACK_MODEL_ID,
       prompt,
       systemPromptAppend:
         "You are a configuration advisor. Analyze the user persona and select the best agents, skills, and tools. Be specific and practical in your choices. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",
@@ -2380,7 +2390,9 @@ Keep suggestedActions to 2-4 maximum. Only suggest actions that are directly rel
 
     const handle = await this.internalQueryService.execute({
       cwd: workspaceRoot,
-      model: 'sonnet',
+      model:
+        this.configManager.get<string>('model.selected') ||
+        DEFAULT_FALLBACK_MODEL_ID,
       prompt,
       systemPromptAppend:
         "You are a harness architect. Be specific, practical, and collaborative. Always suggest concrete next steps. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace. Actively search for and recommend relevant skills and MCP servers beyond what the user explicitly asked for. After using tools, return valid JSON matching the schema.",
@@ -2650,7 +2662,9 @@ Return ONLY the JSON object matching the schema.`;
 
     const handle = await this.internalQueryService.execute({
       cwd: workspaceRoot,
-      model: 'sonnet',
+      model:
+        this.configManager.get<string>('model.selected') ||
+        DEFAULT_FALLBACK_MODEL_ID,
       prompt,
       systemPromptAppend:
         "You are a subagent fleet architect. Design creative, practical subagents that automate the user's most valuable workflows. Be specific about tools and triggers. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",
@@ -2811,7 +2825,9 @@ Return ONLY the JSON object matching the schema.`;
 
     const handle = await this.internalQueryService.execute({
       cwd: workspaceRoot,
-      model: 'sonnet',
+      model:
+        this.configManager.get<string>('model.selected') ||
+        DEFAULT_FALLBACK_MODEL_ID,
       prompt,
       systemPromptAppend:
         "You are a skill designer. Create practical, detailed skills that automate high-value workflows. Include complete SKILL.md content — not stubs. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",
@@ -2984,7 +3000,9 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
 
     const handle = await this.internalQueryService.execute({
       cwd: workspaceRoot,
-      model: 'sonnet',
+      model:
+        this.configManager.get<string>('model.selected') ||
+        DEFAULT_FALLBACK_MODEL_ID,
       prompt:
         prompt +
         '\n\nReturn a JSON object with a single "document" field containing the full markdown PRD as a string.',
@@ -3333,7 +3351,9 @@ Be creative and thorough. If the input is a PRD, extract everything. If it's a s
 
     const handle = await this.internalQueryService.execute({
       cwd: workspaceRoot,
-      model: 'sonnet',
+      model:
+        this.configManager.get<string>('model.selected') ||
+        DEFAULT_FALLBACK_MODEL_ID,
       prompt,
       systemPromptAppend:
         "You are a harness architect. Analyze the user's freeform input and design a complete AI coding harness. Be creative but practical. Extract maximum value from whatever input format the user provides — PRD, instruction, or description. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace, createSkill(name, description, content, allowedTools?) to create custom skills. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",
@@ -3613,7 +3633,9 @@ If this is the first message, analyze the user's intent and propose a complete i
 
         const handle = await this.internalQueryService.execute({
           cwd: workspaceRoot,
-          model: 'sonnet',
+          model:
+            this.configManager.get<string>('model.selected') ||
+            DEFAULT_FALLBACK_MODEL_ID,
           prompt,
           systemPromptAppend:
             "You are a harness architect. Be conversational, specific, and proactive. Propose complete configurations when you have enough context. Ask clarifying questions when you need more information. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace, createSkill(name, description, content, allowedTools?) to create custom skills. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",

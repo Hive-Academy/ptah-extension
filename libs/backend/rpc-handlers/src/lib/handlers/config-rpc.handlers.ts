@@ -168,6 +168,11 @@ export class ConfigRpcHandlers {
 
           const stored = this.configManager.get<string>('model.selected') || '';
 
+          // 'default' is a valid SDK tier meaning "let the SDK choose" — preserve it as-is.
+          if (stored === 'default') {
+            return { model: stored };
+          }
+
           // Legacy migration: old configs may have bare tier names.
           // Resolve once and re-save so future reads are already clean.
           if (stored && !stored.startsWith('claude-')) {
@@ -354,13 +359,16 @@ export class ConfigRpcHandlers {
         try {
           this.logger.debug('RPC: config:models-list called');
 
-          // Saved model preference — already a full ID (normalized on save).
-          // Legacy bare tier names are migrated in config:model-get.
+          // Saved model preference — may be a full ID or a bare tier name (claudeCli auth
+          // stores raw tier slots like 'opus'/'sonnet'). Resolve both sides when comparing
+          // isSelected so full-ID config and tier-name dropdown entries match correctly.
           const savedModel =
             this.configManager.get<string>('model.selected') ||
             DEFAULT_FALLBACK_MODEL_ID;
+          const resolvedSavedModel = this.modelResolver.resolve(savedModel);
 
-          // Both return ModelInfo[] with full IDs in .value (normalized at source)
+          // sdkModels may contain bare tier names for claudeCli auth (e.g. 'opus', 'sonnet').
+          // apiModels always contains full versioned IDs from /v1/models.
           const sdkModels = await this.sdkAdapter.getSupportedModels();
           const apiModels = await this.sdkAdapter.getApiModels();
 
@@ -395,9 +403,7 @@ export class ConfigRpcHandlers {
           }> = [];
 
           for (const m of sdkModels) {
-            const tier = this.modelResolver.detectTier(
-              `${m.value.toLowerCase()} ${(m.displayName || '').toLowerCase()} ${(m.description || '').toLowerCase()}`,
-            );
+            const tier = this.modelResolver.detectTier(m.value);
 
             const providerModelId =
               tierOverrides && tier ? (tierOverrides[tier] ?? null) : null;
@@ -408,7 +414,15 @@ export class ConfigRpcHandlers {
               description: providerModelId
                 ? getModelPricingDescription(providerModelId)
                 : m.description,
-              isSelected: m.value === savedModel,
+              isSelected:
+                m.value === savedModel ||
+                // Resolve check only when savedModel is a full Claude ID (e.g. 'claude-opus-4-7').
+                // Skipped when savedModel is a tier name like 'opus' or 'default' — direct
+                // string match is exact. Without this guard, savedModel='default' would resolve
+                // to opus and incorrectly mark both 'default' and 'opus' as selected.
+                (savedModel.startsWith('claude-') &&
+                  m.value.toLowerCase() !== 'default' &&
+                  this.modelResolver.resolve(m.value) === resolvedSavedModel),
               isRecommended: m.value.toLowerCase().includes('sonnet'),
               providerModelId,
               tier,
@@ -418,9 +432,7 @@ export class ConfigRpcHandlers {
           for (const m of apiModels) {
             if (sdkModelIds.has(m.value)) continue;
 
-            const tier = this.modelResolver.detectTier(
-              `${m.value.toLowerCase()} ${(m.displayName || '').toLowerCase()}`,
-            );
+            const tier = this.modelResolver.detectTier(m.value);
 
             const providerModelId =
               tierOverrides && tier ? (tierOverrides[tier] ?? null) : null;
@@ -431,10 +443,34 @@ export class ConfigRpcHandlers {
               description: providerModelId
                 ? getModelPricingDescription(providerModelId)
                 : getModelPricingDescription(m.value),
-              isSelected: m.value === savedModel,
+              isSelected:
+                m.value === savedModel ||
+                // Resolve check only when savedModel is a full Claude ID (e.g. 'claude-opus-4-7').
+                // Skipped when savedModel is a tier name like 'opus' or 'default' — direct
+                // string match is exact. Without this guard, savedModel='default' would resolve
+                // to opus and incorrectly mark both 'default' and 'opus' as selected.
+                (savedModel.startsWith('claude-') &&
+                  m.value.toLowerCase() !== 'default' &&
+                  this.modelResolver.resolve(m.value) === resolvedSavedModel),
               isRecommended: false,
               providerModelId,
               tier,
+            });
+          }
+
+          // Guarantee exactly one isSelected. The resolve-based check can mark multiple
+          // entries true when both a tier name ('opus') and its full ID ('claude-opus-4-7')
+          // appear across sdkModels and apiModels. Prefer the entry whose id exactly
+          // matches savedModel; if none exists, keep the first resolve-matched entry.
+          const exactMatchIndex = models.findIndex((m) => m.id === savedModel);
+          if (exactMatchIndex !== -1) {
+            models.forEach((m, i) => {
+              m.isSelected = i === exactMatchIndex;
+            });
+          } else {
+            const firstSelected = models.findIndex((m) => m.isSelected);
+            models.forEach((m, i) => {
+              m.isSelected = i === firstSelected;
             });
           }
 

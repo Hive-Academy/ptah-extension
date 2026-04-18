@@ -293,6 +293,7 @@ export class SdkAgentAdapter implements IAIProvider {
           savedModel !== 'default'
         ) {
           // Migrate legacy bare tier names ('opus', 'sonnet', 'haiku') to full IDs.
+          // 'default' is preserved — it means "let the SDK choose" and resolves at query time.
           // Older versions stored tier names that the SDK no longer resolves.
           const resolved = this.modelService.resolveModelId(savedModel);
           if (resolved !== savedModel) {
