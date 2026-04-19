@@ -4,9 +4,11 @@ import { PricingPageComponent } from './pages/pricing/pricing-page.component';
 import { AuthPageComponent } from './pages/auth/auth-page.component';
 import { ProfilePageComponent } from './pages/profile/profile-page.component';
 import { TrialEndedPageComponent } from './pages/trial-ended/trial-ended-page.component';
+import { AdminAuthGuard } from './guards/admin-auth.guard';
 import { AuthGuard } from './guards/auth.guard';
 import { GuestGuard } from './guards/guest.guard';
 import { DocsPageComponent } from './pages/docs/docs-page.component';
+import { DownloadPageComponent } from './pages/download/download-page.component';
 import { TermsPageComponent } from './pages/legal/terms-page.component';
 import { PrivacyPageComponent } from './pages/legal/privacy-page.component';
 import { RefundPageComponent } from './pages/legal/refund-page.component';
@@ -55,6 +57,10 @@ export const routes: Routes = [
     component: DocsPageComponent,
   },
   {
+    path: 'download',
+    component: DownloadPageComponent,
+  },
+  {
     path: 'pricing',
     component: PricingPageComponent,
     canActivate: [TrialStatusGuard], // Redirect expired trials to /trial-ended
@@ -99,6 +105,17 @@ export const routes: Routes = [
     path: 'trial-ended',
     component: TrialEndedPageComponent,
     canActivate: [AuthGuard], // Must be logged in, but no trial check
+  },
+  {
+    // Native admin dashboard (TASK_2025_290)
+    // Hidden route — NOT in nav, NOT in sitemap.
+    // Server-side enforcement via ADMIN_EMAILS allowlist is the source of
+    // truth; this client guard is just a UX shortcut for redirects.
+    path: 'admin',
+    canActivate: [AdminAuthGuard],
+    loadChildren: () =>
+      import('./pages/admin/admin.routes').then((m) => m.ADMIN_ROUTES),
+    data: { hideFromNav: true },
   },
   {
     path: '**',

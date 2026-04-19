@@ -72,9 +72,13 @@ export class SubagentRegistryService {
    * from re-registering these agents on session reload, breaking the cycle:
    * inject context -> remove from registry -> reload session -> re-register -> inject again.
    *
+   * TASK_2025_264: Changed from Set<string> to Map<string, number> where value
+   * is the timestamp when the ID was added. Entries older than TTL_MS are pruned
+   * during the lazy cleanup sweep to prevent unbounded growth.
+   *
    * Typical size: 0-5 entries per extension session. Cleared on clear().
    */
-  private readonly clearedToolCallIds = new Set<string>();
+  private readonly clearedToolCallIds = new Map<string, number>();
 
   /**
    * TASK_2025_217: Tracks toolCallIds that have been detected as background
@@ -106,10 +110,10 @@ export class SubagentRegistryService {
 
   constructor(
     @inject(TOKENS.LOGGER)
-    private readonly logger: Logger
+    private readonly logger: Logger,
   ) {
     this.logger.debug(
-      '[SubagentRegistryService.constructor] Service initialized'
+      '[SubagentRegistryService.constructor] Service initialized',
     );
   }
 
@@ -142,7 +146,7 @@ export class SubagentRegistryService {
     // This eliminates the race condition where the agent starts executing tools
     // before the background_agent_started stream event arrives.
     const isPendingBackground = this.pendingBackgroundToolCallIds.has(
-      registration.toolCallId
+      registration.toolCallId,
     );
     if (isPendingBackground) {
       this.pendingBackgroundToolCallIds.delete(registration.toolCallId);
@@ -208,13 +212,13 @@ export class SubagentRegistryService {
         | 'backgroundStartedAt'
         | 'completedAt'
       >
-    >
+    >,
   ): void {
     const record = this.registry.get(toolCallId);
     if (!record) {
       this.logger.debug(
-        '[SubagentRegistryService.update] Subagent not found by toolCallId (will try agentId fallback)',
-        { toolCallId }
+        '[SubagentRegistryService.update] Subagent not found by toolCallId — caller should use getToolCallIdByAgentId() fallback',
+        { toolCallId },
       );
       return;
     }
@@ -232,7 +236,7 @@ export class SubagentRegistryService {
           toolCallId,
           agentType: record.agentType,
           status: updates.status,
-        }
+        },
       );
       return;
     }
@@ -303,7 +307,7 @@ export class SubagentRegistryService {
         {
           toolCallId,
           agentType: record.agentType,
-        }
+        },
       );
       return null;
     }
@@ -380,7 +384,7 @@ export class SubagentRegistryService {
    */
   getResumableBySession(parentSessionId: string): SubagentRecord[] {
     return this.getResumable().filter(
-      (record) => record.parentSessionId === parentSessionId
+      (record) => record.parentSessionId === parentSessionId,
     );
   }
 
@@ -418,7 +422,7 @@ export class SubagentRegistryService {
         parentSessionId,
         totalRecords: this.registry.size,
         runningCount: running.length,
-      }
+      },
     );
 
     return running;
@@ -462,7 +466,7 @@ export class SubagentRegistryService {
             toolCallId: record.toolCallId,
             agentType: record.agentType,
             agentId: record.agentId,
-          }
+          },
         );
       }
     }
@@ -473,7 +477,7 @@ export class SubagentRegistryService {
         {
           parentSessionId,
           interruptedCount,
-        }
+        },
       );
     }
   }
@@ -500,7 +504,7 @@ export class SubagentRegistryService {
     if (updatedCount > 0) {
       this.logger.debug(
         '[SubagentRegistryService.resolveParentSessionId] Updated records',
-        { tabId, realSessionId, updatedCount }
+        { tabId, realSessionId, updatedCount },
       );
     }
   }
@@ -575,7 +579,7 @@ export class SubagentRegistryService {
     this.pendingBackgroundToolCallIds.add(toolCallId);
     this.logger.debug(
       '[SubagentRegistryService.markPendingBackground] Marked toolCallId as pending background',
-      { toolCallId, pendingCount: this.pendingBackgroundToolCallIds.size }
+      { toolCallId, pendingCount: this.pendingBackgroundToolCallIds.size },
     );
   }
 
@@ -587,10 +591,10 @@ export class SubagentRegistryService {
    * @param toolCallId - The toolCallId that was injected into context
    */
   markAsInjected(toolCallId: string): void {
-    this.clearedToolCallIds.add(toolCallId);
+    this.clearedToolCallIds.set(toolCallId, Date.now());
     this.logger.debug(
       '[SubagentRegistryService.markAsInjected] Marked toolCallId as injected',
-      { toolCallId, clearedSetSize: this.clearedToolCallIds.size }
+      { toolCallId, clearedMapSize: this.clearedToolCallIds.size },
     );
   }
 
@@ -637,7 +641,7 @@ export class SubagentRegistryService {
         {
           parentSessionId,
           removedCount: toRemove.length,
-        }
+        },
       );
     }
   }
@@ -700,7 +704,7 @@ export class SubagentRegistryService {
   }
 
   /**
-   * Remove all expired records from the registry.
+   * Remove all expired records from the registry and clearedToolCallIds map.
    */
   private cleanupExpired(): void {
     const toRemove: string[] = [];
@@ -711,20 +715,36 @@ export class SubagentRegistryService {
       }
     }
 
-    if (toRemove.length === 0) {
-      return;
-    }
-
     for (const toolCallId of toRemove) {
       this.registry.delete(toolCallId);
+    }
+
+    // TASK_2025_264: Also prune expired entries from clearedToolCallIds.
+    // Uses the same TTL_MS (24h) as the registry records.
+    const now = Date.now();
+    const clearedToRemove: string[] = [];
+    for (const [toolCallId, timestamp] of this.clearedToolCallIds) {
+      if (now - timestamp > SubagentRegistryService.TTL_MS) {
+        clearedToRemove.push(toolCallId);
+      }
+    }
+    for (const toolCallId of clearedToRemove) {
+      this.clearedToolCallIds.delete(toolCallId);
+    }
+
+    const totalRemoved = toRemove.length + clearedToRemove.length;
+    if (totalRemoved === 0) {
+      return;
     }
 
     this.logger.info(
       '[SubagentRegistryService.cleanupExpired] Expired records removed',
       {
-        removedCount: toRemove.length,
-        remainingCount: this.registry.size,
-      }
+        registryRemoved: toRemove.length,
+        clearedIdsRemoved: clearedToRemove.length,
+        remainingRegistry: this.registry.size,
+        remainingClearedIds: this.clearedToolCallIds.size,
+      },
     );
   }
 
@@ -759,20 +779,20 @@ export class SubagentRegistryService {
    */
   registerFromHistoryEvents(
     events: FlatStreamEventUnion[],
-    parentSessionId: string
+    parentSessionId: string,
   ): number {
     // Run lazy cleanup periodically
     this.lazyCleanup();
 
     // Step 1: Collect all agent_start events
     const agentStartEvents: AgentStartEvent[] = events.filter(
-      (e): e is AgentStartEvent => e.eventType === 'agent_start'
+      (e): e is AgentStartEvent => e.eventType === 'agent_start',
     );
 
     if (agentStartEvents.length === 0) {
       this.logger.debug(
         '[SubagentRegistryService.registerFromHistoryEvents] No agent_start events found',
-        { parentSessionId, eventCount: events.length }
+        { parentSessionId, eventCount: events.length },
       );
       return 0;
     }
@@ -781,7 +801,7 @@ export class SubagentRegistryService {
     const completedToolCallIds = new Set<string>(
       events
         .filter((e): e is ToolResultEvent => e.eventType === 'tool_result')
-        .map((e) => e.toolCallId)
+        .map((e) => e.toolCallId),
     );
 
     // Step 2b: Build superseded set — when the same agentId was spawned multiple
@@ -802,7 +822,7 @@ export class SubagentRegistryService {
       if (toolCallIds.length <= 1) continue;
 
       const hasCompleted = toolCallIds.some((tcId) =>
-        completedToolCallIds.has(tcId)
+        completedToolCallIds.has(tcId),
       );
       if (hasCompleted) {
         // All non-completed toolCallIds for this agent are superseded
@@ -815,7 +835,7 @@ export class SubagentRegistryService {
                 toolCallId: tcId,
                 agentId,
                 reason: 'agent has a completed resume',
-              }
+              },
             );
           }
         }
@@ -833,7 +853,7 @@ export class SubagentRegistryService {
       if (this.registry.has(toolCallId)) {
         this.logger.debug(
           '[SubagentRegistryService.registerFromHistoryEvents] Agent already registered, skipping',
-          { toolCallId, agentType }
+          { toolCallId, agentType },
         );
         continue;
       }
@@ -844,7 +864,7 @@ export class SubagentRegistryService {
       if (this.clearedToolCallIds.has(toolCallId)) {
         this.logger.debug(
           '[SubagentRegistryService.registerFromHistoryEvents] Agent already injected into context, skipping',
-          { toolCallId, agentType }
+          { toolCallId, agentType },
         );
         continue;
       }
@@ -853,7 +873,7 @@ export class SubagentRegistryService {
       if (completedToolCallIds.has(toolCallId)) {
         this.logger.debug(
           '[SubagentRegistryService.registerFromHistoryEvents] Agent completed, skipping',
-          { toolCallId, agentType }
+          { toolCallId, agentType },
         );
         continue;
       }
@@ -862,7 +882,7 @@ export class SubagentRegistryService {
       if (supersededToolCallIds.has(toolCallId)) {
         this.logger.debug(
           '[SubagentRegistryService.registerFromHistoryEvents] Agent superseded by successful resume, skipping',
-          { toolCallId, agentType, agentId }
+          { toolCallId, agentType, agentId },
         );
         continue;
       }
@@ -874,7 +894,7 @@ export class SubagentRegistryService {
       if (!agentId) {
         this.logger.debug(
           '[SubagentRegistryService.registerFromHistoryEvents] Skipping agent without agentId (no transcript for resume)',
-          { toolCallId, agentType }
+          { toolCallId, agentType },
         );
         continue;
       }
@@ -900,7 +920,7 @@ export class SubagentRegistryService {
           agentType,
           agentId: record.agentId,
           parentSessionId,
-        }
+        },
       );
     }
 
@@ -913,7 +933,7 @@ export class SubagentRegistryService {
           totalAgentStarts: agentStartEvents.length,
           completedCount: agentStartEvents.length - registeredCount,
           registrySize: this.registry.size,
-        }
+        },
       );
     }
 

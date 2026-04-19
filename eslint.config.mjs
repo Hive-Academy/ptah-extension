@@ -41,6 +41,14 @@ export default [
               ],
             },
             {
+              sourceTag: 'scope:cli',
+              onlyDependOnLibsWithTags: [
+                'scope:shared',
+                'scope:cli',
+                'scope:extension',
+              ],
+            },
+            {
               sourceTag: 'type:application',
               onlyDependOnLibsWithTags: [
                 'type:feature',

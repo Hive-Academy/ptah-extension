@@ -1,5 +1,5 @@
 import { Injectable, signal, computed, inject, Injector } from '@angular/core';
-import { TabState } from './chat.types';
+import { TabState, TabViewMode } from './chat.types';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { StreamingHandlerService } from './chat-store/streaming-handler.service';
 import { AgentMonitorStore } from './agent-monitor.store';
@@ -96,9 +96,109 @@ export class TabManagerService {
   // ============================================================================
 
   readonly activeTab = computed(
-    () => this._tabs().find((t) => t.id === this._activeTabId()) ?? null
+    () => this._tabs().find((t) => t.id === this._activeTabId()) ?? null,
   );
   readonly tabCount = computed(() => this._tabs().length);
+
+  // ============================================================================
+  // FINE-GRAINED SELECTORS (STREAMING PERFORMANCE OPTIMIZATION)
+  // ============================================================================
+  //
+  // When updateTab() runs during streaming (~16ms interval), it creates a new
+  // tabs array + new tab object via spread: { ...existingTab, ...updates }.
+  // Properties NOT in `updates` retain their original reference, e.g.,
+  // newTab.messages === oldTab.messages when only streamingState changed.
+  //
+  // These selectors use `{ equal: (a, b) => a === b }` (reference equality)
+  // to suppress false notifications. Downstream computed signals that depend
+  // on e.g. activeTabMessages won't re-evaluate during streaming when only
+  // streamingState is being updated.
+  // ============================================================================
+
+  /** Messages array for active tab. Stable during streaming (only changes on finalization). */
+  readonly activeTabMessages = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.messages ?? [],
+    { equal: (a, b) => a === b },
+  );
+
+  /** Tab status string. Only changes on start/stop streaming, not during. */
+  readonly activeTabStatus = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.status ?? null,
+    { equal: (a, b) => a === b },
+  );
+
+  /** Claude session ID. Only changes on session creation. */
+  readonly activeTabSessionId = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.claudeSessionId ??
+      null,
+    { equal: (a, b) => a === b },
+  );
+
+  /** Streaming state. Changes every tick during streaming (this is expected and desired). */
+  readonly activeTabStreamingState = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.streamingState ??
+      null,
+  );
+
+  /** Preloaded stats. Only changes on session load. */
+  readonly activeTabPreloadedStats = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.preloadedStats ??
+      null,
+    { equal: (a, b) => a === b },
+  );
+
+  /** Live model stats. Changes only at end of turn. */
+  readonly activeTabLiveModelStats = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.liveModelStats ??
+      null,
+    { equal: (a, b) => a === b },
+  );
+
+  /** Model usage list. Changes only at end of turn. */
+  readonly activeTabModelUsageList = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.modelUsageList ??
+      null,
+    { equal: (a, b) => a === b },
+  );
+
+  /** Whether compaction is in progress for the active tab. */
+  readonly activeTabIsCompacting = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.isCompacting ??
+      false,
+    { equal: (a, b) => a === b },
+  );
+
+  /** Compaction count. Rarely changes. */
+  readonly activeTabCompactionCount = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.compactionCount ??
+      0,
+    { equal: (a, b) => a === b },
+  );
+
+  /** View mode for active tab. Defaults to 'full'. */
+  readonly activeTabViewMode = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.viewMode ??
+      'full',
+    { equal: (a, b) => a === b },
+  );
+
+  /** Queued content. Changes only when user queues/clears. */
+  readonly activeTabQueuedContent = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.queuedContent ??
+      null,
+    { equal: (a, b) => a === b },
+  );
 
   // ============================================================================
   // TAB LOOKUP
@@ -123,7 +223,7 @@ export class TabManagerService {
     // TASK_2025_208: Delegate cross-workspace search to partition service
     const result = this.workspacePartition.findTabBySessionIdAcrossWorkspaces(
       sessionId,
-      this._tabs()
+      this._tabs(),
     );
     return result?.tab ?? null;
   }
@@ -136,11 +236,11 @@ export class TabManagerService {
    * Delegates to TabWorkspacePartitionService for O(1) lookup via reverse index.
    */
   findTabBySessionIdAcrossWorkspaces(
-    sessionId: string
+    sessionId: string,
   ): TabLookupResult | null {
     return this.workspacePartition.findTabBySessionIdAcrossWorkspaces(
       sessionId,
-      this._tabs()
+      this._tabs(),
     );
   }
 
@@ -182,7 +282,7 @@ export class TabManagerService {
       this._tabs.set([]);
       this.openSessionTab(
         initialSessionId,
-        ptahConfig?.initialSessionName || undefined
+        ptahConfig?.initialSessionName || undefined,
       );
 
       // Signal that a session needs loading. SessionLoaderService listens to this
@@ -215,7 +315,7 @@ export class TabManagerService {
     const result = this.workspacePartition.switchWorkspace(
       workspacePath,
       this._tabs(),
-      this._activeTabId()
+      this._activeTabId(),
     );
 
     // null means already on this workspace (no-op)
@@ -251,7 +351,7 @@ export class TabManagerService {
   getWorkspaceTabs(workspacePath: string): TabState[] {
     return this.workspacePartition.getWorkspaceTabs(
       workspacePath,
-      this._tabs()
+      this._tabs(),
     );
   }
 
@@ -284,7 +384,7 @@ export class TabManagerService {
   openSessionTab(claudeSessionId: string, title?: string): string {
     // Check if tab already exists for this session (active workspace only)
     const existingTab = this._tabs().find(
-      (t) => t.claudeSessionId === claudeSessionId
+      (t) => t.claudeSessionId === claudeSessionId,
     );
 
     if (existingTab) {
@@ -316,7 +416,7 @@ export class TabManagerService {
     if (this.workspacePartition.activeWorkspacePath) {
       this.workspacePartition.registerSessionForWorkspace(
         claudeSessionId,
-        this.workspacePartition.activeWorkspacePath
+        this.workspacePartition.activeWorkspacePath,
       );
     }
 
@@ -521,7 +621,7 @@ export class TabManagerService {
         ) {
           this.workspacePartition.registerSessionForWorkspace(
             updates.claudeSessionId,
-            this.workspacePartition.activeWorkspacePath
+            this.workspacePartition.activeWorkspacePath,
           );
         }
 
@@ -713,7 +813,7 @@ export class TabManagerService {
       // Also keep the partition service's in-memory map in sync with the signal
       this.workspacePartition.syncActiveWorkspaceState(
         this._tabs(),
-        this._activeTabId()
+        this._activeTabId(),
       );
     } catch (error) {
       console.warn('[TabManager] Failed to save tab state:', error);
@@ -744,8 +844,18 @@ export class TabManagerService {
         // and become plain objects, causing "get is not a function" errors
         const sanitizedTabs = state.tabs.map((tab: TabState) => ({
           ...tab,
-          streamingState: null, // Clear transient streaming state
-          status: tab.status === 'streaming' ? 'loaded' : tab.status, // Reset stuck streaming status
+          streamingState: null,
+          // Backend sessions don't survive app restarts — clear the ID so
+          // the frontend starts a fresh session instead of attempting resume.
+          claudeSessionId: null,
+          status:
+            tab.status === 'streaming' ||
+            tab.status === 'resuming' ||
+            tab.status === 'switching'
+              ? 'loaded'
+              : tab.status,
+          queuedContent: null,
+          queuedOptions: null,
         }));
         this._tabs.set(sanitizedTabs);
         this._activeTabId.set(state.activeTabId);
@@ -784,6 +894,25 @@ export class TabManagerService {
    */
   isTabStreaming(tabId: string): boolean {
     return this._streamingTabIds().has(tabId);
+  }
+
+  /**
+   * Toggle a tab's view mode between 'full' and 'compact'.
+   * Each tab independently controls its view mode.
+   */
+  toggleTabViewMode(tabId: string): void {
+    const tab = this._tabs().find((t) => t.id === tabId);
+    if (!tab) return;
+    const newMode: TabViewMode =
+      (tab.viewMode ?? 'full') === 'full' ? 'compact' : 'full';
+    this.updateTab(tabId, { viewMode: newMode });
+  }
+
+  /**
+   * Get a specific tab's view mode.
+   */
+  getTabViewMode(tabId: string): TabViewMode {
+    return this._tabs().find((t) => t.id === tabId)?.viewMode ?? 'full';
   }
 
   // ============================================================================

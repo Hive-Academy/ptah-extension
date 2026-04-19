@@ -14,13 +14,15 @@ export * from './app-state.service';
 export * from './webview-navigation.service';
 
 // Theme Service (TASK_2025_100)
-export { ThemeService, type ThemeName } from './theme.service';
+export {
+  ThemeService,
+  type ThemeName,
+  type ThemeInfo,
+  DAISYUI_THEMES,
+} from './theme.service';
 
 // Model & Autopilot State Services (TASK_2025_035)
-export {
-  ModelStateService,
-  type ModelInfoWithSelection,
-} from './model-state.service';
+export { ModelStateService } from './model-state.service';
 export { AutopilotStateService } from './autopilot-state.service';
 
 // Effort State Service (reasoning effort persistence)

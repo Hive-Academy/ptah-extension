@@ -25,7 +25,7 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
   constructor(
     @inject(TOKENS.LOGGER) logger: Logger,
     @inject(SDK_TOKENS.SDK_COPILOT_AUTH)
-    private readonly copilotAuth: ICopilotAuthService
+    private readonly copilotAuth: ICopilotAuthService,
   ) {
     super(logger, {
       name: 'Copilot',
@@ -66,18 +66,48 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
   }
 
   // ---------------------------------------------------------------------------
-  // Copilot-specific routing overrides
+  // Copilot-specific model and routing overrides
   // ---------------------------------------------------------------------------
 
   /**
-   * Copilot dual-endpoint routing: GPT-5+ models (except gpt-5-mini)
-   * require the Responses API (/responses) instead of Chat Completions.
-   * Matches the routing logic used by OpenCode (opencode.ai).
+   * Normalize Anthropic-format Claude model IDs to Copilot format.
+   *
+   * The SDK's resolveModelId() returns Anthropic API IDs with hyphens
+   * (e.g., 'claude-opus-4-6', 'claude-haiku-4-5-20251001'), but the
+   * Copilot API expects dot notation (e.g., 'claude-opus-4.6', 'claude-haiku-4.5').
+   *
+   * Non-Claude models (GPT, Gemini) pass through unchanged.
    */
-  protected override shouldUseResponsesApi(modelId: string): boolean {
-    const match = /^gpt-(\d+)/.exec(modelId);
-    if (!match) return false;
-    return Number(match[1]) >= 5 && !modelId.startsWith('gpt-5-mini');
+  protected override normalizeModelId(modelId: string): string {
+    if (!modelId.startsWith('claude-')) {
+      return modelId;
+    }
+
+    // Match: claude-{family}-{major}-{minor}[-{anything}]
+    // e.g., 'claude-opus-4-6' → 'claude-opus-4.6'
+    // e.g., 'claude-haiku-4-5-20251001' → 'claude-haiku-4.5'
+    // e.g., 'claude-sonnet-5-0-preview-20261001' → 'claude-sonnet-5.0'
+    // Strips everything after major.minor — Copilot uses short model names.
+    const match = modelId.match(
+      /^(claude-(?:opus|sonnet|haiku)-\d+)-(\d+)(?:-.+)?$/,
+    );
+    if (match) {
+      return `${match[1]}.${match[2]}`;
+    }
+
+    return modelId;
+  }
+
+  /**
+   * Copilot uses Chat Completions (/chat/completions) for all models.
+   *
+   * The Copilot API at api.githubcopilot.com does not reliably support the
+   * Responses API (/responses) for all GPT-5+ models — sending unsupported
+   * models there results in "model_not_supported" errors. Chat Completions
+   * is the known-working endpoint for all Copilot models.
+   */
+  protected override shouldUseResponsesApi(_modelId: string): boolean {
+    return false;
   }
 
   /**
@@ -93,23 +123,23 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
 
       const response = await this.fetchJson<CopilotModelsResponse>(
         url,
-        headers
+        headers,
       );
 
       if (!response?.data?.length) {
         this.logger.warn(
-          '[CopilotProxy] /models returned no data, using static models'
+          '[CopilotProxy] /models returned no data, using static models',
         );
         return this.staticModelsAsFull();
       }
 
       // Filter to chat models only (exclude embeddings)
       const chatModels = response.data.filter(
-        (m) => m.capabilities?.type === 'chat'
+        (m) => m.capabilities?.type === 'chat',
       );
 
       this.logger.info(
-        `[CopilotProxy] Fetched ${chatModels.length} chat models from Copilot API (${response.data.length} total)`
+        `[CopilotProxy] Fetched ${chatModels.length} chat models from Copilot API (${response.data.length} total)`,
       );
 
       return chatModels.map((m) => ({
@@ -123,7 +153,7 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
       this.logger.warn(
         `[CopilotProxy] Failed to fetch /models: ${
           error instanceof Error ? error.message : String(error)
-        }. Using static models.`
+        }. Using static models.`,
       );
       return this.staticModelsAsFull();
     }
@@ -169,14 +199,14 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
             ) {
               try {
                 resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-              } catch (e) {
+              } catch {
                 reject(new Error('Invalid JSON from /models'));
               }
             } else {
               reject(new Error(`/models returned ${res.statusCode}`));
             }
           });
-        }
+        },
       );
       req.on('error', reject);
       req.on('timeout', () => {

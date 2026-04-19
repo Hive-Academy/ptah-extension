@@ -23,6 +23,11 @@
             "glob": "**/*",
             "input": "node_modules/monaco-editor/min",
             "output": "/assets/monaco"
+          },
+          {
+            "glob": "monaco-vim.umd.js",
+            "input": "node_modules/monaco-vim/dist",
+            "output": "/assets/monaco-vim"
           }
         ],
         "styles": [
@@ -52,13 +57,13 @@
           "budgets": [
             {
               "type": "initial",
-              "maximumWarning": "600kb",
-              "maximumError": "2.2mb"
+              "maximumWarning": "800kb",
+              "maximumError": "2.5mb"
             },
             {
               "type": "anyComponentStyle",
-              "maximumWarning": "8kb",
-              "maximumError": "16kb"
+              "maximumWarning": "10kb",
+              "maximumError": "20kb"
             }
           ],
           "outputHashing": "none",

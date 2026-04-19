@@ -11,7 +11,7 @@ import {
   Cpu,
   Layers,
   Settings,
-  AlertTriangle,
+  Terminal,
 } from 'lucide-angular';
 import { DocsStepCardComponent } from '../components/docs-step-card.component';
 import { DocsCodeBlockComponent } from '../components/docs-code-block.component';
@@ -37,152 +37,99 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
         [viewportConfig]="headingConfig"
         class="text-2xl sm:text-3xl font-display font-bold text-base-content mb-3"
       >
-        Authentication Setup
+        How Ptah Uses the Claude CLI
       </h2>
       <p
         viewportAnimation
         [viewportConfig]="introConfig"
         class="text-neutral-content mb-4 max-w-2xl"
       >
-        Ptah offers multiple authentication methods. We recommend using an
-        <strong class="text-base-content/80">API Key</strong> or a
-        <strong class="text-base-content/80">third-party Provider</strong>
-        for the best experience.
+        Ptah integrates with the official Claude Agent SDK, which spawns the
+        Claude CLI binary directly on your machine. There is no proxy, no
+        middleware, and no token collection — the CLI uses its own credential
+        store, exactly the same way it works when you run it in a terminal.
       </p>
       <div
         viewportAnimation
         [viewportConfig]="introConfig"
-        class="flex items-start gap-2.5 p-3 rounded-lg bg-info/10 border border-info/20 mb-4 max-w-2xl"
+        class="flex items-start gap-2.5 p-3 rounded-lg bg-success/10 border border-success/20 mb-4 max-w-2xl"
       >
         <lucide-angular
-          [img]="AlertTriangleIcon"
-          class="w-4 h-4 text-info shrink-0 mt-0.5"
+          [img]="ShieldCheckIcon"
+          class="w-4 h-4 text-success shrink-0 mt-0.5"
           aria-hidden="true"
         />
         <p class="text-sm text-neutral-content">
-          <strong class="text-base-content/80">Note:</strong> As of February
-          2026, Anthropic restricts Claude subscription OAuth tokens to their
-          own apps only. The
-          <strong class="text-base-content/80">OAuth</strong> method below is no
-          longer functional. Use
-          <strong class="text-base-content/80">API Key</strong> or
-          <strong class="text-base-content/80">Provider</strong> instead.
+          <strong class="text-base-content/80">Runs 100% locally.</strong>
+          All AI integrations in Ptah execute directly on your machine. Your
+          credentials never pass through our servers — the connection goes
+          straight from your machine to the AI provider.
         </p>
       </div>
-      <p
-        viewportAnimation
-        [viewportConfig]="introConfig"
-        class="text-neutral-content/60 text-sm mb-8 max-w-2xl"
-      >
-        Open the Ptah sidebar → click the
-        <strong class="text-neutral-content">gear icon</strong> to access
-        settings. You'll see four tabs:
-        <strong class="text-neutral-content">Provider</strong>,
-        <strong class="text-neutral-content">OAuth</strong>,
-        <strong class="text-neutral-content">API Key</strong>, and
-        <strong class="text-neutral-content">Auto</strong>.
-      </p>
 
       <div class="space-y-8" viewportAnimation [viewportConfig]="contentConfig">
-        <!-- OAuth Token -->
+        <!-- Claude CLI (Primary) -->
         <ptah-docs-collapsible-card
-          [icon]="ShieldCheckIcon"
-          title="OAuth Token"
-          subtitle="Claude Max / Pro subscription"
+          [icon]="TerminalIcon"
+          title="Claude CLI"
+          subtitle="Official Claude Agent SDK — primary integration"
+          [expanded]="true"
         >
-          <!-- Anthropic Policy Warning Banner -->
-          <div
-            class="flex items-start gap-3 p-3 rounded-lg bg-warning/10 border border-warning/30 mb-4"
-          >
-            <lucide-angular
-              [img]="AlertTriangleIcon"
-              class="w-5 h-5 text-warning shrink-0 mt-0.5"
-              aria-hidden="true"
-            />
-            <div class="text-sm">
-              <p class="font-semibold text-warning mb-1">
-                Anthropic Policy Restriction (Feb 2026)
-              </p>
-              <p class="text-neutral-content mb-2">
-                Anthropic has
-                <strong class="text-base-content/80">officially banned</strong>
-                the use of Claude subscription OAuth tokens (Free, Pro, Max) in
-                all third-party tools — including Ptah. OAuth tokens are now
-                restricted to
-                <strong class="text-base-content/80"
-                  >Claude Code and Claude.ai only</strong
-                >. Tokens are blocked server-side and will not work.
-              </p>
-              <p class="text-neutral-content/70 text-xs">
-                Source:
-                <a
-                  href="https://code.claude.com/docs/en/legal-and-compliance"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-secondary hover:text-secondary/80 underline underline-offset-2"
-                  >Claude Code Legal &amp; Compliance</a
-                >
-              </p>
-            </div>
-          </div>
-
           <p class="text-sm text-neutral-content mb-4">
-            <strong class="text-error/80">This method no longer works.</strong>
-            Anthropic's updated Terms of Service prohibit using OAuth tokens
-            from Claude subscriptions in third-party applications. Use an
-            <a
-              href="#authentication"
-              class="text-secondary hover:text-secondary/80 underline underline-offset-2"
-              >API Key</a
-            >
-            or
-            <a
-              href="#providers"
-              class="text-secondary hover:text-secondary/80 underline underline-offset-2"
-              >third-party Provider</a
-            >
-            instead.
+            Ptah spawns the Claude CLI binary via the official Agent SDK. The
+            CLI handles its own authentication using credentials from
+            <code
+              class="px-1 py-0.5 rounded bg-base-300 border border-secondary/10 text-xs font-mono text-secondary/80"
+              >claude auth login</code
+            >. Ptah never sees, stores, or transmits your login credentials.
           </p>
 
-          <div class="space-y-4 opacity-50">
-            <ptah-docs-step-card [stepNumber]="1" title="Generate your token">
-              <p>Open a terminal and run:</p>
+          <div class="space-y-4">
+            <ptah-docs-step-card
+              [stepNumber]="1"
+              title="Install the Claude CLI"
+            >
+              <p>Install the Claude CLI globally via npm:</p>
               <div class="mt-2">
                 <ptah-docs-code-block
-                  code="claude setup-token"
+                  code="npm install -g @anthropic-ai/claude-code"
                   label="Terminal"
                 />
               </div>
             </ptah-docs-step-card>
 
-            <ptah-docs-step-card
-              [stepNumber]="2"
-              title="Copy and paste into Ptah"
-            >
+            <ptah-docs-step-card [stepNumber]="2" title="Authenticate">
               <p>
-                Follow the terminal prompts. Once complete, copy the token
-                (starts with
-                <code
-                  class="px-1 py-0.5 rounded bg-base-300 border border-secondary/10 text-xs font-mono text-secondary/80"
-                  >sk-ant-oat01-</code
-                >) and paste it in the
-                <strong class="text-base-content/80">OAuth</strong> tab in Ptah
-                settings.
+                Sign in with your Anthropic account. This stores credentials in
+                the CLI's own credential store — Ptah does not access or manage
+                them.
+              </p>
+              <div class="mt-2">
+                <ptah-docs-code-block
+                  code="claude auth login"
+                  label="Terminal"
+                />
+              </div>
+            </ptah-docs-step-card>
+
+            <ptah-docs-step-card [stepNumber]="3" title="Open Ptah">
+              <p>
+                That's it. Ptah automatically detects the Claude CLI and uses it
+                for all agent sessions. No additional configuration needed.
               </p>
             </ptah-docs-step-card>
           </div>
         </ptah-docs-collapsible-card>
 
-        <!-- API Key -->
+        <!-- API Key (Alternative) -->
         <ptah-docs-collapsible-card
           [icon]="KeyIcon"
           title="API Key"
-          subtitle="Anthropic Console — pay-per-token (Recommended)"
-          [expanded]="true"
+          subtitle="Anthropic Console — pay-per-token alternative"
         >
           <p class="text-sm text-neutral-content mb-4">
-            Use a direct Anthropic API key for pay-per-token billing. No
-            subscription required — you pay only for what you use.
+            Alternatively, use a direct Anthropic API key for pay-per-token
+            billing. No subscription required — you pay only for what you use.
           </p>
 
           <div class="space-y-4">
@@ -196,11 +143,7 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
                   class="text-secondary hover:text-secondary/80 underline underline-offset-2"
                   >console.anthropic.com/settings/keys</a
                 >
-                → Create Key. Keys start with
-                <code
-                  class="px-1 py-0.5 rounded bg-base-300 border border-secondary/10 text-xs font-mono text-secondary/80"
-                  >sk-ant-api03-</code
-                >.
+                → Create Key.
               </p>
             </ptah-docs-step-card>
 
@@ -220,23 +163,16 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
         <!-- Third-party Providers -->
         <ptah-docs-collapsible-card
           [icon]="LayersIcon"
-          title="Provider"
-          subtitle="OpenRouter, Moonshot (Kimi), Z.AI (GLM) — no Claude subscription needed"
+          title="Third-Party Providers"
+          subtitle="OpenRouter, Moonshot (Kimi), Z.AI (GLM) — bring your own key"
         >
           <p class="text-sm text-neutral-content mb-4">
-            Use third-party AI providers with your own API key from that
-            provider. These providers speak an Anthropic-compatible API, so Ptah
-            routes requests through them seamlessly —
+            Use third-party AI providers with your own API key. These providers
+            speak an Anthropic-compatible API, so Ptah routes requests through
+            them seamlessly —
             <strong class="text-base-content/70"
               >no Claude subscription required</strong
             >.
-          </p>
-          <p class="text-sm text-neutral-content mb-4">
-            Select the
-            <strong class="text-base-content/80">Provider</strong> tab, choose
-            your provider from the dropdown, and enter your API key. Each
-            provider's key is stored separately, so you can switch between
-            providers without losing credentials.
           </p>
           <p class="text-sm text-neutral-content/60 italic">
             See the
@@ -249,46 +185,6 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
             models.
           </p>
         </ptah-docs-collapsible-card>
-
-        <!-- Auto Mode -->
-        <ptah-docs-collapsible-card
-          [icon]="SettingsIcon"
-          title="Auto"
-          subtitle="Tries all configured credentials automatically"
-        >
-          <p class="text-sm text-neutral-content">
-            Auto mode detects and uses the first available credential in
-            priority order:
-            <strong class="text-base-content/70">
-              Provider → OAuth → API Key</strong
-            >. Configure multiple credentials and Ptah will use whichever is
-            available. All credential fields are shown simultaneously in this
-            mode.
-          </p>
-        </ptah-docs-collapsible-card>
-      </div>
-
-      <!-- Test connection tip -->
-      <div
-        viewportAnimation
-        [viewportConfig]="tipConfig"
-        class="mt-8 flex items-start gap-3 p-4 rounded-xl bg-secondary/5 border border-secondary/20"
-      >
-        <lucide-angular
-          [img]="ShieldCheckIcon"
-          class="w-5 h-5 text-success shrink-0 mt-0.5"
-          aria-hidden="true"
-        />
-        <p class="text-sm text-neutral-content">
-          <strong class="text-base-content/80"
-            >Always test your connection:</strong
-          >
-          After entering credentials, click
-          <strong class="text-base-content/80"
-            >Save &amp; Test Connection</strong
-          >. Ptah will verify your credentials are valid and show a success or
-          error message with specific troubleshooting tips.
-        </p>
       </div>
 
       <ng-container media>
@@ -311,8 +207,7 @@ export class AuthenticationSectionComponent {
   public readonly CpuIcon = Cpu;
   public readonly LayersIcon = Layers;
   public readonly SettingsIcon = Settings;
-  public readonly AlertTriangleIcon = AlertTriangle;
-
+  public readonly TerminalIcon = Terminal;
   public readonly headingConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.6,

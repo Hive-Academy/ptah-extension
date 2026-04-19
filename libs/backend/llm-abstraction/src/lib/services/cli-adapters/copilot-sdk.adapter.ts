@@ -275,6 +275,8 @@ function isFileWriteTool(toolName: string): boolean {
  *  Keep in sync with latest available models. */
 const COPILOT_MODELS: CliModelInfo[] = [
   { id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6' },
+  { id: 'claude-opus-4.7', name: 'Claude Opus 4.7' },
+  { id: 'claude-opus-4.7-fast', name: 'Claude Opus 4.7 Fast' },
   { id: 'claude-opus-4.6', name: 'Claude Opus 4.6' },
   { id: 'claude-opus-4.6-fast', name: 'Claude Opus 4.6 Fast' },
   { id: 'claude-opus-4.5', name: 'Claude Opus 4.5' },

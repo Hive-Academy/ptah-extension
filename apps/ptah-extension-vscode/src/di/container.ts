@@ -57,7 +57,9 @@ import {
   AgentRpcHandlers, // TASK_2025_157: Agent Orchestration
   PtahCliRpcHandlers, // TASK_2025_167: Ptah CLI Management
   SkillsShRpcHandlers, // TASK_2025_204: Skills.sh Marketplace
+  McpDirectoryRpcHandlers, // MCP Server Directory
   WebSearchRpcHandlers, // TASK_2025_235: Web Search Settings
+  HarnessRpcHandlers, // Harness Setup Builder
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
@@ -78,6 +80,13 @@ import {
 
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 
+// Deep Agent SDK (TASK_2025_248 / LangChain deep-agents runtime)
+import {
+  registerDeepAgentServices,
+  AgentRuntimeSelector,
+} from '@ptah-extension/deep-agent-sdk';
+import { DEEP_AGENT_TOKENS } from '@ptah-extension/deep-agent-sdk';
+
 import {
   registerVsCodeLmToolsServices,
   IDE_CAPABILITIES_TOKEN,
@@ -90,8 +99,15 @@ import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction'
 
 import { registerTemplateGenerationServices } from '@ptah-extension/template-generation';
 
-import { registerPlatformVscodeServices } from '@ptah-extension/platform-vscode';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  registerPlatformVscodeServices,
+  VscodeWorkspaceProvider,
+} from '@ptah-extension/platform-vscode';
+import {
+  PLATFORM_TOKENS,
+  FILE_BASED_SETTINGS_KEYS,
+} from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
 // Platform abstraction implementations (TASK_2025_203)
 import {
@@ -242,6 +258,23 @@ export class DIContainer {
     // PHASE 1.5: Register remaining vscode-core infrastructure services
     registerVsCodeCoreServices(container, context, logger);
 
+    // PHASE 1.5.0: Wire file-based settings into ConfigManager (TASK_2025_253)
+    // ConfigManager must route FILE_BASED_SETTINGS_KEYS to PtahFileSettingsManager
+    // (~/.ptah/settings.json) instead of VS Code workspace config. These keys were
+    // removed from package.json contributes.configuration (TASK_2025_247).
+    {
+      const configManager = container.resolve<ConfigManager>(
+        TOKENS.CONFIG_MANAGER,
+      );
+      const workspaceProvider = container.resolve(
+        PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      ) as VscodeWorkspaceProvider;
+      configManager.setFileSettingsStore(
+        FILE_BASED_SETTINGS_KEYS,
+        workspaceProvider.fileSettings,
+      );
+    }
+
     // PHASE 1.5.1: Subagent Registry Service (TASK_2025_103)
     // Must be registered AFTER vscode-core (Logger dependency) but BEFORE RPC handlers
     container.registerSingleton(
@@ -330,6 +363,12 @@ export class DIContainer {
     // TASK_2025_204: Skills.sh Marketplace RPC handlers
     container.registerSingleton(SkillsShRpcHandlers);
 
+    // MCP Server Directory RPC handlers
+    container.registerSingleton(McpDirectoryRpcHandlers);
+
+    // Harness Setup Builder RPC handlers
+    container.registerSingleton(HarnessRpcHandlers);
+
     // TASK_2025_148: Wizard Generation RPC handlers (requires container for lazy resolution)
     // TASK_2025_203: Added WORKSPACE_PROVIDER injection
     container.register(WizardGenerationRpcHandlers, {
@@ -356,7 +395,7 @@ export class DIContainer {
           c.resolve(TOKENS.WEBVIEW_MANAGER),
           c.resolve(TOKENS.AGENT_SESSION_WATCHER_SERVICE),
           c.resolve(TOKENS.COMMAND_MANAGER),
-          c.resolve(SDK_TOKENS.SDK_AGENT_ADAPTER),
+          c.resolve(TOKENS.AGENT_ADAPTER),
           // Domain-specific handlers
           c.resolve(ChatRpcHandlers),
           c.resolve(SessionRpcHandlers),
@@ -378,7 +417,9 @@ export class DIContainer {
           c.resolve(AgentRpcHandlers), // TASK_2025_157
           c.resolve(PtahCliRpcHandlers), // TASK_2025_167
           c.resolve(SkillsShRpcHandlers), // TASK_2025_204
+          c.resolve(McpDirectoryRpcHandlers), // MCP Server Directory
           c.resolve(WebSearchRpcHandlers), // TASK_2025_235
+          c.resolve(HarnessRpcHandlers),
           c, // Pass container instance
         );
       },
@@ -405,10 +446,31 @@ export class DIContainer {
 
     // TASK_2025_244: Register browser capabilities for PtahAPIBuilder.
     // ChromeLauncherBrowserCapabilities uses chrome-launcher + chrome-remote-interface
-    // to launch and control a headless Chrome for browser automation tools.
-    container.register(BROWSER_CAPABILITIES_TOKEN, {
-      useValue: new ChromeLauncherBrowserCapabilities(),
-    });
+    // to launch and control Chrome for browser automation tools.
+    // Headless/viewport are agent-controlled via ptah_browser_navigate params.
+    {
+      const workspaceProvider = container.resolve<IWorkspaceProvider>(
+        PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      );
+      container.register(BROWSER_CAPABILITIES_TOKEN, {
+        useValue: new ChromeLauncherBrowserCapabilities(
+          // getRecordingDir — routed via file-based settings for Electron parity
+          // Defaults to {workspace}/.ptah/recordings/ when no explicit dir is configured
+          () => {
+            const configured =
+              workspaceProvider.getConfiguration<string>(
+                'ptah',
+                'browser.recordingDir',
+                '',
+              ) ?? '';
+            if (configured) return configured;
+            const wsRoot = workspaceProvider.getWorkspaceRoot();
+            if (wsRoot) return `${wsRoot}/.ptah/recordings`;
+            return '';
+          },
+        ),
+      });
+    }
 
     // ========================================
     // PHASE 2.7: Agent SDK Integration (TASK_2025_044 Batch 3)
@@ -434,6 +496,25 @@ export class DIContainer {
     // SDK_TOKENS.SDK_AGENT_ADAPTER both use Symbol.for('SdkAgentAdapter'), so
     // they are the same symbol. registerSdkServices() registers the adapter
     // directly against that symbol -- no bridge needed.
+
+    // ========================================
+    // PHASE 2.75: Deep Agent SDK (LangChain runtime)
+    // ========================================
+    // Registers: ModelFactoryService, StreamAdapterService, ToolBridgeService,
+    // SessionRegistry, DeepAgentAdapter, AgentRuntimeSelector.
+    // Must run AFTER registerSdkServices() so the selector can resolve
+    // SDK_TOKENS.SDK_AGENT_ADAPTER as its inner Claude adapter.
+    registerDeepAgentServices(container, logger);
+
+    // TOKENS.AGENT_ADAPTER → AgentRuntimeSelector (the IAgentAdapter facade).
+    // Consumers that don't care which runtime backs the session inject this
+    // token. The selector dispatches to SDK or Deep based on `ptah.runtime`.
+    container.register(TOKENS.AGENT_ADAPTER, {
+      useFactory: (c) =>
+        c.resolve<AgentRuntimeSelector>(
+          DEEP_AGENT_TOKENS.AGENT_RUNTIME_SELECTOR,
+        ),
+    });
 
     // ========================================
     // PHASE 2.8: Agent Generation Services (TASK_2025_069)

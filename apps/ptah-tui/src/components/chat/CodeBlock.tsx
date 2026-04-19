@@ -1,0 +1,67 @@
+/**
+ * CodeBlock -- Syntax-highlighted code block for the TUI.
+ *
+ * Renders a bordered box with language label and syntax highlighting
+ * via cli-highlight. Falls back to plain text if highlighting fails.
+ */
+
+import React from 'react';
+import { Box, Text } from 'ink';
+
+import { useTheme } from '../../hooks/use-theme.js';
+import { Panel } from '../atoms/index.js';
+
+let highlightSync:
+  | ((code: string, options?: { language?: string }) => string)
+  | null = null;
+
+try {
+  const cliHighlight = require('cli-highlight') as {
+    highlight: (code: string, options?: { language?: string }) => string;
+  };
+  highlightSync = cliHighlight.highlight;
+} catch {
+  // cli-highlight not available -- fall back to plain text
+}
+
+interface CodeBlockProps {
+  code: string;
+  language?: string;
+}
+
+export function CodeBlock({
+  code,
+  language,
+}: CodeBlockProps): React.JSX.Element {
+  const theme = useTheme();
+  let displayCode = code;
+
+  if (highlightSync && language) {
+    try {
+      displayCode = highlightSync(code, { language });
+    } catch {
+      // Highlighting failed -- use plain text
+    }
+  }
+
+  return (
+    <Panel>
+      {language && (
+        <Box
+          borderStyle="single"
+          borderColor={theme.ui.borderSubtle}
+          borderBottom
+          borderTop={false}
+          borderLeft={false}
+          borderRight={false}
+          marginBottom={0}
+        >
+          <Text color={theme.ui.brand} bold>
+            {language}
+          </Text>
+        </Box>
+      )}
+      <Text>{displayCode}</Text>
+    </Panel>
+  );
+}

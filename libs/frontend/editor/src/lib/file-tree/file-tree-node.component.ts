@@ -21,6 +21,7 @@ import {
 import { FileTreeNode } from '../models/file-tree.model';
 import { EditorService } from '../services/editor.service';
 import { GitStatusService } from '../services/git-status.service';
+import { FileTreeInlineInputComponent } from './file-tree-inline-input.component';
 import type { GitFileStatus } from '@ptah-extension/shared';
 
 /**
@@ -41,57 +42,87 @@ import type { GitFileStatus } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-file-tree-node',
   standalone: true,
-  imports: [FileTreeNodeComponent, LucideAngularModule],
+  imports: [
+    FileTreeNodeComponent,
+    LucideAngularModule,
+    FileTreeInlineInputComponent,
+  ],
   template: `
-    <div
-      class="flex items-center gap-1.5 px-2 py-0.5 cursor-pointer rounded text-sm select-none hover:bg-base-300 transition-colors"
-      [class.bg-primary]="isActive()"
-      [class.text-primary-content]="isActive()"
-      [style.padding-left.px]="depth() * 16 + 8"
-      (click)="onNodeClick()"
-      role="treeitem"
-      [attr.aria-expanded]="node().type === 'directory' ? expanded() : null"
-      [attr.aria-selected]="isActive()"
-      [attr.aria-label]="node().name"
-    >
-      @if (node().type === 'directory') {
-        <span class="text-xs w-4 text-center opacity-70 flex-shrink-0">{{
-          expanded() ? '&#9660;' : '&#9654;'
+    @if (isRenaming()) {
+      <ptah-file-tree-inline-input
+        [initialValue]="node().name"
+        [depth]="depth()"
+        (submitted)="onRenameSubmit($event)"
+        (cancelled)="isRenaming.set(false)"
+      />
+    } @else {
+      <div
+        class="flex items-center gap-1.5 px-2 py-0.5 cursor-pointer rounded text-sm select-none hover:bg-base-300 transition-colors"
+        [class.bg-primary]="isActive()"
+        [class.text-primary-content]="isActive()"
+        [style.padding-left.px]="depth() * 16 + 8"
+        (click)="onNodeClick()"
+        (contextmenu)="onRightClick($event)"
+        role="treeitem"
+        [attr.aria-expanded]="node().type === 'directory' ? expanded() : null"
+        [attr.aria-selected]="isActive()"
+        [attr.aria-label]="node().name"
+      >
+        @if (node().type === 'directory') {
+          <span class="text-xs w-4 text-center opacity-70 flex-shrink-0">{{
+            expanded() ? '&#9660;' : '&#9654;'
+          }}</span>
+          <lucide-angular
+            [img]="FolderIcon"
+            class="w-4 h-4 flex-shrink-0 text-amber-500"
+            aria-hidden="true"
+          />
+        } @else {
+          <span class="w-4 flex-shrink-0"></span>
+          <lucide-angular
+            [img]="getFileIcon()"
+            [class]="'w-4 h-4 flex-shrink-0 ' + getFileIconColor()"
+            aria-hidden="true"
+          />
+        }
+        <span class="truncate" [class]="fileNameColor()">{{
+          node().name
         }}</span>
-        <lucide-angular
-          [img]="FolderIcon"
-          class="w-4 h-4 flex-shrink-0 text-amber-500"
-          aria-hidden="true"
-        />
-      } @else {
-        <span class="w-4 flex-shrink-0"></span>
-        <lucide-angular
-          [img]="getFileIcon()"
-          [class]="'w-4 h-4 flex-shrink-0 ' + getFileIconColor()"
-          aria-hidden="true"
-        />
-      }
-      <span class="truncate">{{ node().name }}</span>
-      @if (nodeGitStatus()) {
-        <span
-          class="ml-auto text-[10px] font-mono flex-shrink-0"
-          [class]="gitStatusColor()"
-          [title]="'Git: ' + nodeGitStatus()!.status"
-          aria-hidden="true"
-          >{{ nodeGitStatus()!.status }}</span
-        >
-      }
-      @if (isLoadingChildren()) {
-        <span class="loading loading-spinner loading-xs ml-auto"></span>
-      }
-    </div>
+        @if (nodeGitStatus()) {
+          <span
+            class="ml-auto text-[10px] font-mono flex-shrink-0"
+            [class]="gitStatusColor()"
+            [title]="gitStatusTitle()"
+            aria-hidden="true"
+            >{{ gitStatusLabel() }}</span
+          >
+        }
+        @if (hasChangedChildren()) {
+          <span
+            class="w-1.5 h-1.5 rounded-full bg-warning ml-auto flex-shrink-0"
+            title="Contains changes"
+          ></span>
+        }
+        @if (isLoadingChildren()) {
+          <span class="loading loading-spinner loading-xs ml-auto"></span>
+        }
+      </div>
+    }
     @if (node().type === 'directory' && expanded()) {
+      @if (creatingType()) {
+        <ptah-file-tree-inline-input
+          [depth]="depth() + 1"
+          (submitted)="onCreateSubmit($event)"
+          (cancelled)="creatingType.set(null)"
+        />
+      }
       @for (child of sortedChildren(); track child.path) {
         <ptah-file-tree-node
           [node]="child"
           [depth]="depth() + 1"
           [activeFilePath]="activeFilePath()"
           (fileClicked)="fileClicked.emit($event)"
+          (contextMenuRequested)="contextMenuRequested.emit($event)"
         />
       }
     }
@@ -107,9 +138,15 @@ export class FileTreeNodeComponent {
   readonly activeFilePath = input<string | undefined>(undefined);
 
   readonly fileClicked = output<string>();
+  readonly contextMenuRequested = output<{
+    event: MouseEvent;
+    node: FileTreeNode;
+  }>();
 
   readonly expanded = signal(false);
   readonly isLoadingChildren = signal(false);
+  readonly isRenaming = signal(false);
+  readonly creatingType = signal<'file' | 'folder' | null>(null);
 
   /**
    * Look up the git status for this node by converting its absolute path
@@ -128,7 +165,7 @@ export class FileTreeNodeComponent {
    */
   readonly nodeGitStatus = computed((): GitFileStatus | undefined => {
     const absolutePath = this.node().path;
-    const workspaceRoot = this.gitStatus.activeWorkspacePath;
+    const workspaceRoot = this.gitStatus.activeWorkspacePath();
     if (!workspaceRoot) return undefined;
 
     // Normalize both to forward slashes for consistent comparison
@@ -157,6 +194,38 @@ export class FileTreeNodeComponent {
    * M=warning (modified), A=success (added), D=error (deleted),
    * ??=info (untracked), default=muted.
    */
+  private static readonly STATUS_LABELS: Record<string, string> = {
+    M: 'M',
+    A: 'A',
+    D: 'D',
+    R: 'R',
+    C: 'C',
+    '??': 'U',
+    '!': 'I',
+  };
+
+  private static readonly STATUS_TITLES: Record<string, string> = {
+    M: 'Modified',
+    A: 'Added',
+    D: 'Deleted',
+    R: 'Renamed',
+    C: 'Copied',
+    '??': 'Untracked',
+    '!': 'Ignored',
+  };
+
+  readonly gitStatusLabel = computed((): string => {
+    const status = this.nodeGitStatus();
+    if (!status) return '';
+    return FileTreeNodeComponent.STATUS_LABELS[status.status] ?? status.status;
+  });
+
+  readonly gitStatusTitle = computed((): string => {
+    const status = this.nodeGitStatus();
+    if (!status) return '';
+    return FileTreeNodeComponent.STATUS_TITLES[status.status] ?? status.status;
+  });
+
   readonly gitStatusColor = computed((): string => {
     const status = this.nodeGitStatus();
     if (!status) return '';
@@ -172,6 +241,55 @@ export class FileTreeNodeComponent {
       default:
         return 'text-base-content/50';
     }
+  });
+
+  /**
+   * CSS class for coloring the entire filename based on git status.
+   * Applied to files only (directories use hasChangedChildren dot instead).
+   * Deleted files also get a line-through decoration.
+   */
+  readonly fileNameColor = computed((): string => {
+    const status = this.nodeGitStatus();
+    if (!status) return '';
+    switch (status.status) {
+      case 'M':
+        return 'text-warning';
+      case 'A':
+        return 'text-success';
+      case 'D':
+        return 'text-error line-through';
+      case '??':
+        return 'text-success';
+      default:
+        return '';
+    }
+  });
+
+  /**
+   * Whether this directory contains any files with git changes.
+   * Used to show a small dot indicator on directories that have modified children.
+   * Only applies to directory nodes.
+   */
+  readonly hasChangedChildren = computed((): boolean => {
+    if (this.node().type !== 'directory') return false;
+    const nodePath = this.node().path.replace(/\\/g, '/');
+    const workspaceRoot = this.gitStatus.activeWorkspacePath();
+    if (!workspaceRoot) return false;
+
+    const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
+    const rootWithSlash = normalizedRoot.endsWith('/')
+      ? normalizedRoot
+      : normalizedRoot + '/';
+    const relativeDirPath = nodePath.startsWith(rootWithSlash)
+      ? nodePath.slice(rootWithSlash.length)
+      : '';
+    if (!relativeDirPath) return false;
+
+    const dirPrefix = relativeDirPath + '/';
+    for (const key of this.gitStatus.fileStatusMap().keys()) {
+      if (key.startsWith(dirPrefix)) return true;
+    }
+    return false;
   });
 
   // Lucide icons
@@ -212,6 +330,47 @@ export class FileTreeNodeComponent {
       }
     } else {
       this.fileClicked.emit(this.node().path);
+    }
+  }
+
+  protected onRightClick(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.contextMenuRequested.emit({ event, node: this.node() });
+  }
+
+  /** Start rename mode — called externally via the context menu action. */
+  startRename(): void {
+    this.isRenaming.set(true);
+  }
+
+  /** Start creating a new file/folder inside this directory — called externally. */
+  startCreate(type: 'file' | 'folder'): void {
+    if (this.node().type === 'directory') {
+      this.expanded.set(true);
+      this.creatingType.set(type);
+    }
+  }
+
+  protected onRenameSubmit(newName: string): void {
+    this.isRenaming.set(false);
+    const currentPath = this.node().path.replace(/\\/g, '/');
+    const parentPath = currentPath.substring(0, currentPath.lastIndexOf('/'));
+    const newPath = parentPath + '/' + newName;
+    if (newPath !== currentPath) {
+      void this.editorService.renameItem(currentPath, newPath);
+    }
+  }
+
+  protected onCreateSubmit(name: string): void {
+    const type = this.creatingType();
+    this.creatingType.set(null);
+    const dirPath = this.node().path.replace(/\\/g, '/');
+    const newPath = dirPath + '/' + name;
+    if (type === 'file') {
+      void this.editorService.createFile(newPath);
+    } else if (type === 'folder') {
+      void this.editorService.createFolder(newPath);
     }
   }
 

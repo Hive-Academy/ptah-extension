@@ -46,6 +46,14 @@ COPY apps/ptah-license-server/prisma.config.ts ./apps/ptah-license-server/
 # Using --ignore-scripts to prevent postinstall issues in Docker build
 RUN npm ci --ignore-scripts
 
+# The host package-lock.json is generated on Windows, so it only records the
+# Windows esbuild binary in optionalDependencies. `npm ci` strictly follows
+# the lockfile and skips the Linux binary, causing a runtime failure when
+# nx esbuild executes. Explicitly install the Linux binary to compensate.
+# Pinned to the same version that `esbuild` itself resolves to.
+RUN ESBUILD_VERSION=$(node -p "require('./node_modules/esbuild/package.json').version") && \
+    npm install --no-save --ignore-scripts "@esbuild/linux-x64@${ESBUILD_VERSION}"
+
 # Generate Prisma client
 # This must happen after npm ci installs prisma
 # Prisma 7 requires running from the app directory where prisma.config.ts is located

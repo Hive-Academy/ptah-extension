@@ -81,6 +81,8 @@ export interface AgentSummaryChunk {
    * @see TASK_2025_099
    */
   agentId: string;
+  /** Parent session ID for routing to correct tab in multi-tab scenarios */
+  sessionId: string;
 }
 
 /**
@@ -1094,6 +1096,7 @@ export class AgentSessionWatcherService extends EventEmitter {
           toolUseId: chunkId,
           summaryDelta,
           agentId, // Stable key for summary lookup (doesn't change between hook/complete)
+          sessionId: watch.sessionId, // Parent session ID for multi-tab routing
           // TASK_2025_102: Include structured content blocks for proper interleaving
           contentBlocks:
             allContentBlocks.length > 0 ? allContentBlocks : undefined,

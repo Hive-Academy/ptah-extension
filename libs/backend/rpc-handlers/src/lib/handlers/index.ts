@@ -33,3 +33,6 @@ export { ProviderRpcHandlers } from './provider-rpc.handlers';
 
 // Tier 2 handlers (TASK_2025_235 - web search settings)
 export { WebSearchRpcHandlers } from './web-search-rpc.handlers';
+
+// Harness Setup Builder handlers
+export { HarnessRpcHandlers } from './harness-rpc.handlers';

@@ -53,6 +53,15 @@ export class ConversationService {
   } | null>(null);
   readonly queueRestoreSignal = this._queueRestoreSignal.asReadonly();
 
+  /**
+   * Clear the queue restore signal after content has been consumed by ChatInputComponent.
+   * Must be called after restoration to prevent the effect from re-firing
+   * on every activeTab() change.
+   */
+  clearQueueRestoreSignal(): void {
+    this._queueRestoreSignal.set(null);
+  }
+
   // ============================================================================
   // CALLBACK PATTERN REMOVED (TASK_2025_054 Batch 3)
   // ============================================================================
@@ -132,16 +141,17 @@ export class ConversationService {
    */
   public queueOrAppendMessage(
     content: string,
-    options?: SendMessageOptions
+    options?: SendMessageOptions,
   ): void {
-    const activeTabId = this.tabManager.activeTabId();
-    if (!activeTabId) return;
+    // Use explicit tabId from options (canvas tile isolation) or fall back to active tab
+    const targetTabId = options?.tabId ?? this.tabManager.activeTabId();
+    if (!targetTabId) return;
 
     // Validate content using centralized validation service
     const validation = this.validator.validate(content);
     if (!validation.valid) {
       console.warn(
-        `[ConversationService] Invalid queue content: ${validation.reason}`
+        `[ConversationService] Invalid queue content: ${validation.reason}`,
       );
       return;
     }
@@ -149,8 +159,8 @@ export class ConversationService {
     // Sanitize content (trim whitespace)
     const sanitized = this.validator.sanitize(content);
 
-    const activeTab = this.tabManager.activeTab();
-    const existingQueue = activeTab?.queuedContent?.trim() ?? '';
+    const targetTab = this.tabManager.tabs().find((t) => t.id === targetTabId);
+    const existingQueue = targetTab?.queuedContent?.trim() ?? '';
 
     let newQueuedContent: string;
     const tabUpdate: Record<string, unknown> = {};
@@ -167,17 +177,18 @@ export class ConversationService {
     }
 
     tabUpdate['queuedContent'] = newQueuedContent;
-    this.tabManager.updateTab(activeTabId, tabUpdate);
+    this.tabManager.updateTab(targetTabId, tabUpdate);
   }
 
   /**
-   * Clear queued content and options for active tab
+   * Clear queued content and options for a specific tab or the active tab.
+   * @param tabId - Optional tab ID. Falls back to active tab if not provided.
    */
-  public clearQueuedContent(): void {
-    const activeTabId = this.tabManager.activeTabId();
-    if (!activeTabId) return;
+  public clearQueuedContent(tabId?: string): void {
+    const targetTabId = tabId ?? this.tabManager.activeTabId();
+    if (!targetTabId) return;
 
-    this.tabManager.updateTab(activeTabId, {
+    this.tabManager.updateTab(targetTabId, {
       queuedContent: '',
       queuedOptions: null,
     });
@@ -229,7 +240,7 @@ export class ConversationService {
    */
   async sendOrQueueMessage(
     content: string,
-    filePaths?: string[]
+    filePaths?: string[],
   ): Promise<void> {
     if (this.isStreaming()) {
       // Queue the message instead of sending
@@ -256,14 +267,14 @@ export class ConversationService {
       const ready = await this.waitForServices(5000);
       if (!ready) {
         console.error(
-          '[ConversationService] startNewConversation: Services initialization timeout'
+          '[ConversationService] startNewConversation: Services initialization timeout',
         );
         return;
       }
 
       if (!this.claudeRpcService || !this.vscodeService) {
         console.error(
-          '[ConversationService] Services not available after initialization'
+          '[ConversationService] Services not available after initialization',
         );
         return;
       }
@@ -286,7 +297,13 @@ export class ConversationService {
 
       // Update tab with draft status (claudeSessionId stays null until SDK responds)
       // TASK_2025_192: Auto-name session from first message content (not "New Chat")
-      const autoName = content.substring(0, 50).trim() || 'New Chat';
+      // Only auto-name if user hasn't already set a custom name (preserve user renames)
+      const currentTab = this.tabManager.activeTab();
+      const currentName = currentTab?.name;
+      const hasUserName = currentName && currentName !== 'New Chat';
+      const autoName = hasUserName
+        ? currentName
+        : content.substring(0, 50).trim() || 'New Chat';
       this.tabManager.updateTab(activeTabId, {
         name: autoName,
         title: autoName,
@@ -329,10 +346,18 @@ export class ConversationService {
       if (!result.success) {
         console.error(
           '[ConversationService] Failed to start chat:',
-          result.error
+          result.error,
         );
-        // Update tab status to loaded (failed)
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        const errorMessage = createExecutionChatMessage({
+          id: this.generateMessageId(),
+          role: 'assistant',
+          rawContent: result.error || 'Failed to start chat session.',
+        });
+        const currentTab = this.tabManager.activeTab();
+        this.tabManager.updateTab(activeTabId, {
+          status: 'loaded',
+          messages: [...(currentTab?.messages ?? []), errorMessage],
+        });
       } else {
         // Set status to 'streaming' after successful chat:start
         // Real sessionId will arrive with first streaming event
@@ -345,7 +370,7 @@ export class ConversationService {
     } catch (error) {
       console.error(
         '[ConversationService] Failed to start new conversation:',
-        error
+        error,
       );
 
       // Update tab status to loaded (error)
@@ -362,21 +387,31 @@ export class ConversationService {
   /**
    * Continue an existing conversation with Claude
    * Uses the real session ID (SDK UUID) for resume, tabId for event routing
+   *
+   * @param content - Message content to send
+   * @param files - Optional file paths to include
+   * @param explicitTabId - Optional tab ID to target. When provided (e.g., from sendQueuedMessage),
+   *   uses this tab instead of activeTab. Prevents user message being added to the wrong tab
+   *   if the user switched tabs before the queued message fires.
    */
-  async continueConversation(content: string, files?: string[]): Promise<void> {
+  async continueConversation(
+    content: string,
+    files?: string[],
+    explicitTabId?: string,
+  ): Promise<void> {
     try {
       // Wait for services to be ready (with timeout)
       const ready = await this.waitForServices(5000);
       if (!ready) {
         console.error(
-          '[ConversationService] continueConversation: Services initialization timeout'
+          '[ConversationService] continueConversation: Services initialization timeout',
         );
         return;
       }
 
       if (!this.claudeRpcService || !this.vscodeService) {
         console.error(
-          '[ConversationService] Services not available after initialization'
+          '[ConversationService] Services not available after initialization',
         );
         return;
       }
@@ -387,22 +422,25 @@ export class ConversationService {
         return;
       }
 
-      // Get REAL Claude session ID from the ACTIVE TAB (not global SessionManager)
+      // Use explicit tab if provided (queued message), otherwise fall back to active tab
+      const targetTabId = explicitTabId ?? this.tabManager.activeTabId();
+      const targetTab = explicitTabId
+        ? this.tabManager.tabs().find((t) => t.id === explicitTabId)
+        : this.tabManager.activeTab();
+
+      // Get REAL Claude session ID from the TARGET TAB (not global SessionManager)
       // This is critical for multi-tab support - each tab has its own session
-      const activeTab = this.tabManager.activeTab();
-      const sessionId = activeTab?.claudeSessionId;
+      const sessionId = targetTab?.claudeSessionId;
       if (!sessionId) {
         console.warn(
-          '[ConversationService] No Claude session ID on active tab - starting new conversation'
+          '[ConversationService] No Claude session ID on target tab - starting new conversation',
         );
         return this.startNewConversation(content, files);
       }
 
-      // Get active tab ID for event routing
-      const activeTabId = this.tabManager.activeTabId();
-      if (!activeTabId) {
+      if (!targetTabId) {
         console.warn(
-          '[ConversationService] No active tab for continuing conversation'
+          '[ConversationService] No target tab for continuing conversation',
         );
         return this.startNewConversation(content, files);
       }
@@ -411,14 +449,14 @@ export class ConversationService {
       this.sessionManager.setStatus('resuming');
 
       // Update tab status
-      this.tabManager.updateTab(activeTabId, { status: 'resuming' });
+      this.tabManager.updateTab(targetTabId, { status: 'resuming' });
 
       // TASK_2025_093 FIX: Finalize any existing streaming state before starting new turn.
       // This converts the streaming content into a proper message in tab.messages.
       // Without this, the streaming message would persist alongside new messages.
-      if (activeTab?.streamingState) {
+      if (targetTab?.streamingState) {
         const streamingHandler = this.injector.get(StreamingHandlerService);
-        streamingHandler.finalizeCurrentMessage(activeTabId);
+        streamingHandler.finalizeCurrentMessage(targetTabId);
         // Re-fetch the tab after finalization to get updated messages
         // Note: The tab's messages array now includes the finalized assistant message
       }
@@ -426,7 +464,7 @@ export class ConversationService {
       // Re-fetch tab after potential finalization to get updated messages
       const currentTab = this.tabManager
         .tabs()
-        .find((t) => t.id === activeTabId);
+        .find((t) => t.id === targetTabId);
 
       // Add user message immediately
       const userMessage = createExecutionChatMessage({
@@ -438,7 +476,7 @@ export class ConversationService {
       });
 
       // Update tab with user message (use currentTab to include finalized messages)
-      this.tabManager.updateTab(activeTabId, {
+      this.tabManager.updateTab(targetTabId, {
         messages: [...(currentTab?.messages ?? []), userMessage],
       });
 
@@ -448,29 +486,38 @@ export class ConversationService {
       const result = await this.claudeRpcService.call('chat:continue', {
         prompt: content,
         sessionId: sessionId as SessionId,
-        tabId: activeTabId, // For event routing
+        tabId: targetTabId, // For event routing
         workspacePath,
-        model: activeTab?.sessionModel ?? undefined,
+        model: targetTab?.sessionModel ?? undefined,
       });
 
       if (!result.success) {
         console.error(
           '[ConversationService] Failed to continue chat:',
-          result.error
+          result.error,
         );
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        const errorMsg = createExecutionChatMessage({
+          id: this.generateMessageId(),
+          role: 'assistant',
+          rawContent: result.error || 'Failed to continue chat session.',
+        });
+        const updatedTab = this.tabManager.activeTab();
+        this.tabManager.updateTab(targetTabId, {
+          status: 'loaded',
+          messages: [...(updatedTab?.messages ?? []), errorMsg],
+        });
       } else {
         this.sessionManager.setStatus('streaming');
-        this.tabManager.updateTab(activeTabId, { status: 'streaming' });
+        this.tabManager.updateTab(targetTabId, { status: 'streaming' });
       }
     } catch (error) {
       console.error(
         '[ConversationService] Failed to continue conversation:',
-        error
+        error,
       );
-      const activeTabId = this.tabManager.activeTabId();
-      if (activeTabId) {
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+      const fallbackTabId = explicitTabId ?? this.tabManager.activeTabId();
+      if (fallbackTabId) {
+        this.tabManager.updateTab(fallbackTabId, { status: 'loaded' });
       }
     }
   }
@@ -527,7 +574,7 @@ export class ConversationService {
       // Call RPC to abort
       console.log(
         '[ConversationService] Calling chat:abort RPC for session:',
-        sessionId
+        sessionId,
       );
       const result = await this.claudeRpcService.call('chat:abort', {
         sessionId: sessionId as SessionId,
@@ -536,12 +583,12 @@ export class ConversationService {
       if (result.success) {
         console.log(
           '[ConversationService] chat:abort succeeded for session:',
-          sessionId
+          sessionId,
         );
       } else {
         console.error(
           '[ConversationService] Failed to abort chat:',
-          result.error
+          result.error,
         );
       }
 
@@ -600,7 +647,7 @@ export class ConversationService {
       if (!sessionId) {
         // No session — abort immediately without confirmation
         console.log(
-          '[ConversationService] abortWithConfirmation: no session, aborting immediately'
+          '[ConversationService] abortWithConfirmation: no session, aborting immediately',
         );
         await this.abortCurrentMessage();
         return true;
@@ -621,7 +668,7 @@ export class ConversationService {
         // RPC failed — fail-safe: abort immediately without confirmation
         console.warn(
           '[ConversationService] abortWithConfirmation: RPC failed, falling back to immediate abort',
-          rpcError
+          rpcError,
         );
         await this.abortCurrentMessage();
         return true;
@@ -630,7 +677,7 @@ export class ConversationService {
       if (agentCount === 0) {
         // No running agents — abort immediately
         console.log(
-          '[ConversationService] abortWithConfirmation: no running agents, aborting immediately'
+          '[ConversationService] abortWithConfirmation: no running agents, aborting immediately',
         );
         await this.abortCurrentMessage();
         return true;
@@ -640,7 +687,7 @@ export class ConversationService {
       console.log(
         '[ConversationService] abortWithConfirmation: showing confirmation for',
         agentCount,
-        'running agents'
+        'running agents',
       );
 
       const confirmationDialog = this.injector.get(ConfirmationDialogService);
@@ -654,21 +701,21 @@ export class ConversationService {
 
       if (confirmed) {
         console.log(
-          '[ConversationService] abortWithConfirmation: user confirmed, aborting'
+          '[ConversationService] abortWithConfirmation: user confirmed, aborting',
         );
         await this.abortCurrentMessage();
         return true;
       }
 
       console.log(
-        '[ConversationService] abortWithConfirmation: user cancelled, keeping agents running'
+        '[ConversationService] abortWithConfirmation: user cancelled, keeping agents running',
       );
       return false;
     } catch (error) {
       // Unexpected error — fail-safe: abort immediately
       console.error(
         '[ConversationService] abortWithConfirmation failed, falling back to immediate abort:',
-        error
+        error,
       );
       await this.abortCurrentMessage();
       return true;

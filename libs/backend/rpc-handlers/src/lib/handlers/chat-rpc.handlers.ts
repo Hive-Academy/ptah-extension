@@ -23,15 +23,17 @@ import {
   isPremiumTier,
 } from '@ptah-extension/vscode-core';
 import {
-  SdkAgentAdapter,
   SessionHistoryReaderService,
+  DeepAgentHistoryReaderService,
   SessionMetadataStore,
   SDK_TOKENS,
   PluginLoaderService,
   PtahCliRegistry,
   SlashCommandInterceptor,
+  DEFAULT_FALLBACK_MODEL_ID,
   type EnhancedPromptsService,
 } from '@ptah-extension/agent-sdk';
+import type { IAgentAdapter } from '@ptah-extension/shared';
 
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
@@ -74,8 +76,8 @@ export class ChatRpcHandlers {
     private readonly webviewManager: WebviewManager,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
-    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
-    private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(TOKENS.AGENT_ADAPTER)
+    private readonly sdkAdapter: IAgentAdapter,
     @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
     private readonly historyReader: SessionHistoryReaderService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
@@ -97,7 +99,9 @@ export class ChatRpcHandlers {
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider
+    private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER)
+    private readonly deepAgentHistoryReader: DeepAgentHistoryReaderService,
   ) {}
 
   /**
@@ -111,6 +115,51 @@ export class ChatRpcHandlers {
   }
 
   /**
+   * Detect clear stop/cancel intent in a user message.
+   *
+   * Used in autopilot mode to decide whether to interrupt the current turn.
+   * Conservative matching — only triggers on unambiguous stop phrases to avoid
+   * false positives on steering messages like "stop using semicolons" or
+   * "cancel the old approach and try X instead".
+   *
+   * Patterns matched:
+   * - Standalone commands: "stop", "cancel", "abort", "halt", "quit"
+   * - Polite variants: "please stop", "stop please", "stop now"
+   * - Targeted: "stop it", "stop this", "stop that", "stop execution"
+   * - Descriptive: "stop what you're doing", "don't continue"
+   */
+  static hasStopIntent(message: string): boolean {
+    const trimmed = message.trim().toLowerCase();
+
+    // Standalone stop words (entire message is just a stop command)
+    // [.!]* allows multiple punctuation: "stop!!!", "cancel!!", "abort."
+    if (
+      /^(stop|cancel|abort|halt|quit|enough|nevermind|nvm)[.!]*$/.test(trimmed)
+    ) {
+      return true;
+    }
+
+    // Short messages (≤60 chars) with clear stop phrases.
+    // Length gate avoids false positives in longer steering messages like
+    // "stop using semicolons and switch to the new API pattern".
+    if (trimmed.length <= 60) {
+      const stopPhrases = [
+        // "stop", "please stop", "stop now", "stop it", etc. — must be at end of message
+        /\b(please\s+)?(stop|cancel|abort|halt)\s*(please|now|it|this|that|execution|running|everything|immediately)?[.!]*$/,
+        // "stop what you're doing"
+        /\bstop\s+what\s+you'?re?\s+(doing|running)/,
+        // "don't continue" — must be at end to avoid "don't continue with X, do Y instead"
+        /\bdon'?t\s+continue[.!]*$/,
+        // "stop the execution/agent/process"
+        /\bstop\s+the\s+(execution|agent|process|task)/,
+      ];
+      return stopPhrases.some((pattern) => pattern.test(trimmed));
+    }
+
+    return false;
+  }
+
+  /**
    * Check if a subagent's transcript file exists on disk.
    * Without a transcript, the SDK cannot resume the subagent.
    *
@@ -119,7 +168,7 @@ export class ChatRpcHandlers {
   private async hasSubagentTranscript(
     workspacePath: string,
     parentSessionId: string,
-    agentId: string
+    agentId: string,
   ): Promise<boolean> {
     try {
       const homeDir = os.homedir();
@@ -144,7 +193,7 @@ export class ChatRpcHandlers {
         projectDir,
         parentSessionId,
         'subagents',
-        `agent-${agentId}.jsonl`
+        `agent-${agentId}.jsonl`,
       );
 
       await fs.access(transcriptPath);
@@ -166,7 +215,7 @@ export class ChatRpcHandlers {
    */
   private async resolveEnhancedPromptsContent(
     workspacePath: string | undefined,
-    isPremium: boolean
+    isPremium: boolean,
   ): Promise<string | undefined> {
     if (!isPremium || !workspacePath) {
       return undefined;
@@ -175,7 +224,7 @@ export class ChatRpcHandlers {
     try {
       const content =
         await this.enhancedPromptsService.getEnhancedPromptContent(
-          workspacePath
+          workspacePath,
         );
       return content ?? undefined;
     } catch (error) {
@@ -183,7 +232,7 @@ export class ChatRpcHandlers {
         'Failed to resolve enhanced prompts content, using fallback',
         {
           error: error instanceof Error ? error.message : String(error),
-        }
+        },
       );
       return undefined;
     }
@@ -209,7 +258,7 @@ export class ChatRpcHandlers {
         return undefined;
       }
       const paths = this.pluginLoader.resolvePluginPaths(
-        config.enabledPluginIds
+        config.enabledPluginIds,
       );
       if (paths.length === 0) {
         return undefined;
@@ -254,7 +303,7 @@ export class ChatRpcHandlers {
    * as the main SdkAgentAdapter.
    */
   private async handlePtahCliStart(
-    params: ChatStartParams
+    params: ChatStartParams,
   ): Promise<ChatStartResult> {
     const { prompt, tabId, workspacePath, options, name } = params;
     const agentId = params.ptahCliId as string; // Guaranteed non-null by caller
@@ -295,7 +344,7 @@ export class ChatRpcHandlers {
     // Resolve enhanced prompts and plugins for premium users
     const enhancedPromptsContent = await this.resolveEnhancedPromptsContent(
       workspacePath,
-      isPremium
+      isPremium,
     );
     const pluginPaths = this.resolvePluginPaths(isPremium);
 
@@ -343,7 +392,7 @@ export class ChatRpcHandlers {
    * message sending to the correct adapter.
    */
   private async handlePtahCliContinue(
-    params: ChatContinueParams
+    params: ChatContinueParams,
   ): Promise<ChatContinueResult> {
     const { prompt, sessionId, tabId } = params;
     const ptahCliAgentId =
@@ -364,7 +413,7 @@ export class ChatRpcHandlers {
     const adapter = await this.ptahCliRegistry.getAdapter(ptahCliAgentId);
     if (!adapter) {
       this.logger.error(
-        `[RPC] Ptah CLI adapter not found for continue: ${ptahCliAgentId}`
+        `[RPC] Ptah CLI adapter not found for continue: ${ptahCliAgentId}`,
       );
       return {
         success: false,
@@ -385,7 +434,7 @@ export class ChatRpcHandlers {
     if (health.status !== 'available') {
       this.logger.warn(
         `[RPC] Ptah CLI adapter not available for continue: ${ptahCliAgentId}`,
-        { status: health.status }
+        { status: health.status },
       );
       return {
         success: false,
@@ -406,7 +455,7 @@ export class ChatRpcHandlers {
    * Handle chat:abort for Ptah CLI sessions.
    */
   private async handlePtahCliAbort(
-    params: ChatAbortParams
+    params: ChatAbortParams,
   ): Promise<ChatAbortResult> {
     const { sessionId } = params;
     const ptahCliAgentId = this.ptahCliSessions.get(sessionId as string);
@@ -494,7 +543,19 @@ export class ChatRpcHandlers {
       'chat:start',
       async (params) => {
         try {
-          const { prompt, tabId, workspacePath, options, name } = params;
+          const { prompt, tabId, options, name } = params;
+          // Resolve workspace path: prefer frontend-provided value, fall back to
+          // IWorkspaceProvider (platform-aware). Never rely on process.cwd() which
+          // returns the app installation directory in VS Code/Electron.
+          const workspacePath =
+            params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
+          if (!workspacePath) {
+            return {
+              success: false,
+              error:
+                'No workspace folder open. Please open a folder before starting a chat session.',
+            };
+          }
           this.logger.debug('RPC: chat:start called', {
             tabId,
             workspacePath,
@@ -528,20 +589,15 @@ export class ChatRpcHandlers {
                   tabId,
                   command: 'clear',
                   message: 'Starting fresh conversation.',
-                }
+                },
               );
               return { success: true };
             }
 
-            // For /context and /cost on a new session, there's nothing to show
-            await this.webviewManager.broadcastMessage(
-              MESSAGE_TYPES.CHAT_COMPLETE,
-              {
-                tabId,
-                command: interceptResult.commandName,
-                message: `No session data available yet for /${interceptResult.commandName}.`,
-              }
-            );
+            // Other native commands — no-op on fresh session
+            this.logger.warn('[RPC] chat:start - unrecognized native command', {
+              command: interceptResult.commandName,
+            });
             return { success: true };
           }
 
@@ -575,11 +631,12 @@ export class ChatRpcHandlers {
             pluginCount: pluginPaths?.length ?? 0,
           });
 
-          // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
+          // Get current model: prefer frontend-provided model, then config, then fallback.
+          // All sources provide full model IDs (frontend from normalized list, config from normalized save).
           const currentModel =
             options?.model ||
             this.configManager.get<string>('model.selected') ||
-            'default';
+            DEFAULT_FALLBACK_MODEL_ID;
 
           // TASK_2025_093: tabId is now the primary tracking key
           // SDK generates real UUID in system init message
@@ -605,7 +662,7 @@ export class ChatRpcHandlers {
           const stream = await this.sdkAdapter.startChatSession({
             tabId, // REQUIRED: Primary tracking key for multi-tab isolation
             workspaceId: workspacePath,
-            model: options?.model || currentModel,
+            model: currentModel,
             systemPrompt: options?.systemPrompt,
             projectPath: workspacePath,
             name,
@@ -628,14 +685,14 @@ export class ChatRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: chat:start failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -648,7 +705,18 @@ export class ChatRpcHandlers {
       'chat:continue',
       async (params) => {
         try {
-          const { prompt, sessionId, tabId, workspacePath, name } = params;
+          const { prompt, sessionId, tabId, name } = params;
+          // Resolve workspace path: prefer frontend-provided value, fall back to
+          // IWorkspaceProvider (platform-aware). Mirrors chat:start resolution.
+          const workspacePath =
+            params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
+          if (!workspacePath) {
+            return {
+              success: false,
+              error:
+                'No workspace folder open. Please open a folder before continuing a chat session.',
+            };
+          }
           this.logger.debug('RPC: chat:continue called', {
             sessionId,
             tabId,
@@ -670,10 +738,13 @@ export class ChatRpcHandlers {
             }
           }
 
+          // Track whether we just resumed — if so, there's no active turn to interrupt
+          let justResumed = false;
+
           // Check if session is active in memory
           if (!this.sdkAdapter.isSessionActive(sessionId)) {
             this.logger.info(
-              `[RPC] Session ${sessionId} not active, attempting resume...`
+              `[RPC] Session ${sessionId} not active, attempting resume...`,
             );
 
             // TASK_2025_108: Get license status for premium feature gating in resumed sessions
@@ -689,14 +760,14 @@ export class ChatRpcHandlers {
                 mcpServerRunning,
                 mcpPort: this.codeExecutionMcp.getPort(),
                 sessionId,
-              }
+              },
             );
 
             // TASK_2025_151: Resolve enhanced prompt content for premium users
             const enhancedPromptsContent =
               await this.resolveEnhancedPromptsContent(
                 workspacePath,
-                isPremium
+                isPremium,
               );
 
             // TASK_2025_153: Resolve plugin paths for premium users
@@ -708,38 +779,92 @@ export class ChatRpcHandlers {
                 hasEnhancedPrompts: !!enhancedPromptsContent,
                 enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
                 pluginCount: pluginPaths?.length ?? 0,
-              }
+              },
             );
 
-            // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
+            // Get current model: prefer frontend-provided model, then config, then fallback.
+            // All sources provide full model IDs (normalized at source).
             const currentModel =
               params.model ||
               this.configManager.getWithDefault<string>(
                 'model.selected',
-                'sonnet'
+                DEFAULT_FALLBACK_MODEL_ID,
               );
 
-            // Resume the session to reconnect to Claude's conversation context
+            // Resume the session to reconnect to Claude's conversation context.
             // TASK_2025_108: Pass isPremium and mcpServerRunning to maintain premium features in resumed sessions
             // TASK_2025_151: Pass enhancedPromptsContent for AI-generated system prompt
             // TASK_2025_153: Pass pluginPaths for session plugin loading
-            const stream = await this.sdkAdapter.resumeSession(sessionId, {
-              projectPath: workspacePath,
-              model: currentModel,
-              isPremium,
-              mcpServerRunning,
-              enhancedPromptsContent,
-              pluginPaths,
-              tabId,
-              thinking: params.thinking, // TASK_2025_184: Reasoning configuration
-              effort: params.effort, // TASK_2025_184: Effort level
-            });
+            // Deep-agent runtime rejects resume — translate to a structured
+            // early return so the webview can show a reload prompt.
+            try {
+              const stream = await this.sdkAdapter.resumeSession(sessionId, {
+                projectPath: workspacePath,
+                model: currentModel,
+                isPremium,
+                mcpServerRunning,
+                enhancedPromptsContent,
+                pluginPaths,
+                tabId,
+                thinking: params.thinking, // TASK_2025_184: Reasoning configuration
+                effort: params.effort, // TASK_2025_184: Effort level
+              });
 
-            // Start streaming responses to webview (background - don't await)
-            // Pass tabId for event routing
-            this.streamExecutionNodesToWebview(sessionId, stream, tabId);
+              // Start streaming responses to webview (background - don't await)
+              // Pass tabId for event routing
+              this.streamExecutionNodesToWebview(sessionId, stream, tabId);
 
-            this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
+              this.logger.info(
+                `[RPC] Session ${sessionId} resumed successfully`,
+              );
+              justResumed = true;
+            } catch (resumeError) {
+              const message =
+                resumeError instanceof Error
+                  ? resumeError.message
+                  : String(resumeError);
+              // Deep-agent runtime can't replay Claude SDK JSONL history.
+              // Fall back to a fresh session bound to the same tabId so the
+              // user's message still gets answered without losing the tab.
+              if (message.startsWith('Session resume')) {
+                this.logger.info(
+                  '[RPC] chat:continue - falling back to startChatSession (deep-agent runtime cannot resume)',
+                  { sessionId, tabId },
+                );
+                const stream = await this.sdkAdapter.startChatSession({
+                  tabId,
+                  workspaceId: workspacePath,
+                  model: currentModel,
+                  projectPath: workspacePath,
+                  name,
+                  prompt,
+                  files: params.files ?? [],
+                  images: params.images ?? [],
+                  isPremium,
+                  mcpServerRunning,
+                  enhancedPromptsContent,
+                  pluginPaths,
+                  thinking: params.thinking,
+                  effort: params.effort,
+                });
+                this.streamExecutionNodesToWebview(
+                  tabId as SessionId,
+                  stream,
+                  tabId,
+                );
+                return { success: true, sessionId: tabId as SessionId };
+              }
+              this.logger.warn(
+                '[RPC] chat:continue - resumeSession rejected by runtime',
+                { sessionId, error: message },
+              );
+              const result: ChatContinueResult = {
+                success: false,
+                sessionId: sessionId as SessionId,
+                error: message,
+              };
+              return result;
+            }
           }
 
           // Extract files from params for debugging (Phase 2)
@@ -765,7 +890,7 @@ export class ChatRpcHandlers {
             sessionId,
             tabId,
             workspacePath,
-            params
+            params,
           );
           if (slashResult) {
             return slashResult;
@@ -795,7 +920,7 @@ export class ChatRpcHandlers {
                 parentSessionId: s.parentSessionId,
               })),
               workspacePath,
-            }
+            },
           );
 
           // Filter to only agents whose transcript files exist on disk.
@@ -806,7 +931,7 @@ export class ChatRpcHandlers {
               ? await this.hasSubagentTranscript(
                   workspacePath,
                   sessionId,
-                  s.agentId
+                  s.agentId,
                 )
               : false;
             if (hasTranscript) {
@@ -814,7 +939,7 @@ export class ChatRpcHandlers {
             } else {
               this.logger.warn(
                 'RPC: chat:continue - skipping agent without transcript on disk',
-                { agentId: s.agentId, agentType: s.agentType, sessionId }
+                { agentId: s.agentId, agentType: s.agentType, sessionId },
               );
               // Remove from registry — can't resume without transcript
               this.subagentRegistry.remove(s.toolCallId);
@@ -833,7 +958,7 @@ export class ChatRpcHandlers {
                   sessionId,
                   workspacePath,
                   subagent.agentType,
-                  subagent.toolCallId
+                  subagent.toolCallId,
                 );
               } catch (err) {
                 this.logger.warn(
@@ -841,7 +966,7 @@ export class ChatRpcHandlers {
                   {
                     agentId: subagent.agentId,
                     error: err instanceof Error ? err.message : String(err),
-                  }
+                  },
                 );
               }
             }
@@ -900,7 +1025,39 @@ IMPORTANT INSTRUCTIONS:
             }
           }
 
-          // Default: passthrough — send as regular message (existing flow)
+          // AUTOPILOT STOP-INTENT INTERRUPT: In yolo/auto-edit mode, tool calls are
+          // auto-approved so the user has no checkpoint to stop the agent via tool denial.
+          // When the user sends a message with clear stop intent (e.g., "stop", "cancel"),
+          // interrupt the current turn so the SDK actually stops.
+          // Regular steering messages ("also update tests") pass through normally via
+          // streamInput() without interrupting — preserving the steering workflow.
+          // Skip if we just resumed — there's no active turn to interrupt.
+          if (!justResumed && ChatRpcHandlers.hasStopIntent(prompt)) {
+            const autopilotEnabled = this.configManager.getWithDefault<boolean>(
+              'autopilot.enabled',
+              false,
+            );
+            const permissionLevel = this.configManager.getWithDefault<string>(
+              'autopilot.permissionLevel',
+              'ask',
+            );
+            if (
+              autopilotEnabled &&
+              (permissionLevel === 'yolo' || permissionLevel === 'auto-edit')
+            ) {
+              this.logger.info(
+                'RPC: chat:continue - stop intent detected, interrupting current turn',
+                { sessionId, permissionLevel, prompt: prompt.substring(0, 80) },
+              );
+              await this.sdkAdapter.interruptCurrentTurn(sessionId);
+            }
+          }
+
+          // Send the message to the session (existing flow).
+          // Even after an interrupt, we still send the message: the interrupt stops the
+          // current assistant turn, and this message starts a new turn. The agent sees
+          // the user's "stop" message and can respond acknowledging it, rather than
+          // leaving the session in an ambiguous state with no user context.
           const images = params.images ?? [];
           await this.sdkAdapter.sendMessageToSession(
             sessionId,
@@ -908,21 +1065,21 @@ IMPORTANT INSTRUCTIONS:
             {
               files,
               images,
-            }
+            },
           );
 
           return { success: true, sessionId };
         } catch (error) {
           this.logger.error(
             'RPC: chat:continue failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -939,7 +1096,7 @@ IMPORTANT INSTRUCTIONS:
     sessionId: SessionId,
     tabId: string,
     workspacePath: string | undefined,
-    params: ChatContinueParams
+    params: ChatContinueParams,
   ): Promise<ChatContinueResult | null> {
     const interceptResult = this.slashCommandInterceptor.intercept(prompt);
 
@@ -967,17 +1124,15 @@ IMPORTANT INSTRUCTIONS:
             command: 'clear',
             message:
               'Conversation cleared. Start a new message to begin fresh.',
-          }
+          },
         );
         return { success: true, sessionId };
       }
 
-      // /context and /cost — feature not yet available
-      await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_COMPLETE, {
-        tabId,
-        sessionId,
+      // Other native commands — not yet implemented
+      this.logger.warn('[RPC] chat:continue - unrecognized native command', {
         command: interceptResult.commandName,
-        message: `/${interceptResult.commandName} is not yet available in Ptah. This feature is coming in a future update.`,
+        sessionId,
       });
       return { success: true, sessionId };
     }
@@ -988,7 +1143,7 @@ IMPORTANT INSTRUCTIONS:
         {
           command: interceptResult.rawCommand,
           sessionId,
-        }
+        },
       );
 
       // Resolve premium config for the new query
@@ -997,7 +1152,7 @@ IMPORTANT INSTRUCTIONS:
       const mcpServerRunning = this.isMcpServerRunning();
       const enhancedPromptsContent = await this.resolveEnhancedPromptsContent(
         workspacePath,
-        isPremium
+        isPremium,
       );
       const pluginPaths = this.resolvePluginPaths(isPremium);
 
@@ -1005,32 +1160,49 @@ IMPORTANT INSTRUCTIONS:
       // SlashCommandResult uses discriminated union or optional rawCommand
       const command = interceptResult.rawCommand ?? prompt;
 
-      // Execute the slash command as a new query with resume
-      const stream = await this.sdkAdapter.executeSlashCommand(
-        sessionId,
-        command,
-        {
-          sessionConfig: {
-            model:
-              params.model ||
-              this.configManager.getWithDefault<string>(
-                'model.selected',
-                'sonnet'
-              ),
-            projectPath: workspacePath,
-          } as AISessionConfig,
-          isPremium,
-          mcpServerRunning,
-          enhancedPromptsContent,
-          pluginPaths,
-          tabId,
-        }
-      );
+      // Execute the slash command as a new query with resume. The deep-agent
+      // runtime does not support slash commands — surface a structured error
+      // back to the webview instead of failing mid-stream.
+      try {
+        const stream = await this.sdkAdapter.executeSlashCommand(
+          sessionId,
+          command,
+          {
+            sessionConfig: {
+              model:
+                params.model ||
+                this.configManager.getWithDefault<string>(
+                  'model.selected',
+                  DEFAULT_FALLBACK_MODEL_ID,
+                ),
+              projectPath: workspacePath,
+            } as AISessionConfig,
+            isPremium,
+            mcpServerRunning,
+            enhancedPromptsContent,
+            pluginPaths,
+            tabId,
+          },
+        );
 
-      // Reconnect streaming to the frontend
-      this.streamExecutionNodesToWebview(sessionId, stream, tabId);
+        // Reconnect streaming to the frontend
+        this.streamExecutionNodesToWebview(sessionId, stream, tabId);
 
-      return { success: true, sessionId };
+        return { success: true, sessionId };
+      } catch (slashError) {
+        const message =
+          slashError instanceof Error ? slashError.message : String(slashError);
+        this.logger.warn(
+          '[RPC] chat:continue - executeSlashCommand rejected by runtime',
+          { sessionId, command, error: message },
+        );
+        const result: ChatContinueResult = {
+          success: false,
+          sessionId,
+          error: message,
+        };
+        return result;
+      }
     }
 
     return null;
@@ -1053,13 +1225,23 @@ IMPORTANT INSTRUCTIONS:
       'chat:resume',
       async (params) => {
         try {
-          const { sessionId, workspacePath } = params;
-          const resolvedWorkspacePath = workspacePath || process.cwd();
+          const { sessionId } = params;
+          // Resolve workspace path: prefer frontend-provided, fall back to
+          // IWorkspaceProvider (platform-aware). Mirrors chat:start/continue.
+          const resolvedWorkspacePath =
+            params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
+          if (!resolvedWorkspacePath) {
+            return {
+              success: false,
+              error:
+                'No workspace folder open. Please open a folder before resuming a chat session.',
+            };
+          }
           this.logger.info('RPC: chat:resume called', {
             sessionId,
-            workspacePath: workspacePath || '(empty)',
+            workspacePath: params.workspacePath || '(empty)',
             resolvedWorkspacePath,
-            usedFallback: !workspacePath,
+            usedFallback: !params.workspacePath,
             ptahCliId: params.ptahCliId,
           });
 
@@ -1071,19 +1253,74 @@ IMPORTANT INSTRUCTIONS:
             }
           }
 
-          // TASK_2025_092 FIX: Read full session history as FlatStreamEventUnion[]
-          // This includes tool calls, thinking blocks, agent spawns, etc.
-          // Also includes aggregated usage stats from JSONL
-          const { events, stats } = await this.historyReader.readSessionHistory(
+          // Detect deep agent sessions by checking the checkpoint directory.
+          // Deep agent sessions live in {workspace}/.ptah/deep-agent-sessions/
+          // while Claude SDK sessions live in ~/.claude/projects/ as JSONL files.
+          const isDeepAgentSession = this.deepAgentHistoryReader.hasSession(
             sessionId,
-            resolvedWorkspacePath
+            resolvedWorkspacePath,
           );
 
-          // Also read simple messages for backward compatibility
-          const messages = await this.historyReader.readHistoryAsMessages(
-            sessionId,
-            resolvedWorkspacePath
-          );
+          let events: FlatStreamEventUnion[];
+          let stats: {
+            totalCost: number;
+            tokens: {
+              input: number;
+              output: number;
+              cacheRead: number;
+              cacheCreation: number;
+            };
+            messageCount: number;
+            model?: string;
+            agentSessionCount?: number;
+            modelUsageList?: Array<{
+              model: string;
+              inputTokens: number;
+              outputTokens: number;
+              costUSD: number;
+            }>;
+          } | null;
+          let messages: {
+            id: string;
+            role: 'user' | 'assistant';
+            content: string;
+            timestamp: number;
+          }[];
+
+          if (isDeepAgentSession) {
+            this.logger.info(
+              '[RPC] chat:resume - deep agent session detected',
+              {
+                sessionId,
+              },
+            );
+            const result = await this.deepAgentHistoryReader.readSessionHistory(
+              sessionId,
+              resolvedWorkspacePath,
+            );
+            events = result.events;
+            stats = result.stats;
+            messages = await this.deepAgentHistoryReader.readHistoryAsMessages(
+              sessionId,
+              resolvedWorkspacePath,
+            );
+          } else {
+            // TASK_2025_092 FIX: Read full session history as FlatStreamEventUnion[]
+            // This includes tool calls, thinking blocks, agent spawns, etc.
+            // Also includes aggregated usage stats from JSONL
+            const result = await this.historyReader.readSessionHistory(
+              sessionId,
+              resolvedWorkspacePath,
+            );
+            events = result.events;
+            stats = result.stats;
+
+            // Also read simple messages for backward compatibility
+            messages = await this.historyReader.readHistoryAsMessages(
+              sessionId,
+              resolvedWorkspacePath,
+            );
+          }
 
           // TASK_2025_109: Register interrupted agents from history into SubagentRegistryService
           // This enables context injection in chat:continue for cold-loaded sessions.
@@ -1098,7 +1335,7 @@ IMPORTANT INSTRUCTIONS:
               {
                 sessionId,
                 registeredCount: registeredFromHistory,
-              }
+              },
             );
           }
 
@@ -1148,14 +1385,14 @@ IMPORTANT INSTRUCTIONS:
         } catch (error) {
           this.logger.error(
             'RPC: chat:resume failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -1187,14 +1424,14 @@ IMPORTANT INSTRUCTIONS:
         } catch (error) {
           this.logger.error(
             'RPC: chat:abort failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -1214,7 +1451,7 @@ IMPORTANT INSTRUCTIONS:
         this.logger.debug('RPC: chat:running-agents called', { sessionId });
 
         const running = this.subagentRegistry.getRunningBySession(
-          sessionId as string
+          sessionId as string,
         );
 
         return {
@@ -1226,7 +1463,7 @@ IMPORTANT INSTRUCTIONS:
       } catch (error) {
         this.logger.error(
           'RPC: chat:running-agents failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return { agents: [] };
       }
@@ -1283,10 +1520,10 @@ IMPORTANT INSTRUCTIONS:
           .catch((err) => {
             this.logger.error(
               '[RPC] Failed to broadcast background agent completed event',
-              err instanceof Error ? err : new Error(String(err))
+              err instanceof Error ? err : new Error(String(err)),
             );
           });
-      }
+      },
     );
   }
 
@@ -1323,7 +1560,7 @@ IMPORTANT INSTRUCTIONS:
       } catch (error) {
         this.logger.error(
           'RPC: agent:backgroundList failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return { agents: [] };
       }
@@ -1349,10 +1586,10 @@ IMPORTANT INSTRUCTIONS:
   private async streamExecutionNodesToWebview(
     sessionId: SessionId,
     stream: AsyncIterable<FlatStreamEventUnion>,
-    tabId: string
+    tabId: string,
   ): Promise<void> {
     this.logger.info(
-      `[RPC] streamExecutionNodesToWebview STARTED for session ${sessionId}, tabId ${tabId}`
+      `[RPC] streamExecutionNodesToWebview STARTED for session ${sessionId}, tabId ${tabId}`,
     );
     let eventCount = 0;
 
@@ -1367,6 +1604,13 @@ IMPORTANT INSTRUCTIONS:
     let childMetadataSaved = false;
     const isPtahCliSession = this.ptahCliSessions.has(tabId);
 
+    // Track whether the stream exited normally (not via abort/error).
+    // Used in the finally block to decide whether to clean up the session.
+    // When a slash command replaces an existing session (e.g., /compact on an active chat),
+    // the OLD stream is aborted and a NEW stream starts with the same sessionId.
+    // The finally block must NOT clean up on abort — it would kill the replacement session.
+    let streamExitedNormally = false;
+
     try {
       for await (const event of stream) {
         eventCount++;
@@ -1377,7 +1621,7 @@ IMPORTANT INSTRUCTIONS:
             tabId,
             eventType: event.eventType,
             messageId: event.messageId,
-          }
+          },
         );
 
         // Save child session metadata for Ptah CLI sessions once the real
@@ -1401,7 +1645,7 @@ IMPORTANT INSTRUCTIONS:
             await this.sessionMetadataStore.createChild(
               event.sessionId,
               workspacePath,
-              sessionName
+              sessionName,
             );
             // Track SDK UUID for cross-referencing in CliSessionReference.
             // Store by both tabId and agentId so persistCliSessionReference
@@ -1412,12 +1656,12 @@ IMPORTANT INSTRUCTIONS:
             }
             this.logger.info(
               '[RPC] Child session metadata saved for Ptah CLI session',
-              { sessionId: event.sessionId, tabId, agentId: ptahCliAgentId }
+              { sessionId: event.sessionId, tabId, agentId: ptahCliAgentId },
             );
           } catch (err: unknown) {
             this.logger.warn(
               '[RPC] Failed to save child session metadata — session may appear in sidebar',
-              { error: err instanceof Error ? err.message : String(err) }
+              { error: err instanceof Error ? err.message : String(err) },
             );
           }
         }
@@ -1455,7 +1699,7 @@ IMPORTANT INSTRUCTIONS:
               {
                 toolCallId: bgEvent.toolCallId,
                 agentId: bgEvent.agentId,
-              }
+              },
             );
           }
         }
@@ -1464,7 +1708,7 @@ IMPORTANT INSTRUCTIONS:
           turnCompleteSent = true;
           this.logger.info(
             `[RPC] Turn complete - sending chat:complete for session ${sessionId}, tabId ${tabId}`,
-            { eventCount }
+            { eventCount },
           );
           await this.webviewManager.broadcastMessage(
             MESSAGE_TYPES.CHAT_COMPLETE,
@@ -1472,7 +1716,7 @@ IMPORTANT INSTRUCTIONS:
               tabId,
               sessionId,
               code: 0,
-            }
+            },
           );
         }
       }
@@ -1484,9 +1728,12 @@ IMPORTANT INSTRUCTIONS:
             tabId,
             sessionId,
             code: 0,
-          }
+          },
         );
       }
+
+      // Stream completed without error — safe to clean up in finally block
+      streamExitedNormally = true;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -1502,13 +1749,13 @@ IMPORTANT INSTRUCTIONS:
       if (isUserAbort) {
         // User aborts are expected behavior, log at INFO level
         this.logger.info(
-          `[RPC] Session ${sessionId} aborted by user after ${eventCount} events`
+          `[RPC] Session ${sessionId} aborted by user after ${eventCount} events`,
         );
       } else {
         // Real errors should be logged at ERROR level
         this.logger.error(
           `[RPC] Error streaming flat events for session ${sessionId}, tabId ${tabId} after ${eventCount} events`,
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
       }
 
@@ -1518,7 +1765,7 @@ IMPORTANT INSTRUCTIONS:
       const isCorruptedResume = eventCount === 0 && !isUserAbort;
       if (isCorruptedResume) {
         this.logger.warn(
-          `[RPC] Session ${sessionId} failed during resume (0 events), cleaning up dead session. Original error: ${errorMessage}`
+          `[RPC] Session ${sessionId} failed during resume (0 events), cleaning up dead session. Original error: ${errorMessage}`,
         );
         try {
           await this.sdkAdapter.endSession(sessionId);
@@ -1527,7 +1774,7 @@ IMPORTANT INSTRUCTIONS:
             `[RPC] Failed to clean up corrupted session ${sessionId}`,
             cleanupErr instanceof Error
               ? cleanupErr
-              : new Error(String(cleanupErr))
+              : new Error(String(cleanupErr)),
           );
         }
       }
@@ -1550,6 +1797,25 @@ IMPORTANT INSTRUCTIONS:
       this.ptahCliSessions.delete(tabId);
       // Note: ptahCliSdkSessionIds is NOT cleaned up here — it must persist
       // until persistCliSessionReference reads it (agent may exit later).
+
+      // Clean up the session from activeSessions when the stream ends NORMALLY
+      // (e.g., slash commands that terminate after execution). Without this,
+      // chat:continue sees the session as "active" and calls sendMessage on a dead query.
+      //
+      // CRITICAL: Only clean up on normal exit, NOT on abort/error. When a slash
+      // command replaces a session (e.g., /compact on active chat), the old stream
+      // is aborted and a new stream starts with the same sessionId. Cleaning up on
+      // abort would kill the replacement session — a race condition.
+      if (streamExitedNormally && this.sdkAdapter.isSessionActive(sessionId)) {
+        try {
+          await this.sdkAdapter.endSession(sessionId);
+          this.logger.info(
+            `[RPC] Session ${sessionId} cleaned up after natural stream completion`,
+          );
+        } catch {
+          // Best-effort cleanup — session may have already been ended
+        }
+      }
     }
   }
 }

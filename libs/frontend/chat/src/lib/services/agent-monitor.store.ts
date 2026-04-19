@@ -28,6 +28,11 @@ const MAX_EXPANDED_AGENTS = 2;
 /** Maximum streamEvents buffer per agent (prevents unbounded memory growth) */
 const MAX_STREAM_EVENTS = 2000;
 
+/** TASK_2025_264 P6: Maximum completed/failed agents retained in the store.
+ * Only agents with status 'completed' or 'failed' are evicted; 'running' and
+ * 'interrupted' agents are always preserved. */
+const MAX_COMPLETED_AGENTS = 20;
+
 export interface MonitoredAgent {
   readonly agentId: string;
   readonly cli: CliType;
@@ -46,8 +51,10 @@ export interface MonitoredAgent {
   segments: CliOutputSegment[];
   /** Rich streaming events from Ptah CLI adapter. Enables ExecutionNode rendering. */
   streamEvents: FlatStreamEventUnion[];
-  /** Parent Ptah Claude SDK session that spawned this agent */
-  readonly parentSessionId?: string;
+  /** Parent Ptah Claude SDK session that spawned this agent.
+   * Mutable: initially set to tab ID, resolved to real SDK UUID
+   * when SESSION_ID_RESOLVED fires. */
+  parentSessionId?: string;
   /**
    * CLI-native session ID (e.g., Gemini UUID). Enables resume.
    * Mutable because the session ID is often late-captured: it arrives via the
@@ -80,6 +87,16 @@ export class AgentMonitorStore implements OnDestroy {
   private _expandOrder = 0;
 
   /**
+   * Buffer for permission requests that arrive before the agent spawn event.
+   * Keyed by agentId. Replayed in onAgentSpawned() when the agent card is created.
+   * Prevents silent permission loss due to message ordering (TASK_2025_255).
+   */
+  private _pendingPermissionBuffer = new Map<
+    string,
+    AgentPermissionRequest[]
+  >();
+
+  /**
    * TASK_2025_211: Tracks agent descriptions (tasks) that have been resumed.
    * Used by inline-agent-bubble to upgrade 'interrupted' → 'resumed' visuals.
    * Key: `${parentSessionId}::${task}` for scoped matching (CLI agent case).
@@ -103,11 +120,17 @@ export class AgentMonitorStore implements OnDestroy {
   /**
    * Whether the "pop out to editor" button should be highlighted.
    * True when agents are actively running and we're in the narrow sidebar.
+   * Reads _agents() directly (not the sorted agents() array) to avoid cascade.
    */
   readonly shouldSuggestEditorPanel = computed(
-    () =>
-      this.isSidebar &&
-      Array.from(this._agents().values()).some((a) => a.status === 'running'),
+    () => {
+      if (!this.isSidebar) return false;
+      for (const a of this._agents().values()) {
+        if (a.status === 'running') return true;
+      }
+      return false;
+    },
+    { equal: (a, b) => a === b },
   );
 
   /**
@@ -131,7 +154,7 @@ export class AgentMonitorStore implements OnDestroy {
    */
   readonly activeTabAgents = computed(() => {
     const all = this.agents();
-    const activeSessionId = this.tabManager.activeTab()?.claudeSessionId;
+    const activeSessionId = this.tabManager.activeTabSessionId();
 
     if (!activeSessionId) return all;
     return all.filter(
@@ -139,21 +162,59 @@ export class AgentMonitorStore implements OnDestroy {
     );
   });
 
-  readonly hasRunningAgents = computed(() =>
-    this.agents().some((a) => a.status === 'running'),
+  /**
+   * Get agents for a specific session (scoped accessor for canvas tiles).
+   * Unlike activeTabAgents, this doesn't depend on the global activeTab signal.
+   */
+  agentsForSession(sessionId: string): MonitoredAgent[] {
+    return this.agents().filter((a) => a.parentSessionId === sessionId);
+  }
+
+  /** Whether any agent is running. Reads _agents() directly with primitive equality
+   * to avoid re-evaluation cascade through the sorted agents() array. */
+  readonly hasRunningAgents = computed(
+    () => {
+      for (const a of this._agents().values()) {
+        if (a.status === 'running') return true;
+      }
+      return false;
+    },
+    { equal: (a, b) => a === b },
   );
 
-  readonly agentCount = computed(() => this._agents().size);
+  readonly agentCount = computed(() => this._agents().size, {
+    equal: (a, b) => a === b,
+  });
 
-  /** Agents that currently have a pending permission request (global — all tabs) */
+  /** Whether the active tab's session has running agents (session-scoped).
+   * Primitive equality suppresses false notifications when the boolean doesn't change. */
+  readonly hasActiveTabRunningAgents = computed(
+    () => this.activeTabAgents().some((a) => a.status === 'running'),
+    { equal: (a, b) => a === b },
+  );
+
+  /** Count of agents belonging to the active tab's session.
+   * Primitive equality prevents re-renders when the count stays the same. */
+  readonly activeTabAgentCount = computed(() => this.activeTabAgents().length, {
+    equal: (a, b) => a === b,
+  });
+
+  /** Agents that currently have a pending permission request (global — all tabs).
+   * Permissions are global because the user should always see them regardless of active tab. */
   readonly pendingPermissions = computed(() =>
     this.agents().filter((a) => a.permissionQueue.length > 0),
   );
 
-  readonly panelOpen = computed(() => this._panelOpen());
+  /** Pending permissions scoped to the active tab's session */
+  readonly activeTabPendingPermissions = computed(() =>
+    this.activeTabAgents().filter((a) => a.permissionQueue.length > 0),
+  );
+
+  readonly panelOpen = this._panelOpen.asReadonly();
 
   ngOnDestroy(): void {
     this.stopTick();
+    this._pendingPermissionBuffer.clear();
   }
 
   private startTick(): void {
@@ -172,9 +233,13 @@ export class AgentMonitorStore implements OnDestroy {
 
   /** Start or stop tick based on whether any agents are running */
   private syncTick(): void {
-    const hasRunning = Array.from(this._agents().values()).some(
-      (a) => a.status === 'running',
-    );
+    let hasRunning = false;
+    for (const a of this._agents().values()) {
+      if (a.status === 'running') {
+        hasRunning = true;
+        break;
+      }
+    }
     if (hasRunning) {
       this.startTick();
     } else {
@@ -246,10 +311,13 @@ export class AgentMonitorStore implements OnDestroy {
     this._agents.update((map) => {
       const next = new Map(map);
 
-      // If this is a resumed agent, replace the old card in-place
-      // instead of creating a new one (avoids flicker and duplicate cards)
-      if (info.resumedFromAgentId && next.has(info.resumedFromAgentId)) {
-        const oldCard = next.get(info.resumedFromAgentId)!;
+      // Strategy 1: Replace by resumedFromAgentId (explicit resume from sidebar button)
+      // Strategy 2: Replace by cliSessionId (MCP-triggered respawn during session resume —
+      //   resumedFromAgentId is unavailable because the MCP spawn path doesn't know the old card ID)
+      const oldCardEntry = this.findReplacementCard(next, info);
+
+      if (oldCardEntry) {
+        const [oldId, oldCard] = oldCardEntry;
 
         // TASK_2025_211: Track this agent as resumed so inline bubbles can
         // show 'Resumed' badge instead of 'Interrupted'.
@@ -260,7 +328,7 @@ export class AgentMonitorStore implements OnDestroy {
             return next;
           });
         }
-        next.delete(info.resumedFromAgentId);
+        next.delete(oldId);
         next.set(info.agentId, {
           agentId: info.agentId,
           cli: info.cli,
@@ -306,6 +374,20 @@ export class AgentMonitorStore implements OnDestroy {
 
       return next;
     });
+
+    // TASK_2025_255: Replay any buffered permission requests that arrived before spawn.
+    const buffered = this._pendingPermissionBuffer.get(info.agentId);
+    if (buffered && buffered.length > 0) {
+      this._pendingPermissionBuffer.delete(info.agentId);
+      console.log(
+        '[AgentMonitorStore] Replaying buffered permissions:',
+        info.agentId,
+        buffered.length,
+      );
+      for (const req of buffered) {
+        this.onPermissionRequest(req);
+      }
+    }
 
     // Auto-open panel on 0→1 agent transition (unless user explicitly closed)
     if (!hadAgents && !this._userExplicitlyClosed) {
@@ -395,17 +477,56 @@ export class AgentMonitorStore implements OnDestroy {
         completedAt,
         permissionQueue: [],
       });
+
+      // TASK_2025_264 P6: Evict oldest completed/failed agents beyond the limit.
+      // NEVER evict 'running' or 'interrupted' agents.
+      this.evictOldCompletedAgents(next);
+
       return next;
     });
 
     this.syncTick();
   }
 
-  /** Handle incoming permission request from Copilot SDK agent */
+  /**
+   * TASK_2025_264 P6: Evict the oldest completed/failed agents when count exceeds
+   * MAX_COMPLETED_AGENTS. Preserves 'running' and 'interrupted' agents.
+   * Mutates the provided map in place (caller creates the new Map).
+   */
+  private evictOldCompletedAgents(map: Map<string, MonitoredAgent>): void {
+    const completedAgents = Array.from(map.values()).filter(
+      (a) => a.status === 'completed' || a.status === 'failed',
+    );
+
+    if (completedAgents.length <= MAX_COMPLETED_AGENTS) return;
+
+    // Sort by completedAt ascending — oldest first
+    completedAgents.sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));
+
+    // Evict oldest until at the limit
+    const toEvict = completedAgents.length - MAX_COMPLETED_AGENTS;
+    for (let i = 0; i < toEvict; i++) {
+      map.delete(completedAgents[i].agentId);
+    }
+  }
+
+  /** Handle incoming permission request from CLI agent (Copilot SDK or Ptah CLI) */
   onPermissionRequest(request: AgentPermissionRequest): void {
     this._agents.update((map) => {
       const agent = map.get(request.agentId);
-      if (!agent) return map;
+      if (!agent) {
+        // Agent not yet in store (spawn event hasn't arrived yet).
+        // Buffer the request — it will be replayed in onAgentSpawned().
+        // TASK_2025_255: Prevents silent permission loss from message ordering.
+        console.warn(
+          '[AgentMonitorStore] Permission buffered — agent not yet spawned:',
+          request.agentId,
+        );
+        const buf = this._pendingPermissionBuffer.get(request.agentId) ?? [];
+        buf.push(request);
+        this._pendingPermissionBuffer.set(request.agentId, buf);
+        return map;
+      }
       const next = new Map(map);
 
       // Auto-expand the card so the user can see and respond to the permission
@@ -430,15 +551,17 @@ export class AgentMonitorStore implements OnDestroy {
     this._panelOpen.set(true);
   }
 
-  /** Shift the first permission off the queue (after user responds). Next one auto-shows. */
-  clearPermission(agentId: string): void {
+  /** Remove a specific permission from the queue by requestId (after user responds). */
+  clearPermission(agentId: string, requestId?: string): void {
     this._agents.update((map) => {
       const agent = map.get(agentId);
       if (!agent) return map;
       const next = new Map(map);
       next.set(agentId, {
         ...agent,
-        permissionQueue: agent.permissionQueue.slice(1),
+        permissionQueue: requestId
+          ? agent.permissionQueue.filter((p) => p.requestId !== requestId)
+          : agent.permissionQueue.slice(1),
       });
       return next;
     });
@@ -463,6 +586,40 @@ export class AgentMonitorStore implements OnDestroy {
 
       return next;
     });
+  }
+
+  /**
+   * Find an existing agent card that the new agent should replace.
+   *
+   * Strategy 1: Match by resumedFromAgentId (explicit resume from sidebar button).
+   * Strategy 2: Match by cliSessionId (MCP-triggered respawn during session resume —
+   *   the MCP spawn path doesn't know the old card's agentId, but the same CLI session
+   *   ID is reused). Only matches non-running agents in the same parent session.
+   */
+  private findReplacementCard(
+    map: Map<string, MonitoredAgent>,
+    info: AgentProcessInfo,
+  ): [string, MonitoredAgent] | null {
+    // Strategy 1: explicit resumedFromAgentId
+    if (info.resumedFromAgentId && map.has(info.resumedFromAgentId)) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      return [info.resumedFromAgentId, map.get(info.resumedFromAgentId)!];
+    }
+
+    // Strategy 2: match by cliSessionId within the same parent session
+    if (info.cliSessionId) {
+      for (const [id, agent] of map) {
+        if (
+          agent.cliSessionId === info.cliSessionId &&
+          agent.parentSessionId === info.parentSessionId &&
+          agent.status !== 'running'
+        ) {
+          return [id, agent];
+        }
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -549,11 +706,6 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
-   * Remove a single agent card from the store.
-   * Used when resuming a stopped agent — the old card is removed and a new
-   * one is created by the incoming agent:spawned event.
-   */
-  /**
    * Remove all non-running agents belonging to a specific session.
    * Called when a tab is closed to clean up its associated agent cards.
    * Running agents are preserved (they'll complete in the background).
@@ -581,6 +733,26 @@ export class AgentMonitorStore implements OnDestroy {
     });
   }
 
+  /**
+   * Update parentSessionId for all agents that were spawned with a tab ID
+   * before the real SDK session UUID was resolved.
+   * Called when SESSION_ID_RESOLVED fires, mirroring the backend's
+   * AgentProcessManager.resolveParentSessionId().
+   */
+  resolveParentSessionId(tabId: string, realSessionId: string): void {
+    this._agents.update((map) => {
+      let changed = false;
+      const next = new Map(map);
+      for (const [id, agent] of next) {
+        if (agent.parentSessionId === tabId) {
+          next.set(id, { ...agent, parentSessionId: realSessionId });
+          changed = true;
+        }
+      }
+      return changed ? next : map;
+    });
+  }
+
   clearCompleted(): void {
     this._agents.update((map) => {
       const next = new Map(map);
@@ -593,6 +765,31 @@ export class AgentMonitorStore implements OnDestroy {
     });
 
     // Reset explicit-close flag when all agents cleared — next spawn will auto-open
+    if (this._agents().size === 0) {
+      this._userExplicitlyClosed = false;
+    }
+
+    this.syncTick();
+  }
+
+  /**
+   * Clear completed/failed agents belonging to a specific session.
+   * Used by embedded agent panels to scope clear operations per session.
+   * Uses `changed` flag to avoid unnecessary signal notifications (matches clearSessionAgents pattern).
+   */
+  clearCompletedInSession(sessionId: string): void {
+    this._agents.update((map) => {
+      let changed = false;
+      const next = new Map(map);
+      for (const [id, agent] of next) {
+        if (agent.parentSessionId === sessionId && agent.status !== 'running') {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : map;
+    });
+
     if (this._agents().size === 0) {
       this._userExplicitlyClosed = false;
     }

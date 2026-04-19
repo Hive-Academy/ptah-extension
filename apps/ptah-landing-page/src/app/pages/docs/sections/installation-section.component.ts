@@ -63,7 +63,7 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
               class="text-secondary hover:text-secondary/80 underline underline-offset-2"
               >ptah.live/signup</a
             >
-            to create a free account. No credit card required — your 30-day Pro
+            to create a free account. No credit card required — your 100-day Pro
             trial activates automatically on sign-up.
           </p>
         </ptah-docs-step-card>

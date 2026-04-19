@@ -26,6 +26,8 @@ import type {
   BrowserContentResult,
   BrowserNetworkResult,
   BrowserStatusResult,
+  BrowserRecordStartResult,
+  BrowserRecordStopResult,
 } from '../types';
 
 // ============================================================
@@ -495,7 +497,10 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
 /**
  * Format ptah_agent_spawn result
  */
-export function formatAgentSpawn(result: SpawnAgentResult): string {
+export function formatAgentSpawn(
+  result: SpawnAgentResult,
+  options?: { modelTier?: string },
+): string {
   try {
     const cliLabel = formatCliLabel(result.cli, result.ptahCliName);
 
@@ -505,6 +510,9 @@ export function formatAgentSpawn(result: SpawnAgentResult): string {
         p: [
           `**Agent ID:** ${result.agentId}`,
           `**CLI:** ${cliLabel}`,
+          ...(options?.modelTier
+            ? [`**Model Tier:** ${options.modelTier}`]
+            : []),
           `**Status:** ${result.status}`,
           `**Started:** ${result.startedAt}`,
           ...(result.cliSessionId
@@ -903,10 +911,13 @@ export function formatBrowserScreenshot(
     }
 
     const sizeKB = Math.round((result.data.length * 3) / 4 / 1024);
+    const savedLine = result.filePath
+      ? `  \n**Saved to:** \`${result.filePath}\``
+      : '';
     return json2md([
       { h2: 'Screenshot Captured' },
       {
-        p: `**Format:** ${result.format}  \n**Size:** ~${sizeKB}KB  \n**Data (base64):**`,
+        p: `**Format:** ${result.format}  \n**Size:** ~${sizeKB}KB${savedLine}  \n**Data (base64):**`,
       },
       { code: { content: result.data } },
     ]);
@@ -1111,16 +1122,93 @@ export function formatBrowserStatus(result: BrowserStatusResult): string {
       ? Math.round(result.autoCloseInMs / 60000)
       : 0;
 
+    // TASK_2025_254: Include headless and recording status
+    let statusText =
+      `**Connected:** Yes  \n**URL:** ${result.url ?? 'N/A'}  \n` +
+      `**Title:** ${result.title ?? 'N/A'}  \n` +
+      `**Uptime:** ${uptimeSec}s  \n` +
+      `**Auto-close in:** ${autoCloseMin}m`;
+
+    if (result.headless !== undefined) {
+      statusText += `  \n**Mode:** ${result.headless ? 'Headless' : 'Visible'}`;
+    }
+    if (result.viewport) {
+      statusText += `  \n**Viewport:** ${result.viewport.width}x${result.viewport.height}`;
+    }
+    if (result.recording !== undefined) {
+      statusText += `  \n**Recording:** ${result.recording ? 'Active' : 'Inactive'}`;
+    }
+
+    return json2md([{ h2: 'Browser Status' }, { p: statusText }]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+// ============================================================
+// Browser Enhancement Tools (TASK_2025_254)
+// ============================================================
+
+/**
+ * Format ptah_browser_record_start result
+ */
+export function formatBrowserRecordStart(
+  result: BrowserRecordStartResult,
+): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Recording Start Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
     return json2md([
-      { h2: 'Browser Status' },
+      { h2: 'Recording Started' },
       {
-        p:
-          `**Connected:** Yes  \n**URL:** ${result.url ?? 'N/A'}  \n` +
-          `**Title:** ${result.title ?? 'N/A'}  \n` +
-          `**Uptime:** ${uptimeSec}s  \n` +
-          `**Auto-close in:** ${autoCloseMin}m`,
+        p: 'Screen recording is now active. Use ptah_browser_record_stop to save the GIF.',
       },
     ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_record_stop result
+ */
+export function formatBrowserRecordStop(
+  result: BrowserRecordStopResult,
+): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Recording Stop Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    const sizeKB = Math.round(result.fileSizeBytes / 1024);
+    const durationSec = Math.round(result.durationMs / 1000);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { h2: 'Recording Saved' },
+      {
+        p:
+          `**File:** ${result.filePath}  \n` +
+          `**Frames:** ${result.frameCount}  \n` +
+          `**Duration:** ${durationSec}s  \n` +
+          `**Size:** ${sizeKB}KB`,
+      },
+    ];
+
+    if (result.truncated) {
+      blocks.push({
+        p: '**Warning:** Recording was truncated because the frame buffer limit was reached. Older frames were discarded.',
+      });
+    }
+
+    return json2md(blocks);
   } catch {
     return fallbackJson(result);
   }

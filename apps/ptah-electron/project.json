@@ -19,6 +19,8 @@
         "target": "node20",
         "bundle": true,
         "thirdParty": false,
+        "generatePackageJson": true,
+        "generateLockfile": true,
         "skipTypeCheck": true,
         "deleteOutputPath": false,
         "esbuildOptions": {
@@ -35,6 +37,13 @@
           "@anthropic-ai/claude-agent-sdk",
           "@github/copilot-sdk",
           "@openai/codex-sdk",
+          "deepagents",
+          "@langchain/core",
+          "@langchain/langgraph",
+          "@langchain/openai",
+          "@langchain/anthropic",
+          "langchain",
+          "langsmith",
           "reflect-metadata",
           "tsyringe",
           "async-mutex",
@@ -55,7 +64,15 @@
           "p-limit",
           "p-queue",
           "axios",
-          "node-pty"
+          "node-pty",
+          "exa-js",
+          "gpt-tokenizer",
+          "web-tree-sitter",
+          "@tavily/core",
+          "chrome-launcher",
+          "chrome-remote-interface",
+          "gifenc",
+          "jpeg-js"
         ],
         "assets": [
           {
@@ -72,11 +89,6 @@
             "glob": "**/*",
             "input": "libs/backend/agent-generation/templates",
             "output": "templates"
-          },
-          {
-            "glob": "package.json",
-            "input": "apps/ptah-electron",
-            "output": "."
           },
           {
             "glob": "electron-builder.yml",
@@ -188,6 +200,13 @@
       "executor": "nx:run-commands",
       "options": {
         "command": "tsc --noEmit --project apps/ptah-electron/tsconfig.app.json"
+      }
+    },
+    "validate-deps": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-main"],
+      "options": {
+        "command": "node apps/ptah-electron/scripts/validate-deps.js"
       }
     },
     "lint": {

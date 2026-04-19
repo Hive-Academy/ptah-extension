@@ -1,1 +1,6 @@
-{}
+{
+  "ptah.model.selected": "claude-opus-4-7",
+  "ptah.reasoningEffort": "high",
+  "ptah.autopilot.enabled": true,
+  "ptah.autopilot.permissionLevel": "yolo"
+}

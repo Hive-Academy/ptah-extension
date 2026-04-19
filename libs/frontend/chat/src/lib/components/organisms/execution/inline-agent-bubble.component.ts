@@ -34,6 +34,7 @@ import { NgClass } from '@angular/common';
 import { formatModelDisplayName } from '@ptah-extension/shared';
 import { TokenBadgeComponent } from '../../atoms/token-badge.component';
 import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
+import { generateAgentColor } from '../../../utils/agent-color.utils';
 
 /**
  * InlineAgentBubbleComponent - Unified agent rendering for both streaming and replay
@@ -78,7 +79,7 @@ import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
         'border-dashed': isBackground() || isResumed(),
         'ring-info/20': isBackground() && !isInterrupted() && !isResumed(),
         'bg-success/5': isResumed(),
-        'ring-success/30': isResumed()
+        'ring-success/30': isResumed(),
       }"
       [style.border-left-color]="
         isInterrupted() ? null : isResumed() ? null : agentColor()
@@ -108,128 +109,162 @@ import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
           </span>
         </div>
 
-        <!-- Agent type + description -->
+        <!-- Agent type + description (inline only when expanded) -->
         <div class="flex-1 min-w-0 flex items-center gap-2">
           <span class="text-[11px] font-semibold text-base-content/80">
             {{ node().agentType }}
           </span>
-          @if (node().agentDescription) {
-          <span
-            class="text-[10px] text-base-content/50 truncate"
-            [title]="node().agentDescription"
-          >
-            {{ node().agentDescription }}
-          </span>
+          @if (!isCollapsed() && node().agentDescription) {
+            <span
+              class="text-[10px] text-base-content/50 truncate"
+              [title]="node().agentDescription"
+            >
+              {{ node().agentDescription }}
+            </span>
           }
         </div>
 
         <!-- Streaming/Interrupted/Background badge or stats -->
         @if (isBackground() && isStreaming()) {
-        <span class="badge badge-xs badge-info gap-1 flex-shrink-0">
-          <lucide-angular [img]="LoaderIcon" class="w-2.5 h-2.5 animate-spin" />
-          <span class="text-[9px]">Background</span>
-        </span>
+          <span class="badge badge-xs badge-info gap-1 flex-shrink-0">
+            <lucide-angular
+              [img]="LoaderIcon"
+              class="w-2.5 h-2.5 animate-spin"
+            />
+            <span class="text-[9px]">Background</span>
+          </span>
         } @else if (isBackground() && !isInterrupted() && !isStreaming()) {
-        <span
-          class="badge badge-xs badge-outline badge-info gap-1 flex-shrink-0"
-        >
-          <span class="text-[9px]">Background</span>
-        </span>
+          <span
+            class="badge badge-xs badge-outline badge-info gap-1 flex-shrink-0"
+          >
+            <span class="text-[9px]">Background</span>
+          </span>
         } @else if (isStreaming()) {
-        <span class="badge badge-xs badge-info gap-1 flex-shrink-0">
-          <lucide-angular [img]="LoaderIcon" class="w-2.5 h-2.5 animate-spin" />
-          <span class="text-[9px]">Streaming</span>
-        </span>
+          <span class="badge badge-xs badge-info gap-1 flex-shrink-0">
+            <lucide-angular
+              [img]="LoaderIcon"
+              class="w-2.5 h-2.5 animate-spin"
+            />
+            <span class="text-[9px]">Streaming</span>
+          </span>
         } @else if (isResumed()) {
-        <!-- TASK_2025_211: Resumed indicator — agent was interrupted then continued -->
-        <span
-          class="badge badge-sm badge-success gap-1 flex-shrink-0"
-          title="This agent was resumed in a new session."
-        >
-          <span class="text-[10px] font-medium">Resumed</span>
-        </span>
+          <!-- TASK_2025_211: Resumed indicator — agent was interrupted then continued -->
+          <span
+            class="badge badge-sm badge-success gap-1 flex-shrink-0"
+            title="This agent was resumed in a new session."
+          >
+            <span class="text-[10px] font-medium">Resumed</span>
+          </span>
         } @else if (isInterrupted()) {
-        <!-- TASK_2025_109: Enhanced interrupted indicator with auto-resume hint -->
-        <span
-          class="badge badge-sm badge-warning gap-1 flex-shrink-0"
-          title="This agent was interrupted. It will auto-resume when you send a message."
-        >
-          <lucide-angular [img]="StopCircleIcon" class="w-3 h-3" />
-          <span class="text-[10px] font-medium">Interrupted</span>
-        </span>
+          <!-- TASK_2025_109: Enhanced interrupted indicator with auto-resume hint -->
+          <span
+            class="badge badge-sm badge-warning gap-1 flex-shrink-0"
+            title="This agent was interrupted. It will auto-resume when you send a message."
+          >
+            <lucide-angular [img]="StopCircleIcon" class="w-3 h-3" />
+            <span class="text-[10px] font-medium">Interrupted</span>
+          </span>
         } @else if (hasChildren()) {
-        <span class="badge badge-xs badge-ghost text-[9px] flex-shrink-0">
-          {{ childStats() }}
-        </span>
+          <span class="badge badge-xs badge-ghost text-[9px] flex-shrink-0">
+            {{ childStats() }}
+          </span>
         }
       </button>
 
+      <!-- Card description (visible when collapsed for card-like appearance) -->
+      @if (isCollapsed() && node().agentDescription) {
+        <button
+          type="button"
+          class="w-full text-left px-3 pb-2 cursor-pointer hover:bg-base-300/30 transition-colors"
+          aria-label="Expand agent"
+          (click)="toggleCollapse()"
+        >
+          <p
+            class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2"
+          >
+            {{ node().agentDescription }}
+          </p>
+        </button>
+      }
+
       <!-- Collapsible Content: INTERLEAVED TIMELINE (text + tools in order) -->
       @if (!isCollapsed()) {
-      <div
-        #contentContainer
-        class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
-      >
-        <!-- TASK_2025_102 FIX: summaryContent is now rendered as a text child node
+        <div
+          #contentContainer
+          class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
+        >
+          <!-- TASK_2025_102 FIX: summaryContent is now rendered as a text child node
              instead of a separate block. This ensures agent text is properly
              interleaved with tool calls in chronological order. -->
-        @if (hasChildren()) {
-        <!-- Render all children in chronological order (text + tools interleaved) -->
-        @for (child of node().children; track child.id) {
-        <ptah-execution-node
-          [node]="child"
-          [isStreaming]="isStreaming()"
-          [getPermissionForTool]="getPermissionForTool()"
-          (permissionResponded)="permissionResponded.emit($event)"
-        />
-        } @if (isStreaming()) {
-        <div
-          class="flex items-center gap-1 text-[10px] text-base-content/40 mt-2"
-        >
-          <lucide-angular [img]="LoaderIcon" class="w-3 h-3 animate-spin" />
-          <span>Agent working</span>
-          <ptah-typing-cursor colorClass="text-base-content/40" />
+          @if (hasChildren()) {
+            <!-- Render all children in chronological order (text + tools interleaved) -->
+            @for (child of node().children; track child.id) {
+              <ptah-execution-node
+                [node]="child"
+                [isStreaming]="isStreaming()"
+                [getPermissionForTool]="getPermissionForTool()"
+                (permissionResponded)="permissionResponded.emit($event)"
+              />
+            }
+            @if (isStreaming()) {
+              <div
+                class="flex items-center gap-1 text-[10px] text-base-content/40 mt-2"
+              >
+                <lucide-angular
+                  [img]="LoaderIcon"
+                  class="w-3 h-3 animate-spin"
+                />
+                <span>Agent working</span>
+                <ptah-typing-cursor colorClass="text-base-content/40" />
+              </div>
+            }
+          } @else {
+            <!-- No children yet -->
+            @if (isStreaming()) {
+              <div
+                class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
+              >
+                <lucide-angular
+                  [img]="LoaderIcon"
+                  class="w-3 h-3 animate-spin"
+                />
+                <span>Starting agent execution</span>
+                <ptah-typing-cursor colorClass="text-base-content/40" />
+              </div>
+            } @else {
+              <div class="text-[10px] text-base-content/40 py-2">
+                No execution data
+              </div>
+            }
+          }
         </div>
-        } } @else {
-        <!-- No children yet -->
-        @if (isStreaming()) {
-        <div
-          class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
-        >
-          <lucide-angular [img]="LoaderIcon" class="w-3 h-3 animate-spin" />
-          <span>Starting agent execution</span>
-          <ptah-typing-cursor colorClass="text-base-content/40" />
-        </div>
-        } @else {
-        <div class="text-[10px] text-base-content/40 py-2">
-          No execution data
-        </div>
-        } }
-      </div>
       }
 
       <!-- Agent Stats Footer (shown when stats available and not streaming) -->
       @if (hasStats() && !isStreaming()) {
-      <div
-        class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content/70 rounded-b-lg"
-        [style.background-color]="footerBgColor()"
-      >
-        @if (modelDisplayName()) {
-        <span
-          class="badge badge-xs text-[9px] font-medium flex-shrink-0 border-white/20 text-white/80"
-          [style.background-color]="agentColor()"
-          [title]="rawModelId() || ''"
+        <div
+          class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content/70 rounded-b-lg"
+          [style.background-color]="footerBgColor()"
         >
-          {{ modelDisplayName() }}
-        </span>
-        } @if (agentTokenUsage()) {
-        <ptah-token-badge [tokens]="agentTokenUsage()!" />
-        } @if (agentCost() > 0) {
-        <ptah-cost-badge [cost]="agentCost()" />
-        } @if (agentDuration()) {
-        <ptah-duration-badge [durationMs]="agentDuration()!" />
-        }
-      </div>
+          @if (modelDisplayName()) {
+            <span
+              class="badge badge-xs text-[9px] font-medium flex-shrink-0 border-white/20 text-white/80"
+              [style.background-color]="agentColor()"
+              [title]="rawModelId() || ''"
+            >
+              {{ modelDisplayName() }}
+            </span>
+          }
+          @if (agentTokenUsage()) {
+            <ptah-token-badge [tokens]="agentTokenUsage()!" />
+          }
+          @if (agentCost() > 0) {
+            <ptah-cost-badge [cost]="agentCost()" />
+          }
+          @if (agentDuration()) {
+            <ptah-duration-badge [durationMs]="agentDuration()!" />
+          }
+        </div>
       }
     </div>
   `,
@@ -311,18 +346,27 @@ export class InlineAgentBubbleComponent {
   readonly StopCircleIcon = StopCircle;
   // TASK_2025_109: PlayCircleIcon removed - Resume button no longer needed
 
-  // Collapse state - expanded by default
+  // Collapse state - expanded by default, auto-collapsed for background agents
   readonly isCollapsed = signal(false);
 
   // TASK_2025_109: isResuming signal removed - Resume button no longer needed
 
   constructor() {
+    // Auto-collapse background agents so they don't interfere with the
+    // active session's streaming. Users can manually expand if needed.
+    // Runs once on init and when a node transitions to background mid-stream.
+    effect(() => {
+      if (this.isBackground()) {
+        this.isCollapsed.set(true);
+      }
+    });
+
     // Setup observer after initial render
     afterNextRender(
       () => {
         this.setupMutationObserver();
       },
-      { injector: this.injector }
+      { injector: this.injector },
     );
 
     // Re-setup observer when component expands (container re-enters DOM)
@@ -339,7 +383,7 @@ export class InlineAgentBubbleComponent {
             this.setupMutationObserver();
             this.observerSetupPending = false;
           },
-          { injector: this.injector }
+          { injector: this.injector },
         );
       }
     });
@@ -383,10 +427,12 @@ export class InlineAgentBubbleComponent {
     });
 
     // Watch for any DOM changes in the container subtree
+    // TASK_2025_264 P5: Removed characterData (fired on every text node change during
+    // streaming, causing excessive scroll callbacks). childList + subtree is sufficient
+    // because Angular's change detection adds new DOM elements for streaming content.
     this.observer.observe(container, {
       childList: true, // New nodes added/removed
       subtree: true, // Watch entire subtree (recursive components)
-      characterData: true, // Text content changes (streaming text)
     });
   }
 
@@ -450,7 +496,7 @@ export class InlineAgentBubbleComponent {
       return this.agentMonitorStore.isAgentResumed(
         node.id,
         node.toolCallId ?? undefined,
-        description
+        description,
       );
     }
     return false;
@@ -465,50 +511,9 @@ export class InlineAgentBubbleComponent {
   // Computed: agent color based on type
   // Built-in Claude agents get fixed oklch colors for theme consistency
   // Custom agents get dynamically generated colors based on name hash
-  readonly agentColor = computed(() => {
-    const agentType = this.node().agentType || '';
-
-    // Built-in agents with oklch colors for theme consistency
-    // Using oklch ensures colors work well on both light and dark backgrounds
-    const builtinColors: Record<string, string> = {
-      Explore: 'oklch(0.6 0.18 145)', // Green
-      Plan: 'oklch(0.55 0.2 300)', // Purple
-      'general-purpose': 'oklch(0.55 0.2 265)', // Indigo
-      'claude-code-guide': 'oklch(0.6 0.18 210)', // Sky blue
-      'statusline-setup': 'oklch(0.55 0.05 250)', // Slate
-    };
-
-    if (builtinColors[agentType]) {
-      return builtinColors[agentType];
-    }
-
-    // Generate consistent color for custom agents based on name hash
-    return this.generateColorFromString(agentType);
-  });
-
-  /**
-   * Generate a consistent oklch color from a string
-   * Same string always produces the same color
-   * TASK_2025_100 Batch 4: Updated default fallback to theme-aware oklch format
-   * TASK_2025_100 QA Fix: Converted from HSL to oklch for theme consistency
-   */
-  private generateColorFromString(str: string): string {
-    if (!str) return 'oklch(var(--bc) / 0.5)'; // Theme-aware gray for empty strings
-
-    // Simple hash function
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    }
-
-    // Convert hash to hue (0-360)
-    const hue = Math.abs(hash % 360);
-
-    // Use oklch for theme-aware generated colors
-    // L=0.55 provides good contrast on both light and dark backgrounds
-    // C=0.15 gives vibrant but not oversaturated colors
-    return `oklch(0.55 0.15 ${hue})`;
-  }
+  readonly agentColor = computed(() =>
+    generateAgentColor(this.node().agentType || ''),
+  );
 
   /**
    * Computed: footer background color — a subtle tint derived from agentColor().
@@ -563,7 +568,7 @@ export class InlineAgentBubbleComponent {
    * Used for both display name formatting and tooltip.
    */
   readonly rawModelId = computed(
-    () => this.node().agentModel || this.node().model || null
+    () => this.node().agentModel || this.node().model || null,
   );
 
   /**

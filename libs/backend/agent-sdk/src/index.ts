@@ -58,11 +58,20 @@ export { registerSdkServices } from './lib/di/register';
 export { SDK_TOKENS } from './lib/di/tokens';
 export type { SdkDIToken } from './lib/di/tokens';
 
+// Model ID constants and tier resolution (single source of truth)
+export {
+  TIER_TO_MODEL_ID,
+  TIER_ENV_VAR_MAP,
+  DEFAULT_FALLBACK_MODEL_ID,
+  buildTierEnvDefaults,
+} from './lib/helpers';
+
 // Anthropic-compatible provider registry (TASK_2025_129 Batch 3)
 // Re-exported via helpers barrel (canonical source: helpers/anthropic-provider-registry.ts)
 export {
   ANTHROPIC_PROVIDERS,
   DEFAULT_PROVIDER_ID,
+  ANTHROPIC_DIRECT_PROVIDER_ID,
   getAnthropicProvider,
   getProviderBaseUrl,
 } from './lib/helpers';
@@ -71,6 +80,12 @@ export type {
   AnthropicProviderId,
   ProviderStaticModel,
 } from './lib/helpers';
+
+// Deep Agent History Reader (reads LangGraph checkpoint sessions)
+export { DeepAgentHistoryReaderService } from './lib/helpers';
+
+// CLI detector (Claude CLI availability check)
+export { ClaudeCliDetector } from './lib/detector/claude-cli-detector';
 
 // Shared prompt-building functions (used by SdkQueryOptionsBuilder and PtahCliAdapter)
 export {
@@ -178,7 +193,11 @@ export {
 // Skill Junction Service (TASK_2025_201)
 // Manages workspace .ptah/skills/ junctions for third-party providers
 // ============================================================
-export { SkillJunctionService, type SkillJunctionResult } from './lib/helpers';
+export {
+  SkillJunctionService,
+  type SkillJunctionActivateOptions,
+  type SkillJunctionResult,
+} from './lib/helpers';
 
 // ============================================================
 // Ptah CLI (TASK_2025_167)
@@ -197,6 +216,7 @@ export {
   CopilotTranslationProxy,
   COPILOT_PROVIDER_ENTRY,
   COPILOT_DEFAULT_TIERS,
+  COPILOT_PROXY_TOKEN_PLACEHOLDER,
   readCopilotToken,
   getCopilotHostsPath,
   getCopilotAppsPath,
@@ -220,6 +240,35 @@ export {
   CODEX_DEFAULT_TIERS,
 } from './lib/codex-provider';
 export type { ICodexAuthService, CodexAuthFile } from './lib/codex-provider';
+
+// ============================================================
+// OpenRouter Provider
+// Universal OpenRouter integration via API key + translation proxy.
+// Unlike the legacy /v1/messages passthrough (Anthropic-family only), this
+// routes all providers (OpenAI, Google, Meta, etc.) through the local proxy.
+// ============================================================
+export {
+  OpenRouterAuthService,
+  OpenRouterTranslationProxy,
+  OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+} from './lib/openrouter-provider';
+export type { IOpenRouterAuthService } from './lib/openrouter-provider';
+
+// ============================================================
+// Local Model Providers (TASK_2025_265, updated TASK_2025_281)
+// Ollama (Anthropic-native) and LM Studio (translation proxy)
+// ============================================================
+export {
+  LmStudioTranslationProxy,
+  OllamaModelDiscoveryService,
+  OLLAMA_PROVIDER_ENTRY,
+  OLLAMA_CLOUD_PROVIDER_ENTRY,
+  LM_STUDIO_PROVIDER_ENTRY,
+  LOCAL_PROXY_TOKEN_PLACEHOLDER,
+  OLLAMA_AUTH_TOKEN_PLACEHOLDER,
+  isLocalProviderId,
+  isOllamaProviderId,
+} from './lib/local-provider';
 
 // ============================================================
 // OpenAI Translation Module (TASK_2025_193)
@@ -277,9 +326,30 @@ export type {
 } from './lib/stream-processing';
 
 // ============================================================
+// MCP Server Directory (discovery + installation)
+// ============================================================
+export {
+  McpRegistryProvider,
+  McpInstallService,
+  McpInstallManifestTracker,
+} from './lib/helpers';
+export type { IMcpServerInstaller } from './lib/helpers';
+
+// ============================================================
 // MCP Port Management
 // ============================================================
-export { setPtahMcpPort } from './lib/constants';
+export { PTAH_MCP_PORT, setPtahMcpPort } from './lib/constants';
+
+// ============================================================
+// Auth Strategy System (TASK_AUTH_REFACTOR)
+// Clean auth abstraction replacing scattered if/else logic
+// ============================================================
+export { ModelResolver } from './lib/auth';
+export type {
+  IAuthStrategy,
+  AuthConfigureResult,
+  AuthConfigureContext,
+} from './lib/auth';
 
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';

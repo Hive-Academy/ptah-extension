@@ -386,8 +386,9 @@ export class WizardGenerationRpcHandlers {
           );
         }
 
-        // Detect installed CLI targets for multi-CLI agent generation (TASK_2025_160)
-        // Only premium users get cross-CLI sync; filter to copilot/gemini (not codex)
+        // Detect installed CLI targets for multi-CLI agent generation (TASK_2025_160, TASK_2025_268)
+        // Only premium users get cross-CLI sync; includes all supported CLI targets.
+        // cursor support added in TASK_2025_267.
         let targetClis: CliTarget[] | undefined;
         if (isPremium) {
           try {
@@ -399,7 +400,11 @@ export class WizardGenerationRpcHandlers {
             const cliTargets = installedClis
               .filter(
                 (c) =>
-                  (c.cli === 'copilot' || c.cli === 'gemini') && c.installed,
+                  (c.cli === 'copilot' ||
+                    c.cli === 'gemini' ||
+                    c.cli === 'codex' ||
+                    c.cli === 'cursor') &&
+                  c.installed,
               )
               .map((c) => c.cli as CliTarget);
             if (cliTargets.length > 0) {

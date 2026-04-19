@@ -92,6 +92,12 @@ export interface AgentOrchestrationConfig {
   mcpPort: number;
   /** CLI types that are disabled by the user (e.g., ['gemini', 'copilot']). Empty array means all enabled. */
   disabledClis: string[];
+  /** MCP tool namespace groups disabled by the user (e.g., ['browser', 'git']). Empty array means all enabled. */
+  disabledMcpNamespaces: string[];
+  /** Whether the browser automation tools can navigate to localhost URLs (default: false) */
+  browserAllowLocalhost: boolean;
+  /** Agent runtime selector (lives under ptah.runtime, not ptah.agentOrchestration.*) */
+  runtime: 'auto' | 'claude-sdk' | 'deep-agent';
 }
 
 /** CLI model option for agent:listCliModels */
@@ -133,6 +139,12 @@ export interface AgentSetConfigParams {
   mcpPort?: number;
   /** CLI types to disable (e.g., ['gemini', 'copilot']). Empty array enables all. */
   disabledClis?: string[];
+  /** MCP tool namespace groups to disable (e.g., ['browser', 'git']). Empty array enables all. */
+  disabledMcpNamespaces?: string[];
+  /** Whether the browser automation tools can navigate to localhost URLs */
+  browserAllowLocalhost?: boolean;
+  /** Agent runtime selector (lives under ptah.runtime, not ptah.agentOrchestration.*) */
+  runtime?: 'auto' | 'claude-sdk' | 'deep-agent';
 }
 
 // ============================================================

@@ -65,25 +65,41 @@ export class FilePickerService {
   private readonly _includedFiles = signal<ChatFile[]>([]);
   private readonly _isLoading = signal(false);
   private readonly _lastUpdate = signal<number>(0);
+  private readonly _fetchError = signal<string | null>(null);
+  private _pendingFetch: Promise<void> | null = null;
+
+  // Remote search state (server-side results via context:getFileSuggestions)
+  private readonly _remoteResults = signal<FileSuggestion[]>([]);
+  private readonly _isRemoteSearching = signal(false);
+  private _remoteSearchTimer: ReturnType<typeof setTimeout> | null = null;
+  private _remoteSearchAbortId = 0; // Monotonic ID to discard stale responses
+
+  /** Last error from file fetch, exposed for UI display */
+  readonly fetchError = this._fetchError.asReadonly();
 
   // === ANGULAR 20 PATTERN: Readonly signals for external access ===
   readonly workspaceFiles = this._workspaceFiles.asReadonly();
   readonly includedFiles = this._includedFiles.asReadonly();
   readonly isLoading = this._isLoading.asReadonly();
+  readonly remoteResults = this._remoteResults.asReadonly();
+  readonly isRemoteSearching = this._isRemoteSearching.asReadonly();
 
   // === ANGULAR 20 PATTERN: Computed signals for derived state ===
   readonly fileCount = computed(() => this._includedFiles().length);
 
   readonly totalSize = computed(() =>
-    this._includedFiles().reduce((total, file) => total + file.size, 0)
+    this._includedFiles().reduce((total, file) => total + file.size, 0),
   );
 
   readonly totalTokens = computed(() =>
-    this._includedFiles().reduce((total, file) => total + file.tokenEstimate, 0)
+    this._includedFiles().reduce(
+      (total, file) => total + file.tokenEstimate,
+      0,
+    ),
   );
 
   readonly hasLargeFiles = computed(() =>
-    this._includedFiles().some((file) => file.isLarge)
+    this._includedFiles().some((file) => file.isLarge),
   );
 
   readonly optimizationSuggestions = computed(() => {
@@ -102,7 +118,7 @@ export class FilePickerService {
     const largeFiles = files.filter((f) => f.isLarge);
     if (largeFiles.length > 0) {
       suggestions.push(
-        `${largeFiles.length} large files detected - consider file compression`
+        `${largeFiles.length} large files detected - consider file compression`,
       );
     }
 
@@ -153,119 +169,355 @@ export class FilePickerService {
    * TASK_2025_019 Phase 1: Populates _workspaceFiles signal for @ autocomplete
    */
   async fetchWorkspaceFiles(): Promise<void> {
-    if (this._isLoading()) return; // Prevent duplicate fetches
-    if (!this.rpcService) {
-      console.warn('[FilePickerService] ClaudeRpcService not initialized');
-      return;
+    // Deduplicate: if a fetch is already in-flight, await it instead of returning empty
+    if (this._isLoading() && this._pendingFetch) {
+      return this._pendingFetch;
     }
 
     this._isLoading.set(true);
+    this._fetchError.set(null);
 
+    this._pendingFetch = this._doFetchWorkspaceFiles();
     try {
-      // Call backend via RPC
+      await this._pendingFetch;
+    } finally {
+      this._pendingFetch = null;
+    }
+  }
+
+  private async _doFetchWorkspaceFiles(): Promise<void> {
+    try {
       const result = await this.rpcService.call('context:getAllFiles', {
         includeImages: false,
-        limit: 500,
+        limit: 1000,
       });
 
-      if (result.success && result.data?.files) {
-        // Transform backend format to FileSuggestion format
-        const suggestions: FileSuggestion[] = result.data.files.map((file) => {
-          // Extract directory from relativePath (everything before the last /)
-          const lastSlashIndex = file.relativePath.lastIndexOf('/');
+      // Check both RPC-level success AND backend-level success (nested in data)
+      const backendData = result.data as
+        | { success?: boolean; error?: { message: string }; files?: unknown[] }
+        | undefined;
+      const backendFailed = backendData?.success === false;
+
+      if (result.success && !backendFailed && backendData?.files) {
+        const files = result.data!.files!; // eslint-disable-line @typescript-eslint/no-non-null-assertion
+        const suggestions: FileSuggestion[] = files.map((file) => {
+          // Normalize Windows backslashes for directory extraction
+          const normalizedPath = file.relativePath.replace(/\\/g, '/');
+          const lastSlashIndex = normalizedPath.lastIndexOf('/');
           const directory =
             lastSlashIndex > 0
-              ? file.relativePath.substring(0, lastSlashIndex)
-              : file.relativePath; // Use full path if no slash or at root
+              ? normalizedPath.substring(0, lastSlashIndex)
+              : '';
+
+          // Extract actual file extension from fileName (not fileType category)
+          const dotIndex = file.fileName.lastIndexOf('.');
+          const ext =
+            dotIndex > 0 ? file.fileName.substring(dotIndex).toLowerCase() : '';
 
           return {
-            // FIXED: Use fsPath (actual file system path) instead of uri (file:///... string)
-            // The attachment processor needs a real file system path to read files
             path: file.fsPath || file.uri,
             name: file.fileName,
             directory,
             type: file.isDirectory ? 'directory' : 'file',
-            extension: file.fileType || undefined,
+            extension: ext || undefined,
             size: file.size,
             lastModified: file.lastModified,
-            isImage: this.imageExtensions.has(`.${file.fileType}`),
-            isText: this.textExtensions.has(`.${file.fileType}`),
+            isImage: this.imageExtensions.has(ext),
+            isText: this.textExtensions.has(ext),
           };
         });
 
         this._workspaceFiles.set(suggestions);
         this._lastUpdate.set(Date.now());
+        console.debug(
+          `[FilePickerService] Loaded ${suggestions.length} workspace files`,
+        );
+      } else {
+        // Extract error from nested backend response or RPC-level error
+        const errorMsg =
+          backendData?.error?.message ||
+          result.error ||
+          'No files returned from workspace';
+        console.warn(
+          `[FilePickerService] context:getAllFiles failed: ${errorMsg}`,
+        );
+        this._fetchError.set(errorMsg);
       }
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       console.error(
         '[FilePickerService] Failed to fetch workspace files:',
-        error
+        error,
       );
+      this._fetchError.set(errorMsg);
     } finally {
       this._isLoading.set(false);
     }
   }
 
   /**
-   * Ensure files are loaded before showing dropdown
-   * TASK_2025_019 Phase 1: Call this when @ is typed
+   * Ensure files are loaded before showing dropdown.
+   * Retries once with backoff for transient errors (skips retry on timeout).
    */
   async ensureFilesLoaded(): Promise<void> {
+    this._fetchError.set(null);
+
     const files = this._workspaceFiles();
     const lastUpdate = this._lastUpdate();
     const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
 
-    // Fetch if: no files OR last update > 5 minutes ago
     if (files.length === 0 || lastUpdate < fiveMinutesAgo) {
       await this.fetchWorkspaceFiles();
+
+      // Retry once with delay — skip if error was a timeout (would just timeout again)
+      const error = this._fetchError();
+      if (
+        this._workspaceFiles().length === 0 &&
+        error &&
+        !error.toLowerCase().includes('timeout')
+      ) {
+        await new Promise((r) => setTimeout(r, 1500));
+        await this.fetchWorkspaceFiles();
+      }
     }
   }
 
   /**
-   * Search workspace files for @ syntax autocomplete
+   * Search workspace files for @ syntax autocomplete with fuzzy token matching.
+   *
+   * Matching strategy (in priority order):
+   * 1. Exact substring match on name/path/directory (highest score)
+   * 2. Token-based fuzzy match: splits query and filenames on `-`, `.`, `/`, `_`
+   *    and checks if all query tokens appear in the file tokens.
+   *    e.g., "chatinp" matches "chat-input.component.ts" because "chatinp" prefix-matches "chat" + "input"
    *
    * @param query - Search query string
-   * @returns Filtered and sorted file suggestions (max 20)
+   * @returns Filtered and sorted file suggestions (max 30)
    */
   searchFiles(query: string): FileSuggestion[] {
     if (!query || query.length < 1) {
-      return this._workspaceFiles().slice(0, 50); // Return first 50 files (sorted by lastModified from backend)
+      return this._workspaceFiles().slice(0, 50);
     }
 
     const searchTerm = query.toLowerCase();
-    return this._workspaceFiles()
-      .filter(
-        (file) =>
-          file.name.toLowerCase().includes(searchTerm) ||
-          file.path.toLowerCase().includes(searchTerm) ||
-          file.directory.toLowerCase().includes(searchTerm)
-      )
-      .sort((a, b) => {
-        // Sort by relevance - exact name match first
-        const aExact = a.name.toLowerCase() === searchTerm ? 0 : 1;
-        const bExact = b.name.toLowerCase() === searchTerm ? 0 : 1;
-        if (aExact !== bExact) return aExact - bExact;
 
-        // Then startsWith (most relevant partial match)
-        const aStarts = a.name.toLowerCase().startsWith(searchTerm) ? 0 : 1;
-        const bStarts = b.name.toLowerCase().startsWith(searchTerm) ? 0 : 1;
-        if (aStarts !== bStarts) return aStarts - bStarts;
+    // Score each file and collect matches
+    const scored: Array<{ file: FileSuggestion; score: number }> = [];
 
-        // Then name contains (more relevant than path-only match)
-        const aNameContains = a.name.toLowerCase().includes(searchTerm) ? 0 : 1;
-        const bNameContains = b.name.toLowerCase().includes(searchTerm) ? 0 : 1;
-        if (aNameContains !== bNameContains)
-          return aNameContains - bNameContains;
+    for (const file of this._workspaceFiles()) {
+      const score = this.scoreFileMatch(file, searchTerm);
+      if (score > 0) {
+        scored.push({ file, score });
+      }
+    }
 
-        // Then by file type preference (text files first)
-        const aScore = a.isText ? 0 : a.isImage ? 1 : 2;
-        const bScore = b.isText ? 0 : b.isImage ? 1 : 2;
-        if (aScore !== bScore) return aScore - bScore;
+    // Sort by score descending, then alphabetically
+    scored.sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      return a.file.name.localeCompare(b.file.name);
+    });
 
-        // Finally alphabetically
-        return a.name.localeCompare(b.name);
-      })
-      .slice(0, 30); // Limit to 30 results
+    return scored.map((s) => s.file).slice(0, 30);
+  }
+
+  /**
+   * Score how well a file matches the search query.
+   * Returns 0 for no match, higher scores for better matches.
+   */
+  private scoreFileMatch(file: FileSuggestion, searchTerm: string): number {
+    const nameLower = file.name.toLowerCase();
+    const pathLower = file.path.toLowerCase();
+    const dirLower = file.directory.toLowerCase();
+
+    let score = 0;
+
+    // Tier 1: Exact name match (200 points)
+    if (nameLower === searchTerm) return 200;
+
+    // Tier 2: Name starts with query (100 points)
+    if (nameLower.startsWith(searchTerm)) score = 100;
+    // Tier 3: Name contains query as substring (80 points)
+    else if (nameLower.includes(searchTerm)) score = 80;
+    // Tier 4: Path contains query (40 points)
+    else if (pathLower.includes(searchTerm)) score = 40;
+    // Tier 5: Directory contains query (30 points)
+    else if (dirLower.includes(searchTerm)) score = 30;
+
+    // If exact substring matched, add bonus for text files and return
+    if (score > 0) {
+      if (file.isText) score += 5;
+      return score;
+    }
+
+    // Tier 6: Fuzzy token matching (20 base points)
+    // Split both query and filename into tokens on delimiters
+    const queryTokens = this.tokenize(searchTerm);
+    const fileTokens = this.tokenize(nameLower);
+    const pathTokens = this.tokenize(dirLower);
+    const allFileTokens = [...fileTokens, ...pathTokens];
+
+    if (
+      queryTokens.length > 0 &&
+      this.tokensMatch(queryTokens, allFileTokens)
+    ) {
+      score = 20;
+      // Bonus: if all query tokens match name tokens (not just path)
+      if (this.tokensMatch(queryTokens, fileTokens)) score = 25;
+      if (file.isText) score += 5;
+      return score;
+    }
+
+    // Tier 7: Contiguous character matching (for queries without delimiters)
+    // e.g., "chatinp" should match "chat-input" by matching chars sequentially
+    if (
+      searchTerm.length >= 3 &&
+      this.sequentialCharMatch(searchTerm, nameLower)
+    ) {
+      score = 15;
+      if (file.isText) score += 5;
+      return score;
+    }
+
+    return 0;
+  }
+
+  /**
+   * Tokenize a string by splitting on common delimiters: - . / _ \
+   * Also splits camelCase boundaries.
+   */
+  private tokenize(str: string): string[] {
+    return str
+      .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase split
+      .split(/[-._/\\]+/)
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => t.length > 0);
+  }
+
+  /**
+   * Check if all query tokens prefix-match at least one file token.
+   * e.g., queryTokens=["chat","inp"] matches fileTokens=["chat","input","component","ts"]
+   */
+  private tokensMatch(queryTokens: string[], fileTokens: string[]): boolean {
+    return queryTokens.every((qt) =>
+      fileTokens.some((ft) => ft.startsWith(qt) || ft.includes(qt)),
+    );
+  }
+
+  /**
+   * Check if query characters appear sequentially in the target,
+   * skipping delimiter characters in the target.
+   * e.g., "chatinput" matches "chat-input.component.ts"
+   */
+  private sequentialCharMatch(query: string, target: string): boolean {
+    // Strip delimiters from target for contiguous matching
+    const stripped = target.replace(/[-._/\\]/g, '');
+    if (stripped.includes(query)) return true;
+
+    // Subsequence match: each query char appears in order
+    let qi = 0;
+    for (let ti = 0; ti < stripped.length && qi < query.length; ti++) {
+      if (stripped[ti] === query[qi]) qi++;
+    }
+    return qi === query.length;
+  }
+
+  /**
+   * Trigger a server-side file search via context:getFileSuggestions RPC.
+   * Debounces by 200ms internally. Results stored in _remoteResults signal.
+   * Calling components should read remoteResults() for the results.
+   */
+  searchFilesRemote(query: string): void {
+    // Clear pending timer
+    if (this._remoteSearchTimer) {
+      clearTimeout(this._remoteSearchTimer);
+      this._remoteSearchTimer = null;
+    }
+
+    // Clear results if query too short
+    if (!query || query.length < 2) {
+      this._remoteResults.set([]);
+      this._isRemoteSearching.set(false);
+      return;
+    }
+
+    this._isRemoteSearching.set(true);
+    const searchId = ++this._remoteSearchAbortId;
+
+    this._remoteSearchTimer = setTimeout(async () => {
+      try {
+        const result = await this.rpcService.call(
+          'context:getFileSuggestions',
+          { query: query.trim(), limit: 30 },
+        );
+
+        // Discard if a newer search was started
+        if (searchId !== this._remoteSearchAbortId) return;
+
+        const backendData = result.data as
+          | {
+              success?: boolean;
+              files?: Array<Record<string, unknown>>;
+              suggestions?: Array<Record<string, unknown>>;
+            }
+          | undefined;
+
+        // Handle both `files` (correct) and `suggestions` (legacy) field names
+        const rawFiles = backendData?.files ?? backendData?.suggestions;
+
+        if (result.success && rawFiles && rawFiles.length > 0) {
+          const suggestions: FileSuggestion[] = rawFiles.map(
+            (file: Record<string, unknown>) => {
+              const relativePath = String(file['relativePath'] ?? '').replace(
+                /\\/g,
+                '/',
+              );
+              const lastSlash = relativePath.lastIndexOf('/');
+              const directory =
+                lastSlash > 0 ? relativePath.substring(0, lastSlash) : '';
+              const fileName = String(file['fileName'] ?? '');
+              const dotIdx = fileName.lastIndexOf('.');
+              const ext =
+                dotIdx > 0 ? fileName.substring(dotIdx).toLowerCase() : '';
+
+              return {
+                path: String(file['fsPath'] ?? file['uri'] ?? ''),
+                name: fileName,
+                directory,
+                type: file['isDirectory'] ? 'directory' : 'file',
+                extension: ext || undefined,
+                size: Number(file['size'] ?? 0),
+                lastModified: Number(file['lastModified'] ?? 0),
+                isImage: this.imageExtensions.has(ext),
+                isText: this.textExtensions.has(ext),
+              } as FileSuggestion;
+            },
+          );
+
+          this._remoteResults.set(suggestions);
+        } else {
+          this._remoteResults.set([]);
+        }
+      } catch (error) {
+        console.warn('[FilePickerService] Remote file search failed:', error);
+        // Don't clear results on error — keep stale results visible
+      } finally {
+        if (searchId === this._remoteSearchAbortId) {
+          this._isRemoteSearching.set(false);
+        }
+      }
+    }, 200);
+  }
+
+  /**
+   * Clear remote search results (call when dropdown closes)
+   */
+  clearRemoteResults(): void {
+    this._remoteResults.set([]);
+    this._isRemoteSearching.set(false);
+    if (this._remoteSearchTimer) {
+      clearTimeout(this._remoteSearchTimer);
+      this._remoteSearchTimer = null;
+    }
   }
 
   /**
@@ -275,7 +527,7 @@ export class FilePickerService {
    */
   removeFile(filePath: string): void {
     this._includedFiles.update((files) =>
-      files.filter((f) => f.path !== filePath)
+      files.filter((f) => f.path !== filePath),
     );
   }
 

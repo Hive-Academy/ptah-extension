@@ -20,7 +20,17 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Result } from '@ptah-extension/shared';
-import type { GenerationStreamPayload } from '@ptah-extension/shared';
+import type {
+  GenerationStreamPayload,
+  FlatStreamEventUnion,
+  TextDeltaEvent,
+  ThinkingDeltaEvent,
+  ToolStartEvent,
+  ToolDeltaEvent,
+  ToolResultEvent,
+  MessageStartEvent,
+  MessageCompleteEvent,
+} from '@ptah-extension/shared';
 import {
   Logger,
   TOKENS,
@@ -86,7 +96,7 @@ export class ContentGenerationService implements IContentGenerationService {
     @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
     private readonly internalQueryService: InternalQueryService,
     @inject(TOKENS.CONFIG_MANAGER)
-    private readonly config: ConfigManager
+    private readonly config: ConfigManager,
   ) {}
 
   /**
@@ -103,8 +113,8 @@ export class ContentGenerationService implements IContentGenerationService {
   async generateContent(
     template: AgentTemplate,
     context: AgentProjectContext,
-    sdkConfig?: ContentGenerationSdkConfig
-  ): Promise<Result<string, Error>> {
+    sdkConfig?: ContentGenerationSdkConfig,
+  ): Promise<Result<{ content: string; description: string }, Error>> {
     try {
       this.logger.info('Starting LLM-driven content generation', {
         templateId: template.id,
@@ -112,6 +122,7 @@ export class ContentGenerationService implements IContentGenerationService {
       });
 
       let content = template.content;
+      let description = '';
 
       // 1. Extract dynamic sections (LLM and VAR markers)
       const dynamicSections = this.extractDynamicSections(content);
@@ -124,13 +135,15 @@ export class ContentGenerationService implements IContentGenerationService {
 
       // 2. Generate content for dynamic sections via SDK
       if (dynamicSections.length > 0) {
-        content = await this.fillDynamicSections(
+        const fillResult = await this.fillDynamicSections(
           content,
           dynamicSections,
           context,
           template.name,
-          sdkConfig
+          sdkConfig,
         );
+        content = fillResult.content;
+        description = fillResult.description;
       }
 
       // 3. Final pass: substitute remaining {{VARS}} outside section markers
@@ -141,9 +154,10 @@ export class ContentGenerationService implements IContentGenerationService {
         templateId: template.id,
         contentLength: content.length,
         dynamicSectionsProcessed: dynamicSections.length,
+        hasLlmDescription: description.length > 0,
       });
 
-      return Result.ok(content);
+      return Result.ok({ content, description });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -159,8 +173,8 @@ export class ContentGenerationService implements IContentGenerationService {
           {
             templateId: template.id,
             context: { projectType: context.projectType },
-          }
-        )
+          },
+        ),
       );
     }
   }
@@ -173,13 +187,13 @@ export class ContentGenerationService implements IContentGenerationService {
    */
   async generateLlmSections(
     template: AgentTemplate,
-    context: AgentProjectContext
+    context: AgentProjectContext,
   ): Promise<Result<LlmCustomization[], Error>> {
     // LLM sections are handled directly in generateContent() via fillDynamicSections().
     // This method is retained for interface compatibility.
     this.logger.debug(
       'generateLlmSections called — sections are handled inline in generateContent()',
-      { templateId: template.id }
+      { templateId: template.id },
     );
     return Result.ok([]);
   }
@@ -198,17 +212,17 @@ export class ContentGenerationService implements IContentGenerationService {
     sections: DynamicSection[],
     context: AgentProjectContext,
     templateName: string,
-    sdkConfig?: ContentGenerationSdkConfig
-  ): Promise<string> {
+    sdkConfig?: ContentGenerationSdkConfig,
+  ): Promise<{ content: string; description: string }> {
     try {
       // Build the prompt describing all sections to fill
       const prompt = this.buildAllSectionsPrompt(
         sections,
         context,
-        templateName
+        templateName,
       );
 
-      // Build JSON Schema for structured output: { sections: { [sectionId]: string } }
+      // Build JSON Schema for structured output: { description: string, sections: { [sectionId]: string } }
       const sectionIds = sections.map((s) => s.id);
       const sectionProperties: Record<string, unknown> = {};
       for (const section of sections) {
@@ -216,7 +230,7 @@ export class ContentGenerationService implements IContentGenerationService {
           type: 'string',
           description: `Content for ${this.sectionIdToTopic(
             section.id,
-            section.type
+            section.type,
           )} section`,
         };
       }
@@ -224,13 +238,18 @@ export class ContentGenerationService implements IContentGenerationService {
       const outputSchema: Record<string, unknown> = {
         type: 'object',
         properties: {
+          description: {
+            type: 'string',
+            description:
+              'A concise 1-sentence agent description (max 120 chars) specific to this project. Example: "Backend developer specializing in NestJS microservices with PostgreSQL and Redis"',
+          },
           sections: {
             type: 'object',
             properties: sectionProperties,
             required: sectionIds,
           },
         },
-        required: ['sections'],
+        required: ['description', 'sections'],
       };
 
       // Resolve model from config
@@ -262,7 +281,7 @@ OUTPUT FORMAT:
         const skills = discoverPluginSkills(sdkConfig.pluginPaths);
         if (skills.length > 0) {
           systemPrompt += `\n\n## Available Plugin Skills\nThe generated agent rules should reference these skills where relevant:\n${formatSkillsForPrompt(
-            skills
+            skills,
           )}`;
         }
       }
@@ -289,7 +308,7 @@ OUTPUT FORMAT:
         structuredOutput = await this.processGenerationStream(
           handle.stream,
           sdkConfig?.onStreamEvent,
-          templateName
+          templateName,
         );
       } finally {
         handle.close();
@@ -300,9 +319,15 @@ OUTPUT FORMAT:
         typeof structuredOutput === 'object' &&
         'sections' in structuredOutput
       ) {
-        const generatedSections = (
-          structuredOutput as { sections: Record<string, string> }
-        ).sections;
+        const typedOutput = structuredOutput as {
+          description?: string;
+          sections: Record<string, string>;
+        };
+        const generatedSections = typedOutput.sections;
+        const llmDescription =
+          typeof typedOutput.description === 'string'
+            ? typedOutput.description.trim()
+            : '';
 
         // Inject results into template content
         let processed = content;
@@ -319,35 +344,36 @@ OUTPUT FORMAT:
             // Fallback: use original template content (without markers)
             replacement = section.content;
             this.logger.warn(
-              `Section ${section.id}: SDK returned empty, using template fallback`
+              `Section ${section.id}: SDK returned empty, using template fallback`,
             );
           }
 
-          processed = processed.replace(section.fullMatch, replacement);
+          processed = processed.replace(section.fullMatch, () => replacement);
         }
 
-        return processed;
+        return { content: processed, description: llmDescription };
       }
 
       // Structured output not available — fall through to fallback
       this.logger.warn(
-        'SDK did not return structured output, using template fallback for all sections'
+        'SDK did not return structured output, using template fallback for all sections',
       );
     } catch (error) {
       this.logger.warn(
         'SDK content generation failed, using template fallback for all sections',
         {
           error: error instanceof Error ? error.message : String(error),
-        }
+        },
       );
     }
 
-    // Fallback: strip section markers but keep original template content
+    // Fallback: strip section markers but keep original template content.
+    // Return empty description so the orchestrator uses its own fallback chain.
     let processed = content;
     for (const section of sections) {
       processed = processed.replace(section.fullMatch, section.content);
     }
-    return processed;
+    return { content: processed, description: '' };
   }
 
   /**
@@ -356,14 +382,14 @@ OUTPUT FORMAT:
   private buildAllSectionsPrompt(
     sections: DynamicSection[],
     context: AgentProjectContext,
-    templateName: string
+    templateName: string,
   ): string {
     // Use multi-phase analysis if available, otherwise fall back to formatAnalysisData
     let analysisData: string;
     if (context.analysisDir) {
       const phaseContext = this.readPhaseContextForRole(
         context.analysisDir,
-        templateName
+        templateName,
       );
       analysisData = phaseContext || this.formatAnalysisData(context);
     } else {
@@ -398,8 +424,9 @@ ${sectionDescriptions}
 4. Use the template blueprint as guidance for the KIND and STRUCTURE of content expected, but tailor all details to the analysis data.
 5. Reference concrete details from the analysis: specific framework names, file paths, architecture patterns, testing frameworks, and conventions.
 6. Keep each section under 500 words.
+7. Also generate a "description" field: a concise 1-sentence agent description (max 120 chars) specific to THIS project. Do NOT include the agent name. Focus on what this agent does for this specific project.
 
-Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... } }`;
+Return a JSON object: { "description": "<concise description>", "sections": { "<sectionId>": "<markdown content>", ... } }`;
   }
 
   /**
@@ -416,15 +443,60 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
   private async processGenerationStream(
     stream: AsyncIterable<SDKMessage>,
     onStreamEvent?: (event: GenerationStreamPayload) => void,
-    agentId?: string
+    agentId?: string,
   ): Promise<unknown | null> {
+    // Conversion context for FlatStreamEventUnion generation
+    const sessionId = `gen-${agentId || 'unknown'}`;
+    const messageId = sessionId;
+    let counter = 0;
+    let textBlockIndex = 0;
+    let thinkingBlockIndex = 0;
+    let activeToolCallId: string | null = null;
+
     const emitter: StreamEventEmitter = {
       emit: (event: StreamEvent) => {
         if (onStreamEvent) {
-          onStreamEvent({ ...event, agentId });
+          const flatEvent = this.convertStreamEventToFlatEvent(event, {
+            sessionId,
+            messageId,
+            counter: counter++,
+            textBlockIndex,
+            thinkingBlockIndex,
+            activeToolCallId,
+          });
+          // Update mutable context after conversion
+          if (event.kind === 'tool_start') {
+            textBlockIndex++;
+            thinkingBlockIndex++;
+            activeToolCallId =
+              event.toolCallId ?? `${sessionId}-tool-${counter}`;
+          }
+          onStreamEvent({
+            ...event,
+            agentId,
+            flatEvent: flatEvent ?? undefined,
+          });
         }
       },
     };
+
+    // Emit message_start so the frontend can create the execution tree root
+    if (onStreamEvent) {
+      onStreamEvent({
+        kind: 'status',
+        content: `Generating ${agentId}...`,
+        timestamp: Date.now(),
+        agentId,
+        flatEvent: {
+          id: `${sessionId}-msg-start`,
+          eventType: 'message_start',
+          timestamp: Date.now(),
+          sessionId,
+          messageId,
+          role: 'assistant',
+        } as MessageStartEvent,
+      });
+    }
 
     const processor = new SdkStreamProcessor({
       emitter,
@@ -436,12 +508,113 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
 
     try {
       const result = await processor.process(stream);
+
+      // Emit message_complete so the frontend knows the tree is done
+      if (onStreamEvent) {
+        onStreamEvent({
+          kind: 'status',
+          content: `${agentId} generation complete`,
+          timestamp: Date.now(),
+          agentId,
+          flatEvent: {
+            id: `${sessionId}-msg-complete`,
+            eventType: 'message_complete',
+            timestamp: Date.now(),
+            sessionId,
+            messageId,
+          } as MessageCompleteEvent,
+        });
+      }
+
       return result.structuredOutput;
     } catch (error) {
       this.logger.warn('ContentGenerationService: Stream processing error', {
         error: error instanceof Error ? error.message : String(error),
       });
       return null;
+    }
+  }
+
+  /**
+   * Convert a StreamEvent to a FlatStreamEventUnion for ExecutionNode rendering.
+   * Used by the generation stream to provide flat events to the wizard transcript.
+   */
+  private convertStreamEventToFlatEvent(
+    event: StreamEvent,
+    ctx: {
+      sessionId: string;
+      messageId: string;
+      counter: number;
+      textBlockIndex: number;
+      thinkingBlockIndex: number;
+      activeToolCallId: string | null;
+    },
+  ): FlatStreamEventUnion | null {
+    const baseFields = {
+      id: `${ctx.sessionId}-${ctx.counter}`,
+      timestamp: event.timestamp,
+      sessionId: ctx.sessionId,
+      messageId: ctx.messageId,
+    };
+
+    switch (event.kind) {
+      case 'text':
+        return {
+          ...baseFields,
+          eventType: 'text_delta',
+          delta: event.content,
+          blockIndex: ctx.textBlockIndex,
+        } as TextDeltaEvent;
+
+      case 'thinking':
+        return {
+          ...baseFields,
+          eventType: 'thinking_delta',
+          delta: event.content,
+          blockIndex: ctx.thinkingBlockIndex,
+        } as ThinkingDeltaEvent;
+
+      case 'tool_start': {
+        const toolCallId =
+          event.toolCallId ?? `${ctx.sessionId}-tool-${ctx.counter}`;
+        return {
+          ...baseFields,
+          eventType: 'tool_start',
+          toolCallId,
+          toolName: event.toolName ?? 'unknown',
+          isTaskTool: false,
+        } as ToolStartEvent;
+      }
+
+      case 'tool_input':
+        return {
+          ...baseFields,
+          eventType: 'tool_delta',
+          toolCallId:
+            event.toolCallId ??
+            ctx.activeToolCallId ??
+            `${ctx.sessionId}-tool-unk`,
+          delta: event.content,
+        } as ToolDeltaEvent;
+
+      case 'tool_result':
+        return {
+          ...baseFields,
+          eventType: 'tool_result',
+          toolCallId:
+            event.toolCallId ??
+            ctx.activeToolCallId ??
+            `${ctx.sessionId}-tool-unk`,
+          output: event.content,
+          isError: event.isError ?? false,
+        } as ToolResultEvent;
+
+      case 'error':
+      case 'status':
+        return null;
+
+      default:
+        return null;
     }
   }
 
@@ -519,7 +692,7 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
       `  Indentation: ${context.codeConventions.indentation} (size: ${context.codeConventions.indentSize})`,
       `  Quotes: ${context.codeConventions.quoteStyle}`,
       `  Semicolons: ${context.codeConventions.semicolons}`,
-      `  Trailing Comma: ${context.codeConventions.trailingComma}`
+      `  Trailing Comma: ${context.codeConventions.trailingComma}`,
     );
 
     if (context.relevantFiles.length > 0) {
@@ -527,7 +700,7 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
         `Key Files: ${context.relevantFiles
           .slice(0, 10)
           .map((f) => f.relativePath)
-          .join(', ')}`
+          .join(', ')}`,
       );
     }
 
@@ -542,7 +715,7 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
         parts.push(
           `Architecture Patterns: ${analysis.architecturePatterns
             .map((p) => `${p.name} (${p.confidence}% confidence)`)
-            .join(', ')}`
+            .join(', ')}`,
         );
       }
 
@@ -550,7 +723,7 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
         parts.push(
           `Language Distribution: ${analysis.languageDistribution
             .map((l) => `${l.language} ${l.percentage}%`)
-            .join(', ')}`
+            .join(', ')}`,
         );
       }
 
@@ -562,13 +735,13 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
             analysis.testCoverage.testFramework || 'unknown'
           }, unit: ${analysis.testCoverage.hasUnitTests}, integration: ${
             analysis.testCoverage.hasIntegrationTests
-          })`
+          })`,
         );
       }
 
       if (analysis.existingIssues) {
         parts.push(
-          `Code Issues: ${analysis.existingIssues.errorCount} errors, ${analysis.existingIssues.warningCount} warnings`
+          `Code Issues: ${analysis.existingIssues.errorCount} errors, ${analysis.existingIssues.warningCount} warnings`,
         );
       }
 
@@ -598,7 +771,7 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
    */
   private substituteRemainingVars(
     content: string,
-    context: AgentProjectContext
+    context: AgentProjectContext,
   ): string {
     // Build variable values from analysis context
     const varMap: Record<string, string> = {
@@ -626,7 +799,7 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
       // Match {{KEY}} with optional whitespace: {{ KEY }}
       result = result.replace(
         new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g'),
-        value
+        value,
       );
     }
 
@@ -649,7 +822,7 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
    */
   private processSimpleConditionals(
     content: string,
-    vars: Record<string, string>
+    vars: Record<string, string>,
   ): string {
     const conditionalRegex = /\{\{#if\s+(!?)(\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g;
     return content.replace(
@@ -660,7 +833,7 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
           !!value && value !== 'false' && value !== '0' && value !== '';
         const condition = negation === '!' ? !isTruthy : isTruthy;
         return condition ? conditionalContent : '';
-      }
+      },
     );
   }
 
@@ -698,7 +871,7 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
    */
   private readPhaseContextForRole(
     analysisDir: string,
-    templateName: string
+    templateName: string,
   ): string {
     try {
       // Read and cache all phase files
@@ -733,7 +906,7 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
           try {
             files[pf.key] = readFileSync(
               path.join(analysisDir, pf.file),
-              'utf-8'
+              'utf-8',
             );
           } catch {
             // Phase file not available - skip

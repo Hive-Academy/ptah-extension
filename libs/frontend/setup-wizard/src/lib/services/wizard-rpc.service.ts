@@ -1,11 +1,17 @@
 import { Injectable, inject } from '@angular/core';
 import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
 import type {
+  AgentPackInfoDto,
   AgentRecommendation,
+  DiscoveryAnswers,
   EnhancedPromptsRunWizardResponse,
   EnhancedPromptsGetStatusResponse,
+  MasterPlan,
   MultiPhaseAnalysisResponse,
+  NewProjectType,
+  QuestionGroup,
   SavedAnalysisMetadata,
+  WizardInstallPackAgentsResult,
 } from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
 
@@ -393,5 +399,139 @@ export class WizardRpcService {
     }
 
     throw new Error(result.error || 'Failed to load analysis');
+  }
+
+  // === Community Agent Pack Methods (TASK_2025_258) ===
+
+  /**
+   * List available community agent packs.
+   * Calls the wizard:list-agent-packs backend handler to fetch curated pack manifests.
+   *
+   * @returns Array of agent pack info DTOs, or empty array on failure
+   */
+  public async listAgentPacks(): Promise<AgentPackInfoDto[]> {
+    const result = await this.rpcService.call(
+      'wizard:list-agent-packs',
+      {},
+      { timeout: 30_000 },
+    );
+
+    if (result.isSuccess() && result.data) {
+      return (result.data as { packs: AgentPackInfoDto[] }).packs;
+    }
+
+    return [];
+  }
+
+  /**
+   * Install agents from a community pack into the workspace.
+   * Downloads specified agent files from the pack source to .claude/agents/.
+   *
+   * @param source - Manifest URL of the pack to install from
+   * @param agentFiles - Agent file names to install (must match manifest entries)
+   * @returns Install result with success status and download count
+   */
+  public async installPackAgents(
+    source: string,
+    agentFiles: string[],
+  ): Promise<WizardInstallPackAgentsResult> {
+    const result = await this.rpcService.call(
+      'wizard:install-pack-agents',
+      { source, agentFiles },
+      { timeout: 60_000 },
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data as WizardInstallPackAgentsResult;
+    }
+
+    return {
+      success: false,
+      agentsDownloaded: 0,
+      fromCache: false,
+      error: result.error || 'Failed to install agents',
+    };
+  }
+
+  // === New Project RPC Methods ===
+
+  /**
+   * Select a new project type and receive discovery question groups.
+   * Calls the wizard:new-project-select-type backend handler.
+   *
+   * @param projectType - The selected project type (e.g., 'full-saas', 'angular-app')
+   * @returns Array of question groups for the discovery step
+   */
+  public async selectNewProjectType(
+    projectType: NewProjectType,
+  ): Promise<QuestionGroup[]> {
+    const result = await this.rpcService.call(
+      'wizard:new-project-select-type',
+      { projectType },
+    );
+    if (result.isSuccess() && result.data) {
+      return (result.data as { groups: QuestionGroup[] }).groups;
+    }
+    throw new Error(result.error || 'Failed to select project type');
+  }
+
+  /**
+   * Submit discovery answers and trigger master plan generation.
+   * Calls the wizard:new-project-submit-answers backend handler.
+   * Uses a 2-minute timeout since plan generation involves LLM processing.
+   *
+   * @param projectType - The selected project type
+   * @param answers - Accumulated discovery answers keyed by question ID
+   * @param projectName - User-provided project name
+   */
+  public async submitDiscoveryAnswers(
+    projectType: NewProjectType,
+    answers: DiscoveryAnswers,
+    projectName: string,
+    force?: boolean,
+  ): Promise<void> {
+    const result = await this.rpcService.call(
+      'wizard:new-project-submit-answers',
+      { projectType, answers, projectName, force },
+      { timeout: 120000 },
+    );
+    if (!result.isSuccess()) {
+      throw new Error(result.error || 'Failed to generate plan');
+    }
+  }
+
+  /**
+   * Retrieve the generated master plan.
+   * Calls the wizard:new-project-get-plan backend handler.
+   *
+   * @returns The generated master plan
+   */
+  public async getMasterPlan(): Promise<MasterPlan> {
+    const result = await this.rpcService.call(
+      'wizard:new-project-get-plan',
+      {},
+    );
+    if (result.isSuccess() && result.data) {
+      return (result.data as { plan: MasterPlan }).plan;
+    }
+    throw new Error(result.error || 'Failed to get plan');
+  }
+
+  /**
+   * Approve or reject the generated master plan.
+   * Calls the wizard:new-project-approve-plan backend handler.
+   *
+   * @param approved - Whether the user approved the plan
+   * @returns Object containing the path where the plan was saved
+   */
+  public async approvePlan(approved: boolean): Promise<{ planPath: string }> {
+    const result = await this.rpcService.call(
+      'wizard:new-project-approve-plan',
+      { approved },
+    );
+    if (result.isSuccess() && result.data) {
+      return { planPath: (result.data as { planPath: string }).planPath };
+    }
+    throw new Error(result.error || 'Failed to approve plan');
   }
 }

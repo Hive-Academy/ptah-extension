@@ -29,6 +29,7 @@ import { DIContainer } from './di/container';
 import { LicenseCommands } from './commands/license-commands';
 import { SettingsCommands } from './commands/settings-commands';
 import { WebviewHtmlGenerator } from './services/webview-html-generator';
+import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 
 let ptahExtension: PtahExtension | undefined;
 
@@ -373,23 +374,6 @@ async function handleLicenseBlocking(
                 }
               }
 
-              if (
-                auth['oauthToken'] &&
-                typeof auth['oauthToken'] === 'string'
-              ) {
-                try {
-                  await context.secrets.store(
-                    'ptah.auth.claudeOAuthToken',
-                    auth['oauthToken'] as string,
-                  );
-                  imported.push('ptah.auth.claudeOAuthToken');
-                } catch (e) {
-                  errors.push(
-                    `oauthToken: ${e instanceof Error ? e.message : String(e)}`,
-                  );
-                }
-              }
-
               if (auth['apiKey'] && typeof auth['apiKey'] === 'string') {
                 try {
                   await context.secrets.store(
@@ -427,10 +411,37 @@ async function handleLicenseBlocking(
                 }
               }
 
+              // Import config values via VS Code workspace configuration
+              const importConfig = importData['config'] as
+                | Record<string, unknown>
+                | undefined;
+              if (importConfig && typeof importConfig === 'object') {
+                const ptahConfig = vscode.workspace.getConfiguration('ptah');
+                for (const [key, value] of Object.entries(importConfig)) {
+                  try {
+                    await ptahConfig.update(
+                      key,
+                      value,
+                      vscode.ConfigurationTarget.Global,
+                    );
+                    imported.push(`config:${key}`);
+                  } catch (e) {
+                    errors.push(
+                      `config:${key}: ${e instanceof Error ? e.message : String(e)}`,
+                    );
+                  }
+                }
+              }
+
+              // Response shape must match RpcMethodRegistry['settings:import']['result']
+              // which nests imported/skipped/errors inside a `result` wrapper.
               webviewView.webview.postMessage({
                 type: 'rpc:response',
                 success: true,
-                data: { cancelled: false, imported, errors },
+                data: {
+                  cancelled: false,
+                  result: { imported, skipped: [], errors },
+                },
                 correlationId,
               });
 
@@ -471,34 +482,25 @@ async function handleLicenseBlocking(
     }),
   );
 
-  console.log(
-    '[Activate] Webview registered with welcome view for unlicensed user',
-  );
   // DO NOT call showLicenseRequiredUI() - webview handles onboarding
 }
 
 export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<void> {
-  console.log('===== PTAH ACTIVATION START =====');
   try {
     // ========================================
     // STEP 1: MINIMAL DI SETUP FOR LICENSE CHECK (TASK_2025_121)
     // ========================================
     // Initialize minimal DI container with only license-related services
     // This allows license verification before full service initialization
-    console.log(
-      '[Activate] Step 1: Setting up minimal DI for license check...',
-    );
     DIContainer.setupMinimal(context);
-    console.log('[Activate] Step 1: Minimal DI setup complete');
 
     // ========================================
     // STEP 2: LICENSE VERIFICATION (BLOCKING)
     // ========================================
     // CRITICAL: License verification MUST happen BEFORE full service init
     // If license is invalid, block extension and show license UI
-    console.log('[Activate] Step 2: Verifying license (BLOCKING)...');
     const licenseService = DIContainer.resolve<LicenseService>(
       TOKENS.LICENSE_SERVICE,
     );
@@ -509,56 +511,39 @@ export async function activate(
     // Community users (no license key) have valid: true and bypass this block
     if (!licenseStatus.valid) {
       // BLOCK EXTENSION - Only for revoked/payment-failed licenses
-      console.log(
-        `[Activate] BLOCKED: License invalid (reason: ${
-          licenseStatus.reason || 'unknown'
-        })`,
-      );
-
       // Handle blocking flow (show UI, register minimal commands)
       await handleLicenseBlocking(context, licenseService, licenseStatus);
 
       // DO NOT continue with normal activation
-      console.log('[Activate] Extension blocked - awaiting valid license');
       return;
     }
 
     // Community and Pro users both reach here
-    console.log(
-      `[Activate] Step 2: License verified (tier: ${licenseStatus.tier})`,
-    );
 
     // ========================================
     // STEP 3: FULL DI SETUP (Licensed users only)
     // ========================================
-    console.log('[Activate] Step 3: Setting up full DI Container...');
     DIContainer.setup(context);
-    console.log('[Activate] Step 3: Full DI Container setup complete');
 
     // ========================================
     // STEP 3.5: MIGRATE FILE-BASED SETTINGS (TASK_2025_247)
 
     // Get logger from DI container
-    console.log('[Activate] Step 4: Resolving Logger...');
     const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
     logger.info('Activating Ptah extension (licensed user)...', {
       tier: licenseStatus.tier,
       valid: licenseStatus.valid,
     });
-    console.log('[Activate] Step 4: Logger resolved');
 
     // Register RPC Methods (Phase 2 - TASK_2025_021)
     // Extracted to RpcMethodRegistrationService for clean separation
-    console.log('[Activate] Step 5: Registering RPC methods...');
     const rpcMethodRegistration = DIContainer.resolve(
       TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
     ) as { registerAll: () => void };
     rpcMethodRegistration.registerAll();
-    console.log('[Activate] Step 5: RPC methods registered');
 
     // Initialize autocomplete discovery watchers (TASK_2025_019 Phase 2)
     // NOTE: MCP discovery service was planned but never implemented - only agent and command discovery exist
-    console.log('[Activate] Step 6: Initializing autocomplete watchers...');
     const agentDiscovery = DIContainer.resolve(
       TOKENS.AGENT_DISCOVERY_SERVICE,
     ) as { initializeWatchers: () => void };
@@ -568,34 +553,48 @@ export async function activate(
     agentDiscovery.initializeWatchers();
     commandDiscovery.initializeWatchers();
     logger.info('Autocomplete discovery watchers initialized (2 services)');
-    console.log('[Activate] Step 6: Autocomplete watchers initialized');
 
-    // Step 7: Initialize SDK authentication (TASK_2025_057 Batch 1)
-    console.log('[Activate] Step 7: Initializing SDK authentication...');
-    const sdkAdapter = DIContainer.resolve(TOKENS.SDK_AGENT_ADAPTER) as {
+    // Step 7: Initialize agent adapters (SDK + DeepAgent) via RuntimeSelector
+    const agentAdapter = DIContainer.resolve(TOKENS.AGENT_ADAPTER) as {
       initialize: () => Promise<boolean>;
       preloadSdk: () => Promise<void>;
     };
-    const authInitialized = await sdkAdapter.initialize();
+    const authInitialized = await agentAdapter.initialize();
 
     if (!authInitialized) {
       logger.info(
         'SDK authentication not configured - users can configure in Ptah Settings',
       );
     } else {
-      logger.info('SDK authentication initialized successfully');
+      logger.info('Agent adapters initialized successfully');
 
-      // Pre-load SDK in background (non-blocking) to speed up first chat
+      // Pre-load SDKs in background (non-blocking) to speed up first chat
       // This shifts ~100-200ms import cost from first user interaction to activation
-      console.log('[Activate] Step 7.1: Pre-loading SDK in background...');
-      sdkAdapter.preloadSdk().catch((err) => {
+      agentAdapter.preloadSdk().catch((err) => {
         logger.warn('SDK preload failed (will retry on first use)', {
           error: err instanceof Error ? err.message : String(err),
         });
       });
     }
-    console.log(
-      '[Activate] Step 7: SDK authentication initialization complete',
+
+    // Watch for runtime changes and prompt for window reload. Switching
+    // between Claude SDK and deep-agent runtimes rebinds DI registrations at
+    // activation time, so the window must reload to apply.
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration('ptah.runtime')) {
+          vscode.window
+            .showInformationMessage(
+              'Ptah runtime changed. Reload the window to apply the new agent runtime.',
+              'Reload Window',
+            )
+            .then((choice) => {
+              if (choice === 'Reload Window') {
+                vscode.commands.executeCommand('workbench.action.reloadWindow');
+              }
+            });
+        }
+      }),
     );
 
     // Step 7.1.4: Ensure plugin/template content from GitHub (non-blocking)
@@ -615,7 +614,6 @@ export async function activate(
     });
 
     // Step 7.1.5: Initialize plugin loader with extension path (TASK_2025_153)
-    console.log('[Activate] Step 7.1.5: Initializing plugin loader...');
     try {
       const pluginLoader = DIContainer.resolve<PluginLoaderService>(
         SDK_TOKENS.SDK_PLUGIN_LOADER,
@@ -632,18 +630,12 @@ export async function activate(
       );
       logger.info('Plugin loader initialized');
 
-      // Wire plugin paths into command discovery for slash command autocomplete
+      // Resolve plugin paths for junction creation (commands and skills
+      // are discovered from .claude/ directory, not from plugin paths directly)
       const pluginConfig = pluginLoader.getWorkspacePluginConfig();
       const pluginPaths = pluginLoader.resolvePluginPaths(
         pluginConfig.enabledPluginIds,
       );
-      const cmdDiscovery = DIContainer.resolve(
-        TOKENS.COMMAND_DISCOVERY_SERVICE,
-      ) as { setPluginPaths: (paths: string[]) => void };
-      cmdDiscovery.setPluginPaths(pluginPaths);
-      logger.info('Plugin paths wired into command discovery', {
-        pluginCount: pluginPaths.length,
-      });
     } catch (pluginLoaderError) {
       logger.warn('Plugin loader initialization failed', {
         error:
@@ -652,14 +644,9 @@ export async function activate(
             : String(pluginLoaderError),
       });
     }
-    console.log('[Activate] Step 7.1.5: Plugin loader initialized');
-
     // Step 7.1.5.1: Create workspace skill junctions (TASK_2025_201)
     // Project skill files from extension assets into workspace .ptah/skills/ via junctions
     // So third-party providers (Copilot, Codex) can find skills via MCP workspace search
-    console.log(
-      '[Activate] Step 7.1.5.1: Creating workspace skill junctions...',
-    );
     try {
       const skillJunction = DIContainer.resolve<SkillJunctionService>(
         SDK_TOKENS.SDK_SKILL_JUNCTION,
@@ -678,9 +665,11 @@ export async function activate(
 
       // Always call activate() even with zero plugins, so the workspace change
       // subscription is registered for future plugin enablement
-      const junctionResult = skillJunction.activate(junctionPluginPaths, () => {
-        const config = junctionPluginLoader.getWorkspacePluginConfig();
-        return junctionPluginLoader.resolvePluginPaths(config.enabledPluginIds);
+      const junctionResult = skillJunction.activate({
+        pluginPaths: junctionPluginPaths,
+        disabledSkillIds: junctionPluginConfig.disabledSkillIds,
+        getPluginPaths: () => junctionPluginLoader.resolveCurrentPluginPaths(),
+        getDisabledSkillIds: () => junctionPluginLoader.getDisabledSkillIds(),
       });
       if (junctionResult.created > 0 || junctionResult.errors.length > 0) {
         logger.info('Skill junctions created', {
@@ -701,12 +690,9 @@ export async function activate(
             : String(skillJunctionError),
       });
     }
-    console.log('[Activate] Step 7.1.5.1: Skill junctions ready');
-
     // Step 7.1.6: CLI Skill Sync (TASK_2025_160)
     // Sync Ptah plugin skills to installed CLI agent directories (Copilot, Gemini)
     // Premium-only, non-blocking, fire-and-forget
-    console.log('[Activate] Step 7.1.6: CLI skill sync...');
     if (licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro') {
       try {
         const cliPluginSync = DIContainer.getContainer().resolve(
@@ -771,12 +757,186 @@ export async function activate(
         'CLI skill sync skipped (Community tier - Pro feature only)',
       );
     }
-    console.log('[Activate] Step 7.1.6: CLI skill sync initiated');
+    // Step 7.1.7: CLI Agent Sync on Activation (TASK_2025_268)
+    // Distribute existing .claude/agents/*.md to all installed CLI targets.
+    // Ensures agents are present after fresh install without re-running the wizard.
+    // Premium-only, non-blocking, fire-and-forget. Uses content-hash dedup to avoid
+    // redundant writes when agent files have not changed since last activation.
+    if (licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro') {
+      const agentSyncWorkspaceRoot =
+        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (agentSyncWorkspaceRoot) {
+        (async () => {
+          const { readdir, readFile } = await import('fs/promises');
+          const { join } = await import('path');
+          const { createHash } = await import('crypto');
 
+          const agentsDir = join(agentSyncWorkspaceRoot, '.claude', 'agents');
+          let agentFileNames: string[];
+          try {
+            const entries = await readdir(agentsDir);
+            // Sort for deterministic hash regardless of readdir order on non-NTFS filesystems
+            agentFileNames = entries
+              .filter((f) => f.endsWith('.md') && !f.startsWith('.backup-'))
+              .sort();
+          } catch {
+            logger.debug(
+              'CLI agent sync skipped (no .claude/agents/ directory)',
+            );
+            return;
+          }
+          if (agentFileNames.length === 0) {
+            logger.debug('CLI agent sync skipped (no agent files found)');
+            return;
+          }
+
+          // Read files individually — skip unreadable files rather than aborting all
+          const agentFiles = (
+            await Promise.all(
+              agentFileNames.map(async (name) => {
+                const filePath = join(agentsDir, name);
+                try {
+                  const content = await readFile(filePath, 'utf8');
+                  return { name, filePath, content };
+                } catch {
+                  logger.debug(
+                    `CLI agent sync: skipping unreadable file ${name}`,
+                  );
+                  return null;
+                }
+              }),
+            )
+          ).filter(
+            (f): f is { name: string; filePath: string; content: string } =>
+              f !== null,
+          );
+
+          if (agentFiles.length === 0) {
+            logger.debug('CLI agent sync skipped (no readable agent files)');
+            return;
+          }
+
+          const combinedContent = agentFiles
+            .map((f) => f.content)
+            .join('\n---\n');
+          const contentHash = createHash('sha1')
+            .update(combinedContent)
+            .digest('hex');
+
+          const cliDetection = DIContainer.getContainer().resolve(
+            TOKENS.CLI_DETECTION_SERVICE,
+          ) as {
+            detectAll: () => Promise<
+              Array<{ cli: string; installed: boolean }>
+            >;
+          };
+          const installedClis = await cliDetection.detectAll();
+          const targetClis = installedClis
+            .filter(
+              (c) =>
+                (c.cli === 'copilot' ||
+                  c.cli === 'gemini' ||
+                  c.cli === 'codex' ||
+                  c.cli === 'cursor') &&
+                c.installed,
+            )
+            .map((c) => c.cli);
+
+          if (targetClis.length === 0) {
+            logger.debug('CLI agent sync skipped (no CLI targets installed)');
+            return;
+          }
+
+          const agentSyncStateStorage = DIContainer.resolve<IStateStorage>(
+            PLATFORM_TOKENS.STATE_STORAGE,
+          );
+
+          const staleTargets = targetClis.filter(
+            (cli) =>
+              agentSyncStateStorage.get<string>(
+                `cli_agent_sync_hash_${cli}`,
+              ) !== contentHash,
+          );
+
+          if (staleTargets.length === 0) {
+            logger.debug('CLI agent sync skipped (all CLIs up-to-date)');
+            return;
+          }
+
+          const agents = agentFiles.map((f) => {
+            // Extract description from frontmatter for quality parity with wizard-generated agents
+            const descMatch = /^description:\s*(.+)$/m.exec(f.content);
+            const description =
+              descMatch?.[1]?.trim() ?? `${f.name.replace(/\.md$/, '')} agent`;
+            return {
+              sourceTemplateId: f.name.replace(/\.md$/, ''),
+              sourceTemplateVersion: 'unknown',
+              content: f.content,
+              variables: { description } as Record<string, string>,
+              customizations: [],
+              generatedAt: new Date(),
+              // filePath is the source path; transformers derive their own target paths via homedir()
+              filePath: f.filePath,
+            };
+          });
+
+          const multiCliWriter = DIContainer.getContainer().resolve(
+            AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE,
+          ) as {
+            writeForClis: (
+              agents: unknown[],
+              targetClis: string[],
+            ) => Promise<
+              Array<{
+                cli: string;
+                agentsWritten: number;
+                agentsFailed: number;
+              }>
+            >;
+          };
+
+          const writeResults = await multiCliWriter.writeForClis(
+            agents,
+            staleTargets,
+          );
+
+          // Only mark CLIs as up-to-date when all agents were written successfully.
+          // CLIs with write failures retain their stale hash so the next activation retries.
+          const successfulClis = writeResults
+            .filter((r) => r.agentsFailed === 0)
+            .map((r) => r.cli);
+
+          await Promise.all(
+            successfulClis.map((cli) =>
+              agentSyncStateStorage.update(
+                `cli_agent_sync_hash_${cli}`,
+                contentHash,
+              ),
+            ),
+          );
+
+          logger.info('CLI agent sync complete', {
+            targets: staleTargets,
+            written: successfulClis,
+            agents: agents.length,
+          });
+        })().catch((agentSyncError) => {
+          logger.debug('CLI agent sync failed (non-blocking)', {
+            error:
+              agentSyncError instanceof Error
+                ? agentSyncError.message
+                : String(agentSyncError),
+          });
+        });
+      }
+    } else {
+      logger.debug(
+        'CLI agent sync skipped (Community tier - Pro feature only)',
+      );
+    }
     // Step 7.2: Pre-fetch model pricing from OpenRouter (non-blocking, no auth needed)
     // OpenRouter's /api/v1/models endpoint is publicly accessible and returns
     // pricing data for 200+ models. This replaces hardcoded pricing with live data.
-    console.log('[Activate] Step 7.2: Pre-fetching model pricing...');
     try {
       const providerModels = DIContainer.getContainer().resolve(
         SDK_TOKENS.SDK_PROVIDER_MODELS,
@@ -792,13 +952,8 @@ export async function activate(
             : String(prefetchError),
       });
     }
-    console.log(
-      '[Activate] Step 7.2: Pricing pre-fetch initiated (background)',
-    );
-
     // Step 7.3: Proactive CLI detection (non-blocking, warms cache for agent orchestration)
     // TASK_2025_157: Detect installed CLI agents (Gemini, Codex) early so settings UI is instant
-    console.log('[Activate] Step 7.3: Proactive CLI detection...');
     try {
       const cliDetection = DIContainer.getContainer().resolve(
         TOKENS.CLI_DETECTION_SERVICE,
@@ -848,15 +1003,8 @@ export async function activate(
             : String(cliDetectError),
       });
     }
-    console.log('[Activate] Step 7.3: CLI detection initiated (background)');
-
     // Step 8: Import existing Claude sessions (TASK_2025_091)
-    console.log('[Activate] Step 8: Importing existing sessions...');
     const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    console.log(
-      '[Activate] Step 8: workspacePath for session import:',
-      JSON.stringify(workspacePath),
-    );
     if (workspacePath) {
       try {
         const sessionImporter = DIContainer.getContainer().resolve(
@@ -877,10 +1025,7 @@ export async function activate(
         });
       }
     }
-    console.log('[Activate] Step 8: Session import complete');
-
     // Step 8.1: Register Settings Export/Import commands (TASK_2025_210)
-    console.log('[Activate] Step 8.1: Registering settings commands...');
     try {
       const settingsExportService = DIContainer.getContainer().resolve(
         SDK_TOKENS.SDK_SETTINGS_EXPORT,
@@ -903,36 +1048,24 @@ export async function activate(
             : String(settingsError),
       });
     }
-    console.log('[Activate] Step 8.1: Settings commands registered');
-
     // Initialize main extension controller
-    console.log('[Activate] Step 9: Creating PtahExtension instance...');
     ptahExtension = new PtahExtension(context);
-    console.log('[Activate] Step 9: PtahExtension instance created');
 
-    console.log('[Activate] Step 10: Calling ptahExtension.initialize()...');
     await ptahExtension.initialize();
-    console.log('[Activate] Step 10: ptahExtension.initialize() complete');
 
     // Auth not configured is a normal state on first install — no popup needed.
     // Users can configure authentication via Ptah Settings > Authentication tab.
     if (!authInitialized) {
-      console.log(
-        '[Activate] Step 10.1: Auth not configured — users can set up in Ptah Settings',
-      );
+      // Auth not configured — normal on first install
     }
 
     // Register all providers, commands, and services
-    console.log('[Activate] Step 11: Calling ptahExtension.registerAll()...');
     await ptahExtension.registerAll();
-    console.log('[Activate] Step 11: ptahExtension.registerAll() complete');
 
     // ========================================
     // STEP 12: CONDITIONAL MCP SERVER START (TASK_2025_121)
     // ========================================
     // MCP Server only starts for Pro tier users (Pro-only feature)
-    console.log('[Activate] Step 12: Conditional MCP Server registration...');
-
     if (licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro') {
       // PRO USER: Register MCP Server (Pro-only feature)
       // Non-blocking: MCP server failure should NOT crash the extension
@@ -947,26 +1080,17 @@ export async function activate(
         // (may differ from default 51820 if fallback to OS-assigned port)
         setPtahMcpPort(mcpPort);
         logger.info(`Code Execution MCP Server started on port ${mcpPort}`);
-        console.log(
-          `[Activate] Step 12: Pro MCP Server started (port ${mcpPort})`,
-        );
       } catch (mcpError) {
         logger.warn('MCP server failed to start (non-blocking)', {
           error:
             mcpError instanceof Error ? mcpError.message : String(mcpError),
         });
-        console.log(
-          `[Activate] Step 12: MCP Server failed to start: ${mcpError instanceof Error ? mcpError.message : String(mcpError)}`,
-        );
       }
     } else {
       // COMMUNITY USER: Skip MCP Server (Pro-only feature)
       logger.info('Skipping MCP server (Community tier - Pro feature only)', {
         tier: licenseStatus.tier,
       });
-      console.log(
-        `[Activate] Step 12: MCP Server skipped (tier: ${licenseStatus.tier})`,
-      );
     }
 
     // Note: MCP config (.mcp.json) writing removed - SDK tools are now native
@@ -977,8 +1101,6 @@ export async function activate(
     // ========================================
     // STEP 13: LICENSE STATUS WATCHER
     // ========================================
-    console.log('[Activate] Step 13: Setting up license status watcher...');
-
     // Handle dynamic license changes (upgrade/expire)
     licenseService.on('license:verified', async (newStatus: LicenseStatus) => {
       logger.info('License status changed', { newStatus });
@@ -1018,8 +1140,6 @@ export async function activate(
       }
     });
 
-    console.log('[Activate] Step 13: License status watcher initialized');
-
     // Background revalidation (every 24 hours)
     const revalidationInterval = setInterval(
       () => licenseService.revalidate(),
@@ -1030,7 +1150,6 @@ export async function activate(
     });
 
     logger.info('Ptah extension activated successfully');
-    console.log('===== PTAH ACTIVATION COMPLETE =====');
 
     // Show welcome message for first-time users
     const isFirstTime = context.globalState.get('ptah.firstActivation', true);

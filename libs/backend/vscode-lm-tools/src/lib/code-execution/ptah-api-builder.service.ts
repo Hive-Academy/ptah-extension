@@ -25,8 +25,10 @@
  * TASK_2025_244: Added browser namespace (15 total)
  */
 
+import * as os from 'os';
 import { injectable, inject, container } from 'tsyringe';
 import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
+import type { WebviewManager } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -49,7 +51,7 @@ import {
   ContextEnrichmentService,
   DependencyGraphService,
 } from '@ptah-extension/workspace-intelligence';
-import { PtahAPI } from './types';
+import type { PtahAPI } from './types';
 import { WebSearchService } from './services/web-search.service';
 import {
   // Core namespace builders
@@ -264,10 +266,13 @@ export class PtahAPIBuilder {
       workspaceProvider: this.workspaceProvider,
     };
 
-    // Get workspace root for orchestration namespace
-    const workspaceRoot = this.getWorkspaceRoot();
+    // Lazy workspace root for orchestration namespace — resolved at call time
+    // so it stays current when the user switches workspace folders.
+    const getWorkspaceRootLazy = () => this.getWorkspaceRoot();
     const orchestrationDeps = {
-      workspaceRoot,
+      get workspaceRoot() {
+        return getWorkspaceRootLazy();
+      },
     };
 
     return {
@@ -323,7 +328,7 @@ export class PtahAPIBuilder {
         buildAgentNamespace({
           agentProcessManager: this.agentProcessManager,
           cliDetectionService: this.cliDetectionService,
-          workspaceRoot,
+          getWorkspaceRoot: () => this.getWorkspaceRoot(),
           getActiveSessionId: () => {
             // SessionLifecycleManager.getActiveSessionIds() returns all active sessions.
             // In single-session mode (current), there's at most one.
@@ -340,6 +345,21 @@ export class PtahAPIBuilder {
               return ids.length > 0 ? (ids[0] as string) : undefined;
             } catch {
               return undefined;
+            }
+          },
+          resolveSessionId: (tabIdOrSessionId: string) => {
+            // Resolve tab ID → real SDK UUID via SessionLifecycleManager.
+            // Used by MCP session threading to map tab_xxx → real-uuid.
+            if (!container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
+              return tabIdOrSessionId;
+            }
+            try {
+              const manager = container.resolve<{
+                getResolvedSessionId(id: string): string;
+              }>(SDK_SESSION_LIFECYCLE_MANAGER);
+              return manager.getResolvedSessionId(tabIdOrSessionId);
+            } catch {
+              return tabIdOrSessionId;
             }
           },
           getProjectGuidance: async () => {
@@ -440,6 +460,7 @@ export class PtahAPIBuilder {
                         onOutput: (cb: (data: string) => void) => void;
                       };
                       agentName: string;
+                      setAgentId: (id: string) => void;
                     }
                   | {
                       status:
@@ -458,8 +479,8 @@ export class PtahAPIBuilder {
           getDisabledClis: () => {
             return (
               this.workspaceProvider.getConfiguration<string[]>(
-                'ptah.agentOrchestration',
-                'disabledClis',
+                'ptah',
+                'agentOrchestration.disabledClis',
                 [],
               ) ?? []
             );
@@ -477,8 +498,13 @@ export class PtahAPIBuilder {
       ),
 
       // Git worktree namespace (TASK_2025_236)
+      // Wires onWorktreeChanged callback to broadcast git:worktreeChanged
+      // to the frontend when MCP tools create/remove worktrees.
       git: this.buildNamespaceSafe('git', () =>
-        buildGitNamespace({ workspaceRoot }),
+        buildGitNamespace({
+          getWorkspaceRoot: getWorkspaceRootLazy,
+          onWorktreeChanged: this.buildWorktreeChangeHandler(),
+        }),
       ),
 
       // JSON validation namespace (TASK_2025_240)
@@ -492,15 +518,17 @@ export class PtahAPIBuilder {
       // Browser automation namespace (TASK_2025_244)
       // Resolved lazily: if BROWSER_CAPABILITIES_TOKEN is not registered,
       // buildBrowserNamespace receives undefined capabilities and returns graceful degradation stubs.
+      // Headless/viewport are agent-controlled via ptah_browser_navigate params (not settings).
       browser: this.buildNamespaceSafe('browser', () =>
         buildBrowserNamespace({
           capabilities: this.resolveBrowserCapabilities(),
           getAllowLocalhost: () =>
             this.workspaceProvider.getConfiguration<boolean>(
-              'ptah.browser',
-              'allowLocalhost',
+              'ptah',
+              'browser.allowLocalhost',
               false,
             ) ?? false,
+          // Note: recordingDir is configured via capabilities constructor, not namespace deps
         }),
       ),
 
@@ -565,16 +593,91 @@ export class PtahAPIBuilder {
   }
 
   /**
-   * Get the workspace root path
-   * Falls back to current working directory if no workspace is open
+   * Get workspace root, preferring the active SDK session's projectPath.
+   *
+   * Resolution order:
+   * 1. Active session's projectPath (per-session accuracy for multi-workspace)
+   * 2. IWorkspaceProvider.getWorkspaceRoot() (platform-level: active editor folder or Electron active folder)
+   * 3. Empty string (never process.cwd() — that's the app installation directory)
+   *
+   * This ensures MCP tools (ptah_agent_spawn, git worktrees, orchestration) operate
+   * in the correct project directory even when multiple workspaces are open in Electron
+   * or multiple sessions target different workspace folders.
    */
   private getWorkspaceRoot(): string {
+    // 1. Try the active SDK session's workspace (most accurate in multi-session scenarios)
+    try {
+      if (container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
+        const manager = container.resolve<{
+          getActiveSessionWorkspace(): string | undefined;
+        }>(SDK_SESSION_LIFECYCLE_MANAGER);
+        const sessionWorkspace = manager.getActiveSessionWorkspace();
+        if (sessionWorkspace) {
+          return sessionWorkspace;
+        }
+      }
+    } catch {
+      // SessionLifecycleManager not available yet — fall through
+    }
+
+    // 2. Platform workspace provider (active editor folder in VS Code, active folder in Electron)
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
     if (workspaceRoot) {
       return workspaceRoot;
     }
-    // Fallback to current working directory
-    return process.cwd();
+
+    // 3. Safe fallback — never process.cwd() (that's the app install directory)
+    return os.homedir();
+  }
+
+  /**
+   * Build a worktree change handler that broadcasts git:worktreeChanged
+   * to the frontend via WebviewManager when MCP tools create/remove worktrees.
+   *
+   * WebviewManager is resolved lazily on each invocation (not at build time)
+   * to handle cases where the manager is registered after PtahAPIBuilder.build().
+   */
+  private buildWorktreeChangeHandler(): (event: {
+    action: 'created' | 'removed';
+    worktreePath?: string;
+    branch?: string;
+  }) => void {
+    const logger = this.logger;
+
+    return (event) => {
+      // Lazy resolution: check and resolve on each invocation
+      if (!container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
+        logger.debug(
+          '[PtahAPIBuilder] WebviewManager not registered, skipping worktree notification',
+        );
+        return;
+      }
+
+      let webviewManager: WebviewManager;
+      try {
+        webviewManager = container.resolve<WebviewManager>(
+          TOKENS.WEBVIEW_MANAGER,
+        );
+      } catch {
+        return;
+      }
+
+      logger.info(
+        `[PtahAPIBuilder] MCP worktree ${event.action}: ${event.worktreePath ?? event.branch}`,
+      );
+      webviewManager
+        .broadcastMessage('git:worktreeChanged', {
+          action: event.action,
+          name: event.branch,
+          path: event.worktreePath,
+        })
+        .catch((error) => {
+          logger.error(
+            '[PtahAPIBuilder] Failed to send git:worktreeChanged',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        });
+    };
   }
 
   /**

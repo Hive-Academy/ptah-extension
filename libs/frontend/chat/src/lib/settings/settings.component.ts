@@ -26,6 +26,7 @@ import { LicenseStatusCardComponent } from './license/license-status-card.compon
 import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
+import { RuntimeSelectorComponent } from './runtime-selector.component';
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
@@ -33,6 +34,7 @@ import { PluginStatusWidgetComponent } from '../components/molecules/setup-plugi
 import { PluginBrowserModalComponent } from '../components/molecules/setup-plugins/plugin-browser-modal.component';
 import { SetupStatusWidgetComponent } from '../components/molecules/setup-plugins/setup-status-widget.component';
 import { SkillShBrowserComponent } from '../components/molecules/setup-plugins/skill-sh-browser.component';
+import { McpDirectoryBrowserComponent } from '../components/molecules/setup-plugins/mcp-directory-browser.component';
 import {
   AppStateManager,
   ClaudeRpcService,
@@ -70,6 +72,7 @@ import { ChatStore } from '../services/chat.store';
     EnhancedPromptsConfigComponent,
     VscodeLmConfigComponent,
     McpPortConfigComponent,
+    RuntimeSelectorComponent,
     AgentOrchestrationConfigComponent,
     PtahCliConfigComponent,
     WebSearchConfigComponent,
@@ -77,6 +80,7 @@ import { ChatStore } from '../services/chat.store';
     PluginBrowserModalComponent,
     SetupStatusWidgetComponent,
     SkillShBrowserComponent,
+    McpDirectoryBrowserComponent,
     LucideAngularModule,
   ],
   templateUrl: './settings.component.html',
@@ -127,6 +131,9 @@ export class SettingsComponent implements OnInit {
 
   /** Whether the plugin browser modal is open */
   readonly isPluginBrowserOpen = signal(false);
+
+  /** Counter incremented on plugin config save to trigger skill-sh-browser refresh */
+  readonly skillRefreshTrigger = signal(0);
 
   // License status computed signals (kept in parent for header badge + tab gating)
   readonly isPremium = computed(
@@ -194,9 +201,11 @@ export class SettingsComponent implements OnInit {
   }
 
   /** Handle plugins saved event from modal */
-  onPluginsSaved(enabledIds: string[]): void {
+  onPluginsSaved(_enabledIds: string[]): void {
     this.isPluginBrowserOpen.set(false);
     this.commandDiscovery.clearCache();
+    // Trigger skill-sh-browser to reload installed skills list
+    this.skillRefreshTrigger.update((n) => n + 1);
   }
 
   /**

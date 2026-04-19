@@ -57,6 +57,8 @@ import type {
   SessionLoadResult,
   SessionDeleteParams,
   SessionDeleteResult,
+  SessionRenameParams,
+  SessionRenameResult,
   SessionValidateParams,
   SessionValidateResult,
   SessionCliSessionsParams,
@@ -151,6 +153,18 @@ import type {
   EnhancedPromptsSetEnabledResponse,
   EnhancedPromptsRegenerateParams,
   EnhancedPromptsRegenerateResponse,
+  WizardListAgentPacksParams,
+  WizardListAgentPacksResult,
+  WizardInstallPackAgentsParams,
+  WizardInstallPackAgentsResult,
+  WizardNewProjectSelectTypeParams,
+  WizardNewProjectSelectTypeResult,
+  WizardNewProjectSubmitAnswersParams,
+  WizardNewProjectSubmitAnswersResult,
+  WizardNewProjectGetPlanParams,
+  WizardNewProjectGetPlanResult,
+  WizardNewProjectApprovePlanParams,
+  WizardNewProjectApprovePlanResult,
 } from './rpc/rpc-setup.types';
 
 import type {
@@ -177,6 +191,21 @@ import type {
 } from './rpc/rpc-agents.types';
 
 import type {
+  McpDirectorySearchParams,
+  McpDirectorySearchResult,
+  McpDirectoryGetDetailsParams,
+  McpDirectoryGetDetailsResult,
+  McpDirectoryInstallParams,
+  McpDirectoryInstallResult,
+  McpDirectoryUninstallParams,
+  McpDirectoryUninstallResult,
+  McpDirectoryListInstalledParams,
+  McpDirectoryListInstalledResult,
+  McpDirectoryGetPopularParams,
+  McpDirectoryGetPopularResult,
+} from './mcp-directory.types';
+
+import type {
   GitInfoParams,
   GitInfoResult,
   GitWorktreesParams,
@@ -185,6 +214,16 @@ import type {
   GitAddWorktreeResult,
   GitRemoveWorktreeParams,
   GitRemoveWorktreeResult,
+  GitStageParams,
+  GitStageResult,
+  GitUnstageParams,
+  GitUnstageResult,
+  GitDiscardParams,
+  GitDiscardResult,
+  GitCommitParams,
+  GitCommitResult,
+  GitShowFileParams,
+  GitShowFileResult,
 } from './rpc/rpc-git.types';
 
 import type {
@@ -193,6 +232,41 @@ import type {
   TerminalKillParams,
   TerminalKillResult,
 } from './rpc/rpc-terminal.types';
+
+import type {
+  HarnessInitializeParams,
+  HarnessInitializeResponse,
+  HarnessSuggestConfigParams,
+  HarnessSuggestConfigResponse,
+  HarnessSearchSkillsParams,
+  HarnessSearchSkillsResponse,
+  HarnessCreateSkillParams,
+  HarnessCreateSkillResponse,
+  HarnessDiscoverMcpParams,
+  HarnessDiscoverMcpResponse,
+  HarnessGeneratePromptParams,
+  HarnessGeneratePromptResponse,
+  HarnessGenerateClaudeMdParams,
+  HarnessGenerateClaudeMdResponse,
+  HarnessApplyParams,
+  HarnessApplyResponse,
+  HarnessSavePresetParams,
+  HarnessSavePresetResponse,
+  HarnessLoadPresetsParams,
+  HarnessLoadPresetsResponse,
+  HarnessChatParams,
+  HarnessChatResponse,
+  HarnessDesignAgentsParams,
+  HarnessDesignAgentsResponse,
+  HarnessGenerateSkillsParams,
+  HarnessGenerateSkillsResponse,
+  HarnessGenerateDocumentParams,
+  HarnessGenerateDocumentResponse,
+  HarnessAnalyzeIntentParams,
+  HarnessAnalyzeIntentResponse,
+  HarnessConverseParams,
+  HarnessConverseResponse,
+} from './rpc/rpc-harness.types';
 
 import type {
   ContextGetAllFilesParams,
@@ -221,6 +295,7 @@ import type {
   QualityExportResult,
   PluginInfo,
   PluginConfigState,
+  PluginSkillEntry,
 } from './rpc/rpc-misc.types';
 
 // ============================================================
@@ -261,6 +336,10 @@ export interface RpcMethodRegistry {
     params: SessionDeleteParams;
     result: SessionDeleteResult;
   };
+  'session:rename': {
+    params: SessionRenameParams;
+    result: SessionRenameResult;
+  };
   'session:validate': {
     params: SessionValidateParams;
     result: SessionValidateResult;
@@ -296,6 +375,20 @@ export interface RpcMethodRegistry {
 
   // ---- File Methods ----
   'file:open': { params: FileOpenParams; result: FileOpenResult };
+  'file:pick': {
+    params: { multiple?: boolean };
+    result: { files: Array<{ path: string; size: number }> };
+  };
+  'file:pick-images': {
+    params: { multiple?: boolean };
+    result: {
+      images: Array<{
+        data: string;
+        mediaType: string;
+        name: string;
+      }>;
+    };
+  };
 
   // ---- Config Methods ----
   'config:model-switch': {
@@ -403,6 +496,32 @@ export interface RpcMethodRegistry {
   'wizard:load-analysis': {
     params: { filename: string };
     result: MultiPhaseAnalysisResponse;
+  };
+  // Agent Pack Browser Methods (TASK_2025_258)
+  'wizard:list-agent-packs': {
+    params: WizardListAgentPacksParams;
+    result: WizardListAgentPacksResult;
+  };
+  'wizard:install-pack-agents': {
+    params: WizardInstallPackAgentsParams;
+    result: WizardInstallPackAgentsResult;
+  };
+  // New Project Wizard Methods
+  'wizard:new-project-select-type': {
+    params: WizardNewProjectSelectTypeParams;
+    result: WizardNewProjectSelectTypeResult;
+  };
+  'wizard:new-project-submit-answers': {
+    params: WizardNewProjectSubmitAnswersParams;
+    result: WizardNewProjectSubmitAnswersResult;
+  };
+  'wizard:new-project-get-plan': {
+    params: WizardNewProjectGetPlanParams;
+    result: WizardNewProjectGetPlanResult;
+  };
+  'wizard:new-project-approve-plan': {
+    params: WizardNewProjectApprovePlanParams;
+    result: WizardNewProjectApprovePlanResult;
   };
 
   // ---- License Methods ----
@@ -536,8 +655,12 @@ export interface RpcMethodRegistry {
     result: PluginConfigState;
   };
   'plugins:save-config': {
-    params: { enabledPluginIds: string[] };
+    params: { enabledPluginIds: string[]; disabledSkillIds?: string[] };
     result: { success: boolean; error?: string };
+  };
+  'plugins:list-skills': {
+    params: { pluginIds: string[] };
+    result: { skills: PluginSkillEntry[] };
   };
 
   // ---- Agent Orchestration Methods (TASK_2025_157) ----
@@ -547,7 +670,7 @@ export interface RpcMethodRegistry {
   };
   'agent:setConfig': {
     params: AgentSetConfigParams;
-    result: { success: boolean; error?: string };
+    result: { success: boolean; reloadRequired?: boolean; error?: string };
   };
   'agent:detectClis': {
     params: void;
@@ -656,10 +779,41 @@ export interface RpcMethodRegistry {
     result: SkillDetectionResult;
   };
 
+  // ---- MCP Server Directory Methods ----
+  'mcpDirectory:search': {
+    params: McpDirectorySearchParams;
+    result: McpDirectorySearchResult;
+  };
+  'mcpDirectory:getDetails': {
+    params: McpDirectoryGetDetailsParams;
+    result: McpDirectoryGetDetailsResult;
+  };
+  'mcpDirectory:install': {
+    params: McpDirectoryInstallParams;
+    result: McpDirectoryInstallResult;
+  };
+  'mcpDirectory:uninstall': {
+    params: McpDirectoryUninstallParams;
+    result: McpDirectoryUninstallResult;
+  };
+  'mcpDirectory:listInstalled': {
+    params: McpDirectoryListInstalledParams;
+    result: McpDirectoryListInstalledResult;
+  };
+  'mcpDirectory:getPopular': {
+    params: McpDirectoryGetPopularParams;
+    result: McpDirectoryGetPopularResult;
+  };
+
   // ---- Workspace Methods (Electron desktop) ----
   'workspace:getInfo': {
     params: Record<string, never>;
-    result: { folders: string[]; root: string | undefined; name: string };
+    result: {
+      folders: string[];
+      root: string | undefined;
+      activeFolder: string | undefined;
+      name: string;
+    };
   };
   'workspace:addFolder': {
     params: Record<string, never>;
@@ -672,6 +826,10 @@ export interface RpcMethodRegistry {
   'workspace:switch': {
     params: { path: string };
     result: { success: boolean; error?: string };
+  };
+  'workspace:registerFolder': {
+    params: { path: string };
+    result: { success: boolean; path: string; name: string; error?: string };
   };
 
   // ---- Layout Methods (Electron desktop) ----
@@ -723,6 +881,24 @@ export interface RpcMethodRegistry {
       }>;
       error?: string;
     };
+  };
+
+  // ---- Electron File CRUD Methods ----
+  'editor:createFile': {
+    params: { filePath: string; content?: string };
+    result: { success: boolean; error?: string };
+  };
+  'editor:createFolder': {
+    params: { folderPath: string };
+    result: { success: boolean; error?: string };
+  };
+  'editor:renameItem': {
+    params: { oldPath: string; newPath: string };
+    result: { success: boolean; error?: string };
+  };
+  'editor:deleteItem': {
+    params: { itemPath: string; isDirectory: boolean };
+    result: { success: boolean; error?: string };
   };
 
   // ---- Electron File Methods (TASK_2025_203) ----
@@ -827,6 +1003,12 @@ export interface RpcMethodRegistry {
     params: GitRemoveWorktreeParams;
     result: GitRemoveWorktreeResult;
   };
+  // Source control methods (TASK_2025_273)
+  'git:stage': { params: GitStageParams; result: GitStageResult };
+  'git:unstage': { params: GitUnstageParams; result: GitUnstageResult };
+  'git:discard': { params: GitDiscardParams; result: GitDiscardResult };
+  'git:commit': { params: GitCommitParams; result: GitCommitResult };
+  'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
 
   // ---- Terminal Methods (TASK_2025_227) ----
   'terminal:create': {
@@ -834,6 +1016,72 @@ export interface RpcMethodRegistry {
     result: TerminalCreateResult;
   };
   'terminal:kill': { params: TerminalKillParams; result: TerminalKillResult };
+
+  // ---- Harness Builder Methods ----
+  'harness:initialize': {
+    params: HarnessInitializeParams;
+    result: HarnessInitializeResponse;
+  };
+  'harness:suggest-config': {
+    params: HarnessSuggestConfigParams;
+    result: HarnessSuggestConfigResponse;
+  };
+  'harness:search-skills': {
+    params: HarnessSearchSkillsParams;
+    result: HarnessSearchSkillsResponse;
+  };
+  'harness:create-skill': {
+    params: HarnessCreateSkillParams;
+    result: HarnessCreateSkillResponse;
+  };
+  'harness:discover-mcp': {
+    params: HarnessDiscoverMcpParams;
+    result: HarnessDiscoverMcpResponse;
+  };
+  'harness:generate-prompt': {
+    params: HarnessGeneratePromptParams;
+    result: HarnessGeneratePromptResponse;
+  };
+  'harness:generate-claude-md': {
+    params: HarnessGenerateClaudeMdParams;
+    result: HarnessGenerateClaudeMdResponse;
+  };
+  'harness:apply': {
+    params: HarnessApplyParams;
+    result: HarnessApplyResponse;
+  };
+  'harness:save-preset': {
+    params: HarnessSavePresetParams;
+    result: HarnessSavePresetResponse;
+  };
+  'harness:load-presets': {
+    params: HarnessLoadPresetsParams;
+    result: HarnessLoadPresetsResponse;
+  };
+  'harness:chat': {
+    params: HarnessChatParams;
+    result: HarnessChatResponse;
+  };
+  'harness:design-agents': {
+    params: HarnessDesignAgentsParams;
+    result: HarnessDesignAgentsResponse;
+  };
+  'harness:generate-skills': {
+    params: HarnessGenerateSkillsParams;
+    result: HarnessGenerateSkillsResponse;
+  };
+  'harness:generate-document': {
+    params: HarnessGenerateDocumentParams;
+    result: HarnessGenerateDocumentResponse;
+  };
+  'harness:analyze-intent': {
+    params: HarnessAnalyzeIntentParams;
+    result: HarnessAnalyzeIntentResponse;
+  };
+  'harness:converse': {
+    params: HarnessConverseParams;
+    result: HarnessConverseResponse;
+  };
 }
 
 /**
@@ -863,6 +1111,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'session:list',
   'session:load',
   'session:delete',
+  'session:rename',
   'session:validate',
   'session:cli-sessions',
   'session:stats-batch',
@@ -877,6 +1126,8 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
 
   // File Methods
   'file:open',
+  'file:pick',
+  'file:pick-images',
 
   // Config Methods
   'config:model-switch',
@@ -910,6 +1161,14 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // Wizard Analysis History Methods (v2 Multi-Phase)
   'wizard:list-analyses',
   'wizard:load-analysis',
+  // Agent Pack Browser Methods (TASK_2025_258)
+  'wizard:list-agent-packs',
+  'wizard:install-pack-agents',
+  // New Project Wizard Methods
+  'wizard:new-project-select-type',
+  'wizard:new-project-submit-answers',
+  'wizard:new-project-get-plan',
+  'wizard:new-project-approve-plan',
 
   // License Methods
   'license:getStatus',
@@ -958,6 +1217,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'plugins:list-available',
   'plugins:get-config',
   'plugins:save-config',
+  'plugins:list-skills',
 
   // Agent Orchestration Methods (TASK_2025_157)
   'agent:getConfig',
@@ -985,11 +1245,20 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'skillsSh:getPopular',
   'skillsSh:detectRecommended',
 
+  // MCP Server Directory Methods
+  'mcpDirectory:search',
+  'mcpDirectory:getDetails',
+  'mcpDirectory:install',
+  'mcpDirectory:uninstall',
+  'mcpDirectory:listInstalled',
+  'mcpDirectory:getPopular',
+
   // Workspace Methods (Electron desktop)
   'workspace:getInfo',
   'workspace:addFolder',
   'workspace:removeFolder',
   'workspace:switch',
+  'workspace:registerFolder',
 
   // Layout Methods (Electron desktop)
   'layout:persist',
@@ -1000,6 +1269,10 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'editor:saveFile',
   'editor:getFileTree',
   'editor:getDirectoryChildren',
+  'editor:createFile',
+  'editor:createFolder',
+  'editor:renameItem',
+  'editor:deleteItem',
 
   // Electron File Methods (TASK_2025_203)
   'file:read',
@@ -1031,10 +1304,34 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'git:worktrees',
   'git:addWorktree',
   'git:removeWorktree',
+  // Source control methods (TASK_2025_273)
+  'git:stage',
+  'git:unstage',
+  'git:discard',
+  'git:commit',
+  'git:showFile',
 
   // Terminal Methods (TASK_2025_227)
   'terminal:create',
   'terminal:kill',
+
+  // Harness Builder Methods
+  'harness:initialize',
+  'harness:suggest-config',
+  'harness:search-skills',
+  'harness:create-skill',
+  'harness:discover-mcp',
+  'harness:generate-prompt',
+  'harness:generate-claude-md',
+  'harness:apply',
+  'harness:save-preset',
+  'harness:load-presets',
+  'harness:chat',
+  'harness:design-agents',
+  'harness:generate-skills',
+  'harness:generate-document',
+  'harness:analyze-intent',
+  'harness:converse',
 ] as const;
 
 /**

@@ -11,12 +11,7 @@ dependencies: []
 ---
 
 name: project-manager
-description: Technical Lead for sophisticated task orchestration and strategic planning in {{PROJECT_TYPE}} projects
-generated: true
-sourceTemplate: project-manager-v2
-sourceTemplateVersion: 2.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
+description: Technical Lead for task orchestration, strategic planning, and delivery management
 
 ---
 

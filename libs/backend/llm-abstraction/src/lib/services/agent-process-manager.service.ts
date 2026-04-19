@@ -574,6 +574,9 @@ export class AgentProcessManager {
       ptahCliId?: string;
       timeout?: number;
       resumedFromAgentId?: string;
+      /** Resume session ID. Pre-sets cliSessionId on the agent:spawned event
+       *  so the frontend can deduplicate agent cards by CLI session. */
+      resumeSessionId?: string;
     },
   ): Promise<SpawnAgentResult> {
     return this.acquireSpawnLock(async () => {
@@ -611,7 +614,19 @@ export class AgentProcessManager {
           ptahCliName: meta.ptahCliName,
           ptahCliId: meta.ptahCliId,
           resumedFromAgentId: meta.resumedFromAgentId,
+          // Pre-set cliSessionId for resume (same as doSpawnSdk path).
+          // Makes the ID available on the agent:spawned event so the frontend
+          // can deduplicate agent cards by CLI session ID.
+          ...(meta.resumeSessionId
+            ? { cliSessionId: meta.resumeSessionId }
+            : {}),
         };
+
+        // Capture CLI session ID immediately if available (e.g., from sync init)
+        const initialCliSessionId = sdkHandle.getSessionId?.();
+        const infoWithSession = initialCliSessionId
+          ? { ...info, cliSessionId: initialCliSessionId }
+          : info;
 
         const timeout = Math.min(meta.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
 
@@ -622,7 +637,13 @@ export class AgentProcessManager {
           ptahCliId: meta.ptahCliId,
         });
 
-        return this.trackSdkHandle(sdkHandle, info, timeout);
+        return this.trackSdkHandle(
+          sdkHandle,
+          infoWithSession,
+          timeout,
+          // Late capture: session_id may arrive via init event after spawn
+          () => sdkHandle.getSessionId?.(),
+        );
       } finally {
         this.spawning--;
       }
@@ -1419,7 +1440,7 @@ export class AgentProcessManager {
   }
 
   private getWorkspaceRoot(): string {
-    return this.workspace.getWorkspaceRoot() ?? process.cwd();
+    return this.workspace.getWorkspaceRoot() ?? '';
   }
 
   /**

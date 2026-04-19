@@ -28,7 +28,9 @@ import {
   ANTHROPIC_PROVIDERS,
   DEFAULT_PROVIDER_ID,
   ProviderModelsService,
-  COPILOT_DEFAULT_TIERS,
+  getAnthropicProvider,
+  TIER_ENV_VAR_MAP,
+  ClaudeCliDetector,
 } from '@ptah-extension/agent-sdk';
 import type {
   CopilotAuthService,
@@ -62,7 +64,9 @@ export class AuthRpcHandlers {
     @inject(TOKENS.PLATFORM_COMMANDS)
     private readonly platformCommands: IPlatformCommands,
     @inject(TOKENS.PLATFORM_AUTH_PROVIDER)
-    private readonly platformAuth: IPlatformAuthProvider
+    private readonly platformAuth: IPlatformAuthProvider,
+    @inject(SDK_TOKENS.SDK_CLI_DETECTOR)
+    private readonly cliDetector: ClaudeCliDetector,
   ) {}
 
   /**
@@ -106,11 +110,11 @@ export class AuthRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: auth:getHealth failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           throw error;
         }
-      }
+      },
     );
   }
 
@@ -126,31 +130,39 @@ export class AuthRpcHandlers {
       try {
         this.logger.debug('RPC: auth:getAuthStatus called');
 
+        // Guard against undefined params: TUI callers pass no params at all.
+        const safeParams: AuthGetAuthStatusParams = params ?? {};
+
         // Check SecretStorage for credentials
-        const hasOAuthToken = await this.authSecretsService.hasCredential(
-          'oauthToken'
-        );
         const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
 
         // Get auth method from ConfigManager (non-sensitive)
-        // Normalize legacy/invalid values (e.g. 'vscode-lm') to 'auto'
+        // Normalize legacy/invalid values (e.g. 'vscode-lm', 'auto') to 'apiKey'
         const rawMethod = this.configManager.get<string>('authMethod');
-        const validMethods = ['oauth', 'apiKey', 'openrouter', 'auto'];
+        const validMethods = [
+          'apiKey',
+          'claudeCli',
+          'thirdParty',
+          'openrouter',
+        ];
         const authMethod = (
-          rawMethod && validMethods.includes(rawMethod) ? rawMethod : 'auto'
-        ) as 'oauth' | 'apiKey' | 'openrouter' | 'auto';
+          rawMethod && validMethods.includes(rawMethod)
+            ? rawMethod === 'openrouter'
+              ? 'thirdParty'
+              : rawMethod
+            : 'apiKey'
+        ) as 'apiKey' | 'claudeCli' | 'thirdParty';
 
         // TASK_2025_129 Batch 3: Get selected provider ID
         const anthropicProviderId = this.configManager.getWithDefault<string>(
           'anthropicProviderId',
-          DEFAULT_PROVIDER_ID
+          DEFAULT_PROVIDER_ID,
         );
 
         // Per-provider key check: use provided ID (for local UI switching) or persisted config
-        const checkProviderId = params.providerId || anthropicProviderId;
-        const hasOpenRouterKey = await this.authSecretsService.hasProviderKey(
-          checkProviderId
-        );
+        const checkProviderId = safeParams.providerId || anthropicProviderId;
+        const hasOpenRouterKey =
+          await this.authSecretsService.hasProviderKey(checkProviderId);
 
         // TASK_2025_194: Check if ANY provider has a key configured.
         // This supports users who only use third-party providers (z-ai, moonshot, etc.)
@@ -177,6 +189,8 @@ export class AuthRpcHandlers {
           maskedKeyDisplay: p.maskedKeyDisplay,
           hasDynamicModels: !!('modelsEndpoint' in p && p.modelsEndpoint),
           authType: 'authType' in p ? p.authType : undefined,
+          isLocal: 'isLocal' in p ? p.isLocal : undefined,
+          baseUrl: p.baseUrl,
         }));
 
         // Check Copilot auth status (TASK_2025_191)
@@ -193,7 +207,7 @@ export class AuthRpcHandlers {
             'Copilot auth status check failed (non-fatal)',
             copilotError instanceof Error
               ? copilotError
-              : new Error(String(copilotError))
+              : new Error(String(copilotError)),
           );
         }
 
@@ -210,12 +224,23 @@ export class AuthRpcHandlers {
             'Codex auth status check failed (non-fatal)',
             codexError instanceof Error
               ? codexError
-              : new Error(String(codexError))
+              : new Error(String(codexError)),
+          );
+        }
+
+        // Check Claude CLI availability
+        let claudeCliInstalled = false;
+        try {
+          const cliHealth = await this.cliDetector.performHealthCheck();
+          claudeCliInstalled = cliHealth.available;
+        } catch (cliError) {
+          this.logger.warn(
+            'Claude CLI detection failed (non-fatal)',
+            cliError instanceof Error ? cliError : new Error(String(cliError)),
           );
         }
 
         this.logger.debug('RPC: auth:getAuthStatus result', {
-          hasOAuthToken,
           hasApiKey,
           hasOpenRouterKey,
           hasAnyProviderKey,
@@ -224,10 +249,10 @@ export class AuthRpcHandlers {
           copilotAuthenticated,
           codexAuthenticated,
           codexTokenStale,
+          claudeCliInstalled,
         });
 
         return {
-          hasOAuthToken,
           hasApiKey,
           hasOpenRouterKey,
           hasAnyProviderKey,
@@ -238,11 +263,12 @@ export class AuthRpcHandlers {
           copilotUsername,
           codexAuthenticated,
           codexTokenStale,
+          claudeCliInstalled,
         };
       } catch (error) {
         this.logger.error(
           'RPC: auth:getAuthStatus failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         throw error;
       }
@@ -254,10 +280,9 @@ export class AuthRpcHandlers {
    */
   private registerSaveSettings(): void {
     const AuthSettingsSchema = z.object({
-      authMethod: z.enum(['oauth', 'apiKey', 'openrouter', 'auto']),
-      claudeOAuthToken: z.string().optional(),
+      authMethod: z.enum(['apiKey', 'claudeCli', 'thirdParty']),
       anthropicApiKey: z.string().optional(),
-      openrouterApiKey: z.string().optional(),
+      providerApiKey: z.string().optional(),
       // TASK_2025_129 Batch 3: Selected Anthropic-compatible provider
       // Validated against known provider IDs from the registry
       anthropicProviderId: z
@@ -275,23 +300,17 @@ export class AuthRpcHandlers {
           typeof params === 'object' && params !== null
             ? {
                 ...params,
-                claudeOAuthToken:
-                  'claudeOAuthToken' in params &&
-                  typeof params.claudeOAuthToken === 'string' &&
-                  params.claudeOAuthToken
-                    ? `***${params.claudeOAuthToken.slice(-4)}`
-                    : undefined,
                 anthropicApiKey:
                   'anthropicApiKey' in params &&
                   typeof params.anthropicApiKey === 'string' &&
                   params.anthropicApiKey
                     ? `***${params.anthropicApiKey.slice(-4)}`
                     : undefined,
-                openrouterApiKey:
-                  'openrouterApiKey' in params &&
-                  typeof params.openrouterApiKey === 'string' &&
-                  params.openrouterApiKey
-                    ? `***${params.openrouterApiKey.slice(-4)}`
+                providerApiKey:
+                  'providerApiKey' in params &&
+                  typeof params.providerApiKey === 'string' &&
+                  params.providerApiKey
+                    ? `***${params.providerApiKey.slice(-4)}`
                     : undefined,
               }
             : params;
@@ -306,23 +325,11 @@ export class AuthRpcHandlers {
         await this.configManager.set('authMethod', validated.authMethod);
 
         // Save credentials to SecretStorage (encrypted!)
-        if (validated.claudeOAuthToken !== undefined) {
-          if (validated.claudeOAuthToken.trim()) {
-            await this.authSecretsService.setCredential(
-              'oauthToken',
-              validated.claudeOAuthToken
-            );
-          } else {
-            // Empty string = clear the credential
-            await this.authSecretsService.deleteCredential('oauthToken');
-          }
-        }
-
         if (validated.anthropicApiKey !== undefined) {
           if (validated.anthropicApiKey.trim()) {
             await this.authSecretsService.setCredential(
               'apiKey',
-              validated.anthropicApiKey
+              validated.anthropicApiKey,
             );
           } else {
             // Empty string = clear the credential
@@ -332,18 +339,18 @@ export class AuthRpcHandlers {
 
         // Per-provider API key handling: store key under the selected provider's slot
         // This prevents overwriting keys when switching between providers
-        if (validated.openrouterApiKey !== undefined) {
+        if (validated.providerApiKey !== undefined) {
           const targetProviderId =
             validated.anthropicProviderId ??
             this.configManager.getWithDefault<string>(
               'anthropicProviderId',
-              DEFAULT_PROVIDER_ID
+              DEFAULT_PROVIDER_ID,
             );
 
-          if (validated.openrouterApiKey.trim()) {
+          if (validated.providerApiKey.trim()) {
             await this.authSecretsService.setProviderKey(
               targetProviderId,
-              validated.openrouterApiKey
+              validated.providerApiKey,
             );
           } else {
             // Empty string = clear the provider's key
@@ -358,8 +365,11 @@ export class AuthRpcHandlers {
         if (validated.anthropicProviderId !== undefined) {
           await this.configManager.set(
             'anthropicProviderId',
-            validated.anthropicProviderId
+            validated.anthropicProviderId,
           );
+
+          // Auto-map default tier models on first provider selection
+          await this.autoMapProviderTiers(validated.anthropicProviderId);
         }
 
         // TASK_2025_194: Explicitly await reinit so testConnection sees updated health.
@@ -374,7 +384,7 @@ export class AuthRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: auth:saveSettings failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         throw error;
       }
@@ -420,7 +430,7 @@ export class AuthRpcHandlers {
 
           this.logger.debug(
             `RPC: auth:testConnection attempt ${attempt + 1}/${MAX_RETRIES}`,
-            { status: health.status, delay }
+            { status: health.status, delay },
           );
         }
 
@@ -434,13 +444,13 @@ export class AuthRpcHandlers {
 
         this.logger.info(
           'RPC: auth:testConnection completed (exhausted retries)',
-          { result }
+          { result },
         );
         return result;
       } catch (error) {
         this.logger.error(
           'RPC: auth:testConnection failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         throw error;
       }
@@ -476,14 +486,17 @@ export class AuthRpcHandlers {
         const username = await this.getGitHubUsername();
 
         // Auto-map default tier models if no mappings exist yet
-        await this.autoMapCopilotTiers();
+        await this.autoMapProviderTiers('github-copilot');
+
+        // Clear cached models so they're re-fetched with provider-specific IDs
+        await this.sdkAdapter.reset();
 
         this.logger.info('RPC: auth:copilotLogin succeeded', { username });
         return { success: true, username };
       } catch (error) {
         this.logger.error(
           'RPC: auth:copilotLogin failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return {
           success: false,
@@ -510,11 +523,11 @@ export class AuthRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: auth:copilotLogout failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return { success: false };
         }
-      }
+      },
     );
   }
 
@@ -548,7 +561,7 @@ export class AuthRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: auth:copilotStatus failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return { authenticated: false };
       }
@@ -569,46 +582,54 @@ export class AuthRpcHandlers {
         this.logger.info('RPC: auth:codexLogin - opening terminal');
         this.platformCommands.openTerminal(
           'Codex Login',
-          'codex login --device-auth'
+          'codex login --device-auth',
         );
         return { success: true };
-      }
+      },
     );
   }
 
   /**
-   * Auto-map Copilot's best models to Sonnet/Opus/Haiku tiers on first login.
+   * Auto-map a provider's default tier models on first selection or login.
    * Only sets tiers that haven't been explicitly configured by the user.
+   *
+   * Reads `defaultTiers` from the provider registry entry. Providers without
+   * defaultTiers (e.g., OpenRouter, local providers) are silently skipped.
    */
-  private async autoMapCopilotTiers(): Promise<void> {
-    const providerId = 'github-copilot';
+  private async autoMapProviderTiers(providerId: string): Promise<void> {
+    const provider = getAnthropicProvider(providerId);
+    if (!provider?.defaultTiers) return;
+
     try {
       const currentTiers = this.providerModels.getModelTiers(providerId);
+      const { defaultTiers } = provider;
 
-      const tiers = ['sonnet', 'opus', 'haiku'] as const;
+      const tierNames = Object.keys(TIER_ENV_VAR_MAP) as Array<
+        keyof typeof TIER_ENV_VAR_MAP
+      >;
       const promises: Promise<void>[] = [];
-      for (const tier of tiers) {
-        if (!currentTiers[tier]) {
+      for (const tier of tierNames) {
+        if (!currentTiers[tier] && defaultTiers[tier]) {
           promises.push(
             this.providerModels.setModelTier(
               providerId,
               tier,
-              COPILOT_DEFAULT_TIERS[tier]
-            )
+              defaultTiers[tier],
+            ),
           );
         }
       }
 
       if (promises.length > 0) {
         await Promise.all(promises);
-        this.logger.info('Auto-mapped Copilot default tier models', {
+        this.logger.info(`Auto-mapped ${provider.name} default tier models`, {
           mapped: promises.length,
         });
       }
     } catch (error) {
       this.logger.warn(
-        'Failed to auto-map Copilot tier models (non-fatal)',
-        error instanceof Error ? error : new Error(String(error))
+        `Failed to auto-map ${provider?.name ?? providerId} tier models (non-fatal)`,
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }

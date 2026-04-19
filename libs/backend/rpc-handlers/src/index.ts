@@ -30,6 +30,8 @@ export {
   ProviderRpcHandlers,
   // Tier 2 handlers (TASK_2025_235 - web search settings)
   WebSearchRpcHandlers,
+  // Harness Setup Builder handlers
+  HarnessRpcHandlers,
 } from './lib/handlers';
 
 // Platform abstraction interfaces (TASK_2025_203 Batch 2)

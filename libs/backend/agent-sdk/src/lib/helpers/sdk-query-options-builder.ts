@@ -41,15 +41,18 @@ import {
   HookEvent,
   HookCallbackMatcher,
   McpHttpServerConfig,
-  SdkPluginConfig,
+  type SdkBeta,
 } from '../types/sdk-types/claude-sdk.types';
 import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
 } from './anthropic-provider-registry';
+import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
+import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../openrouter-provider/openrouter-provider.types';
+import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../local-provider/local-provider.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT } from '../constants';
 
@@ -120,6 +123,9 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
   }
   if (authEnv.ANTHROPIC_AUTH_TOKEN === CODEX_PROXY_TOKEN_PLACEHOLDER) {
     return 'openai-codex';
+  }
+  if (authEnv.ANTHROPIC_AUTH_TOKEN === OPENROUTER_PROXY_TOKEN_PLACEHOLDER) {
+    return 'openrouter';
   }
 
   // Check which provider matches this base URL (derived from registry to prevent ID mismatches)
@@ -342,8 +348,6 @@ export interface SdkQueryOptions {
   env?: Record<string, string | undefined>;
   stderr?: (data: string) => void;
   hooks?: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
-  /** Plugins to load for this session (TASK_2025_153) */
-  plugins?: SdkPluginConfig[];
   /** SDK compaction control configuration (TASK_2025_098) */
   compactionControl?: {
     enabled: boolean;
@@ -358,6 +362,12 @@ export interface SdkQueryOptions {
    * Overrides import.meta.url-based resolution in bundled SDK.
    */
   pathToClaudeCodeExecutable?: string;
+  /**
+   * Beta features to enable for the SDK query.
+   * The SDK sends these as `anthropic-beta` headers on API requests.
+   * Example: ['context-1m-2025-08-07'] enables 1M token context window.
+   */
+  betas?: SdkBeta[];
 }
 
 /**
@@ -396,6 +406,8 @@ export class SdkQueryOptionsBuilder {
     @inject(SDK_TOKENS.SDK_WORKTREE_HOOK_HANDLER)
     private readonly worktreeHookHandler: WorktreeHookHandler,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
+    private readonly modelService: SdkModelService,
   ) {}
 
   /**
@@ -439,17 +451,52 @@ export class SdkQueryOptionsBuilder {
       throw new Error('Model not provided - ensure SDK is initialized');
     }
 
-    const model = sessionConfig.model;
-    const cwd = sessionConfig?.projectPath || process.cwd();
+    // Resolve bare tier names ('opus', 'sonnet', 'haiku') to full model IDs.
+    // The SDK's query() requires full model IDs like 'claude-opus-4-6' —
+    // bare tier names cause "can't access model named opus" errors.
+    const model = this.modelService.resolveModelId(sessionConfig.model);
+    if (!sessionConfig?.projectPath) {
+      throw new Error(
+        'projectPath is required — cannot start an SDK session without a workspace folder. ' +
+          'Callers must resolve workspace path from IWorkspaceProvider before reaching here.',
+      );
+    }
+    const cwd = sessionConfig.projectPath;
 
     // Log resolved model and tier env vars for debugging (TASK_2025_132, TASK_2025_164: reads from AuthEnv)
+    const envSonnet = this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL || 'default';
+    const envOpus = this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL || 'default';
+    const envHaiku = this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL || 'default';
     this.logger.info(`[SdkQueryOptionsBuilder] SDK call with model: ${model}`, {
       model,
-      envSonnet: this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL || 'default',
-      envOpus: this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL || 'default',
-      envHaiku: this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL || 'default',
+      envSonnet,
+      envOpus,
+      envHaiku,
       baseUrl: this.authEnv.ANTHROPIC_BASE_URL || 'default',
     });
+
+    // Validate that non-Anthropic providers have ANTHROPIC_BASE_URL configured.
+    // Without this check, empty/missing base URL causes the SDK to silently fall
+    // back to api.anthropic.com while the auth token is a provider-specific
+    // placeholder (e.g., OLLAMA_AUTH_TOKEN_PLACEHOLDER), which Anthropic's API
+    // drops without responding — causing the UI to hang forever. Surface the
+    // misconfiguration immediately so the user sees a clear, actionable error.
+    this.validateBaseUrlForProvider();
+
+    // Warn when main model is non-Claude but tier env vars still point to Claude.
+    // This means subagents will silently use Claude models at higher premium rates.
+    if (!model.startsWith('claude-')) {
+      const claudeTiers = [envSonnet, envOpus, envHaiku].filter(
+        (t) => t !== 'default' && t.startsWith('claude-'),
+      );
+      if (claudeTiers.length > 0) {
+        this.logger.warn(
+          `[SdkQueryOptionsBuilder] Model mismatch: main model is '${model}' but ${claudeTiers.length} tier(s) still point to Claude models (${claudeTiers.join(', ')}). ` +
+            'Subagents spawned by the SDK will use these Claude models, potentially consuming premium requests at a higher rate. ' +
+            'Update tier mappings in the model selector to match your preferred provider.',
+        );
+      }
+    }
 
     // Build system prompt configuration
     const systemPrompt = this.buildSystemPrompt(
@@ -509,7 +556,11 @@ export class SdkQueryOptionsBuilder {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
-        mcpServers: this.buildMcpServers(isPremium, mcpServerRunning),
+        mcpServers: this.buildMcpServers(
+          isPremium,
+          mcpServerRunning,
+          sessionId,
+        ),
         // Set SDK permission mode based on current autopilot config.
         // SDK evaluation order: Hooks → Rules → Permission Mode → canUseTool.
         // When 'default': all tools fall through to canUseTool callback.
@@ -526,11 +577,28 @@ export class SdkQueryOptionsBuilder {
           ? ['project', 'local']
           : ['user', 'project', 'local'],
         // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
+        // Guarantee tier env vars (ANTHROPIC_DEFAULT_*_MODEL) are always present so the
+        // SDK can resolve bare tier names ('haiku', 'sonnet', 'opus') in subagent
+        // subprocesses. Without these, direct Anthropic users get "model not found" errors
+        // when subagents specify a tier name instead of a full model ID.
         // Set NO_PROXY to prevent corporate proxy interception of localhost requests
+        // Disable experimental betas for any non-Anthropic base URL — the SDK
+        // enables context-management-2025-06-27 for "firstParty" providers, which
+        // third-party endpoints (OpenRouter, Moonshot, unknown proxies, etc.)
+        // don't support, causing 400 errors. Check the URL directly instead of
+        // relying on provider registry detection, which misses unknown providers.
         env: {
           ...process.env,
+          ...buildTierEnvDefaults(this.authEnv),
           ...this.authEnv,
           NO_PROXY: '127.0.0.1,localhost',
+          ...(() => {
+            const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+            return baseUrl &&
+              !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
+              ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
+              : {};
+          })(),
         } as Record<string, string | undefined>,
         // Capture stderr — the SDK writes debug/info/warn/error to stderr;
         // parse the level and route to the appropriate logger method
@@ -544,8 +612,9 @@ export class SdkQueryOptionsBuilder {
           }
         },
         hooks,
-        // Plugins for this session (TASK_2025_153)
-        plugins: this.buildPlugins(pluginPaths),
+        // Plugins disabled here — skills are loaded via .claude/skills/ junctions
+        // created by SkillJunctionService. Passing plugins via SDK option caused
+        // duplication in slash command autocomplete.
         // SDK compaction control (TASK_2025_098)
         // Only include when enabled to avoid sending unnecessary options
         compactionControl: compactionConfig.enabled
@@ -560,8 +629,97 @@ export class SdkQueryOptionsBuilder {
         effort: sessionConfig?.effort,
         // TASK_2025_194: Override baked-in import.meta.url path with runtime-resolved cli.js
         pathToClaudeCodeExecutable,
+        // Enable 1M context window for direct Anthropic connections.
+        // The SDK doesn't auto-enable this beta like the CLI does — we must
+        // pass it explicitly. Only for first-party (api.anthropic.com);
+        // third-party providers don't support this beta header.
+        betas: this.buildBetas(),
       },
     };
+  }
+
+  /**
+   * Validate that ANTHROPIC_BASE_URL is present when the active auth token is
+   * a non-Anthropic provider placeholder.
+   *
+   * Background: providers like Ollama, Copilot, Codex, and OpenRouter write a
+   * known placeholder string into `ANTHROPIC_AUTH_TOKEN` (e.g. 'ollama',
+   * 'copilot-proxy-managed') and point `ANTHROPIC_BASE_URL` at their local
+   * endpoint. If the strategy's `configure()` never ran — typically because the
+   * user hasn't selected the provider yet — `ANTHROPIC_BASE_URL` stays empty
+   * while the placeholder token remains, and the SDK silently falls back to
+   * api.anthropic.com. Anthropic rejects/drops the request and the UI hangs.
+   *
+   * Throw here so the error surfaces to the UI with clear remediation.
+   */
+  private validateBaseUrlForProvider(): void {
+    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+    const authToken = this.authEnv.ANTHROPIC_AUTH_TOKEN;
+
+    if (baseUrl) {
+      // Base URL is set — SDK will route there, no hang risk.
+      return;
+    }
+
+    // Map of placeholder token → human-readable provider name.
+    // If the auth token matches any of these, the user has selected a
+    // non-Anthropic provider but its base URL isn't configured yet.
+    const placeholderToProvider: Record<string, string> = {
+      [OLLAMA_AUTH_TOKEN_PLACEHOLDER]: 'Ollama',
+      [COPILOT_PROXY_TOKEN_PLACEHOLDER]: 'GitHub Copilot',
+      [CODEX_PROXY_TOKEN_PLACEHOLDER]: 'OpenAI Codex',
+      [OPENROUTER_PROXY_TOKEN_PLACEHOLDER]: 'OpenRouter',
+    };
+
+    const providerName = authToken
+      ? placeholderToProvider[authToken]
+      : undefined;
+
+    if (providerName) {
+      const message =
+        `Provider '${providerName}' is not configured — ANTHROPIC_BASE_URL is missing. ` +
+        `Select the provider in settings to configure it, or switch to Anthropic direct.`;
+      this.logger.error(`[SdkQueryOptionsBuilder] ${message}`, {
+        providerName,
+        hasBaseUrl: false,
+        hasAuthToken: !!authToken,
+      });
+      throw new Error(message);
+    }
+  }
+
+  /**
+   * Build beta headers for SDK query.
+   *
+   * The Claude CLI automatically enables the `context-1m-2025-08-07` beta for
+   * first-party (api.anthropic.com) connections, unlocking 1M token context for
+   * Opus and Sonnet 4.6 models. The SDK module does NOT auto-enable this — we
+   * must pass it explicitly via the `betas` query option.
+   *
+   * Skipped for third-party providers (OpenRouter, Moonshot, Z.AI, proxies) as
+   * they don't support Anthropic beta headers and would return 400 errors.
+   *
+   * @returns Array of beta strings, or undefined if no betas should be sent
+   */
+  private buildBetas(): SdkBeta[] | undefined {
+    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+
+    // Only enable for direct Anthropic connections (no base URL, or explicitly api.anthropic.com)
+    const isFirstParty =
+      !baseUrl || /^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
+
+    if (!isFirstParty) {
+      this.logger.debug(
+        '[SdkQueryOptionsBuilder] Skipping 1M context beta for third-party provider',
+        { baseUrl },
+      );
+      return undefined;
+    }
+
+    this.logger.info(
+      '[SdkQueryOptionsBuilder] Enabling 1M context beta for Anthropic direct',
+    );
+    return ['context-1m-2025-08-07'];
   }
 
   /**
@@ -640,6 +798,7 @@ export class SdkQueryOptionsBuilder {
   private buildMcpServers(
     isPremium: boolean,
     mcpServerRunning = true,
+    sessionId?: string,
   ): Record<string, McpHttpServerConfig> {
     // Free tier - disable MCP servers (TASK_2025_108)
     if (!isPremium) {
@@ -666,7 +825,9 @@ export class SdkQueryOptionsBuilder {
     const mcpConfig = {
       ptah: {
         type: 'http' as const,
-        url: `http://localhost:${PTAH_MCP_PORT}`,
+        url: sessionId
+          ? `http://localhost:${PTAH_MCP_PORT}/session/${encodeURIComponent(sessionId)}`
+          : `http://localhost:${PTAH_MCP_PORT}`,
       },
     };
     this.logger.info('[SdkQueryOptionsBuilder] MCP servers ENABLED', {
@@ -678,7 +839,16 @@ export class SdkQueryOptionsBuilder {
   }
 
   /**
-   * Calculate max turns from session config
+   * Calculate max turns from session config.
+   *
+   * Safety limit: returns a default cap when no explicit maxTokens is set.
+   * Without this, the SDK runs unlimited agentic turns — each turn is an
+   * API round-trip that consumes provider quota. On metered providers like
+   * Copilot (premium requests) or pay-per-token APIs, runaway sessions can
+   * exhaust budgets quickly.
+   *
+   * Default: 200 turns — generous enough for complex multi-step tasks,
+   * but prevents infinite loops from burning through quota.
    */
   private calculateMaxTurns(
     sessionConfig?: AISessionConfig,
@@ -686,24 +856,8 @@ export class SdkQueryOptionsBuilder {
     if (sessionConfig?.maxTokens) {
       return Math.floor(sessionConfig.maxTokens / 1000);
     }
-    return undefined;
-  }
-
-  /**
-   * Build SDK plugin configuration from resolved paths
-   *
-   * Converts absolute directory paths to SdkPluginConfig format expected by the SDK.
-   * Returns undefined (not empty array) when no plugins are configured,
-   * avoiding sending unnecessary empty arrays to the SDK.
-   *
-   * @param pluginPaths - Absolute paths to plugin directories (from PluginLoaderService)
-   * @returns Array of SdkPluginConfig for SDK, or undefined if no plugins
-   */
-  private buildPlugins(pluginPaths?: string[]): SdkPluginConfig[] | undefined {
-    if (!pluginPaths || pluginPaths.length === 0) {
-      return undefined;
-    }
-    return pluginPaths.map((p) => ({ type: 'local' as const, path: p }));
+    // Safety cap: prevent unlimited agentic turns on metered providers
+    return 200;
   }
 
   /**

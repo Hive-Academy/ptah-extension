@@ -8,7 +8,7 @@
         [class.streaming-avatar-glow]="isStreaming()"
       >
         <img
-          [ngSrc]="ptahIconUri"
+          [src]="ptahIconUri"
           alt="Claude"
           width="24"
           height="24"
@@ -30,14 +30,16 @@
 
     <!-- Message bubble - uses base-300 for theme-aware background -->
     <div
-      class="chat-bubble bg-base-300 text-base-content shadow-card max-w-[95%] md:max-w-[98%] lg:max-w-[95%]"
+      class="chat-bubble bg-base-300 text-base-content shadow-card min-w-[95%] md:min-w-[98%] lg:min-w-[95%]"
     >
       <!-- Collapsible Header (only for completed assistant messages) -->
       @if (messageSummary(); as summary) {
         @if (!isStreaming()) {
+          <!-- Header row -->
           <button
             type="button"
-            class="w-full flex items-center gap-2 text-left py-1 -mt-1 mb-1 hover:bg-base-200/30 rounded transition-colors"
+            class="w-full flex items-center gap-2 text-left py-1 -mt-1 hover:bg-base-200/30 rounded transition-colors"
+            [class.mb-1]="!isCollapsed()"
             (click)="toggleCollapse()"
             [attr.aria-expanded]="!isCollapsed()"
             [attr.aria-label]="
@@ -48,9 +50,13 @@
               [img]="isCollapsed() ? ChevronRightIcon : ChevronDownIcon"
               class="w-3.5 h-3.5 text-base-content/50 flex-shrink-0"
             />
-            <span class="flex-1 text-xs text-base-content/70 truncate min-w-0">
-              {{ summary.title }}
-            </span>
+            @if (!isCollapsed()) {
+              <span
+                class="flex-1 text-xs text-base-content/70 truncate min-w-0"
+              >
+                {{ summary.title }}
+              </span>
+            }
             @if (summary.toolCount > 0) {
               <span class="badge badge-ghost badge-xs text-[9px] flex-shrink-0">
                 {{ summary.toolCount }} tools
@@ -62,6 +68,22 @@
               </span>
             }
           </button>
+
+          <!-- Card body: description (only when collapsed) -->
+          @if (isCollapsed()) {
+            <button
+              type="button"
+              class="w-full text-left pl-6 pr-3 pb-1.5 hover:bg-base-200/30 rounded transition-colors cursor-pointer"
+              aria-label="Expand message"
+              (click)="toggleCollapse()"
+            >
+              <p
+                class="text-[11px] text-base-content/60 leading-relaxed line-clamp-2"
+              >
+                {{ summary.description ?? summary.title }}
+              </p>
+            </button>
+          }
         }
       }
 

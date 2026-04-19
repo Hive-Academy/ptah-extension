@@ -5,10 +5,15 @@
  * Launches a Chrome instance with --remote-debugging-port and connects via CDP.
  * Used in VS Code (or any non-Electron platform) where Electron BrowserWindow is unavailable.
  *
- * Session lifecycle: 5-min inactivity timeout, 30-min max lifetime, auto-cleanup.
+ * Session lifecycle: 5-min inactivity timeout (headless) / 15-min (visible),
+ * 30-min max lifetime, auto-cleanup.
  */
 
-import type { IBrowserCapabilities } from '../namespace-builders/browser-namespace.builder';
+import type {
+  IBrowserCapabilities,
+  BrowserSessionOptions,
+} from '../namespace-builders/browser-namespace.builder';
+import { ScreenRecorderService } from './screen-recorder.service';
 
 // Dynamic imports to avoid bundling issues when this module isn't used (e.g., Electron)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -35,9 +40,13 @@ interface NetworkEntry {
   size?: number;
 }
 
-const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (headless)
+const VISIBLE_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (visible, TASK_2025_254)
 const MAX_LIFETIME_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_NETWORK_ENTRIES = 500;
+
+/** Default viewport dimensions (desktop) */
+const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
 
 export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -55,6 +64,22 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   >();
   /** Concurrency guard — prevents duplicate session creation from parallel calls */
   private sessionPromise: Promise<void> | null = null;
+
+  /** Recording service (TASK_2025_254) */
+  private recorder: ScreenRecorderService | null = null;
+  /** Whether the screencast frame listener has been registered on the current CDP client */
+  private screencastListenerRegistered = false;
+  /** Whether current session is headless — agent-controlled, default false (visible) */
+  private _headless = false;
+  /** Current viewport dimensions — agent-controlled, default 1920x1080 (desktop) */
+  private _viewport = { ...DEFAULT_VIEWPORT };
+  /** Pending session options set by configureSession(), consumed by createSession() */
+  private _pendingOptions: BrowserSessionOptions = {};
+  constructor(private readonly getRecordingDir: () => string = () => '') {}
+
+  configureSession(options: BrowserSessionOptions): void {
+    this._pendingOptions = { ...this._pendingOptions, ...options };
+  }
 
   async navigate(
     url: string,
@@ -305,6 +330,9 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     title?: string;
     uptimeMs?: number;
     autoCloseInMs?: number;
+    headless?: boolean;
+    recording?: boolean;
+    viewport?: { width: number; height: number };
   }> {
     if (!this._connected || !this.client) {
       return { connected: false };
@@ -334,6 +362,9 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
         title: pageInfo.title,
         uptimeMs,
         autoCloseInMs,
+        headless: this._headless,
+        recording: this.recorder?.isRecording() ?? false,
+        viewport: { ...this._viewport },
       };
     } catch {
       return { connected: false };
@@ -386,18 +417,32 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
       );
     }
 
+    // Consume pending session options (agent-controlled headless + viewport)
+    this._headless = this._pendingOptions.headless ?? false;
+    this._viewport = this._pendingOptions.viewport
+      ? { ...this._pendingOptions.viewport }
+      : { ...DEFAULT_VIEWPORT };
+    this._pendingOptions = {};
+
     // Launch Chrome with remote debugging
     try {
+      const chromeFlags = [
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-extensions',
+        '--disable-translate',
+        '--disable-background-networking',
+        `--window-size=${this._viewport.width},${this._viewport.height}`,
+      ];
+
+      // Conditionally include --headless
+      if (this._headless) {
+        chromeFlags.unshift('--headless');
+      }
+
       this.chrome = await launchChrome({
-        chromeFlags: [
-          '--headless',
-          '--disable-gpu',
-          '--no-first-run',
-          '--no-default-browser-check',
-          '--disable-extensions',
-          '--disable-translate',
-          '--disable-background-networking',
-        ],
+        chromeFlags,
         // Let chrome-launcher pick an available port
         port: 0,
       });
@@ -420,10 +465,18 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     }
 
     // Enable CDP domains
-    const { Page, Network, Runtime } = this.client;
+    const { Page, Network, Runtime, Emulation } = this.client;
     await Page.enable();
     await Network.enable();
     await Runtime.enable();
+
+    // Set viewport via CDP Emulation (works in both headless and visible modes)
+    await Emulation.setDeviceMetricsOverride({
+      width: this._viewport.width,
+      height: this._viewport.height,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
 
     // Set up network monitoring
     this.networkEntries = [];
@@ -486,12 +539,29 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     if (this.inactivityTimer) {
       clearTimeout(this.inactivityTimer);
     }
+
+    // TASK_2025_254: Use longer timeout for visible mode
+    const timeout = this._headless
+      ? INACTIVITY_TIMEOUT_MS
+      : VISIBLE_INACTIVITY_TIMEOUT_MS;
+
     this.inactivityTimer = setTimeout(() => {
       this.cleanup();
-    }, INACTIVITY_TIMEOUT_MS);
+    }, timeout);
   }
 
   private async cleanup(): Promise<void> {
+    // TASK_2025_254: Stop recording if active (best-effort GIF save)
+    if (this.recorder?.isRecording()) {
+      try {
+        const recordingDir = this.getRecordingDir();
+        await this.recorder.stopRecording(recordingDir || undefined);
+      } catch {
+        // Best-effort: don't let recording cleanup failure block session cleanup
+      }
+    }
+    this.recorder = null;
+
     if (this.inactivityTimer) {
       clearTimeout(this.inactivityTimer);
       this.inactivityTimer = null;
@@ -520,8 +590,123 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     }
 
     this._connected = false;
+    this.screencastListenerRegistered = false;
     this.startedAt = null;
+    this._pendingOptions = {};
     this.networkEntries = [];
     this.pendingResponses.clear();
+  }
+
+  // Recording methods (TASK_2025_254)
+
+  async startRecording(options?: {
+    maxFrames?: number;
+    frameDelay?: number;
+  }): Promise<{ success: boolean; error?: string }> {
+    if (this.recorder?.isRecording()) {
+      return {
+        success: false,
+        error:
+          'Recording already in progress. Stop the current recording first.',
+      };
+    }
+
+    try {
+      await this.ensureSession();
+      this.resetInactivityTimer();
+
+      // Initialize recorder
+      this.recorder = new ScreenRecorderService();
+      const startResult = this.recorder.startRecording(options);
+      if (!startResult.success) {
+        return startResult;
+      }
+
+      // Start CDP screencast
+      const { Page } = this.client;
+      await Page.startScreencast({
+        format: 'jpeg',
+        quality: 60,
+        maxWidth: 1280,
+        maxHeight: 720,
+        everyNthFrame: 3,
+      });
+
+      // Register the frame listener only once per CDP session to prevent accumulation
+      // across start/stop recording cycles. The listener checks isRecording() to
+      // avoid processing frames when recording is inactive.
+      if (!this.screencastListenerRegistered) {
+        Page.screencastFrame(
+          (params: {
+            data: string;
+            metadata: { timestamp: number };
+            sessionId: number;
+          }) => {
+            // Acknowledge frame immediately to avoid backpressure
+            Page.screencastFrameAck({ sessionId: params.sessionId }).catch(
+              (_ackError: unknown) => {
+                // Intentionally swallowed: ack failures are non-critical
+              },
+            );
+
+            // Only buffer frames when actively recording
+            if (this.recorder?.isRecording()) {
+              this.recorder.addFrame(params.data);
+            }
+          },
+        );
+        this.screencastListenerRegistered = true;
+      }
+
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  async stopRecording(): Promise<{
+    filePath: string;
+    frameCount: number;
+    durationMs: number;
+    fileSizeBytes: number;
+    truncated: boolean;
+    error?: string;
+  }> {
+    if (!this.recorder?.isRecording()) {
+      return {
+        filePath: '',
+        frameCount: 0,
+        durationMs: 0,
+        fileSizeBytes: 0,
+        truncated: false,
+        error: 'No recording in progress.',
+      };
+    }
+
+    try {
+      // Stop CDP screencast
+      if (this._connected && this.client) {
+        const { Page } = this.client;
+        await Page.stopScreencast().catch((_stopError: unknown) => {
+          // Intentionally swallowed: screencast may already be stopped
+        });
+      }
+
+      // Assemble GIF
+      const recordingDir = this.getRecordingDir();
+      return await this.recorder.stopRecording(recordingDir || undefined);
+    } catch (error) {
+      return {
+        filePath: '',
+        frameCount: 0,
+        durationMs: 0,
+        fileSizeBytes: 0,
+        truncated: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 }

@@ -57,8 +57,18 @@ contextBridge.exposeInMainWorld('ptahConfig', {
   userIconUri: './images/user-icon.png',
   panelId: 'electron-main',
   platform: process.platform, // 'darwin', 'win32', 'linux' — reliable in preload context
-  initialView: startupConfig?.initialView || null,
+  // Default to 'chat' — canvas is now a layout mode within chat, not a separate view.
+  // The layoutMode signal defaults to 'grid', so Electron still shows canvas grid by default.
+  initialView: startupConfig?.initialView || 'chat',
   isLicensed: startupConfig?.isLicensed ?? true,
+});
+
+// Expose clipboard API for sandboxed renderer access
+contextBridge.exposeInMainWorld('ptahClipboard', {
+  readText: (): Promise<string> => ipcRenderer.invoke('clipboard:read-text'),
+  writeText: (text: string): void => {
+    ipcRenderer.send('clipboard:write-text', text);
+  },
 });
 
 // Expose terminal binary IPC API (TASK_2025_227)

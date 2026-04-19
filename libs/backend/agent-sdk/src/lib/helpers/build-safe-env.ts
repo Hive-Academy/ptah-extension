@@ -13,9 +13,10 @@
  * @returns Minimal env safe for custom agent processes
  */
 import type { AuthEnv } from '@ptah-extension/shared';
+import { buildTierEnvDefaults } from './sdk-model-service';
 
 export function buildSafeEnv(
-  authEnv: AuthEnv
+  authEnv: AuthEnv,
 ): Record<string, string | undefined> {
   return {
     // Platform essentials for process execution
@@ -59,7 +60,18 @@ export function buildSafeEnv(
     // Terminal
     TERM: process.env['TERM'],
     SHELL: process.env['SHELL'],
+    // Guarantee tier env vars so subprocesses can resolve bare tier names
+    ...buildTierEnvDefaults(authEnv),
     // Provider-specific auth and config (e.g., ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL)
+    // Spread AFTER tier defaults so explicit authEnv overrides take precedence
     ...authEnv,
+    // Disable experimental betas for any non-Anthropic base URL — prevents the SDK
+    // from enabling context-management-2025-06-27 which third-party endpoints don't support
+    ...(() => {
+      const baseUrl = authEnv.ANTHROPIC_BASE_URL?.trim();
+      return baseUrl && !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
+        ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
+        : {};
+    })(),
   };
 }

@@ -76,6 +76,12 @@ export * from './molecules/setup-plugins/setup-status-widget.component';
 export * from './molecules/setup-plugins/plugin-status-widget.component';
 export * from './molecules/setup-plugins/plugin-browser-modal.component';
 export * from './molecules/setup-plugins/skill-sh-browser.component';
+export * from './molecules/setup-plugins/mcp-directory-browser.component';
+
+// ============================================================================
+// MOLECULES - Compact Session
+// ============================================================================
+export * from './molecules/compact-session/compact-session-card.component';
 
 // ============================================================================
 // MOLECULES - Agent Card (WIP - separate refactor)

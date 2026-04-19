@@ -21,6 +21,10 @@
         "libs/backend/agent-generation/src/index.ts"
       ],
       "@ptah-extension/agent-sdk": ["libs/backend/agent-sdk/src/index.ts"],
+      "@ptah-extension/deep-agent-sdk": [
+        "libs/backend/deep-agent-sdk/src/index.ts"
+      ],
+      "@ptah-extension/canvas": ["libs/frontend/canvas/src/index.ts"],
       "@ptah-extension/chat": ["libs/frontend/chat/src/index.ts"],
       "@ptah-extension/core": ["libs/frontend/core/src/index.ts"],
       "@ptah-extension/dashboard": ["libs/frontend/dashboard/src/index.ts"],
@@ -34,6 +38,9 @@
       "@ptah-extension/llm-abstraction/vscode-lm": [
         "libs/backend/llm-abstraction/src/vscode-lm.ts"
       ],
+      "@ptah-extension/platform-cli": [
+        "libs/backend/platform-cli/src/index.ts"
+      ],
       "@ptah-extension/platform-core": [
         "libs/backend/platform-core/src/index.ts"
       ],
@@ -46,6 +53,9 @@
       "@ptah-extension/providers": ["libs/frontend/providers/src/index.ts"],
       "@ptah-extension/rpc-handlers": [
         "libs/backend/rpc-handlers/src/index.ts"
+      ],
+      "@ptah-extension/harness-builder": [
+        "libs/frontend/harness-builder/src/index.ts"
       ],
       "@ptah-extension/setup-wizard": [
         "libs/frontend/setup-wizard/src/index.ts"

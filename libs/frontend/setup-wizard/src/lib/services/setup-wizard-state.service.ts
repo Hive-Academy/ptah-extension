@@ -20,10 +20,18 @@ import {
   WizardMessage,
   WizardMessageType,
 } from '@ptah-extension/shared';
+import type { AgentPackInfoDto } from '@ptah-extension/shared';
 import type {
   EnhancedPromptsSummary,
   FlatStreamEventUnion,
   MultiPhaseAnalysisResponse,
+} from '@ptah-extension/shared';
+import type {
+  NewProjectType,
+  QuestionGroup,
+  DiscoveryAnswers,
+  MasterPlan,
+  AnswerValue,
 } from '@ptah-extension/shared';
 
 // Re-export shared types for backward compatibility with existing consumers
@@ -49,7 +57,18 @@ export type WizardStep =
   | 'selection'
   | 'enhance'
   | 'generation'
-  | 'completion';
+  | 'completion'
+  // New project path
+  | 'project-type'
+  | 'discovery'
+  | 'plan-generation'
+  | 'plan-review';
+
+/**
+ * Wizard path discriminator.
+ * 'existing' = analyze existing project, 'new' = start new project, null = not yet chosen.
+ */
+export type WizardPath = 'existing' | 'new' | null;
 
 /**
  * Project context detected during workspace scan
@@ -387,6 +406,75 @@ export class SetupWizardStateService {
    */
   private readonly analysisLoadedFromHistorySignal = signal(false);
 
+  // === Community Agent Pack State (TASK_2025_258) ===
+
+  /**
+   * Private writable signal for available community agent packs.
+   * Populated from backend via wizard:list-agent-packs RPC.
+   */
+  private readonly communityPacksSignal = signal<AgentPackInfoDto[]>([]);
+
+  /**
+   * Private writable signal for community packs loading state.
+   */
+  private readonly communityPacksLoadingSignal = signal(false);
+
+  /**
+   * Private writable signal for per-agent install status.
+   * Key format: "{source}::{file}" for unique identification across packs.
+   */
+  private readonly agentInstallStatusSignal = signal<
+    Record<string, 'idle' | 'installing' | 'installed' | 'error'>
+  >({});
+
+  /**
+   * Private writable signal for currently expanded pack source.
+   * Only one pack can be expanded at a time.
+   */
+  private readonly expandedPackSourceSignal = signal<string | null>(null);
+
+  // === New Project State Signals ===
+
+  /**
+   * Private writable signal for wizard path (existing vs new project).
+   * null until the user chooses a path on the welcome screen.
+   */
+  private readonly wizardPathSignal = signal<WizardPath>(null);
+
+  /**
+   * Private writable signal for the selected new project type.
+   */
+  private readonly newProjectTypeSignal = signal<NewProjectType | null>(null);
+
+  /**
+   * Private writable signal for discovery question groups.
+   * Populated from backend after project type selection.
+   */
+  private readonly questionGroupsSignal = signal<QuestionGroup[]>([]);
+
+  /**
+   * Private writable signal for the currently displayed question group index.
+   */
+  private readonly currentGroupIndexSignal = signal<number>(0);
+
+  /**
+   * Private writable signal for accumulated discovery answers.
+   * Keyed by question ID.
+   */
+  private readonly discoveryAnswersSignal = signal<DiscoveryAnswers>({});
+
+  /**
+   * Private writable signal for the generated master plan.
+   */
+  private readonly masterPlanSignal = signal<MasterPlan | null>(null);
+
+  /**
+   * Private writable signal for plan generation loading state.
+   */
+  private readonly planGeneratingSignal = signal<boolean>(false);
+
+  private readonly forceRegenerateSignal = signal<boolean>(false);
+
   /**
    * Public readonly signal for current wizard step
    */
@@ -530,6 +618,78 @@ export class SetupWizardStateService {
   public readonly analysisLoadedFromHistory =
     this.analysisLoadedFromHistorySignal.asReadonly();
 
+  // === Community Agent Pack Public Signals (TASK_2025_258) ===
+
+  /**
+   * Public readonly signal for available community agent packs.
+   */
+  public readonly communityPacks = this.communityPacksSignal.asReadonly();
+
+  /**
+   * Public readonly signal for community packs loading state.
+   */
+  public readonly communityPacksLoading =
+    this.communityPacksLoadingSignal.asReadonly();
+
+  /**
+   * Public readonly signal for per-agent install status map.
+   */
+  public readonly agentInstallStatus =
+    this.agentInstallStatusSignal.asReadonly();
+
+  /**
+   * Public readonly signal for currently expanded pack source.
+   */
+  public readonly expandedPackSource =
+    this.expandedPackSourceSignal.asReadonly();
+
+  // === New Project Public Signals ===
+
+  /**
+   * Public readonly signal for wizard path (existing vs new project).
+   */
+  public readonly wizardPath = this.wizardPathSignal.asReadonly();
+
+  /**
+   * Public readonly signal for selected new project type.
+   */
+  public readonly newProjectType = this.newProjectTypeSignal.asReadonly();
+
+  /**
+   * Public readonly signal for discovery question groups.
+   */
+  public readonly questionGroups = this.questionGroupsSignal.asReadonly();
+
+  /**
+   * Public readonly signal for current question group index.
+   */
+  public readonly currentGroupIndex = this.currentGroupIndexSignal.asReadonly();
+
+  /**
+   * Public readonly signal for accumulated discovery answers.
+   */
+  public readonly discoveryAnswers = this.discoveryAnswersSignal.asReadonly();
+
+  /**
+   * Public readonly signal for the generated master plan.
+   */
+  public readonly masterPlan = this.masterPlanSignal.asReadonly();
+
+  /**
+   * Public readonly signal for plan generation loading state.
+   */
+  public readonly planGenerating = this.planGeneratingSignal.asReadonly();
+
+  public readonly forceRegenerate = this.forceRegenerateSignal.asReadonly();
+
+  /**
+   * Computed signal for count of installed community agents.
+   */
+  public readonly installedCommunityAgentCount = computed(() => {
+    const statuses = this.agentInstallStatusSignal();
+    return Object.values(statuses).filter((s) => s === 'installed').length;
+  });
+
   // === Multi-Phase Analysis Public Signals (TASK_2025_154) ===
 
   /**
@@ -568,6 +728,99 @@ export class SetupWizardStateService {
   public readonly hasMultiPhaseResult = computed(
     () => this.multiPhaseResultSignal() !== null,
   );
+
+  // === New Project Computed Signals ===
+
+  /**
+   * Computed signal for the currently displayed question group.
+   * Returns null if no groups are loaded or index is out of bounds.
+   */
+  public readonly currentQuestionGroup = computed(() => {
+    const groups = this.questionGroupsSignal();
+    const index = this.currentGroupIndexSignal();
+    return groups[index] ?? null;
+  });
+
+  /**
+   * Computed signal indicating whether all required questions in the current group are answered.
+   */
+  public readonly currentGroupComplete = computed(() => {
+    const group = this.currentQuestionGroup();
+    if (!group) return false;
+    const answers = this.discoveryAnswersSignal();
+    return group.questions
+      .filter((q) => q.required)
+      .every((q) => {
+        const answer = answers[q.id];
+        if (answer === undefined || answer === null) return false;
+        if (Array.isArray(answer))
+          return answer.length >= (q.minSelections ?? 1);
+        return String(answer).trim().length > 0;
+      });
+  });
+
+  /**
+   * Computed signal indicating whether the current group is the last in the sequence.
+   */
+  public readonly isLastGroup = computed(() => {
+    const groups = this.questionGroupsSignal();
+    return this.currentGroupIndexSignal() >= groups.length - 1;
+  });
+
+  /**
+   * Computed signal for the active wizard step configuration based on the chosen path.
+   * Returns different step sequences and labels for 'existing' vs 'new' project paths.
+   */
+  public readonly activeStepConfig = computed<{
+    steps: WizardStep[];
+    labels: string[];
+  }>(() => {
+    const path = this.wizardPathSignal();
+    if (path === 'new') {
+      return {
+        steps: [
+          'welcome',
+          'project-type',
+          'discovery',
+          'plan-generation',
+          'plan-review',
+          'selection',
+          'generation',
+          'completion',
+        ],
+        labels: [
+          'Welcome',
+          'Type',
+          'Discovery',
+          'Planning',
+          'Review',
+          'Select',
+          'Generate',
+          'Complete',
+        ],
+      };
+    }
+    return {
+      steps: [
+        'welcome',
+        'scan',
+        'analysis',
+        'selection',
+        'generation',
+        'enhance',
+        'completion',
+      ],
+      labels: [
+        'Welcome',
+        'Scan',
+        'Analysis',
+        'Select',
+        'Generate',
+        'Enhance',
+        'Complete',
+      ],
+    };
+  });
 
   public constructor() {
     this.ensureMessageListenerRegistered();
@@ -618,6 +871,15 @@ export class SetupWizardStateService {
         return false; // Cannot proceed during generation
       case 'completion':
         return true; // Wizard complete
+      // New project path steps
+      case 'project-type':
+        return this.newProjectTypeSignal() !== null;
+      case 'discovery':
+        return this.currentGroupComplete();
+      case 'plan-generation':
+        return false; // Cannot proceed during plan generation
+      case 'plan-review':
+        return this.masterPlanSignal() !== null;
       default:
         return false;
     }
@@ -630,7 +892,7 @@ export class SetupWizardStateService {
     const step = this.currentStepSignal();
     const progress = this.generationProgressSignal();
 
-    // Base progress from step progression (7 steps with premium-check)
+    // Base progress from step progression
     const stepProgress: Record<WizardStep, number> = {
       'premium-check': 0,
       welcome: 5,
@@ -640,6 +902,11 @@ export class SetupWizardStateService {
       generation: progress?.percentComplete ?? 55,
       enhance: 85,
       completion: 100,
+      // New project path steps
+      'project-type': 15,
+      discovery: 30,
+      'plan-generation': 45,
+      'plan-review': 55,
     };
 
     return stepProgress[step];
@@ -648,20 +915,12 @@ export class SetupWizardStateService {
   /**
    * Current step index (0-based) for the UI progress indicator.
    * Excludes 'premium-check' since that step is not displayed in the stepper.
+   * Uses activeStepConfig to support both existing and new project paths.
    */
   public readonly stepIndex = computed(() => {
     const step = this.currentStepSignal();
-    const uiStepOrder: WizardStep[] = [
-      'welcome',
-      'scan',
-      'analysis',
-      'selection',
-      'generation',
-      'enhance',
-      'completion',
-    ];
-    // 'premium-check' maps to -1 (not shown in stepper)
-    return uiStepOrder.indexOf(step);
+    const config = this.activeStepConfig();
+    return config.steps.indexOf(step);
   });
 
   // === Deep Analysis Computed Signals (TASK_2025_111) ===
@@ -805,6 +1064,7 @@ export class SetupWizardStateService {
     this.completionDataSignal.set(null);
     this.errorStateSignal.set(null);
     this.fallbackWarningSignal.set(null);
+    this.generationStreamInitialized = false;
     // Reset deep analysis state (TASK_2025_111)
     this.deepAnalysisSignal.set(null);
     this.recommendationsSignal.set([]);
@@ -822,6 +1082,152 @@ export class SetupWizardStateService {
     this.multiPhaseResultSignal.set(null);
     // Reset analysis history state (keep savedAnalyses list intact)
     this.analysisLoadedFromHistorySignal.set(false);
+    // Reset community agent pack state (TASK_2025_258)
+    this.communityPacksSignal.set([]);
+    this.communityPacksLoadingSignal.set(false);
+    this.agentInstallStatusSignal.set({});
+    this.expandedPackSourceSignal.set(null);
+    // Reset new project state
+    this.wizardPathSignal.set(null);
+    this.newProjectTypeSignal.set(null);
+    this.questionGroupsSignal.set([]);
+    this.currentGroupIndexSignal.set(0);
+    this.discoveryAnswersSignal.set({});
+    this.masterPlanSignal.set(null);
+    this.planGeneratingSignal.set(false);
+    this.forceRegenerateSignal.set(false);
+  }
+
+  // === Community Agent Pack State Mutations (TASK_2025_258) ===
+
+  /**
+   * Set available community agent packs.
+   * Called after fetching pack manifests from backend.
+   *
+   * @param packs - Array of community agent pack info DTOs
+   */
+  public setCommunityPacks(packs: AgentPackInfoDto[]): void {
+    this.communityPacksSignal.set(packs);
+  }
+
+  /**
+   * Set community packs loading state.
+   *
+   * @param loading - Whether packs are currently being fetched
+   */
+  public setCommunityPacksLoading(loading: boolean): void {
+    this.communityPacksLoadingSignal.set(loading);
+  }
+
+  /**
+   * Set install status for a specific agent.
+   * Key format: "{source}::{file}" for unique identification across packs.
+   *
+   * @param key - Unique key identifying the agent ({source}::{file})
+   * @param status - Current install status
+   */
+  public setAgentInstallStatus(
+    key: string,
+    status: 'idle' | 'installing' | 'installed' | 'error',
+  ): void {
+    this.agentInstallStatusSignal.update((map) => ({
+      ...map,
+      [key]: status,
+    }));
+  }
+
+  /**
+   * Toggle expanded pack source.
+   * Collapses if the same source is already expanded, otherwise expands.
+   *
+   * @param source - Pack source URL to toggle
+   */
+  public toggleExpandedPack(source: string): void {
+    this.expandedPackSourceSignal.update((current) =>
+      current === source ? null : source,
+    );
+  }
+
+  // === New Project State Mutations ===
+
+  /**
+   * Set the wizard path (existing vs new project).
+   * Called when the user chooses a path on the welcome screen.
+   */
+  public setWizardPath(path: WizardPath): void {
+    this.wizardPathSignal.set(path);
+  }
+
+  /**
+   * Set the selected new project type.
+   * Called when the user picks a project type (e.g., full-saas, angular-app).
+   */
+  public setNewProjectType(type: NewProjectType): void {
+    this.newProjectTypeSignal.set(type);
+  }
+
+  /**
+   * Set discovery question groups from the backend.
+   * Resets the current group index to 0 and clears any stale discovery answers
+   * (e.g., from a previously selected project type).
+   */
+  public setQuestionGroups(groups: QuestionGroup[]): void {
+    this.questionGroupsSignal.set(groups);
+    this.currentGroupIndexSignal.set(0);
+    this.discoveryAnswersSignal.set({});
+  }
+
+  /**
+   * Set a single discovery answer by question ID.
+   * Immutably updates the answers map.
+   */
+  public setDiscoveryAnswer(questionId: string, value: AnswerValue): void {
+    this.discoveryAnswersSignal.update((answers) => ({
+      ...answers,
+      [questionId]: value,
+    }));
+  }
+
+  /**
+   * Advance to the next question group.
+   * No-op if already on the last group.
+   */
+  public nextQuestionGroup(): void {
+    const groups = this.questionGroupsSignal();
+    const current = this.currentGroupIndexSignal();
+    if (current < groups.length - 1) {
+      this.currentGroupIndexSignal.set(current + 1);
+    }
+  }
+
+  /**
+   * Go back to the previous question group.
+   * No-op if already on the first group.
+   */
+  public previousQuestionGroup(): void {
+    const current = this.currentGroupIndexSignal();
+    if (current > 0) {
+      this.currentGroupIndexSignal.set(current - 1);
+    }
+  }
+
+  /**
+   * Set the generated master plan.
+   * Called when plan generation completes successfully, or null to clear it.
+   */
+  public setMasterPlan(plan: MasterPlan | null): void {
+    this.masterPlanSignal.set(plan);
+  }
+
+  /**
+   * Set the plan generation loading state.
+   */
+  public setPlanGenerating(generating: boolean): void {
+    this.planGeneratingSignal.set(generating);
+  }
+
+  public setForceRegenerate(force: boolean): void {
+    this.forceRegenerateSignal.set(force);
   }
 
   // === Deep Analysis State Mutations (TASK_2025_111) ===
@@ -1109,10 +1515,7 @@ export class SetupWizardStateService {
             break;
 
           case 'setup-wizard:generation-stream':
-            this.generationStreamSignal.update((msgs) => [
-              ...msgs,
-              message.payload,
-            ]);
+            this.handleGenerationStream(message.payload);
             break;
 
           case 'setup-wizard:enhance-stream':
@@ -1195,6 +1598,30 @@ export class SetupWizardStateService {
     this.analysisStreamSignal.update((messages) => [...messages, payload]);
 
     // TASK_2025_229: Accumulate flat events into per-phase StreamingState
+    if (payload.flatEvent) {
+      this.accumulateFlatEvent(payload.flatEvent);
+    }
+  }
+
+  /**
+   * Handle generation stream messages for live transcript display.
+   * Clears stale analysis streaming states on the first generation event
+   * so the transcript component shows generation output instead of old analysis data.
+   * Accumulates flat events into phaseStreamingStates for ExecutionNode rendering.
+   */
+  private generationStreamInitialized = false;
+
+  private handleGenerationStream(payload: GenerationStreamPayload): void {
+    // Clear stale analysis streaming states on first generation event
+    if (!this.generationStreamInitialized) {
+      this.generationStreamInitialized = true;
+      this.phaseStreamingStatesSignal.set(new Map());
+    }
+
+    // Keep flat payload accumulation for backward compat
+    this.generationStreamSignal.update((msgs) => [...msgs, payload]);
+
+    // Accumulate flat events into per-phase StreamingState for ExecutionNode rendering
     if (payload.flatEvent) {
       this.accumulateFlatEvent(payload.flatEvent);
     }

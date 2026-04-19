@@ -20,12 +20,16 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
+import type {
+  SubagentRegistryService,
+  AgentSessionWatcherService,
+} from '@ptah-extension/vscode-core';
 import {
   SessionId,
   AISessionConfig,
   ISdkPermissionHandler,
   InlineImageAttachment,
+  type AuthEnv,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import {
@@ -43,6 +47,7 @@ import type {
   WorktreeRemovedCallback,
 } from './worktree-hook-handler';
 import { SlashCommandInterceptor } from './slash-command-interceptor';
+import type { ModelResolver } from '../auth/model-resolver';
 
 // Re-export for backward compatibility with other files
 export type { SDKUserMessage, ContentBlock };
@@ -188,6 +193,15 @@ export class SessionLifecycleManager {
    */
   private tabIdToRealId = new Map<string, string>();
 
+  /**
+   * Tracks the most recently active tab ID.
+   * Updated on session registration and message send.
+   * Used by getActiveSessionIds() to return the most recently active
+   * session first, so MCP tool calls (e.g., ptah_agent_spawn) attribute
+   * agents to the correct session in multi-session scenarios.
+   */
+  private _lastActiveTabId: string | null = null;
+
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
@@ -202,6 +216,13 @@ export class SessionLifecycleManager {
     // TASK_2025_103: SubagentRegistryService for marking subagents as interrupted
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private subagentRegistry: SubagentRegistryService,
+    // TASK_2025_264: AgentSessionWatcherService for stopping file watchers on session end
+    @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
+    private agentSessionWatcher: AgentSessionWatcherService,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: ModelResolver,
   ) {}
 
   /**
@@ -225,6 +246,7 @@ export class SessionLifecycleManager {
     };
 
     this.activeSessions.set(sessionId as string, session);
+    this._lastActiveTabId = sessionId as string;
     this.logger.info(
       `[SessionLifecycle] Pre-registered active session: ${sessionId}`,
     );
@@ -266,6 +288,7 @@ export class SessionLifecycleManager {
     };
 
     this.activeSessions.set(sessionId as string, session);
+    this._lastActiveTabId = sessionId as string;
     this.logger.info(
       `[SessionLifecycle] Registered active session: ${sessionId}`,
     );
@@ -293,13 +316,57 @@ export class SessionLifecycleManager {
   }
 
   /**
-   * Get all active session IDs.
+   * Get all active session IDs, most recently active first.
    * Returns real SDK UUIDs when resolved, tab IDs otherwise.
+   * The ordering ensures that getActiveSessionIds()[0] returns the session
+   * the user most recently interacted with, which is critical for MCP tools
+   * like ptah_agent_spawn that pick ids[0] as the parentSessionId.
    */
   getActiveSessionIds(): SessionId[] {
-    return Array.from(this.activeSessions.keys()).map(
-      (key) => (this.tabIdToRealId.get(key) || key) as SessionId,
-    );
+    const keys = Array.from(this.activeSessions.keys());
+
+    // Sort so that the most recently active tab ID comes first
+    if (this._lastActiveTabId && keys.length > 1) {
+      const idx = keys.indexOf(this._lastActiveTabId);
+      if (idx > 0) {
+        keys.splice(idx, 1);
+        keys.unshift(this._lastActiveTabId);
+      }
+    }
+
+    return keys.map((key) => (this.tabIdToRealId.get(key) || key) as SessionId);
+  }
+
+  /**
+   * Get the workspace root (projectPath) for the most recently active session.
+   * Used by MCP tools to resolve workspace per-session instead of globally.
+   * In multi-workspace scenarios (e.g., Electron with multiple folders open),
+   * this ensures CLI agents and subagents inherit the correct workspace
+   * from the session that spawned them, not whichever workspace is globally active.
+   */
+  getActiveSessionWorkspace(): string | undefined {
+    if (this._lastActiveTabId) {
+      const session = this.activeSessions.get(this._lastActiveTabId);
+      if (session?.config?.projectPath) {
+        return session.config.projectPath;
+      }
+    }
+    // Fallback: check any active session
+    for (const session of this.activeSessions.values()) {
+      if (session.config?.projectPath) {
+        return session.config.projectPath;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Resolve a tab ID or session ID to the real SDK UUID.
+   * If the input is a known tab ID, returns the resolved real UUID.
+   * Otherwise returns the input as-is (it may already be a real UUID).
+   */
+  getResolvedSessionId(tabIdOrSessionId: string): string {
+    return this.tabIdToRealId.get(tabIdOrSessionId) ?? tabIdOrSessionId;
   }
 
   /**
@@ -307,6 +374,79 @@ export class SessionLifecycleManager {
    */
   isSessionActive(sessionId: SessionId): boolean {
     return this.activeSessions.has(sessionId as string);
+  }
+
+  /**
+   * Interrupt the current assistant turn without ending the session.
+   *
+   * Unlike endSession(), this does NOT abort the session or clean up resources.
+   * The session remains active for continued use — the user's follow-up message
+   * will start a new turn.
+   *
+   * Used when the user sends a message during autopilot (yolo/auto-edit) execution.
+   * In these modes, tool calls are auto-approved, so the user has no checkpoint to
+   * stop the agent. Calling interrupt() forces the SDK to stop the current turn,
+   * ensuring the user's message is processed in a new turn.
+   *
+   * @param sessionId - Session whose current turn should be interrupted
+   * @returns true if interrupt was called, false if session/query not found
+   */
+  async interruptCurrentTurn(sessionId: SessionId): Promise<boolean> {
+    let session = this.activeSessions.get(sessionId as string);
+
+    // Reverse lookup: frontend may send real SDK UUID but activeSessions is keyed by tab ID.
+    // Same pattern as endSession() and setSessionModel().
+    if (!session) {
+      for (const [tabId, realId] of this.tabIdToRealId.entries()) {
+        if (realId === (sessionId as string)) {
+          session = this.activeSessions.get(tabId);
+          if (session) {
+            sessionId = tabId as SessionId;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!session?.query) {
+      this.logger.warn(
+        `[SessionLifecycle] Cannot interrupt turn - session or query not found: ${sessionId}`,
+      );
+      return false;
+    }
+
+    this.logger.info(
+      `[SessionLifecycle] Interrupting current turn for session: ${sessionId}`,
+    );
+
+    try {
+      let timedOut = false;
+      await Promise.race([
+        session.query.interrupt(),
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            timedOut = true;
+            resolve();
+          }, 3000),
+        ),
+      ]);
+      if (timedOut) {
+        this.logger.warn(
+          `[SessionLifecycle] Turn interrupt timed out (3s) for session: ${sessionId}`,
+        );
+      } else {
+        this.logger.info(
+          `[SessionLifecycle] Turn interrupt completed for session: ${sessionId}`,
+        );
+      }
+      return !timedOut;
+    } catch (err) {
+      this.logger.warn(
+        `[SessionLifecycle] Turn interrupt failed for session ${sessionId}`,
+        err instanceof Error ? err : new Error(String(err)),
+      );
+      return false;
+    }
   }
 
   /**
@@ -357,8 +497,13 @@ export class SessionLifecycleManager {
       this.tabIdToRealId.get(sessionId as string) || (sessionId as string);
     this.subagentRegistry.markAllInterrupted(registrySessionId);
 
+    // TASK_2025_264: Stop all agent session file watchers for this session.
+    // Prevents background agent watchers from tailing files and emitting
+    // events to a dead session after abort.
+    this.agentSessionWatcher.stopAllForSession(registrySessionId);
+
     this.logger.info(
-      `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`,
+      `[SessionLifecycle] Marked running subagents as interrupted and stopped watchers for session: ${sessionId}`,
     );
 
     // TASK_2025_175: Await interrupt() with timeout BEFORE abort()
@@ -398,6 +543,14 @@ export class SessionLifecycleManager {
     this.activeSessions.delete(sessionId as string);
     this.tabIdToRealId.delete(sessionId as string);
 
+    // Clear last-active tracker if the ended session was the most recent
+    if (this._lastActiveTabId === (sessionId as string)) {
+      // Fall back to the next available active session (if any)
+      const remaining = Array.from(this.activeSessions.keys());
+      this._lastActiveTabId =
+        remaining.length > 0 ? remaining[remaining.length - 1] : null;
+    }
+
     this.logger.info(`[SessionLifecycle] Session ended: ${sessionId}`);
   }
 
@@ -422,6 +575,9 @@ export class SessionLifecycleManager {
       // TASK_2025_186: Use real UUID if resolved
       const registryId = this.tabIdToRealId.get(sessionId) || sessionId;
       this.subagentRegistry.markAllInterrupted(registryId);
+
+      // TASK_2025_264: Stop all agent session file watchers for this session
+      this.agentSessionWatcher.stopAllForSession(registryId);
 
       // TASK_2025_175: Interrupt BEFORE abort, with timeout
       if (session.query) {
@@ -616,10 +772,10 @@ export class SessionLifecycleManager {
       const session = this.getActiveSession(sessionId);
       if (session) {
         const sdkUserMessage = await this.messageFactory.createUserMessage({
-          content: initialPrompt!.content,
+          content: initialPrompt!.content, // eslint-disable-line @typescript-eslint/no-non-null-assertion
           sessionId,
-          files: initialPrompt!.files,
-          images: initialPrompt!.images,
+          files: initialPrompt!.files, // eslint-disable-line @typescript-eslint/no-non-null-assertion
+          images: initialPrompt!.images, // eslint-disable-line @typescript-eslint/no-non-null-assertion
         });
         session.messageQueue.push(sdkUserMessage);
         this.logger.info(
@@ -691,10 +847,20 @@ export class SessionLifecycleManager {
       promptMode = 'iterable';
     }
 
+    // NOTE: Do NOT set maxTurns: 1 for slash commands.
+    // Built-in commands (/compact, /cost, /context) bypass the turn loop entirely
+    // (SDK TerminalReason is "unset" for local slash commands), so maxTurns is
+    // irrelevant. Setting maxTurns: 1 actually BREAKS command recognition — the
+    // SDK sends the raw string to Claude as a regular message instead of parsing
+    // it as a built-in command.
+    // The session terminates naturally because streamInput is not connected
+    // (see Step 7b below), so no further input can arrive after the command.
+
     this.logger.info('[SessionLifecycle] Starting SDK query with options', {
       model: queryOptions.options.model,
       cwd: queryOptions.options.cwd,
       permissionMode: queryOptions.options.permissionMode,
+      maxTurns: queryOptions.options.maxTurns,
       isResume,
       isSlashCommand,
       promptMode,
@@ -709,9 +875,12 @@ export class SessionLifecycleManager {
 
     // Step 7b: Connect streamInput for follow-up message delivery
     // Resume sessions: ALL messages come via streamInput (idle prompt)
-    // Slash command sessions: follow-up messages come via streamInput
     // Regular sessions: follow-up messages come from the iterable
-    if (isResume || isSlashCommand) {
+    // Slash commands: Do NOT connect streamInput. The SDK processes the
+    // command from the string prompt and terminates naturally. Connecting
+    // streamInput would keep the query alive waiting for input that never
+    // comes, preventing the for-await-of loop from exiting.
+    if (isResume && !isSlashCommand) {
       sdkQuery.streamInput(userMessageStream).catch((err) => {
         this.logger.warn('[SessionLifecycle] streamInput error', {
           error: err instanceof Error ? err.message : String(err),
@@ -755,6 +924,10 @@ export class SessionLifecycleManager {
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
+
+    // Mark this session as the most recently active so MCP tool calls
+    // (e.g., ptah_agent_spawn) attribute agents to the correct session.
+    this._lastActiveTabId = sessionId as string;
 
     this.logger.info(`[SessionLifecycle] Sending message to ${sessionId}`, {
       contentLength: content.length,
@@ -924,8 +1097,12 @@ export class SessionLifecycleManager {
    * Set session model
    * Extracted from SdkAgentAdapter to consolidate session control
    *
+   * Resolves bare tier names ('opus', 'sonnet', 'haiku') to full model IDs
+   * before passing to the SDK. The SDK's setModel() requires full model IDs
+   * like 'claude-opus-4-6' — bare tier names cause "can't access model" errors.
+   *
    * @param sessionId - Session to update
-   * @param model - Model ID to set
+   * @param model - Model ID or bare tier name to set
    */
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {
     let session = this.activeSessions.get(sessionId as string);
@@ -948,13 +1125,22 @@ export class SessionLifecycleManager {
       throw new Error(`Session query not initialized: ${sessionId}`);
     }
 
+    // Resolve model through provider overrides (e.g., claude-sonnet-4-6 → glm-5.1 on Z.AI)
+    // and bare tier names (e.g., 'sonnet' → 'claude-sonnet-4-6' on direct Anthropic).
+    const resolvedModel = this.modelResolver.resolve(model);
+    if (resolvedModel !== model) {
+      this.logger.info(
+        `[SessionLifecycle] Model resolved: '${model}' → '${resolvedModel}'`,
+      );
+    }
+
     this.logger.info(
-      `[SessionLifecycle] Setting model for ${sessionId}: ${model}`,
+      `[SessionLifecycle] Setting model for ${sessionId}: ${resolvedModel}`,
     );
 
     try {
-      await session.query.setModel(model);
-      session.currentModel = model;
+      await session.query.setModel(resolvedModel);
+      session.currentModel = resolvedModel;
       this.logger.info(`[SessionLifecycle] Model set for ${sessionId}`);
     } catch (error) {
       this.logger.error(

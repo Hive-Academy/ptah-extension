@@ -4,7 +4,7 @@
  *
  * Centralizes all authentication state that was previously scattered across
  * SettingsComponent and AuthConfigComponent. Provides a single source of truth
- * for auth credentials, provider selection, and connection status.
+ * for auth credentials (API key, provider keys), provider selection, and connection status.
  *
  * Follows ModelStateService signal-based pattern (private _signal, public asReadonly).
  * RPC integration: claude-rpc.service.ts (RpcResult pattern)
@@ -24,7 +24,7 @@ import type {
  * Auth State Service - Signal-based authentication state
  *
  * Responsibilities:
- * - Maintain authentication credential presence flags (OAuth, API key, provider keys)
+ * - Maintain authentication credential presence flags (API key, provider keys)
  * - Track per-provider key existence via _providerKeyMap
  * - Provide readonly signals for reactive UI updates
  * - Sync auth state with backend via RPC
@@ -35,7 +35,6 @@ import type {
  * readonly authState = inject(AuthStateService);
  *
  * // Read auth state
- * console.log(authState.hasOAuthToken());       // true/false
  * console.log(authState.hasProviderKey());       // true/false (for selected provider)
  * console.log(authState.showProviderModels());   // true/false
  *
@@ -43,7 +42,7 @@ import type {
  * await authState.loadAuthStatus();
  *
  * // Save and test connection
- * await authState.saveAndTest({ authMethod: 'openrouter', openrouterApiKey: 'sk-...' });
+ * await authState.saveAndTest({ authMethod: 'thirdParty', providerApiKey: 'sk-...' });
  * ```
  */
 @Injectable({ providedIn: 'root' })
@@ -53,9 +52,6 @@ export class AuthStateService {
 
   // --- Private mutable signals ---
 
-  /** Whether an OAuth token is configured in SecretStorage */
-  private readonly _hasOAuthToken = signal(false);
-
   /** Whether an Anthropic API key is configured in SecretStorage */
   private readonly _hasApiKey = signal(false);
 
@@ -63,7 +59,7 @@ export class AuthStateService {
   private readonly _providerKeyMap = signal<Map<string, boolean>>(new Map());
 
   /** Current auth method preference (UI-local until saved) */
-  private readonly _authMethod = signal<AuthMethod>('auto');
+  private readonly _authMethod = signal<AuthMethod>('apiKey');
 
   /** Currently selected Anthropic-compatible provider ID */
   private readonly _selectedProviderId = signal('openrouter');
@@ -103,6 +99,21 @@ export class AuthStateService {
   /** Whether Codex CLI auth token is stale/expired (TASK_2025_199) */
   private readonly _codexTokenStale = signal(false);
 
+  /** Whether Claude CLI is installed and detected on the system */
+  private readonly _claudeCliInstalled = signal(false);
+
+  /**
+   * Persisted auth method — the last value successfully saved to/loaded from the backend.
+   * Unlike _authMethod (which changes on tile click), this only updates on load or successful save.
+   */
+  private readonly _persistedAuthMethod = signal<AuthMethod>('apiKey');
+
+  /**
+   * Persisted provider ID — the last value successfully saved to/loaded from the backend.
+   * Unlike _selectedProviderId (which changes on tile click), this only updates on load or successful save.
+   */
+  private readonly _persistedProviderId = signal('openrouter');
+
   /** Guard to ensure loadAuthStatus only fetches once unless refreshed */
   private _isLoaded = false;
 
@@ -110,9 +121,6 @@ export class AuthStateService {
   private _loadPromise: Promise<void> | null = null;
 
   // --- Public readonly signals ---
-
-  /** Whether OAuth token is configured */
-  readonly hasOAuthToken = this._hasOAuthToken.asReadonly();
 
   /** Whether API key is configured */
   readonly hasApiKey = this._hasApiKey.asReadonly();
@@ -156,6 +164,30 @@ export class AuthStateService {
   /** Whether Codex CLI auth token is stale/expired (TASK_2025_199) */
   readonly codexTokenStale = this._codexTokenStale.asReadonly();
 
+  /** Whether Claude CLI is installed on the system */
+  readonly claudeCliInstalled = this._claudeCliInstalled.asReadonly();
+
+  /** Persisted auth method (last loaded/saved from backend) */
+  readonly persistedAuthMethod = this._persistedAuthMethod.asReadonly();
+
+  /** Persisted provider ID (last loaded/saved from backend) */
+  readonly persistedProviderId = this._persistedProviderId.asReadonly();
+
+  /**
+   * The tile ID of the currently active (persisted) provider.
+   * Returns 'claude' when persisted method is apiKey, otherwise the persisted provider ID.
+   * Used to show an "Active" indicator on the correct tile, separate from the viewed tile.
+   */
+  readonly persistedTileId = computed(() => {
+    // Return null while loading to avoid flashing the wrong tile as active
+    if (this._isLoading()) return null;
+    const method = this._persistedAuthMethod();
+    if (method === 'apiKey' || method === 'claudeCli') {
+      return 'claude';
+    }
+    return this._persistedProviderId();
+  });
+
   // --- Computed signals ---
 
   /**
@@ -169,21 +201,21 @@ export class AuthStateService {
   });
 
   /**
-   * Whether any credential is configured (OAuth, API key, provider key, or Copilot OAuth).
+   * Whether any credential is configured (API key, provider key, or Copilot OAuth).
    * Used by SettingsComponent to determine if authentication section shows status.
    * TASK_2025_191: Added Copilot authenticated check.
    */
   readonly hasAnyCredential = computed(
     () =>
-      this._hasOAuthToken() ||
       this._hasApiKey() ||
+      this._claudeCliInstalled() ||
       this.hasProviderKey() ||
-      this._copilotAuthenticated()
+      this._copilotAuthenticated(),
   );
 
   /**
    * Whether provider model mapping section should be shown.
-   * ONLY when authMethod is 'openrouter' or 'auto' AND the selected provider has credentials.
+   * ONLY when authMethod is 'thirdParty' AND the selected provider has credentials.
    * For OAuth providers (e.g., GitHub Copilot): shown when OAuth is authenticated.
    * For API key providers: shown when a provider key is configured.
    * Fixes Critical Issue #3: previously ignored authMethod check.
@@ -191,7 +223,12 @@ export class AuthStateService {
    */
   readonly showProviderModels = computed(() => {
     const method = this._authMethod();
-    if (method !== 'openrouter' && method !== 'auto') return false;
+
+    // Direct Anthropic auth: model mapping not needed — SDK handles tiers natively
+    if (method === 'apiKey' || method === 'claudeCli') return false;
+
+    // Third-party provider: check provider-level credentials
+    if (method !== 'thirdParty') return false;
 
     // OAuth providers use their own auth, not API keys
     const provider = this.selectedProvider();
@@ -201,21 +238,43 @@ export class AuthStateService {
       return false;
     }
 
+    // Local providers (authType === 'none') don't need API keys — always show models
+    if (provider?.authType === 'none') return true;
+
     return this.hasProviderKey();
   });
 
   /**
-   * Whether the selected provider has valid credentials (API key or OAuth).
+   * Effective provider ID for model mapping.
+   * For direct auth (apiKey), the provider is always 'anthropic'.
+   * For openrouter/auto, delegates to the user-selected provider.
+   */
+  readonly effectiveProviderId = computed(() => {
+    const method = this._authMethod();
+    if (method === 'apiKey' || method === 'claudeCli') return 'anthropic';
+    return this._selectedProviderId();
+  });
+
+  /**
+   * Whether the selected provider has valid credentials (API key or provider-specific auth).
    * Used by provider-model-selector to gate model loading.
-   * TASK_2025_191
    */
   readonly hasProviderCredential = computed(() => {
+    const method = this._authMethod();
+    if (method === 'claudeCli') return this._claudeCliInstalled();
+    if (method === 'apiKey') return this._hasApiKey();
+
+    // OpenRouter/auto: check provider-level credentials
     const provider = this.selectedProvider();
     if (provider?.authType === 'oauth') {
       if (provider.id === 'github-copilot') return this._copilotAuthenticated();
       if (provider.id === 'openai-codex') return this._codexAuthenticated();
       return false;
     }
+
+    // Local providers (authType === 'none') don't need API keys — always credentialed
+    if (provider?.authType === 'none') return true;
+
     return this.hasProviderKey();
   });
 
@@ -300,7 +359,7 @@ export class AuthStateService {
     } catch (error) {
       console.error(
         '[AuthStateService] Error checking provider key status:',
-        error
+        error,
       );
       return false;
     }
@@ -351,10 +410,16 @@ export class AuthStateService {
     // Concurrent guard: prevent double-click or rapid re-invocation
     if (this._isSaving()) {
       console.warn(
-        '[AuthStateService] Save already in progress, ignoring duplicate call'
+        '[AuthStateService] Save already in progress, ignoring duplicate call',
       );
       return;
     }
+
+    // Capture values at invocation time — if the user clicks a different tile
+    // while the save is in-flight, these snapshots ensure we update persisted
+    // state to what was actually saved, not the new UI-local selection.
+    const savedAuthMethod = this._authMethod();
+    const savedProviderId = this._selectedProviderId();
 
     this._isSaving.set(true);
     this._connectionStatus.set('saving');
@@ -380,12 +445,16 @@ export class AuthStateService {
 
       const testResult = await this.rpc.call(
         'auth:testConnection',
-        {} as Record<string, never>
+        {} as Record<string, never>,
       );
 
       if (testResult.isSuccess() && testResult.data?.success) {
         this._connectionStatus.set('success');
         this._successMessage.set('Connection successful! Settings saved.');
+
+        // Update persisted state using the captured snapshots from invocation time
+        this._persistedAuthMethod.set(savedAuthMethod);
+        this._persistedProviderId.set(savedProviderId);
 
         // Refresh auth status and model list in isolated try-catch so
         // failures don't overwrite the successful save+test status
@@ -395,7 +464,7 @@ export class AuthStateService {
         } catch (refreshError) {
           console.warn(
             '[AuthStateService] Post-save refresh failed (credentials saved successfully):',
-            refreshError
+            refreshError,
           );
         }
       } else {
@@ -410,39 +479,10 @@ export class AuthStateService {
       console.error('[AuthStateService] saveAndTest error:', error);
       this._connectionStatus.set('error');
       this._errorMessage.set(
-        error instanceof Error ? error.message : 'An unexpected error occurred'
+        error instanceof Error ? error.message : 'An unexpected error occurred',
       );
     } finally {
       this._isSaving.set(false);
-    }
-  }
-
-  /**
-   * Delete the OAuth token credential.
-   * Calls auth:saveSettings with empty claudeOAuthToken to remove it,
-   * then refreshes auth status.
-   */
-  async deleteOAuthToken(): Promise<void> {
-    try {
-      const result = await this.rpc.call('auth:saveSettings', {
-        authMethod: this._authMethod(),
-        claudeOAuthToken: '',
-      });
-
-      if (result.isSuccess()) {
-        await this.refreshAuthStatus();
-      } else {
-        console.error(
-          '[AuthStateService] Failed to delete OAuth token:',
-          result.error
-        );
-        this._errorMessage.set(result.error || 'Failed to delete OAuth token');
-      }
-    } catch (error) {
-      console.error('[AuthStateService] deleteOAuthToken error:', error);
-      this._errorMessage.set(
-        error instanceof Error ? error.message : 'Failed to delete OAuth token'
-      );
     }
   }
 
@@ -463,14 +503,14 @@ export class AuthStateService {
       } else {
         console.error(
           '[AuthStateService] Failed to delete API key:',
-          result.error
+          result.error,
         );
         this._errorMessage.set(result.error || 'Failed to delete API key');
       }
     } catch (error) {
       console.error('[AuthStateService] deleteApiKey error:', error);
       this._errorMessage.set(
-        error instanceof Error ? error.message : 'Failed to delete API key'
+        error instanceof Error ? error.message : 'Failed to delete API key',
       );
     }
   }
@@ -480,7 +520,7 @@ export class AuthStateService {
    * Fixes Critical Issue #1: takes explicit providerId parameter instead of
    * relying on potentially stale persisted state.
    *
-   * Calls auth:saveSettings with empty openrouterApiKey AND the explicit
+   * Calls auth:saveSettings with empty providerApiKey AND the explicit
    * anthropicProviderId to ensure the correct provider's key is deleted.
    *
    * @param providerId - The provider whose key should be deleted
@@ -489,7 +529,7 @@ export class AuthStateService {
     try {
       const result = await this.rpc.call('auth:saveSettings', {
         authMethod: this._authMethod(),
-        openrouterApiKey: '',
+        providerApiKey: '',
         anthropicProviderId: providerId,
       });
 
@@ -505,14 +545,16 @@ export class AuthStateService {
       } else {
         console.error(
           '[AuthStateService] Failed to delete provider key:',
-          result.error
+          result.error,
         );
         this._errorMessage.set(result.error || 'Failed to delete provider key');
       }
     } catch (error) {
       console.error('[AuthStateService] deleteProviderKey error:', error);
       this._errorMessage.set(
-        error instanceof Error ? error.message : 'Failed to delete provider key'
+        error instanceof Error
+          ? error.message
+          : 'Failed to delete provider key',
       );
     }
   }
@@ -535,7 +577,7 @@ export class AuthStateService {
       const result = await this.rpc.call(
         'auth:copilotLogin',
         {} as Record<string, never>,
-        { timeout: 120000 }
+        { timeout: 120000 },
       );
 
       if (result.isSuccess() && result.data?.success) {
@@ -545,7 +587,7 @@ export class AuthStateService {
         this._successMessage.set(
           `Connected to GitHub Copilot${
             result.data.username ? ` as ${result.data.username}` : ''
-          }`
+          }`,
         );
 
         // Save the provider selection so the backend knows to use Copilot
@@ -554,10 +596,14 @@ export class AuthStateService {
           anthropicProviderId: 'github-copilot',
         });
 
-        if (!saveResult.isSuccess()) {
+        if (saveResult.isSuccess()) {
+          // Update persisted state — Copilot is now the active provider
+          this._persistedAuthMethod.set(this._authMethod());
+          this._persistedProviderId.set('github-copilot');
+        } else {
           console.warn(
             '[AuthStateService] Post-login saveSettings failed:',
-            saveResult.error
+            saveResult.error,
           );
         }
 
@@ -567,20 +613,20 @@ export class AuthStateService {
         } catch (refreshError) {
           console.warn(
             '[AuthStateService] Post-login model refresh failed:',
-            refreshError
+            refreshError,
           );
         }
       } else {
         this._connectionStatus.set('error');
         this._errorMessage.set(
-          result.data?.error ?? result.error ?? 'GitHub Copilot login failed'
+          result.data?.error ?? result.error ?? 'GitHub Copilot login failed',
         );
       }
     } catch (error) {
       console.error('[AuthStateService] copilotLogin error:', error);
       this._connectionStatus.set('error');
       this._errorMessage.set(
-        error instanceof Error ? error.message : 'GitHub Copilot login failed'
+        error instanceof Error ? error.message : 'GitHub Copilot login failed',
       );
     } finally {
       this._copilotLoggingIn.set(false);
@@ -645,22 +691,22 @@ export class AuthStateService {
       } else {
         console.error(
           '[AuthStateService] Failed to fetch auth status:',
-          result.error
+          result.error,
         );
         this._errorMessage.set(
-          result.error || 'Failed to load authentication status'
+          result.error || 'Failed to load authentication status',
         );
         return false;
       }
     } catch (error) {
       console.error(
         '[AuthStateService] fetchAndPopulateAuthStatus error:',
-        error
+        error,
       );
       this._errorMessage.set(
         error instanceof Error
           ? error.message
-          : 'Failed to load authentication status'
+          : 'Failed to load authentication status',
       );
       return false;
     } finally {
@@ -675,17 +721,20 @@ export class AuthStateService {
    * @param response - Backend auth status response
    */
   private populateFromResponse(response: AuthGetAuthStatusResponse): void {
-    this._hasOAuthToken.set(response.hasOAuthToken);
     this._hasApiKey.set(response.hasApiKey);
     this._authMethod.set(response.authMethod);
     this._selectedProviderId.set(response.anthropicProviderId);
     this._availableProviders.set(response.availableProviders);
 
+    // Update persisted state to match backend truth
+    this._persistedAuthMethod.set(response.authMethod);
+    this._persistedProviderId.set(response.anthropicProviderId);
+
     // Reset provider key map to only contain the current provider's status.
     // Clears stale entries from previously checked providers that may
     // have changed via backend or another client since last check.
     this._providerKeyMap.set(
-      new Map([[response.anthropicProviderId, response.hasOpenRouterKey]])
+      new Map([[response.anthropicProviderId, response.hasOpenRouterKey]]),
     );
 
     // Populate Copilot auth status (TASK_2025_191)
@@ -699,5 +748,8 @@ export class AuthStateService {
     // Populate Codex auth status (TASK_2025_199)
     this._codexAuthenticated.set(response.codexAuthenticated ?? false);
     this._codexTokenStale.set(response.codexTokenStale ?? false);
+
+    // Populate Claude CLI availability
+    this._claudeCliInstalled.set(response.claudeCliInstalled ?? false);
   }
 }

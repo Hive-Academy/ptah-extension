@@ -16,8 +16,10 @@ export interface SendMessageOptions {
   files?: string[];
   /** Optional inline images (pasted/dropped) */
   images?: InlineImageAttachment[];
-  /** Optional effort level for reasoning depth (TASK_2025_184) */
+  /** Explicit effort override (highest priority). Normally resolved from tab override or global state by MessageSenderService. */
   effort?: EffortLevel;
+  /** Explicit tab to send from (canvas tile isolation — overrides global activeTab) */
+  tabId?: string;
 }
 
 /**
@@ -121,6 +123,13 @@ export function createEmptyStreamingState(): StreamingState {
     pendingStats: null,
   };
 }
+
+/**
+ * View mode for a tab - controls how the session is rendered.
+ * 'full' = standard chat view with full message list and input
+ * 'compact' = condensed card view with activity feed and mini input
+ */
+export type TabViewMode = 'full' | 'compact';
 
 /**
  * Session lifecycle status values.
@@ -260,6 +269,20 @@ export interface TabState {
   sessionModel?: string | null;
 
   /**
+   * Per-session model override. When set, this tab uses this model instead of
+   * the global ModelStateService selection. Set via ModelSelectorComponent when
+   * SESSION_CONTEXT is present (canvas tile context).
+   */
+  overrideModel?: string | null;
+
+  /**
+   * Per-session effort level override. When set, this tab uses this effort
+   * instead of the global EffortStateService selection. Set via
+   * EffortSelectorComponent when SESSION_CONTEXT is present.
+   */
+  overrideEffort?: EffortLevel | null;
+
+  /**
    * System prompt preset selection for this tab.
    * - 'claude_code': Default preset with minimal customization
    * - 'enhanced': AI-generated project-specific guidance
@@ -268,6 +291,24 @@ export interface TabState {
    * otherwise falls back to 'claude_code'.
    */
   preset?: 'claude_code' | 'enhanced';
+
+  /**
+   * View mode: 'full' (default chat view) or 'compact' (condensed card view).
+   * Each tab can independently switch between modes.
+   */
+  viewMode?: TabViewMode;
+
+  /**
+   * Whether context compaction is currently in progress for this tab.
+   * Set to true on compaction_start, cleared on compaction_complete or error.
+   */
+  isCompacting?: boolean;
+
+  /**
+   * Number of context compactions that occurred during this session.
+   * Incremented on each compaction_complete event.
+   */
+  compactionCount?: number;
 
   /**
    * Full per-model usage breakdown for collapsible display.

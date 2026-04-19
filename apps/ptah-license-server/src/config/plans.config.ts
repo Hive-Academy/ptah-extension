@@ -5,7 +5,7 @@
  *
  * Pricing Model:
  * - community: FREE forever - no subscription required, core visual editor features
- * - pro: $5/month or $50/year - All premium features (30-day trial)
+ * - pro: $5/month or $50/year - All premium features (100-day trial)
  *
  * Plans are hardcoded (not stored in database) to simplify the architecture.
  * Paddle manages billing cycles, trials, and promotional pricing for Pro plan.

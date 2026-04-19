@@ -1,3 +1,14 @@
+:host {
+  display: block;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 80px;
+}
+
+:host(.is-streaming) {
+  content-visibility: visible;
+  contain-intrinsic-size: auto none;
+}
+
 /* ==========================================================================
    Message Bubble - Markdown Styles (Component-scoped overrides)
    These refine the global .prose styles for the chat bubble context,
@@ -202,7 +213,9 @@
   color: oklch(var(--in));
   text-decoration: none;
   border-bottom: 1px solid oklch(var(--in) / 0.25);
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
   overflow-wrap: break-word;
   word-break: break-all;
 }
@@ -563,7 +576,9 @@
    ========================================================================== */
 
 :host ::ng-deep .streaming-avatar-glow {
-  box-shadow: 0 0 0 2px oklch(var(--b1)), 0 0 0 4px oklch(var(--in) / 0.6),
+  box-shadow:
+    0 0 0 2px oklch(var(--b1)),
+    0 0 0 4px oklch(var(--in) / 0.6),
     0 0 8px 2px oklch(var(--in) / 0.25);
   animation: avatar-ring-pulse 2s ease-in-out infinite;
 }
@@ -571,11 +586,15 @@
 @keyframes avatar-ring-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 2px oklch(var(--b1)), 0 0 0 4px oklch(var(--in) / 0.6),
+    box-shadow:
+      0 0 0 2px oklch(var(--b1)),
+      0 0 0 4px oklch(var(--in) / 0.6),
       0 0 8px 2px oklch(var(--in) / 0.25);
   }
   50% {
-    box-shadow: 0 0 0 2px oklch(var(--b1)), 0 0 0 4px oklch(var(--in) / 0.35),
+    box-shadow:
+      0 0 0 2px oklch(var(--b1)),
+      0 0 0 4px oklch(var(--in) / 0.35),
       0 0 4px 1px oklch(var(--in) / 0.1);
   }
 }
@@ -583,6 +602,8 @@
 @media (prefers-reduced-motion: reduce) {
   :host ::ng-deep .streaming-avatar-glow {
     animation: none;
-    box-shadow: 0 0 0 2px oklch(var(--b1)), 0 0 0 4px oklch(var(--in) / 0.6);
+    box-shadow:
+      0 0 0 2px oklch(var(--b1)),
+      0 0 0 4px oklch(var(--in) / 0.6);
   }
 }

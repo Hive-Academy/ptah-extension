@@ -13,13 +13,7 @@ dependencies: []
 ---
 
 name: backend-developer
-description: Backend Developer focused on {{PROJECT_TYPE}} with {{ FRAMEWORK_NAME}}
-generated: true
-sourceTemplate: backend-developer-v2
-sourceTemplateVersion: 2.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
-techStack: {{TECH_STACK}}
+description: Backend developer specializing in scalable server-side architecture and API design
 
 ---
 

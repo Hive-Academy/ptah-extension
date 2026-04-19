@@ -16,7 +16,7 @@
 -->
 
 <div class="h-full overflow-y-auto bg-base-100">
-  <div class="px-3 py-3 space-y-3">
+  <div class="max-w-4xl mx-auto px-3 py-3 space-y-3 md:px-6 lg:px-8">
     <!-- Compact Header with back button -->
     <div class="flex items-center justify-between gap-2">
       <div class="flex items-center gap-2">
@@ -97,6 +97,9 @@
       </div>
     </div>
 
+    <!-- Agent Runtime Selector (Auto / Claude SDK / Deep Agent) -->
+    <ptah-runtime-selector />
+
     <!-- Tab Bar (4 tabs: Providers, Ptah AI, Skills, Setup) -->
     <div class="tabs tabs-boxed bg-base-200/50 p-1 gap-1 flex-wrap">
       <button
@@ -149,9 +152,19 @@
               Authentication
             </h2>
           </div>
-          <p class="text-xs text-base-content/70 mb-3">
+          <p class="text-xs text-base-content/70 mb-2">
             Configure your authentication method to connect with AI providers.
           </p>
+          <div
+            class="flex items-start gap-1.5 p-2 rounded bg-success/10 border border-success/20 mb-3"
+          >
+            <span class="text-success text-[10px] shrink-0 mt-0.5">●</span>
+            <p class="text-[10px] text-base-content/60 leading-relaxed">
+              <strong class="text-base-content/70">Runs 100% locally.</strong>
+              Your credentials go directly from this machine to the AI provider
+              — no proxies, no Ptah servers involved.
+            </p>
+          </div>
           <ptah-auth-config />
 
           <!-- Provider Model Mapping - shown when provider auth + key configured (TASK_2025_133) -->
@@ -164,7 +177,7 @@
               provider.
             </p>
             <ptah-provider-model-selector
-              [providerId]="authState.selectedProviderId()"
+              [providerId]="authState.effectiveProviderId()"
               [hasKey]="authState.hasProviderCredential()"
             />
           }
@@ -370,7 +383,37 @@
             >
             — the open agent skills ecosystem.
           </p>
-          <ptah-skill-sh-browser />
+          <ptah-skill-sh-browser [refreshTrigger]="skillRefreshTrigger()" />
+        </div>
+      </div>
+
+      <!-- Section 3: MCP Server Directory - Available to ALL users -->
+      <div class="border border-secondary/30 rounded-md bg-secondary/5">
+        <div class="p-3">
+          <div class="flex items-center gap-1.5 mb-2">
+            <lucide-angular
+              [img]="DownloadIcon"
+              class="w-4 h-4 text-secondary"
+            />
+            <h2 class="text-xs font-medium uppercase tracking-wide">
+              MCP Servers
+            </h2>
+            <span class="badge badge-secondary badge-xs ml-auto">Open</span>
+          </div>
+          <p class="text-xs text-base-content/70 mb-3">
+            Browse and install MCP servers from the
+            <a
+              href="https://registry.modelcontextprotocol.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="link link-hover link-secondary"
+              >Official MCP Registry</a
+            >
+            to all your CLI agents at once.
+          </p>
+          <ptah-mcp-directory-browser
+            [refreshTrigger]="skillRefreshTrigger()"
+          />
         </div>
       </div>
     }

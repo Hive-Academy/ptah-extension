@@ -30,6 +30,8 @@ export {
   ProviderRpcHandlers,
   // Tier 2 (TASK_2025_235 - web search settings)
   WebSearchRpcHandlers,
+  // Harness Setup Builder
+  HarnessRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 // Tier 3 handlers (VS Code-specific, stay local)
@@ -37,3 +39,4 @@ export { FileRpcHandlers } from './file-rpc.handlers';
 export { CommandRpcHandlers } from './command-rpc.handlers';
 export { AgentRpcHandlers } from './agent-rpc.handlers';
 export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
+export { McpDirectoryRpcHandlers } from './mcp-directory-rpc.handlers';

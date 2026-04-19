@@ -9,6 +9,12 @@ export interface EditorTab {
   fileName: string;
   content: string;
   isDirty: boolean;
+  /** Whether this tab shows a diff view instead of a regular editor */
+  isDiff?: boolean;
+  /** Original (HEAD) content for diff tabs */
+  originalContent?: string;
+  /** Relative path within the workspace for diff tabs */
+  diffRelativePath?: string;
 }
 
 /**
@@ -28,6 +34,12 @@ interface EditorWorkspaceState {
   scrollPosition?: number;
   /** Cursor position for state restoration */
   cursorPosition?: { line: number; column: number };
+  /** Whether split editor pane is active */
+  splitActive?: boolean;
+  /** File path open in the split (right) pane */
+  splitFilePath?: string;
+  /** Content of the file in the split (right) pane */
+  splitFileContent?: string;
 }
 
 /**
@@ -71,6 +83,16 @@ export class EditorService {
    */
   private _activeWorkspacePath: string | null = null;
 
+  /** Counter for stale-response protection in loadFileTree(). */
+  private _loadFileTreeRequestId = 0;
+
+  /** Handler for backend file:tree-changed push events. */
+  private _treeMessageHandler: ((event: MessageEvent) => void) | null = null;
+
+  /** Debounce timer for frontend-side tree refresh coalescing. */
+  private _treeRefreshDebounceTimer: ReturnType<typeof setTimeout> | null =
+    null;
+
   // ============================================================================
   // SIGNAL STATE
   // ============================================================================
@@ -81,6 +103,11 @@ export class EditorService {
   private readonly _openTabs = signal<EditorTab[]>([]);
   private readonly _isLoading = signal(false);
   private readonly _error = signal<string | null>(null);
+  private readonly _targetLine = signal<number | undefined>(undefined);
+  private readonly _splitActive = signal(false);
+  private readonly _splitFilePath = signal<string | undefined>(undefined);
+  private readonly _splitFileContent = signal('');
+  private readonly _focusedPane = signal<'left' | 'right'>('left');
   private errorTimeout: ReturnType<typeof setTimeout> | null = null;
 
   /** The workspace file tree */
@@ -98,11 +125,53 @@ export class EditorService {
   /** Last error message, or null if no error */
   readonly error = this._error.asReadonly();
 
+  /** Target line to reveal in the active editor (one-shot: set then cleared after revealing) */
+  readonly targetLine = this._targetLine.asReadonly();
+
   /** All currently open editor tabs */
   readonly openTabs = this._openTabs.asReadonly();
 
+  /** Whether the split editor pane is active (side-by-side view). */
+  readonly splitActive = this._splitActive.asReadonly();
+
+  /** File path open in the split (right) pane, or undefined when split is inactive. */
+  readonly splitFilePath = this._splitFilePath.asReadonly();
+
+  /** Content of the file in the split (right) pane. */
+  readonly splitFileContent = this._splitFileContent.asReadonly();
+
+  /** Which editor pane currently has focus: 'left' (primary) or 'right' (split). */
+  readonly focusedPane = this._focusedPane.asReadonly();
+
   /** Whether a file is currently open */
   readonly hasActiveFile = computed(() => this._activeFilePath() !== undefined);
+
+  private readonly IMAGE_EXTENSIONS = new Set([
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.gif',
+    '.bmp',
+    '.svg',
+    '.webp',
+    '.ico',
+    '.avif',
+  ]);
+
+  readonly isActiveFileImage = computed(() => {
+    const path = this._activeFilePath();
+    if (!path) return false;
+    const ext = path.substring(path.lastIndexOf('.')).toLowerCase();
+    return this.IMAGE_EXTENSIONS.has(ext);
+  });
+
+  /** The active diff tab, or null if the active tab is not a diff view */
+  readonly activeDiffTab = computed(() => {
+    const tabs = this._openTabs();
+    const activePath = this._activeFilePath();
+    const tab = tabs.find((t) => t.filePath === activePath);
+    return tab?.isDiff ? tab : null;
+  });
 
   // ============================================================================
   // WORKSPACE OPERATIONS (TASK_2025_208)
@@ -137,12 +206,24 @@ export class EditorService {
       this._activeFilePath.set(cachedState.activeFilePath);
       this._activeFileContent.set(cachedState.activeFileContent);
       this._openTabs.set(cachedState.openTabs);
+
+      // Restore split pane state
+      this._splitActive.set(cachedState.splitActive ?? false);
+      this._splitFilePath.set(cachedState.splitFilePath);
+      this._splitFileContent.set(cachedState.splitFileContent ?? '');
+      if (!cachedState.splitActive) {
+        this._focusedPane.set('left');
+      }
     } else {
       // No cached state -- reset to empty defaults and trigger file tree load
       this._fileTree.set([]);
       this._activeFilePath.set(undefined);
       this._activeFileContent.set('');
       this._openTabs.set([]);
+      this._splitActive.set(false);
+      this._splitFilePath.set(undefined);
+      this._splitFileContent.set('');
+      this._focusedPane.set('left');
 
       // Initialize empty state in map
       this._workspaceEditorState.set(workspacePath, {
@@ -153,7 +234,7 @@ export class EditorService {
       });
 
       // Fetch file tree for the new workspace via RPC
-      this.loadFileTree();
+      this.loadFileTree(workspacePath);
     }
   }
 
@@ -173,6 +254,7 @@ export class EditorService {
       this._activeFilePath.set(undefined);
       this._activeFileContent.set('');
       this._openTabs.set([]);
+      this.closeSplit();
     }
   }
 
@@ -184,40 +266,148 @@ export class EditorService {
   }
 
   // ============================================================================
+  // FILE TREE WATCHING
+  // ============================================================================
+
+  /**
+   * Start listening for file:tree-changed push events from the backend.
+   * When a structural change (file add/delete) is detected in the workspace,
+   * the backend pushes this event and we reload the file tree.
+   *
+   * Uses a frontend-side debounce (500ms) on top of the backend debounce (3s)
+   * to coalesce rapid events during bulk operations.
+   */
+  startFileTreeWatcher(): void {
+    if (this._treeMessageHandler) return;
+
+    this._treeMessageHandler = (event: MessageEvent) => {
+      const data = event.data;
+      if (data?.type === 'file:tree-changed') {
+        if (this._treeRefreshDebounceTimer) {
+          clearTimeout(this._treeRefreshDebounceTimer);
+        }
+        this._treeRefreshDebounceTimer = setTimeout(() => {
+          this._treeRefreshDebounceTimer = null;
+          this.loadFileTree();
+        }, 500);
+      }
+
+      if (data?.type === 'file:content-changed' && data?.data?.filePath) {
+        void this.handleFileContentChanged(data.data.filePath);
+      }
+    };
+    window.addEventListener('message', this._treeMessageHandler);
+  }
+
+  /**
+   * Stop listening for file:tree-changed push events.
+   * Called when the editor panel is destroyed.
+   */
+  stopFileTreeWatcher(): void {
+    if (this._treeMessageHandler) {
+      window.removeEventListener('message', this._treeMessageHandler);
+      this._treeMessageHandler = null;
+    }
+    if (this._treeRefreshDebounceTimer) {
+      clearTimeout(this._treeRefreshDebounceTimer);
+      this._treeRefreshDebounceTimer = null;
+    }
+  }
+
+  /**
+   * Handle a file:content-changed push event from the backend.
+   * Re-reads the file content if the file is open in a non-dirty tab.
+   */
+  private async handleFileContentChanged(filePath: string): Promise<void> {
+    const tabs = this._openTabs();
+    const tab = tabs.find((t) => t.filePath === filePath);
+    if (!tab || tab.isDirty) return;
+
+    const result = await rpcCall<{ content: string; filePath: string }>(
+      this.vscodeService,
+      'editor:openFile',
+      { filePath },
+    );
+
+    if (!result.success || !result.data) return;
+
+    const newContent = result.data.content ?? '';
+    if (newContent === tab.content) return;
+
+    this._openTabs.update((currentTabs) =>
+      currentTabs.map((t) =>
+        t.filePath === filePath ? { ...t, content: newContent } : t,
+      ),
+    );
+
+    if (this._activeFilePath() === filePath) {
+      this._activeFileContent.set(newContent);
+    }
+
+    this._updateCachedActiveFile(
+      this._activeFilePath()!,
+      this._activeFilePath() === filePath
+        ? newContent
+        : this._activeFileContent(),
+    );
+    this._syncTabsToCache();
+  }
+
+  // ============================================================================
   // FILE OPERATIONS
   // ============================================================================
 
   /**
    * Load the file tree from the backend.
    * Sends an RPC message to the main process to scan the workspace directory.
+   * @param rootPath - Optional explicit root path. If omitted, uses the active workspace path.
    */
-  async loadFileTree(): Promise<void> {
+  async loadFileTree(rootPath?: string): Promise<void> {
+    const targetWorkspace = rootPath || this._activeWorkspacePath;
+
+    // No workspace path available — nothing to load.
+    // Guard before incrementing requestId to avoid invalidating in-flight requests.
+    if (!targetWorkspace) return;
+
+    const requestId = ++this._loadFileTreeRequestId;
+
     this._isLoading.set(true);
     this.clearError();
 
-    const result = await rpcCall<{ tree: FileTreeNode[] }>(
-      this.vscodeService,
-      'editor:getFileTree',
-      {},
-    );
+    try {
+      const result = await rpcCall<{ tree: FileTreeNode[] }>(
+        this.vscodeService,
+        'editor:getFileTree',
+        { rootPath: targetWorkspace },
+      );
 
-    if (result.success && result.data) {
-      const tree = result.data.tree ?? [];
-      this._fileTree.set(tree);
+      // Stale-response guard: discard if a newer request was issued
+      // or if the active workspace changed since this request was fired
+      if (
+        this._loadFileTreeRequestId !== requestId ||
+        this._activeWorkspacePath !== targetWorkspace
+      ) {
+        return;
+      }
 
-      // Update cached state if workspace is active
-      if (this._activeWorkspacePath) {
-        const cached = this._workspaceEditorState.get(
-          this._activeWorkspacePath,
-        );
+      if (result.success && result.data) {
+        const tree = result.data.tree ?? [];
+        this._fileTree.set(tree);
+
+        // Update cached state for the target workspace
+        const cached = this._workspaceEditorState.get(targetWorkspace);
         if (cached) {
           cached.fileTree = tree;
         }
+      } else {
+        this.showError(result.error ?? 'Failed to load file tree');
       }
-    } else {
-      this.showError(result.error ?? 'Failed to load file tree');
+    } finally {
+      // Only reset loading if this is still the active request
+      if (this._loadFileTreeRequestId === requestId) {
+        this._isLoading.set(false);
+      }
     }
-    this._isLoading.set(false);
   }
 
   /**
@@ -236,6 +426,21 @@ export class EditorService {
     }
 
     this._activeFilePath.set(filePath);
+
+    // Image files don't need content loading — they're rendered via file:// URL
+    const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
+    if (this.IMAGE_EXTENSIONS.has(ext)) {
+      const fileName = this._extractFileName(filePath);
+      this._activeFileContent.set('');
+      this._openTabs.update((tabs) => [
+        ...tabs,
+        { filePath, fileName, content: '', isDirty: false },
+      ]);
+      this._updateCachedActiveFile(filePath, '');
+      this._syncTabsToCache();
+      return;
+    }
+
     this._isLoading.set(true);
     this.clearError();
 
@@ -263,6 +468,100 @@ export class EditorService {
       this.showError(result.error ?? 'Failed to open file');
     }
     this._isLoading.set(false);
+  }
+
+  /**
+   * Open a file and scroll to a specific line.
+   * Waits for the file to be opened (or tab switched), then sets the target line.
+   * The CodeEditorComponent watches targetLine via effect() and reveals it.
+   *
+   * @param filePath - Absolute path to the file to open
+   * @param line - 1-based line number to scroll to
+   */
+  async openFileAtLine(filePath: string, line: number): Promise<void> {
+    await this.openFile(filePath);
+    this.revealLine(line);
+  }
+
+  /**
+   * Set a target line for the editor to reveal.
+   * This is a one-shot signal: the CodeEditorComponent reads it, reveals the line,
+   * then calls clearTargetLine() to reset it.
+   */
+  revealLine(line: number): void {
+    this._targetLine.set(line);
+  }
+
+  /**
+   * Clear the target line after it has been revealed by the editor.
+   * Called by CodeEditorComponent after successfully revealing the line.
+   */
+  clearTargetLine(): void {
+    this._targetLine.set(undefined);
+  }
+
+  /**
+   * Open a diff view for a file, showing the HEAD version alongside the working tree version.
+   * Creates a special diff tab with a `diff:` prefixed key to distinguish from regular file tabs.
+   *
+   * Fetches the original (HEAD) content via git:showFile RPC and the current content
+   * via editor:openFile RPC in parallel.
+   *
+   * @param relativePath - The git-relative path of the file (e.g., "src/app/foo.ts")
+   * @param absolutePath - The absolute file system path for reading current content
+   */
+  async openDiff(relativePath: string, absolutePath: string): Promise<void> {
+    const diffKey = `diff:${relativePath}`;
+
+    // If diff tab already open, switch to it
+    const existingTab = this._openTabs().find((t) => t.filePath === diffKey);
+    if (existingTab) {
+      this._activeFilePath.set(diffKey);
+      this._activeFileContent.set(existingTab.content);
+      return;
+    }
+
+    this._isLoading.set(true);
+    this.clearError();
+
+    // Fetch original content from HEAD and current content in parallel
+    const [originalResult, currentResult] = await Promise.all([
+      rpcCall<{ content: string }>(this.vscodeService, 'git:showFile', {
+        path: relativePath,
+      }),
+      rpcCall<{ content: string; filePath: string }>(
+        this.vscodeService,
+        'editor:openFile',
+        { filePath: absolutePath },
+      ),
+    ]);
+
+    const originalContent = originalResult.success
+      ? (originalResult.data?.content ?? '')
+      : '';
+    const currentContent = currentResult.success
+      ? (currentResult.data?.content ?? '')
+      : '';
+
+    const fileName = this._extractFileName(relativePath);
+
+    this._openTabs.update((tabs) => [
+      ...tabs,
+      {
+        filePath: diffKey,
+        fileName: `${fileName} (diff)`,
+        content: currentContent,
+        isDirty: false,
+        isDiff: true,
+        originalContent,
+        diffRelativePath: relativePath,
+      },
+    ]);
+
+    this._activeFilePath.set(diffKey);
+    this._activeFileContent.set(currentContent);
+    this._isLoading.set(false);
+    this._syncTabsToCache();
   }
 
   /**
@@ -365,12 +664,212 @@ export class EditorService {
   }
 
   // ============================================================================
+  // FILE CRUD OPERATIONS
+  // ============================================================================
+
+  /**
+   * Create a new file at the given path. Refreshes the file tree on success.
+   */
+  async createFile(filePath: string): Promise<boolean> {
+    const result = await rpcCall<{ success: boolean; error?: string }>(
+      this.vscodeService,
+      'editor:createFile',
+      { filePath },
+    );
+    if (result.success && result.data?.success) {
+      await this.loadFileTree();
+      return true;
+    }
+    this.showError(
+      result.data?.error ?? result.error ?? 'Failed to create file',
+    );
+    return false;
+  }
+
+  /**
+   * Create a new folder at the given path. Refreshes the file tree on success.
+   */
+  async createFolder(folderPath: string): Promise<boolean> {
+    const result = await rpcCall<{ success: boolean; error?: string }>(
+      this.vscodeService,
+      'editor:createFolder',
+      { folderPath },
+    );
+    if (result.success && result.data?.success) {
+      await this.loadFileTree();
+      return true;
+    }
+    this.showError(
+      result.data?.error ?? result.error ?? 'Failed to create folder',
+    );
+    return false;
+  }
+
+  /**
+   * Rename a file or folder. Updates open tabs if affected. Refreshes tree on success.
+   */
+  async renameItem(oldPath: string, newPath: string): Promise<boolean> {
+    const result = await rpcCall<{ success: boolean; error?: string }>(
+      this.vscodeService,
+      'editor:renameItem',
+      { oldPath, newPath },
+    );
+    if (result.success && result.data?.success) {
+      const normalizedOld = oldPath.replace(/\\/g, '/');
+      const normalizedNew = newPath.replace(/\\/g, '/');
+      const newFileName = this._extractFileName(normalizedNew);
+
+      // Update tabs whose paths match or are children of the renamed item
+      this._openTabs.update((tabs) =>
+        tabs.map((tab) => {
+          const normalizedTab = tab.filePath.replace(/\\/g, '/');
+          if (normalizedTab === normalizedOld) {
+            return { ...tab, filePath: normalizedNew, fileName: newFileName };
+          }
+          // Handle directory rename: update children paths
+          const oldPrefix = normalizedOld + '/';
+          if (normalizedTab.startsWith(oldPrefix)) {
+            const newTabPath =
+              normalizedNew + '/' + normalizedTab.slice(oldPrefix.length);
+            return {
+              ...tab,
+              filePath: newTabPath,
+              fileName: this._extractFileName(newTabPath),
+            };
+          }
+          return tab;
+        }),
+      );
+
+      // Update active file path if it was the renamed item
+      const currentActive = this._activeFilePath()?.replace(/\\/g, '/');
+      if (currentActive === normalizedOld) {
+        this._activeFilePath.set(normalizedNew);
+      } else if (currentActive?.startsWith(normalizedOld + '/')) {
+        this._activeFilePath.set(
+          normalizedNew + '/' + currentActive.slice(normalizedOld.length + 1),
+        );
+      }
+
+      this._syncTabsToCache();
+      await this.loadFileTree();
+      return true;
+    }
+    this.showError(result.data?.error ?? result.error ?? 'Failed to rename');
+    return false;
+  }
+
+  /**
+   * Delete a file or folder. Closes affected tabs. Refreshes tree on success.
+   */
+  async deleteItem(itemPath: string, isDirectory: boolean): Promise<boolean> {
+    const result = await rpcCall<{ success: boolean; error?: string }>(
+      this.vscodeService,
+      'editor:deleteItem',
+      { itemPath, isDirectory },
+    );
+    if (result.success && result.data?.success) {
+      const normalizedPath = itemPath.replace(/\\/g, '/');
+
+      if (isDirectory) {
+        // Close all tabs within the deleted directory
+        const prefix = normalizedPath + '/';
+        const tabsToClose = this._openTabs()
+          .filter((t) => t.filePath.replace(/\\/g, '/').startsWith(prefix))
+          .map((t) => t.filePath);
+        for (const tabPath of tabsToClose) {
+          this.closeTab(tabPath);
+        }
+      } else {
+        // Close the tab for the deleted file
+        const tab = this._openTabs().find(
+          (t) => t.filePath.replace(/\\/g, '/') === normalizedPath,
+        );
+        if (tab) {
+          this.closeTab(tab.filePath);
+        }
+      }
+
+      await this.loadFileTree();
+      return true;
+    }
+    this.showError(result.data?.error ?? result.error ?? 'Failed to delete');
+    return false;
+  }
+
+  // ============================================================================
+  // SPLIT PANE OPERATIONS
+  // ============================================================================
+
+  /**
+   * Open a file in the split (right) pane.
+   * Fetches file content via RPC and activates split mode.
+   *
+   * @param filePath - Absolute path to the file to open in the split pane
+   */
+  async openFileInSplit(filePath: string): Promise<void> {
+    this._splitFilePath.set(filePath);
+    this._splitActive.set(true);
+
+    // Check if file is already open in a tab — reuse cached content
+    const existingTab = this._openTabs().find((t) => t.filePath === filePath);
+    if (existingTab) {
+      this._splitFileContent.set(existingTab.content);
+      return;
+    }
+
+    // Fetch content from backend
+    const result = await rpcCall<{ content: string; filePath: string }>(
+      this.vscodeService,
+      'editor:openFile',
+      { filePath },
+    );
+
+    if (result.success && result.data) {
+      this._splitFileContent.set(result.data.content ?? '');
+    } else {
+      this.showError(result.error ?? 'Failed to open file in split pane');
+      this.closeSplit();
+    }
+  }
+
+  /**
+   * Close the split pane and reset all split-related state.
+   * Returns focus to the left (primary) pane.
+   */
+  closeSplit(): void {
+    this._splitActive.set(false);
+    this._splitFilePath.set(undefined);
+    this._splitFileContent.set('');
+    this._focusedPane.set('left');
+  }
+
+  /**
+   * Set which pane currently has focus.
+   * Used by the editor panel to track click/focus between left and right panes.
+   *
+   * @param pane - 'left' for the primary pane, 'right' for the split pane
+   */
+  setFocusedPane(pane: 'left' | 'right'): void {
+    this._focusedPane.set(pane);
+  }
+
+  /**
+   * Update the content of the file in the split (right) pane.
+   * Called when the user edits content in the split pane's Monaco editor.
+   */
+  updateSplitContent(content: string): void {
+    this._splitFileContent.set(content);
+  }
+
+  // ============================================================================
   // TAB OPERATIONS
   // ============================================================================
 
   /**
    * Close a tab by file path. If the closed tab was active, switch to the
    * last remaining tab or clear the editor if no tabs remain.
+   * If the closed file was open in the split pane, auto-close the split.
    */
   closeTab(filePath: string): void {
     const currentTabs = this._openTabs();
@@ -379,6 +878,11 @@ export class EditorService {
 
     const updatedTabs = currentTabs.filter((t) => t.filePath !== filePath);
     this._openTabs.set(updatedTabs);
+
+    // If the closed file was open in the split pane, close the split
+    if (this._splitActive() && this._splitFilePath() === filePath) {
+      this.closeSplit();
+    }
 
     // If the closed tab was active, switch to another tab
     if (this._activeFilePath() === filePath) {
@@ -523,6 +1027,9 @@ export class EditorService {
       openTabs: this._openTabs(),
       scrollPosition: existing?.scrollPosition,
       cursorPosition: existing?.cursorPosition,
+      splitActive: this._splitActive(),
+      splitFilePath: this._splitFilePath(),
+      splitFileContent: this._splitFileContent(),
     });
   }
 

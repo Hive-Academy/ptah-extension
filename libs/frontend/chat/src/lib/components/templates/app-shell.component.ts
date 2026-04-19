@@ -8,7 +8,7 @@ import {
   ElementRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { NgComponentOutlet, NgOptimizedImage } from '@angular/common';
+import { NgComponentOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule,
@@ -16,9 +16,9 @@ import {
   Check,
   ChevronDown,
   ExternalLink,
+  LayoutGrid,
   MessageSquare,
-  PanelLeftClose,
-  PanelLeftOpen,
+  Pencil,
   Plus,
   Search,
   Settings,
@@ -33,8 +33,6 @@ import { TrialEndedModalComponent } from '../molecules/trial-billing/trial-ended
 import { SettingsComponent } from '../../settings/settings.component';
 import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
-import { ResizeHandleComponent } from '../atoms/resize-handle.component';
 import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
 import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
@@ -43,14 +41,19 @@ import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { TabManagerService } from '../../services/tab-manager.service';
+import { SessionDisplayUtils } from '../../services/session-display-utils.service';
 import {
   AppStateManager,
   VSCodeService,
   ClaudeRpcService,
   WIZARD_VIEW_COMPONENT,
+  ORCHESTRA_CANVAS_COMPONENT,
+  HARNESS_BUILDER_COMPONENT,
+  SETUP_HUB_COMPONENT,
 } from '@ptah-extension/core';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
+import type { ViewType } from '@ptah-extension/core';
 
 /**
  * AppShellComponent - Main application layout with collapsible sidebar
@@ -93,12 +96,9 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     TrialEndedModalComponent,
     ThemeToggleComponent,
     NotificationBellComponent,
-    NgOptimizedImage,
     LucideAngularModule,
     FormsModule,
     NativePopoverComponent,
-    AgentMonitorPanelComponent,
-    ResizeHandleComponent,
     SidebarTabComponent,
     SessionAnalyticsDashboardViewComponent,
   ],
@@ -109,6 +109,19 @@ export class AppShellComponent {
   // Initialize keyboard shortcuts (constructor injection triggers setup)
   private readonly keyboardShortcuts = inject(KeyboardShortcutsService);
 
+  /**
+   * Views that render full-screen ON TOP of the shared chrome (sidebar, header, agent panel).
+   * Must be kept in sync with the @switch cases in app-shell.component.html.
+   */
+  private static readonly STANDALONE_VIEWS: readonly ViewType[] = [
+    'setup-wizard',
+    'settings',
+    'welcome',
+    'analytics',
+    'harness-builder',
+    'setup-hub',
+  ] as const;
+
   readonly chatStore = inject(ChatStore);
   readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly tabManager = inject(TabManagerService);
@@ -116,9 +129,18 @@ export class AppShellComponent {
   private readonly vscodeService = inject(VSCodeService);
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly confirmDialog = inject(ConfirmationDialogService);
+  private readonly sessionDisplayUtils = inject(SessionDisplayUtils);
 
   // Expose currentView signal for template
   readonly currentView = this.appState.currentView;
+
+  // Layout mode signals (canvas-first layout)
+  readonly layoutMode = this.appState.layoutMode;
+
+  /** Computed: true when the current view is a standalone view (no shared chrome) */
+  readonly isStandaloneView = computed(() =>
+    AppShellComponent.STANDALONE_VIEWS.includes(this.currentView()),
+  );
 
   /**
    * WizardViewComponent provided via DI token — breaks circular dependency between chat and setup-wizard.
@@ -126,6 +148,28 @@ export class AppShellComponent {
    */
   readonly wizardComponent =
     inject(WIZARD_VIEW_COMPONENT, { optional: true }) ?? null;
+
+  /**
+   * OrchestraCanvasComponent provided via DI token — breaks circular dependency between chat and canvas.
+   * canvas imports from chat (TabManagerService), so chat cannot import canvas directly.
+   * Provided by the application bootstrapper (app.config.ts).
+   */
+  readonly orchestraCanvasComponent =
+    inject(ORCHESTRA_CANVAS_COMPONENT, { optional: true }) ?? null;
+
+  /**
+   * HarnessBuilderViewComponent provided via DI token — breaks circular dependency.
+   * Provided by the application bootstrapper (app.config.ts).
+   */
+  readonly harnessBuilderComponent =
+    inject(HARNESS_BUILDER_COMPONENT, { optional: true }) ?? null;
+
+  /**
+   * SetupHubComponent provided via DI token — breaks circular dependency.
+   * Provided by the application bootstrapper (app.config.ts).
+   */
+  readonly setupHubComponent =
+    inject(SETUP_HUB_COMPONENT, { optional: true }) ?? null;
 
   // Sidebar state: default open in Electron (more space), hidden in VS Code sidebar
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
@@ -136,26 +180,19 @@ export class AppShellComponent {
   readonly CheckIcon = Check;
   readonly ChevronDownIcon = ChevronDown;
   readonly MessageSquareIcon = MessageSquare;
-  readonly PanelLeftCloseIcon = PanelLeftClose;
-  readonly PanelLeftOpenIcon = PanelLeftOpen;
   readonly PlusIcon = Plus;
   readonly SearchIcon = Search;
   readonly SettingsIcon = Settings;
+  readonly PencilIcon = Pencil;
   readonly Trash2Icon = Trash2;
   readonly XIcon = X;
   readonly ExternalLinkIcon = ExternalLink;
   readonly BarChart3Icon = BarChart3;
+  readonly LayoutGridIcon = LayoutGrid;
 
-  // Agent monitor badge type for the sidebar tab
-  readonly agentBadgeType = computed<'warning' | 'info' | 'neutral' | null>(
-    () => {
-      if (this.agentMonitorStore.pendingPermissions().length > 0)
-        return 'warning';
-      if (this.agentMonitorStore.hasRunningAgents()) return 'info';
-      if (this.agentMonitorStore.agentCount() > 0) return 'neutral';
-      return null;
-    },
-  );
+  // Inline edit state for session renaming
+  readonly editingSessionId = signal<string | null>(null);
+  readonly editingSessionName = signal('');
 
   // Platform detection: in Electron, some icons move to the global navbar
   readonly isElectron = this.vscodeService.isElectron;
@@ -235,6 +272,10 @@ export class AppShellComponent {
     'sessionNameInputRef',
   );
 
+  // ViewChild for inline session rename input
+  readonly editSessionInput =
+    viewChild<ElementRef<HTMLInputElement>>('editSessionInput');
+
   /**
    * TASK_2025_194: Flag to ensure auth redirect check runs only once.
    * Prevents re-triggering on subsequent signal changes.
@@ -271,7 +312,6 @@ export class AppShellComponent {
           if (this.currentView() !== 'chat') return;
           const data = rpcResult.data;
           const hasAnyAuth =
-            data.hasOAuthToken ||
             data.hasApiKey ||
             data.hasOpenRouterKey ||
             data.hasAnyProviderKey ||
@@ -305,6 +345,14 @@ export class AppShellComponent {
    */
   openDashboard(): void {
     this.appState.setCurrentView('analytics');
+  }
+
+  /**
+   * Toggle between single-chat and canvas-grid layout modes.
+   * Replaces the old openCanvas() which navigated to a separate view.
+   */
+  toggleLayoutMode(): void {
+    this.appState.toggleLayoutMode();
   }
 
   /** Guard to prevent double-click opening multiple panels */
@@ -375,14 +423,20 @@ export class AppShellComponent {
   }
 
   /**
-   * Handle session creation from popover
+   * Handle session creation from popover.
+   * Layout-mode-aware: in grid mode, requests a new canvas tile instead of a tab.
    */
   handleCreateSession(): void {
     const name = this.sessionNameInput().trim();
     const sessionName = name || this.generateDefaultSessionName();
 
-    // Create new tab with name (createTab already switches to the new tab)
-    this.tabManager.createTab(sessionName);
+    if (this.layoutMode() === 'grid') {
+      // Grid mode: request canvas to create a new tile
+      this.appState.requestNewCanvasSession(sessionName);
+    } else {
+      // Single mode: create new tab (createTab already switches to the new tab)
+      this.tabManager.createTab(sessionName);
+    }
 
     // Close popover
     this._sessionNamePopoverOpen.set(false);
@@ -428,86 +482,31 @@ export class AppShellComponent {
 
   /**
    * Format timestamp as relative date for sidebar display.
-   * Pure function - no side effects, no dependencies.
-   *
-   * Rules:
-   *   < 1 minute:    "Just now"
-   *   < 1 hour:      "Xm ago"    (e.g., "5m ago")
-   *   < 24 hours:    "Xh ago"    (e.g., "2h ago")
-   *   Yesterday:     "Yesterday"
-   *   Current week:  "Mon", "Tue", etc.
-   *   Current year:  "Jan 15"
-   *   Previous year: "Jan 15, 2025"
+   * Delegates to SessionDisplayUtils shared service.
    */
   formatRelativeDate(date: Date | string | number): string {
-    if (!date || (typeof date === 'number' && date <= 0)) return '';
-    const now = new Date();
-    const d = new Date(date);
-    if (isNaN(d.getTime())) return '';
-    const diffMs = now.getTime() - d.getTime();
-    if (diffMs < 0) return 'Just now';
-    const diffMin = Math.floor(diffMs / 60000);
-    const diffHr = Math.floor(diffMs / 3600000);
-
-    if (diffMin < 1) return 'Just now';
-    if (diffMin < 60) return `${diffMin}m ago`;
-    if (diffHr < 24) return `${diffHr}h ago`;
-
-    // Check if yesterday
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
-
-    // Current week: show day name
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (diffDays < 7) {
-      return d.toLocaleDateString('en-US', { weekday: 'short' });
-    }
-
-    // Current year: "Jan 15"
-    if (d.getFullYear() === now.getFullYear()) {
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    }
-
-    // Previous year: "Jan 15, 2025"
-    return d.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+    return this.sessionDisplayUtils.formatRelativeDate(date);
   }
 
   /**
-   * Get display name for session
-   * Falls back to truncated UUID if no proper title
+   * Get display name for session.
+   * Delegates to SessionDisplayUtils shared service.
    */
   getSessionDisplayName(session: ChatSessionSummary): string {
-    const name = session.name;
+    return this.sessionDisplayUtils.getSessionDisplayName(session);
+  }
 
-    // Check if name is a UUID (fallback case)
-    const uuidPattern =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (uuidPattern.test(name)) {
-      // Return truncated UUID with "Session" prefix
-      return `Session ${name.substring(0, 8)}...`;
+  /**
+   * Layout-mode-aware session click handler for sidebar.
+   * In grid mode: requests canvas to open/focus a tile for the session.
+   * In single mode: switches to the session's tab (existing behavior).
+   */
+  onSessionClick(session: ChatSessionSummary): void {
+    if (this.layoutMode() === 'grid') {
+      this.appState.requestCanvasSession(session.id, session.name);
+    } else {
+      this.chatStore.switchSession(session.id);
     }
-
-    // Check if name starts with "<command-message>" (Claude CLI system output)
-    if (name.startsWith('<command-message>')) {
-      // Extract meaningful content or use fallback
-      const cleaned = name.replace(/<\/?command-message>/g, '').trim();
-      if (cleaned.length > 0 && cleaned.length < 80) {
-        return cleaned;
-      }
-      return `Session ${session.id.substring(0, 8)}...`;
-    }
-
-    // Return the name, truncated if too long
-    if (name.length > 50) {
-      return name.substring(0, 47) + '...';
-    }
-
-    return name;
   }
 
   /**
@@ -522,6 +521,74 @@ export class AppShellComponent {
    * Delete session from storage (TASK_2025_086)
    * Shows confirmation dialog before deleting
    */
+  /**
+   * Start inline editing of a session name
+   */
+  startEditingSession(event: Event, session: ChatSessionSummary): void {
+    event.stopPropagation();
+    this.editingSessionId.set(session.id);
+    this.editingSessionName.set(session.name || '');
+    // Programmatic focus — HTML autofocus doesn't work on dynamically rendered elements
+    setTimeout(() => this.editSessionInput()?.nativeElement.focus(), 0);
+  }
+
+  /**
+   * Cancel inline editing
+   */
+  cancelEditingSession(): void {
+    this.editingSessionId.set(null);
+    this.editingSessionName.set('');
+  }
+
+  /**
+   * Save the edited session name via RPC.
+   * Guarded against double-fire (Enter + blur).
+   */
+  async saveSessionName(
+    event: Event,
+    session: ChatSessionSummary,
+  ): Promise<void> {
+    event.stopPropagation();
+
+    // Guard: skip if already saved/cancelled (prevents Enter + blur double-fire)
+    if (this.editingSessionId() !== session.id) {
+      return;
+    }
+
+    const newName = this.editingSessionName().trim();
+    if (!newName || newName === (session.name || '')) {
+      this.cancelEditingSession();
+      return;
+    }
+
+    // Clear edit state immediately to prevent double-fire
+    this.cancelEditingSession();
+
+    try {
+      const result = await this.rpcService.renameSession(
+        session.id as SessionId,
+        newName,
+      );
+
+      if (result.isSuccess() && result.data?.success) {
+        this.chatStore.updateSessionName(session.id as SessionId, newName);
+
+        // Update open tab name and title if this session has one
+        const tab = this.tabManager.findTabBySessionId(session.id);
+        if (tab) {
+          this.tabManager.updateTab(tab.id, { name: newName, title: newName });
+        }
+      } else {
+        console.error(
+          '[AppShell] Failed to rename session:',
+          result.error || result.data?.error,
+        );
+      }
+    } catch (error) {
+      console.error('[AppShell] Error renaming session:', error);
+    }
+  }
+
   async deleteSession(
     event: Event,
     session: ChatSessionSummary,
@@ -561,8 +628,6 @@ export class AppShellComponent {
         if (tab) {
           this.tabManager.closeTab(tab.id);
         }
-
-        console.log(`[AppShell] Session ${session.id} deleted successfully`);
       } else {
         console.error(
           '[AppShell] Failed to delete session:',

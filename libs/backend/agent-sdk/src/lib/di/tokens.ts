@@ -110,12 +110,31 @@ export const SDK_TOKENS = {
   SDK_CODEX_AUTH: Symbol.for('SdkCodexAuth'),
   SDK_CODEX_PROXY: Symbol.for('SdkCodexProxy'),
 
+  /** OpenRouter Provider Services */
+  SDK_OPENROUTER_AUTH: Symbol.for('SdkOpenRouterAuth'),
+  SDK_OPENROUTER_PROXY: Symbol.for('SdkOpenRouterProxy'),
+
+  /** Local Model Provider Services (TASK_2025_265, updated TASK_2025_281) */
+  SDK_OLLAMA_DISCOVERY: Symbol.for('SdkOllamaDiscovery'),
+  SDK_LM_STUDIO_PROXY: Symbol.for('SdkLmStudioProxy'),
+
   /** Skill Junction Service (TASK_2025_201) */
   SDK_SKILL_JUNCTION: Symbol.for('SdkSkillJunction'),
 
   /** Settings Export/Import Services (TASK_2025_210) */
   SDK_SETTINGS_EXPORT: Symbol.for('SdkSettingsExport'),
   SDK_SETTINGS_IMPORT: Symbol.for('SdkSettingsImport'),
+
+  /** Auth Strategy Services (TASK_AUTH_REFACTOR) */
+  SDK_API_KEY_STRATEGY: Symbol.for('SdkApiKeyStrategy'),
+  SDK_OAUTH_PROXY_STRATEGY: Symbol.for('SdkOAuthProxyStrategy'),
+  SDK_LOCAL_NATIVE_STRATEGY: Symbol.for('SdkLocalNativeStrategy'),
+  SDK_LOCAL_PROXY_STRATEGY: Symbol.for('SdkLocalProxyStrategy'),
+  SDK_CLI_STRATEGY: Symbol.for('SdkCliStrategy'),
+  SDK_MODEL_RESOLVER: Symbol.for('SdkModelResolver'),
+
+  /** Deep Agent History Reader (reads LangGraph checkpoint sessions) */
+  SDK_DEEP_AGENT_HISTORY_READER: Symbol.for('SdkDeepAgentHistoryReader'),
 } as const;
 
 /**

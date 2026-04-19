@@ -70,7 +70,7 @@ interface PreviousUserContext {
  * TASK_2025_128: Freemium model conversion
  * - 'community': FREE forever, always valid, no license required
  * - 'pro': Active Pro subscription ($5/month)
- * - 'trial_pro': Pro plan during 30-day trial
+ * - 'trial_pro': Pro plan during 100-day trial
  * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
 export type LicenseTierValue =
@@ -212,6 +212,10 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     status: LicenseStatus | null;
     timestamp: number | null;
   } = { status: null, timestamp: null };
+
+  /** Tracks the last emitted status to suppress duplicate events. */
+  private lastEmittedStatus: { valid: boolean; tier: LicenseTierValue } | null =
+    null;
 
   /**
    * Resolve the license server URL.
@@ -644,8 +648,9 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       undefined,
     );
 
-    // Invalidate cache and re-verify
+    // Invalidate cache and dedup tracker so re-verify emits events
     this.cache = { status: null, timestamp: null };
+    this.lastEmittedStatus = null;
     const status = await this.verifyLicense();
     this.emit('license:updated', status);
   }
@@ -671,6 +676,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
 
     // TASK_2025_121: Clear persisted cache as well (no grace period for manual removal)
     await this.clearPersistedCache();
+    this.lastEmittedStatus = null;
 
     // Clear previousUserContext (manual removal = voluntary, not expiration)
     await this.context.globalState.update(
@@ -736,6 +742,29 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   }
 
   /**
+   * Seed a valid community license status into the cache.
+   *
+   * Used by CLI/TUI platforms that have no registration gate on first boot.
+   * Only seeds if the cache is currently empty (does NOT overwrite existing
+   * verified statuses from verifyLicense()).
+   *
+   * @returns true if seeded, false if cache already populated
+   */
+  seedCommunityStatus(): boolean {
+    if (this.cache.status) {
+      return false; // Already has a cached status, don't overwrite
+    }
+    this.updateCache({
+      valid: true,
+      tier: 'community',
+    });
+    this.logger.info(
+      '[LicenseService.seedCommunityStatus] Seeded valid community status for CLI platform',
+    );
+    return true;
+  }
+
+  /**
    * Update cache with new license status and timestamp.
    *
    * @param status - License status to cache
@@ -745,15 +774,33 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   }
 
   /**
-   * Emit appropriate license event based on validity.
+   * Emit appropriate license event only when status actually changes.
    *
    * Events:
-   * - license:verified (if valid)
-   * - license:expired (if invalid)
+   * - license:verified (if valid AND status changed from previous)
+   * - license:expired (if invalid AND status changed from previous)
+   *
+   * Prevents spurious notifications on routine re-verifications where
+   * the tier and validity haven't changed.
    *
    * @param status - License status to evaluate
    */
   private emitLicenseEvent(status: LicenseStatus): void {
+    const previous = this.lastEmittedStatus;
+    if (
+      previous &&
+      previous.valid === status.valid &&
+      previous.tier === status.tier
+    ) {
+      this.logger.debug(
+        '[LicenseService.emitLicenseEvent] Suppressed duplicate event',
+        { tier: status.tier, valid: status.valid },
+      );
+      return;
+    }
+
+    this.lastEmittedStatus = { valid: status.valid, tier: status.tier };
+
     if (status.valid) {
       this.emit('license:verified', status);
     } else {

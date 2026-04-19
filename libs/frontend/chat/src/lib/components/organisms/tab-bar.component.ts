@@ -7,6 +7,9 @@ import {
   viewChild,
   ElementRef,
   DestroyRef,
+  afterNextRender,
+  Injector,
+  NgZone,
 } from '@angular/core';
 import { LucideAngularModule, ChevronLeft, ChevronRight } from 'lucide-angular';
 import { TabItemComponent } from '../molecules/session/tab-item.component';
@@ -26,6 +29,7 @@ import { TabManagerService } from '../../services/tab-manager.service';
   selector: 'ptah-tab-bar',
   standalone: true,
   imports: [TabItemComponent, LucideAngularModule],
+  host: { class: 'block min-w-0 overflow-hidden h-full' },
   template: `
     <div class="relative flex items-center h-full">
       <!-- Left scroll arrow -->
@@ -52,6 +56,7 @@ import { TabManagerService } from '../../services/tab-manager.service';
             [isStreaming]="tabManager.isTabStreaming(tab.id)"
             (tabSelect)="onSelectTab($event)"
             (tabClose)="onCloseTab($event)"
+            (viewModeToggle)="onToggleViewMode($event)"
           />
         }
       </div>
@@ -72,6 +77,9 @@ import { TabManagerService } from '../../services/tab-manager.service';
 })
 export class TabBarComponent {
   protected readonly tabManager = inject(TabManagerService);
+  private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly ngZone = inject(NgZone);
 
   readonly tabs = this.tabManager.tabs;
   readonly activeTabId = this.tabManager.activeTabId;
@@ -82,18 +90,42 @@ export class TabBarComponent {
   private readonly tabContainerRef =
     viewChild<ElementRef<HTMLDivElement>>('tabContainer');
 
-  readonly canScrollLeft = signal(false);
-  readonly canScrollRight = signal(false);
+  protected readonly canScrollLeft = signal(false);
+  protected readonly canScrollRight = signal(false);
 
-  private readonly destroyRef = inject(DestroyRef);
+  /** Timer ID for debouncing scroll-into-view on tab changes */
+  private scrollTimerId: ReturnType<typeof setTimeout> | null = null;
+
+  /** ResizeObserver for detecting container size changes */
+  private resizeObserver: ResizeObserver | null = null;
+
+  /** Bound wheel handler reference for cleanup */
+  private wheelHandler: ((e: WheelEvent) => void) | null = null;
 
   constructor() {
-    // Re-check scroll state when tabs change (schedule after DOM update)
+    // Re-check scroll state when tabs change and scroll active tab into view
     effect(() => {
       this.tabs(); // track dependency
-      const timerId = setTimeout(() => this.checkScroll(), 0);
-      this.destroyRef.onDestroy(() => clearTimeout(timerId));
+      const activeId = this.activeTabId();
+      // Clear previous timer to prevent stale callbacks on rapid switching
+      if (this.scrollTimerId) clearTimeout(this.scrollTimerId);
+      this.scrollTimerId = setTimeout(() => {
+        this.scrollActiveTabIntoView(activeId);
+        this.checkScroll();
+        this.scrollTimerId = null;
+      }, 0);
     });
+
+    // Setup non-passive wheel listener and ResizeObserver after first render
+    afterNextRender(
+      () => {
+        this.setupWheelListener();
+        this.setupResizeObserver();
+      },
+      { injector: this.injector },
+    );
+
+    this.destroyRef.onDestroy(() => this.cleanup());
   }
 
   protected onScroll(): void {
@@ -122,6 +154,68 @@ export class TabBarComponent {
     this.tabManager.closeTab(tabId);
   }
 
+  protected onToggleViewMode(tabId: string): void {
+    this.tabManager.toggleTabViewMode(tabId);
+  }
+
+  /**
+   * Register wheel listener with { passive: false } so preventDefault() works.
+   * Angular template `(wheel)` bindings are passive by default in Chromium,
+   * which silently ignores preventDefault().
+   */
+  private setupWheelListener(): void {
+    const el = this.tabContainerRef()?.nativeElement;
+    if (!el) return;
+
+    this.wheelHandler = (event: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth) return;
+      event.preventDefault();
+      el.scrollBy({ left: event.deltaY, behavior: 'auto' });
+      this.ngZone.run(() => this.checkScroll());
+    };
+
+    el.addEventListener('wheel', this.wheelHandler, { passive: false });
+  }
+
+  /** Watch for container resizes to keep scroll arrows in sync */
+  private setupResizeObserver(): void {
+    const el = this.tabContainerRef()?.nativeElement;
+    if (!el) return;
+
+    this.resizeObserver = new ResizeObserver(() => {
+      this.ngZone.run(() => this.checkScroll());
+    });
+    this.resizeObserver.observe(el);
+  }
+
+  /** Scroll the active tab into view within the container */
+  private scrollActiveTabIntoView(activeId: string | null): void {
+    if (!activeId) return;
+    const container = this.tabContainerRef()?.nativeElement;
+    if (!container) return;
+
+    const tabElements = container.querySelectorAll('ptah-tab-item');
+    const tabs = this.tabs();
+    const activeIndex = tabs.findIndex((t) => t.id === activeId);
+    if (activeIndex < 0 || activeIndex >= tabElements.length) return;
+
+    const tabEl = tabElements[activeIndex] as HTMLElement;
+    const containerRect = container.getBoundingClientRect();
+    const tabRect = tabEl.getBoundingClientRect();
+
+    if (tabRect.right > containerRect.right) {
+      container.scrollBy({
+        left: tabRect.right - containerRect.right + 8,
+        behavior: 'smooth',
+      });
+    } else if (tabRect.left < containerRect.left) {
+      container.scrollBy({
+        left: tabRect.left - containerRect.left - 8,
+        behavior: 'smooth',
+      });
+    }
+  }
+
   private checkScroll(): void {
     const el = this.tabContainerRef()?.nativeElement;
     if (!el) return;
@@ -129,5 +223,21 @@ export class TabBarComponent {
     this.canScrollRight.set(
       el.scrollLeft + el.clientWidth < el.scrollWidth - 1,
     );
+  }
+
+  private cleanup(): void {
+    if (this.scrollTimerId) {
+      clearTimeout(this.scrollTimerId);
+      this.scrollTimerId = null;
+    }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+    if (this.wheelHandler) {
+      const el = this.tabContainerRef()?.nativeElement;
+      if (el) el.removeEventListener('wheel', this.wheelHandler);
+      this.wheelHandler = null;
+    }
   }
 }

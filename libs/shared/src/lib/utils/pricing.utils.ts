@@ -54,13 +54,23 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   // Anthropic Claude Models
   // ============================================================================
 
-  // Claude 4.6 Opus (latest flagship)
+  // Claude 4.7 Opus (latest flagship)
+  'claude-opus-4-7': {
+    inputCostPerToken: 5e-6, // $5.00 per 1M tokens
+    outputCostPerToken: 25e-6, // $25.00 per 1M tokens
+    cacheReadCostPerToken: 5e-7, // $0.50 per 1M tokens
+    cacheCreationCostPerToken: 6.25e-6, // $6.25 per 1M tokens
+    maxTokens: 1_000_000,
+    provider: 'anthropic',
+  },
+
+  // Claude 4.6 Opus (previous flagship — 1M context window)
   'claude-opus-4-6-20250623': {
     inputCostPerToken: 5e-6, // $5.00 per 1M tokens
     outputCostPerToken: 25e-6, // $25.00 per 1M tokens
     cacheReadCostPerToken: 5e-7, // $0.50 per 1M tokens
     cacheCreationCostPerToken: 6.25e-6, // $6.25 per 1M tokens
-    maxTokens: 200_000,
+    maxTokens: 1_000_000,
     provider: 'anthropic',
   },
 
@@ -70,7 +80,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 25e-6,
     cacheReadCostPerToken: 5e-7,
     cacheCreationCostPerToken: 6.25e-6,
-    maxTokens: 200_000,
+    maxTokens: 1_000_000,
     provider: 'anthropic',
   },
 
@@ -161,6 +171,55 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   },
 
   // ============================================================================
+  // GitHub Copilot Model Aliases (subscription — $0)
+  //
+  // Copilot model IDs use dot notation (e.g., claude-sonnet-4.6) while the
+  // Anthropic entries above use dash notation (e.g., claude-sonnet-4-6).
+  // seedStaticModelPricing() seeds these at $0 during provider activation,
+  // but if pricing is looked up before seeding completes, the partial-match
+  // logic won't match dots against dashes and the default fallback ($3/$15)
+  // would be returned — incorrectly showing cost for a free subscription model.
+  // These entries act as a safety net so Copilot Claude models always resolve
+  // to $0 regardless of initialization order.
+  // ============================================================================
+  'claude-sonnet-4.6': {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    maxTokens: 200_000,
+    provider: 'github-copilot',
+  },
+  'claude-opus-4.7': {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    maxTokens: 1_000_000,
+    provider: 'github-copilot',
+  },
+  'claude-opus-4.6': {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    maxTokens: 1_000_000,
+    provider: 'github-copilot',
+  },
+  'claude-opus-4.5': {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    maxTokens: 200_000,
+    provider: 'github-copilot',
+  },
+  'claude-sonnet-4.5': {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    maxTokens: 200_000,
+    provider: 'github-copilot',
+  },
+  'claude-haiku-4.5': {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    maxTokens: 200_000,
+    provider: 'github-copilot',
+  },
+
+  // ============================================================================
   // OpenRouter Model ID Aliases
   // These map OpenRouter's naming convention to the same pricing
   // ============================================================================
@@ -217,6 +276,17 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 1.5e-6, // $1.50 per 1M tokens
     maxTokens: 16_385,
     provider: 'openai',
+  },
+
+  // ============================================================================
+  // Local Provider Models (Ollama, LM Studio — free inference)
+  // ============================================================================
+  local: {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    cacheReadCostPerToken: 0,
+    cacheCreationCostPerToken: 0,
+    provider: 'local',
   },
 
   // ============================================================================
@@ -440,6 +510,8 @@ export function formatModelDisplayName(modelId: string): string {
 
   // Anthropic Claude models
   if (withoutDate.includes('opus')) {
+    if (withoutDate.includes('4.7') || withoutDate.includes('4-7'))
+      return 'Opus 4.7';
     if (withoutDate.includes('4.6') || withoutDate.includes('4-6'))
       return 'Opus 4.6';
     if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))

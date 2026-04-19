@@ -1,7 +1,15 @@
 // CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
 
-import { app, BrowserWindow, safeStorage, dialog, ipcMain } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  safeStorage,
+  dialog,
+  ipcMain,
+  shell,
+  clipboard,
+} from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { createMainWindow } from './windows/main-window';
@@ -12,15 +20,15 @@ import { ElectronWebviewManagerAdapter } from './ipc/webview-manager-adapter';
 import { createApplicationMenu } from './menu/application-menu';
 import * as fs from 'fs';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
-import { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
+import {
+  ElectronWorkspaceProvider,
+  ElectronStateStorage,
+} from '@ptah-extension/platform-electron';
 import {
   PLATFORM_TOKENS,
   ContentDownloadService,
 } from '@ptah-extension/platform-core';
-import type {
-  ISecretStorage,
-  IStateStorage,
-} from '@ptah-extension/platform-core';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
@@ -53,6 +61,7 @@ if (!gotLock) {
     stop: () => void;
     switchWorkspace: (p: string) => void;
   } | null = null;
+  let flushWorkspacePersistence: (() => void) | null = null;
 
   app.whenReady().then(async () => {
     // ========================================
@@ -89,11 +98,17 @@ if (!gotLock) {
           safeStorage.decryptString(encrypted),
       },
       dialog: {
-        showMessageBox: (win: unknown, options: unknown) =>
-          dialog.showMessageBox(
-            win as Electron.BaseWindow,
-            options as Electron.MessageBoxOptions,
-          ),
+        // TASK_2025_261: Electron's dialog.showMessageBox checks `instanceof BrowserWindow`.
+        // Duck-typed objects from getWindow() fail this check and are re-interpreted
+        // as options, silently dropping the actual message/buttons.
+        // Use the passed window if it's a real BrowserWindow, otherwise fall back to mainWindow.
+        showMessageBox: (win: unknown, options: unknown) => {
+          const opts = options as Electron.MessageBoxOptions;
+          const targetWin = win instanceof BrowserWindow ? win : mainWindow;
+          return targetWin
+            ? dialog.showMessageBox(targetWin, opts)
+            : dialog.showMessageBox(opts);
+        },
       },
       getWindow: () => {
         const win = mainWindow;
@@ -104,6 +119,10 @@ if (!gotLock) {
               win.webContents.send(channel, ...args),
           },
         };
+      },
+      shell: {
+        openExternal: (url: string) => shell.openExternal(url),
+        writeToClipboard: (text: string) => clipboard.writeText(text),
       },
       ipcMain,
       initialFolders,
@@ -264,25 +283,48 @@ if (!gotLock) {
       // writes during bulk operations (e.g., restoring multiple folders).
       let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-      const persistWorkspaceList = () => {
+      const buildWorkspaceSnapshot = () => {
         const currentFolders =
           workspaceProviderForRestore.getWorkspaceFolders();
         const activeFolder = workspaceProviderForRestore.getActiveFolder();
         const activeIndex = activeFolder
           ? currentFolders.indexOf(activeFolder)
           : 0;
+        return {
+          folders: currentFolders,
+          activeIndex: activeIndex >= 0 ? activeIndex : 0,
+        };
+      };
 
+      const persistWorkspaceList = () => {
         globalStateStorage
-          .update('ptah.workspaces', {
-            folders: currentFolders,
-            activeIndex: activeIndex >= 0 ? activeIndex : 0,
-          })
+          .update('ptah.workspaces', buildWorkspaceSnapshot())
           .catch((err: unknown) => {
             console.error(
               '[Ptah Electron] Failed to persist workspace list:',
               err instanceof Error ? err.message : String(err),
             );
           });
+      };
+
+      // Expose a synchronous flush for the will-quit handler.
+      // Captures closure variables so will-quit can persist without async.
+      flushWorkspacePersistence = () => {
+        if (persistDebounceTimer !== null) {
+          clearTimeout(persistDebounceTimer);
+          persistDebounceTimer = null;
+        }
+        try {
+          (globalStateStorage as ElectronStateStorage).updateSync(
+            'ptah.workspaces',
+            buildWorkspaceSnapshot(),
+          );
+        } catch (err: unknown) {
+          console.error(
+            '[Ptah Electron] Sync workspace persist failed:',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
       };
 
       workspaceProviderForRestore.onDidChangeWorkspaceFolders(() => {
@@ -294,6 +336,12 @@ if (!gotLock) {
           persistDebounceTimer = null;
           persistWorkspaceList();
         }, 500);
+
+        // Notify git watcher of workspace changes so it watches the correct .git directory
+        const newActive = workspaceProviderForRestore.getActiveFolder();
+        if (newActive) {
+          gitWatcherRef?.switchWorkspace(newActive);
+        }
       });
     } catch (error) {
       console.warn(
@@ -309,26 +357,6 @@ if (!gotLock) {
     // Fallback: if workspace restoration failed but CLI arg was provided
     if (!startupWorkspaceRoot && initialFolders?.[0]) {
       startupWorkspaceRoot = initialFolders[0];
-    }
-
-    // ========================================
-    // PHASE 3: Load API Key from Secret Storage
-    // ========================================
-    // Load saved Anthropic API key and set in environment for Claude Agent SDK.
-    try {
-      const secretStorage = container.resolve<ISecretStorage>(
-        PLATFORM_TOKENS.SECRET_STORAGE,
-      );
-      const apiKey = await secretStorage.get('ptah.apiKey.anthropic');
-      if (apiKey) {
-        process.env['ANTHROPIC_API_KEY'] = apiKey;
-        console.log('[Ptah Electron] API key loaded from secret storage');
-      }
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Failed to load API key from secret storage:',
-        error instanceof Error ? error.message : String(error),
-      );
     }
 
     // ========================================
@@ -385,23 +413,21 @@ if (!gotLock) {
     // ========================================
     // Initialize the SDK agent adapter so chat:start works.
     // Mirrors VS Code extension Step 7 (main.ts:568-589).
-    // Must happen AFTER Phase 3 (API key loaded into env) and BEFORE Phase 4.5 (RPC registration).
-    // The adapter reads ANTHROPIC_API_KEY from process.env (set in Phase 3).
+    // Must happen AFTER Phase 3.5 (license check) and BEFORE Phase 4.5 (RPC registration).
+    // AuthManager.configureAuthentication() reads API keys from AuthSecretsService.
     try {
-      const sdkAdapter = container.resolve(TOKENS.SDK_AGENT_ADAPTER) as {
+      const agentAdapter = container.resolve(TOKENS.AGENT_ADAPTER) as {
         initialize: () => Promise<boolean>;
         preloadSdk: () => Promise<void>;
       };
-      const authInitialized = await sdkAdapter.initialize();
+      const authInitialized = await agentAdapter.initialize();
 
       if (authInitialized) {
-        console.log(
-          '[Ptah Electron] SDK authentication initialized successfully',
-        );
+        console.log('[Ptah Electron] Agent adapters initialized successfully');
 
-        // Pre-load SDK in background (non-blocking) to speed up first chat.
+        // Pre-load SDKs in background (non-blocking) to speed up first chat.
         // Shifts ~100-200ms import cost from first user interaction to activation.
-        sdkAdapter.preloadSdk().catch((err) => {
+        agentAdapter.preloadSdk().catch((err) => {
           console.warn(
             '[Ptah Electron] SDK preload failed (will retry on first use):',
             err instanceof Error ? err.message : String(err),
@@ -414,7 +440,7 @@ if (!gotLock) {
       }
     } catch (error) {
       console.warn(
-        '[Ptah Electron] SDK initialization failed (non-fatal):',
+        '[Ptah Electron] Agent adapter initialization failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -532,19 +558,8 @@ if (!gotLock) {
         pluginConfig.enabledPluginIds,
       );
 
-      // Wire into command discovery for slash command autocomplete.
-      // COMMAND_DISCOVERY_SERVICE is NOT registered in Electron container,
-      // so we guard with isRegistered() to avoid resolution failure.
-      if (container.isRegistered(TOKENS.COMMAND_DISCOVERY_SERVICE)) {
-        const cmdDiscovery = container.resolve(
-          TOKENS.COMMAND_DISCOVERY_SERVICE,
-        ) as { setPluginPaths: (paths: string[]) => void };
-        cmdDiscovery.setPluginPaths(pluginPaths);
-      } else {
-        console.log(
-          '[Ptah Electron] COMMAND_DISCOVERY_SERVICE not registered, skipping plugin path wiring',
-        );
-      }
+      // Command discovery reads from .claude/commands/ and .claude/skills/
+      // (junctioned by SkillJunctionService) — no plugin path wiring needed.
 
       console.log(
         `[Ptah Electron] Plugin loader initialized (${pluginPaths.length} plugin paths)`,
@@ -578,9 +593,11 @@ if (!gotLock) {
       const config = pluginLoader.getWorkspacePluginConfig();
       const paths = pluginLoader.resolvePluginPaths(config.enabledPluginIds);
 
-      const junctionResult = skillJunction.activate(paths, () => {
-        const c = pluginLoader.getWorkspacePluginConfig();
-        return pluginLoader.resolvePluginPaths(c.enabledPluginIds);
+      const junctionResult = skillJunction.activate({
+        pluginPaths: paths,
+        disabledSkillIds: config.disabledSkillIds,
+        getPluginPaths: () => pluginLoader.resolveCurrentPluginPaths(),
+        getDisabledSkillIds: () => pluginLoader.getDisabledSkillIds(),
       });
 
       // Store reference for cleanup in will-quit handler
@@ -668,6 +685,189 @@ if (!gotLock) {
     } else {
       console.log(
         `[Ptah Electron] CLI skill sync skipped (tier: ${startupLicenseTier ?? 'unknown'})`,
+      );
+    }
+
+    // ========================================
+    // PHASE 4.566: CLI Agent Sync on Activation (TASK_2025_268)
+    // ========================================
+    // Distribute existing .claude/agents/*.md to all installed CLI targets.
+    // Ensures agents are present after fresh install without re-running the wizard.
+    // Mirrors VS Code extension Step 7.1.7 (main.ts). Premium-only, fire-and-forget.
+    if (startupLicenseTier === 'pro' || startupLicenseTier === 'trial_pro') {
+      if (startupWorkspaceRoot) {
+        (async () => {
+          const { readdir, readFile } = await import('fs/promises');
+          const { join } = await import('path');
+          const { createHash } = await import('crypto');
+
+          const agentsDir = join(startupWorkspaceRoot, '.claude', 'agents');
+          let agentFileNames: string[];
+          try {
+            const entries = await readdir(agentsDir);
+            // Sort for deterministic hash regardless of readdir order on non-NTFS filesystems
+            agentFileNames = entries
+              .filter((f) => f.endsWith('.md') && !f.startsWith('.backup-'))
+              .sort();
+          } catch {
+            console.log(
+              '[Ptah Electron] CLI agent sync skipped (no .claude/agents/)',
+            );
+            return;
+          }
+          if (agentFileNames.length === 0) {
+            console.log(
+              '[Ptah Electron] CLI agent sync skipped (no agent files)',
+            );
+            return;
+          }
+
+          // Read files individually — skip unreadable files rather than aborting all
+          const agentFiles = (
+            await Promise.all(
+              agentFileNames.map(async (name) => {
+                const filePath = join(agentsDir, name);
+                try {
+                  const content = await readFile(filePath, 'utf8');
+                  return { name, filePath, content };
+                } catch {
+                  console.log(
+                    `[Ptah Electron] CLI agent sync: skipping unreadable file ${name}`,
+                  );
+                  return null;
+                }
+              }),
+            )
+          ).filter(
+            (f): f is { name: string; filePath: string; content: string } =>
+              f !== null,
+          );
+
+          if (agentFiles.length === 0) {
+            console.log(
+              '[Ptah Electron] CLI agent sync skipped (no readable agent files)',
+            );
+            return;
+          }
+
+          const combinedContent = agentFiles
+            .map((f) => f.content)
+            .join('\n---\n');
+          const contentHash = createHash('sha1')
+            .update(combinedContent)
+            .digest('hex');
+
+          const cliDetection = container.resolve(
+            TOKENS.CLI_DETECTION_SERVICE,
+          ) as {
+            detectAll: () => Promise<
+              Array<{ cli: string; installed: boolean }>
+            >;
+          };
+          const installedClis = await cliDetection.detectAll();
+          const targetClis = installedClis
+            .filter(
+              (c) =>
+                (c.cli === 'copilot' ||
+                  c.cli === 'gemini' ||
+                  c.cli === 'codex' ||
+                  c.cli === 'cursor') &&
+                c.installed,
+            )
+            .map((c) => c.cli);
+
+          if (targetClis.length === 0) {
+            console.log(
+              '[Ptah Electron] CLI agent sync skipped (no CLI targets)',
+            );
+            return;
+          }
+
+          const agentSyncStateStorage = container.resolve<IStateStorage>(
+            PLATFORM_TOKENS.STATE_STORAGE,
+          );
+
+          const staleTargets = targetClis.filter(
+            (cli) =>
+              agentSyncStateStorage.get<string>(
+                `cli_agent_sync_hash_${cli}`,
+              ) !== contentHash,
+          );
+
+          if (staleTargets.length === 0) {
+            console.log(
+              '[Ptah Electron] CLI agent sync skipped (all CLIs up-to-date)',
+            );
+            return;
+          }
+
+          const agents = agentFiles.map((f) => {
+            // Extract description from frontmatter for quality parity with wizard-generated agents
+            const descMatch = /^description:\s*(.+)$/m.exec(f.content);
+            const description =
+              descMatch?.[1]?.trim() ?? `${f.name.replace(/\.md$/, '')} agent`;
+            return {
+              sourceTemplateId: f.name.replace(/\.md$/, ''),
+              sourceTemplateVersion: 'unknown',
+              content: f.content,
+              variables: { description } as Record<string, string>,
+              customizations: [],
+              generatedAt: new Date(),
+              // filePath is the source path; transformers derive their own target paths via homedir()
+              filePath: f.filePath,
+            };
+          });
+
+          const multiCliWriter = container.resolve(
+            AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE,
+          ) as {
+            writeForClis: (
+              agents: unknown[],
+              targetClis: string[],
+            ) => Promise<
+              Array<{
+                cli: string;
+                agentsWritten: number;
+                agentsFailed: number;
+              }>
+            >;
+          };
+
+          const writeResults = await multiCliWriter.writeForClis(
+            agents,
+            staleTargets,
+          );
+
+          // Only mark CLIs as up-to-date when all agents were written successfully.
+          // CLIs with write failures retain their stale hash so the next activation retries.
+          const successfulClis = writeResults
+            .filter((r) => r.agentsFailed === 0)
+            .map((r) => r.cli);
+
+          await Promise.all(
+            successfulClis.map((cli) =>
+              agentSyncStateStorage.update(
+                `cli_agent_sync_hash_${cli}`,
+                contentHash,
+              ),
+            ),
+          );
+
+          console.log(
+            `[Ptah Electron] CLI agent sync complete (${successfulClis.length}/${staleTargets.length} CLIs, ${agents.length} agents)`,
+          );
+        })().catch((agentSyncError) => {
+          console.warn(
+            '[Ptah Electron] CLI agent sync failed (non-blocking):',
+            agentSyncError instanceof Error
+              ? agentSyncError.message
+              : String(agentSyncError),
+          );
+        });
+      }
+    } else {
+      console.log(
+        `[Ptah Electron] CLI agent sync skipped (tier: ${startupLicenseTier ?? 'unknown'})`,
       );
     }
 
@@ -919,6 +1119,20 @@ if (!gotLock) {
       };
     });
 
+    // ========================================
+    // PHASE 4.96: Clipboard IPC Handlers
+    // ========================================
+    // Provide reliable clipboard access for the sandboxed renderer.
+    // navigator.clipboard.readText() can fail in sandboxed Electron;
+    // these IPC handlers use the main process clipboard directly.
+    ipcMain.handle('clipboard:read-text', () => clipboard.readText());
+    ipcMain.on(
+      'clipboard:write-text',
+      (_event: Electron.IpcMainEvent, text: string) => {
+        clipboard.writeText(text);
+      },
+    );
+
     console.log(
       `[Ptah Electron] Startup config registered: initialView=${
         baseStartupConfig.initialView
@@ -1081,6 +1295,11 @@ if (!gotLock) {
   // deactivateSync() removes all managed junctions/symlinks and unsubscribes
   // from workspace folder changes. Must be synchronous (will-quit is sync).
   app.on('will-quit', () => {
+    // Flush any pending debounced workspace persistence synchronously.
+    // Without this, removing a folder and quitting within the 500ms debounce
+    // window would lose the change — the removed folder reappears on restart.
+    flushWorkspacePersistence?.();
+
     // Clear license revalidation interval (TASK_2025_240)
     if (revalidationInterval !== null) {
       clearInterval(revalidationInterval);

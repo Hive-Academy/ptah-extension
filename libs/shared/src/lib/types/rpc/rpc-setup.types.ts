@@ -7,8 +7,13 @@
 import type {
   ProjectAnalysisResult,
   AgentRecommendation,
-  SavedAnalysisMetadata,
 } from '../setup-wizard.types';
+import type {
+  NewProjectType,
+  QuestionGroup,
+  DiscoveryAnswers,
+  MasterPlan,
+} from '../new-project.types';
 
 // ============================================================
 // Setup Status RPC Types
@@ -313,4 +318,95 @@ export interface EnhancedPromptsRegenerateResponse {
   error?: string;
   /** Updated status (on success) */
   status?: EnhancedPromptsGetStatusResponse;
+}
+
+// ============================================================
+// Agent Pack Browser RPC Types (TASK_2025_258)
+// ============================================================
+
+/** A single agent entry within a pack (frontend-facing DTO) */
+export interface AgentPackEntryDto {
+  file: string;
+  name: string;
+  description: string;
+  category: string;
+}
+
+/** Public info about an agent pack (frontend-facing DTO) */
+export interface AgentPackInfoDto {
+  name: string;
+  version: string;
+  description: string;
+  agents: AgentPackEntryDto[];
+  source: string;
+}
+
+/** Parameters for wizard:list-agent-packs RPC method */
+export type WizardListAgentPacksParams = Record<string, never>;
+
+/** Response from wizard:list-agent-packs RPC method */
+export interface WizardListAgentPacksResult {
+  packs: AgentPackInfoDto[];
+}
+
+/** Parameters for wizard:install-pack-agents RPC method */
+export interface WizardInstallPackAgentsParams {
+  source: string;
+  agentFiles: string[];
+}
+
+/** Response from wizard:install-pack-agents RPC method */
+export interface WizardInstallPackAgentsResult {
+  success: boolean;
+  agentsDownloaded: number;
+  fromCache: boolean;
+  error?: string;
+}
+
+// ============================================================
+// New Project Wizard RPC Types
+// ============================================================
+
+/** Parameters for wizard:new-project-select-type RPC method */
+export interface WizardNewProjectSelectTypeParams {
+  projectType: NewProjectType;
+}
+
+/** Response from wizard:new-project-select-type RPC method */
+export interface WizardNewProjectSelectTypeResult {
+  groups: QuestionGroup[];
+}
+
+/** Parameters for wizard:new-project-submit-answers RPC method */
+export interface WizardNewProjectSubmitAnswersParams {
+  projectType: NewProjectType;
+  answers: DiscoveryAnswers;
+  projectName: string;
+  /** When true, delete any existing plan and regenerate from scratch. */
+  force?: boolean;
+}
+
+/** Response from wizard:new-project-submit-answers RPC method */
+export interface WizardNewProjectSubmitAnswersResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Parameters for wizard:new-project-get-plan RPC method */
+export type WizardNewProjectGetPlanParams = Record<string, never>;
+
+/** Response from wizard:new-project-get-plan RPC method */
+export interface WizardNewProjectGetPlanResult {
+  plan: MasterPlan;
+}
+
+/** Parameters for wizard:new-project-approve-plan RPC method */
+export interface WizardNewProjectApprovePlanParams {
+  approved: boolean;
+}
+
+/** Response from wizard:new-project-approve-plan RPC method */
+export interface WizardNewProjectApprovePlanResult {
+  success: boolean;
+  planPath: string;
 }

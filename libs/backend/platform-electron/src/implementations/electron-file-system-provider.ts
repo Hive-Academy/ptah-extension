@@ -6,7 +6,6 @@
  */
 
 import * as fs from 'fs/promises';
-import * as fsSync from 'fs';
 import * as path from 'path';
 import type {
   IFileSystemProvider,
@@ -108,6 +107,7 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
     pattern: string,
     exclude?: string,
     maxResults?: number,
+    cwd?: string,
   ): Promise<string[]> {
     // Dynamic import to avoid issues if fast-glob not installed in test environments
     const fg = await import('fast-glob');
@@ -115,6 +115,7 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
       ignore: exclude ? [exclude] : undefined,
       absolute: true,
       onlyFiles: true,
+      cwd: cwd || undefined,
     });
     return maxResults ? results.slice(0, maxResults) : results;
   }

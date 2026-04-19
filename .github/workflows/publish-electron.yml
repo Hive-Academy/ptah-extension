@@ -14,9 +14,8 @@
 # to release/electron (which would re-trigger this workflow in an infinite loop).
 # A commit message filter provides extra safety.
 #
-# Phase 1: Unsigned builds — no code signing secrets configured.
-# Users will see platform warnings ("unidentified developer") until
-# code signing is added in a future phase.
+# Windows builds are signed with SSL.com eSigner (IV code signing certificate).
+# macOS and Linux builds are unsigned — macOS signing requires an Apple Developer account.
 
 name: Publish Electron
 
@@ -160,6 +159,12 @@ jobs:
         if: steps.cache-modules.outputs.cache-hit != 'true'
         run: npm ci
 
+      # dmg-license is a required dep of dmg-builder but is macOS-native and was excluded
+      # from the lock file (generated on Windows). Install it explicitly on macOS.
+      - name: Install dmg-license (macOS only)
+        if: runner.os == 'macOS'
+        run: npm install dmg-license --no-save
+
       # Python 3.12+ removed distutils; setuptools restores it for node-gyp native builds
       - uses: actions/setup-python@v5
         with:
@@ -182,11 +187,40 @@ jobs:
           _CL_: ${{ runner.os == 'Windows' && '/std:c++20' || '' }}
           CXXFLAGS: ${{ runner.os != 'Windows' && '-std=c++20' || '' }}
 
+      - name: Find Windows installer
+        if: runner.os == 'Windows'
+        id: find-exe
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path "dist\release" -Filter "*.exe" | Select-Object -First 1).FullName
+          if (-not $exe) { throw "No .exe installer found to sign" }
+          Write-Host "Found installer: $exe"
+          echo "exe_path=$exe" >> $env:GITHUB_OUTPUT
+
+      - name: Sign Windows installer with SSL.com eSigner
+        if: runner.os == 'Windows'
+        uses: sslcom/esigner-codesign@v1.3.2
+        with:
+          command: sign
+          username: ${{ secrets.SSL_COM_USERNAME }}
+          password: ${{ secrets.SSL_COM_PASSWORD }}
+          credential_id: ${{ secrets.SSL_COM_CREDENTIAL_ID }}
+          totp_secret: ${{ secrets.SSL_COM_TOTP_SECRET }}
+          file_path: ${{ steps.find-exe.outputs.exe_path }}
+          override: true
+          environment_name: PROD
+          malware_block: false
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: electron-${{ matrix.os }}
-          path: dist/release/
+          path: |
+            dist/release/
+            !dist/release/win-unpacked/
+            !dist/release/linux-unpacked/
+            !dist/release/mac/
+            !dist/release/mac-arm64/
           retention-days: 30
 
   release:
@@ -261,7 +295,7 @@ jobs:
           draft: false
           generate_release_notes: true
           files: |
-            artifacts/**/*.exe
+            artifacts/**/Ptah*.exe
             artifacts/**/*.dmg
             artifacts/**/*.zip
             artifacts/**/*.AppImage

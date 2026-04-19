@@ -1,4 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -18,7 +19,7 @@ import {
 @Component({
   selector: 'ptah-hero-content-overlay',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ViewportAnimationDirective, ScrollAnimationDirective],
+  imports: [ViewportAnimationDirective, ScrollAnimationDirective, RouterLink],
   template: `
     <!-- Scroll-linked fade-out container for cinematic exit -->
     <div
@@ -69,7 +70,7 @@ import {
           <span
             class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-slate-900 border border-amber-400/50 text-[10px] font-bold text-amber-300 tracking-wide z-20 whitespace-nowrap"
           >
-            30 DAYS TRIAL
+            100 DAYS TRIAL
           </span>
           <a
             href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
@@ -86,12 +87,10 @@ import {
           <span
             class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-slate-900 border border-amber-400/50 text-[10px] font-bold text-amber-300 tracking-wide z-20 whitespace-nowrap"
           >
-            30 DAYS TRIAL
+            100 DAYS TRIAL
           </span>
           <a
-            href="https://github.com/Hive-Academy/ptah-extension/releases/latest"
-            target="_blank"
-            rel="noopener"
+            routerLink="/download"
             class="cta-glow-button block relative overflow-hidden px-5 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold text-white rounded-xl text-center"
           >
             <span class="relative z-[1]">Download Desktop App</span>

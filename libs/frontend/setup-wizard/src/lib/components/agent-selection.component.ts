@@ -19,8 +19,18 @@ import {
   Check,
   Users,
   ChevronLeft,
+  ChevronDown,
+  ChevronRight,
+  Globe,
   Zap,
+  LayoutDashboard,
+  Code,
+  Search,
+  Settings,
+  Palette,
+  Package,
 } from 'lucide-angular';
+import type { AgentPackInfoDto } from '@ptah-extension/shared';
 
 /**
  * AgentSelectionComponent - Agent selection with relevance scores and recommendations
@@ -55,190 +65,400 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="px-3 py-4">
-      <div class="mb-4">
-        <h2 class="text-base font-semibold mb-2">Select Agents to Generate</h2>
-        <p class="text-xs text-base-content/60">
-          Based on your project analysis, we've scored each agent's relevance.
-          Highly recommended agents (score >= 80) are auto-selected.
-        </p>
+      <!-- Tab bar -->
+      <div class="flex items-center gap-0 border-b border-base-300/30 mb-4">
+        <button
+          class="px-4 py-2 text-xs font-medium transition-colors relative"
+          [class.text-primary]="activeTab() === 'project'"
+          [class.text-base-content/50]="activeTab() !== 'project'"
+          (click)="activeTab.set('project')"
+        >
+          <lucide-angular
+            [img]="UsersIcon"
+            class="h-3.5 w-3.5 inline-block mr-1 -mt-0.5"
+          />
+          Project Agents
+          @if (activeTab() === 'project') {
+            <div
+              class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t"
+            ></div>
+          }
+        </button>
+        <button
+          class="px-4 py-2 text-xs font-medium transition-colors relative"
+          [class.text-primary]="activeTab() === 'community'"
+          [class.text-base-content/50]="activeTab() !== 'community'"
+          (click)="onSwitchToCommunityTab()"
+        >
+          <lucide-angular
+            [img]="GlobeIcon"
+            class="h-3.5 w-3.5 inline-block mr-1 -mt-0.5"
+          />
+          Community Packs
+          @if (installedCommunityCount() > 0) {
+            <span
+              class="ml-1 text-[9px] px-1 py-0.5 rounded bg-success/20 text-success"
+            >
+              {{ installedCommunityCount() }}
+            </span>
+          }
+          @if (activeTab() === 'community') {
+            <div
+              class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t"
+            ></div>
+          }
+        </button>
       </div>
 
       @if (errorMessage(); as error) {
-      <div class="alert alert-error mb-2 py-2 text-xs" role="alert">
-        <lucide-angular [img]="XCircleIcon" class="h-4 w-4 shrink-0" />
-        <span>{{ error }}</span>
-      </div>
+        <div class="alert alert-error mb-2 py-2 text-xs" role="alert">
+          <lucide-angular [img]="XCircleIcon" class="h-4 w-4 shrink-0" />
+          <span>{{ error }}</span>
+        </div>
       }
 
-      <!-- Selection controls and count -->
-      <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
-        <div class="flex flex-wrap gap-1.5">
-          <button
-            class="btn btn-outline btn-xs"
-            (click)="onSelectAllRecommended()"
-            [disabled]="allRecommendedSelected()"
-          >
-            <lucide-angular [img]="CheckIcon" class="h-3 w-3" />
-            Select Recommended
-          </button>
-          <button
-            class="btn btn-ghost btn-xs"
-            (click)="onDeselectAll()"
-            [disabled]="noneSelected()"
-          >
-            Deselect All
-          </button>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <div class="badge badge-primary badge-sm gap-1">
-            <lucide-angular [img]="CheckIcon" class="h-3 w-3" />
-            {{ selectedCount() }} selected
+      <!-- ═══ PROJECT AGENTS TAB ═══ -->
+      @if (activeTab() === 'project') {
+        <!-- Selection controls and count -->
+        <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+          <div class="flex flex-wrap gap-1.5">
+            <button
+              class="btn btn-outline btn-xs"
+              (click)="onSelectAllRecommended()"
+              [disabled]="allRecommendedSelected()"
+            >
+              <lucide-angular [img]="CheckIcon" class="h-3 w-3" />
+              Select Recommended
+            </button>
+            <button
+              class="btn btn-ghost btn-xs"
+              (click)="onDeselectAll()"
+              [disabled]="noneSelected()"
+            >
+              Deselect All
+            </button>
           </div>
-          <div class="badge badge-outline badge-sm">
-            {{ recommendedCount() }} recommended
+          <div class="flex items-center gap-1.5">
+            <div class="badge badge-primary badge-sm gap-1">
+              <lucide-angular [img]="CheckIcon" class="h-3 w-3" />
+              {{ selectedCount() }} selected
+            </div>
+            <div class="badge badge-outline badge-sm">
+              {{ recommendedCount() }} recommended
+            </div>
           </div>
         </div>
-      </div>
 
-      @if (sortedRecommendations().length === 0) {
-      <!-- No recommendations available -->
-      <div class="card border border-base-300 bg-base-200/50">
-        <div class="card-body items-center text-center py-6">
-          <lucide-angular
-            [img]="UsersIcon"
-            class="h-8 w-8 text-base-content/30 mb-2"
-          />
-          <h3 class="text-sm font-semibold mb-1">No Agent Recommendations</h3>
-          <p class="text-xs text-base-content/60">
-            Unable to load agent recommendations. Please go back and restart the
-            analysis.
-          </p>
-        </div>
-      </div>
-      } @else {
-      <!-- Agent categories -->
-      @for (category of categoryOrder; track category) { @if
-      (getAgentsByCategory(category).length > 0) {
-      <div class="mb-4">
-        <h3
-          class="text-xs font-medium uppercase tracking-wide mb-2 flex items-center gap-1.5"
-        >
-          <span
-            class="badge badge-sm"
-            [class]="getCategoryBadgeClass(category)"
-          >
-            {{ getCategoryIcon(category) }}
-          </span>
-          {{ getCategoryLabel(category) }}
-          <span class="text-xs text-base-content/60 font-normal normal-case">
-            ({{ getAgentsByCategory(category).length }})
-          </span>
-        </h3>
-
-        <div class="space-y-2">
-          @for (agent of getAgentsByCategory(category); track agent.agentId) {
+        @if (sortedRecommendations().length === 0) {
+          <!-- No recommendations available -->
           <div
-            class="card border border-base-300 bg-base-200/50 hover:border-primary/40 transition-colors cursor-pointer"
-            [class.ring-1]="isSelected(agent.agentId)"
-            [class.ring-primary]="isSelected(agent.agentId)"
-            (click)="onToggleAgent(agent.agentId)"
-            (keydown.enter)="onToggleAgent(agent.agentId)"
-            (keydown.space)="
-              onToggleAgent(agent.agentId); $event.preventDefault()
-            "
-            tabindex="0"
-            role="checkbox"
-            [attr.aria-checked]="isSelected(agent.agentId)"
-            [attr.aria-label]="
-              'Select ' +
-              agent.agentName +
-              ' agent, relevance score ' +
-              agent.relevanceScore +
-              ' percent'
-            "
+            class="border border-base-300/30 rounded-md bg-base-200/20 p-6 text-center"
           >
-            <div class="card-body p-2.5">
-              <div class="flex items-center gap-3">
-                <!-- 1. Checkbox (60px) -->
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-primary checkbox-sm shrink-0"
-                  [checked]="isSelected(agent.agentId)"
-                  (click)="$event.stopPropagation()"
-                  (change)="onToggleAgent(agent.agentId)"
-                  [attr.aria-label]="'Select ' + agent.agentName"
-                />
+            <lucide-angular
+              [img]="UsersIcon"
+              class="h-8 w-8 text-base-content/30 mb-2 mx-auto"
+            />
+            <h3 class="text-sm font-semibold mb-1">No Agent Recommendations</h3>
+            <p class="text-xs text-base-content/50">
+              Unable to load agent recommendations. Please go back and restart
+              the analysis.
+            </p>
+          </div>
+        } @else {
+          <!-- Agent categories -->
+          @for (category of categoryOrder; track category) {
+            @if (getAgentsByCategory(category).length > 0) {
+              <div class="mb-5">
+                <!-- Category header matching settings section style -->
+                <div class="flex items-center gap-2 mb-2.5">
+                  <lucide-angular
+                    [img]="getCategoryLucideIcon(category)"
+                    class="h-3.5 w-3.5 text-base-content/50"
+                  />
+                  <span
+                    class="text-[10px] font-medium text-base-content/50 uppercase tracking-wide"
+                  >
+                    {{ getCategoryLabel(category) }}
+                  </span>
+                  <span class="text-[10px] text-base-content/30">
+                    {{ getAgentsByCategory(category).length }}
+                  </span>
+                </div>
 
-                <!-- 2. Name + Recommended Badge (200px) -->
-                <div class="w-48 shrink-0">
-                  <div class="flex items-center gap-1.5">
-                    <span class="text-xs font-semibold truncate">{{
-                      agent.agentName
-                    }}</span>
-                    @if (agent.recommended) {
-                    <span class="badge badge-success badge-xs gap-0.5 shrink-0">
-                      <lucide-angular [img]="CheckIcon" class="h-2.5 w-2.5" />
-                      Rec
-                    </span>
+                <div
+                  class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"
+                >
+                  @for (
+                    agent of getAgentsByCategory(category);
+                    track agent.agentId
+                  ) {
+                    <div
+                      class="border rounded-md p-2.5 cursor-pointer transition-all"
+                      [class.border-primary/50]="isSelected(agent.agentId)"
+                      [class.bg-primary/5]="isSelected(agent.agentId)"
+                      [class.border-base-300/40]="!isSelected(agent.agentId)"
+                      [class.bg-base-200/20]="!isSelected(agent.agentId)"
+                      [class.hover:border-primary/30]="
+                        !isSelected(agent.agentId)
+                      "
+                      (click)="onToggleAgent(agent.agentId)"
+                      (keydown.enter)="onToggleAgent(agent.agentId)"
+                      (keydown.space)="
+                        onToggleAgent(agent.agentId); $event.preventDefault()
+                      "
+                      tabindex="0"
+                      role="checkbox"
+                      [attr.aria-checked]="isSelected(agent.agentId)"
+                      [attr.aria-label]="
+                        'Select ' +
+                        agent.agentName +
+                        ' agent, relevance score ' +
+                        agent.relevanceScore +
+                        ' percent'
+                      "
+                    >
+                      <!-- Header: checkbox + name -->
+                      <div class="flex items-center gap-2 mb-1.5">
+                        <input
+                          type="checkbox"
+                          class="checkbox checkbox-primary checkbox-xs shrink-0"
+                          [checked]="isSelected(agent.agentId)"
+                          (click)="$event.stopPropagation()"
+                          (change)="onToggleAgent(agent.agentId)"
+                          [attr.aria-label]="'Select ' + agent.agentName"
+                        />
+                        <span class="text-xs font-medium flex-1 truncate">{{
+                          agent.agentName
+                        }}</span>
+                        <!-- Score pill -->
+                        <span
+                          class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0"
+                          [class.bg-success/20]="agent.relevanceScore >= 80"
+                          [class.text-success]="agent.relevanceScore >= 80"
+                          [class.bg-warning/20]="
+                            agent.relevanceScore >= 60 &&
+                            agent.relevanceScore < 80
+                          "
+                          [class.text-warning]="
+                            agent.relevanceScore >= 60 &&
+                            agent.relevanceScore < 80
+                          "
+                          [class.bg-error/20]="agent.relevanceScore < 60"
+                          [class.text-error]="agent.relevanceScore < 60"
+                        >
+                          {{ agent.relevanceScore }}%
+                        </span>
+                      </div>
+
+                      <!-- Description -->
+                      <p
+                        class="text-[11px] text-base-content/60 leading-relaxed mb-2 pl-6"
+                      >
+                        {{ agent.description }}
+                      </p>
+
+                      <!-- Matched criteria -->
+                      @if (agent.matchedCriteria.length) {
+                        <div class="flex flex-wrap gap-1 pl-6">
+                          @for (
+                            criteria of agent.matchedCriteria;
+                            track criteria
+                          ) {
+                            <span
+                              class="text-[9px] px-1.5 py-0.5 rounded bg-base-300/30 text-base-content/40"
+                            >
+                              {{ criteria }}
+                            </span>
+                          }
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+          }
+        }
+        <!-- /project agents tab -->
+
+        <!-- ═══ COMMUNITY PACKS TAB ═══ -->
+      } @else {
+        @if (communityPacksLoading()) {
+          <div class="flex items-center gap-2 py-8 justify-center">
+            <span
+              class="loading loading-spinner loading-sm text-base-content/40"
+            ></span>
+            <span class="text-xs text-base-content/40"
+              >Loading community packs...</span
+            >
+          </div>
+        } @else if (communityPacks().length === 0) {
+          <div
+            class="border border-base-300/30 rounded-md bg-base-200/20 p-6 text-center"
+          >
+            <lucide-angular
+              [img]="GlobeIcon"
+              class="h-8 w-8 text-base-content/30 mb-2 mx-auto"
+            />
+            <h3 class="text-sm font-semibold mb-1">No Community Packs</h3>
+            <p class="text-xs text-base-content/50">
+              No community agent packs are available at the moment.
+            </p>
+          </div>
+        } @else {
+          <p class="text-xs text-base-content/50 mb-3">
+            Browse and install pre-built agent packs from the community.
+          </p>
+          @for (pack of communityPacks(); track pack.source) {
+            <div
+              class="border border-base-300/40 bg-base-200/20 rounded-md mb-2"
+            >
+              <button
+                class="flex items-center gap-2 p-2.5 w-full text-left"
+                (click)="onTogglePackExpand(pack.source)"
+              >
+                <lucide-angular
+                  [img]="PackageIcon"
+                  class="h-3.5 w-3.5 text-base-content/50 shrink-0"
+                />
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs font-medium truncate">
+                    {{ pack.name }}
+                  </div>
+                  <div class="text-[10px] text-base-content/50">
+                    {{ pack.description }}
+                  </div>
+                </div>
+                <span class="text-[10px] text-base-content/40 shrink-0">
+                  {{ pack.agents.length }} agents
+                </span>
+                <lucide-angular
+                  [img]="
+                    isPackExpanded(pack.source)
+                      ? ChevronDownIcon
+                      : ChevronRightIcon
+                  "
+                  class="h-3 w-3 text-base-content/30 shrink-0"
+                />
+              </button>
+
+              @if (isPackExpanded(pack.source)) {
+                <div class="px-2.5 pb-2.5">
+                  <div class="flex justify-end mb-2">
+                    <button
+                      class="btn btn-outline btn-xs"
+                      [disabled]="allPackAgentsInstalled(pack)"
+                      (click)="
+                        onInstallAllAgents(pack); $event.stopPropagation()
+                      "
+                    >
+                      @if (isPackInstalling(pack)) {
+                        <span class="loading loading-spinner loading-xs"></span>
+                      }
+                      {{
+                        allPackAgentsInstalled(pack)
+                          ? 'All Installed'
+                          : 'Install All'
+                      }}
+                    </button>
+                  </div>
+
+                  <div
+                    class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"
+                  >
+                    @for (agent of pack.agents; track agent.file) {
+                      <div
+                        class="border rounded-md p-2.5"
+                        [class.border-success/30]="
+                          getAgentStatus(pack.source, agent.file) ===
+                          'installed'
+                        "
+                        [class.bg-success/5]="
+                          getAgentStatus(pack.source, agent.file) ===
+                          'installed'
+                        "
+                        [class.border-base-300/40]="
+                          getAgentStatus(pack.source, agent.file) !==
+                          'installed'
+                        "
+                        [class.bg-base-200/20]="
+                          getAgentStatus(pack.source, agent.file) !==
+                          'installed'
+                        "
+                      >
+                        <div class="flex items-center gap-2 mb-1.5">
+                          <span class="text-xs font-medium flex-1 truncate">{{
+                            agent.name
+                          }}</span>
+                          @if (
+                            getAgentStatus(pack.source, agent.file) ===
+                            'installed'
+                          ) {
+                            <span
+                              class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-success/20 text-success shrink-0"
+                            >
+                              Installed
+                            </span>
+                          } @else if (
+                            getAgentStatus(pack.source, agent.file) ===
+                            'installing'
+                          ) {
+                            <span
+                              class="loading loading-spinner loading-xs text-primary shrink-0"
+                            ></span>
+                          } @else if (
+                            getAgentStatus(pack.source, agent.file) === 'error'
+                          ) {
+                            <button
+                              class="btn btn-ghost btn-xs text-error"
+                              (click)="
+                                onInstallAgent(pack.source, agent.file);
+                                $event.stopPropagation()
+                              "
+                            >
+                              Retry
+                            </button>
+                          } @else {
+                            <button
+                              class="btn btn-ghost btn-xs"
+                              (click)="
+                                onInstallAgent(pack.source, agent.file);
+                                $event.stopPropagation()
+                              "
+                            >
+                              Install
+                            </button>
+                          }
+                        </div>
+                        <p
+                          class="text-[11px] text-base-content/60 leading-relaxed mb-1.5"
+                        >
+                          {{ agent.description }}
+                        </p>
+                        <span
+                          class="text-[9px] px-1.5 py-0.5 rounded bg-base-300/30 text-base-content/40"
+                        >
+                          {{ agent.category }}
+                        </span>
+                      </div>
                     }
                   </div>
                 </div>
-
-                <!-- 3. Description (flex-1, grows to fill available space) -->
-                <div class="flex-1 min-w-0">
-                  <p
-                    class="text-xs text-base-content/60 truncate"
-                    [title]="agent.description"
-                  >
-                    {{ agent.description }}
-                  </p>
-                </div>
-
-                <!-- 4. Score Badge (80px) -->
-                <div class="w-20 shrink-0 flex justify-center">
-                  <span
-                    class="badge badge-sm font-bold"
-                    [class]="getScoreBadgeClass(agent.relevanceScore)"
-                  >
-                    {{ agent.relevanceScore }}%
-                  </span>
-                </div>
-
-                <!-- 5. Matched Criteria Badges (250px, with truncation) -->
-                @if (agent.matchedCriteria && agent.matchedCriteria.length > 0)
-                {
-                <div class="w-64 shrink-0 flex gap-1 overflow-hidden">
-                  @for (criteria of agent.matchedCriteria.slice(0, 2); track
-                  criteria) {
-                  <span
-                    class="badge badge-outline badge-xs truncate max-w-[100px]"
-                    [title]="criteria"
-                  >
-                    {{ criteria }}
-                  </span>
-                  } @if (agent.matchedCriteria.length > 2) {
-                  <span
-                    class="badge badge-ghost badge-xs cursor-help shrink-0"
-                    [title]="agent.matchedCriteria.slice(2).join(', ')"
-                  >
-                    +{{ agent.matchedCriteria.length - 2 }}
-                  </span>
-                  }
-                </div>
-                }
-              </div>
+              }
             </div>
-          </div>
           }
-        </div>
-      </div>
-      } } }
+        }
+      }
 
       <!-- Action buttons -->
       <div
         class="flex gap-2 justify-between items-center mt-4 pt-3 border-t border-base-300"
       >
-        <button class="btn btn-ghost btn-sm" (click)="onBack()">
+        <button
+          class="btn btn-ghost btn-sm"
+          [disabled]="isGenerating()"
+          (click)="onBack()"
+        >
           <lucide-angular [img]="ChevronLeftIcon" class="h-4 w-4" />
           Back
         </button>
@@ -256,12 +476,13 @@ import {
           (click)="onGenerateAgents()"
         >
           @if (isGenerating()) {
-          <span class="loading loading-spinner loading-sm"></span>
-          Generating... } @else {
-          <lucide-angular [img]="ZapIcon" class="h-4 w-4" />
-          Generate {{ selectedCount() }} Agent{{
-            selectedCount() === 1 ? '' : 's'
-          }}
+            <span class="loading loading-spinner loading-sm"></span>
+            Generating...
+          } @else {
+            <lucide-angular [img]="ZapIcon" class="h-4 w-4" />
+            Generate {{ selectedCount() }} Agent{{
+              selectedCount() === 1 ? '' : 's'
+            }}
           }
         </button>
       </div>
@@ -278,6 +499,27 @@ export class AgentSelectionComponent {
   protected readonly UsersIcon = Users;
   protected readonly ChevronLeftIcon = ChevronLeft;
   protected readonly ZapIcon = Zap;
+  protected readonly LayoutDashboardIcon = LayoutDashboard;
+  protected readonly CodeIcon = Code;
+  protected readonly SearchIcon = Search;
+  protected readonly SettingsIcon = Settings;
+  protected readonly PaletteIcon = Palette;
+  protected readonly PackageIcon = Package;
+  protected readonly GlobeIcon = Globe;
+  protected readonly ChevronDownIcon = ChevronDown;
+  protected readonly ChevronRightIcon = ChevronRight;
+
+  // === Community Agent Pack State (TASK_2025_258) ===
+
+  /** Local signal controlling the active agent source tab. */
+  protected readonly activeTab = signal<'project' | 'community'>('project');
+
+  /** Delegated signals from state service. */
+  protected readonly communityPacks = this.wizardState.communityPacks;
+  protected readonly communityPacksLoading =
+    this.wizardState.communityPacksLoading;
+  protected readonly installedCommunityCount =
+    this.wizardState.installedCommunityAgentCount;
 
   /**
    * Known agent categories for filtering.
@@ -314,7 +556,7 @@ export class AgentSelectionComponent {
   protected readonly sortedRecommendations = computed(() => {
     const recommendations = this.wizardState.recommendations();
     return [...recommendations].sort(
-      (a, b) => b.relevanceScore - a.relevanceScore
+      (a, b) => b.relevanceScore - a.relevanceScore,
     );
   });
 
@@ -356,21 +598,36 @@ export class AgentSelectionComponent {
   protected readonly noneSelected = computed(() => this.selectedCount() === 0);
 
   /**
-   * Get agents filtered by category.
-   * For 'other', returns agents with unknown categories.
+   * Agents grouped by category (memoized).
+   * Computed once per signal change instead of per template iteration.
+   */
+  protected readonly agentsByCategory = computed(() => {
+    const agents = this.sortedRecommendations();
+    const grouped = new Map<AgentCategory | 'other', AgentRecommendation[]>();
+
+    for (const category of this.categoryOrder) {
+      if (category === 'other') {
+        const others = agents.filter(
+          (agent) =>
+            !this.knownCategories.includes(agent.category as AgentCategory),
+        );
+        if (others.length > 0) grouped.set('other', others);
+      } else {
+        const matched = agents.filter((agent) => agent.category === category);
+        if (matched.length > 0) grouped.set(category, matched);
+      }
+    }
+
+    return grouped;
+  });
+
+  /**
+   * Get agents for a category from the memoized map.
    */
   protected getAgentsByCategory(
-    category: AgentCategory | 'other'
+    category: AgentCategory | 'other',
   ): AgentRecommendation[] {
-    if (category === 'other') {
-      return this.sortedRecommendations().filter(
-        (agent) =>
-          !this.knownCategories.includes(agent.category as AgentCategory)
-      );
-    }
-    return this.sortedRecommendations().filter(
-      (agent) => agent.category === category
-    );
+    return this.agentsByCategory().get(category) ?? [];
   }
 
   /**
@@ -390,55 +647,24 @@ export class AgentSelectionComponent {
   }
 
   /**
-   * Get progress bar class based on relevance score.
+   * Get Lucide icon for agent category.
+   * Replaces emoji-based category icons with proper Lucide icon components.
    */
-  protected getScoreProgressClass(score: number): string {
-    if (score >= 80) return 'progress-success';
-    if (score >= 60) return 'progress-warning';
-    return 'progress-error';
-  }
-
-  /**
-   * Get category badge class for styling.
-   * Includes fallback for 'other' category.
-   */
-  protected getCategoryBadgeClass(category: AgentCategory | 'other'): string {
+  protected getCategoryLucideIcon(category: AgentCategory | 'other') {
     switch (category) {
       case 'planning':
-        return 'badge-primary';
+        return this.LayoutDashboardIcon;
       case 'development':
-        return 'badge-secondary';
+        return this.CodeIcon;
       case 'qa':
-        return 'badge-accent';
+        return this.SearchIcon;
       case 'specialist':
-        return 'badge-info';
+        return this.SettingsIcon;
       case 'creative':
-        return 'badge-warning';
+        return this.PaletteIcon;
       case 'other':
       default:
-        return 'badge-ghost';
-    }
-  }
-
-  /**
-   * Get category icon emoji.
-   * Includes fallback for 'other' category.
-   */
-  protected getCategoryIcon(category: AgentCategory | 'other'): string {
-    switch (category) {
-      case 'planning':
-        return '\u{1F4CB}'; // Clipboard
-      case 'development':
-        return '\u{1F4BB}'; // Laptop
-      case 'qa':
-        return '\u{1F50D}'; // Magnifying glass
-      case 'specialist':
-        return '\u{2699}\u{FE0F}'; // Gear
-      case 'creative':
-        return '\u{1F3A8}'; // Artist palette
-      case 'other':
-      default:
-        return '\u{1F4E6}'; // Package
+        return this.PackageIcon;
     }
   }
 
@@ -492,6 +718,138 @@ export class AgentSelectionComponent {
     this.wizardState.setCurrentStep('analysis');
   }
 
+  // === Community Agent Pack Methods (TASK_2025_258) ===
+
+  /**
+   * Check if a pack is currently expanded.
+   */
+  protected isPackExpanded(source: string): boolean {
+    return this.wizardState.expandedPackSource() === source;
+  }
+
+  /**
+   * Toggle pack expansion.
+   */
+  protected onTogglePackExpand(source: string): void {
+    this.wizardState.toggleExpandedPack(source);
+  }
+
+  /**
+   * Toggle community section visibility.
+   * Lazy-loads community packs on first expansion.
+   */
+  protected onSwitchToCommunityTab(): void {
+    this.activeTab.set('community');
+    if (this.communityPacks().length === 0 && !this.communityPacksLoading()) {
+      this.loadCommunityPacks();
+    }
+  }
+
+  /**
+   * Fetch community agent packs from backend.
+   */
+  private async loadCommunityPacks(): Promise<void> {
+    this.wizardState.setCommunityPacksLoading(true);
+    this.errorMessage.set(null);
+    try {
+      const packs = await this.wizardRpc.listAgentPacks();
+      this.wizardState.setCommunityPacks(packs);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.errorMessage.set(
+        `Failed to load community packs: ${msg}. Check your internet connection.`,
+      );
+    } finally {
+      this.wizardState.setCommunityPacksLoading(false);
+    }
+  }
+
+  /**
+   * Install a single agent from a community pack.
+   */
+  protected async onInstallAgent(source: string, file: string): Promise<void> {
+    const key = `${source}::${file}`;
+    this.wizardState.setAgentInstallStatus(key, 'installing');
+    try {
+      const result = await this.wizardRpc.installPackAgents(source, [file]);
+      this.wizardState.setAgentInstallStatus(
+        key,
+        result.success ? 'installed' : 'error',
+      );
+    } catch {
+      this.wizardState.setAgentInstallStatus(key, 'error');
+    }
+  }
+
+  /**
+   * Install all agents from a community pack.
+   */
+  protected async onInstallAllAgents(pack: AgentPackInfoDto): Promise<void> {
+    // Only install agents that aren't already installed
+    const pendingFiles = pack.agents
+      .filter((a) => this.getAgentStatus(pack.source, a.file) !== 'installed')
+      .map((a) => a.file);
+
+    if (pendingFiles.length === 0) return;
+
+    for (const file of pendingFiles) {
+      this.wizardState.setAgentInstallStatus(
+        `${pack.source}::${file}`,
+        'installing',
+      );
+    }
+    try {
+      const result = await this.wizardRpc.installPackAgents(
+        pack.source,
+        pendingFiles,
+      );
+      const status = result.success ? 'installed' : 'error';
+      for (const file of pendingFiles) {
+        this.wizardState.setAgentInstallStatus(
+          `${pack.source}::${file}`,
+          status,
+        );
+      }
+    } catch {
+      for (const file of pendingFiles) {
+        this.wizardState.setAgentInstallStatus(
+          `${pack.source}::${file}`,
+          'error',
+        );
+      }
+    }
+  }
+
+  /**
+   * Get the install status for a specific agent in a pack.
+   */
+  protected getAgentStatus(
+    source: string,
+    file: string,
+  ): 'idle' | 'installing' | 'installed' | 'error' {
+    return (
+      this.wizardState.agentInstallStatus()[`${source}::${file}`] ?? 'idle'
+    );
+  }
+
+  /**
+   * Check if all agents in a pack are installed.
+   */
+  protected allPackAgentsInstalled(pack: AgentPackInfoDto): boolean {
+    return pack.agents.every(
+      (a) => this.getAgentStatus(pack.source, a.file) === 'installed',
+    );
+  }
+
+  /**
+   * Check if any agent in a pack is currently installing.
+   */
+  protected isPackInstalling(pack: AgentPackInfoDto): boolean {
+    return pack.agents.some(
+      (a) => this.getAgentStatus(pack.source, a.file) === 'installing',
+    );
+  }
+
   /**
    * Build selected agents array from selection map.
    * Converts internal selection state to format expected by RPC.
@@ -510,7 +868,7 @@ export class AgentSelectionComponent {
 
     return selectedAgentIds.map((agentId) => {
       const recommendation = this.sortedRecommendations().find(
-        (r) => r.agentId === agentId
+        (r) => r.agentId === agentId,
       );
       return {
         id: agentId,
@@ -546,20 +904,20 @@ export class AgentSelectionComponent {
 
         if (!multiPhase) {
           throw new Error(
-            'No analysis data available. Please re-run the wizard scan.'
+            'No analysis data available. Please re-run the wizard scan.',
           );
         }
 
         // Submit selection with multi-phase analysisDir
         const response = await this.wizardRpc.submitAgentSelection(
           selectedAgents,
-          multiPhase.analysisDir
+          multiPhase.analysisDir,
         );
 
         // Verify backend acknowledgment before transitioning
         if (!response?.success) {
           throw new Error(
-            response?.error ?? 'Backend did not acknowledge selection'
+            response?.error ?? 'Backend did not acknowledge selection',
           );
         }
 
@@ -570,9 +928,9 @@ export class AgentSelectionComponent {
         this.errorMessage.set(error.message);
         console.error(
           'Agent generation failed:',
-          error.details ?? error.message
+          error.details ?? error.message,
         );
-      }
+      },
     );
 
     if (result) {
@@ -580,7 +938,7 @@ export class AgentSelectionComponent {
       // This MUST happen before transitioning so handleGenerationProgress()
       // can update per-item status (it silently ignores updates when items.length === 0).
       const selectedAgentIds = Object.entries(
-        this.wizardState.selectedAgentsMap()
+        this.wizardState.selectedAgentsMap(),
       )
         .filter(([_, isSelected]) => isSelected)
         .map(([agentId]) => agentId);
@@ -588,7 +946,7 @@ export class AgentSelectionComponent {
       const progressItems: SkillGenerationProgressItem[] = selectedAgentIds.map(
         (agentId) => {
           const recommendation = this.sortedRecommendations().find(
-            (r) => r.agentId === agentId
+            (r) => r.agentId === agentId,
           );
           return {
             id: agentId,
@@ -597,7 +955,7 @@ export class AgentSelectionComponent {
             status: 'pending' as const,
             progress: 0,
           };
-        }
+        },
       );
 
       this.wizardState.setSkillGenerationProgress(progressItems);

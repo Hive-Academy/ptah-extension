@@ -62,6 +62,12 @@ export class SessionLoaderService {
   private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
 
   /**
+   * Tracks which session ID the current _resumableSubagents belong to.
+   * Used to clear stale subagents when the active tab changes to a different session.
+   */
+  private _resumableSubagentsSessionId: string | null = null;
+
+  /**
    * Set of sessionIds currently being loaded via switchSession() or
    * refreshResumableSubagentsForSession(). Prevents duplicate chat:resume
    * calls when the same session is requested while a load is already in
@@ -71,6 +77,12 @@ export class SessionLoaderService {
 
   // Page size constant
   private static readonly SESSIONS_PAGE_SIZE = 30;
+
+  /**
+   * TASK_2025_264 P7f: Maximum workspace entries in sessionCache.
+   * LRU eviction: oldest by Map insertion order, but never evict the currentWorkspacePath.
+   */
+  private static readonly MAX_CACHED_WORKSPACES = 10;
 
   // Debounce timer for coalescing rapid loadSessions() calls
   private loadSessionsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -130,21 +142,36 @@ export class SessionLoaderService {
     // This means the backend registry is empty and resumableSubagents is never
     // populated. This one-shot effect fires chat:resume in the background to
     // populate the signal without reloading messages (those are already cached).
+    // Use fine-grained selectors instead of activeTab() to avoid re-evaluating
+    // ~60 times/sec during streaming (only streamingState changes, not sessionId/status).
     effect(() => {
-      const activeTab = this.tabManager.activeTab();
+      const sessionId = this.tabManager.activeTabSessionId();
+      const status = this.tabManager.activeTabStatus();
+      const tabId = this.tabManager.activeTabId();
       if (
         !this.restoredSessionChecked &&
-        activeTab?.claudeSessionId &&
-        activeTab.status === 'loaded'
+        sessionId &&
+        status === 'loaded' &&
+        tabId
       ) {
         this.restoredSessionChecked = true;
         untracked(() =>
-          this.refreshResumableSubagentsForSession(
-            activeTab.claudeSessionId!,
-            activeTab.id,
-          ),
+          this.refreshResumableSubagentsForSession(sessionId, tabId),
         );
       }
+    });
+
+    // Clear stale resumable subagents when the active tab switches to a different session.
+    // Without this, interrupted agents from session A leak into session B's banner
+    // because _resumableSubagents is a global signal, not tab-scoped.
+    effect(() => {
+      const activeSessionId = this.tabManager.activeTabSessionId();
+      untracked(() => {
+        if (activeSessionId !== this._resumableSubagentsSessionId) {
+          this._resumableSubagents.set([]);
+          this._resumableSubagentsSessionId = activeSessionId ?? null;
+        }
+      });
     });
   }
 
@@ -318,6 +345,27 @@ export class SessionLoaderService {
   }
 
   // ============================================================================
+  // SESSION RENAME
+  // ============================================================================
+
+  /**
+   * Update a session's name in the local list (UI only)
+   * Called after successful backend rename to update UI state.
+   */
+  updateSessionName(sessionId: SessionId, name: string): void {
+    this._sessions.update((current) =>
+      current.map((s) => (s.id === sessionId ? { ...s, name } : s)),
+    );
+
+    // Update cache for the active workspace
+    const workspacePath =
+      this.currentWorkspacePath || this.vscodeService.config().workspaceRoot;
+    if (workspacePath) {
+      this.updateCache(workspacePath);
+    }
+  }
+
+  // ============================================================================
   // WORKSPACE SWITCHING (per-workspace session cache)
   // ============================================================================
 
@@ -348,6 +396,10 @@ export class SessionLoaderService {
     // Check cache for the target workspace
     const cached = this.sessionCache.get(normalizedNew);
     if (cached) {
+      // TASK_2025_264 P7f: LRU refresh — move entry to end of Map insertion order
+      this.sessionCache.delete(normalizedNew);
+      this.sessionCache.set(normalizedNew, cached);
+
       // Cache hit — restore instantly without RPC
       this._sessions.set(cached.sessions);
       this._totalSessions.set(cached.totalSessions);
@@ -389,17 +441,37 @@ export class SessionLoaderService {
   /**
    * Snapshot current signal values into the cache for the given workspace path.
    * The path is normalized before use as a cache key.
+   *
+   * TASK_2025_264 P7f: Enforces LRU eviction when cache exceeds MAX_CACHED_WORKSPACES.
+   * The currentWorkspacePath is never evicted. On cache hit (re-insert), the entry
+   * is moved to the end of Map insertion order (most recently used).
    */
   private updateCache(workspacePath: string): void {
-    this.sessionCache.set(
-      SessionLoaderService.normalizeCacheKey(workspacePath),
-      {
-        sessions: this._sessions(),
-        totalSessions: this._totalSessions(),
-        hasMoreSessions: this._hasMoreSessions(),
-        sessionsOffset: this._sessionsOffset(),
-      },
-    );
+    const key = SessionLoaderService.normalizeCacheKey(workspacePath);
+
+    // Delete-then-set moves the entry to the end of Map insertion order (LRU refresh)
+    this.sessionCache.delete(key);
+    this.sessionCache.set(key, {
+      sessions: this._sessions(),
+      totalSessions: this._totalSessions(),
+      hasMoreSessions: this._hasMoreSessions(),
+      sessionsOffset: this._sessionsOffset(),
+    });
+
+    // Evict oldest entries beyond the limit (never evict currentWorkspacePath)
+    while (
+      this.sessionCache.size > SessionLoaderService.MAX_CACHED_WORKSPACES
+    ) {
+      let evicted = false;
+      for (const candidateKey of this.sessionCache.keys()) {
+        if (candidateKey !== this.currentWorkspacePath) {
+          this.sessionCache.delete(candidateKey);
+          evicted = true;
+          break;
+        }
+      }
+      if (!evicted) break; // All remaining entries are protected
+    }
   }
 
   /**
@@ -542,7 +614,10 @@ export class SessionLoaderService {
         // During live streaming this comes from SDK's modelUsage, but when loading
         // from JSONL we compute it from aggregate stats + known context window sizes.
         if (stats.model) {
-          const contextUsed = stats.tokens.input + stats.tokens.output;
+          const contextUsed =
+            stats.tokens.input +
+            (stats.tokens.cacheRead ?? 0) +
+            stats.tokens.output;
           const contextWindow = getModelContextWindow(stats.model);
           const contextPercent =
             contextWindow > 0
@@ -594,6 +669,7 @@ export class SessionLoaderService {
 
         // TASK_2025_213: Populate resumableSubagents signal for the banner UI
         this._resumableSubagents.set(resumableSubagents ?? []);
+        this._resumableSubagentsSessionId = sessionId;
 
         // TASK_2025_168: Load CLI sessions into agent monitor panel
         if (cliSessions && cliSessions.length > 0) {
@@ -621,6 +697,7 @@ export class SessionLoaderService {
 
         // TASK_2025_213: Set resumableSubagents from chat:resume response (empty for simple-message sessions)
         this._resumableSubagents.set(resumableSubagents ?? []);
+        this._resumableSubagentsSessionId = sessionId;
 
         // TASK_2025_168: Also load CLI sessions in fallback branch
         if (cliSessions && cliSessions.length > 0) {
@@ -640,11 +717,13 @@ export class SessionLoaderService {
 
         // TASK_2025_213: No resumable subagents on error/empty session
         this._resumableSubagents.set([]);
+        this._resumableSubagentsSessionId = sessionId;
       }
     } catch (error) {
       console.error('[SessionLoaderService] Failed to switch session:', error);
       // Clear stale resumable subagents from previous session on switch failure
       this._resumableSubagents.set([]);
+      this._resumableSubagentsSessionId = null;
     } finally {
       this._inFlightSessions.delete(sessionId);
     }
@@ -738,6 +817,7 @@ export class SessionLoaderService {
       const resumableSubagents = result.data?.resumableSubagents;
       if (resumableSubagents && resumableSubagents.length > 0) {
         this._resumableSubagents.set(resumableSubagents);
+        this._resumableSubagentsSessionId = sessionId;
         console.log(
           '[SessionLoaderService] Populated resumableSubagents for restored session',
           { sessionId, count: resumableSubagents.length },

@@ -71,29 +71,29 @@ import type {
 
       <!-- Collapsible content -->
       @if (!isCollapsed()) {
-      <div
-        class="px-2 pb-2 pt-0 border-t border-base-300/30"
-        [attr.id]="'tool-' + node().id"
-      >
-        <!-- Input parameters -->
-        <ptah-tool-input-display [node]="node()" />
+        <div
+          class="px-2 pb-2 pt-0 border-t border-base-300/30"
+          [attr.id]="'tool-' + node().id"
+        >
+          <!-- Input parameters -->
+          <ptah-tool-input-display [node]="node()" />
 
-        <!-- Output section -->
-        <ptah-tool-output-display [node]="node()" />
+          <!-- Output section -->
+          <ptah-tool-output-display [node]="node()" />
 
-        <!-- Permission request section (if tool requires permission) -->
-        @if (permission()) {
-        <div class="mt-2 pt-2 border-t border-base-300/30">
-          <ptah-permission-request-card
-            [request]="permission()!"
-            (responded)="handlePermissionResponse($event)"
-          />
+          <!-- Permission request section (if tool requires permission) -->
+          @if (permission()) {
+            <div class="mt-2 pt-2 border-t border-base-300/30">
+              <ptah-permission-request-card
+                [request]="permission()!"
+                (responded)="handlePermissionResponse($event)"
+              />
+            </div>
+          }
+
+          <!-- Nested children (rendered by parent ExecutionNode) -->
+          <ng-content />
         </div>
-        }
-
-        <!-- Nested children (rendered by parent ExecutionNode) -->
-        <ng-content />
-      </div>
       }
     </div>
 
@@ -138,11 +138,9 @@ export class ToolCallItemComponent {
   readonly permission = input<PermissionRequest | undefined>();
 
   constructor() {
-    // Auto-expand when a permission request is present (but not for MCP tools — keep those collapsed)
+    // Auto-expand when a permission request is present so the user can see Allow/Deny buttons
     effect(() => {
-      const hasPermission = this.permission();
-      const toolName = this.node().toolName || '';
-      if (hasPermission && !toolName.startsWith('mcp__')) {
+      if (this.permission()) {
         this.isCollapsed.set(false);
       }
     });

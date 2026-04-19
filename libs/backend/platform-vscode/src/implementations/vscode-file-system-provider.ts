@@ -106,26 +106,27 @@ export class VscodeFileSystemProvider implements IFileSystemProvider {
   async copy(
     source: string,
     destination: string,
-    options?: { overwrite?: boolean }
+    options?: { overwrite?: boolean },
   ): Promise<void> {
     await vscode.workspace.fs.copy(
       this.toUri(source),
       this.toUri(destination),
       {
         overwrite: options?.overwrite ?? false,
-      }
+      },
     );
   }
 
   async findFiles(
     pattern: string,
     exclude?: string,
-    maxResults?: number
+    maxResults?: number,
+    cwd?: string,
   ): Promise<string[]> {
     const uris = await vscode.workspace.findFiles(
       pattern,
       exclude ?? undefined,
-      maxResults
+      maxResults,
     );
     return uris.map((uri) => uri.fsPath);
   }
@@ -138,13 +139,13 @@ export class VscodeFileSystemProvider implements IFileSystemProvider {
     const [onDidDelete, fireDelete] = createEvent<string>();
 
     const changeDisposable = watcher.onDidChange((uri) =>
-      fireChange(uri.fsPath)
+      fireChange(uri.fsPath),
     );
     const createDisposable = watcher.onDidCreate((uri) =>
-      fireCreate(uri.fsPath)
+      fireCreate(uri.fsPath),
     );
     const deleteDisposable = watcher.onDidDelete((uri) =>
-      fireDelete(uri.fsPath)
+      fireDelete(uri.fsPath),
     );
 
     return {

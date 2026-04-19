@@ -32,26 +32,29 @@ const EMPTY_BRANCH: GitBranchInfo = {
   behind: 0,
 };
 
-/**
- * GitStatusService - Event-driven git state management.
- *
- * Complexity Level: 2 (Medium - signal-based state, RPC communication, workspace partitioning, push events)
- * Patterns: Injectable service, workspace-partitioned Map (matching EditorService), event-driven push
- *
- * Architecture:
- * - Backend watches .git directory and workspace files for changes (fs.watch)
- * - On change, backend pushes a 'git:status-update' message via WebviewManager
- * - This service listens for push events and updates signals (zero polling)
- * - On-demand RPC fetch for initial load and workspace switches only
- *
- * Responsibilities:
- * - Listen for git:status-update push events from the backend
- * - Expose branch info, file statuses, and derived computed signals
- * - Maintain per-workspace state cache for instant workspace switching
- * - Provide fileStatusMap (Map<relativePath, GitFileStatus>) for O(1) lookups by FileTreeNodeComponent
- *
- * Communication: Receives push events via window 'message', on-demand RPC for initial fetch.
- */
+function branchEqual(a: GitBranchInfo, b: GitBranchInfo): boolean {
+  return (
+    a.branch === b.branch &&
+    a.upstream === b.upstream &&
+    a.ahead === b.ahead &&
+    a.behind === b.behind
+  );
+}
+
+function filesEqual(a: GitFileStatus[], b: GitFileStatus[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].path !== b[i].path ||
+      a[i].status !== b[i].status ||
+      a[i].staged !== b[i].staged ||
+      a[i].isDirectory !== b[i].isDirectory
+    )
+      return false;
+  }
+  return true;
+}
+
 @Injectable({ providedIn: 'root' })
 export class GitStatusService {
   private readonly vscodeService = inject(VSCodeService);
@@ -61,14 +64,7 @@ export class GitStatusService {
   // WORKSPACE STATE
   // ============================================================================
 
-  /**
-   * Map of workspace path to git state. Contains cached git state
-   * for all workspaces (active and background) so switching back is instant.
-   */
   private readonly _workspaceGitState = new Map<string, GitWorkspaceState>();
-
-  /** Currently active workspace path. Null when no workspace is active. */
-  private _activeWorkspacePath: string | null = null;
 
   // ============================================================================
   // LISTENER STATE
@@ -81,8 +77,11 @@ export class GitStatusService {
   // SIGNAL STATE
   // ============================================================================
 
-  private readonly _branch = signal<GitBranchInfo>(EMPTY_BRANCH);
-  private readonly _files = signal<GitFileStatus[]>([]);
+  private readonly _activeWorkspacePath = signal<string | null>(null);
+  private readonly _branch = signal<GitBranchInfo>(EMPTY_BRANCH, {
+    equal: branchEqual,
+  });
+  private readonly _files = signal<GitFileStatus[]>([], { equal: filesEqual });
   private readonly _isGitRepo = signal(false);
   private readonly _isLoading = signal(false);
 
@@ -111,6 +110,20 @@ export class GitStatusService {
   /** Current branch name string shortcut. */
   readonly branchName = computed(() => this._branch().branch);
 
+  /** Files that are staged in the git index. */
+  readonly stagedFiles = computed(() => this._files().filter((f) => f.staged));
+
+  /** Files that are unstaged (working tree changes). */
+  readonly unstagedFiles = computed(() =>
+    this._files().filter((f) => !f.staged),
+  );
+
+  /** Count of staged files. */
+  readonly stagedCount = computed(() => this.stagedFiles().length);
+
+  /** Count of unstaged files. */
+  readonly unstagedCount = computed(() => this.unstagedFiles().length);
+
   /**
    * Map<relativePath, GitFileStatus[]> for O(1) lookup by FileTreeNodeComponent.
    * Keys are relative paths from workspace root (as reported by git status --porcelain=v2).
@@ -131,12 +144,10 @@ export class GitStatusService {
   });
 
   /** The currently active workspace path (for path normalization in components). */
-  get activeWorkspacePath(): string | null {
-    return this._activeWorkspacePath;
-  }
+  readonly activeWorkspacePath = this._activeWorkspacePath.asReadonly();
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.stopPolling());
+    this.destroyRef.onDestroy(() => this.stopListening());
   }
 
   // ============================================================================
@@ -151,11 +162,11 @@ export class GitStatusService {
    * Called by WorkspaceCoordinatorService when the active workspace changes.
    */
   switchWorkspace(workspacePath: string): void {
-    if (this._activeWorkspacePath === workspacePath) return;
+    if (this._activeWorkspacePath() === workspacePath) return;
 
     // Save current workspace state to map
     this.saveCurrentState();
-    this._activeWorkspacePath = workspacePath;
+    this._activeWorkspacePath.set(workspacePath);
 
     // Restore cached state or reset to defaults
     const cached = this._workspaceGitState.get(workspacePath);
@@ -181,8 +192,8 @@ export class GitStatusService {
     this._workspaceGitState.delete(workspacePath);
 
     // If the removed workspace was active, clear signals
-    if (this._activeWorkspacePath === workspacePath) {
-      this._activeWorkspacePath = null;
+    if (this._activeWorkspacePath() === workspacePath) {
+      this._activeWorkspacePath.set(null);
       this._branch.set(EMPTY_BRANCH);
       this._files.set([]);
       this._isGitRepo.set(false);
@@ -196,11 +207,8 @@ export class GitStatusService {
   /**
    * Start listening for git:status-update push events from the backend.
    * Also performs an initial RPC fetch to populate state immediately.
-   *
-   * Method name kept as startPolling() for backward compatibility with
-   * EditorPanelComponent which calls startPolling()/stopPolling() on lifecycle.
    */
-  startPolling(): void {
+  startListening(): void {
     if (this._isListening) return;
     this._isListening = true;
 
@@ -222,7 +230,7 @@ export class GitStatusService {
    * Stop listening for push events.
    * Called when editor panel is hidden or service is destroyed.
    */
-  stopPolling(): void {
+  stopListening(): void {
     this._isListening = false;
 
     if (this._messageHandler) {
@@ -251,12 +259,9 @@ export class GitStatusService {
    * Used for initial load and workspace switches only — not periodic polling.
    */
   private async fetchGitInfo(): Promise<void> {
-    if (!this._activeWorkspacePath) return;
+    if (!this._activeWorkspacePath()) return;
 
-    // Capture the workspace path BEFORE the async RPC call.
-    // If the user switches workspaces while the RPC is in flight,
-    // we must discard the stale response to avoid corrupting the new workspace's state.
-    const workspaceAtFetchTime = this._activeWorkspacePath;
+    const workspaceAtFetchTime = this._activeWorkspacePath();
 
     this._isLoading.set(true);
 
@@ -266,8 +271,7 @@ export class GitStatusService {
       {},
     );
 
-    // Discard stale response: workspace changed during the RPC call
-    if (this._activeWorkspacePath !== workspaceAtFetchTime) {
+    if (this._activeWorkspacePath() !== workspaceAtFetchTime) {
       return;
     }
 
@@ -282,9 +286,9 @@ export class GitStatusService {
    * Save current signal values into the workspace state map.
    */
   private saveCurrentState(): void {
-    if (!this._activeWorkspacePath) return;
+    if (!this._activeWorkspacePath()) return;
 
-    this._workspaceGitState.set(this._activeWorkspacePath, {
+    this._workspaceGitState.set(this._activeWorkspacePath()!, {
       branch: this._branch(),
       files: this._files(),
       isGitRepo: this._isGitRepo(),

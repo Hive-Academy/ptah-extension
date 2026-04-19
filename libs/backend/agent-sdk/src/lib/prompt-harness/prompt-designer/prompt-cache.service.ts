@@ -76,6 +76,12 @@ const STORAGE_KEY_PREFIX = 'ptah.promptDesign.cache';
 const CACHE_WATCHER_ID = 'prompt-design-cache-invalidation';
 
 /**
+ * Maximum number of entries in the in-memory cache.
+ * Uses LRU eviction via Map insertion order when limit is reached.
+ */
+const MAX_CACHE_ENTRIES = 20;
+
+/**
  * Configuration for the cache service
  */
 export interface PromptCacheConfig {
@@ -137,7 +143,7 @@ export class PromptCacheService {
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: IExtensionContext,
     @inject(TOKENS.FILE_SYSTEM_MANAGER)
-    private readonly fileManager: IFileSystemManager
+    private readonly fileManager: IFileSystemManager,
   ) {}
 
   /**
@@ -160,7 +166,7 @@ export class PromptCacheService {
    */
   async get(
     workspacePath: string,
-    dependencyHash: string
+    dependencyHash: string,
   ): Promise<PromptDesignerOutput | null> {
     const cacheKey = this.buildCacheKey(workspacePath, dependencyHash);
 
@@ -168,6 +174,9 @@ export class PromptCacheService {
     const memoryEntry = this.inMemoryCache.get(cacheKey);
     if (memoryEntry && !this.isExpired(memoryEntry.cachedAt)) {
       this.logger.debug('PromptCacheService: Memory cache hit', { cacheKey });
+      // LRU touch: delete and re-insert to move to end (most recently used)
+      this.inMemoryCache.delete(cacheKey);
+      this.inMemoryCache.set(cacheKey, memoryEntry);
       return memoryEntry.output;
     }
 
@@ -176,7 +185,8 @@ export class PromptCacheService {
     if (persisted && !this.isExpired(persisted.cachedAt)) {
       this.logger.debug('PromptCacheService: Storage cache hit', { cacheKey });
 
-      // Promote to in-memory cache
+      // Promote to in-memory cache (enforce LRU limit)
+      this.ensureCapacity();
       this.inMemoryCache.set(cacheKey, {
         output: persisted.output,
         cacheKey,
@@ -195,7 +205,7 @@ export class PromptCacheService {
         {
           cacheKey,
           age: Date.now() - persisted.cachedAt,
-        }
+        },
       );
       return persisted.output;
     }
@@ -214,10 +224,13 @@ export class PromptCacheService {
   async set(
     workspacePath: string,
     dependencyHash: string,
-    output: PromptDesignerOutput
+    output: PromptDesignerOutput,
   ): Promise<void> {
     const cacheKey = this.buildCacheKey(workspacePath, dependencyHash);
     const cachedAt = Date.now();
+
+    // Enforce capacity before inserting
+    this.ensureCapacity();
 
     // Store in memory
     this.inMemoryCache.set(cacheKey, {
@@ -255,7 +268,7 @@ export class PromptCacheService {
    */
   async invalidate(
     workspacePath: string,
-    reason: InvalidationReason = 'manual'
+    reason: InvalidationReason = 'manual',
   ): Promise<void> {
     // Find and remove matching entries from memory
     const keysToRemove: string[] = [];
@@ -357,6 +370,45 @@ export class PromptCacheService {
   }
 
   /**
+   * Ensure in-memory cache has room for a new entry.
+   * Sweeps expired entries first, then applies LRU eviction if still at capacity.
+   * Called from both set() and get() storage promotion paths.
+   */
+  private ensureCapacity(): void {
+    this.sweepExpiredEntries();
+    if (this.inMemoryCache.size >= MAX_CACHE_ENTRIES) {
+      const oldestKey = this.inMemoryCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.inMemoryCache.delete(oldestKey);
+        this.logger.debug('PromptCacheService: LRU evicted oldest entry', {
+          evictedKey: oldestKey,
+        });
+      }
+    }
+  }
+
+  /**
+   * Sweep expired entries from the in-memory cache.
+   * Called before inserting new entries to reclaim space proactively.
+   */
+  private sweepExpiredEntries(): void {
+    const keysToRemove: string[] = [];
+    for (const [key, entry] of this.inMemoryCache) {
+      if (this.isExpired(entry.cachedAt)) {
+        keysToRemove.push(key);
+      }
+    }
+    if (keysToRemove.length > 0) {
+      for (const key of keysToRemove) {
+        this.inMemoryCache.delete(key);
+      }
+      this.logger.debug('PromptCacheService: Swept expired entries', {
+        removedCount: keysToRemove.length,
+      });
+    }
+  }
+
+  /**
    * Check if cache entry has expired
    */
   private isExpired(cachedAt: number): boolean {
@@ -375,7 +427,7 @@ export class PromptCacheService {
    * Load cache entry from persistent storage
    */
   private async loadFromStorage(
-    cacheKey: string
+    cacheKey: string,
   ): Promise<CachedPromptDesign | null> {
     const data =
       this.context.globalState.get<PersistedCacheData>(STORAGE_KEY_PREFIX);
@@ -392,10 +444,10 @@ export class PromptCacheService {
    */
   private async saveToStorage(
     cacheKey: string,
-    entry: CachedPromptDesign
+    entry: CachedPromptDesign,
   ): Promise<void> {
     const existingData = this.context.globalState.get<PersistedCacheData>(
-      STORAGE_KEY_PREFIX
+      STORAGE_KEY_PREFIX,
     ) || { entries: {}, version: CACHE_CONFIG_VERSION };
 
     // Ensure version matches
@@ -424,7 +476,7 @@ export class PromptCacheService {
     // Remove entries matching workspace path
     const workspaceHash = computeHash(workspacePath);
     const keysToRemove = Object.keys(data.entries).filter((key) =>
-      key.includes(workspaceHash)
+      key.includes(workspaceHash),
     );
 
     keysToRemove.forEach((key) => delete data.entries[key]);
@@ -475,7 +527,7 @@ export class PromptCacheService {
         'PromptCacheService: Failed to initialize file watcher',
         {
           error: error instanceof Error ? error.message : String(error),
-        }
+        },
       );
     }
   }

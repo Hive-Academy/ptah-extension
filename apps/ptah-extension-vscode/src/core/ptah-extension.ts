@@ -38,13 +38,13 @@ export class PtahExtension implements vscode.Disposable {
     this.logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
     this.errorHandler = DIContainer.resolve<ErrorHandler>(TOKENS.ERROR_HANDLER);
     this.configManager = DIContainer.resolve<ConfigManager>(
-      TOKENS.CONFIG_MANAGER
+      TOKENS.CONFIG_MANAGER,
     );
     this.commandManager = DIContainer.resolve<CommandManager>(
-      TOKENS.COMMAND_MANAGER
+      TOKENS.COMMAND_MANAGER,
     );
     this.webviewManager = DIContainer.resolve<WebviewManager>(
-      TOKENS.WEBVIEW_MANAGER
+      TOKENS.WEBVIEW_MANAGER,
     );
   }
 
@@ -61,7 +61,7 @@ export class PtahExtension implements vscode.Disposable {
 
       // Resolve webview provider from DI
       this.angularWebviewProvider = DIContainer.resolve<AngularWebviewProvider>(
-        TOKENS.ANGULAR_WEBVIEW_PROVIDER
+        TOKENS.ANGULAR_WEBVIEW_PROVIDER,
       );
 
       // Register webview provider with VS Code
@@ -84,7 +84,7 @@ export class PtahExtension implements vscode.Disposable {
   async registerAll(): Promise<void> {
     // Register license commands (TASK_2025_075 Batch 6)
     const licenseCommands = DIContainer.resolve<LicenseCommands>(
-      TOKENS.LICENSE_COMMANDS
+      TOKENS.LICENSE_COMMANDS,
     );
     licenseCommands.registerCommands(this.context);
     this.logger.info('License commands registered');
@@ -100,7 +100,7 @@ export class PtahExtension implements vscode.Disposable {
   private registerWebviews(): void {
     if (!this.angularWebviewProvider) {
       this.logger.warn(
-        'Angular webview provider not initialized, skipping webview registration'
+        'Angular webview provider not initialized, skipping webview registration',
       );
       return;
     }
@@ -114,7 +114,7 @@ export class PtahExtension implements vscode.Disposable {
         webviewOptions: {
           retainContextWhenHidden: true,
         },
-      }
+      },
     );
     this.disposables.push(disposable);
 
@@ -135,7 +135,7 @@ export class PtahExtension implements vscode.Disposable {
             error: err instanceof Error ? err.message : String(err),
           });
         }
-      }
+      },
     );
     this.disposables.push(panelCommand);
 
@@ -150,15 +150,32 @@ export class PtahExtension implements vscode.Disposable {
             error: err instanceof Error ? err.message : String(err),
           });
         }
-      }
+      },
     );
     this.disposables.push(dashboardCommand);
+
+    // Backward compat: this command still sends 'orchestra-canvas' as initialView.
+    // AppStateManager.initializeState() maps it to layoutMode('grid') + chat view.
+    const orchestraCanvasCommand = vscode.commands.registerCommand(
+      'ptah.openOrchestraCanvas',
+      async () => {
+        try {
+          await provider.createPanel({ initialView: 'orchestra-canvas' });
+          logger.info('Orchestra Canvas panel opened');
+        } catch (err) {
+          logger.error('Failed to open Orchestra Canvas panel', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      },
+    );
+    this.disposables.push(orchestraCanvasCommand);
 
     const toggleChatCommand = vscode.commands.registerCommand(
       'ptah.toggleChat',
       () => {
         vscode.commands.executeCommand('ptah.main.focus');
-      }
+      },
     );
     this.disposables.push(toggleChatCommand);
 
@@ -174,14 +191,14 @@ export class PtahExtension implements vscode.Disposable {
 
     const selection = await vscode.window.showInformationMessage(
       message,
-      ...actions
+      ...actions,
     );
 
     if (selection === 'Get Started') {
       await vscode.commands.executeCommand('ptah.main.focus');
     } else if (selection === 'Documentation') {
       vscode.env.openExternal(
-        vscode.Uri.parse('https://github.com/anthropics/claude-code#readme')
+        vscode.Uri.parse('https://github.com/anthropics/claude-code#readme'),
       );
     }
   }
@@ -202,7 +219,7 @@ export class PtahExtension implements vscode.Disposable {
     } catch (error) {
       this.logger.error(
         'Extension disposal failed',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }

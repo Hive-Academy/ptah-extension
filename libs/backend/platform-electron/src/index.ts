@@ -12,6 +12,7 @@ export { ElectronUserInteraction } from './implementations/electron-user-interac
 export type {
   ElectronDialogApi,
   ElectronBrowserWindowApi,
+  ElectronShellApi,
 } from './implementations/electron-user-interaction';
 export { ElectronOutputChannel } from './implementations/electron-output-channel';
 export { ElectronCommandRegistry } from './implementations/electron-command-registry';

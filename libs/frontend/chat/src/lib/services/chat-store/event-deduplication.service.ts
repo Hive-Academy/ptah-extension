@@ -62,7 +62,7 @@ export class EventDeduplicationService {
    */
   shouldReplaceEvent(
     existingSource: EventSource | undefined,
-    newSource: EventSource | undefined
+    newSource: EventSource | undefined,
   ): boolean {
     return (
       this.getSourcePriority(newSource) >=
@@ -87,7 +87,7 @@ export class EventDeduplicationService {
     state: StreamingState,
     toolCallId: string,
     eventType: 'tool_start' | 'tool_result' | 'agent_start',
-    newSource: EventSource | undefined
+    newSource: EventSource | undefined,
   ): FlatStreamEventUnion | undefined {
     // Find existing event with same toolCallId and eventType
     let existingEvent: FlatStreamEventUnion | undefined;
@@ -140,7 +140,7 @@ export class EventDeduplicationService {
   replaceAgentStartByAgentId(
     state: StreamingState,
     agentId: string | undefined,
-    newSource: EventSource | undefined
+    newSource: EventSource | undefined,
   ): FlatStreamEventUnion | undefined {
     // If no agentId, can't deduplicate by agentId - fall through to caller
     if (!agentId) {
@@ -172,13 +172,19 @@ export class EventDeduplicationService {
       existingEvent as FlatStreamEventUnion & { source?: EventSource }
     ).source;
 
-    console.log('[EventDeduplication] Agent_start deduplication by agentId:', {
-      agentId,
-      existingSource,
-      newSource,
-      existingEventId: existingEvent.id,
-      willReplace: this.shouldReplaceEvent(existingSource, newSource),
-    });
+    // TASK_2025_264 P4: Dev-guard diagnostic log to reduce GC pressure in production
+    if (typeof ngDevMode !== 'undefined' && ngDevMode) {
+      console.log(
+        '[EventDeduplication] Agent_start deduplication by agentId:',
+        {
+          agentId,
+          existingSource,
+          newSource,
+          existingEventId: existingEvent.id,
+          willReplace: this.shouldReplaceEvent(existingSource, newSource),
+        },
+      );
+    }
 
     if (this.shouldReplaceEvent(existingSource, newSource)) {
       // New event has higher priority, remove old event
@@ -200,7 +206,7 @@ export class EventDeduplicationService {
    */
   findMessageStartEvent(
     state: StreamingState,
-    messageId: string
+    messageId: string,
   ): FlatStreamEventUnion | undefined {
     // Search in eventsByMessage for efficiency
     const messageEvents = state.eventsByMessage.get(messageId);
@@ -240,7 +246,7 @@ export class EventDeduplicationService {
   isMessageAlreadyFinalized(
     sessionId: string,
     messageId: string,
-    state: StreamingState
+    state: StreamingState,
   ): boolean {
     const sessionMsgIds = this.processedMessageIds.get(sessionId);
     return (
@@ -256,7 +262,7 @@ export class EventDeduplicationService {
   isToolAlreadyFinalized(
     sessionId: string,
     toolCallId: string,
-    state: StreamingState
+    state: StreamingState,
   ): boolean {
     const sessionToolIds = this.processedToolCallIds.get(sessionId);
     return (
@@ -270,7 +276,7 @@ export class EventDeduplicationService {
    */
   handleDuplicateMessageStart(
     state: StreamingState,
-    event: MessageStartEvent
+    event: MessageStartEvent,
   ): { skip: boolean; existingEvent?: FlatStreamEventUnion } {
     const existingMsgStart = this.findMessageStartEvent(state, event.messageId);
 

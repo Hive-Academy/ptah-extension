@@ -14,9 +14,9 @@
  * 1. Shared handlers (17 handlers from @ptah-extension/rpc-handlers)
  *    - Session, Chat, Config, Auth, Context, Setup, License, WizardGeneration,
  *      Autocomplete, Subagent, Plugin, PtahCli, EnhancedPrompts, Quality, Provider, LLM, WebSearch
- * 2. Electron-specific handlers (10 handlers from ./handlers/)
- *    - Workspace, Editor, File, ConfigExtended, Command, AuthExtended, Settings,
- *      Agent, SkillsSh, Layout
+ * 2. Electron-specific handlers (11 handlers from ./handlers/)
+ *    - Workspace, Editor, File, ConfigExtended, Command, Settings,
+ *      Agent, SkillsSh, Layout, Git, Terminal
  */
 
 import { injectable, inject, container } from 'tsyringe';
@@ -35,9 +35,10 @@ import type {
   CliOutputSegment,
   FlatStreamEventUnion,
   AgentPermissionRequest,
+  IAgentAdapter,
+  ResultStatsPayload,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
 import type { AgentProcessManager } from '@ptah-extension/llm-abstraction';
 import type { CopilotPermissionBridge } from '@ptah-extension/llm-abstraction';
 
@@ -60,6 +61,7 @@ import {
   ProviderRpcHandlers,
   LlmRpcHandlers,
   WebSearchRpcHandlers,
+  HarnessRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific handler classes
@@ -69,7 +71,6 @@ import {
   ElectronFileRpcHandlers,
   ElectronConfigExtendedRpcHandlers,
   ElectronCommandRpcHandlers,
-  ElectronAuthExtendedRpcHandlers,
   ElectronSettingsRpcHandlers,
   ElectronAgentRpcHandlers,
   ElectronSkillsShRpcHandlers,
@@ -77,6 +78,8 @@ import {
   ElectronGitRpcHandlers,
   ElectronTerminalRpcHandlers,
 } from './handlers';
+import { ELECTRON_TOKENS } from '../../di/electron-tokens';
+import type { GitInfoService } from '../git-info.service';
 
 /**
  * Orchestrates RPC method registration across all domain handlers.
@@ -121,6 +124,8 @@ export class ElectronRpcMethodRegistrationService {
     @inject(LlmRpcHandlers) private readonly llmHandlers: LlmRpcHandlers,
     @inject(WebSearchRpcHandlers)
     private readonly webSearchHandlers: WebSearchRpcHandlers,
+    @inject(HarnessRpcHandlers)
+    private readonly harnessHandlers: HarnessRpcHandlers,
     // Electron-specific handlers
     @inject(ElectronWorkspaceRpcHandlers)
     private readonly workspaceHandlers: ElectronWorkspaceRpcHandlers,
@@ -132,8 +137,6 @@ export class ElectronRpcMethodRegistrationService {
     private readonly configExtendedHandlers: ElectronConfigExtendedRpcHandlers,
     @inject(ElectronCommandRpcHandlers)
     private readonly commandHandlers: ElectronCommandRpcHandlers,
-    @inject(ElectronAuthExtendedRpcHandlers)
-    private readonly authExtendedHandlers: ElectronAuthExtendedRpcHandlers,
     @inject(ElectronSettingsRpcHandlers)
     private readonly settingsHandlers: ElectronSettingsRpcHandlers,
     @inject(ElectronAgentRpcHandlers)
@@ -210,6 +213,7 @@ export class ElectronRpcMethodRegistrationService {
       { name: 'ProviderRpcHandlers', handler: this.providerHandlers },
       { name: 'LlmRpcHandlers', handler: this.llmHandlers },
       { name: 'WebSearchRpcHandlers', handler: this.webSearchHandlers },
+      { name: 'HarnessRpcHandlers', handler: this.harnessHandlers },
     ];
 
     for (const { name, handler } of sharedHandlers) {
@@ -236,10 +240,12 @@ export class ElectronRpcMethodRegistrationService {
    * registered at DI construction time (Electron phases register them later).
    */
   private setupSdkCallbacks(): void {
-    // Lazy-resolve SdkAgentAdapter (may fail if SDK auth not configured)
-    if (!container.isRegistered(SDK_TOKENS.SDK_AGENT_ADAPTER)) {
+    // Lazy-resolve the agent adapter via TOKENS.AGENT_ADAPTER (the runtime-selector
+    // facade registered in Phase 2.2.1). Typed as IAgentAdapter so we don't depend
+    // on the concrete SDK class here.
+    if (!container.isRegistered(TOKENS.AGENT_ADAPTER)) {
       this.logger.warn(
-        '[Electron RPC] SdkAgentAdapter not registered — SDK callbacks skipped',
+        '[Electron RPC] AGENT_ADAPTER not registered — SDK callbacks skipped',
       );
       return;
     }
@@ -253,9 +259,7 @@ export class ElectronRpcMethodRegistrationService {
     }
 
     try {
-      const sdkAdapter = container.resolve<SdkAgentAdapter>(
-        SDK_TOKENS.SDK_AGENT_ADAPTER,
-      );
+      const sdkAdapter = container.resolve<IAgentAdapter>(TOKENS.AGENT_ADAPTER);
       const webviewManager = container.resolve<{
         broadcastMessage(type: string, payload: unknown): Promise<void>;
       }>(TOKENS.WEBVIEW_MANAGER);
@@ -378,13 +382,36 @@ export class ElectronRpcMethodRegistrationService {
       });
 
       // 4. WORKTREE callbacks — git worktree create/remove notifications
-      sdkAdapter.setWorktreeCreatedCallback((data) => {
+      // Resolve GitInfoService lazily to query git for the actual worktree path
+      // (the SDK hook only provides branch name + session cwd, not the worktree path)
+      sdkAdapter.setWorktreeCreatedCallback(async (data) => {
         this.logger.info(`[Electron RPC] Worktree created: name=${data.name}`);
+
+        // Find the actual worktree path by listing worktrees and matching by branch name
+        let worktreePath: string | undefined;
+        try {
+          if (container.isRegistered(ELECTRON_TOKENS.GIT_INFO_SERVICE)) {
+            const gitInfo = container.resolve<GitInfoService>(
+              ELECTRON_TOKENS.GIT_INFO_SERVICE,
+            );
+            const worktrees = await gitInfo.getWorktrees(data.cwd);
+            // parseWorktreeList() already strips refs/heads/ prefix,
+            // so exact match on branch name is sufficient
+            const match = worktrees.find((w) => w.branch === data.name);
+            worktreePath = match?.path;
+          }
+        } catch (err) {
+          this.logger.warn(
+            '[Electron RPC] Failed to resolve worktree path, falling back to name-based path',
+            { error: err instanceof Error ? err.message : String(err) },
+          );
+        }
+
         webviewManager
           .broadcastMessage('git:worktreeChanged', {
             action: 'created',
             name: data.name,
-            path: data.cwd,
+            path: worktreePath,
           })
           .catch((error) => {
             this.logger.error(
@@ -433,25 +460,7 @@ export class ElectronRpcMethodRegistrationService {
     webviewManager: {
       broadcastMessage(type: string, payload: unknown): Promise<void>;
     },
-    stats: {
-      sessionId: string;
-      cost: number;
-      tokens: {
-        input: number;
-        output: number;
-        cacheRead?: number;
-        cacheCreation?: number;
-      };
-      duration: number;
-      modelUsage?: Array<{
-        model: string;
-        inputTokens: number;
-        outputTokens: number;
-        contextWindow: number;
-        costUSD: number;
-        cacheReadInputTokens?: number;
-      }>;
-    },
+    stats: ResultStatsPayload,
   ): Promise<void> {
     try {
       await retryWithBackoff(
@@ -890,10 +899,6 @@ export class ElectronRpcMethodRegistrationService {
         handler: this.configExtendedHandlers,
       },
       { name: 'ElectronCommandRpcHandlers', handler: this.commandHandlers },
-      {
-        name: 'ElectronAuthExtendedRpcHandlers',
-        handler: this.authExtendedHandlers,
-      },
       {
         name: 'ElectronSettingsRpcHandlers',
         handler: this.settingsHandlers,

@@ -89,6 +89,13 @@ export class ExecutionTreeBuilderService {
   private readonly treeCache = new Map<string, TreeCacheEntry>();
 
   /**
+   * Tracks toolCallIds that have already been logged as unmatched to prevent
+   * log spam — buildTree() is called on every streaming event, so the same
+   * unmatched Task tools would otherwise log hundreds of times.
+   */
+  private readonly loggedUnmatchedToolCallIds = new Set<string>();
+
+  /**
    * Maximum cache entries to prevent memory leaks
    * Old entries are evicted when limit is reached (LRU-like behavior)
    */
@@ -257,6 +264,7 @@ export class ExecutionTreeBuilderService {
       this.treeCache.delete(cacheKey);
     } else {
       this.treeCache.clear();
+      this.loggedUnmatchedToolCallIds.clear();
     }
   }
 
@@ -526,7 +534,14 @@ export class ExecutionTreeBuilderService {
             agentStarts = [...state.events.values()].filter(
               (e) =>
                 e.eventType === 'agent_start' &&
-                (e as AgentStartEvent).agentType === agentType,
+                (e as AgentStartEvent).agentType === agentType &&
+                // Only match agent_starts that belong to THIS tool or aren't
+                // correlated to a different tool yet. A backfilled parentToolUseId
+                // in toolu_* format pointing to a different tool means this
+                // agent_start was already claimed by another tool_start.
+                (!e.parentToolUseId ||
+                  e.parentToolUseId === toolStart.toolCallId ||
+                  !e.parentToolUseId.startsWith('toolu_')),
             ) as AgentStartEvent[];
 
             // BUGFIX: Sort by timestamp proximity to the tool_start.
@@ -584,14 +599,19 @@ export class ExecutionTreeBuilderService {
           }
           continue; // Skip building the Task tool node
         } else {
-          // DIAGNOSTIC: Log when no agent_start found for Task tool
-          console.log(
-            '[ExecutionTreeBuilder] No agent_start match for Task tool:',
-            {
-              toolCallId: toolStart.toolCallId,
-              toolSource: toolStart.source,
-            },
-          );
+          // DIAGNOSTIC: Log once per toolCallId to avoid spam during streaming rebuilds.
+          // buildTree() is called on every streaming event, so this would otherwise
+          // log hundreds of times for the same unmatched tool calls.
+          if (!this.loggedUnmatchedToolCallIds.has(toolStart.toolCallId)) {
+            this.loggedUnmatchedToolCallIds.add(toolStart.toolCallId);
+            console.debug(
+              '[ExecutionTreeBuilder] No agent_start match for Task tool:',
+              {
+                toolCallId: toolStart.toolCallId,
+                toolSource: toolStart.source,
+              },
+            );
+          }
           // TASK_2025_099 FIX: Create streaming agent placeholder when no agent_start yet.
           // During streaming, agent_start events only arrive when the complete message comes.
           // Create a placeholder agent node from accumulated tool input to show the agent is working.
@@ -662,6 +682,10 @@ export class ExecutionTreeBuilderService {
             // Filter out already-consumed agent_starts to handle parallel agents of same type.
             // BUGFIX: Use timestamp proximity instead of .find() to avoid matching
             // historical agents when multiple agents of the same type exist.
+            // BUGFIX: Only match hooks whose parentToolUseId matches THIS tool_start's
+            // toolCallId (or is not yet backfilled). Without this check, when the same
+            // agent type is spawned in multiple batches, a new placeholder would match
+            // the previous batch's hook and render its stale accumulated summary content.
             let hookAgentStart: AgentStartEvent | undefined;
             let bestPlaceholderTimeDiff = Infinity;
             for (const e of state.events.values()) {
@@ -671,7 +695,12 @@ export class ExecutionTreeBuilderService {
                 (e as AgentStartEvent).agentType === agentType &&
                 !usedAgentEventIds.has(e.id) &&
                 (!(e as AgentStartEvent).agentId ||
-                  !usedAgentEventIds.has((e as AgentStartEvent).agentId ?? ''))
+                  !usedAgentEventIds.has(
+                    (e as AgentStartEvent).agentId ?? '',
+                  )) &&
+                // Only match hooks that belong to THIS tool or aren't yet correlated
+                (!e.parentToolUseId ||
+                  e.parentToolUseId === toolStart.toolCallId)
               ) {
                 const timeDiff = Math.abs(e.timestamp - toolStart.timestamp);
                 if (timeDiff < bestPlaceholderTimeDiff) {

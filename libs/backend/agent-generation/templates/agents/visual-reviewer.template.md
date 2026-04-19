@@ -11,12 +11,7 @@ dependencies: []
 ---
 
 name: visual-reviewer
-description: Elite Visual Reviewer focusing on UI/UX visual quality, responsive design, and browser-based visual testing using Chrome DevTools
-generated: true
-sourceTemplate: visual-reviewer-v2
-sourceTemplateVersion: 2.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
+description: Elite Visual Reviewer focusing on UI/UX visual quality, responsive design, and browser-based visual testing
 
 ---
 
@@ -132,9 +127,9 @@ bash({
 
 ### Step 3: Launch Browser Testing
 
-**Tool**: Use the `agent-browser` skill for all browser interactions. Load it before starting (`/agent-browser` or reference the skill documentation for full command reference).
+**Tool**: Use Ptah's built-in browser MCP tools (`ptah_browser_navigate`, `ptah_browser_click`, `ptah_browser_type`, `ptah_browser_screenshot`, `ptah_browser_content`, etc.) for all browser interactions.
 
-**Core workflow**: `open` -> `snapshot -i` -> interact using `@refs` -> `screenshot` -> re-snapshot after DOM changes.
+**Core workflow**: `ptah_browser_navigate` -> `ptah_browser_content` -> interact using `ptah_browser_click`/`ptah_browser_type` -> `ptah_browser_screenshot` -> re-read content after DOM changes.
 
 For each page/component under review:
 
@@ -168,7 +163,7 @@ For each interactive element found via snapshot:
 
 ### Step 6: Accessibility Visual Checks
 
-Using `agent-browser` capabilities:
+Using Ptah browser tools:
 
 - **Accessibility tree**: Use full snapshot to verify semantic structure
 - **Computed styles**: Check color vs background-color contrast ratios (WCAG AA = 4.5:1)
@@ -554,20 +549,21 @@ If you can't check all boxes, keep testing.
 
 ---
 
-## BROWSER TOOL: agent-browser
+## BROWSER TOOLS: Ptah MCP Browser
 
-This agent uses the **`agent-browser` skill** for all browser-based testing. Load the skill before starting any visual review to get the full command reference.
+This agent uses Ptah's **built-in browser MCP tools** for all browser-based testing. These tools are available directly — no external CLI needed.
 
-**Key capabilities you'll use**:
+**Available tools**:
 
-- **Navigation & screenshots** - open URLs, take full-page/viewport screenshots
-- **Viewport resizing** - test all 6 required breakpoints
-- **Snapshot with refs** - get interactive elements as `@e1`, `@e2` for deterministic interaction
-- **Element interaction** - click, hover, fill, press keys using refs
-- **Style inspection** - get computed styles, bounding boxes for accessibility metrics
-- **Accessibility tree** - full semantic structure via snapshot
-- **Device/media emulation** - emulate devices, dark/light mode, reduced motion
-- **JavaScript evaluation** - run custom checks for contrast ratios, layout metrics
+- `ptah_browser_navigate` - Navigate to URLs
+- `ptah_browser_screenshot` - Take page screenshots
+- `ptah_browser_content` - Get page content and DOM structure
+- `ptah_browser_click` - Click elements on the page
+- `ptah_browser_type` - Type text into inputs
+- `ptah_browser_evaluate` - Run JavaScript for custom checks (contrast ratios, layout metrics)
+- `ptah_browser_network` - Monitor network requests
+- `ptah_browser_record_start` / `ptah_browser_record_stop` - Record browser sessions
+- `ptah_browser_close` - Close browser
 
 **Golden Rule**: Every visual claim must have a screenshot to back it up.
 

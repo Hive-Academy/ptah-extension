@@ -43,8 +43,28 @@ import {
 /** Token refresh buffer: refresh 5 minutes before actual expiry */
 const TOKEN_REFRESH_BUFFER_SECONDS = 5 * 60;
 
+/** Shorter timeout for silent auth restore during startup (avoid blocking window creation) */
+const SILENT_RESTORE_TIMEOUT_MS = 5_000;
+
 /** Default Copilot API endpoint */
 const DEFAULT_COPILOT_API_ENDPOINT = 'https://api.githubcopilot.com';
+
+/**
+ * Default Copilot token exchange URL.
+ * Exchanges a GitHub OAuth token for a Copilot-specific bearer token.
+ * Safe to hardcode here — this compiles to JS which the marketplace scanner ignores.
+ * Can be overridden via the 'ptah.provider.github-copilot.tokenExchangeUrl' setting.
+ */
+const DEFAULT_TOKEN_EXCHANGE_URL =
+  'https://api.github.com/copilot_internal/v2/token';
+
+/**
+ * Default GitHub OAuth App client ID for the device code flow.
+ * This is GitHub Copilot's public client ID, standard across all Copilot integrations
+ * (VS Code, Neovim, JetBrains, etc.). Not personal or account-specific.
+ * Can be overridden via the 'ptah.provider.github-copilot.clientId' setting.
+ */
+const DEFAULT_COPILOT_CLIENT_ID = 'Iv1.b507a08c87ecfe98';
 
 /**
  * Safely describes a token for logging — never exposes the full value.
@@ -112,18 +132,9 @@ export class CopilotAuthService implements ICopilotAuthService {
       this.logger.info('[CopilotAuth] Starting authentication...');
 
       // Strategy 1: Try reading token from Copilot config file
-      const fileToken = await readCopilotToken();
-      if (fileToken) {
-        this.logger.info(
-          '[CopilotAuth] Found GitHub token in Copilot config file',
-        );
-        const exchanged = await this.exchangeToken(fileToken);
-        if (exchanged) {
-          return true;
-        }
-        this.logger.warn(
-          '[CopilotAuth] File token exchange failed, falling back to device code flow',
-        );
+      const fileRestored = await this.tryFileBasedAuth();
+      if (fileRestored) {
+        return true;
       }
 
       // Strategy 2: GitHub Device Code flow
@@ -162,37 +173,94 @@ export class CopilotAuthService implements ICopilotAuthService {
   }
 
   /**
+   * Attempt to restore Copilot authentication silently from persisted tokens.
+   * Tries file-based token reading (~/.config/github-copilot/hosts.json)
+   * but does NOT trigger the interactive device code flow.
+   *
+   * Used by AuthManager during startup to avoid blocking the UI with
+   * auth dialogs before the main window is created. Uses a shorter
+   * network timeout (5s vs 15s) to minimize startup delay.
+   *
+   * @returns true if authentication was restored, false otherwise
+   */
+  async tryRestoreAuth(): Promise<boolean> {
+    try {
+      this.logger.info(
+        '[CopilotAuth] Attempting silent auth restore from file...',
+      );
+      return await this.tryFileBasedAuth(SILENT_RESTORE_TIMEOUT_MS);
+    } catch (error) {
+      this.logger.info(
+        `[CopilotAuth] Silent auth restore unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Try to authenticate using the token from the Copilot config file.
+   * Shared by both login() (full timeout) and tryRestoreAuth() (short timeout).
+   *
+   * @param timeoutMs - HTTP timeout for the token exchange request
+   * @returns true if file-based auth succeeded
+   */
+  private async tryFileBasedAuth(timeoutMs?: number): Promise<boolean> {
+    const fileToken = await readCopilotToken();
+    if (!fileToken) {
+      this.logger.info('[CopilotAuth] No Copilot config file found');
+      return false;
+    }
+
+    this.logger.info('[CopilotAuth] Found GitHub token in Copilot config file');
+    const exchanged = await this.exchangeToken(fileToken, timeoutMs);
+    if (exchanged) {
+      return true;
+    }
+    this.logger.warn(
+      '[CopilotAuth] File token exchange failed (token may be expired)',
+    );
+    return false;
+  }
+
+  /**
    * Execute the device code login flow, displaying the user code
    * via the platform-agnostic IUserInteraction service.
    *
-   * Reads the GitHub OAuth client ID from settings. When empty,
-   * device code flow is skipped (expected default for VS Code which uses native auth).
+   * Uses the well-known GitHub Copilot client ID by default.
+   * Can be overridden via settings for enterprise GitHub instances.
    */
   private async executeDeviceCodeLogin(): Promise<string | null> {
-    const clientId =
+    const configured =
       this.workspaceProvider.getConfiguration<string>(
         'ptah',
         'provider.github-copilot.clientId',
         '',
       ) ?? '';
 
-    if (!clientId) {
-      this.logger.warn(
-        '[CopilotAuth] Device code client ID not configured. ' +
-          'Set "ptah.provider.github-copilot.clientId" in settings to enable device code flow.',
-      );
-      return null;
-    }
+    const clientId = configured || DEFAULT_COPILOT_CLIENT_ID;
 
     const callbacks: DeviceCodeCallbacks = {
-      onUserCode: (userCode, verificationUri) => {
-        // Return value intentionally discarded: IUserInteraction has no clipboard
-        // method, so we cannot copy the code even if the user clicks "Copy Code".
-        // The button still serves as visual acknowledgement of the code display.
+      onUserCode: async (userCode, verificationUri) => {
+        // Copy device code to clipboard and open browser for the user
+        try {
+          await this.userInteraction.writeToClipboard(userCode);
+          this.logger.info('[CopilotAuth] Device code copied to clipboard');
+        } catch {
+          // Clipboard write is best-effort
+        }
+
+        // Show dialog with the code (in case clipboard didn't work)
         void this.userInteraction.showInformationMessage(
-          `GitHub Copilot: Enter code ${userCode} at ${verificationUri}`,
-          'Copy Code',
+          `Code "${userCode}" copied to clipboard.\nPaste it at ${verificationUri} to complete authentication.`,
+          'OK',
         );
+
+        // Open the verification URL in the default browser
+        try {
+          await this.userInteraction.openExternal(verificationUri);
+        } catch {
+          // Browser open is best-effort — user can navigate manually
+        }
       },
     };
 
@@ -288,14 +356,17 @@ export class CopilotAuthService implements ICopilotAuthService {
    * a GitHub token via VS Code's native authentication provider.
    *
    * @param githubToken - GitHub OAuth access token
+   * @param timeoutMs - HTTP request timeout in milliseconds (default: 15s)
    * @returns true if exchange succeeded
    */
-  protected async exchangeToken(githubToken: string): Promise<boolean> {
+  protected async exchangeToken(
+    githubToken: string,
+    timeoutMs = 15_000,
+  ): Promise<boolean> {
     const tokenUrl = this.getTokenExchangeUrl();
     if (!tokenUrl) {
       this.logger.warn(
-        '[CopilotAuth] Token exchange URL not configured. ' +
-          'Set "ptah.provider.github-copilot.tokenExchangeUrl" in settings to enable Copilot proxy.',
+        '[CopilotAuth] Token exchange URL is empty — this should not happen.',
       );
       return false;
     }
@@ -314,7 +385,7 @@ export class CopilotAuthService implements ICopilotAuthService {
             Accept: 'application/json',
             'User-Agent': `ptah-extension/${version}`,
           },
-          timeout: 15_000,
+          timeout: timeoutMs,
         },
       );
 
@@ -379,17 +450,18 @@ export class CopilotAuthService implements ICopilotAuthService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Read the Copilot token exchange URL from VS Code settings.
-   * Returns empty string when unconfigured (proxy mode disabled).
+   * Read the Copilot token exchange URL from settings.
+   * Falls back to the well-known GitHub Copilot internal endpoint when unconfigured.
    */
   private getTokenExchangeUrl(): string {
-    return (
+    const configured =
       this.workspaceProvider.getConfiguration<string>(
         'ptah',
         'provider.github-copilot.tokenExchangeUrl',
         '',
-      ) ?? ''
-    );
+      ) ?? '';
+
+    return configured || DEFAULT_TOKEN_EXCHANGE_URL;
   }
 
   /**

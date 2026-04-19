@@ -30,15 +30,21 @@ import {
   CliDetectionService,
   CopilotPermissionBridge,
 } from '@ptah-extension/llm-abstraction';
-import { SdkAgentAdapter, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type { IAgentAdapter, ResultStatsPayload } from '@ptah-extension/shared';
 import {
   retryWithBackoff,
   MESSAGE_TYPES,
   AgentProcessInfo,
   AgentOutputDelta,
   CliSessionReference,
+  parseWorktreeList,
 } from '@ptah-extension/shared';
-import type { AgentPermissionRequest } from '@ptah-extension/shared';
+import type {
+  AgentPermissionRequest,
+  AnalysisStreamPayload,
+  FlatStreamEventUnion,
+} from '@ptah-extension/shared';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import * as vscode from 'vscode';
 
@@ -64,11 +70,13 @@ import {
   PluginRpcHandlers,
   PtahCliRpcHandlers,
   WebSearchRpcHandlers,
+  HarnessRpcHandlers,
   // Tier 3 handlers (local, VS Code-specific)
   FileRpcHandlers,
   CommandRpcHandlers,
   AgentRpcHandlers,
   SkillsShRpcHandlers,
+  McpDirectoryRpcHandlers,
 } from './handlers';
 
 interface WebviewManager {
@@ -93,8 +101,8 @@ export class RpcMethodRegistrationService {
     private readonly agentWatcher: AgentSessionWatcherService,
     @inject(TOKENS.COMMAND_MANAGER)
     private readonly commandManager: CommandManager,
-    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
-    private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(TOKENS.AGENT_ADAPTER)
+    private readonly sdkAdapter: IAgentAdapter,
     // Domain-specific handlers
     @inject(ChatRpcHandlers) private readonly chatHandlers: ChatRpcHandlers,
     @inject(SessionRpcHandlers)
@@ -130,8 +138,12 @@ export class RpcMethodRegistrationService {
     private readonly ptahCliHandlers: PtahCliRpcHandlers, // TASK_2025_167
     @inject(SkillsShRpcHandlers)
     private readonly skillsShHandlers: SkillsShRpcHandlers, // TASK_2025_204
+    @inject(McpDirectoryRpcHandlers)
+    private readonly mcpDirectoryHandlers: McpDirectoryRpcHandlers,
     @inject(WebSearchRpcHandlers)
     private readonly webSearchHandlers: WebSearchRpcHandlers, // TASK_2025_235
+    @inject(HarnessRpcHandlers)
+    private readonly harnessHandlers: HarnessRpcHandlers,
     @inject('DependencyContainer')
     private readonly container: DependencyContainer,
   ) {
@@ -170,7 +182,9 @@ export class RpcMethodRegistrationService {
     this.agentHandlers.register(); // TASK_2025_157
     this.ptahCliHandlers.register(); // TASK_2025_167
     this.skillsShHandlers.register(); // TASK_2025_204
+    this.mcpDirectoryHandlers.register(); // MCP Server Directory
     this.webSearchHandlers.register(); // TASK_2025_235
+    this.harnessHandlers.register();
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),
@@ -208,6 +222,12 @@ export class RpcMethodRegistrationService {
       'git:worktrees',
       'git:addWorktree',
       'git:removeWorktree',
+      // Source control methods (TASK_2025_273)
+      'git:stage',
+      'git:unstage',
+      'git:discard',
+      'git:commit',
+      'git:showFile',
       // Electron terminal methods (TASK_2025_227)
       'terminal:create',
       'terminal:kill',
@@ -604,16 +624,45 @@ export class RpcMethodRegistrationService {
    * WorktreeService can refresh its worktree list and register new workspace folders.
    */
   private setupWorktreeCallbacks(): void {
-    this.sdkAdapter.setWorktreeCreatedCallback((data) => {
+    this.sdkAdapter.setWorktreeCreatedCallback(async (data) => {
       this.logger.info(
         `[RPC] Worktree created: name=${data.name}, sessionId=${data.sessionId}`,
       );
+
+      // Resolve the actual worktree path by listing worktrees and matching by branch name.
+      // The SDK hook only provides branch name + session cwd, not the worktree path.
+      let worktreePath: string | undefined;
+      try {
+        const crossSpawn = await import('cross-spawn');
+        const child = crossSpawn.default(
+          'git',
+          ['worktree', 'list', '--porcelain'],
+          {
+            cwd: data.cwd,
+            stdio: ['pipe', 'pipe', 'pipe'],
+          },
+        );
+        const chunks: Buffer[] = [];
+        child.stdout?.on('data', (chunk: Buffer) => chunks.push(chunk));
+        await new Promise<void>((resolve) =>
+          child.on('close', () => resolve()),
+        );
+        const output = Buffer.concat(chunks).toString();
+        const worktrees = parseWorktreeList(output);
+        const match = worktrees.find((w) => w.branch === data.name);
+        worktreePath = match?.path;
+      } catch (err) {
+        this.logger.warn(
+          '[RPC] Failed to resolve worktree path for notification',
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      }
 
       this.webviewManager
         .broadcastMessage('git:worktreeChanged', {
           action: 'created',
           name: data.name,
-          path: data.cwd,
+          path: worktreePath,
         })
         .catch((error) => {
           this.logger.error(
@@ -645,25 +694,7 @@ export class RpcMethodRegistrationService {
   /**
    * Send session stats to webview with retry logic
    */
-  private async sendStatsWithRetry(stats: {
-    sessionId: string;
-    cost: number;
-    tokens: {
-      input: number;
-      output: number;
-      cacheRead?: number;
-      cacheCreation?: number;
-    };
-    duration: number;
-    modelUsage?: Array<{
-      model: string;
-      inputTokens: number;
-      outputTokens: number;
-      contextWindow: number;
-      costUSD: number;
-      cacheReadInputTokens?: number;
-    }>;
-  }): Promise<void> {
+  private async sendStatsWithRetry(stats: ResultStatsPayload): Promise<void> {
     try {
       await retryWithBackoff(
         () =>
@@ -795,6 +826,29 @@ export class RpcMethodRegistrationService {
             error instanceof Error ? error : new Error(String(error)),
           );
         });
+
+      // Also broadcast to setup wizard pipeline so the wizard's ExecutionTreeBuilder
+      // can match agent_start events to Task tool nodes during analysis.
+      // Without this, wizard sessions that spawn sub-agents show "No agent_start match"
+      // because agent_start events were only sent through CHAT_CHUNK.
+      const wizardStreamPayload: AnalysisStreamPayload = {
+        kind: 'status',
+        content: `Agent started: ${agentStartEvent.agentType ?? 'unknown'}`,
+        timestamp: agentStartEvent.timestamp,
+        flatEvent: streamingEvent as FlatStreamEventUnion,
+      };
+
+      this.webviewManager
+        .broadcastMessage(
+          MESSAGE_TYPES.SETUP_WIZARD_ANALYSIS_STREAM,
+          wizardStreamPayload,
+        )
+        .catch((error) => {
+          this.logger.debug(
+            'Failed to send agent-start to wizard pipeline (wizard may not be active)',
+            { error: error instanceof Error ? error.message : String(error) },
+          );
+        });
     });
   }
 
@@ -802,53 +856,63 @@ export class RpcMethodRegistrationService {
    * Register VS Code command for launching setup wizard
    */
   private registerSetupAgentsCommand(): void {
-    this.commandManager.registerCommand({
-      id: 'ptah.setupAgents',
-      title: 'Setup Ptah Agents',
-      category: 'Ptah',
-      handler: async () => {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    try {
+      this.commandManager.registerCommand({
+        id: 'ptah.setupAgents',
+        title: 'Setup Ptah Agents',
+        category: 'Ptah',
+        handler: async () => {
+          const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
 
-        if (!workspaceFolder) {
-          vscode.window.showErrorMessage(
-            'No workspace open. Please open a folder first.',
-          );
-          return;
-        }
-
-        try {
-          const setupWizardService = this.container.resolve(
-            AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE,
-          ) as {
-            launchWizard: (workspacePath: string) => Promise<{
-              isErr?: () => boolean;
-              error?: { message: string };
-            }>;
-          };
-
-          const result = await setupWizardService.launchWizard(
-            workspaceFolder.uri.fsPath,
-          );
-
-          if (result.isErr && result.isErr()) {
+          if (!workspaceFolder) {
             vscode.window.showErrorMessage(
-              `Failed to launch setup wizard: ${result.error?.message}`,
+              'No workspace open. Please open a folder first.',
+            );
+            return;
+          }
+
+          try {
+            const setupWizardService = this.container.resolve(
+              AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE,
+            ) as {
+              launchWizard: (workspacePath: string) => Promise<{
+                isErr?: () => boolean;
+                error?: { message: string };
+              }>;
+            };
+
+            const result = await setupWizardService.launchWizard(
+              workspaceFolder.uri.fsPath,
+            );
+
+            if (result.isErr && result.isErr()) {
+              vscode.window.showErrorMessage(
+                `Failed to launch setup wizard: ${result.error?.message}`,
+              );
+            }
+          } catch (error) {
+            this.logger.error(
+              'Failed to launch setup wizard',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+            vscode.window.showErrorMessage(
+              `Failed to launch setup wizard: ${
+                error instanceof Error ? error.message : 'Unknown error'
+              }`,
             );
           }
-        } catch (error) {
-          this.logger.error(
-            'Failed to launch setup wizard',
-            error instanceof Error ? error : new Error(String(error)),
-          );
-          vscode.window.showErrorMessage(
-            `Failed to launch setup wizard: ${
-              error instanceof Error ? error.message : 'Unknown error'
-            }`,
-          );
-        }
-      },
-    });
+        },
+      });
 
-    this.logger.info('Setup agents command registered');
+      this.logger.info('Setup agents command registered');
+    } catch (error) {
+      // Command may already be registered by another instance of the extension
+      // (e.g., marketplace version running alongside dev build). Log and continue
+      // instead of crashing activation.
+      this.logger.warn(
+        'Setup agents command registration skipped (likely already registered)',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
   }
 }

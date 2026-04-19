@@ -41,6 +41,7 @@ import type { SubagentHookHandler } from '../helpers/subagent-hook-handler';
 import type { CompactionHookHandler } from '../helpers/compaction-hook-handler';
 import type { CompactionConfigProvider } from '../helpers/compaction-config-provider';
 import type { ProviderModelsService } from '../provider-models.service';
+import type { ModelResolver } from '../auth/model-resolver';
 import {
   ANTHROPIC_PROVIDERS,
   getAnthropicProvider,
@@ -48,7 +49,9 @@ import {
   seedStaticModelPricing,
   type AnthropicProvider,
 } from '../helpers/anthropic-provider-registry';
+import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../local-provider';
 import { buildSafeEnv } from '../helpers/build-safe-env';
+import { TIER_TO_MODEL_ID, type ModelTier } from '../helpers/sdk-model-service';
 import type { Options } from '../types/sdk-types/claude-sdk.types';
 import { PtahCliAdapter } from './ptah-cli-adapter';
 import type { PtahCliConfigPersistence } from './helpers/ptah-cli-config-persistence.service';
@@ -107,6 +110,8 @@ export class PtahCliRegistry {
     private readonly configPersistence: PtahCliConfigPersistence,
     @inject(SDK_TOKENS.SDK_PTAH_CLI_SPAWN_OPTIONS)
     private readonly spawnOptionsService: PtahCliSpawnOptions,
+    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: ModelResolver,
   ) {
     this.logger.info('[PtahCliRegistry] Registry initialized');
   }
@@ -120,11 +125,14 @@ export class PtahCliRegistry {
     const summaries: PtahCliSummary[] = [];
 
     for (const agentConfig of configs) {
-      const hasKey = await this.authSecrets.hasProviderKey(
-        `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`,
-      );
-
       const provider = getAnthropicProvider(agentConfig.providerId);
+      const isLocalProvider = provider?.authType === 'none';
+      const hasKey =
+        isLocalProvider ||
+        (await this.authSecrets.hasProviderKey(
+          `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`,
+        ));
+
       const modelCount = provider?.staticModels?.length ?? 0;
 
       let status: PtahCliState['status'] = 'unconfigured';
@@ -310,15 +318,17 @@ export class PtahCliRegistry {
       return undefined;
     }
 
-    const apiKey = await this.authSecrets.getProviderKey(
-      `${PTAH_CLI_KEY_PREFIX}.${id}`,
-    );
+    const provider = getAnthropicProvider(agentConfig.providerId);
+    const isLocalProvider = provider?.authType === 'none';
+
+    const apiKey = isLocalProvider
+      ? OLLAMA_AUTH_TOKEN_PLACEHOLDER
+      : await this.authSecrets.getProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`);
     if (!apiKey) {
       this.logger.warn(`[PtahCliRegistry] No API key for agent: ${id}`);
       return undefined;
     }
 
-    const provider = getAnthropicProvider(agentConfig.providerId);
     const effectiveTiers = provider
       ? this.resolveEffectiveTiers(agentConfig, provider)
       : agentConfig.tierMappings;
@@ -338,6 +348,7 @@ export class PtahCliRegistry {
       this.subagentHookHandler,
       this.compactionHookHandler,
       this.compactionConfigProvider,
+      this.modelResolver,
     );
 
     const success = await adapter.initialize();
@@ -374,14 +385,15 @@ export class PtahCliRegistry {
         return { success: false, error: 'Agent configuration not found' };
       }
 
-      const apiKey = await this.authSecrets.getProviderKey(
-        `${PTAH_CLI_KEY_PREFIX}.${id}`,
-      );
+      const testProvider = getAnthropicProvider(agentConfig.providerId);
+      const isLocalProvider = testProvider?.authType === 'none';
+
+      const apiKey = isLocalProvider
+        ? OLLAMA_AUTH_TOKEN_PLACEHOLDER
+        : await this.authSecrets.getProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`);
       if (!apiKey) {
         return { success: false, error: 'API key not configured' };
       }
-
-      const testProvider = getAnthropicProvider(agentConfig.providerId);
       const testTiers = testProvider
         ? this.resolveEffectiveTiers(agentConfig, testProvider)
         : agentConfig.tierMappings;
@@ -397,6 +409,10 @@ export class PtahCliRegistry {
         this.moduleLoader,
         this.messageTransformer,
         this.permissionHandler,
+        undefined, // subagentHookHandler - not needed for test
+        undefined, // compactionHookHandler - not needed for test
+        undefined, // compactionConfigProvider - not needed for test
+        this.modelResolver,
       );
       const initSuccess = await testAdapter.initialize();
       if (!initSuccess) {
@@ -488,8 +504,14 @@ export class PtahCliRegistry {
       /** Parent session ID for permission routing. Permissions from this agent
        *  will be scoped to this session for cleanup purposes. */
       parentSessionId?: string;
+      /** Model capability tier: 'opus' (most capable), 'sonnet' (balanced, default), 'haiku' (fastest).
+       *  Resolves to the SDK model ID used for the query. When omitted, defaults to 'sonnet'. */
+      modelTier?: 'opus' | 'sonnet' | 'haiku';
     },
-  ): Promise<{ handle: SdkHandle; agentName: string } | SpawnAgentFailure> {
+  ): Promise<
+    | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
+    | SpawnAgentFailure
+  > {
     // Find config
     const configs = this.configPersistence.loadConfigs();
     const agentConfig = configs.find((c) => c.id === id);
@@ -509,10 +531,14 @@ export class PtahCliRegistry {
       };
     }
 
-    // Get API key
-    const apiKey = await this.authSecrets.getProviderKey(
-      `${PTAH_CLI_KEY_PREFIX}.${id}`,
-    );
+    // Resolve provider
+    const provider = getAnthropicProvider(agentConfig.providerId);
+
+    // Get API key (local providers use placeholder)
+    const isLocalProvider = provider?.authType === 'none';
+    const apiKey = isLocalProvider
+      ? OLLAMA_AUTH_TOKEN_PLACEHOLDER
+      : await this.authSecrets.getProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`);
     if (!apiKey) {
       this.logger.warn(
         `[PtahCliRegistry] spawnAgent: no API key for agent: ${id}`,
@@ -522,9 +548,6 @@ export class PtahCliRegistry {
         message: `No API key configured for Ptah CLI agent "${id}"`,
       };
     }
-
-    // Resolve provider
-    const provider = getAnthropicProvider(agentConfig.providerId);
     if (!provider) {
       this.logger.error(
         `[PtahCliRegistry] spawnAgent: unknown provider: ${agentConfig.providerId}`,
@@ -535,13 +558,26 @@ export class PtahCliRegistry {
       };
     }
 
+    // TASK_2025_255: Create mutable holder for agentId.
+    // The agentId is not available until after spawnFromSdkHandle() returns,
+    // but the permission callback (canUseTool) is created before that.
+    // The resolver closure captures this holder; the caller populates it
+    // via setAgentId() after spawn completes.
+    const agentIdHolder: { value?: string } = {};
+
     // Build isolated AuthEnv
     const authEnv = this.buildAuthEnv(agentConfig, provider, apiKey);
     seedStaticModelPricing(agentConfig.providerId);
 
-    // SDK model name (env vars route to actual provider model)
-    const model = 'claude-sonnet-4-20250514';
-    const cwd = options?.workingDirectory || process.cwd();
+    // Resolve SDK model from tier — prefer provider-specific tier mappings
+    // over hardcoded Anthropic model IDs (critical for local providers like Ollama)
+    const tier: ModelTier = options?.modelTier ?? 'sonnet';
+    const spawnTiers = this.resolveEffectiveTiers(agentConfig, provider);
+    const model = spawnTiers?.[tier] ?? TIER_TO_MODEL_ID[tier];
+    // workingDirectory should be resolved by the caller (agent-namespace.builder).
+    // os.homedir() is a safer fallback than process.cwd() which returns the
+    // app installation directory in VS Code extension host / Electron.
+    const cwd = options?.workingDirectory || require('os').homedir();
 
     // Assemble premium spawn options via dedicated service
     const assembly = await this.spawnOptionsService.assembleSpawnOptions(
@@ -562,13 +598,20 @@ export class PtahCliRegistry {
       emitOutput,
       onStreamEvent,
       emitStreamEvent,
+      dispose: disposeCallbacks,
     } = this.createCallbackInfrastructure();
 
     this.logger.info(
       `[PtahCliRegistry] Building spawn options for "${agentConfig.name}"`,
       {
         cwd,
+        modelTier: tier,
+        sdkModel: model,
         resumeSessionId: options?.resumeSessionId ?? null,
+        isPremium: assembly.isPremium,
+        pluginCount: assembly.plugins?.length ?? 0,
+        mcpEnabled: Object.keys(assembly.mcpServers).length > 0,
+        hasSystemPrompt: !!assembly.systemPromptContent,
       },
     );
 
@@ -607,6 +650,7 @@ export class PtahCliRegistry {
           options?.resumeSessionId ??
             options?.parentSessionId ??
             `ptah-cli:${id}`,
+          () => agentIdHolder.value,
         ),
         settingSources: ['user', 'project', 'local'] as const,
         includePartialMessages: true,
@@ -646,7 +690,17 @@ export class PtahCliRegistry {
         }
       },
     });
-    const done = streamLoop.run(sdkQuery);
+    // Chain dispose after stream loop exits to release callback/buffer references.
+    // The stream loop's run() returns the exit code; we preserve it after cleanup.
+    const done = streamLoop.run(sdkQuery).then((exitCode) => {
+      try {
+        disposeCallbacks();
+        sessionResolvedCallbacks.length = 0;
+      } catch {
+        // Cleanup errors must not break the promise chain or mask the exit code
+      }
+      return exitCode;
+    });
 
     const handle: SdkHandle = {
       abort: abortController,
@@ -672,7 +726,16 @@ export class PtahCliRegistry {
       `[PtahCliRegistry] Spawned headless agent "${agentConfig.name}" (${id}) with model ${providerModel} (SDK model: ${model})`,
     );
 
-    return { handle, agentName: agentConfig.name };
+    return {
+      handle,
+      agentName: agentConfig.name,
+      /** Call this AFTER spawnFromSdkHandle() returns with the agentId.
+       *  Populates the lazy resolver used by SdkPermissionHandler to route
+       *  CLI agent permissions to the agent monitor panel. */
+      setAgentId: (agentId: string) => {
+        agentIdHolder.value = agentId;
+      },
+    };
   }
 
   /**
@@ -707,7 +770,10 @@ export class PtahCliRegistry {
    * For other modes ('ask', 'auto-edit'), we keep `default` and provide
    * the canUseTool callback so the user sees permission prompts.
    */
-  private resolvePermissionOptions(sessionId?: string): {
+  private resolvePermissionOptions(
+    sessionId?: string,
+    cliAgentResolver?: () => string | undefined,
+  ): {
     permissionMode: string;
     canUseTool?: ReturnType<SdkPermissionHandler['createCallback']>;
     allowDangerouslySkipPermissions?: boolean;
@@ -737,10 +803,14 @@ export class PtahCliRegistry {
 
     this.logger.info(
       `[PtahCliRegistry] Permission mode for subagent: ${sdkMode} (level: ${level})`,
+      { sessionId, hasCanUseTool: true },
     );
     return {
       permissionMode: sdkMode,
-      canUseTool: this.permissionHandler.createCallback(sessionId),
+      canUseTool: this.permissionHandler.createCallback(
+        sessionId,
+        cliAgentResolver,
+      ),
     };
   }
 
@@ -843,6 +913,19 @@ export class PtahCliRegistry {
       }
     };
 
+    /**
+     * Dispose all callback arrays and buffers.
+     * Idempotent — safe to call multiple times.
+     * Called after the stream loop exits to release references held by closures.
+     */
+    const dispose = (): void => {
+      outputCallbacks.length = 0;
+      segmentBuffer.length = 0;
+      segmentCallbacks.length = 0;
+      streamEventBuffer.length = 0;
+      streamEventCallbacks.length = 0;
+    };
+
     return {
       outputCallbacks,
       segmentBuffer,
@@ -854,6 +937,7 @@ export class PtahCliRegistry {
       emitOutput,
       onStreamEvent,
       emitStreamEvent,
+      dispose,
     };
   }
 
@@ -871,12 +955,22 @@ export class PtahCliRegistry {
   ): PtahCliConfig['tierMappings'] {
     const mainTiers = this.providerModels.getModelTiers(agentConfig.providerId);
     const agentTiers = agentConfig.tierMappings;
+    const providerDefaults = provider.defaultTiers;
     const defaultSonnet = provider.staticModels?.[0]?.id ?? undefined;
 
     const sonnet =
-      agentTiers?.sonnet || mainTiers.sonnet || defaultSonnet || undefined;
-    const opus = agentTiers?.opus || mainTiers.opus || undefined;
-    const haiku = agentTiers?.haiku || mainTiers.haiku || undefined;
+      agentTiers?.sonnet ||
+      mainTiers.sonnet ||
+      providerDefaults?.sonnet ||
+      defaultSonnet ||
+      undefined;
+    const opus =
+      agentTiers?.opus || mainTiers.opus || providerDefaults?.opus || undefined;
+    const haiku =
+      agentTiers?.haiku ||
+      mainTiers.haiku ||
+      providerDefaults?.haiku ||
+      undefined;
 
     if (!sonnet && !opus && !haiku) {
       return undefined;

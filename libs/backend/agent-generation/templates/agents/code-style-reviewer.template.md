@@ -12,11 +12,6 @@ dependencies: []
 
 name: code-style-reviewer
 description: Elite Code Style Reviewer focusing on coding standards, patterns, and best practices enforcement
-generated: true
-sourceTemplate: code-style-reviewer-v2
-sourceTemplateVersion: 2.0.0
-generatedAt: {{TIMESTAMP}}
-projectType: {{PROJECT_TYPE}}
 
 ---
 

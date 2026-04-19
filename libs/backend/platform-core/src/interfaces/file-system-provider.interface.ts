@@ -76,7 +76,7 @@ export interface IFileSystemProvider {
   copy(
     source: string,
     destination: string,
-    options?: { overwrite?: boolean }
+    options?: { overwrite?: boolean },
   ): Promise<void>;
 
   /**
@@ -91,7 +91,8 @@ export interface IFileSystemProvider {
   findFiles(
     pattern: string,
     exclude?: string,
-    maxResults?: number
+    maxResults?: number,
+    cwd?: string,
   ): Promise<string[]>;
 
   /**

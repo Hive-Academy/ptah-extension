@@ -5,7 +5,6 @@
  * quality:*, plugins:* methods
  */
 
-import type { SessionId } from '../branded.types';
 import type {
   ProjectIntelligence,
   QualityHistoryEntry,
@@ -131,7 +130,7 @@ export type LicenseGetStatusParams = Record<string, never>;
  * TASK_2025_128: Freemium model conversion
  * - 'community': FREE forever - always valid, no license required
  * - 'pro': Active Pro subscription ($5/month)
- * - 'trial_pro': Pro plan during 30-day trial
+ * - 'trial_pro': Pro plan during 100-day trial
  * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
 export type LicenseTier = 'community' | 'pro' | 'trial_pro' | 'expired';
@@ -303,6 +302,20 @@ export interface PluginInfo {
 export interface PluginConfigState {
   /** Array of enabled plugin IDs */
   enabledPluginIds: string[];
+  /** Skill directory names that are explicitly disabled (e.g., "orchestration") */
+  disabledSkillIds: string[];
   /** ISO timestamp of last configuration change */
   lastUpdated?: string;
+}
+
+/** Skill metadata for per-skill toggling UI */
+export interface PluginSkillEntry {
+  /** Skill directory name (globally unique, used as ID) */
+  skillId: string;
+  /** Human-readable skill name from SKILL.md frontmatter */
+  displayName: string;
+  /** Skill description from SKILL.md frontmatter */
+  description: string;
+  /** Parent plugin ID (e.g., "ptah-core") */
+  pluginId: string;
 }

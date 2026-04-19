@@ -83,7 +83,7 @@ export class SessionManager {
     // Guard: Cannot transition from confirmed back to draft
     if (this._sessionState() === 'confirmed' && state === 'draft') {
       console.warn(
-        '[SessionManager] Invalid state transition: confirmed → draft (blocked)'
+        '[SessionManager] Invalid state transition: confirmed → draft (blocked)',
       );
       return;
     }
@@ -112,7 +112,7 @@ export class SessionManager {
   confirmSessionId(realId: SessionId): void {
     if (this._sessionState() === 'confirmed') {
       console.warn(
-        '[SessionManager] Session already confirmed, ignoring duplicate confirmation'
+        '[SessionManager] Session already confirmed, ignoring duplicate confirmation',
       );
       return;
     }
@@ -125,10 +125,13 @@ export class SessionManager {
       this._status.set('streaming');
     }
 
-    console.log('[SessionManager] Session ID confirmed:', {
-      draftId: this._draftId(),
-      confirmedId: realId,
-    });
+    // TASK_2025_264 P4: Dev-guard diagnostic log to reduce GC pressure in production
+    if (typeof ngDevMode !== 'undefined' && ngDevMode) {
+      console.log('[SessionManager] Session ID confirmed:', {
+        draftId: this._draftId(),
+        confirmedId: realId,
+      });
+    }
   }
 
   /**
@@ -137,7 +140,10 @@ export class SessionManager {
    */
   failSession(): void {
     this._sessionState.set('failed');
-    console.log('[SessionManager] Session marked as failed');
+    // TASK_2025_264 P4: Dev-guard diagnostic log
+    if (typeof ngDevMode !== 'undefined' && ngDevMode) {
+      console.log('[SessionManager] Session marked as failed');
+    }
   }
 
   /**
@@ -217,10 +223,15 @@ export class SessionManager {
         .filter((chunk) => now - chunk.timestamp < PENDING_CHUNK_TTL_MS)
         .map((chunk) => chunk.summaryDelta);
 
-      if (validDeltas.length > 0) {
+      // TASK_2025_264 P4: Dev-guard diagnostic log (fires on every agent chunk flush)
+      if (
+        validDeltas.length > 0 &&
+        typeof ngDevMode !== 'undefined' &&
+        ngDevMode
+      ) {
         console.log(
           `[SessionManager] Flushing ${validDeltas.length} pending chunks for agent:`,
-          toolCallId
+          toolCallId,
         );
       }
 
@@ -245,11 +256,14 @@ export class SessionManager {
     });
     this._pendingAgentChunks.set(toolCallId, existing);
 
-    console.log(
-      `[SessionManager] Buffered chunk for pending agent:`,
-      toolCallId,
-      `(${existing.length} chunks buffered)`
-    );
+    // TASK_2025_264 P4: Dev-guard diagnostic log (fires on every buffered chunk)
+    if (typeof ngDevMode !== 'undefined' && ngDevMode) {
+      console.log(
+        `[SessionManager] Buffered chunk for pending agent:`,
+        toolCallId,
+        `(${existing.length} chunks buffered)`,
+      );
+    }
   }
 
   /**
@@ -258,8 +272,8 @@ export class SessionManager {
   getAgent(toolCallId: string): ExecutionNode | undefined {
     const node = this._agentNodeMap.get(toolCallId);
 
-    // DIAGNOSTIC: Log when agent lookup succeeds or fails
-    if (!node) {
+    // TASK_2025_264 P4: Dev-guard diagnostic log (fires on every agent lookup miss)
+    if (!node && typeof ngDevMode !== 'undefined' && ngDevMode) {
       console.log('[SessionManager] getAgent() - NOT FOUND:', {
         toolCallId,
         registeredAgentIds: Array.from(this._agentNodeMap.keys()),
@@ -274,7 +288,7 @@ export class SessionManager {
    */
   updateAgent(
     toolCallId: string,
-    updater: (node: ExecutionNode) => ExecutionNode
+    updater: (node: ExecutionNode) => ExecutionNode,
   ): ExecutionNode | undefined {
     const existing = this._agentNodeMap.get(toolCallId);
     if (!existing) return undefined;
@@ -302,7 +316,7 @@ export class SessionManager {
    */
   updateTool(
     toolCallId: string,
-    updater: (node: ExecutionNode) => ExecutionNode
+    updater: (node: ExecutionNode) => ExecutionNode,
   ): ExecutionNode | undefined {
     const existing = this._toolNodeMap.get(toolCallId);
     if (!existing) return undefined;

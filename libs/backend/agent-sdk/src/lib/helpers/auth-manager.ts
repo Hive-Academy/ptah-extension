@@ -1,42 +1,34 @@
 /**
- * Authentication Manager - Handles SDK authentication configuration
+ * Authentication Manager - Thin Orchestrator (TASK_AUTH_REFACTOR Phase 2)
  *
- * Responsibilities:
- * - Anthropic-compatible provider (OpenRouter, Moonshot, Z.AI), OAuth token and API key detection
- * - Environment variable setup
- * - Token format validation
- * - Authentication priority logic (Anthropic Provider > OAuth > API Key)
+ * Replaced the ~1000-line god class with a strategy-based orchestrator.
+ * All authentication logic lives in 5 strategy classes under auth/strategies/.
  *
- * TASK_2025_091: Added OpenRouter as highest-priority auth method
- * TASK_2025_129 Batch 3: Generalized to support multiple Anthropic-compatible providers
- * TASK_2025_134: Clean Slate pattern - centralized env cleanup before each auth configuration
+ * This class is responsible ONLY for:
+ * 1. Concurrency guard (one configuration at a time)
+ * 2. Clean slate (clear env vars before each reconfiguration)
+ * 3. Strategy selection via resolveStrategy()
+ * 4. Delegating to the selected strategy's configure() method
+ * 5. Tracking the active strategy for teardown
+ * 6. Environment summary logging
+ *
+ * Public API is UNCHANGED:
+ * - configureAuthentication(rawAuthMethod: string): Promise<AuthResult>
+ * - clearAuthentication(): void
  */
 
 import { injectable, inject } from 'tsyringe';
-import {
-  Logger,
-  ConfigManager,
-  TOKENS,
-  IAuthSecretsService,
-} from '@ptah-extension/vscode-core';
-import type { AuthEnv } from '@ptah-extension/shared';
+import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
+import type { AuthEnv, AuthStrategyType } from '@ptah-extension/shared';
+import { resolveStrategy, type LegacyAuthMethod } from '@ptah-extension/shared';
+import type { IAuthStrategy } from '../auth/auth-strategy.types';
+import { SDK_TOKENS } from '../di/tokens';
+import type { ProviderModelsService } from '../provider-models.service';
 import {
   getAnthropicProvider,
-  getProviderBaseUrl,
-  getProviderAuthEnvVar,
-  seedStaticModelPricing,
   DEFAULT_PROVIDER_ID,
+  ANTHROPIC_DIRECT_PROVIDER_ID,
 } from './anthropic-provider-registry';
-import { ProviderModelsService } from '../provider-models.service';
-import { SDK_TOKENS } from '../di/tokens';
-import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
-import type {
-  ICopilotAuthService,
-  ICopilotTranslationProxy,
-} from '../copilot-provider/copilot-provider.types';
-import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
-import type { ICodexAuthService } from '../codex-provider/codex-provider.types';
-import type { ITranslationProxy } from '../openai-translation';
 
 export interface AuthResult {
   configured: boolean;
@@ -45,7 +37,7 @@ export interface AuthResult {
 }
 
 export interface AuthConfig {
-  method: 'oauth' | 'apiKey' | 'openrouter' | 'auto';
+  method: 'apiKey' | 'claudeCli' | 'thirdParty';
 }
 
 /** All auth-related environment variable names (single source of truth) */
@@ -53,57 +45,66 @@ const AUTH_ENV_VARS = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_AUTH_TOKEN',
-  'CLAUDE_CODE_OAUTH_TOKEN',
 ] as const;
 
-/** Snapshot of env values captured before cleanup, used for shell fallback detection */
-interface EnvSnapshot {
-  ANTHROPIC_API_KEY: string | undefined;
-  ANTHROPIC_BASE_URL: string | undefined;
-  ANTHROPIC_AUTH_TOKEN: string | undefined;
-  CLAUDE_CODE_OAUTH_TOKEN: string | undefined;
-}
-
 /**
- * Manages SDK authentication setup and validation
+ * Manages SDK authentication setup and validation.
+ *
+ * Delegates all provider-specific logic to IAuthStrategy implementations.
  */
 @injectable()
 export class AuthManager {
   private configInProgress: Promise<AuthResult> | null = null;
+  private activeStrategy: IAuthStrategy | null = null;
+
+  /** Strategy registry: maps AuthStrategyType to the injected strategy instance */
+  private readonly strategyRegistry: ReadonlyMap<
+    AuthStrategyType,
+    IAuthStrategy
+  >;
 
   constructor(
-    @inject(TOKENS.LOGGER) private logger: Logger,
-    @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager,
-    @inject(TOKENS.AUTH_SECRETS_SERVICE)
-    private authSecrets: IAuthSecretsService,
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
-    private providerModels: ProviderModelsService,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private authEnv: AuthEnv,
-    @inject(SDK_TOKENS.SDK_COPILOT_AUTH)
-    private copilotAuth: ICopilotAuthService,
-    @inject(SDK_TOKENS.SDK_COPILOT_PROXY)
-    private copilotProxy: ICopilotTranslationProxy,
-    @inject(SDK_TOKENS.SDK_CODEX_AUTH)
-    private codexAuth: ICodexAuthService,
-    @inject(SDK_TOKENS.SDK_CODEX_PROXY)
-    private codexProxy: ITranslationProxy
-  ) {}
+    private readonly providerModels: ProviderModelsService,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_API_KEY_STRATEGY)
+    apiKeyStrategy: IAuthStrategy,
+    @inject(SDK_TOKENS.SDK_OAUTH_PROXY_STRATEGY)
+    oauthProxyStrategy: IAuthStrategy,
+    @inject(SDK_TOKENS.SDK_LOCAL_NATIVE_STRATEGY)
+    localNativeStrategy: IAuthStrategy,
+    @inject(SDK_TOKENS.SDK_LOCAL_PROXY_STRATEGY)
+    localProxyStrategy: IAuthStrategy,
+    @inject(SDK_TOKENS.SDK_CLI_STRATEGY)
+    cliStrategy: IAuthStrategy,
+  ) {
+    this.strategyRegistry = new Map<AuthStrategyType, IAuthStrategy>([
+      ['api-key', apiKeyStrategy],
+      ['oauth-proxy', oauthProxyStrategy],
+      ['local-native', localNativeStrategy],
+      ['local-proxy', localProxyStrategy],
+      ['cli', cliStrategy],
+    ]);
+  }
 
   /**
    * Configure authentication for SDK
    * Returns auth status and details for logging
    *
    * Uses the "Clean Slate" pattern:
-   * 1. Capture env snapshot (for shell fallback detection)
-   * 2. Clear ALL auth + tier env vars (single source of truth)
-   * 3. Run selected configure method (only sets its own vars)
-   * 4. Log env summary (boolean presence, no secrets)
+   * 1. Clear ALL auth + tier env vars (single source of truth)
+   * 2. Teardown previous active strategy
+   * 3. Resolve strategy from legacy auth method + provider metadata
+   * 4. Delegate to strategy.configure()
+   * 5. Log env summary (boolean presence, no secrets)
    */
   async configureAuthentication(rawAuthMethod: string): Promise<AuthResult> {
     // Concurrency guard: if a configuration is already in progress, await it
     if (this.configInProgress) {
       this.logger.debug(
-        '[AuthManager] configureAuthentication already in progress, awaiting existing call'
+        '[AuthManager] configureAuthentication already in progress, awaiting existing call',
       );
       return this.configInProgress;
     }
@@ -120,625 +121,186 @@ export class AuthManager {
    * Internal implementation of configureAuthentication (guarded by concurrency mutex above)
    */
   private async doConfigureAuthentication(
-    rawAuthMethod: string
+    rawAuthMethod: string,
   ): Promise<AuthResult> {
-    // Normalize: treat unknown/legacy values (e.g. 'vscode-lm') as 'auto'
-    const validMethods = new Set(['oauth', 'apiKey', 'openrouter', 'auto']);
-    const authMethod = validMethods.has(rawAuthMethod) ? rawAuthMethod : 'auto';
+    // Step 1: Normalize legacy method (migrate 'openrouter' → 'thirdParty')
+    const normalized =
+      rawAuthMethod === 'openrouter' ? 'thirdParty' : rawAuthMethod;
+    const validMethods = new Set<string>(['apiKey', 'claudeCli', 'thirdParty']);
+    const authMethod = (
+      validMethods.has(normalized) ? normalized : 'apiKey'
+    ) as LegacyAuthMethod;
 
     if (rawAuthMethod !== authMethod) {
       this.logger.warn(
-        `[AuthManager] Unknown auth method '${rawAuthMethod}', falling back to 'auto'`
+        `[AuthManager] Normalized auth method '${rawAuthMethod}' → '${authMethod}'`,
       );
     }
 
     this.logger.debug(`[AuthManager] Configuring auth method: ${authMethod}`);
 
-    // Step 1: Capture env snapshot before cleanup (for shell fallback)
-    const envSnapshot = this.captureEnvSnapshot();
+    // Capture env snapshot before clean slate wipe (strategies may need fallback values)
+    const envSnapshot = {
+      ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'],
+    };
 
     // Step 2: Clean slate - clear ALL auth and tier env vars
     this.clearAllAuthEnvVars();
     this.providerModels.clearAllTierEnvVars();
 
-    let authConfigured = false;
-    const authDetails: string[] = [];
-
-    // TASK_2025_129 Batch 3: Priority 1 - Anthropic-compatible provider
-    // Supports OpenRouter, Moonshot (Kimi), Z.AI (GLM), and future providers
-    if (authMethod === 'openrouter' || authMethod === 'auto') {
-      const providerResult = await this.configureAnthropicProvider();
-      if (providerResult.configured) {
-        authConfigured = true;
-        authDetails.push(...providerResult.details);
-        // Skip OAuth and API key when provider is configured
-        this.logger.info(
-          `[AuthManager] Authentication configured: ${authDetails.join(', ')}`
+    // Step 3: Teardown previous active strategy
+    if (this.activeStrategy) {
+      try {
+        await this.activeStrategy.teardown();
+      } catch (e) {
+        this.logger.warn(
+          `[AuthManager] Failed to teardown previous strategy: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
         );
-        this.logEnvSummary();
-        return { configured: true, details: authDetails };
       }
+      this.activeStrategy = null;
     }
 
-    // Priority 2: OAuth token (from Claude Max/Pro subscription)
-    // NOTE: As of SDK v0.1.8+, CLAUDE_CODE_OAUTH_TOKEN is supported and will use your subscription
-    // Get token via: claude setup-token
-    if (authMethod === 'oauth' || authMethod === 'auto') {
-      const oauthResult = await this.configureOAuthToken(envSnapshot);
-      if (oauthResult.configured) {
-        authConfigured = true;
-        authDetails.push(...oauthResult.details);
-      }
-    }
+    // Step 4: Resolve provider ID and strategy type
+    const { providerId, strategyType } =
+      this.resolveProviderAndStrategy(authMethod);
 
-    // Priority 3: API key (pay-per-token billing, separate from subscription)
-    // NOTE: API key takes precedence over OAuth token if both are set
-    // In 'auto' mode with OAuth token, we skip API key to use subscription
-    const hasOAuthToken = authDetails.some((d) => d.includes('OAuth token'));
+    this.logger.debug(
+      `[AuthManager] Resolved strategy: ${strategyType} (provider: ${providerId})`,
+    );
 
-    if ((authMethod === 'apiKey' || authMethod === 'auto') && !hasOAuthToken) {
-      const apiKeyResult = await this.configureAPIKey(envSnapshot);
-      if (apiKeyResult.configured) {
-        authConfigured = true;
-        authDetails.push(...apiKeyResult.details);
-      }
-    } else if (hasOAuthToken && authMethod === 'auto') {
-      this.logger.info(
-        '[AuthManager] Skipping API key check - using OAuth token from subscription'
-      );
-    }
-
-    // No auth configured — expected on first install, not an error
-    if (!authConfigured) {
-      const infoMsg =
-        'No authentication configured yet. Configure in Ptah Settings > Authentication tab.';
-      this.logger.info(`[AuthManager] ${infoMsg}`);
-      this.logger.debug(
-        '[AuthManager] Option 1 (Provider): Configure in Settings > Authentication > Provider tab'
-      );
-      this.logger.debug(
-        '[AuthManager] Option 2 (Subscription): Run "claude setup-token" and paste the token'
-      );
-      this.logger.debug(
-        '[AuthManager] Option 3 (API Key): Get from https://console.anthropic.com/settings/keys'
+    // Step 5: Get strategy from registry
+    const strategy = this.strategyRegistry.get(strategyType);
+    if (!strategy) {
+      this.logger.error(
+        `[AuthManager] No strategy registered for type: ${strategyType}`,
       );
       this.logEnvSummary();
       return {
         configured: false,
         details: [],
-        errorMessage: infoMsg,
+        errorMessage: `Internal error: no strategy for auth type '${strategyType}'`,
       };
     }
 
-    // Log summary
-    this.logger.info(
-      `[AuthManager] Authentication configured: ${authDetails.join(', ')}`
-    );
+    // Step 6: Delegate to strategy
+    const result = await strategy.configure({
+      providerId,
+      authEnv: this.authEnv,
+      envSnapshot,
+    });
+
+    // Track active strategy for future teardown
+    if (result.configured) {
+      this.activeStrategy = strategy;
+    }
+
+    // Step 7: Log result
+    if (result.configured) {
+      this.logger.info(
+        `[AuthManager] Authentication configured: ${result.details.join(', ')}`,
+      );
+    } else if (result.errorMessage) {
+      this.logger.info(`[AuthManager] ${result.errorMessage}`);
+    } else {
+      const infoMsg =
+        'No authentication configured yet. Configure in Ptah Settings > Authentication tab.';
+      this.logger.info(`[AuthManager] ${infoMsg}`);
+      this.logger.debug(
+        '[AuthManager] Option 1 (Provider): Configure in Settings > Authentication > Provider tab',
+      );
+      this.logger.debug(
+        '[AuthManager] Option 2 (Claude CLI): Run "claude login" to authenticate',
+      );
+      this.logger.debug(
+        '[AuthManager] Option 3 (API Key): Get from https://console.anthropic.com/settings/keys',
+      );
+      result.errorMessage = infoMsg;
+    }
+
     this.logEnvSummary();
-
-    return {
-      configured: true,
-      details: authDetails,
-    };
+    return result;
   }
 
   /**
-   * Configure OAuth token authentication
-   * Reads from SecretStorage (primary) or env snapshot (fallback)
-   */
-  private async configureOAuthToken(
-    envSnapshot: EnvSnapshot
-  ): Promise<AuthResult> {
-    const oauthToken = await this.authSecrets.getCredential('oauthToken');
-    const envOAuthToken = envSnapshot.CLAUDE_CODE_OAUTH_TOKEN;
-    const details: string[] = [];
-
-    if (oauthToken?.trim()) {
-      const tokenPrefix = oauthToken.substring(0, 15);
-      const tokenLength = oauthToken.length;
-      const isOAuthFormat = oauthToken.startsWith('sk-ant-oat01-');
-
-      this.logger.info(
-        `[AuthManager] Found OAuth token in SecretStorage (length: ${tokenLength}, prefix: ${tokenPrefix}..., OAuth format: ${isOAuthFormat})`
-      );
-
-      if (!isOAuthFormat) {
-        this.logger.warn(
-          '[AuthManager] WARNING: OAuth token does not start with "sk-ant-oat01-". Get token via: claude setup-token'
-        );
-      }
-
-      this.authEnv.CLAUDE_CODE_OAUTH_TOKEN = oauthToken.trim();
-
-      this.logger.info(
-        '[AuthManager] Using OAuth token from Claude Max/Pro subscription'
-      );
-
-      details.push(
-        `OAuth token from SecretStorage (subscription mode${
-          !isOAuthFormat ? ', format may be invalid' : ''
-        })`
-      );
-      return { configured: true, details };
-    } else if (envOAuthToken) {
-      const tokenLength = envOAuthToken.length;
-      const isOAuthFormat = envOAuthToken.startsWith('sk-ant-oat01-');
-
-      this.logger.info(
-        `[AuthManager] Found OAuth token in environment (length: ${tokenLength}, OAuth format: ${isOAuthFormat})`
-      );
-
-      // Restore the token from snapshot (it was cleared in clean slate)
-      this.authEnv.CLAUDE_CODE_OAUTH_TOKEN = envOAuthToken;
-
-      this.logger.info(
-        '[AuthManager] Using OAuth token from environment (subscription mode)'
-      );
-
-      details.push(
-        `OAuth token from environment (subscription mode${
-          !isOAuthFormat ? ', format may be invalid' : ''
-        })`
-      );
-      return { configured: true, details };
-    } else {
-      this.logger.debug(
-        '[AuthManager] No OAuth token found in SecretStorage or environment'
-      );
-      return { configured: false, details: [] };
-    }
-  }
-
-  /**
-   * Configure Anthropic-compatible provider authentication (TASK_2025_129 Batch 3)
-   *
-   * Supports multiple providers that implement the Anthropic API protocol:
-   * - OpenRouter: Multi-model access (200+ models) — ANTHROPIC_AUTH_TOKEN (Bearer)
-   * - Moonshot (Kimi): Anthropic-compatible endpoint — ANTHROPIC_AUTH_TOKEN (Bearer)
-   * - Z.AI (GLM): Anthropic-compatible endpoint — ANTHROPIC_AUTH_TOKEN (Bearer)
-   *
-   * Environment variables set:
-   * - ANTHROPIC_BASE_URL: Provider's API endpoint (from registry)
-   * - Provider's authEnvVar: Either ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY
-   *
-   * @see https://openrouter.ai/docs/guides/claude-code-integration
-   * @see https://platform.moonshot.ai/docs/guide/agent-support.en-US
-   * @see https://docs.z.ai/devpack/tool/claude
-   */
-  private async configureAnthropicProvider(): Promise<AuthResult> {
-    // Read selected provider from config (default: openrouter for backward compat)
-    const providerId = this.config.getWithDefault<string>(
-      'anthropicProviderId',
-      DEFAULT_PROVIDER_ID
-    );
-
-    const provider = getAnthropicProvider(providerId);
-    const details: string[] = [];
-
-    // TASK_2025_186: OAuth provider flow (e.g., GitHub Copilot)
-    // Uses translation proxy instead of API key
-    if (provider?.requiresProxy && provider?.authType === 'oauth') {
-      return this.configureOAuthProvider(provider);
-    }
-
-    // Per-provider key lookup: each provider has its own isolated storage slot
-    const providerKey = await this.authSecrets.getProviderKey(providerId);
-
-    if (providerKey?.trim()) {
-      const providerName = provider?.name ?? providerId;
-      const baseUrl = getProviderBaseUrl(providerId);
-      const authEnvVar = getProviderAuthEnvVar(providerId);
-
-      const keyLength = providerKey.length;
-      const keyPrefix = providerKey.substring(0, 10);
-
-      // Validate key format if provider has expected prefix
-      const hasExpectedPrefix = provider?.keyPrefix
-        ? providerKey.startsWith(provider.keyPrefix)
-        : true;
-
-      this.logger.info(
-        `[AuthManager] Found provider key in SecretStorage (provider: ${providerName}, length: ${keyLength}, prefix: ${keyPrefix}..., valid format: ${hasExpectedPrefix})`
-      );
-
-      if (!hasExpectedPrefix && provider?.keyPrefix) {
-        this.logger.warn(
-          `[AuthManager] WARNING: Key does not start with "${provider.keyPrefix}". Expected format for ${providerName}.`
-        );
-        this.logger.warn(
-          `[AuthManager] Get valid keys from: ${provider.helpUrl}`
-        );
-      }
-
-      // Set provider-specific env vars only
-      // authEnvVar is per-provider: ANTHROPIC_AUTH_TOKEN (Bearer) or ANTHROPIC_API_KEY (X-API-Key)
-      this.authEnv.ANTHROPIC_BASE_URL = baseUrl;
-      this.authEnv[authEnvVar as keyof AuthEnv] = providerKey.trim();
-      // Sync to process.env — SDK reads these directly, not from the env option
-      process.env['ANTHROPIC_BASE_URL'] = baseUrl;
-      process.env[authEnvVar] = providerKey.trim();
-
-      // Apply persisted tier mappings for this provider (TASK_2025_132)
-      this.providerModels.switchActiveProvider(providerId);
-
-      // Seed pricing map with static model pricing (fallback for models not on OpenRouter)
-      seedStaticModelPricing(providerId);
-
-      this.logger.info(
-        `[AuthManager] Using ${providerName} (routing via ${baseUrl})`
-      );
-      this.logger.info(
-        `[AuthManager] Set ANTHROPIC_BASE_URL=${baseUrl}, ${authEnvVar}=<set>`
-      );
-
-      details.push(
-        `${providerName} API key (routing via ${baseUrl}${
-          !hasExpectedPrefix && provider?.keyPrefix
-            ? ', format may be invalid'
-            : ''
-        })`
-      );
-      return { configured: true, details };
-    } else {
-      this.logger.debug('[AuthManager] No provider key found in SecretStorage');
-      return { configured: false, details: [] };
-    }
-  }
-
-  /**
-   * Configure an OAuth-based provider that requires a translation proxy (TASK_2025_186).
-   *
-   * Flow:
-   * 1. Check/initiate OAuth authentication (e.g., GitHub Copilot via VS Code auth)
-   * 2. Start local translation proxy
-   * 3. Point ANTHROPIC_BASE_URL to the proxy
-   * 4. Set a placeholder auth token (proxy handles real auth internally)
-   */
-  private async configureOAuthProvider(provider: {
-    id: string;
-    name: string;
-    staticModels?: Array<{ id: string }>;
-  }): Promise<AuthResult> {
-    // Stop the OTHER provider's proxy to prevent cross-contamination.
-    // Only one proxy should be active at a time — the selected provider's.
-    if (provider.id === 'openai-codex') {
-      await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
-      return this.configureCodexOAuth(provider);
-    }
-
-    // Default: GitHub Copilot flow
-    await this.stopProxyIfRunning(this.codexProxy, 'Codex');
-    return this.configureCopilotOAuth(provider);
-  }
-
-  /**
-   * Stop a translation proxy if it's running.
-   * Called when switching providers to ensure only one proxy is active.
-   */
-  private async stopProxyIfRunning(
-    proxy: { isRunning(): boolean; stop(): Promise<void> },
-    name: string
-  ): Promise<void> {
-    if (proxy.isRunning()) {
-      this.logger.info(
-        `[AuthManager] Stopping ${name} proxy (switching to different provider)`
-      );
-      try {
-        await proxy.stop();
-      } catch (error) {
-        this.logger.warn(
-          `[AuthManager] Failed to stop ${name} proxy: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
-    }
-  }
-
-  /**
-   * Configure GitHub Copilot OAuth provider (TASK_2025_186).
-   * Uses VS Code GitHub authentication and the Copilot translation proxy.
-   */
-  private async configureCopilotOAuth(provider: {
-    id: string;
-    name: string;
-    staticModels?: Array<{ id: string }>;
-  }): Promise<AuthResult> {
-    const providerName = provider.name;
-
-    this.logger.info(
-      `[AuthManager] Configuring OAuth provider: ${providerName}`
-    );
-
-    // Step 1: Check if already authenticated, if not try login
-    const isAuthed = await this.copilotAuth.isAuthenticated();
-    if (!isAuthed) {
-      this.logger.info(
-        `[AuthManager] ${providerName} not authenticated, initiating login...`
-      );
-      const loginSuccess = await this.copilotAuth.login();
-      if (!loginSuccess) {
-        this.logger.warn(
-          `[AuthManager] ${providerName} login failed or was cancelled`
-        );
-        return { configured: false, details: [] };
-      }
-    }
-
-    // Step 2: Start the translation proxy
-    let proxyUrl: string;
-    try {
-      if (this.copilotProxy.isRunning()) {
-        proxyUrl = this.copilotProxy.getUrl()!;
-        this.logger.info(
-          `[AuthManager] Translation proxy already running at ${proxyUrl}`
-        );
-      } else {
-        const result = await this.copilotProxy.start();
-        proxyUrl = result.url;
-        this.logger.info(
-          `[AuthManager] Translation proxy started at ${proxyUrl}`
-        );
-      }
-    } catch (error) {
-      this.logger.error(
-        `[AuthManager] Failed to start translation proxy: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-      return { configured: false, details: [] };
-    }
-
-    // Step 3: Point SDK at the proxy
-    this.authEnv.ANTHROPIC_BASE_URL = proxyUrl;
-    this.authEnv.ANTHROPIC_AUTH_TOKEN = COPILOT_PROXY_TOKEN_PLACEHOLDER;
-    // Sync to process.env — SDK reads these directly, not from the env option
-    process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
-    process.env['ANTHROPIC_AUTH_TOKEN'] = COPILOT_PROXY_TOKEN_PLACEHOLDER;
-
-    // Step 4: Apply tier mappings and seed pricing
-    this.providerModels.switchActiveProvider(provider.id);
-    seedStaticModelPricing(provider.id);
-
-    this.logger.info(
-      `[AuthManager] Using ${providerName} via translation proxy (${proxyUrl})`
-    );
-    this.logger.info(
-      `[AuthManager] Set ANTHROPIC_BASE_URL=${proxyUrl}, ANTHROPIC_AUTH_TOKEN=<proxy-managed>`
-    );
-
-    return {
-      configured: true,
-      details: [`${providerName} (OAuth via translation proxy at ${proxyUrl})`],
-    };
-  }
-
-  /**
-   * Configure OpenAI Codex OAuth provider (TASK_2025_193).
-   * Uses file-based auth from ~/.codex/auth.json and the Codex translation proxy.
-   */
-  private async configureCodexOAuth(provider: {
-    id: string;
-    name: string;
-    staticModels?: Array<{ id: string }>;
-  }): Promise<AuthResult> {
-    const providerName = provider.name;
-
-    this.logger.info(
-      `[AuthManager] Configuring OAuth provider: ${providerName}`
-    );
-
-    // Step 1: Verify Codex auth and ensure tokens are fresh
-    const isAuthed = await this.codexAuth.isAuthenticated();
-    if (!isAuthed) {
-      this.logger.warn(
-        `[AuthManager] ${providerName} not authenticated. Run \`codex login\` to authenticate.`
-      );
-      return {
-        configured: false,
-        details: [],
-        errorMessage: `${providerName} is not authenticated. Run \`codex login\` in your terminal to set up authentication.`,
-      };
-    }
-
-    const tokensFresh = await this.codexAuth.ensureTokensFresh();
-    if (!tokensFresh) {
-      this.logger.warn(
-        `[AuthManager] ${providerName} token refresh failed. Run \`codex login\` to re-authenticate.`
-      );
-      return {
-        configured: false,
-        details: [],
-        errorMessage: `${providerName} token has expired. Run \`codex login\` in your terminal to re-authenticate.`,
-      };
-    }
-
-    // Step 2: Start the Codex translation proxy
-    let proxyUrl: string;
-    try {
-      if (this.codexProxy.isRunning()) {
-        proxyUrl = this.codexProxy.getUrl()!;
-        this.logger.info(
-          `[AuthManager] Codex translation proxy already running at ${proxyUrl}`
-        );
-      } else {
-        const result = await this.codexProxy.start();
-        proxyUrl = result.url;
-        this.logger.info(
-          `[AuthManager] Codex translation proxy started at ${proxyUrl}`
-        );
-      }
-    } catch (error) {
-      this.logger.error(
-        `[AuthManager] Failed to start Codex translation proxy: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-      return { configured: false, details: [] };
-    }
-
-    // Step 3: Point SDK at the Codex proxy
-    this.authEnv.ANTHROPIC_BASE_URL = proxyUrl;
-    this.authEnv.ANTHROPIC_AUTH_TOKEN = CODEX_PROXY_TOKEN_PLACEHOLDER;
-    // Sync to process.env — SDK reads these directly, not from the env option
-    process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
-    process.env['ANTHROPIC_AUTH_TOKEN'] = CODEX_PROXY_TOKEN_PLACEHOLDER;
-
-    // Step 4: Apply tier mappings and seed pricing
-    this.providerModels.switchActiveProvider(provider.id);
-    seedStaticModelPricing(provider.id);
-
-    this.logger.info(
-      `[AuthManager] Using ${providerName} via translation proxy (${proxyUrl})`
-    );
-    this.logger.info(
-      `[AuthManager] Set ANTHROPIC_BASE_URL=${proxyUrl}, ANTHROPIC_AUTH_TOKEN=<proxy-managed>`
-    );
-
-    return {
-      configured: true,
-      details: [`${providerName} (OAuth via translation proxy at ${proxyUrl})`],
-    };
-  }
-
-  /**
-   * Configure API key authentication
-   * Reads from SecretStorage (primary) or env snapshot (fallback)
-   */
-  private async configureAPIKey(envSnapshot: EnvSnapshot): Promise<AuthResult> {
-    const apiKey = await this.authSecrets.getCredential('apiKey');
-    const envApiKey = envSnapshot.ANTHROPIC_API_KEY;
-    const details: string[] = [];
-
-    if (apiKey?.trim()) {
-      const keyPrefix = apiKey.substring(0, 10);
-      const keyLength = apiKey.length;
-      const isValidFormat = apiKey.startsWith('sk-ant-api');
-
-      this.logger.info(
-        `[AuthManager] Found API key in SecretStorage (length: ${keyLength}, prefix: ${keyPrefix}..., valid format: ${isValidFormat})`
-      );
-
-      if (!isValidFormat) {
-        this.logger.warn(
-          '[AuthManager] WARNING: API key does not start with "sk-ant-api". Expected format: sk-ant-api03-...'
-        );
-        this.logger.warn(
-          '[AuthManager] Get valid API keys from: https://console.anthropic.com/settings/keys'
-        );
-      }
-
-      this.authEnv.ANTHROPIC_API_KEY = apiKey.trim();
-      // Sync to process.env — SDK reads these directly
-      process.env['ANTHROPIC_API_KEY'] = apiKey.trim();
-      details.push(
-        `API key from SecretStorage (pay-per-token, format ${
-          isValidFormat ? 'valid' : 'INVALID'
-        })`
-      );
-      return { configured: true, details };
-    } else if (envApiKey) {
-      const keyLength = envApiKey.length;
-      const isValidFormat = envApiKey.startsWith('sk-ant-api');
-
-      this.logger.info(
-        `[AuthManager] Found API key in environment (length: ${keyLength}, valid format: ${isValidFormat})`
-      );
-
-      if (!isValidFormat) {
-        this.logger.warn(
-          '[AuthManager] WARNING: Environment API key format may be invalid'
-        );
-      }
-
-      // Restore the key from snapshot (it was cleared in clean slate)
-      this.authEnv.ANTHROPIC_API_KEY = envApiKey;
-
-      details.push(
-        `API key from environment (pay-per-token, format ${
-          isValidFormat ? 'valid' : 'INVALID'
-        })`
-      );
-      return { configured: true, details };
-    } else {
-      this.logger.debug(
-        '[AuthManager] No API key found in SecretStorage or environment'
-      );
-      return { configured: false, details: [] };
-    }
-  }
-
-  /**
-   * Clear all authentication environment variables
-   * Delegates to centralized cleanup methods
+   * Clear all authentication environment variables and tear down active strategy.
    */
   clearAuthentication(): void {
     this.clearAllAuthEnvVars();
     this.providerModels.clearAllTierEnvVars();
 
-    // Stop Copilot translation proxy if running (TASK_2025_186)
-    if (this.copilotProxy?.isRunning()) {
-      this.copilotProxy.stop().catch((err) => {
+    // Teardown active strategy (fire-and-forget with proper error logging)
+    if (this.activeStrategy) {
+      const strategyName = this.activeStrategy.name;
+      this.activeStrategy.teardown().catch((err) => {
         this.logger.warn(
-          `[AuthManager] Failed to stop Copilot proxy during cleanup: ${
+          `[AuthManager] Failed to teardown ${strategyName} during cleanup: ${
             err instanceof Error ? err.message : String(err)
-          }`
+          }`,
         );
       });
+      this.activeStrategy = null;
     }
-
-    // Stop Codex translation proxy if running (TASK_2025_193)
-    if (this.codexProxy?.isRunning()) {
-      this.codexProxy.stop().catch((err) => {
-        this.logger.warn(
-          `[AuthManager] Failed to stop Codex proxy during cleanup: ${
-            err instanceof Error ? err.message : String(err)
-          }`
-        );
-      });
-    }
-
-    // Reset Codex auth service cache to prevent stale data on provider re-selection
-    this.codexAuth.clearCache();
 
     this.logger.debug(
-      '[AuthManager] Cleared authentication environment variables'
+      '[AuthManager] Cleared authentication environment variables',
     );
   }
 
   /**
-   * Capture current env values before cleanup (for shell fallback detection)
-   * When users set env vars in their shell (e.g. ANTHROPIC_API_KEY),
-   * we need to detect them even after the clean slate wipe.
+   * Resolve the provider ID and strategy type from a legacy auth method.
+   *
+   * For 'apiKey' and 'claudeCli', the mapping is straightforward.
+   * For 'thirdParty' (which means "use configured provider"), we look up the
+   * provider entry from the registry to determine the correct strategy.
    */
-  private captureEnvSnapshot(): EnvSnapshot {
-    return {
-      ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'],
-      ANTHROPIC_BASE_URL: process.env['ANTHROPIC_BASE_URL'],
-      ANTHROPIC_AUTH_TOKEN: process.env['ANTHROPIC_AUTH_TOKEN'],
-      CLAUDE_CODE_OAUTH_TOKEN: process.env['CLAUDE_CODE_OAUTH_TOKEN'],
-    };
+  private resolveProviderAndStrategy(authMethod: LegacyAuthMethod): {
+    providerId: string;
+    strategyType: AuthStrategyType;
+  } {
+    if (authMethod === 'claudeCli') {
+      return {
+        providerId: ANTHROPIC_DIRECT_PROVIDER_ID,
+        strategyType: resolveStrategy('claudeCli'),
+      };
+    }
+
+    if (authMethod === 'apiKey') {
+      return {
+        providerId: ANTHROPIC_DIRECT_PROVIDER_ID,
+        strategyType: resolveStrategy('apiKey'),
+      };
+    }
+
+    // authMethod === 'thirdParty' — determine from configured provider
+    const providerId = this.config.getWithDefault<string>(
+      'anthropicProviderId',
+      DEFAULT_PROVIDER_ID,
+    );
+
+    const provider = getAnthropicProvider(providerId);
+    const strategyType = resolveStrategy('thirdParty', provider);
+
+    return { providerId, strategyType };
   }
 
   /**
    * Delete ALL auth env vars from the AuthEnv singleton - single source of truth for cleanup.
-   * Called once at the top of configureAuthentication() to ensure a clean slate.
    */
   private clearAllAuthEnvVars(): void {
     for (const varName of AUTH_ENV_VARS) {
       delete this.authEnv[varName as keyof AuthEnv];
-      // Sync to process.env — SDK reads these directly
       delete process.env[varName];
     }
   }
 
   /**
-   * Log boolean presence of all auth + tier env vars (no secrets)
-   * Useful for debugging which auth method is active after configuration.
+   * Log boolean presence of all auth + tier env vars (no secrets).
    */
   private logEnvSummary(): void {
     const authSummary = AUTH_ENV_VARS.map(
-      (v) => `${v}=${this.authEnv[v as keyof AuthEnv] ? 'set' : 'unset'}`
+      (v) => `${v}=${this.authEnv[v as keyof AuthEnv] ? 'set' : 'unset'}`,
     ).join(', ');
 
     this.logger.debug(`[AuthManager] Env summary: ${authSummary}`);

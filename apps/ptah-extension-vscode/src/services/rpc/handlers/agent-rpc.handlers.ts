@@ -9,7 +9,7 @@
  * TASK_2025_157: Agent Orchestration Settings UI
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import {
   CliDetectionService,
@@ -29,24 +29,14 @@ import type {
   AgentListCliModelsResult,
   CliModelOption,
   AgentPermissionDecision,
+  ISdkPermissionHandler,
+  PermissionResponse,
 } from '@ptah-extension/shared';
 import type { CliDetectionResult, CliType } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-
-/**
- * Extended workspace provider interface that includes setConfiguration.
- * This method is available on VscodeWorkspaceProvider at runtime but
- * is not part of the IWorkspaceProvider interface contract.
- *
- * TASK_2025_247: Used for writing config values through the platform
- * abstraction layer so file-based keys are routed to ~/.ptah/settings.json.
- */
-interface IWorkspaceProviderWithSet extends IWorkspaceProvider {
-  setConfiguration(section: string, key: string, value: unknown): Promise<void>;
-}
 
 /**
  * RPC handlers for agent orchestration operations.
@@ -60,8 +50,6 @@ interface IWorkspaceProviderWithSet extends IWorkspaceProvider {
  */
 @injectable()
 export class AgentRpcHandlers {
-  private readonly workspaceProvider: IWorkspaceProviderWithSet;
-
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -74,12 +62,8 @@ export class AgentRpcHandlers {
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    workspaceProvider: IWorkspaceProvider,
-  ) {
-    // VscodeWorkspaceProvider has setConfiguration() at runtime.
-    // Cast to extended interface for type-safe access.
-    this.workspaceProvider = workspaceProvider as IWorkspaceProviderWithSet;
-  }
+    private readonly workspaceProvider: IWorkspaceProvider,
+  ) {}
 
   /**
    * Register all agent orchestration RPC methods
@@ -169,6 +153,10 @@ export class AgentRpcHandlers {
               '',
             ),
             disabledClis: getCfg<string[]>('disabledClis', []),
+            disabledMcpNamespaces: getCfg<string[]>(
+              'disabledMcpNamespaces',
+              [],
+            ),
             // MCP port is under ptah namespace (not agentOrchestration), non-file-based
             mcpPort:
               this.workspaceProvider.getConfiguration<number>(
@@ -176,6 +164,18 @@ export class AgentRpcHandlers {
                 'mcpPort',
                 51820,
               ) ?? 51820,
+            // Browser settings (file-based, under ptah.browser namespace)
+            browserAllowLocalhost:
+              this.workspaceProvider.getConfiguration<boolean>(
+                'ptah',
+                'browser.allowLocalhost',
+                false,
+              ) ?? false,
+            // Runtime selector lives under ptah.runtime (not ptah.agentOrchestration.*)
+            runtime:
+              this.workspaceProvider.getConfiguration<
+                'auto' | 'claude-sdk' | 'deep-agent'
+              >('ptah', 'runtime', 'auto') ?? 'auto',
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -205,15 +205,32 @@ export class AgentRpcHandlers {
   private registerSetConfig(): void {
     this.rpcHandler.registerMethod<
       AgentSetConfigParams,
-      { success: boolean; error?: string }
+      { success: boolean; error?: string; reloadRequired?: boolean }
     >('agent:setConfig', async (params) => {
       try {
         this.logger.debug('RPC: agent:setConfig called', { params });
 
+        // Detect runtime change so the frontend can prompt for reload.
+        // (VS Code also has a workspace.onDidChangeConfiguration watcher in
+        // main.ts that shows its own prompt; returning reloadRequired is
+        // harmless and keeps the wire contract consistent with Electron.)
+        let reloadRequired = false;
+        if (params.runtime !== undefined) {
+          const previous =
+            this.workspaceProvider.getConfiguration<
+              'auto' | 'claude-sdk' | 'deep-agent'
+            >('ptah', 'runtime', 'auto') ?? 'auto';
+          if (previous !== params.runtime) {
+            reloadRequired = true;
+          }
+        }
+
         await this.applyConfigUpdates(params);
 
         this.logger.debug('RPC: agent:setConfig success');
-        return { success: true };
+        return reloadRequired
+          ? { success: true, reloadRequired }
+          : { success: true };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -376,6 +393,24 @@ export class AgentRpcHandlers {
       );
     }
 
+    if (params.disabledMcpNamespaces !== undefined) {
+      await setCfg(
+        'disabledMcpNamespaces',
+        params.disabledMcpNamespaces.length > 0
+          ? params.disabledMcpNamespaces
+          : undefined,
+      );
+    }
+
+    // Browser settings (file-based, under ptah.browser namespace)
+    if (params.browserAllowLocalhost !== undefined) {
+      await this.workspaceProvider.setConfiguration(
+        'ptah',
+        'browser.allowLocalhost',
+        params.browserAllowLocalhost,
+      );
+    }
+
     // MCP port lives under ptah namespace (not ptah.agentOrchestration), non-file-based
     if (params.mcpPort !== undefined) {
       const clampedPort = Math.max(1024, Math.min(65535, params.mcpPort));
@@ -383,6 +418,17 @@ export class AgentRpcHandlers {
         'ptah',
         'mcpPort',
         clampedPort,
+      );
+    }
+
+    // Runtime selector lives under ptah.runtime (not ptah.agentOrchestration.*).
+    // VS Code's config system accepts arbitrary strings; enum values are validated
+    // by the declared enum in package.json contributes.configuration.
+    if (params.runtime !== undefined) {
+      await this.workspaceProvider.setConfiguration(
+        'ptah',
+        'runtime',
+        params.runtime,
       );
     }
   }
@@ -547,13 +593,17 @@ export class AgentRpcHandlers {
   }
 
   /**
-   * agent:permissionResponse - Route user's permission decision to Copilot SDK bridge
+   * agent:permissionResponse - Route user's permission decision to handlers
    *
-   * Called by the webview when the user clicks Allow/Deny on a permission dialog.
-   * Resolves the pending permission Promise in the CopilotPermissionBridge, which
-   * unblocks the SDK's onPreToolUse hook.
+   * Called by the webview when the user clicks Allow/Deny on a permission dialog
+   * in the agent monitor panel. Tries both:
+   * 1. SdkPermissionHandler (Ptah CLI agent permissions) - via lazy container resolution
+   * 2. CopilotPermissionBridge (Copilot SDK permissions) - via CLI adapter
+   *
+   * Both handlers silently ignore unknown requestIds, so trying both is safe.
    *
    * TASK_2025_162: Copilot SDK Integration
+   * TASK_2025_255: Extended to also route to SdkPermissionHandler for Ptah CLI agents
    */
   private registerPermissionResponse(): void {
     this.rpcHandler.registerMethod<
@@ -566,16 +616,41 @@ export class AgentRpcHandlers {
           decision: params.decision,
         });
 
+        let handled = false;
+
+        // Try SdkPermissionHandler first (handles Ptah CLI agent permissions)
+        // Uses lazy container resolution (same pattern as webview-message-handler.service.ts:464)
+        if (container.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)) {
+          const permissionHandler = container.resolve<ISdkPermissionHandler>(
+            SDK_TOKENS.SDK_PERMISSION_HANDLER,
+          );
+          const response: PermissionResponse = {
+            id: params.requestId,
+            decision: params.decision,
+            reason: params.reason,
+          };
+          permissionHandler.handleResponse(params.requestId, response);
+          handled = true;
+        }
+
+        // Also try Copilot bridge (existing flow, idempotent for unknown requestIds)
         const copilotAdapter = this.cliDetection.getAdapter('copilot');
         if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
           const bridge = (
             copilotAdapter as { permissionBridge: CopilotPermissionBridge }
           ).permissionBridge;
           bridge.resolvePermission(params.requestId, params);
+          handled = true;
+        }
+
+        if (handled) {
           return { success: true };
         }
 
-        return { success: false, error: 'Copilot SDK adapter not active' };
+        return {
+          success: false,
+          error: 'No permission handler available (neither SDK nor Copilot)',
+        };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -676,8 +751,7 @@ export class AgentRpcHandlers {
         } else {
           // Real CLIs: route through AgentProcessManager.spawn()
           // Validate session file exists before resume to avoid "No conversation found" errors
-          const workspaceRoot =
-            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+          const workspaceRoot = this.workspaceProvider.getWorkspaceRoot() ?? '';
           const cliSessionExists = await this.sessionFileExists(
             params.cliSessionId,
             workspaceRoot,
@@ -730,8 +804,7 @@ export class AgentRpcHandlers {
     ptahCliId: string;
     previousAgentId?: string;
   }): Promise<import('@ptah-extension/shared').SpawnAgentResult> {
-    const workspaceRoot =
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot() ?? '';
 
     // Validate session file exists before attempting resume.
     // Ptah CLI sessions (third-party providers) may not persist a .jsonl file,
@@ -776,15 +849,24 @@ export class AgentRpcHandlers {
       });
     }
 
-    return this.agentProcessManager.spawnFromSdkHandle(spawnResult.handle, {
-      task: params.task,
-      cli: 'ptah-cli',
-      workingDirectory: workspaceRoot,
-      parentSessionId: params.parentSessionId,
-      ptahCliName: spawnResult.agentName,
-      ptahCliId: params.ptahCliId,
-      resumedFromAgentId: params.previousAgentId,
-    });
+    const result = await this.agentProcessManager.spawnFromSdkHandle(
+      spawnResult.handle,
+      {
+        task: params.task,
+        cli: 'ptah-cli',
+        workingDirectory: workspaceRoot,
+        parentSessionId: params.parentSessionId,
+        ptahCliName: spawnResult.agentName,
+        ptahCliId: params.ptahCliId,
+        resumedFromAgentId: params.previousAgentId,
+        resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
+      },
+    );
+
+    // TASK_2025_255: Wire agentId so CLI permission requests route to agent monitor panel
+    spawnResult.setAgentId(result.agentId);
+
+    return result;
   }
 
   /**

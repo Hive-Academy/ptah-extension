@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Send,
   Clock,
+  PenLine,
 } from 'lucide-angular';
 import type {
   AskUserQuestionRequest,
@@ -73,89 +74,147 @@ import type {
 
       <!-- Steps indicator (only for multiple questions) -->
       @if (hasMultipleQuestions()) {
-      <div class="px-2 py-1.5 border-b border-base-300/30">
-        <ul class="steps steps-horizontal w-full text-[9px]">
-          @for (q of request().questions; track q.header; let i = $index) {
-          <li
-            class="step"
-            [class.step-info]="i <= currentStep()"
-            [attr.data-content]="isStepAnswered(i) ? '✓' : i + 1"
-          >
-            <span class="hidden sm:inline truncate max-w-16">{{
-              q.header
-            }}</span>
-          </li>
-          }
-        </ul>
-      </div>
+        <div class="px-2 py-1.5 border-b border-base-300/30">
+          <ul class="steps steps-horizontal w-full text-[9px]">
+            @for (q of request().questions; track q.header; let i = $index) {
+              <li
+                class="step"
+                [class.step-info]="i <= currentStep()"
+                [attr.data-content]="isStepAnswered(i) ? '✓' : i + 1"
+              >
+                <span class="hidden sm:inline truncate max-w-16">{{
+                  q.header
+                }}</span>
+              </li>
+            }
+          </ul>
+        </div>
       }
 
       <!-- Current question -->
       <div class="py-2 px-2">
         @if (currentQuestion(); as question) {
-        <p class="text-[11px] font-medium text-base-content/90 mb-1.5">
-          {{ question.question }}
-        </p>
+          <p class="text-[11px] font-medium text-base-content/90 mb-1.5">
+            {{ question.question }}
+          </p>
 
-        <!-- Options list - single column for clarity -->
-        <div class="space-y-0.5">
-          @if (question.multiSelect) {
-          <!-- Multi-select: checkboxes -->
-          @for (option of question.options; track option.label) {
-          <label
-            class="flex items-start gap-2 cursor-pointer hover:bg-info/10 rounded px-1.5 py-1 text-[10px] transition-colors"
-            [class.bg-info]="isOptionSelected(question.question, option.label)"
-            [class.bg-opacity-15]="
-              isOptionSelected(question.question, option.label)
-            "
-          >
-            <input
-              type="checkbox"
-              [value]="option.label"
-              [checked]="isOptionSelected(question.question, option.label)"
-              (change)="onOptionToggle(question.question, option.label, $event)"
-              class="checkbox checkbox-xs checkbox-info mt-0.5"
-            />
-            <div class="flex-1 min-w-0">
-              <span class="font-medium">{{ option.label }}</span>
-              @if (option.description) {
-              <p class="text-[9px] text-base-content/50 leading-tight">
-                {{ option.description }}
-              </p>
+          <!-- Options list - single column for clarity -->
+          <div class="space-y-0.5">
+            @if (question.multiSelect) {
+              <!-- Multi-select: checkboxes -->
+              @for (option of question.options; track option.label) {
+                <label
+                  class="flex items-start gap-2 cursor-pointer hover:bg-info/10 rounded px-1.5 py-1 text-[10px] transition-colors"
+                  [class.bg-info]="
+                    isOptionSelected(question.question, option.label)
+                  "
+                  [class.bg-opacity-15]="
+                    isOptionSelected(question.question, option.label)
+                  "
+                >
+                  <input
+                    type="checkbox"
+                    [value]="option.label"
+                    [checked]="
+                      isOptionSelected(question.question, option.label)
+                    "
+                    (change)="
+                      onOptionToggle(question.question, option.label, $event)
+                    "
+                    class="checkbox checkbox-xs checkbox-info mt-0.5"
+                  />
+                  <div class="flex-1 min-w-0">
+                    <span class="font-medium">{{ option.label }}</span>
+                    @if (option.description) {
+                      <p class="text-[9px] text-base-content/50 leading-tight">
+                        {{ option.description }}
+                      </p>
+                    }
+                  </div>
+                </label>
               }
-            </div>
-          </label>
-          } } @else {
-          <!-- Single-select: radio buttons -->
-          @for (option of question.options; track option.label) {
-          <label
-            class="flex items-start gap-2 cursor-pointer hover:bg-info/10 rounded px-1.5 py-1 text-[10px] transition-colors"
-            [class.bg-info]="
-              selectedAnswers()[question.question] === option.label
-            "
-            [class.bg-opacity-15]="
-              selectedAnswers()[question.question] === option.label
-            "
-          >
-            <input
-              type="radio"
-              [name]="'q-' + currentStep()"
-              [value]="option.label"
-              [checked]="selectedAnswers()[question.question] === option.label"
-              (change)="onOptionSelect(question.question, option.label)"
-              class="radio radio-xs radio-info mt-0.5"
-            />
-            <div class="flex-1 min-w-0">
-              <span class="font-medium">{{ option.label }}</span>
-              @if (option.description) {
-              <p class="text-[9px] text-base-content/50 leading-tight">
-                {{ option.description }}
-              </p>
+            } @else {
+              <!-- Single-select: radio buttons -->
+              @for (option of question.options; track option.label) {
+                <label
+                  class="flex items-start gap-2 cursor-pointer hover:bg-info/10 rounded px-1.5 py-1 text-[10px] transition-colors"
+                  [class.bg-info]="
+                    selectedAnswers()[question.question] === option.label
+                  "
+                  [class.bg-opacity-15]="
+                    selectedAnswers()[question.question] === option.label
+                  "
+                >
+                  <input
+                    type="radio"
+                    [name]="'q-' + currentStep()"
+                    [value]="option.label"
+                    [checked]="
+                      selectedAnswers()[question.question] === option.label
+                    "
+                    (change)="onOptionSelect(question.question, option.label)"
+                    class="radio radio-xs radio-info mt-0.5"
+                  />
+                  <div class="flex-1 min-w-0">
+                    <span class="font-medium">{{ option.label }}</span>
+                    @if (option.description) {
+                      <p class="text-[9px] text-base-content/50 leading-tight">
+                        {{ option.description }}
+                      </p>
+                    }
+                  </div>
+                </label>
               }
-            </div>
-          </label>
-          } }
-        </div>
+            }
+
+            <!-- Custom response option -->
+            <label
+              class="flex items-start gap-2 cursor-pointer hover:bg-info/10 rounded px-1.5 py-1 text-[10px] transition-colors"
+              [class.bg-info]="isCustomMode()"
+              [class.bg-opacity-15]="isCustomMode()"
+            >
+              <input
+                type="radio"
+                [name]="'q-' + currentStep()"
+                [value]="'__custom__'"
+                [checked]="isCustomMode()"
+                (change)="onCustomSelect(question.question)"
+                class="radio radio-xs radio-info mt-0.5"
+              />
+              <div class="flex-1 min-w-0">
+                <span class="font-medium flex items-center gap-1">
+                  <lucide-angular [img]="PenLineIcon" class="w-2.5 h-2.5" />
+                  Other
+                </span>
+                <p class="text-[9px] text-base-content/50 leading-tight">
+                  Type a custom response
+                </p>
+              </div>
+            </label>
+
+            <!-- Custom input field (shown when custom option selected) -->
+            @if (isCustomMode()) {
+              <div class="flex gap-1 mt-1 px-1.5">
+                <input
+                  type="text"
+                  [value]="customText()"
+                  (input)="onCustomTextInput($event)"
+                  (keydown.enter)="onCustomTextConfirm(question.question)"
+                  placeholder="Type your response..."
+                  class="input input-xs input-bordered input-info flex-1 text-[10px] bg-base-100/50"
+                />
+                <button
+                  (click)="onCustomTextConfirm(question.question)"
+                  [disabled]="!customText().trim()"
+                  class="btn btn-xs btn-info btn-outline px-1.5"
+                  type="button"
+                  title="Confirm custom response"
+                >
+                  <lucide-angular [img]="SendIcon" class="w-3 h-3" />
+                </button>
+              </div>
+            }
+          </div>
         }
       </div>
 
@@ -165,15 +224,15 @@ import type {
       >
         <!-- Prev button -->
         @if (hasMultipleQuestions()) {
-        <button
-          (click)="prevStep()"
-          [disabled]="currentStep() === 0"
-          class="btn btn-xs btn-ghost gap-0.5 px-1.5"
-          type="button"
-        >
-          <lucide-angular [img]="ChevronLeftIcon" class="w-3 h-3" />
-          Prev
-        </button>
+          <button
+            (click)="prevStep()"
+            [disabled]="currentStep() === 0"
+            class="btn btn-xs btn-ghost gap-0.5 px-1.5"
+            type="button"
+          >
+            <lucide-angular [img]="ChevronLeftIcon" class="w-3 h-3" />
+            Prev
+          </button>
         }
 
         <!-- Progress text -->
@@ -183,25 +242,25 @@ import type {
 
         <!-- Next or Submit button -->
         @if (isLastStep()) {
-        <button
-          (click)="onSubmit()"
-          [disabled]="!canSubmit()"
-          class="btn btn-xs btn-info gap-0.5 px-2"
-          type="button"
-        >
-          <lucide-angular [img]="SendIcon" class="w-3 h-3" />
-          Submit
-        </button>
+          <button
+            (click)="onSubmit()"
+            [disabled]="!canSubmit()"
+            class="btn btn-xs btn-info gap-0.5 px-2"
+            type="button"
+          >
+            <lucide-angular [img]="SendIcon" class="w-3 h-3" />
+            Submit
+          </button>
         } @else {
-        <button
-          (click)="nextStep()"
-          [disabled]="!isCurrentStepAnswered()"
-          class="btn btn-xs btn-info btn-outline gap-0.5 px-1.5"
-          type="button"
-        >
-          Next
-          <lucide-angular [img]="ChevronRightIcon" class="w-3 h-3" />
-        </button>
+          <button
+            (click)="nextStep()"
+            [disabled]="!isCurrentStepAnswered()"
+            class="btn btn-xs btn-info btn-outline gap-0.5 px-1.5"
+            type="button"
+          >
+            Next
+            <lucide-angular [img]="ChevronRightIcon" class="w-3 h-3" />
+          </button>
         }
       </div>
     </div>
@@ -214,6 +273,7 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
   protected readonly ChevronRightIcon = ChevronRight;
   protected readonly SendIcon = Send;
   protected readonly ClockIcon = Clock;
+  protected readonly PenLineIcon = PenLine;
 
   /** The question request containing questions to display */
   readonly request = input.required<AskUserQuestionRequest>();
@@ -223,6 +283,12 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
 
   /** Tracks selected answers for each question (question text -> selected option(s)) */
   protected readonly selectedAnswers = signal<Record<string, string>>({});
+
+  /** Whether the current question is in custom input mode */
+  protected readonly isCustomMode = signal(false);
+
+  /** Text entered in the custom input field */
+  protected readonly customText = signal('');
 
   /** Current step index (0-based) */
   protected readonly currentStep = signal(0);
@@ -235,17 +301,17 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
 
   /** Whether there are multiple questions */
   protected readonly hasMultipleQuestions = computed(
-    () => this.request().questions.length > 1
+    () => this.request().questions.length > 1,
   );
 
   /** Current question being displayed */
   protected readonly currentQuestion = computed(
-    () => this.request().questions[this.currentStep()]
+    () => this.request().questions[this.currentStep()],
   );
 
   /** Whether we're on the last step */
   protected readonly isLastStep = computed(
-    () => this.currentStep() === this.request().questions.length - 1
+    () => this.currentStep() === this.request().questions.length - 1,
   );
 
   /** Whether all questions have answers */
@@ -303,6 +369,7 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
   protected prevStep(): void {
     if (this.currentStep() > 0) {
       this.currentStep.update((s) => s - 1);
+      this.resetCustomState();
     }
   }
 
@@ -310,13 +377,20 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
   protected nextStep(): void {
     if (this.currentStep() < this.request().questions.length - 1) {
       this.currentStep.update((s) => s + 1);
+      this.resetCustomState();
     }
+  }
+
+  /** Reset custom input state when switching questions */
+  private resetCustomState(): void {
+    this.isCustomMode.set(false);
+    this.customText.set('');
   }
 
   private updateTimeRemaining(): number {
     const remaining = Math.max(
       0,
-      Math.floor((this.request().timeoutAt - Date.now()) / 1000)
+      Math.floor((this.request().timeoutAt - Date.now()) / 1000),
     );
     this.timeRemaining.set(remaining);
     return remaining;
@@ -338,6 +412,8 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
 
   /** Handle single-select option selection (radio button) */
   protected onOptionSelect(question: string, option: string): void {
+    this.isCustomMode.set(false);
+    this.customText.set('');
     this.selectedAnswers.update((a) => ({ ...a, [question]: option }));
   }
 
@@ -345,7 +421,7 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
   protected onOptionToggle(
     question: string,
     option: string,
-    event: Event
+    event: Event,
   ): void {
     const checked = (event.target as HTMLInputElement).checked;
     this.selectedAnswers.update((a) => {
@@ -365,6 +441,28 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
 
       return { ...a, [question]: options.join(', ') };
     });
+  }
+
+  /** Activate custom input mode for a question */
+  protected onCustomSelect(question: string): void {
+    this.isCustomMode.set(true);
+    // Clear the predefined selection so custom text takes over
+    this.selectedAnswers.update((a) => {
+      const { [question]: _, ...rest } = a;
+      return rest;
+    });
+  }
+
+  /** Handle typing in the custom input field */
+  protected onCustomTextInput(event: Event): void {
+    this.customText.set((event.target as HTMLInputElement).value);
+  }
+
+  /** Confirm custom text as the answer for a question */
+  protected onCustomTextConfirm(question: string): void {
+    const text = this.customText().trim();
+    if (!text) return;
+    this.selectedAnswers.update((a) => ({ ...a, [question]: text }));
   }
 
   /** Submit answers to parent component */

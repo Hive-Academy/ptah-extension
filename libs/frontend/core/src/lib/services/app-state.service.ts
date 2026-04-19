@@ -16,7 +16,19 @@ export type ViewType =
   | 'context-tree'
   | 'settings'
   | 'setup-wizard'
-  | 'welcome';
+  | 'welcome'
+  | 'orchestra-canvas'
+  | 'harness-builder'
+  | 'setup-hub';
+
+/** Layout mode for the chat view content area: single tab or canvas grid */
+export type LayoutMode = 'single' | 'grid';
+
+/** Request to open/focus a session in a canvas tile */
+export interface CanvasSessionRequest {
+  sessionId: string;
+  name?: string;
+}
 
 export interface AppState {
   currentView: ViewType;
@@ -48,11 +60,11 @@ export class AppStateManager implements MessageHandler {
       'settings',
       'setup-wizard',
       'welcome',
+      'orchestra-canvas',
+      'harness-builder',
+      'setup-hub',
     ];
     if (view && validViews.includes(view as ViewType)) {
-      console.log(
-        `[AppStateManager] Backend requested view switch to: ${view}`,
-      );
       this.handleViewSwitch(view as ViewType);
     } else {
       console.warn(
@@ -72,8 +84,30 @@ export class AppStateManager implements MessageHandler {
   /** Tracks which views are currently "open" as tab pills (Electron navbar). Chat is always present. */
   private readonly _openViews = signal<Set<ViewType>>(new Set(['chat']));
 
+  // Layout mode signals (canvas-first layout)
+  private readonly _layoutMode = signal<LayoutMode>('grid');
+  /** Signal bridge: request to open/focus a session in a canvas tile (from sidebar click in grid mode) */
+  private readonly _canvasSessionRequest = signal<CanvasSessionRequest | null>(
+    null,
+  );
+  /** Signal bridge: request to create a new session as a canvas tile (from "New Session" in grid mode) */
+  private readonly _newCanvasSessionRequest = signal<string | null>(null);
+
   constructor() {
     this.initializeState();
+  }
+
+  /**
+   * Normalize backward-compat view values. 'orchestra-canvas' was previously a view;
+   * it's now a layout mode. Map it to 'chat' + grid layout so every entry point
+   * behaves consistently (no blank shell).
+   */
+  private normalizeView(view: ViewType): ViewType {
+    if (view === 'orchestra-canvas') {
+      this._layoutMode.set('grid');
+      return 'chat';
+    }
+    return view;
   }
 
   // Public readonly signals
@@ -88,6 +122,14 @@ export class AppStateManager implements MessageHandler {
   readonly openViews = computed(() =>
     Array.from(this._openViews()).filter((v) => v !== 'welcome'),
   );
+
+  // Layout mode public readonly signals
+  /** Current layout mode: 'single' (tab view) or 'grid' (canvas view) */
+  readonly layoutMode = this._layoutMode.asReadonly();
+  /** Pending request to open a session in a canvas tile (consumed by OrchestraCanvasComponent) */
+  readonly canvasSessionRequest = this._canvasSessionRequest.asReadonly();
+  /** Pending request to create a new canvas tile (consumed by OrchestraCanvasComponent) */
+  readonly newCanvasSessionRequest = this._newCanvasSessionRequest.asReadonly();
 
   // Computed signals
   // TASK_2025_126: Added welcome view check to prevent license bypass
@@ -168,12 +210,30 @@ export class AppStateManager implements MessageHandler {
       });
     }
 
-    const initialView = windowWithState.initialView || 'chat';
-    console.log(
-      `[AppStateManager] Initializing with view: ${initialView}, isLicensed: ${isLicensed}, workspace: ${
-        workspaceRoot || 'none'
-      }`,
-    );
+    let initialView =
+      windowWithState.initialView ||
+      (windowWithState.ptahConfig?.initialView as ViewType) ||
+      'chat';
+
+    // Restore layout mode from localStorage BEFORE normalizeView,
+    // so that explicit normalizeView overrides (e.g. 'orchestra-canvas' → grid)
+    // take precedence over the saved preference.
+    let savedLayoutMode: LayoutMode | null = null;
+    try {
+      savedLayoutMode = localStorage.getItem(
+        'ptah-layout-mode',
+      ) as LayoutMode | null;
+    } catch {
+      /* localStorage unavailable in restricted environments */
+    }
+    if (savedLayoutMode === 'single' || savedLayoutMode === 'grid') {
+      this._layoutMode.set(savedLayoutMode);
+    }
+
+    // Backward compat: normalizeView() maps 'orchestra-canvas' → 'chat' + grid layout.
+    // This runs AFTER localStorage restore so it can override saved preference when needed.
+    initialView = this.normalizeView(initialView);
+
     this._currentView.set(initialView);
     if (initialView !== 'chat' && initialView !== 'welcome') {
       this._openViews.update((views) => {
@@ -187,6 +247,7 @@ export class AppStateManager implements MessageHandler {
   // State update methods
   setCurrentView(view: ViewType): void {
     if (this.canSwitchViews()) {
+      view = this.normalizeView(view);
       this._openViews.update((views) => {
         const next = new Set(views);
         next.add(view);
@@ -199,6 +260,7 @@ export class AppStateManager implements MessageHandler {
   /** Open a view as a tab pill and switch to it. Respects canSwitchViews() guard. */
   openView(view: ViewType): void {
     if (this.canSwitchViews()) {
+      view = this.normalizeView(view);
       this._openViews.update((views) => {
         const next = new Set(views);
         next.add(view);
@@ -248,11 +310,18 @@ export class AppStateManager implements MessageHandler {
     currentView?: ViewType;
   }): void {
     if (data.workspaceInfo) this.setWorkspaceInfo(data.workspaceInfo);
-    if (data.currentView) this._currentView.set(data.currentView);
+    if (data.currentView) {
+      const normalized = this.normalizeView(data.currentView);
+      this._currentView.set(normalized);
+    }
     this.setConnected(true);
   }
 
   handleViewSwitch(view: ViewType): void {
+    if (!this.canSwitchViews()) return;
+
+    view = this.normalizeView(view);
+
     this._openViews.update((views) => {
       const next = new Set(views);
       next.add(view);
@@ -274,5 +343,49 @@ export class AppStateManager implements MessageHandler {
       isConnected: this._isConnected(),
       isLicensed: this._isLicensed(),
     };
+  }
+
+  // ============================================================================
+  // LAYOUT MODE METHODS
+  // ============================================================================
+
+  /** Set the layout mode and persist to localStorage */
+  setLayoutMode(mode: LayoutMode): void {
+    this._layoutMode.set(mode);
+    try {
+      localStorage.setItem('ptah-layout-mode', mode);
+    } catch {
+      /* localStorage unavailable in restricted environments */
+    }
+  }
+
+  /** Toggle between 'single' and 'grid' layout modes */
+  toggleLayoutMode(): void {
+    const next = this._layoutMode() === 'grid' ? 'single' : 'grid';
+    this.setLayoutMode(next);
+  }
+
+  // ============================================================================
+  // CANVAS SESSION REQUEST METHODS (Signal Bridge)
+  // ============================================================================
+
+  /** Request that the canvas opens/focuses a tile for the given session */
+  requestCanvasSession(sessionId: string, name?: string): void {
+    this._canvasSessionRequest.set({ sessionId, name });
+  }
+
+  /** Clear the canvas session request after the canvas has processed it */
+  clearCanvasSessionRequest(): void {
+    this._canvasSessionRequest.set(null);
+  }
+
+  /** Request that the canvas creates a new tile with the given name */
+  requestNewCanvasSession(name: string): void {
+    this._newCanvasSessionRequest.set(name);
+  }
+
+  /** Clear the new canvas session request after the canvas has processed it */
+  clearNewCanvasSessionRequest(): void {
+    this._newCanvasSessionRequest.set(null);
   }
 }

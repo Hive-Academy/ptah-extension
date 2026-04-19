@@ -1,5 +1,9 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  VSCodeService,
+  AuthStateService,
+} from '@ptah-extension/core';
 import {
   ExecutionNode,
   FlatStreamEventUnion,
@@ -8,6 +12,8 @@ import {
   SessionId,
   MESSAGE_TYPES,
   LicenseGetStatusResponse,
+  calculateSessionCostSummary,
+  createExecutionChatMessage,
 } from '@ptah-extension/shared';
 import type {
   AskUserQuestionRequest,
@@ -79,6 +85,9 @@ export class ChatStore {
   // Tree builder for render-time ExecutionNode construction (TASK_2025_082 Batch 5)
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
 
+  // Auth state for provider-aware slash command filtering
+  private readonly authState = inject(AuthStateService);
+
   // Signal to track service initialization state
   private readonly _servicesReady = signal(false);
   readonly servicesReady = this._servicesReady.asReadonly();
@@ -113,6 +122,11 @@ export class ChatStore {
       // so the agent monitor panel shows agents from the previous session.
       this.sessionLoader.restoreCliSessionsForActiveTab().catch((err) => {
         console.warn('[ChatStore] Failed to restore CLI sessions:', err);
+      });
+
+      // Load auth state so persistedAuthMethod() is populated for slash command checks
+      this.authState.loadAuthStatus().catch((err) => {
+        console.error('[ChatStore] Failed to load auth status:', err);
       });
 
       // TASK_2025_142: Fetch license status for trial banners
@@ -165,13 +179,14 @@ export class ChatStore {
 
   // License status signal (TASK_2025_142)
   private readonly _licenseStatus = signal<LicenseGetStatusResponse | null>(
-    null
+    null,
   );
   readonly licenseStatus = this._licenseStatus.asReadonly();
 
-  // Compaction state signals (TASK_2025_098)
-  private readonly _isCompacting = signal<boolean>(false);
-  readonly isCompacting = this._isCompacting.asReadonly();
+  // Compaction state — per-tab via TabManagerService (TASK_2025_098)
+  // Previously a global signal that caused ALL canvas tiles to show the
+  // compaction banner when any single session was compacting.
+  readonly isCompacting = this.tabManager.activeTabIsCompacting;
 
   /**
    * Timeout ID for compaction safety fallback.
@@ -182,7 +197,7 @@ export class ChatStore {
    * 2. setTimeout returns a number/NodeJS.Timeout, not a serializable value
    * 3. We only need to clear it, never read it in templates
    *
-   * The associated `_isCompacting` signal IS the UI state that components observe.
+   * The associated `isCompacting` per-tab field IS the UI state that components observe.
    * @see TASK_2025_098
    */
   private compactionTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -195,6 +210,19 @@ export class ChatStore {
    */
   private static readonly COMPACTION_SAFETY_TIMEOUT_MS = 120000;
 
+  /**
+   * SDK-native slash commands that only work with direct Anthropic API.
+   * These commands are handled internally by the Claude Agent SDK and require
+   * Claude-specific model behavior. Third-party providers (Ollama, Kimi,
+   * Copilot, Codex, LM Studio, etc.) don't support them.
+   */
+  private static readonly SDK_NATIVE_COMMANDS = new Set([
+    'compact',
+    'context',
+    'cost',
+    'review',
+  ]);
+
   // ============================================================================
   // PUBLIC READONLY SIGNALS
   // ============================================================================
@@ -202,13 +230,11 @@ export class ChatStore {
   // Active tab accessor (delegated to TabManager)
   readonly activeTab = computed(() => this.tabManager.activeTab());
 
-  // Computed from active tab (delegated to TabManager)
-  readonly currentSessionId = computed(
-    () => this.tabManager.activeTab()?.claudeSessionId ?? null
-  );
-  readonly messages = computed(
-    () => this.tabManager.activeTab()?.messages ?? []
-  );
+  // Computed from active tab (delegated to TabManager fine-grained selectors)
+  // These use reference-equality selectors so they don't re-notify during
+  // streaming when only streamingState changes.
+  readonly currentSessionId = this.tabManager.activeTabSessionId;
+  readonly messages = this.tabManager.activeTabMessages;
   /**
    * PERFORMANCE OPTIMIZATION: Computed signal for current execution tree
    *
@@ -230,13 +256,14 @@ export class ChatStore {
    * Now we return ALL root nodes so they can all be rendered.
    */
   readonly currentExecutionTrees = computed((): ExecutionNode[] => {
-    const activeTab = this.tabManager.activeTab();
-    if (!activeTab?.streamingState) return [];
+    const streamingState = this.tabManager.activeTabStreamingState();
+    if (!streamingState) return [];
 
     // PERFORMANCE: Use tab-specific cache key for memoization
     // This allows the tree builder to skip rebuilding when data hasn't changed
-    const cacheKey = `tab-${activeTab.id}`;
-    return this.treeBuilder.buildTree(activeTab.streamingState, cacheKey);
+    const tabId = this.tabManager.activeTabId();
+    const cacheKey = `tab-${tabId}`;
+    return this.treeBuilder.buildTree(streamingState, cacheKey);
   });
 
   /**
@@ -248,41 +275,44 @@ export class ChatStore {
     return trees.length > 0 ? trees[0] : null;
   });
   readonly isStreaming = computed(() => {
-    const tab = this.tabManager.activeTab();
-    return tab?.status === 'streaming' || tab?.status === 'resuming';
+    const status = this.tabManager.activeTabStatus();
+    return status === 'streaming' || status === 'resuming';
   });
 
   /**
    * Preloaded stats for old sessions (loaded from JSONL history)
    * Used by SessionStatsSummaryComponent to display cost/tokens without recalculation
    */
-  readonly preloadedStats = computed(
-    () => this.tabManager.activeTab()?.preloadedStats ?? null
-  );
+  readonly preloadedStats = this.tabManager.activeTabPreloadedStats;
 
   /**
    * Live model stats for current session (updated after each turn completion)
    * Includes context window info for percentage display and model name
    * Used by SessionStatsSummaryComponent to display context usage
    */
-  readonly liveModelStats = computed(
-    () => this.tabManager.activeTab()?.liveModelStats ?? null
-  );
+  readonly liveModelStats = this.tabManager.activeTabLiveModelStats;
 
   /**
    * Full per-model usage breakdown for collapsible display in session stats.
    * Contains all models used in the session with their individual cost/token stats.
    */
-  readonly modelUsageList = computed(
-    () => this.tabManager.activeTab()?.modelUsageList ?? null
-  );
+  readonly modelUsageList = this.tabManager.activeTabModelUsageList;
+
+  /** Number of context compactions in the active session */
+  readonly compactionCount = this.tabManager.activeTabCompactionCount;
+
+  /** Queued content for the active tab. Uses fine-grained selector. */
+  readonly queuedContent = this.tabManager.activeTabQueuedContent;
+
+  /** Active tab's streaming state. Changes every tick during streaming (expected). */
+  readonly activeStreamingState = this.tabManager.activeTabStreamingState;
 
   /**
    * Get permission request for a specific tool by its toolCallId
    * Delegates to PermissionHandlerService
    */
   getPermissionForTool(
-    toolCallId: string | undefined
+    toolCallId: string | undefined,
   ): PermissionRequest | null {
     return this.permissionHandler.getPermissionForTool(toolCallId);
   }
@@ -308,9 +338,10 @@ export class ChatStore {
    * to ensure correct behavior in multi-tab scenarios
    */
   readonly hasExistingSession = computed(() => {
-    const tab = this.tabManager.activeTab();
+    const sessionId = this.tabManager.activeTabSessionId();
+    const status = this.tabManager.activeTabStatus();
     // Has existing session if tab has a real Claude session ID and is in 'loaded' state
-    return tab?.claudeSessionId !== null && tab?.status === 'loaded';
+    return sessionId !== null && status === 'loaded';
   });
 
   // ============================================================================
@@ -369,12 +400,21 @@ export class ChatStore {
   }
 
   /**
+   * Update a session's name in the local list (UI only)
+   * Called after successful backend rename to update UI state
+   * Delegates to SessionLoaderService
+   */
+  updateSessionName(sessionId: SessionId, name: string): void {
+    return this.sessionLoader.updateSessionName(sessionId, name);
+  }
+
+  /**
    * Send a message - automatically determines whether to start new or continue
    * Delegates to MessageSenderService (TASK_2025_054 Batch 3 - eliminates callback indirection)
    */
   async sendMessage(
     content: string,
-    options?: SendMessageOptions
+    options?: SendMessageOptions,
   ): Promise<void> {
     return this.messageSender.send(content, options);
   }
@@ -386,12 +426,24 @@ export class ChatStore {
    */
   async sendOrQueueMessage(
     content: string,
-    options?: SendMessageOptions
+    options?: SendMessageOptions,
   ): Promise<void> {
-    // Check if streaming via active tab status
-    const activeTab = this.tabManager.activeTab();
-    const isStreaming =
-      activeTab?.status === 'streaming' || activeTab?.status === 'resuming';
+    // TASK_2025_COMPACT_FIX: Block SDK-native slash commands for non-Anthropic providers.
+    // Commands like /compact, /context, /cost are handled internally by the Claude Agent SDK
+    // and require Claude-specific model behavior. Third-party providers don't support them
+    // and sending them causes the session to hang indefinitely.
+    if (this.isBlockedSlashCommand(content)) {
+      this.showBlockedCommandWarning(content, options?.tabId);
+      return;
+    }
+
+    // Check target tab's streaming state — use explicit tabId if provided (canvas tile)
+    const targetTabId = options?.tabId;
+    const targetTab = targetTabId
+      ? this.tabManager.tabs().find((t) => t.id === targetTabId)
+      : null;
+    const status = targetTab?.status ?? this.tabManager.activeTabStatus();
+    const isStreaming = status === 'streaming' || status === 'resuming';
 
     if (isStreaming) {
       // Auto-deny active permissions with the user's message as context.
@@ -406,10 +458,6 @@ export class ChatStore {
             reason: content,
           });
         }
-        console.log(
-          '[ChatStore] Auto-denied permissions on message send:',
-          activePermissions.length
-        );
       }
 
       // Queue the message with full options via ConversationService
@@ -418,6 +466,68 @@ export class ChatStore {
       // Send normally via MessageSender
       await this.messageSender.send(content, options);
     }
+  }
+
+  /**
+   * Check if the message is an SDK-native slash command that won't work
+   * with the current (non-Anthropic) provider.
+   */
+  private isBlockedSlashCommand(content: string): boolean {
+    const trimmed = content.trim();
+    if (!trimmed.startsWith('/')) return false;
+
+    // Extract command name (e.g., "/compact foo" → "compact")
+    const spaceIdx = trimmed.indexOf(' ');
+    const commandName =
+      spaceIdx === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIdx);
+
+    if (!ChatStore.SDK_NATIVE_COMMANDS.has(commandName)) return false;
+
+    // If auth state hasn't loaded yet, don't block — let the backend decide.
+    // Blocking on stale defaults would incorrectly reject commands before auth state is known.
+    if (this.authState.isLoading()) return false;
+
+    const authMethod = this.authState.persistedAuthMethod();
+    if (authMethod === 'apiKey' || authMethod === 'claudeCli') return false;
+
+    return true;
+  }
+
+  /**
+   * Show a warning message in chat when an SDK-native slash command
+   * is used with a non-Anthropic provider.
+   */
+  private showBlockedCommandWarning(content: string, tabId?: string): void {
+    const activeTabId = tabId ?? this.tabManager.activeTabId();
+    if (!activeTabId) return;
+
+    const activeTab = this.tabManager.tabs().find((t) => t.id === activeTabId);
+    const genId = () =>
+      `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    // Add the user message so it's visible in the chat
+    const userMessage = createExecutionChatMessage({
+      id: genId(),
+      role: 'user',
+      rawContent: content,
+    });
+
+    // Add a warning assistant message
+    const commandName = content.trim().split(/\s/)[0];
+    const warningMessage = createExecutionChatMessage({
+      id: genId(),
+      role: 'assistant',
+      rawContent:
+        `The \`${commandName}\` command is a built-in Claude Agent SDK feature ` +
+        `that only works with direct Anthropic authentication (API key).\n\n` +
+        `Your current provider does not support this command. ` +
+        `To use SDK commands like \`/compact\`, \`/context\`, \`/cost\`, and \`/review\`, ` +
+        `switch to a direct Anthropic connection in **Settings > Authentication**.`,
+    });
+
+    this.tabManager.updateTab(activeTabId, {
+      messages: [...(activeTab?.messages ?? []), userMessage, warningMessage],
+    });
   }
 
   /**
@@ -487,7 +597,7 @@ export class ChatStore {
       try {
         const result = await this._claudeRpcService.call(
           'license:getStatus',
-          {} as Record<string, never>
+          {} as Record<string, never>,
         );
 
         if (result.isSuccess()) {
@@ -498,7 +608,7 @@ export class ChatStore {
           if (attempt === retries) {
             console.error(
               '[ChatStore] Failed to fetch license status after retries:',
-              result.error
+              result.error,
             );
             this._licenseStatus.set(null);
           }
@@ -507,7 +617,7 @@ export class ChatStore {
         if (attempt === retries) {
           console.error(
             '[ChatStore] Error fetching license status after retries:',
-            error
+            error,
           );
           this._licenseStatus.set(null);
         } else {
@@ -532,18 +642,15 @@ export class ChatStore {
    * @param sessionId - The session ID where compaction is occurring
    */
   handleCompactionStart(sessionId: string): void {
-    const activeSessionId = this.currentSessionId();
-
-    // Only show compaction for the active session
-    if (sessionId !== activeSessionId) {
-      console.log('[ChatStore] Ignoring compaction for non-active session:', {
-        sessionId,
-        activeSessionId,
-      });
+    // Find the tab for this session — compaction state is per-tab, not global
+    const tab = this.tabManager.findTabBySessionId(sessionId);
+    if (!tab) {
+      console.warn(
+        '[ChatStore] handleCompactionStart: no tab found for sessionId',
+        { sessionId },
+      );
       return;
     }
-
-    console.log('[ChatStore] Compaction started for session:', { sessionId });
 
     // Clear any existing timeout
     if (this.compactionTimeoutId) {
@@ -551,29 +658,89 @@ export class ChatStore {
       this.compactionTimeoutId = null;
     }
 
-    // Set compacting state — stays visible until compaction_complete event arrives
-    this._isCompacting.set(true);
+    // Set compacting state on the specific tab
+    this.tabManager.updateTab(tab.id, { isCompacting: true });
 
     // Safety fallback: dismiss if compaction_complete event is never received
+    const compactingTabId = tab.id;
     this.compactionTimeoutId = setTimeout(() => {
-      this._isCompacting.set(false);
+      this.tabManager.updateTab(compactingTabId, {
+        isCompacting: false,
+        status: 'loaded',
+        streamingState: null,
+        currentMessageId: null,
+      });
+      this.tabManager.markTabIdle(compactingTabId);
+      this.sessionManager.setStatus('loaded');
       this.compactionTimeoutId = null;
       console.warn(
-        '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost'
+        '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
       );
     }, ChatStore.COMPACTION_SAFETY_TIMEOUT_MS);
   }
 
   /**
-   * Clear compaction state (called when new message is received)
+   * Public accessor for marking a tab idle from external handlers.
+   * Used by ChatMessageHandler to handle CHAT_COMPLETE fallback.
+   *
+   * IMPORTANT: This must remain lightweight — only removing the visual streaming
+   * indicator. CHAT_COMPLETE fires per-turn (on every message_complete), NOT only
+   * at session end. Aggressively resetting streamingState/status here would destroy
+   * accumulated events mid-session in multi-turn tool-use conversations.
+   *
+   * Full state reset (streamingState: null, status: 'loaded') is handled by:
+   * - finalizeCurrentMessage (via SESSION_STATS — the authoritative completion signal)
+   * - handleError (explicit error path)
+   * - handleCompaction (compaction-specific path)
+   */
+  markTabIdle(tabId: string): void {
+    this.tabManager.markTabIdle(tabId);
+  }
+
+  /**
+   * Public accessor to find a tab by its session ID.
+   * Used by ChatMessageHandler for CHAT_COMPLETE routing.
+   */
+  findTabBySessionId(sessionId: string): TabState | null {
+    return this.tabManager.findTabBySessionId(sessionId);
+  }
+
+  /**
+   * Public accessor to get the active tab ID.
+   * Used by ChatMessageHandler for CHAT_COMPLETE fallback routing.
+   */
+  getActiveTabId(): string | null {
+    return this.tabManager.activeTabId();
+  }
+
+  /**
+   * Clear compaction state for a specific tab.
+   * Public for use by ChatMessageHandler on CHAT_COMPLETE.
+   */
+  clearCompactionStateForTab(tabId: string): void {
+    this.tabManager.updateTab(tabId, { isCompacting: false });
+  }
+
+  /**
+   * Clear compaction state for a specific tab, or all compacting tabs if no tabId given.
    * TASK_2025_098: SDK Session Compaction
    */
-  private clearCompactionState(): void {
+  private clearCompactionState(tabId?: string): void {
     if (this.compactionTimeoutId) {
       clearTimeout(this.compactionTimeoutId);
       this.compactionTimeoutId = null;
     }
-    this._isCompacting.set(false);
+    // Clear on the specific tab if provided, otherwise clear on all compacting tabs
+    if (tabId) {
+      this.tabManager.updateTab(tabId, { isCompacting: false });
+    } else {
+      // Fallback: clear isCompacting on any tab that has it set
+      for (const tab of this.tabManager.tabs()) {
+        if (tab.isCompacting) {
+          this.tabManager.updateTab(tab.id, { isCompacting: false });
+        }
+      }
+    }
   }
 
   /**
@@ -601,6 +768,7 @@ export class ChatStore {
     toolUseId: string;
     summaryDelta: string;
     agentId: string;
+    sessionId: string;
     contentBlocks?: Array<{
       type: 'text' | 'tool_ref';
       text?: string;
@@ -608,29 +776,22 @@ export class ChatStore {
       toolName?: string;
     }>;
   }): void {
-    const { toolUseId, summaryDelta, agentId, contentBlocks } = payload;
+    const { toolUseId, summaryDelta, agentId, sessionId, contentBlocks } =
+      payload;
 
-    // DIAGNOSTIC: Log receipt of summary chunk
-    console.log('[ChatStore] handleAgentSummaryChunk called:', {
-      toolUseId,
-      agentId, // TASK_2025_099: Stable key for lookup
-      deltaLength: summaryDelta.length,
-      deltaPreview: summaryDelta.slice(0, 50),
-      hasContentBlocks: !!contentBlocks,
-      contentBlocksCount: contentBlocks?.length ?? 0,
-    });
-
-    // Find the active tab with streaming state
-    const activeTab = this.tabManager.activeTab();
-    if (!activeTab?.streamingState) {
+    // Route to the correct tab by sessionId (multi-tab safe).
+    // If the session's tab was closed, drop the chunk rather than
+    // corrupting an unrelated active tab.
+    const targetTab = this.tabManager.findTabBySessionId(sessionId);
+    if (!targetTab?.streamingState) {
       console.warn(
-        '[ChatStore] No active tab with streamingState for summary chunk:',
-        { toolUseId, agentId }
+        '[ChatStore] No tab with streamingState for summary chunk:',
+        { toolUseId, agentId, sessionId },
       );
       return;
     }
 
-    const state = activeTab.streamingState;
+    const state = targetTab.streamingState;
 
     // TASK_2025_099: Use agentId as key for summary accumulation.
     // This is stable across hook (UUID toolUseId) and complete (toolu_* toolCallId).
@@ -643,26 +804,11 @@ export class ChatStore {
       const currentBlocks = state.agentContentBlocksMap.get(agentId) || [];
       const newBlocks = [...currentBlocks, ...contentBlocks];
       state.agentContentBlocksMap.set(agentId, newBlocks);
-
-      console.log('[ChatStore] Content blocks accumulated:', {
-        agentId,
-        previousBlocksCount: currentBlocks.length,
-        newBlocksCount: contentBlocks.length,
-        totalBlocksCount: newBlocks.length,
-        blockTypes: contentBlocks.map((b) => b.type),
-      });
     }
-
-    console.log('[ChatStore] Agent summary accumulated in StreamingState:', {
-      agentId, // TASK_2025_099: Now keyed by agentId
-      toolUseId, // Keep for debugging
-      previousLength: currentSummary.length,
-      newTotalLength: newSummary.length,
-    });
 
     // Trigger tab update to invalidate tree cache and re-render
     // Create shallow copy to trigger signal change detection
-    this.tabManager.updateTab(activeTab.id, {
+    this.tabManager.updateTab(targetTab.id, {
       streamingState: { ...state },
     });
   }
@@ -685,23 +831,21 @@ export class ChatStore {
   }
 
   /**
-   * Clear queued content for active tab
-   * Delegates to TabManagerService (simple facade)
+   * Clear queued content for a specific tab or the active tab.
+   * @param tabId - Optional tab ID. Falls back to active tab if not provided.
    */
-  clearQueuedContent(): void {
-    const activeTabId = this.tabManager.activeTabId();
-    if (!activeTabId) return;
-    this.tabManager.updateTab(activeTabId, { queuedContent: null });
+  clearQueuedContent(tabId?: string): void {
+    const targetTabId = tabId ?? this.tabManager.activeTabId();
+    if (!targetTabId) return;
+    this.tabManager.updateTab(targetTabId, { queuedContent: null });
   }
 
   /**
-   * Clear the queue restore signal after content has been restored to input
-   * This is a no-op now since queueRestoreSignal is exposed directly from ConversationService
-   * Kept for backward compatibility
+   * Clear the queue restore signal after content has been restored to input.
+   * Delegates to ConversationService to actually set the signal to null.
    */
   clearQueueRestoreSignal(): void {
-    // No-op: components should read queueRestoreSignal directly
-    // This method exists for backward compatibility only
+    this.conversation.clearQueueRestoreSignal();
   }
 
   /**
@@ -717,11 +861,9 @@ export class ChatStore {
    */
   private async sendQueuedMessage(
     tabId: string,
-    content: string
+    content: string,
   ): Promise<void> {
     try {
-      console.log('[ChatStore] sendQueuedMessage: clearing queue and sending');
-
       // Retrieve stored options before clearing
       const tab = this.tabManager.tabs().find((t) => t.id === tabId);
       const queuedOptions = tab?.queuedOptions ?? undefined;
@@ -736,13 +878,12 @@ export class ChatStore {
       // messageSender.send() checks tab.status === 'loaded' which is false during streaming,
       // causing it to incorrectly start a NEW conversation instead of continuing the existing one.
       // Pass files from stored options (effort is set at session config level, not per-message for continue).
+      // Pass explicit tabId so the user message is added to the correct tab even if the user
+      // switched tabs before the queued message fires.
       await this.conversation.continueConversation(
         content,
-        queuedOptions?.files
-      );
-
-      console.log(
-        '[ChatStore] sendQueuedMessage: queued message sent successfully'
+        queuedOptions?.files,
+        tabId,
       );
     } catch (error) {
       console.error('[ChatStore] sendQueuedMessage failed:', error);
@@ -766,26 +907,77 @@ export class ChatStore {
   processStreamEvent(
     event: FlatStreamEventUnion,
     tabId?: string,
-    sessionId?: string
+    sessionId?: string,
   ): void {
     const result = this.streamingHandler.processStreamEvent(
       event,
       tabId,
-      sessionId
+      sessionId,
     );
 
     // Handle compaction complete: dismiss banner, reset tree, clear finalized messages
     if (result && result.compactionComplete && result.compactionSessionId) {
-      console.log('[ChatStore] Compaction complete, resetting frontend state', {
-        compactionSessionId: result.compactionSessionId,
-      });
-      this.clearCompactionState();
+      this.clearCompactionState(result.tabId);
       this.treeBuilder.clearCache();
 
       // Clear finalized messages for the tab - stale pre-compaction messages
-      const activeTab = this.tabManager.activeTab();
-      if (activeTab && activeTab.id === result.tabId) {
-        this.tabManager.updateTab(result.tabId, { messages: [] });
+      // Verify tab still exists before clearing (it may have been closed during compaction)
+      const compactionTab = this.tabManager
+        .tabs()
+        .find((t) => t.id === result.tabId);
+      if (compactionTab) {
+        // Snapshot cumulative stats into preloadedStats before clearing messages.
+        // Without this, fresh sessions (no preloadedStats) lose all cost/token
+        // data because summary() falls back to calculateSessionCostSummary([]).
+        let preloadedStats = compactionTab.preloadedStats;
+        if (!preloadedStats && compactionTab.messages.length > 0) {
+          const snapshot = calculateSessionCostSummary([
+            ...compactionTab.messages,
+          ]);
+          preloadedStats = {
+            totalCost: snapshot.totalCost,
+            tokens: {
+              input: snapshot.totalTokens.input,
+              output: snapshot.totalTokens.output,
+              cacheRead: snapshot.totalTokens.cacheRead ?? 0,
+              cacheCreation: snapshot.totalTokens.cacheCreation ?? 0,
+            },
+            messageCount: snapshot.messageCount,
+          };
+        }
+
+        this.tabManager.updateTab(result.tabId, {
+          messages: [],
+          preloadedStats,
+          compactionCount: (compactionTab.compactionCount ?? 0) + 1,
+          status: 'loaded',
+          streamingState: null,
+          currentMessageId: null,
+          // TASK_2025_COMPACT_FIX: Clear any queued message so the
+          // "Message queued (will send when Claude finishes)" banner disappears
+          // and the next user message is sent fresh instead of draining a stale queue.
+          queuedContent: null,
+          queuedOptions: null,
+        });
+
+        // Also clear the visual streaming indicator and session manager state
+        this.tabManager.markTabIdle(result.tabId);
+        this.sessionManager.setStatus('loaded');
+
+        // Reload session from disk to show the post-compaction state.
+        // The SDK writes the compaction summary as a user message to the
+        // session JSONL, but it's NOT emitted in the live stream. Without
+        // this reload, the tab shows a clean slate until manually reopened.
+        const reloadSessionId =
+          compactionTab.claudeSessionId ?? result.compactionSessionId;
+        if (reloadSessionId) {
+          this.sessionLoader.switchSession(reloadSessionId).catch((err) => {
+            console.warn(
+              '[ChatStore] Failed to reload session after compaction:',
+              err,
+            );
+          });
+        }
       }
       return;
     }
@@ -793,9 +985,6 @@ export class ChatStore {
     // TASK_2025_098: Handle compaction start notification via unified streaming path
     // Compaction events now flow through CHAT_CHUNK like all other streaming events
     if (result && result.compactionSessionId) {
-      console.log('[ChatStore] Handling compaction start via streaming path', {
-        compactionSessionId: result.compactionSessionId,
-      });
       this.handleCompactionStart(result.compactionSessionId);
       return; // Compaction events don't need further processing
     }
@@ -805,7 +994,6 @@ export class ChatStore {
     // we send the queued message to re-steer Claude without aborting running agents.
     // The SDK handles message queueing natively - agents continue running.
     if (result && result.queuedContent) {
-      console.log('[ChatStore] Sending queued message (no interrupt)');
       const queuedContent = result.queuedContent;
       const resultTabId = result.tabId;
 
@@ -884,7 +1072,7 @@ export class ChatStore {
    */
   public queueOrAppendMessage(
     content: string,
-    options?: SendMessageOptions
+    options?: SendMessageOptions,
   ): void {
     this.conversation.queueOrAppendMessage(content, options);
   }
@@ -931,37 +1119,60 @@ export class ChatStore {
       contextWindow: number;
       costUSD: number;
       cacheReadInputTokens?: number;
+      lastTurnContextTokens?: number;
     }>;
   }): void {
+    // Resolve the target tab by sessionId first.
+    // Fallback to activeTab() only as safety net — stats can't be dropped since
+    // they're the only opportunity to record cost/token data for the turn.
+    let targetTab = this.tabManager.findTabBySessionId(stats.sessionId);
+
     // TASK_2025_098: Clear compaction state when new message finishes
     // This indicates compaction (if any) has completed successfully
-    this.clearCompactionState();
-
-    // Fetch active tab once for use across modelUsage + preloadedStats
-    const activeTab = this.tabManager.activeTab();
+    this.clearCompactionState(targetTab?.id);
+    if (!targetTab) {
+      targetTab = this.tabManager.activeTab();
+      if (targetTab) {
+        console.warn(
+          '[ChatStore] handleSessionStats: findTabBySessionId failed, fell back to activeTab',
+          { sessionId: stats.sessionId, activeTabId: targetTab.id },
+        );
+      }
+    }
 
     // Process modelUsage to update liveModelStats for context display
     if (stats.modelUsage && stats.modelUsage.length > 0) {
-      // Use the model with the highest output tokens (the one that did the most work).
-      // Backend sorts modelUsage[0] to be the primary model, but as a safety net
-      // we also verify by selecting the highest-output model if there are multiple.
+      // Select the model with the highest cost as the user's primary model.
+      // The live stream path sorts modelUsage[0] by initialModel match then
+      // outputTokens, while the history path sorts by costUSD. As a unified
+      // safety net we pick the highest-cost model, ensuring the user's main
+      // model (e.g. Opus) is shown even when a cheaper subagent (e.g. Haiku)
+      // produces more output tokens.
       const primaryModel =
         stats.modelUsage.length === 1
           ? stats.modelUsage[0]
           : stats.modelUsage.reduce((best, current) =>
-              current.outputTokens > best.outputTokens ? current : best
+              current.costUSD > best.costUSD ? current : best,
             );
-      // Context usage = input + output tokens only.
-      // Cache-read tokens are NOT included: they represent prompt cache hits (a billing/perf metric)
-      // and do NOT consume additional context window space beyond the original input tokens.
-      const contextUsed = primaryModel.inputTokens + primaryModel.outputTokens;
+      // Context usage: use last turn's actual prompt size (= real context fill),
+      // NOT cumulative tokens across all turns. The SDK's modelUsage tokens are
+      // summed across all API calls, but the context window only holds the current
+      // conversation state. lastTurnContextTokens captures the last message_start's
+      // input + cache_read, which IS the real context window fill level.
+      // Falls back to cumulative tokens for backward compat (loaded sessions).
+      const contextUsed =
+        primaryModel.lastTurnContextTokens != null
+          ? primaryModel.lastTurnContextTokens
+          : primaryModel.inputTokens +
+            (primaryModel.cacheReadInputTokens ?? 0) +
+            primaryModel.outputTokens;
       const contextPercent =
         primaryModel.contextWindow > 0
           ? Math.round((contextUsed / primaryModel.contextWindow) * 1000) / 10
           : 0;
 
-      if (activeTab) {
-        this.tabManager.updateTab(activeTab.id, {
+      if (targetTab) {
+        this.tabManager.updateTab(targetTab.id, {
           liveModelStats: {
             model: primaryModel.model,
             contextUsed,
@@ -970,35 +1181,29 @@ export class ChatStore {
           },
           modelUsageList: stats.modelUsage,
         });
-        console.log('[ChatStore] Updated liveModelStats:', {
-          model: primaryModel.model,
-          contextUsed,
-          contextWindow: primaryModel.contextWindow,
-          contextPercent,
-        });
       }
     }
 
     // Bug 2 fix: Accumulate preloadedStats with new turn data
     // When a loaded historical session gets new messages, the preloadedStats
     // must be updated so the stats summary shows the combined totals.
-    if (activeTab?.preloadedStats) {
-      this.tabManager.updateTab(activeTab.id, {
+    if (targetTab?.preloadedStats) {
+      this.tabManager.updateTab(targetTab.id, {
         preloadedStats: {
-          ...activeTab.preloadedStats,
-          totalCost: activeTab.preloadedStats.totalCost + stats.cost,
+          ...targetTab.preloadedStats,
+          totalCost: targetTab.preloadedStats.totalCost + stats.cost,
           tokens: {
-            input: activeTab.preloadedStats.tokens.input + stats.tokens.input,
+            input: targetTab.preloadedStats.tokens.input + stats.tokens.input,
             output:
-              activeTab.preloadedStats.tokens.output + stats.tokens.output,
+              targetTab.preloadedStats.tokens.output + stats.tokens.output,
             cacheRead:
-              activeTab.preloadedStats.tokens.cacheRead +
+              targetTab.preloadedStats.tokens.cacheRead +
               (stats.tokens.cacheRead ?? 0),
             cacheCreation:
-              activeTab.preloadedStats.tokens.cacheCreation +
+              targetTab.preloadedStats.tokens.cacheCreation +
               (stats.tokens.cacheCreation ?? 0),
           },
-          messageCount: activeTab.preloadedStats.messageCount + 1,
+          messageCount: targetTab.preloadedStats.messageCount + 1,
         },
       });
     }
@@ -1015,7 +1220,6 @@ export class ChatStore {
     // (StreamingHandler → MessageSender → SessionLoader → StreamingHandler)
     // TASK_2025_185: Use sendQueuedMessage for consistent error handling with queue restoration
     if (result && result.queuedContent && result.queuedContent.trim()) {
-      console.log('[ChatStore] Auto-sending queued content after finalization');
       this.sendQueuedMessage(result.tabId, result.queuedContent);
     }
   }
@@ -1023,34 +1227,9 @@ export class ChatStore {
   // ============================================================================
   // CHAT COMPLETION HANDLING
   // ============================================================================
-
-  /**
-   * Handle chat completion signal from backend
-   * Called when Claude CLI process exits (success or error)
-   *
-   * TASK_2025_101: This event is NO LONGER used to control streaming state.
-   * The chat:complete event fires multiple times during tool execution (once per
-   * message_complete), making it unreliable for determining when streaming truly ends.
-   *
-   * Streaming finalization is now handled by handleSessionStats(), which receives
-   * the authoritative SESSION_STATS event derived from SDK's type=result message.
-   * That event fires exactly once per turn and contains final cost/token data.
-   *
-   * This method now only logs the event for debugging purposes.
-   */
-  handleChatComplete(data: {
-    tabId?: string;
-    sessionId?: string;
-    code: number;
-  }): void {
-    // TASK_2025_101: chat:complete is no longer used for streaming state management.
-    // It fires multiple times (once per message_complete during tool execution).
-    // SESSION_STATS (from type=result) is the authoritative completion signal.
-    console.log(
-      '[ChatStore] chat:complete received (no-op, streaming managed by SESSION_STATS):',
-      data
-    );
-  }
+  // NOTE: handleChatComplete was removed — chat:complete is no longer used
+  // for streaming state management. SESSION_STATS (from type=result) is the
+  // authoritative completion signal (TASK_2025_101).
 
   /**
    * Handle session ID resolution from backend
@@ -1101,7 +1280,7 @@ export class ChatStore {
     this.sessionLoader.loadSessions().catch((err) => {
       console.warn(
         '[ChatStore] Failed to refresh sessions after ID resolved:',
-        err
+        err,
       );
     });
   }
@@ -1180,10 +1359,15 @@ export class ChatStore {
     }
 
     // Reset streaming state (including per-tab currentMessageId)
+    // TASK_2025_COMPACT_FIX: Also clear queued content and visual streaming indicator
+    // to prevent "Message queued" banner from persisting after slash command errors
     this.tabManager.updateTab(targetTabId, {
       status: 'loaded',
       currentMessageId: null,
+      queuedContent: null,
+      queuedOptions: null,
     });
+    this.tabManager.markTabIdle(targetTabId);
     this.sessionManager.setStatus('loaded');
 
     // Safety net: refresh sidebar in case session metadata was created before the error.

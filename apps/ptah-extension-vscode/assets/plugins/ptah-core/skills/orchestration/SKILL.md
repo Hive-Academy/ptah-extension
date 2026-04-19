@@ -136,6 +136,7 @@ else
 | tasks.md (IN PROGRESS)  | Team-leader MODE 2 (verify)         |
 | tasks.md (IMPLEMENTED)  | Team-leader MODE 2 (commit)         |
 | tasks.md (all COMPLETE) | Team-leader MODE 3 OR QA choice     |
+| QA complete (no future-enhancements.md) | Invoke modernization-detector |
 | future-enhancements.md  | Workflow complete                   |
 
 See [task-tracking.md](references/task-tracking.md) for full phase detection.
@@ -212,47 +213,51 @@ See [team-leader-modes.md](references/team-leader-modes.md) for detailed integra
 
 ## CLI Agent Delegation Mode
 
-Enable a **3-tier hierarchy** where sub-agents can delegate focused sub-tasks to CLI agents as junior helpers, speeding up grunt work through parallelization.
+Enable a **3-tier hierarchy** where the **team-leader** is the primary CLI agent delegator, spawning CLI agents as junior developer helpers for batch implementation and verification.
 
 ```
-Tier 1: Claude (Orchestrator) — coordinates workflow
-  └── Tier 2: Sub-agents (Senior Leads) — via Agent tool
-        └── Tier 3: CLI agents (Junior Helpers) — via ptah_agent_spawn
+Tier 1: Claude (Orchestrator) — coordinates workflow, runs Checkpoint 0.1
+  └── Tier 2: Team-Leader (Primary CLI Delegator) — via Agent tool
+        ├── Spawns CLI agents for independent batch tasks — via ptah_agent_spawn
+        ├── Spawns CLI agents for parallel verification
+        └── Falls back to sub-agent developers for coupled/complex work
 ```
 
 ### How It Works
 
 1. **Discovery**: At orchestration start, run `ptah_agent_list` to find available CLI agents
 2. **Checkpoint 0.1**: Present available agents to user and ask whether to enable delegation
-3. **Injection**: When enabled, every sub-agent prompt gets a CLI delegation instruction block appended
-4. **Execution**: Sub-agents decide when to delegate sub-tasks vs do work directly
+3. **Store in context.md**: Record `cli_delegation: enabled|disabled|auto` and available agents
+4. **Team-leader delegates**: In MODE 2, team-leader spawns CLI agents for independent batch tasks instead of (or alongside) sub-agent developers. The team-leader agent template has full CLI delegation instructions built in.
 
 ### Quick Reference
 
-| Aspect                 | Detail                                                |
-| ---------------------- | ----------------------------------------------------- |
-| **Activation**         | Checkpoint 0.1 (auto-discovered, user-confirmed)      |
-| **Available agents**   | gemini, codex, copilot, ptah-cli (user-configured)    |
-| **Concurrency limit**  | Max 3 CLI agents simultaneously                       |
-| **Selection priority** | ptah-cli > gemini > codex > copilot                   |
-| **Sub-agent autonomy** | Sub-agents decide when/whether to delegate            |
-| **Quality ownership**  | Sub-agents own quality — must review CLI agent output |
+| Aspect                  | Detail                                                               |
+| ----------------------- | -------------------------------------------------------------------- |
+| **Activation**          | Checkpoint 0.1 (auto-discovered, user-confirmed)                     |
+| **Primary delegator**   | team-leader (has CLI delegation built into MODE 2)                   |
+| **Available agents**    | gemini, codex, copilot, ptah-cli (user-configured)                   |
+| **Concurrency limit**   | Max 3 CLI agents simultaneously                                      |
+| **Selection priority**  | ptah-cli > gemini > codex > copilot                                  |
+| **Decision authority**  | Team-leader decides when to use CLI agents vs sub-agent developers   |
+| **Quality ownership**   | Team-leader owns quality — verifies all CLI agent output             |
 
-### When to Delegate (Sub-agent Guidance)
+### When Team-Leader Uses CLI Agents vs Sub-agent Developers
 
-| Delegate These                              | Keep These                               |
+| Use CLI Agents (ptah_agent_spawn)           | Use Sub-agent Developers (Agent tool)    |
 | ------------------------------------------- | ---------------------------------------- |
-| File-level analysis and surveys             | Architecture and cross-cutting decisions |
-| Test scaffolding and boilerplate generation | User-facing deliverables and synthesis   |
-| Parallel reviews across many files          | Git commits                              |
-| Config file / Dockerfile generation         | Interactive user questioning             |
-| Codebase research and dependency analysis   | Security-critical review decisions       |
+| Batch has 3+ independent tasks              | Tightly coupled tasks needing shared ctx |
+| Boilerplate / scaffolding work              | Cross-file refactoring                   |
+| Parallel file verification                  | Architecture decisions required          |
+| Independent component implementation        | Complex business logic                   |
 
-See [cli-agent-delegation.md](references/cli-agent-delegation.md) for the comprehensive reference.
+### Secondary Delegation (Other Sub-agents)
 
-### CLI Delegation Prompt Injection
+Other sub-agents (PM, Architect, Researcher, Tester, Reviewers) may also delegate focused sub-tasks to CLI agents when CLI mode is active. For these agents, append the CLI delegation injection block to their prompts. However, the **team-leader is the primary and most impactful delegator** — it handles the bulk of CLI agent work during batch implementation.
 
-When CLI Agent Mode is active, append this block to every sub-agent's invocation prompt:
+### CLI Delegation Prompt Injection (For Secondary Delegators)
+
+When CLI Agent Mode is active and invoking sub-agents **other than team-leader** (PM, Architect, Researcher, etc.), append this block to their prompts to enable secondary delegation:
 
 ```markdown
 ## CLI Agent Delegation (Junior Helpers)
@@ -288,6 +293,35 @@ independently-executable sub-tasks to speed up your work.
 **When to delegate:**
 [role-specific examples injected per agent type — see agent-catalog.md]
 ```
+
+**Note**: The team-leader does NOT need this injection block — its agent template already has full CLI delegation instructions built into MODE 2.
+
+See [cli-agent-delegation.md](references/cli-agent-delegation.md) for the comprehensive reference.
+
+---
+
+## Post-QA: Modernization-Detector Phase
+
+After QA completes (or is skipped), invoke the modernization-detector as the final workflow phase. This applies to FEATURE, BUGFIX, REFACTORING, and DEVOPS workflows.
+
+**Skip if**: DOCUMENTATION, RESEARCH, CREATIVE, or SAAS_INIT workflows (no modernization analysis needed).
+
+```typescript
+Task({
+  subagent_type: 'modernization-detector',
+  description: 'Analyze future improvements for TASK_[ID]',
+  prompt: `You are modernization-detector for TASK_[ID].
+
+**Task Folder**: [absolute path to .ptah/specs/TASK_[ID]]
+**Changes**: Review tasks.md for what was implemented
+
+Identify opportunities for future improvements, tech debt, and modernization.
+Write findings to future-enhancements.md in the task folder.
+See modernization-detector.md for detailed instructions.`,
+});
+```
+
+Once `future-enhancements.md` is created, the workflow is complete. Present the summary to the user.
 
 ---
 

@@ -41,6 +41,10 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { AuthEnv } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkModuleLoader } from '../helpers/sdk-module-loader';
+import {
+  SdkModelService,
+  buildTierEnvDefaults,
+} from '../helpers/sdk-model-service';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SubagentHookHandler } from '../helpers/subagent-hook-handler';
 import { CompactionConfigProvider } from '../helpers/compaction-config-provider';
@@ -55,7 +59,6 @@ import type {
   HookEvent,
   HookCallbackMatcher,
   McpHttpServerConfig,
-  SdkPluginConfig,
 } from '../types/sdk-types/claude-sdk.types';
 import type {
   InternalQueryConfig,
@@ -115,6 +118,8 @@ export class InternalQueryService {
     private readonly compactionHookHandler: CompactionHookHandler,
     @inject(SDK_TOKENS.SDK_AUTH_ENV)
     private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
+    private readonly modelService: SdkModelService,
   ) {}
 
   /**
@@ -161,7 +166,8 @@ export class InternalQueryService {
     const options = await this.buildOptions(config, abortController, cliJsPath);
 
     const systemPromptObj =
-      typeof options.systemPrompt === 'object'
+      typeof options.systemPrompt === 'object' &&
+      !Array.isArray(options.systemPrompt)
         ? options.systemPrompt
         : undefined;
 
@@ -264,10 +270,14 @@ export class InternalQueryService {
       `${SERVICE_TAG} Compaction config: enabled=${compactionConfig.enabled}, threshold=${compactionConfig.contextTokenThreshold} (managed via hooks)`,
     );
 
+    // Resolve bare tier names ('opus', 'sonnet', 'haiku', 'default') to full model IDs.
+    // The SDK's query() requires full model IDs like 'claude-opus-4-6'.
+    const resolvedModel = this.modelService.resolveModelId(config.model);
+
     const options: SdkQueryOptions = {
       abortController,
       cwd: config.cwd,
-      model: config.model,
+      model: resolvedModel,
 
       // System prompt with all enhancements
       systemPrompt,
@@ -301,11 +311,23 @@ export class InternalQueryService {
       pathToClaudeCodeExecutable: cliJsPath || undefined,
 
       // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
+      // Guarantee tier env vars so SDK subagents can resolve bare tier names
       // Set NO_PROXY to prevent corporate proxy interception of localhost requests
+      // Disable experimental betas for non-Anthropic base URLs (parity with
+      // SdkQueryOptionsBuilder and buildSafeEnv — third-party endpoints don't
+      // support context-management-2025-06-27, causing 400 errors)
       env: {
         ...process.env,
+        ...buildTierEnvDefaults(this.authEnv),
         ...this.authEnv,
         NO_PROXY: '127.0.0.1,localhost',
+        ...(() => {
+          const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+          return baseUrl &&
+            !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
+            ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
+            : {};
+        })(),
       } as Record<string, string | undefined>,
 
       // Load settings from project and local directories.
@@ -334,8 +356,7 @@ export class InternalQueryService {
       // Lifecycle hooks (subagent + compaction)
       hooks,
 
-      // Plugins (loaded from workspace plugin directories)
-      plugins: this.buildPlugins(config.pluginPaths),
+      // Plugins disabled — skills loaded via .claude/skills/ junctions (SkillJunctionService)
     };
 
     // Structured output format (JSON Schema) — constrains the agent's final response
@@ -344,14 +365,6 @@ export class InternalQueryService {
     }
 
     return options;
-  }
-
-  /**
-   * Build plugin configuration from resolved plugin paths.
-   */
-  private buildPlugins(pluginPaths?: string[]): SdkPluginConfig[] | undefined {
-    if (!pluginPaths || pluginPaths.length === 0) return undefined;
-    return pluginPaths.map((p) => ({ type: 'local' as const, path: p }));
   }
 
   /**

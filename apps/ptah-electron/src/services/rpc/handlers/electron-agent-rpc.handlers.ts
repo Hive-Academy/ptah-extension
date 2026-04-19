@@ -14,7 +14,7 @@
  * (IStateStorage, IWorkspaceProvider) instead of VS Code APIs.
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -44,6 +44,8 @@ import type {
   CliDetectionResult,
   CliType,
   SpawnAgentResult,
+  ISdkPermissionHandler,
+  PermissionResponse,
 } from '@ptah-extension/shared';
 
 @injectable()
@@ -168,6 +170,28 @@ export class ElectronAgentRpcHandlers {
                 'agentOrchestration.disabledClis',
                 [],
               ) ?? [],
+            disabledMcpNamespaces:
+              this.stateStorage.get<string[]>(
+                'agentOrchestration.disabledMcpNamespaces',
+                [],
+              ) ?? [],
+            // Browser settings — read from workspace provider (not stateStorage) because
+            // browser.allowLocalhost is in FILE_BASED_SETTINGS_KEYS and must route through
+            // PtahFileSettingsManager (~/.ptah/settings.json) for parity with the MCP
+            // browser namespace read path in PtahApiBuilderService.
+            browserAllowLocalhost:
+              this.workspace.getConfiguration<boolean>(
+                'ptah',
+                'browser.allowLocalhost',
+                false,
+              ) ?? false,
+            // Runtime selector — stored under 'ptah.runtime' to match the ConfigManager
+            // shim pattern (configStorage.get('ptah.' + key)).
+            runtime:
+              this.stateStorage.get<'auto' | 'claude-sdk' | 'deep-agent'>(
+                'ptah.runtime',
+                'auto',
+              ) ?? 'auto',
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -190,10 +214,25 @@ export class ElectronAgentRpcHandlers {
   private registerSetConfig(): void {
     this.rpcHandler.registerMethod<
       AgentSetConfigParams,
-      { success: boolean; error?: string }
+      { success: boolean; error?: string; reloadRequired?: boolean }
     >('agent:setConfig', async (params) => {
       try {
         this.logger.debug('RPC: agent:setConfig called', { params });
+
+        // Detect runtime change BEFORE writing so the frontend can prompt reload.
+        // Electron has no config-change watcher — the frontend reads reloadRequired
+        // from the setConfig response and shows its own reload button.
+        let reloadRequired = false;
+        if (params.runtime !== undefined) {
+          const previous =
+            this.stateStorage.get<'auto' | 'claude-sdk' | 'deep-agent'>(
+              'ptah.runtime',
+              'auto',
+            ) ?? 'auto';
+          if (previous !== params.runtime) {
+            reloadRequired = true;
+          }
+        }
 
         if (params.preferredAgentOrder !== undefined) {
           await this.stateStorage.update(
@@ -262,9 +301,31 @@ export class ElectronAgentRpcHandlers {
             params.disabledClis,
           );
         }
+        if (params.disabledMcpNamespaces !== undefined) {
+          await this.stateStorage.update(
+            'agentOrchestration.disabledMcpNamespaces',
+            params.disabledMcpNamespaces,
+          );
+        }
+        // Browser settings — write via workspace provider (not stateStorage) because
+        // browser.allowLocalhost routes through FILE_BASED_SETTINGS_KEYS to ~/.ptah/settings.json.
+        if (params.browserAllowLocalhost !== undefined) {
+          await this.workspace.setConfiguration(
+            'ptah',
+            'browser.allowLocalhost',
+            params.browserAllowLocalhost,
+          );
+        }
+        // Runtime selector — stored under 'ptah.runtime' to match the ConfigManager
+        // shim pattern (configStorage.get('ptah.' + key)).
+        if (params.runtime !== undefined) {
+          await this.stateStorage.update('ptah.runtime', params.runtime);
+        }
 
         this.logger.debug('RPC: agent:setConfig success');
-        return { success: true };
+        return reloadRequired
+          ? { success: true, reloadRequired }
+          : { success: true };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -338,6 +399,17 @@ export class ElectronAgentRpcHandlers {
     );
   }
 
+  /**
+   * agent:permissionResponse - Route user's permission decision to handlers
+   *
+   * Tries both:
+   * 1. SdkPermissionHandler (Ptah CLI agent permissions) - via lazy container resolution
+   * 2. CopilotPermissionBridge (Copilot SDK permissions) - via CLI adapter
+   *
+   * Both handlers silently ignore unknown requestIds, so trying both is safe.
+   *
+   * TASK_2025_255: Extended to also route to SdkPermissionHandler for Ptah CLI agents
+   */
   private registerPermissionResponse(): void {
     this.rpcHandler.registerMethod<
       AgentPermissionDecision,
@@ -349,16 +421,41 @@ export class ElectronAgentRpcHandlers {
           decision: params.decision,
         });
 
+        let handled = false;
+
+        // Try SdkPermissionHandler first (handles Ptah CLI agent permissions)
+        // Uses lazy container resolution (same pattern as webview-message-handler.service.ts:464)
+        if (container.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)) {
+          const permissionHandler = container.resolve<ISdkPermissionHandler>(
+            SDK_TOKENS.SDK_PERMISSION_HANDLER,
+          );
+          const response: PermissionResponse = {
+            id: params.requestId,
+            decision: params.decision,
+            reason: params.reason,
+          };
+          permissionHandler.handleResponse(params.requestId, response);
+          handled = true;
+        }
+
+        // Also try Copilot bridge (existing flow, idempotent for unknown requestIds)
         const copilotAdapter = this.cliDetection.getAdapter('copilot');
         if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
           const bridge = (
             copilotAdapter as { permissionBridge: CopilotPermissionBridge }
           ).permissionBridge;
           bridge.resolvePermission(params.requestId, params);
+          handled = true;
+        }
+
+        if (handled) {
           return { success: true };
         }
 
-        return { success: false, error: 'Copilot SDK adapter not active' };
+        return {
+          success: false,
+          error: 'No permission handler available (neither SDK nor Copilot)',
+        };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -421,8 +518,7 @@ export class ElectronAgentRpcHandlers {
         });
 
         let result: SpawnAgentResult;
-        const workspaceRoot =
-          this.workspace.getWorkspaceRoot() ?? process.cwd();
+        const workspaceRoot = this.workspace.getWorkspaceRoot() ?? '';
 
         let ptahCliId = params.ptahCliId;
         if (params.cli === 'ptah-cli' && !ptahCliId) {
@@ -547,15 +643,24 @@ export class ElectronAgentRpcHandlers {
       });
     }
 
-    return this.agentProcessManager.spawnFromSdkHandle(spawnResult.handle, {
-      task: params.task,
-      cli: 'ptah-cli',
-      workingDirectory: workspaceRoot,
-      parentSessionId: params.parentSessionId,
-      ptahCliName: spawnResult.agentName,
-      ptahCliId: params.ptahCliId,
-      resumedFromAgentId: params.previousAgentId,
-    });
+    const result = await this.agentProcessManager.spawnFromSdkHandle(
+      spawnResult.handle,
+      {
+        task: params.task,
+        cli: 'ptah-cli',
+        workingDirectory: workspaceRoot,
+        parentSessionId: params.parentSessionId,
+        ptahCliName: spawnResult.agentName,
+        ptahCliId: params.ptahCliId,
+        resumedFromAgentId: params.previousAgentId,
+        resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
+      },
+    );
+
+    // TASK_2025_255: Wire agentId so CLI permission requests route to agent monitor panel
+    spawnResult.setAgentId(result.agentId);
+
+    return result;
   }
 
   private async resolveDefaultPtahCliId(): Promise<string | undefined> {
