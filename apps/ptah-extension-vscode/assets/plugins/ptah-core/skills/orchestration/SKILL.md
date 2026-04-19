@@ -136,6 +136,7 @@ else
 | tasks.md (IN PROGRESS)  | Team-leader MODE 2 (verify)         |
 | tasks.md (IMPLEMENTED)  | Team-leader MODE 2 (commit)         |
 | tasks.md (all COMPLETE) | Team-leader MODE 3 OR QA choice     |
+| QA complete (no future-enhancements.md) | Invoke modernization-detector |
 | future-enhancements.md  | Workflow complete                   |
 
 See [task-tracking.md](references/task-tracking.md) for full phase detection.
@@ -296,6 +297,31 @@ independently-executable sub-tasks to speed up your work.
 **Note**: The team-leader does NOT need this injection block — its agent template already has full CLI delegation instructions built into MODE 2.
 
 See [cli-agent-delegation.md](references/cli-agent-delegation.md) for the comprehensive reference.
+
+---
+
+## Post-QA: Modernization-Detector Phase
+
+After QA completes (or is skipped), invoke the modernization-detector as the final workflow phase. This applies to FEATURE, BUGFIX, REFACTORING, and DEVOPS workflows.
+
+**Skip if**: DOCUMENTATION, RESEARCH, CREATIVE, or SAAS_INIT workflows (no modernization analysis needed).
+
+```typescript
+Task({
+  subagent_type: 'modernization-detector',
+  description: 'Analyze future improvements for TASK_[ID]',
+  prompt: `You are modernization-detector for TASK_[ID].
+
+**Task Folder**: [absolute path to .ptah/specs/TASK_[ID]]
+**Changes**: Review tasks.md for what was implemented
+
+Identify opportunities for future improvements, tech debt, and modernization.
+Write findings to future-enhancements.md in the task folder.
+See modernization-detector.md for detailed instructions.`,
+});
+```
+
+Once `future-enhancements.md` is created, the workflow is complete. Present the summary to the user.
 
 ---
 

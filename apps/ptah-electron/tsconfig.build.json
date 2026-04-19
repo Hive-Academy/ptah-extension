@@ -7,6 +7,9 @@
         "libs/backend/agent-generation/src/index.ts"
       ],
       "@ptah-extension/agent-sdk": ["libs/backend/agent-sdk/src/index.ts"],
+      "@ptah-extension/deep-agent-sdk": [
+        "libs/backend/deep-agent-sdk/src/index.ts"
+      ],
       "@ptah-extension/llm-abstraction": [
         "libs/backend/llm-abstraction/src/index.ts"
       ],

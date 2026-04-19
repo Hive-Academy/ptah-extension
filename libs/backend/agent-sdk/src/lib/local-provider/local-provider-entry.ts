@@ -16,7 +16,9 @@ import type { AnthropicProvider } from '../helpers/anthropic-provider-registry';
  * - `authType: 'none'` -- no authentication required
  * - `requiresProxy: false` -- Ollama v0.14.0+ speaks Anthropic Messages API natively
  * - `isLocal: true` -- runs on localhost, uses HTTP not HTTPS
- * - No static models -- models fetched dynamically via OllamaModelDiscoveryService
+ * - `staticModels` -- defensive fallback shown when Ollama is offline / discovery
+ *   hasn't run yet. Dynamic discovery via OllamaModelDiscoveryService takes
+ *   precedence when available and returns the user's actual installed models.
  */
 export const OLLAMA_PROVIDER_ENTRY: AnthropicProvider = {
   id: 'ollama',
@@ -31,6 +33,46 @@ export const OLLAMA_PROVIDER_ENTRY: AnthropicProvider = {
   description: 'Run open-source models locally via Ollama',
   keyPlaceholder: 'No API key needed',
   maskedKeyDisplay: 'Local (no key)',
+  // Defensive fallback list of commonly-installed Ollama models.
+  // Shown only if the dynamic discovery service is unavailable (e.g., Ollama
+  // not running). Users can pull any of these via `ollama pull <model>`.
+  staticModels: [
+    {
+      id: 'llama3.1:8b',
+      name: 'Llama 3.1 8B',
+      description: '8B \u2022 128K context \u2022 tools',
+      contextLength: 128000,
+      supportsToolUse: true,
+    },
+    {
+      id: 'qwen2.5-coder:7b',
+      name: 'Qwen2.5 Coder 7B',
+      description: '7B \u2022 32K context \u2022 tools',
+      contextLength: 32768,
+      supportsToolUse: true,
+    },
+    {
+      id: 'deepseek-r1:14b',
+      name: 'DeepSeek R1 14B',
+      description: '14B \u2022 128K context \u2022 thinking',
+      contextLength: 131072,
+      supportsToolUse: false,
+    },
+    {
+      id: 'qwen3:8b',
+      name: 'Qwen3 8B',
+      description: '8B \u2022 128K context \u2022 tools',
+      contextLength: 128000,
+      supportsToolUse: true,
+    },
+    {
+      id: 'devstral',
+      name: 'Devstral',
+      description: '24B \u2022 128K context \u2022 tools',
+      contextLength: 128000,
+      supportsToolUse: true,
+    },
+  ],
   defaultTiers: {
     haiku: 'qwen3:8b',
     sonnet: 'devstral',

@@ -188,7 +188,7 @@ export class ModelResolver {
    */
   detectTier(model: string): 'opus' | 'sonnet' | 'haiku' | undefined {
     const lower = model.toLowerCase();
-    if (lower.includes('opus')) return 'opus';
+    if (lower === 'default' || lower.includes('opus')) return 'opus';
     if (lower.includes('sonnet')) return 'sonnet';
     if (lower.includes('haiku')) return 'haiku';
     return undefined;

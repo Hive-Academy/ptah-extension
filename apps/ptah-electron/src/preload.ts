@@ -63,6 +63,14 @@ contextBridge.exposeInMainWorld('ptahConfig', {
   isLicensed: startupConfig?.isLicensed ?? true,
 });
 
+// Expose clipboard API for sandboxed renderer access
+contextBridge.exposeInMainWorld('ptahClipboard', {
+  readText: (): Promise<string> => ipcRenderer.invoke('clipboard:read-text'),
+  writeText: (text: string): void => {
+    ipcRenderer.send('clipboard:write-text', text);
+  },
+});
+
 // Expose terminal binary IPC API (TASK_2025_227)
 // Terminal data uses direct IPC channels for low-latency, high-frequency data.
 // Only terminal:create and terminal:kill use JSON RPC -- data/resize/exit use binary IPC.

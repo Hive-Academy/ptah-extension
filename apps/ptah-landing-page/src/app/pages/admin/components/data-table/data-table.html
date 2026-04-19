@@ -1,0 +1,144 @@
+<div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+  <table class="table table-zebra table-sm">
+    <thead>
+      <tr>
+        @if (selectable()) {
+          <th class="w-10">
+            <input
+              type="checkbox"
+              class="checkbox checkbox-sm"
+              [checked]="allOnPageSelected"
+              (change)="toggleAllOnPage($event)"
+              aria-label="Select all on page"
+            />
+          </th>
+        }
+        @for (col of listColumns(); track col.key) {
+          <th
+            class="cursor-pointer select-none whitespace-nowrap hover:bg-base-200"
+            (click)="onHeaderClick(col)"
+          >
+            <span class="inline-flex items-center gap-1">
+              {{ col.label }}
+              <span class="text-xs opacity-60">{{ sortIndicator(col) }}</span>
+            </span>
+          </th>
+        }
+      </tr>
+    </thead>
+    <tbody [class.opacity-50]="loading()">
+      @for (row of rows(); track rowId(row); let i = $index) {
+        <tr class="cursor-pointer hover" (click)="onRowClick(row, $event)">
+          @if (selectable()) {
+            <td>
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm"
+                [checked]="isSelected(rowId(row))"
+                (click)="$event.stopPropagation()"
+                (change)="toggleRow(rowId(row), $event)"
+                [attr.aria-label]="'Select row ' + rowId(row)"
+              />
+            </td>
+          }
+          @for (col of listColumns(); track col.key) {
+            <td
+              class="align-top"
+              [style.maxWidth.px]="col.truncate ?? null"
+              [class.truncate]="!!col.truncate"
+              [class.overflow-hidden]="!!col.truncate"
+              [class.text-ellipsis]="!!col.truncate"
+              [class.whitespace-nowrap]="!!col.truncate"
+            >
+              @switch (col.type) {
+                @case ('boolean') {
+                  @if (isTruthy(cellValue(row, col.key))) {
+                    <span class="badge badge-success badge-sm">yes</span>
+                  } @else {
+                    <span class="badge badge-ghost badge-sm">no</span>
+                  }
+                }
+                @case ('datetime') {
+                  @if (asDate(cellValue(row, col.key)); as v) {
+                    <span class="whitespace-nowrap text-xs">{{
+                      v | date: 'medium'
+                    }}</span>
+                  } @else {
+                    <span class="opacity-40">—</span>
+                  }
+                }
+                @case ('uuid') {
+                  <span class="font-mono text-xs">{{
+                    formatString(cellValue(row, col.key), col.truncate ?? 12)
+                  }}</span>
+                }
+                @case ('json') {
+                  <span class="font-mono text-xs opacity-70">
+                    {{ formatString(cellValue(row, col.key), col.truncate ?? 80) }}
+                  </span>
+                }
+                @default {
+                  {{ formatString(cellValue(row, col.key), col.truncate) }}
+                }
+              }
+            </td>
+          }
+        </tr>
+      } @empty {
+        <tr>
+          <td
+            [attr.colspan]="listColumns().length + (selectable() ? 1 : 0)"
+            class="py-8 text-center text-sm opacity-60"
+          >
+            No records.
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination bar -->
+<div
+  class="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-base-content/80"
+>
+  <div class="flex items-center gap-2">
+    <span>Rows per page:</span>
+    <select
+      class="select select-bordered select-sm"
+      [value]="pageSize()"
+      (change)="onPageSizeChange($event)"
+      aria-label="Rows per page"
+    >
+      @for (opt of pageSizeOptions; track opt) {
+        <option [value]="opt">{{ opt }}</option>
+      }
+    </select>
+  </div>
+
+  <div class="flex items-center gap-3">
+    <span>
+      Page <strong>{{ page() }}</strong> of
+      <strong>{{ totalPages() }}</strong>
+      <span class="opacity-60">({{ total() }} total)</span>
+    </span>
+    <div class="join">
+      <button
+        type="button"
+        class="btn btn-sm join-item"
+        (click)="onPrev()"
+        [disabled]="page() <= 1 || loading()"
+      >
+        Prev
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm join-item"
+        (click)="onNext()"
+        [disabled]="page() >= totalPages() || loading()"
+      >
+        Next
+      </button>
+    </div>
+  </div>
+</div>

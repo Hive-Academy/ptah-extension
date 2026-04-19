@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from 'electron';
+import { BrowserWindow, Menu, clipboard, screen } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { IStateStorage } from '@ptah-extension/platform-core';
@@ -75,6 +75,34 @@ export function createMainWindow(stateStorage?: IStateStorage): BrowserWindow {
     // macOS title bar
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 15, y: 15 },
+  });
+
+  // Right-click context menu for the entire app
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const menuItems: Electron.MenuItemConstructorOptions[] = [];
+
+    if (params.isEditable) {
+      menuItems.push(
+        { role: 'undo', enabled: params.editFlags.canUndo },
+        { role: 'redo', enabled: params.editFlags.canRedo },
+        { type: 'separator' },
+        { role: 'cut', enabled: params.editFlags.canCut },
+        { role: 'copy', enabled: params.editFlags.canCopy },
+        { role: 'paste', enabled: params.editFlags.canPaste },
+        { role: 'selectAll', enabled: params.editFlags.canSelectAll },
+      );
+    } else if (params.selectionText) {
+      menuItems.push(
+        { role: 'copy' },
+        { type: 'separator' },
+        { role: 'selectAll' },
+      );
+    }
+
+    if (menuItems.length > 0) {
+      const contextMenu = Menu.buildFromTemplate(menuItems);
+      contextMenu.popup({ window: mainWindow });
+    }
   });
 
   // Persist window state on close

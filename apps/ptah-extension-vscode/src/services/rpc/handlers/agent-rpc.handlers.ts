@@ -171,6 +171,11 @@ export class AgentRpcHandlers {
                 'browser.allowLocalhost',
                 false,
               ) ?? false,
+            // Runtime selector lives under ptah.runtime (not ptah.agentOrchestration.*)
+            runtime:
+              this.workspaceProvider.getConfiguration<
+                'auto' | 'claude-sdk' | 'deep-agent'
+              >('ptah', 'runtime', 'auto') ?? 'auto',
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -200,15 +205,32 @@ export class AgentRpcHandlers {
   private registerSetConfig(): void {
     this.rpcHandler.registerMethod<
       AgentSetConfigParams,
-      { success: boolean; error?: string }
+      { success: boolean; error?: string; reloadRequired?: boolean }
     >('agent:setConfig', async (params) => {
       try {
         this.logger.debug('RPC: agent:setConfig called', { params });
 
+        // Detect runtime change so the frontend can prompt for reload.
+        // (VS Code also has a workspace.onDidChangeConfiguration watcher in
+        // main.ts that shows its own prompt; returning reloadRequired is
+        // harmless and keeps the wire contract consistent with Electron.)
+        let reloadRequired = false;
+        if (params.runtime !== undefined) {
+          const previous =
+            this.workspaceProvider.getConfiguration<
+              'auto' | 'claude-sdk' | 'deep-agent'
+            >('ptah', 'runtime', 'auto') ?? 'auto';
+          if (previous !== params.runtime) {
+            reloadRequired = true;
+          }
+        }
+
         await this.applyConfigUpdates(params);
 
         this.logger.debug('RPC: agent:setConfig success');
-        return { success: true };
+        return reloadRequired
+          ? { success: true, reloadRequired }
+          : { success: true };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -396,6 +418,17 @@ export class AgentRpcHandlers {
         'ptah',
         'mcpPort',
         clampedPort,
+      );
+    }
+
+    // Runtime selector lives under ptah.runtime (not ptah.agentOrchestration.*).
+    // VS Code's config system accepts arbitrary strings; enum values are validated
+    // by the declared enum in package.json contributes.configuration.
+    if (params.runtime !== undefined) {
+      await this.workspaceProvider.setConfiguration(
+        'ptah',
+        'runtime',
+        params.runtime,
       );
     }
   }

@@ -99,7 +99,25 @@ export interface StreamTransformConfig {
    * Passed to callback so frontend can find tab directly without temp ID lookup.
    */
   tabId?: string;
+  /**
+   * AbortController for the underlying SDK query. When present, the stream
+   * transformer enforces a first-response timeout: if no SDK message arrives
+   * within FIRST_MESSAGE_TIMEOUT_MS, the controller is aborted and a clear
+   * error is thrown so the UI surfaces a timeout message instead of hanging
+   * forever (e.g., on misconfigured third-party providers where requests
+   * silently fall back to api.anthropic.com and get dropped).
+   */
+  abortController?: AbortController;
 }
+
+/**
+ * Time to wait for the first SDK message before giving up.
+ *
+ * 90 seconds covers the p99 first-token latency for reasoning models and cold
+ * local Ollama loads. LLM round-trips that take longer than this are almost
+ * always a routing / configuration problem rather than a slow model.
+ */
+const FIRST_MESSAGE_TIMEOUT_MS = 90_000;
 
 /**
  * Validated stats interface
@@ -217,6 +235,7 @@ export class StreamTransformer {
       onSessionIdResolved,
       onResultStats,
       tabId,
+      abortController,
     } = config;
 
     // Capture references for use in generator
@@ -240,9 +259,46 @@ export class StreamTransformer {
         // for that turn, which IS the real context fill.
         const lastTurnContextByModel = new Map<string, number>();
 
+        // First-message timeout guard. If no SDK message has arrived within
+        // FIRST_MESSAGE_TIMEOUT_MS, abort the query and surface a clear error
+        // so the UI doesn't spin forever. Cleared as soon as the first message
+        // is received — normal streaming then proceeds without interference.
+        let firstMessageReceived = false;
+        const timeoutHandle: NodeJS.Timeout | null = abortController
+          ? setTimeout(() => {
+              if (firstMessageReceived) return;
+              const seconds = Math.round(FIRST_MESSAGE_TIMEOUT_MS / 1000);
+              logger.error(
+                `[StreamTransformer] Session ${sessionId} timed out waiting for first response after ${seconds}s — aborting`,
+              );
+              try {
+                abortController.abort(
+                  new Error(
+                    `Request timed out after ${seconds}s — no response from provider. ` +
+                      `Check provider configuration or switch providers.`,
+                  ),
+                );
+              } catch (abortErr) {
+                logger.warn(
+                  '[StreamTransformer] Failed to abort timed-out query',
+                  abortErr instanceof Error
+                    ? abortErr
+                    : new Error(String(abortErr)),
+                );
+              }
+            }, FIRST_MESSAGE_TIMEOUT_MS)
+          : null;
+
         try {
           for await (const sdkMessage of sdkQuery) {
             sdkMessageCount++;
+
+            if (!firstMessageReceived) {
+              firstMessageReceived = true;
+              if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+              }
+            }
 
             // Capture per-turn context fill from message_start events.
             // Each message_start carries the input usage for that API call,
@@ -510,6 +566,9 @@ export class StreamTransformer {
 
           throw error;
         } finally {
+          if (timeoutHandle) {
+            clearTimeout(timeoutHandle);
+          }
           logger.info(`[StreamTransformer] Session ${sessionId} stream ended`);
         }
       },

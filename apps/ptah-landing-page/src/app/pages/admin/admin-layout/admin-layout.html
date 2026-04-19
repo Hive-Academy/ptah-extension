@@ -1,0 +1,88 @@
+<!--
+  Admin shell — DaisyUI drawer.
+  DO NOT add /admin* links to NavigationComponent, FooterComponent, or any
+  future sitemap.xml. This dashboard is gated by ADMIN_EMAILS allowlist and
+  must remain invisible to public crawlers and unauthenticated users.
+-->
+<div class="drawer lg:drawer-open min-h-screen bg-base-200">
+  <input id="admin-drawer" type="checkbox" class="drawer-toggle" />
+
+  <!-- MAIN CONTENT -->
+  <div class="drawer-content flex flex-col">
+    <!-- Top bar -->
+    <header
+      class="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-4 py-3 lg:px-6"
+    >
+      <div class="flex items-center gap-3">
+        <label
+          for="admin-drawer"
+          class="btn btn-ghost btn-sm lg:hidden"
+          aria-label="Open admin menu"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-5 w-5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 6h16M4 12h16M4 18h16"
+            />
+          </svg>
+        </label>
+        <h1 class="text-xl font-bold lg:text-2xl">Admin Dashboard</h1>
+        <span class="badge badge-warning badge-sm">Restricted</span>
+      </div>
+
+      <div class="flex items-center gap-2 text-sm text-base-content/70">
+        @if (currentEmail(); as email) {
+          <span class="hidden sm:inline">Signed in as</span>
+          <span class="font-mono text-xs sm:text-sm">{{ email }}</span>
+        }
+      </div>
+    </header>
+
+    <!-- Page outlet -->
+    <main class="flex-1 p-4 lg:p-6">
+      <router-outlet />
+    </main>
+  </div>
+
+  <!-- SIDEBAR -->
+  <aside class="drawer-side z-20">
+    <label
+      for="admin-drawer"
+      aria-label="Close admin menu"
+      class="drawer-overlay"
+    ></label>
+    <div class="flex min-h-full w-64 flex-col bg-base-100 p-4">
+      <div class="mb-4 px-2">
+        <div class="text-xs uppercase tracking-wide text-base-content/50">
+          Models
+        </div>
+      </div>
+      <ul class="menu menu-sm gap-1">
+        @for (spec of specs; track spec.key) {
+          <li>
+            <a
+              [routerLink]="['/admin', spec.key]"
+              routerLinkActive="active"
+              class="flex items-center justify-between"
+            >
+              <span>{{ spec.label }}</span>
+              @if (spec.readOnly) {
+                <span class="badge badge-ghost badge-sm" title="Read-only">
+                  ro
+                </span>
+              }
+            </a>
+          </li>
+        }
+      </ul>
+    </div>
+  </aside>
+</div>

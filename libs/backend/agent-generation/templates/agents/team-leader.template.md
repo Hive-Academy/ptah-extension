@@ -614,8 +614,19 @@ Do NOT proceed to git. Return to orchestrator with rejection.
 
 **STEP 5: Git Commit (Only After Approval)**
 
+**5a: Discover ALL changed files** — Do NOT rely solely on the developer's reported file list. Developers often modify additional files (barrel exports, imports, configs) that aren't explicitly listed.
+
 ```bash
-git add [file-path-1] [file-path-2] [file-path-3]
+git status --short
+git diff --name-only
+```
+
+Review the output and identify ALL files that belong to this batch's work. Include files the developer touched but didn't report (updated imports, barrel exports, generated files).
+
+**5b: Stage and commit all batch files**
+
+```bash
+git add [all-discovered-batch-file-paths]
 
 git commit -m "$(cat <<'EOF'
 feat(scope): batch [N] - [description]
@@ -628,9 +639,10 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
 )"
 
-# Verify commit
 git log --oneline -1
 ```
+
+**IMPORTANT**: If `git status` shows changed files NOT part of this batch (e.g., from other batches or unrelated work), do NOT stage those — only stage files relevant to the current batch.
 
 **STEP 6: Update tasks.md**
 

@@ -416,20 +416,18 @@ if (!gotLock) {
     // Must happen AFTER Phase 3.5 (license check) and BEFORE Phase 4.5 (RPC registration).
     // AuthManager.configureAuthentication() reads API keys from AuthSecretsService.
     try {
-      const sdkAdapter = container.resolve(TOKENS.SDK_AGENT_ADAPTER) as {
+      const agentAdapter = container.resolve(TOKENS.AGENT_ADAPTER) as {
         initialize: () => Promise<boolean>;
         preloadSdk: () => Promise<void>;
       };
-      const authInitialized = await sdkAdapter.initialize();
+      const authInitialized = await agentAdapter.initialize();
 
       if (authInitialized) {
-        console.log(
-          '[Ptah Electron] SDK authentication initialized successfully',
-        );
+        console.log('[Ptah Electron] Agent adapters initialized successfully');
 
-        // Pre-load SDK in background (non-blocking) to speed up first chat.
+        // Pre-load SDKs in background (non-blocking) to speed up first chat.
         // Shifts ~100-200ms import cost from first user interaction to activation.
-        sdkAdapter.preloadSdk().catch((err) => {
+        agentAdapter.preloadSdk().catch((err) => {
           console.warn(
             '[Ptah Electron] SDK preload failed (will retry on first use):',
             err instanceof Error ? err.message : String(err),
@@ -442,7 +440,7 @@ if (!gotLock) {
       }
     } catch (error) {
       console.warn(
-        '[Ptah Electron] SDK initialization failed (non-fatal):',
+        '[Ptah Electron] Agent adapter initialization failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -1120,6 +1118,20 @@ if (!gotLock) {
         initialView,
       };
     });
+
+    // ========================================
+    // PHASE 4.96: Clipboard IPC Handlers
+    // ========================================
+    // Provide reliable clipboard access for the sandboxed renderer.
+    // navigator.clipboard.readText() can fail in sandboxed Electron;
+    // these IPC handlers use the main process clipboard directly.
+    ipcMain.handle('clipboard:read-text', () => clipboard.readText());
+    ipcMain.on(
+      'clipboard:write-text',
+      (_event: Electron.IpcMainEvent, text: string) => {
+        clipboard.writeText(text);
+      },
+    );
 
     console.log(
       `[Ptah Electron] Startup config registered: initialView=${

@@ -1,0 +1,123 @@
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { Observable } from 'rxjs';
+
+/**
+ * URL slug for every admin-addressable Prisma model.
+ *
+ * MUST stay in sync with the backend `AdminModelKey` union at
+ * `apps/ptah-license-server/src/admin/admin-models.config.ts`.
+ * Any drift here manifests as a 400 "Unknown admin model" from the API.
+ */
+export type AdminModelKey =
+  | 'users'
+  | 'licenses'
+  | 'subscriptions'
+  | 'failed-webhooks'
+  | 'trial-reminders'
+  | 'session-requests';
+
+export interface AdminListQuery {
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  search?: string;
+}
+
+export interface AdminListResponse<T = Record<string, unknown>> {
+  data: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface AdminBulkEmailRequest {
+  userIds: string[];
+  subject: string;
+  html: string;
+}
+
+export interface AdminBulkEmailResponse {
+  sent: number;
+  failed: Array<{ userId: string; error: string }>;
+}
+
+/**
+ * AdminApiService - Thin HTTP client for `/api/v1/admin/*`
+ *
+ * All URLs are kept relative — `apiInterceptor` prepends
+ * `environment.apiBaseUrl` and sets `withCredentials: true` so the
+ * `ptah_auth` cookie is attached cross-origin.
+ *
+ * Angular 21 patterns:
+ * - `inject()` DI
+ * - `providedIn: 'root'` singleton
+ * - All methods return `Observable<T>` (no Promises)
+ * - Stateless — no signals, no BehaviorSubject
+ */
+@Injectable({ providedIn: 'root' })
+export class AdminApiService {
+  private readonly http = inject(HttpClient);
+  private readonly base = '/api/v1/admin';
+
+  /**
+   * List records for a model with pagination, sort, and full-text search.
+   *
+   * HttpParams are only set when the query value is non-nullish; omitting
+   * keeps the URL clean and lets the backend apply its `ListQueryDto`
+   * defaults (page=1, pageSize=25, sortOrder=desc).
+   */
+  public list<T = Record<string, unknown>>(
+    model: AdminModelKey,
+    q: AdminListQuery = {},
+  ): Observable<AdminListResponse<T>> {
+    let params = new HttpParams();
+    if (q.page != null) params = params.set('page', String(q.page));
+    if (q.pageSize != null) params = params.set('pageSize', String(q.pageSize));
+    if (q.sortBy) params = params.set('sortBy', q.sortBy);
+    if (q.sortOrder) params = params.set('sortOrder', q.sortOrder);
+    if (q.search) params = params.set('search', q.search);
+    return this.http.get<AdminListResponse<T>>(`${this.base}/${model}`, {
+      params,
+    });
+  }
+
+  /**
+   * Fetch a single record by ID. Backend returns 404 if missing.
+   */
+  public get<T = Record<string, unknown>>(
+    model: AdminModelKey,
+    id: string,
+  ): Observable<T> {
+    return this.http.get<T>(`${this.base}/${model}/${id}`);
+  }
+
+  /**
+   * Patch a record. Body keys not in the backend editable-field allowlist
+   * are silently dropped server-side; a body with zero editable keys
+   * yields a 400. Read-only models respond with 405.
+   */
+  public update<T = Record<string, unknown>>(
+    model: AdminModelKey,
+    id: string,
+    patch: Record<string, unknown>,
+  ): Observable<T> {
+    return this.http.patch<T>(`${this.base}/${model}/${id}`, patch);
+  }
+
+  /**
+   * Bulk marketing email to a set of user IDs. Backend caps at 500 IDs per
+   * request and runs `sendCustomEmail` in parallel via `Promise.allSettled`,
+   * returning per-user success/failure details.
+   */
+  public bulkEmail(
+    payload: AdminBulkEmailRequest,
+  ): Observable<AdminBulkEmailResponse> {
+    return this.http.post<AdminBulkEmailResponse>(
+      `${this.base}/users/bulk-email`,
+      payload,
+    );
+  }
+}

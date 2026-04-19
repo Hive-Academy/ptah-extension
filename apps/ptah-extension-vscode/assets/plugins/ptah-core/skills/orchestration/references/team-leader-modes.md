@@ -112,6 +112,7 @@ See team-leader.md for detailed MODE 2 instructions.`,
 ┌─────────────────────────────────────────────────────────┐
 │  Team-leader verifies:                                  │
 │  - All files exist at specified paths                   │
+│  - Run git status to discover ALL changed files         │
 │  - Task status updated to IMPLEMENTED                   │
 │  - Code quality (via code-logic-reviewer)               │
 └───────────────────────┬─────────────────────────────────┘
