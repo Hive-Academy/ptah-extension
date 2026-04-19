@@ -23,6 +23,7 @@ export {
   type SessionStatus,
   type SessionState,
   type SessionLoadResult,
+  type TabViewMode,
 } from './chat.types';
 
 // ConfirmationDialogService - Custom confirmation dialog for VS Code webview

@@ -151,7 +151,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
                 <strong class="text-white/90"
                   >Pro ($5/month or $50/year)</strong
                 >
-                -- Full access to all features, including a 30-day free trial
+                -- Full access to all features, including a 100-day free trial
               </li>
             </ul>
             <p class="text-white/70 mb-4 leading-relaxed">
@@ -180,7 +180,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               5. Free Trial
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              The Pro plan includes a 30-day free trial. No payment information
+              The Pro plan includes a 100-day free trial. No payment information
               is required to start the trial. At the end of the trial period:
             </p>
             <ul

@@ -10,7 +10,7 @@
 // ============================================================
 
 /** Supported authentication methods */
-export type AuthMethod = 'oauth' | 'apiKey' | 'openrouter' | 'auto';
+export type AuthMethod = 'apiKey' | 'claudeCli' | 'thirdParty';
 
 /** Parameters for auth:getHealth RPC method */
 export type AuthGetHealthParams = Record<string, never>;
@@ -30,10 +30,9 @@ export interface AuthGetHealthResponse {
 /** Parameters for auth:saveSettings RPC method */
 export interface AuthSaveSettingsParams {
   authMethod: AuthMethod;
-  claudeOAuthToken?: string;
   anthropicApiKey?: string;
   /** Provider API key - used for OpenRouter, Moonshot, Z.AI, etc. */
-  openrouterApiKey?: string;
+  providerApiKey?: string;
   /** Selected Anthropic-compatible provider ID (TASK_2025_129 Batch 3) */
   anthropicProviderId?: string;
 }
@@ -110,9 +109,9 @@ export interface AuthGetAuthStatusParams {
  * Anthropic-compatible provider info for UI display (TASK_2025_129 Batch 3)
  *
  * NOTE: This interface mirrors `AnthropicProvider` from `@ptah-extension/agent-sdk`
- * (libs/backend/agent-sdk/src/lib/helpers/anthropic-provider-registry.ts) minus the
- * `baseUrl` field (which is backend-only). Any changes to the shared fields in
- * AnthropicProvider must be reflected here, and vice versa.
+ * (libs/backend/agent-sdk/src/lib/helpers/anthropic-provider-registry.ts).
+ * Any changes to the shared fields in AnthropicProvider must be reflected here,
+ * and vice versa.
  * The `shared` library cannot import from `agent-sdk` due to dependency direction constraints.
  */
 export interface AnthropicProviderInfo {
@@ -136,6 +135,8 @@ export interface AnthropicProviderInfo {
   authType?: 'apiKey' | 'oauth' | 'none';
   /** Whether this is a local provider (no API key needed) */
   isLocal?: boolean;
+  /** Base URL for the provider API endpoint (used for local provider endpoint display) */
+  baseUrl?: string;
 }
 
 /**
@@ -145,8 +146,6 @@ export interface AnthropicProviderInfo {
  * Only boolean flags indicating whether credentials are configured.
  */
 export interface AuthGetAuthStatusResponse {
-  /** Whether OAuth token is configured in SecretStorage */
-  hasOAuthToken: boolean;
   /** Whether API key is configured in SecretStorage */
   hasApiKey: boolean;
   /** Whether provider API key is configured for the currently selected provider */
@@ -167,4 +166,6 @@ export interface AuthGetAuthStatusResponse {
   codexAuthenticated?: boolean;
   /** Whether the Codex OAuth token is expired/stale (TASK_2025_199) */
   codexTokenStale?: boolean;
+  /** Whether Claude CLI is installed and detected on the system */
+  claudeCliInstalled?: boolean;
 }

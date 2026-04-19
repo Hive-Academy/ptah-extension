@@ -59,29 +59,29 @@ import { DocsVideoModalService } from './services/docs-video-modal.service';
         aria-label="Table of contents"
       >
         @for (section of sections; track section.id) {
-        <button
-          type="button"
-          class="dot-nav-item group relative flex items-center"
-          (click)="scrollToSection(section.id)"
-          [attr.aria-label]="section.label"
-          [attr.aria-current]="activeSection() === section.id ? 'true' : null"
-        >
-          <!-- Dot -->
-          <span
-            class="block rounded-full transition-all duration-300 shrink-0"
-            [ngClass]="
-              activeSection() === section.id
-                ? 'w-3 h-3 bg-amber-400 shadow-[0_0_8px_rgba(212,175,55,0.5)]'
-                : 'w-2 h-2 bg-white/25 group-hover:bg-white/60'
-            "
-          ></span>
-          <!-- Tooltip label — appears on hover -->
-          <span
-            class="absolute left-full ml-3 px-2.5 py-1 rounded-md bg-slate-800/95 border border-amber-500/20 text-xs text-white/90 font-medium whitespace-nowrap opacity-0 -translate-x-2 pointer-events-none transition-all duration-200 group-hover:opacity-100 group-hover:translate-x-0"
+          <button
+            type="button"
+            class="dot-nav-item group relative flex items-center"
+            (click)="scrollToSection(section.id)"
+            [attr.aria-label]="section.label"
+            [attr.aria-current]="activeSection() === section.id ? 'true' : null"
           >
-            {{ section.label }}
-          </span>
-        </button>
+            <!-- Dot -->
+            <span
+              class="block rounded-full transition-all duration-300 shrink-0"
+              [ngClass]="
+                activeSection() === section.id
+                  ? 'w-3 h-3 bg-amber-400 shadow-[0_0_8px_rgba(212,175,55,0.5)]'
+                  : 'w-2 h-2 bg-white/25 group-hover:bg-white/60'
+              "
+            ></span>
+            <!-- Tooltip label — appears on hover -->
+            <span
+              class="absolute left-full ml-3 px-2.5 py-1 rounded-md bg-slate-800/95 border border-amber-500/20 text-xs text-white/90 font-medium whitespace-nowrap opacity-0 -translate-x-2 pointer-events-none transition-all duration-200 group-hover:opacity-100 group-hover:translate-x-0"
+            >
+              {{ section.label }}
+            </span>
+          </button>
         }
       </nav>
 
@@ -223,7 +223,7 @@ export class DocsPageComponent {
 
   public readonly sections: DocsSectionLink[] = [
     { id: 'installation', label: 'Installation & Pro Trial' },
-    { id: 'authentication', label: 'Authentication Setup' },
+    { id: 'authentication', label: 'Claude CLI & Auth' },
     { id: 'providers', label: 'Provider APIs' },
     { id: 'plugins', label: 'Plugins' },
     { id: 'setup-wizard', label: 'Setup Wizard' },
@@ -267,7 +267,7 @@ export class DocsPageComponent {
       {
         rootMargin: '-100px 0px -60% 0px',
         threshold: 0,
-      }
+      },
     );
 
     elements.forEach((el) => this.observer?.observe(el));

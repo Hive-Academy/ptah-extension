@@ -29,6 +29,7 @@ import {
   AISessionConfig,
   ISdkPermissionHandler,
   InlineImageAttachment,
+  type AuthEnv,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import {
@@ -46,6 +47,7 @@ import type {
   WorktreeRemovedCallback,
 } from './worktree-hook-handler';
 import { SlashCommandInterceptor } from './slash-command-interceptor';
+import type { ModelResolver } from '../auth/model-resolver';
 
 // Re-export for backward compatibility with other files
 export type { SDKUserMessage, ContentBlock };
@@ -217,6 +219,10 @@ export class SessionLifecycleManager {
     // TASK_2025_264: AgentSessionWatcherService for stopping file watchers on session end
     @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
     private agentSessionWatcher: AgentSessionWatcherService,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: ModelResolver,
   ) {}
 
   /**
@@ -766,10 +772,10 @@ export class SessionLifecycleManager {
       const session = this.getActiveSession(sessionId);
       if (session) {
         const sdkUserMessage = await this.messageFactory.createUserMessage({
-          content: initialPrompt!.content,
+          content: initialPrompt!.content, // eslint-disable-line @typescript-eslint/no-non-null-assertion
           sessionId,
-          files: initialPrompt!.files,
-          images: initialPrompt!.images,
+          files: initialPrompt!.files, // eslint-disable-line @typescript-eslint/no-non-null-assertion
+          images: initialPrompt!.images, // eslint-disable-line @typescript-eslint/no-non-null-assertion
         });
         session.messageQueue.push(sdkUserMessage);
         this.logger.info(
@@ -841,10 +847,20 @@ export class SessionLifecycleManager {
       promptMode = 'iterable';
     }
 
+    // NOTE: Do NOT set maxTurns: 1 for slash commands.
+    // Built-in commands (/compact, /cost, /context) bypass the turn loop entirely
+    // (SDK TerminalReason is "unset" for local slash commands), so maxTurns is
+    // irrelevant. Setting maxTurns: 1 actually BREAKS command recognition — the
+    // SDK sends the raw string to Claude as a regular message instead of parsing
+    // it as a built-in command.
+    // The session terminates naturally because streamInput is not connected
+    // (see Step 7b below), so no further input can arrive after the command.
+
     this.logger.info('[SessionLifecycle] Starting SDK query with options', {
       model: queryOptions.options.model,
       cwd: queryOptions.options.cwd,
       permissionMode: queryOptions.options.permissionMode,
+      maxTurns: queryOptions.options.maxTurns,
       isResume,
       isSlashCommand,
       promptMode,
@@ -859,9 +875,12 @@ export class SessionLifecycleManager {
 
     // Step 7b: Connect streamInput for follow-up message delivery
     // Resume sessions: ALL messages come via streamInput (idle prompt)
-    // Slash command sessions: follow-up messages come via streamInput
     // Regular sessions: follow-up messages come from the iterable
-    if (isResume || isSlashCommand) {
+    // Slash commands: Do NOT connect streamInput. The SDK processes the
+    // command from the string prompt and terminates naturally. Connecting
+    // streamInput would keep the query alive waiting for input that never
+    // comes, preventing the for-await-of loop from exiting.
+    if (isResume && !isSlashCommand) {
       sdkQuery.streamInput(userMessageStream).catch((err) => {
         this.logger.warn('[SessionLifecycle] streamInput error', {
           error: err instanceof Error ? err.message : String(err),
@@ -1078,8 +1097,12 @@ export class SessionLifecycleManager {
    * Set session model
    * Extracted from SdkAgentAdapter to consolidate session control
    *
+   * Resolves bare tier names ('opus', 'sonnet', 'haiku') to full model IDs
+   * before passing to the SDK. The SDK's setModel() requires full model IDs
+   * like 'claude-opus-4-6' — bare tier names cause "can't access model" errors.
+   *
    * @param sessionId - Session to update
-   * @param model - Model ID to set
+   * @param model - Model ID or bare tier name to set
    */
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {
     let session = this.activeSessions.get(sessionId as string);
@@ -1102,13 +1125,22 @@ export class SessionLifecycleManager {
       throw new Error(`Session query not initialized: ${sessionId}`);
     }
 
+    // Resolve model through provider overrides (e.g., claude-sonnet-4-6 → glm-5.1 on Z.AI)
+    // and bare tier names (e.g., 'sonnet' → 'claude-sonnet-4-6' on direct Anthropic).
+    const resolvedModel = this.modelResolver.resolve(model);
+    if (resolvedModel !== model) {
+      this.logger.info(
+        `[SessionLifecycle] Model resolved: '${model}' → '${resolvedModel}'`,
+      );
+    }
+
     this.logger.info(
-      `[SessionLifecycle] Setting model for ${sessionId}: ${model}`,
+      `[SessionLifecycle] Setting model for ${sessionId}: ${resolvedModel}`,
     );
 
     try {
-      await session.query.setModel(model);
-      session.currentModel = model;
+      await session.query.setModel(resolvedModel);
+      session.currentModel = resolvedModel;
       this.logger.info(`[SessionLifecycle] Model set for ${sessionId}`);
     } catch (error) {
       this.logger.error(

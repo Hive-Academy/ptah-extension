@@ -31,7 +31,7 @@ export interface ClaudeApiUsage {
  * @returns Normalized MessageTokenUsage or undefined if invalid
  */
 export function extractTokenUsage(
-  usage: ClaudeApiUsage | undefined | null
+  usage: ClaudeApiUsage | undefined | null,
 ): MessageTokenUsage | undefined {
   if (!usage) {
     return undefined;
@@ -51,27 +51,4 @@ export function extractTokenUsage(
     cacheRead: usage.cache_read_input_tokens ?? 0,
     cacheCreation: usage.cache_creation_input_tokens ?? 0,
   };
-}
-
-/**
- * Calculate approximate cost from token usage
- *
- * Uses Claude's pricing model (as of 2025):
- * - Input: $3 per 1M tokens
- * - Output: $15 per 1M tokens
- * - Cache Read: $0.30 per 1M tokens (90% cheaper than input)
- * - Cache Creation: $3.75 per 1M tokens
- *
- * Note: This is an approximation. Actual costs may vary by model.
- *
- * @param tokens - Token usage
- * @returns Estimated cost in USD
- */
-export function estimateCostFromTokens(tokens: MessageTokenUsage): number {
-  const inputCost = tokens.input * (3 / 1_000_000);
-  const outputCost = tokens.output * (15 / 1_000_000);
-  const cacheReadCost = (tokens.cacheRead ?? 0) * (0.3 / 1_000_000);
-  const cacheCreationCost = (tokens.cacheCreation ?? 0) * (3.75 / 1_000_000);
-
-  return inputCost + outputCost + cacheReadCost + cacheCreationCost;
 }

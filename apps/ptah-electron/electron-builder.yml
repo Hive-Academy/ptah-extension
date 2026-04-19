@@ -7,10 +7,27 @@ directories:
   output: ../../release
   buildResources: assets
 
+# QW-5: maximum compression + asar on
+asar: true
+compression: maximum
+
+# Skip @electron/rebuild — rely on prebuilt native binaries (node-pty, sharp, etc.)
+# Source rebuild fails because npm tarballs omit git submodules (e.g. winpty).
+npmRebuild: false
+
+# QW-1: strip debug/source/doc files from all platform installers
+# QW-3: drop gpt-tokenizer cjs + src duplicates (ESM-only build)
+# QW-4: drop js-tiktoken (duplicate of gpt-tokenizer data)
 files:
   - '**/*'
   - '!**/*.map'
   - '!**/*.ts'
+  - '!**/*.pdb'
+  - '!**/*.md'
+  - '!**/*.d.ts'
+  - '!**/*.markdown'
+  - '!**/{test,tests,docs,examples,__tests__,coverage,.github,.vscode}/**'
+  - '!**/{CHANGELOG,HISTORY,AUTHORS,CONTRIBUTORS,NOTICE}*'
 
 # TASK_2025_261: Extract Codex native binaries from ASAR archive.
 # The Codex SDK resolves platform-specific binaries via require.resolve(),
@@ -30,6 +47,9 @@ extraResources:
 
 icon: assets/icons/icon.png
 
+# QW-2: per-platform exclusions for native binaries
+# Drops ~80-100 MB from each platform installer by excluding other-OS
+# prebuilds, ripgrep binaries, and Codex native executables.
 mac:
   category: public.app-category.developer-tools
   hardenedRuntime: true
@@ -37,16 +57,64 @@ mac:
   target:
     - dmg
     - zip
+  files:
+    - '!**/node_modules/@openai/codex-win32-*/**'
+    - '!**/node_modules/@openai/codex-linux-*/**'
+    - '!**/node_modules/@github/copilot/prebuilds/win32-*/**'
+    - '!**/node_modules/@github/copilot/prebuilds/linux-*/**'
+    - '!**/node_modules/@github/copilot/prebuilds/android-*/**'
+    - '!**/node_modules/@github/copilot/ripgrep/bin/win32-*/**'
+    - '!**/node_modules/@github/copilot/ripgrep/bin/linux-*/**'
+    - '!**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/*-win32/**'
+    - '!**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/*-linux/**'
+    - '!**/node_modules/node-pty/prebuilds/win32-*/**'
+    - '!**/node_modules/node-pty/prebuilds/linux-*/**'
+    - '!**/node_modules/@img/sharp-win32-*/**'
+    - '!**/node_modules/@img/sharp-linux*/**'
+    - '!**/node_modules/@img/sharp-libvips-win32-*/**'
+    - '!**/node_modules/@img/sharp-libvips-linux*/**'
 
 win:
   target:
     - nsis
+  files:
+    - '!**/node_modules/@openai/codex-darwin-*/**'
+    - '!**/node_modules/@openai/codex-linux-*/**'
+    - '!**/node_modules/@github/copilot/prebuilds/darwin-*/**'
+    - '!**/node_modules/@github/copilot/prebuilds/linux-*/**'
+    - '!**/node_modules/@github/copilot/prebuilds/android-*/**'
+    - '!**/node_modules/@github/copilot/ripgrep/bin/darwin-*/**'
+    - '!**/node_modules/@github/copilot/ripgrep/bin/linux-*/**'
+    - '!**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/*-darwin/**'
+    - '!**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/*-linux/**'
+    - '!**/node_modules/node-pty/prebuilds/darwin-*/**'
+    - '!**/node_modules/node-pty/prebuilds/linux-*/**'
+    - '!**/node_modules/@img/sharp-darwin-*/**'
+    - '!**/node_modules/@img/sharp-linux*/**'
+    - '!**/node_modules/@img/sharp-libvips-darwin-*/**'
+    - '!**/node_modules/@img/sharp-libvips-linux*/**'
 
 linux:
   category: Development
   target:
     - AppImage
     - deb
+  files:
+    - '!**/node_modules/@openai/codex-darwin-*/**'
+    - '!**/node_modules/@openai/codex-win32-*/**'
+    - '!**/node_modules/@github/copilot/prebuilds/darwin-*/**'
+    - '!**/node_modules/@github/copilot/prebuilds/win32-*/**'
+    - '!**/node_modules/@github/copilot/prebuilds/android-*/**'
+    - '!**/node_modules/@github/copilot/ripgrep/bin/darwin-*/**'
+    - '!**/node_modules/@github/copilot/ripgrep/bin/win32-*/**'
+    - '!**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/*-darwin/**'
+    - '!**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/*-win32/**'
+    - '!**/node_modules/node-pty/prebuilds/darwin-*/**'
+    - '!**/node_modules/node-pty/prebuilds/win32-*/**'
+    - '!**/node_modules/@img/sharp-darwin-*/**'
+    - '!**/node_modules/@img/sharp-win32-*/**'
+    - '!**/node_modules/@img/sharp-libvips-darwin-*/**'
+    - '!**/node_modules/@img/sharp-libvips-win32-*/**'
 
 nsis:
   oneClick: false
@@ -55,4 +123,4 @@ nsis:
 publish:
   provider: github
   owner: Hive-Academy
-  repo: ptah-app
+  repo: ptah-extension

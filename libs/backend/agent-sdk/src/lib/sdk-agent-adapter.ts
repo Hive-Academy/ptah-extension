@@ -22,7 +22,7 @@ import { injectable, inject } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import {
-  IAIProvider,
+  IAgentAdapter,
   ProviderId,
   ProviderInfo,
   ProviderHealth,
@@ -44,7 +44,6 @@ import {
   StreamTransformer,
   SdkModuleLoader,
   SdkModelService,
-  type ApiModelEntry,
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
   type CompactionStartCallback,
@@ -90,7 +89,7 @@ const SDK_PROVIDER_INFO: ProviderInfo = {
   description: 'Official Claude Agent SDK integration (in-process)',
   vendor: 'Anthropic',
   capabilities: SDK_CAPABILITIES,
-  maxContextTokens: 200000,
+  maxContextTokens: 1_000_000,
   supportedModels: [], // Dynamically populated via getSupportedModels()
 };
 
@@ -102,7 +101,7 @@ const SDK_PROVIDER_INFO: ProviderInfo = {
  * Main responsibilities: API surface, session coordination, SDK invocation.
  */
 @injectable()
-export class SdkAgentAdapter implements IAIProvider {
+export class SdkAgentAdapter implements IAgentAdapter {
   readonly providerId: ProviderId = 'claude-cli' as ProviderId;
   readonly info: ProviderInfo = SDK_PROVIDER_INFO;
 
@@ -213,7 +212,7 @@ export class SdkAgentAdapter implements IAIProvider {
       // Step 1: Configure authentication FIRST (not dependent on CLI)
       // TASK_2025_194: Auth runs before CLI detection so third-party providers
       // (Z.AI, OpenRouter) work even without Claude CLI installed.
-      const authMethod = this.config.get<string>('authMethod') || 'auto';
+      const authMethod = this.config.get<string>('authMethod') || 'apiKey';
       const authResult =
         await this.authManager.configureAuthentication(authMethod);
 
@@ -294,6 +293,7 @@ export class SdkAgentAdapter implements IAIProvider {
           savedModel !== 'default'
         ) {
           // Migrate legacy bare tier names ('opus', 'sonnet', 'haiku') to full IDs.
+          // 'default' is preserved — it means "let the SDK choose" and resolves at query time.
           // Older versions stored tier names that the SDK no longer resolves.
           const resolved = this.modelService.resolveModelId(savedModel);
           if (resolved !== savedModel) {
@@ -394,11 +394,12 @@ export class SdkAgentAdapter implements IAIProvider {
   }
 
   /**
-   * Get all available models from the Anthropic /v1/models API
-   * TASK_2025_237: Enables dynamic model discovery beyond SDK's 3 tier slots
+   * Get all available models from the Anthropic /v1/models API.
+   * Returns ModelInfo[] (same shape as getSupportedModels) for uniform handling.
+   * API models already have full IDs (e.g., 'claude-sonnet-4-5-20250514').
    */
-  async getApiModels(): Promise<ApiModelEntry[]> {
-    return this.modelService.fetchApiModels();
+  async getApiModels(): Promise<ModelInfo[]> {
+    return this.modelService.getApiModelsNormalized();
   }
 
   /**
@@ -478,8 +479,8 @@ export class SdkAgentAdapter implements IAIProvider {
     // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
     // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
     // TASK_2025_236: Pass worktree callbacks for worktree change notifications
-    const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
-      {
+    const { sdkQuery, initialModel, abortController } =
+      await this.sessionLifecycle.executeQuery({
         sessionId: trackingId,
         sessionConfig: config,
         initialPrompt: config.prompt
@@ -499,13 +500,9 @@ export class SdkAgentAdapter implements IAIProvider {
         enhancedPromptsContent,
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
-      },
-    );
+      });
 
-    // Create callback that saves metadata AND notifies webview.
-    // projectPath should always be resolved by the caller (ChatRpcHandlers).
-    // os.homedir() is a safer fallback than process.cwd() which returns the
-    // app installation directory in VS Code extension host / Electron.
+    // projectPath is guaranteed by ChatRpcHandlers (validated before reaching here).
     const resolvedProjectPath = config?.projectPath || os.homedir();
     const sessionIdCallback = this.createSessionIdCallback(
       resolvedProjectPath,
@@ -521,6 +518,7 @@ export class SdkAgentAdapter implements IAIProvider {
       onSessionIdResolved: sessionIdCallback,
       onResultStats: this.resultStatsCallback || undefined,
       tabId: config?.tabId,
+      abortController,
     });
   }
 
@@ -627,8 +625,8 @@ export class SdkAgentAdapter implements IAIProvider {
     // TASK_2025_153: Pass pluginPaths for session plugin loading
     // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
     // TASK_2025_236: Pass worktree callbacks for worktree change notifications
-    const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
-      {
+    const { sdkQuery, initialModel, abortController } =
+      await this.sessionLifecycle.executeQuery({
         sessionId,
         sessionConfig: config,
         resumeSessionId: sessionId as string,
@@ -640,8 +638,7 @@ export class SdkAgentAdapter implements IAIProvider {
         enhancedPromptsContent,
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
-      },
-    );
+      });
 
     // For resumed sessions, just update lastActiveAt (metadata already exists)
     const resumeCallback = async (
@@ -669,6 +666,7 @@ export class SdkAgentAdapter implements IAIProvider {
       onSessionIdResolved: resumeCallback,
       onResultStats: this.resultStatsCallback || undefined,
       tabId: config?.tabId,
+      abortController,
     });
   }
 
@@ -803,7 +801,7 @@ export class SdkAgentAdapter implements IAIProvider {
       { command: command.substring(0, 50) },
     );
 
-    const { sdkQuery, initialModel } =
+    const { sdkQuery, initialModel, abortController } =
       await this.sessionLifecycle.executeSlashCommandQuery(sessionId, command, {
         sessionConfig: config.sessionConfig,
         isPremium: config.isPremium,
@@ -824,6 +822,7 @@ export class SdkAgentAdapter implements IAIProvider {
       onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
       onResultStats: this.resultStatsCallback || undefined,
       tabId: config.tabId,
+      abortController,
     });
   }
 

@@ -30,7 +30,8 @@ import {
   CliDetectionService,
   CopilotPermissionBridge,
 } from '@ptah-extension/llm-abstraction';
-import { SdkAgentAdapter, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type { IAgentAdapter, ResultStatsPayload } from '@ptah-extension/shared';
 import {
   retryWithBackoff,
   MESSAGE_TYPES,
@@ -69,11 +70,13 @@ import {
   PluginRpcHandlers,
   PtahCliRpcHandlers,
   WebSearchRpcHandlers,
+  HarnessRpcHandlers,
   // Tier 3 handlers (local, VS Code-specific)
   FileRpcHandlers,
   CommandRpcHandlers,
   AgentRpcHandlers,
   SkillsShRpcHandlers,
+  McpDirectoryRpcHandlers,
 } from './handlers';
 
 interface WebviewManager {
@@ -98,8 +101,8 @@ export class RpcMethodRegistrationService {
     private readonly agentWatcher: AgentSessionWatcherService,
     @inject(TOKENS.COMMAND_MANAGER)
     private readonly commandManager: CommandManager,
-    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
-    private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(TOKENS.AGENT_ADAPTER)
+    private readonly sdkAdapter: IAgentAdapter,
     // Domain-specific handlers
     @inject(ChatRpcHandlers) private readonly chatHandlers: ChatRpcHandlers,
     @inject(SessionRpcHandlers)
@@ -135,8 +138,12 @@ export class RpcMethodRegistrationService {
     private readonly ptahCliHandlers: PtahCliRpcHandlers, // TASK_2025_167
     @inject(SkillsShRpcHandlers)
     private readonly skillsShHandlers: SkillsShRpcHandlers, // TASK_2025_204
+    @inject(McpDirectoryRpcHandlers)
+    private readonly mcpDirectoryHandlers: McpDirectoryRpcHandlers,
     @inject(WebSearchRpcHandlers)
     private readonly webSearchHandlers: WebSearchRpcHandlers, // TASK_2025_235
+    @inject(HarnessRpcHandlers)
+    private readonly harnessHandlers: HarnessRpcHandlers,
     @inject('DependencyContainer')
     private readonly container: DependencyContainer,
   ) {
@@ -175,7 +182,9 @@ export class RpcMethodRegistrationService {
     this.agentHandlers.register(); // TASK_2025_157
     this.ptahCliHandlers.register(); // TASK_2025_167
     this.skillsShHandlers.register(); // TASK_2025_204
+    this.mcpDirectoryHandlers.register(); // MCP Server Directory
     this.webSearchHandlers.register(); // TASK_2025_235
+    this.harnessHandlers.register();
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),
@@ -685,26 +694,7 @@ export class RpcMethodRegistrationService {
   /**
    * Send session stats to webview with retry logic
    */
-  private async sendStatsWithRetry(stats: {
-    sessionId: string;
-    cost: number;
-    tokens: {
-      input: number;
-      output: number;
-      cacheRead?: number;
-      cacheCreation?: number;
-    };
-    duration: number;
-    modelUsage?: Array<{
-      model: string;
-      inputTokens: number;
-      outputTokens: number;
-      contextWindow: number;
-      costUSD: number;
-      cacheReadInputTokens?: number;
-      lastTurnContextTokens?: number;
-    }>;
-  }): Promise<void> {
+  private async sendStatsWithRetry(stats: ResultStatsPayload): Promise<void> {
     try {
       await retryWithBackoff(
         () =>

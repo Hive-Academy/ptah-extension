@@ -29,7 +29,7 @@ export interface WorkspaceFolder {
 
 const LAYOUT_STATE_KEY = 'electron-layout';
 const DEFAULT_SIDEBAR_WIDTH = 220;
-const DEFAULT_EDITOR_WIDTH = 500;
+const DEFAULT_EDITOR_WIDTH = 700;
 const MIN_SIDEBAR_WIDTH = 160;
 const MAX_SIDEBAR_WIDTH = 400;
 const MIN_EDITOR_WIDTH = 300;

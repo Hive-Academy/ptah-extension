@@ -34,8 +34,21 @@ export interface IWorkspaceProvider {
   getConfiguration<T>(
     section: string,
     key: string,
-    defaultValue?: T
+    defaultValue?: T,
   ): T | undefined;
+
+  /**
+   * Update a configuration value.
+   * Replaces: vscode.workspace.getConfiguration(section).update(key, value)
+   *
+   * File-based keys (listed in FILE_BASED_SETTINGS_KEYS) route to
+   * ~/.ptah/settings.json via PtahFileSettingsManager.
+   *
+   * @param section - Configuration section (e.g., 'ptah')
+   * @param key - Configuration key within the section (e.g., 'browser.allowLocalhost')
+   * @param value - The value to set
+   */
+  setConfiguration(section: string, key: string, value: unknown): Promise<void>;
 
   /**
    * Event fired when configuration changes.

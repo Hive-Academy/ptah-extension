@@ -15,6 +15,9 @@ import {
 import {
   LucideAngularModule,
   Bell,
+  Clock,
+  Pencil,
+  Trash2,
   ChevronUp,
   ChevronDown,
 } from 'lucide-angular';
@@ -28,6 +31,7 @@ import { SessionStatsSummaryComponent } from '../molecules/session/session-stats
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { CompactionNotificationComponent } from '../molecules/notifications/compaction-notification.component';
 import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
+import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
 import { PanelResizeService } from '../../services/panel-resize.service';
@@ -78,6 +82,7 @@ import type { SubagentRecord } from '@ptah-extension/shared';
     ResumeNotificationBannerComponent,
     CompactionNotificationComponent,
     SidebarTabComponent,
+    CompactSessionCardComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -101,6 +106,9 @@ export class ChatViewComponent {
 
   /** Lucide icon references for template binding */
   protected readonly BellIcon = Bell;
+  protected readonly ClockIcon = Clock;
+  protected readonly PencilIcon = Pencil;
+  protected readonly TrashIcon = Trash2;
   protected readonly ChevronUpIcon = ChevronUp;
   protected readonly ChevronDownIcon = ChevronDown;
 
@@ -235,6 +243,16 @@ export class ChatViewComponent {
   private isRestoringScroll = false;
 
   /**
+   * Guard active during the streaming→finalized DOM transition.
+   * Suppresses onScroll events and forces scheduleScroll to scroll regardless
+   * of userScrolledUp. Prevents layout-driven scroll events from blocking
+   * auto-scroll during the dramatic DOM swap (streaming elements destroyed,
+   * finalized elements created).
+   */
+  private isFinalizingTransition = false;
+  private finalizingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  /**
    * Ptah icon URI for skeleton avatar placeholder
    */
   readonly ptahIconUri = computed(() => this.vscodeService.getPtahIconUri());
@@ -301,6 +319,36 @@ export class ChatViewComponent {
     return this._tabManager.tabs().find((t) => t.id === tabId) ?? null;
   });
 
+  /**
+   * Resolved view mode: 'full' or 'compact', scoped to tile or active tab.
+   * When compact, the chat view renders a CompactSessionCard instead of the full message list.
+   */
+  readonly resolvedViewMode = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (!tabId) return 'full' as const;
+      return (
+        this._tabManager.tabs().find((t) => t.id === tabId)?.viewMode ?? 'full'
+      );
+    }
+    return this._tabManager.activeTabViewMode();
+  });
+
+  /**
+   * The full TabState for the active tab (for compact card rendering).
+   * Returns the active tab or tile-scoped tab.
+   */
+  readonly resolvedActiveTab = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (!tabId) return null;
+      return this._tabManager.tabs().find((t) => t.id === tabId) ?? null;
+    }
+    return this._tabManager.activeTab();
+  });
+
   readonly resolvedPreloadedStats = computed(() => {
     const tab = this.resolvedTab();
     return tab !== null
@@ -338,6 +386,22 @@ export class ChatViewComponent {
     return tab !== null
       ? (tab.isCompacting ?? false)
       : this.chatStore.isCompacting();
+  });
+
+  /**
+   * Resolved question requests: scoped to this tile's session in canvas mode.
+   * Prevents question cards from appearing in ALL tiles — only the session that
+   * triggered the question shows the card.
+   * Same pattern as resolvedIsCompacting (TASK_2025_098).
+   */
+  readonly resolvedQuestionRequests = computed(() => {
+    const allQuestions = this.chatStore.questionRequests();
+    if (allQuestions.length === 0) return [];
+
+    const sessionId = this.resolvedSessionId();
+    if (!sessionId) return allQuestions; // No session context — show all (initial state)
+
+    return allQuestions.filter((q) => q.sessionId === sessionId);
   });
 
   readonly resolvedQueuedContent = computed(() => {
@@ -467,6 +531,7 @@ export class ChatViewComponent {
       this.previousTabId = currentTabId ?? null;
 
       if (currentTabId && this.scrollPositionCache.has(currentTabId)) {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const savedPosition = this.scrollPositionCache.get(currentTabId)!;
         this.isRestoringScroll = true;
         setTimeout(() => {
@@ -483,18 +548,45 @@ export class ChatViewComponent {
 
     // Force scroll to bottom when streaming ends (agent finished work).
     // During finalization, streaming DOM is destroyed and finalized DOM is created.
-    // This dramatic DOM change can trigger layout-driven scroll events that falsely
-    // set userScrolledUp=true via onScroll(). The MutationObserver's scheduleScroll
-    // then sees userScrolledUp=true and skips scrolling, leaving the user stuck
-    // at an old position. This effect bypasses that by directly calling scrollToBottom.
+    // This dramatic DOM change can cause scroll position disruption:
+    // 1. Browser scroll anchoring resets scrollTop when anchor elements are destroyed
+    //    (mitigated by overflow-anchor: none in CSS)
+    // 2. Layout-driven scroll events falsely set userScrolledUp=true
+    // 3. setTimeout(0) may fire before Angular renders finalized content in zoneless mode
+    //
+    // Fix: Enter a "finalization transition" guard that suppresses onScroll and forces
+    // scheduleScroll to always scroll. Use afterNextRender for the first scroll attempt
+    // (guaranteed post-render), plus a 300ms safety net for late DOM changes.
     effect(() => {
       const isStreaming = this.resolvedIsStreaming();
       if (this.wasStreaming && !isStreaming) {
         untracked(() => {
+          this.isFinalizingTransition = true;
           this.userScrolledUp.set(false);
-          // setTimeout(0) runs after Angular CD completes and DOM is updated,
-          // ensuring scrollHeight reflects the finalized content.
-          setTimeout(() => this.scrollToBottom('instant'), 0);
+
+          // Clear any previous finalization timeout (rapid transitions)
+          if (this.finalizingTimeoutId) {
+            clearTimeout(this.finalizingTimeoutId);
+          }
+
+          // First scroll attempt: afterNextRender guarantees the callback fires
+          // AFTER Angular change detection + DOM rendering completes. This is more
+          // reliable than setTimeout(0) which races with zoneless CD microtasks.
+          afterNextRender(
+            () => {
+              this.scrollToBottom('instant');
+            },
+            { injector: this.injector },
+          );
+
+          // End transition after generous window. Covers MutationObserver debounce
+          // (50ms), async layout adjustments, and any late component rendering
+          // (markdown, code highlighting). Final scrollToBottom catches everything.
+          this.finalizingTimeoutId = setTimeout(() => {
+            this.isFinalizingTransition = false;
+            this.finalizingTimeoutId = null;
+            this.scrollToBottom('instant');
+          }, 300);
         });
       }
       this.wasStreaming = isStreaming;
@@ -522,7 +614,7 @@ export class ChatViewComponent {
    * smooth scroll animation intermediates from falsely setting userScrolledUp.
    */
   onScroll(event: Event): void {
-    if (this.isProgrammaticScrolling) return;
+    if (this.isProgrammaticScrolling || this.isFinalizingTransition) return;
 
     const container = event.target as HTMLElement;
     if (!container) return;
@@ -551,13 +643,29 @@ export class ChatViewComponent {
   }
 
   /**
+   * Edit queued message — pushes content back to the input and clears the queue.
+   * Uses restoreContentToInput so the user can modify and re-send.
+   */
+  editQueue(): void {
+    const content = this.resolvedQueuedContent();
+    if (!content) return;
+
+    const tabId = this.resolvedTabId() ?? undefined;
+    this.chatStore.clearQueuedContent(tabId);
+
+    const chatInput = this.chatInputRef();
+    if (chatInput) {
+      chatInput.restoreContentToInput(content);
+    }
+  }
+
+  /**
    * Cancel queued message (user-requested cancellation).
    * Uses resolvedTabId to target the correct tab in both single and canvas modes.
    */
   cancelQueue(): void {
     const tabId = this.resolvedTabId() ?? undefined;
     this.chatStore.clearQueuedContent(tabId);
-    console.log('[ChatViewComponent] Queued content cancelled by user');
   }
 
   /**
@@ -597,6 +705,19 @@ export class ChatViewComponent {
     this.chatStore.sendOrQueueMessage(prompt, { tabId });
     for (const agent of agents) {
       this.chatStore.removeResumableSubagent(agent.toolCallId);
+    }
+  }
+
+  /** Handle "New Session" request from context warning bar */
+  onNewSessionFromContextWarning(): void {
+    this._tabManager.createTab('New Session');
+  }
+
+  /** Switch the current tab from compact back to full view */
+  expandToFullView(): void {
+    const tabId = this.resolvedTabId();
+    if (tabId) {
+      this._tabManager.toggleTabViewMode(tabId);
     }
   }
 
@@ -662,7 +783,12 @@ export class ChatViewComponent {
     }
 
     this.scrollTimeoutId = setTimeout(() => {
-      if (!this.userScrolledUp() && !this.isRestoringScroll) {
+      // During finalization transition, always scroll regardless of userScrolledUp.
+      // Layout-driven scroll events from the DOM swap may have falsely set it.
+      if (
+        this.isFinalizingTransition ||
+        (!this.userScrolledUp() && !this.isRestoringScroll)
+      ) {
         const behavior = this.resolvedIsStreaming() ? 'smooth' : 'instant';
         this.scrollToBottom(behavior);
       }
@@ -685,6 +811,10 @@ export class ChatViewComponent {
     if (this.userMessageScrollTimeoutId) {
       clearTimeout(this.userMessageScrollTimeoutId);
       this.userMessageScrollTimeoutId = null;
+    }
+    if (this.finalizingTimeoutId) {
+      clearTimeout(this.finalizingTimeoutId);
+      this.finalizingTimeoutId = null;
     }
   }
 }

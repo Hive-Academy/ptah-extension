@@ -23,8 +23,8 @@ import {
   isPremiumTier,
 } from '@ptah-extension/vscode-core';
 import {
-  SdkAgentAdapter,
   SessionHistoryReaderService,
+  DeepAgentHistoryReaderService,
   SessionMetadataStore,
   SDK_TOKENS,
   PluginLoaderService,
@@ -33,6 +33,7 @@ import {
   DEFAULT_FALLBACK_MODEL_ID,
   type EnhancedPromptsService,
 } from '@ptah-extension/agent-sdk';
+import type { IAgentAdapter } from '@ptah-extension/shared';
 
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
@@ -75,8 +76,8 @@ export class ChatRpcHandlers {
     private readonly webviewManager: WebviewManager,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
-    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
-    private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(TOKENS.AGENT_ADAPTER)
+    private readonly sdkAdapter: IAgentAdapter,
     @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
     private readonly historyReader: SessionHistoryReaderService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
@@ -99,6 +100,8 @@ export class ChatRpcHandlers {
     private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER)
+    private readonly deepAgentHistoryReader: DeepAgentHistoryReaderService,
   ) {}
 
   /**
@@ -545,9 +548,14 @@ export class ChatRpcHandlers {
           // IWorkspaceProvider (platform-aware). Never rely on process.cwd() which
           // returns the app installation directory in VS Code/Electron.
           const workspacePath =
-            params.workspacePath ||
-            this.workspaceProvider.getWorkspaceRoot() ||
-            '';
+            params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
+          if (!workspacePath) {
+            return {
+              success: false,
+              error:
+                'No workspace folder open. Please open a folder before starting a chat session.',
+            };
+          }
           this.logger.debug('RPC: chat:start called', {
             tabId,
             workspacePath,
@@ -623,11 +631,12 @@ export class ChatRpcHandlers {
             pluginCount: pluginPaths?.length ?? 0,
           });
 
-          // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
+          // Get current model: prefer frontend-provided model, then config, then fallback.
+          // All sources provide full model IDs (frontend from normalized list, config from normalized save).
           const currentModel =
             options?.model ||
             this.configManager.get<string>('model.selected') ||
-            'default';
+            DEFAULT_FALLBACK_MODEL_ID;
 
           // TASK_2025_093: tabId is now the primary tracking key
           // SDK generates real UUID in system init message
@@ -653,7 +662,7 @@ export class ChatRpcHandlers {
           const stream = await this.sdkAdapter.startChatSession({
             tabId, // REQUIRED: Primary tracking key for multi-tab isolation
             workspaceId: workspacePath,
-            model: options?.model || currentModel,
+            model: currentModel,
             systemPrompt: options?.systemPrompt,
             projectPath: workspacePath,
             name,
@@ -700,9 +709,14 @@ export class ChatRpcHandlers {
           // Resolve workspace path: prefer frontend-provided value, fall back to
           // IWorkspaceProvider (platform-aware). Mirrors chat:start resolution.
           const workspacePath =
-            params.workspacePath ||
-            this.workspaceProvider.getWorkspaceRoot() ||
-            '';
+            params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
+          if (!workspacePath) {
+            return {
+              success: false,
+              error:
+                'No workspace folder open. Please open a folder before continuing a chat session.',
+            };
+          }
           this.logger.debug('RPC: chat:continue called', {
             sessionId,
             tabId,
@@ -768,7 +782,8 @@ export class ChatRpcHandlers {
               },
             );
 
-            // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
+            // Get current model: prefer frontend-provided model, then config, then fallback.
+            // All sources provide full model IDs (normalized at source).
             const currentModel =
               params.model ||
               this.configManager.getWithDefault<string>(
@@ -776,28 +791,80 @@ export class ChatRpcHandlers {
                 DEFAULT_FALLBACK_MODEL_ID,
               );
 
-            // Resume the session to reconnect to Claude's conversation context
+            // Resume the session to reconnect to Claude's conversation context.
             // TASK_2025_108: Pass isPremium and mcpServerRunning to maintain premium features in resumed sessions
             // TASK_2025_151: Pass enhancedPromptsContent for AI-generated system prompt
             // TASK_2025_153: Pass pluginPaths for session plugin loading
-            const stream = await this.sdkAdapter.resumeSession(sessionId, {
-              projectPath: workspacePath,
-              model: currentModel,
-              isPremium,
-              mcpServerRunning,
-              enhancedPromptsContent,
-              pluginPaths,
-              tabId,
-              thinking: params.thinking, // TASK_2025_184: Reasoning configuration
-              effort: params.effort, // TASK_2025_184: Effort level
-            });
+            // Deep-agent runtime rejects resume — translate to a structured
+            // early return so the webview can show a reload prompt.
+            try {
+              const stream = await this.sdkAdapter.resumeSession(sessionId, {
+                projectPath: workspacePath,
+                model: currentModel,
+                isPremium,
+                mcpServerRunning,
+                enhancedPromptsContent,
+                pluginPaths,
+                tabId,
+                thinking: params.thinking, // TASK_2025_184: Reasoning configuration
+                effort: params.effort, // TASK_2025_184: Effort level
+              });
 
-            // Start streaming responses to webview (background - don't await)
-            // Pass tabId for event routing
-            this.streamExecutionNodesToWebview(sessionId, stream, tabId);
+              // Start streaming responses to webview (background - don't await)
+              // Pass tabId for event routing
+              this.streamExecutionNodesToWebview(sessionId, stream, tabId);
 
-            this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
-            justResumed = true;
+              this.logger.info(
+                `[RPC] Session ${sessionId} resumed successfully`,
+              );
+              justResumed = true;
+            } catch (resumeError) {
+              const message =
+                resumeError instanceof Error
+                  ? resumeError.message
+                  : String(resumeError);
+              // Deep-agent runtime can't replay Claude SDK JSONL history.
+              // Fall back to a fresh session bound to the same tabId so the
+              // user's message still gets answered without losing the tab.
+              if (message.startsWith('Session resume')) {
+                this.logger.info(
+                  '[RPC] chat:continue - falling back to startChatSession (deep-agent runtime cannot resume)',
+                  { sessionId, tabId },
+                );
+                const stream = await this.sdkAdapter.startChatSession({
+                  tabId,
+                  workspaceId: workspacePath,
+                  model: currentModel,
+                  projectPath: workspacePath,
+                  name,
+                  prompt,
+                  files: params.files ?? [],
+                  images: params.images ?? [],
+                  isPremium,
+                  mcpServerRunning,
+                  enhancedPromptsContent,
+                  pluginPaths,
+                  thinking: params.thinking,
+                  effort: params.effort,
+                });
+                this.streamExecutionNodesToWebview(
+                  tabId as SessionId,
+                  stream,
+                  tabId,
+                );
+                return { success: true, sessionId: tabId as SessionId };
+              }
+              this.logger.warn(
+                '[RPC] chat:continue - resumeSession rejected by runtime',
+                { sessionId, error: message },
+              );
+              const result: ChatContinueResult = {
+                success: false,
+                sessionId: sessionId as SessionId,
+                error: message,
+              };
+              return result;
+            }
           }
 
           // Extract files from params for debugging (Phase 2)
@@ -1093,32 +1160,49 @@ IMPORTANT INSTRUCTIONS:
       // SlashCommandResult uses discriminated union or optional rawCommand
       const command = interceptResult.rawCommand ?? prompt;
 
-      // Execute the slash command as a new query with resume
-      const stream = await this.sdkAdapter.executeSlashCommand(
-        sessionId,
-        command,
-        {
-          sessionConfig: {
-            model:
-              params.model ||
-              this.configManager.getWithDefault<string>(
-                'model.selected',
-                DEFAULT_FALLBACK_MODEL_ID,
-              ),
-            projectPath: workspacePath,
-          } as AISessionConfig,
-          isPremium,
-          mcpServerRunning,
-          enhancedPromptsContent,
-          pluginPaths,
-          tabId,
-        },
-      );
+      // Execute the slash command as a new query with resume. The deep-agent
+      // runtime does not support slash commands — surface a structured error
+      // back to the webview instead of failing mid-stream.
+      try {
+        const stream = await this.sdkAdapter.executeSlashCommand(
+          sessionId,
+          command,
+          {
+            sessionConfig: {
+              model:
+                params.model ||
+                this.configManager.getWithDefault<string>(
+                  'model.selected',
+                  DEFAULT_FALLBACK_MODEL_ID,
+                ),
+              projectPath: workspacePath,
+            } as AISessionConfig,
+            isPremium,
+            mcpServerRunning,
+            enhancedPromptsContent,
+            pluginPaths,
+            tabId,
+          },
+        );
 
-      // Reconnect streaming to the frontend
-      this.streamExecutionNodesToWebview(sessionId, stream, tabId);
+        // Reconnect streaming to the frontend
+        this.streamExecutionNodesToWebview(sessionId, stream, tabId);
 
-      return { success: true, sessionId };
+        return { success: true, sessionId };
+      } catch (slashError) {
+        const message =
+          slashError instanceof Error ? slashError.message : String(slashError);
+        this.logger.warn(
+          '[RPC] chat:continue - executeSlashCommand rejected by runtime',
+          { sessionId, command, error: message },
+        );
+        const result: ChatContinueResult = {
+          success: false,
+          sessionId,
+          error: message,
+        };
+        return result;
+      }
     }
 
     return null;
@@ -1145,9 +1229,14 @@ IMPORTANT INSTRUCTIONS:
           // Resolve workspace path: prefer frontend-provided, fall back to
           // IWorkspaceProvider (platform-aware). Mirrors chat:start/continue.
           const resolvedWorkspacePath =
-            params.workspacePath ||
-            this.workspaceProvider.getWorkspaceRoot() ||
-            '';
+            params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
+          if (!resolvedWorkspacePath) {
+            return {
+              success: false,
+              error:
+                'No workspace folder open. Please open a folder before resuming a chat session.',
+            };
+          }
           this.logger.info('RPC: chat:resume called', {
             sessionId,
             workspacePath: params.workspacePath || '(empty)',
@@ -1164,19 +1253,74 @@ IMPORTANT INSTRUCTIONS:
             }
           }
 
-          // TASK_2025_092 FIX: Read full session history as FlatStreamEventUnion[]
-          // This includes tool calls, thinking blocks, agent spawns, etc.
-          // Also includes aggregated usage stats from JSONL
-          const { events, stats } = await this.historyReader.readSessionHistory(
+          // Detect deep agent sessions by checking the checkpoint directory.
+          // Deep agent sessions live in {workspace}/.ptah/deep-agent-sessions/
+          // while Claude SDK sessions live in ~/.claude/projects/ as JSONL files.
+          const isDeepAgentSession = this.deepAgentHistoryReader.hasSession(
             sessionId,
             resolvedWorkspacePath,
           );
 
-          // Also read simple messages for backward compatibility
-          const messages = await this.historyReader.readHistoryAsMessages(
-            sessionId,
-            resolvedWorkspacePath,
-          );
+          let events: FlatStreamEventUnion[];
+          let stats: {
+            totalCost: number;
+            tokens: {
+              input: number;
+              output: number;
+              cacheRead: number;
+              cacheCreation: number;
+            };
+            messageCount: number;
+            model?: string;
+            agentSessionCount?: number;
+            modelUsageList?: Array<{
+              model: string;
+              inputTokens: number;
+              outputTokens: number;
+              costUSD: number;
+            }>;
+          } | null;
+          let messages: {
+            id: string;
+            role: 'user' | 'assistant';
+            content: string;
+            timestamp: number;
+          }[];
+
+          if (isDeepAgentSession) {
+            this.logger.info(
+              '[RPC] chat:resume - deep agent session detected',
+              {
+                sessionId,
+              },
+            );
+            const result = await this.deepAgentHistoryReader.readSessionHistory(
+              sessionId,
+              resolvedWorkspacePath,
+            );
+            events = result.events;
+            stats = result.stats;
+            messages = await this.deepAgentHistoryReader.readHistoryAsMessages(
+              sessionId,
+              resolvedWorkspacePath,
+            );
+          } else {
+            // TASK_2025_092 FIX: Read full session history as FlatStreamEventUnion[]
+            // This includes tool calls, thinking blocks, agent spawns, etc.
+            // Also includes aggregated usage stats from JSONL
+            const result = await this.historyReader.readSessionHistory(
+              sessionId,
+              resolvedWorkspacePath,
+            );
+            events = result.events;
+            stats = result.stats;
+
+            // Also read simple messages for backward compatibility
+            messages = await this.historyReader.readHistoryAsMessages(
+              sessionId,
+              resolvedWorkspacePath,
+            );
+          }
 
           // TASK_2025_109: Register interrupted agents from history into SubagentRegistryService
           // This enables context injection in chat:continue for cold-loaded sessions.
@@ -1460,6 +1604,13 @@ IMPORTANT INSTRUCTIONS:
     let childMetadataSaved = false;
     const isPtahCliSession = this.ptahCliSessions.has(tabId);
 
+    // Track whether the stream exited normally (not via abort/error).
+    // Used in the finally block to decide whether to clean up the session.
+    // When a slash command replaces an existing session (e.g., /compact on an active chat),
+    // the OLD stream is aborted and a NEW stream starts with the same sessionId.
+    // The finally block must NOT clean up on abort — it would kill the replacement session.
+    let streamExitedNormally = false;
+
     try {
       for await (const event of stream) {
         eventCount++;
@@ -1580,6 +1731,9 @@ IMPORTANT INSTRUCTIONS:
           },
         );
       }
+
+      // Stream completed without error — safe to clean up in finally block
+      streamExitedNormally = true;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -1643,6 +1797,25 @@ IMPORTANT INSTRUCTIONS:
       this.ptahCliSessions.delete(tabId);
       // Note: ptahCliSdkSessionIds is NOT cleaned up here — it must persist
       // until persistCliSessionReference reads it (agent may exit later).
+
+      // Clean up the session from activeSessions when the stream ends NORMALLY
+      // (e.g., slash commands that terminate after execution). Without this,
+      // chat:continue sees the session as "active" and calls sendMessage on a dead query.
+      //
+      // CRITICAL: Only clean up on normal exit, NOT on abort/error. When a slash
+      // command replaces a session (e.g., /compact on active chat), the old stream
+      // is aborted and a new stream starts with the same sessionId. Cleaning up on
+      // abort would kill the replacement session — a race condition.
+      if (streamExitedNormally && this.sdkAdapter.isSessionActive(sessionId)) {
+        try {
+          await this.sdkAdapter.endSession(sessionId);
+          this.logger.info(
+            `[RPC] Session ${sessionId} cleaned up after natural stream completion`,
+          );
+        } catch {
+          // Best-effort cleanup — session may have already been ended
+        }
+      }
     }
   }
 }

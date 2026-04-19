@@ -1,4 +1,6 @@
+export * from './lib/types/agent-adapter.types';
 export * from './lib/types/ai-provider.types';
+export * from './lib/types/tool-registry.types';
 export * from './lib/types/anti-pattern-rules.types';
 export * from './lib/types/branded.types';
 export * from './lib/types/claude-domain.types';
@@ -17,8 +19,10 @@ export * from './lib/types/model-autopilot.types';
 export * from './lib/types/agent-process.types';
 export * from './lib/types/cli-skill-sync.types';
 export * from './lib/types/auth-env.types';
+export * from './lib/types/auth-strategy.types';
 export * from './lib/types/ptah-cli.types';
 export * from './lib/types/agent-permission.types';
+export * from './lib/types/mcp-directory.types';
 
 // Type guards
 export * from './lib/type-guards/tool-input-guards';
@@ -37,6 +41,9 @@ export * from './lib/types/setup-wizard.types';
 // New project wizard types and data
 export * from './lib/types/new-project.types';
 export * from './lib/data/new-project-questions';
+
+// Harness builder types
+export * from './lib/types/rpc/rpc-harness.types';
 
 // Constants
 export * from './lib/constants/trial.constants';

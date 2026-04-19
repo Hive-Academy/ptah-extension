@@ -56,6 +56,7 @@ import { TabManagerService } from '../../services/tab-manager.service';
             [isStreaming]="tabManager.isTabStreaming(tab.id)"
             (tabSelect)="onSelectTab($event)"
             (tabClose)="onCloseTab($event)"
+            (viewModeToggle)="onToggleViewMode($event)"
           />
         }
       </div>
@@ -151,6 +152,10 @@ export class TabBarComponent {
 
   protected onCloseTab(tabId: string): void {
     this.tabManager.closeTab(tabId);
+  }
+
+  protected onToggleViewMode(tabId: string): void {
+    this.tabManager.toggleTabViewMode(tabId);
   }
 
   /**

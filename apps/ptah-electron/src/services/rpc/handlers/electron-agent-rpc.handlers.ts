@@ -175,6 +175,23 @@ export class ElectronAgentRpcHandlers {
                 'agentOrchestration.disabledMcpNamespaces',
                 [],
               ) ?? [],
+            // Browser settings — read from workspace provider (not stateStorage) because
+            // browser.allowLocalhost is in FILE_BASED_SETTINGS_KEYS and must route through
+            // PtahFileSettingsManager (~/.ptah/settings.json) for parity with the MCP
+            // browser namespace read path in PtahApiBuilderService.
+            browserAllowLocalhost:
+              this.workspace.getConfiguration<boolean>(
+                'ptah',
+                'browser.allowLocalhost',
+                false,
+              ) ?? false,
+            // Runtime selector — stored under 'ptah.runtime' to match the ConfigManager
+            // shim pattern (configStorage.get('ptah.' + key)).
+            runtime:
+              this.stateStorage.get<'auto' | 'claude-sdk' | 'deep-agent'>(
+                'ptah.runtime',
+                'auto',
+              ) ?? 'auto',
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -197,10 +214,25 @@ export class ElectronAgentRpcHandlers {
   private registerSetConfig(): void {
     this.rpcHandler.registerMethod<
       AgentSetConfigParams,
-      { success: boolean; error?: string }
+      { success: boolean; error?: string; reloadRequired?: boolean }
     >('agent:setConfig', async (params) => {
       try {
         this.logger.debug('RPC: agent:setConfig called', { params });
+
+        // Detect runtime change BEFORE writing so the frontend can prompt reload.
+        // Electron has no config-change watcher — the frontend reads reloadRequired
+        // from the setConfig response and shows its own reload button.
+        let reloadRequired = false;
+        if (params.runtime !== undefined) {
+          const previous =
+            this.stateStorage.get<'auto' | 'claude-sdk' | 'deep-agent'>(
+              'ptah.runtime',
+              'auto',
+            ) ?? 'auto';
+          if (previous !== params.runtime) {
+            reloadRequired = true;
+          }
+        }
 
         if (params.preferredAgentOrder !== undefined) {
           await this.stateStorage.update(
@@ -275,9 +307,25 @@ export class ElectronAgentRpcHandlers {
             params.disabledMcpNamespaces,
           );
         }
+        // Browser settings — write via workspace provider (not stateStorage) because
+        // browser.allowLocalhost routes through FILE_BASED_SETTINGS_KEYS to ~/.ptah/settings.json.
+        if (params.browserAllowLocalhost !== undefined) {
+          await this.workspace.setConfiguration(
+            'ptah',
+            'browser.allowLocalhost',
+            params.browserAllowLocalhost,
+          );
+        }
+        // Runtime selector — stored under 'ptah.runtime' to match the ConfigManager
+        // shim pattern (configStorage.get('ptah.' + key)).
+        if (params.runtime !== undefined) {
+          await this.stateStorage.update('ptah.runtime', params.runtime);
+        }
 
         this.logger.debug('RPC: agent:setConfig success');
-        return { success: true };
+        return reloadRequired
+          ? { success: true, reloadRequired }
+          : { success: true };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);

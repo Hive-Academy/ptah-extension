@@ -18,7 +18,10 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { TranslationProxyBase } from '../openai-translation';
 import { SDK_TOKENS } from '../di/tokens';
 import type { ICodexAuthService } from './codex-provider.types';
-import { CODEX_PROVIDER_ENTRY } from './codex-provider-entry';
+import {
+  CODEX_PROVIDER_ENTRY,
+  CODEX_DEFAULT_TIERS,
+} from './codex-provider-entry';
 
 @injectable()
 export class CodexTranslationProxy extends TranslationProxyBase {
@@ -74,6 +77,41 @@ export class CodexTranslationProxy extends TranslationProxyBase {
   // ---------------------------------------------------------------------------
   // Codex-specific routing overrides
   // ---------------------------------------------------------------------------
+
+  /**
+   * Map Claude model names to Codex-compatible GPT equivalents.
+   *
+   * The Codex API does NOT support Claude model names at all — unlike Copilot
+   * which natively supports Claude models. When the SDK sends 'claude-sonnet-4-6',
+   * we must map it to the Codex-equivalent (e.g., 'gpt-5.3-codex').
+   *
+   * Mapping uses CODEX_DEFAULT_TIERS for tier-based resolution, with the
+   * static model list as a final validation.
+   */
+  protected override normalizeModelId(modelId: string): string {
+    if (!modelId.startsWith('claude-')) {
+      return modelId;
+    }
+
+    // Determine which tier this Claude model represents
+    const tier = this.detectClaudeTier(modelId);
+    const mapped = CODEX_DEFAULT_TIERS[tier];
+
+    this.logger.debug(
+      `[CodexProxy] Mapped Claude model '${modelId}' (tier: ${tier}) → '${mapped}'`,
+    );
+    return mapped;
+  }
+
+  /**
+   * Detect the tier (sonnet/opus/haiku) from a Claude model ID.
+   * Falls back to 'sonnet' for unrecognized patterns.
+   */
+  private detectClaudeTier(modelId: string): 'sonnet' | 'opus' | 'haiku' {
+    if (modelId.includes('opus')) return 'opus';
+    if (modelId.includes('haiku')) return 'haiku';
+    return 'sonnet';
+  }
 
   /**
    * Codex uses the Responses API exclusively for ALL models.

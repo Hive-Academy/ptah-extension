@@ -71,6 +71,8 @@ const ALLOWED_METHOD_PREFIXES = [
   'git:', // TASK_2025_227: Git info and worktree management
   'terminal:', // TASK_2025_227: Terminal PTY session management
   'webSearch:', // TASK_2025_235: Web search provider configuration (API key status)
+  'harness:', // Harness setup builder (initialize, suggest-config, apply, presets, chat)
+  'mcpDirectory:', // MCP Server Directory (search, getDetails, install, uninstall, listInstalled, getPopular)
 ] as const;
 
 /**

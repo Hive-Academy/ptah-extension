@@ -23,7 +23,11 @@
       >
         <div class="relative">
           <lucide-angular [img]="BotIcon" class="w-4 h-4" />
-          @if (authState.hasApiKey() || authState.hasOAuthToken()) {
+          @if (
+            authState.hasApiKey() ||
+            (authState.authMethod() === 'claudeCli' &&
+              authState.claudeCliInstalled())
+          ) {
             <span
               class="absolute -top-1 -right-1.5 badge badge-success badge-xs w-2 h-2 p-0"
               aria-label="Configured"
@@ -58,7 +62,9 @@
             } @else if (provider.id === 'openai-codex') {
               <lucide-angular [img]="TerminalIcon" class="w-4 h-4" />
             } @else if (
-              provider.id === 'ollama' || provider.id === 'lm-studio'
+              provider.id === 'ollama' ||
+              provider.id === 'ollama-cloud' ||
+              provider.id === 'lm-studio'
             ) {
               <lucide-angular [img]="ServerIcon" class="w-4 h-4" />
             } @else if (provider.id === 'moonshot') {
@@ -130,7 +136,7 @@
 
   <!-- Claude Auth Config (shown when Claude tile selected) -->
   @if (selectedTileId() === 'claude') {
-    <!-- Auth Method Toggle: API Key vs OAuth -->
+    <!-- Auth Method Toggle: API Key vs Claude CLI -->
     <div class="form-control">
       <div class="label py-1">
         <span class="label-text text-xs font-medium"
@@ -151,12 +157,12 @@
         <button
           type="button"
           class="flex-1 btn btn-xs rounded-md transition-all"
-          [class.btn-primary]="claudeAuthMode() === 'oauth'"
-          [class.btn-ghost]="claudeAuthMode() !== 'oauth'"
-          (click)="onClaudeAuthModeChange('oauth')"
-          aria-label="Use OAuth authentication"
+          [class.btn-primary]="claudeAuthMode() === 'claudeCli'"
+          [class.btn-ghost]="claudeAuthMode() !== 'claudeCli'"
+          (click)="onClaudeAuthModeChange('claudeCli')"
+          aria-label="Use Claude CLI authentication"
         >
-          OAuth
+          Claude CLI
         </button>
       </div>
     </div>
@@ -254,95 +260,78 @@
       </div>
     }
 
-    <!-- OAuth Token Input (shown when oauth mode selected) -->
-    @if (claudeAuthMode() === 'oauth') {
-      <!-- Local execution note -->
-      <div
-        class="flex items-start gap-1.5 p-2 rounded bg-success/10 border border-success/20 mb-1"
-      >
-        <span class="text-success text-[10px] shrink-0 mt-0.5">●</span>
-        <p class="text-[10px] text-base-content/60 leading-relaxed">
-          <strong class="text-base-content/70">Runs 100% locally.</strong>
-          Your token goes directly from this machine to Anthropic — no proxies,
-          no Ptah servers involved.
-        </p>
-      </div>
+    <!-- Claude CLI (shown when claudeCli mode selected) -->
+    @if (claudeAuthMode() === 'claudeCli') {
       <div class="form-control">
-        <label class="label py-1 justify-start gap-2" for="oauthToken">
-          <span class="label-text text-xs font-medium">Claude OAuth Token</span>
+        <div class="label py-1 justify-start gap-2">
+          <span class="label-text text-xs font-medium">Claude CLI Status</span>
           @if (authState.isLoading()) {
             <span
               class="badge badge-ghost badge-xs"
-              aria-label="Loading authentication status"
+              aria-label="Loading CLI status"
             >
               <span class="loading loading-spinner loading-xs"></span>
             </span>
-          } @else if (authState.hasOAuthToken()) {
+          } @else if (authState.claudeCliInstalled()) {
             <span
               class="badge badge-success badge-xs gap-0.5"
-              aria-label="OAuth token configured"
+              aria-label="Claude CLI detected"
             >
               <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
-              <span>Configured</span>
+              <span>Detected</span>
+            </span>
+          } @else {
+            <span
+              class="badge badge-warning badge-xs gap-0.5"
+              aria-label="Claude CLI not found"
+            >
+              <lucide-angular [img]="AlertTriangleIcon" class="w-2.5 h-2.5" />
+              <span>Not Found</span>
             </span>
           }
-        </label>
-        <!-- Show masked value when configured -->
-        @if (authState.hasOAuthToken() && !oauthToken()) {
-          <div class="flex gap-1.5">
-            <div
-              class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
-            >
-              sk-ant-oat01-••••••••••••
-            </div>
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs text-info"
-              (click)="isReplacingOAuth.set(true)"
-              [class.hidden]="isReplacingOAuth()"
-              title="Replace OAuth token"
-            >
-              Replace
-            </button>
-            <button
-              type="button"
-              class="btn btn-ghost btn-sm btn-square text-error hover:bg-error/10"
-              (click)="deleteOAuthToken()"
-              [disabled]="authState.isSaving()"
-              title="Remove OAuth token"
-              aria-label="Remove OAuth token"
-            >
-              <lucide-angular [img]="Trash2Icon" class="w-4 h-4" />
-            </button>
+        </div>
+
+        @if (authState.claudeCliInstalled()) {
+          <!-- CLI detected: show success info -->
+          <div
+            class="flex items-start gap-1.5 p-2 rounded bg-success/10 border border-success/20"
+          >
+            <span class="text-success text-[10px] shrink-0 mt-0.5">●</span>
+            <p class="text-[10px] text-base-content/60 leading-relaxed">
+              <strong class="text-base-content/70">Claude CLI detected.</strong>
+              Authentication is managed by the CLI. If you're logged in via
+              <code class="text-[10px]">claude login</code>, your credentials
+              will be used automatically.
+            </p>
           </div>
-          @if (isReplacingOAuth()) {
-            <div class="label py-0.5">
-              <span class="label-text-alt text-[10px] opacity-70">
-                Enter a new token below to replace the existing one
-              </span>
-            </div>
-            <input
-              id="oauthToken"
-              type="password"
-              [(ngModel)]="oauthToken"
-              name="oauthToken"
-              class="input input-bordered input-sm w-full text-xs"
-              placeholder="Enter new token to replace..."
-            />
-          }
         } @else {
-          <input
-            id="oauthToken"
-            type="password"
-            [(ngModel)]="oauthToken"
-            name="oauthToken"
-            class="input input-bordered input-sm w-full text-xs"
-            placeholder="Enter your OAuth token"
-          />
+          <!-- CLI not found: show install instructions -->
+          <div
+            class="flex items-start gap-1.5 p-2 rounded bg-warning/10 border border-warning/20"
+          >
+            <span class="text-warning text-[10px] shrink-0 mt-0.5">●</span>
+            <p class="text-[10px] text-base-content/60 leading-relaxed">
+              <strong class="text-base-content/70"
+                >Claude CLI not found.</strong
+              >
+              Install it and log in to use your Claude subscription.
+            </p>
+          </div>
         }
+
         <div class="label flex-col items-start gap-0.5 py-1">
           <span class="label-text-alt text-[10px] opacity-70">
-            Tokens start with <code class="text-[10px]">sk-ant-.....-</code>
+            <strong>Install:</strong>
+            <code class="text-[10px]"
+              >npm install -g &#64;anthropic-ai/claude-code</code
+            >
+          </span>
+          <span class="label-text-alt text-[10px] opacity-70">
+            <strong>Login:</strong>
+            <code class="text-[10px]">claude login</code>
+          </span>
+          <span class="label-text-alt text-[10px] opacity-70">
+            Works with Claude Max, Pro, and Team subscriptions
           </span>
         </div>
       </div>
@@ -510,7 +499,12 @@
         >
           <lucide-angular [img]="ServerIcon" class="w-3.5 h-3.5 opacity-70" />
           <span class="text-base-content/70">
-            No API key needed — runs locally
+            @if (selectedProvider()?.id === 'ollama-cloud') {
+              No API key needed — sign in via
+              <code class="text-[10px]">ollama signin</code>
+            } @else {
+              No API key needed — runs locally
+            }
           </span>
         </div>
 
@@ -522,9 +516,7 @@
           <span class="label-text-alt text-[10px] opacity-70">
             Default endpoint:
             <code class="text-[10px]">{{
-              selectedProvider()?.id === 'ollama'
-                ? 'http://localhost:11434'
-                : 'http://localhost:1234'
+              selectedProvider()?.baseUrl ?? 'http://localhost:11434'
             }}</code>
           </span>
         </div>
@@ -715,10 +707,6 @@
               <li>
                 <strong>Provider:</strong> Use OpenRouter, Moonshot, or Z.AI
                 with your own API key
-              </li>
-              <li>
-                <strong>OAuth tokens:</strong> No longer work in third-party
-                tools (Anthropic policy, Feb 2026)
               </li>
             </ul>
           </div>

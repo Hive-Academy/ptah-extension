@@ -19,6 +19,8 @@
         "target": "node20",
         "bundle": true,
         "thirdParty": false,
+        "generatePackageJson": true,
+        "generateLockfile": true,
         "skipTypeCheck": true,
         "deleteOutputPath": false,
         "esbuildOptions": {
@@ -35,6 +37,13 @@
           "@anthropic-ai/claude-agent-sdk",
           "@github/copilot-sdk",
           "@openai/codex-sdk",
+          "deepagents",
+          "@langchain/core",
+          "@langchain/langgraph",
+          "@langchain/openai",
+          "@langchain/anthropic",
+          "langchain",
+          "langsmith",
           "reflect-metadata",
           "tsyringe",
           "async-mutex",
@@ -80,11 +89,6 @@
             "glob": "**/*",
             "input": "libs/backend/agent-generation/templates",
             "output": "templates"
-          },
-          {
-            "glob": "package.json",
-            "input": "apps/ptah-electron",
-            "output": "."
           },
           {
             "glob": "electron-builder.yml",

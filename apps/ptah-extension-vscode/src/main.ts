@@ -374,23 +374,6 @@ async function handleLicenseBlocking(
                 }
               }
 
-              if (
-                auth['oauthToken'] &&
-                typeof auth['oauthToken'] === 'string'
-              ) {
-                try {
-                  await context.secrets.store(
-                    'ptah.auth.claudeOAuthToken',
-                    auth['oauthToken'] as string,
-                  );
-                  imported.push('ptah.auth.claudeOAuthToken');
-                } catch (e) {
-                  errors.push(
-                    `oauthToken: ${e instanceof Error ? e.message : String(e)}`,
-                  );
-                }
-              }
-
               if (auth['apiKey'] && typeof auth['apiKey'] === 'string') {
                 try {
                   await context.secrets.store(
@@ -571,28 +554,49 @@ export async function activate(
     commandDiscovery.initializeWatchers();
     logger.info('Autocomplete discovery watchers initialized (2 services)');
 
-    // Step 7: Initialize SDK authentication (TASK_2025_057 Batch 1)
-    const sdkAdapter = DIContainer.resolve(TOKENS.SDK_AGENT_ADAPTER) as {
+    // Step 7: Initialize agent adapters (SDK + DeepAgent) via RuntimeSelector
+    const agentAdapter = DIContainer.resolve(TOKENS.AGENT_ADAPTER) as {
       initialize: () => Promise<boolean>;
       preloadSdk: () => Promise<void>;
     };
-    const authInitialized = await sdkAdapter.initialize();
+    const authInitialized = await agentAdapter.initialize();
 
     if (!authInitialized) {
       logger.info(
         'SDK authentication not configured - users can configure in Ptah Settings',
       );
     } else {
-      logger.info('SDK authentication initialized successfully');
+      logger.info('Agent adapters initialized successfully');
 
-      // Pre-load SDK in background (non-blocking) to speed up first chat
+      // Pre-load SDKs in background (non-blocking) to speed up first chat
       // This shifts ~100-200ms import cost from first user interaction to activation
-      sdkAdapter.preloadSdk().catch((err) => {
+      agentAdapter.preloadSdk().catch((err) => {
         logger.warn('SDK preload failed (will retry on first use)', {
           error: err instanceof Error ? err.message : String(err),
         });
       });
     }
+
+    // Watch for runtime changes and prompt for window reload. Switching
+    // between Claude SDK and deep-agent runtimes rebinds DI registrations at
+    // activation time, so the window must reload to apply.
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration('ptah.runtime')) {
+          vscode.window
+            .showInformationMessage(
+              'Ptah runtime changed. Reload the window to apply the new agent runtime.',
+              'Reload Window',
+            )
+            .then((choice) => {
+              if (choice === 'Reload Window') {
+                vscode.commands.executeCommand('workbench.action.reloadWindow');
+              }
+            });
+        }
+      }),
+    );
+
     // Step 7.1.4: Ensure plugin/template content from GitHub (non-blocking)
     // TASK_2025_248: Plugins and templates are no longer bundled in the VSIX.
     // ContentDownloadService downloads them to ~/.ptah/ on first launch and
@@ -626,18 +630,12 @@ export async function activate(
       );
       logger.info('Plugin loader initialized');
 
-      // Wire plugin paths into command discovery for slash command autocomplete
+      // Resolve plugin paths for junction creation (commands and skills
+      // are discovered from .claude/ directory, not from plugin paths directly)
       const pluginConfig = pluginLoader.getWorkspacePluginConfig();
       const pluginPaths = pluginLoader.resolvePluginPaths(
         pluginConfig.enabledPluginIds,
       );
-      const cmdDiscovery = DIContainer.resolve(
-        TOKENS.COMMAND_DISCOVERY_SERVICE,
-      ) as { setPluginPaths: (paths: string[]) => void };
-      cmdDiscovery.setPluginPaths(pluginPaths);
-      logger.info('Plugin paths wired into command discovery', {
-        pluginCount: pluginPaths.length,
-      });
     } catch (pluginLoaderError) {
       logger.warn('Plugin loader initialization failed', {
         error:
@@ -667,9 +665,11 @@ export async function activate(
 
       // Always call activate() even with zero plugins, so the workspace change
       // subscription is registered for future plugin enablement
-      const junctionResult = skillJunction.activate(junctionPluginPaths, () => {
-        const config = junctionPluginLoader.getWorkspacePluginConfig();
-        return junctionPluginLoader.resolvePluginPaths(config.enabledPluginIds);
+      const junctionResult = skillJunction.activate({
+        pluginPaths: junctionPluginPaths,
+        disabledSkillIds: junctionPluginConfig.disabledSkillIds,
+        getPluginPaths: () => junctionPluginLoader.resolveCurrentPluginPaths(),
+        getDisabledSkillIds: () => junctionPluginLoader.getDisabledSkillIds(),
       });
       if (junctionResult.created > 0 || junctionResult.errors.length > 0) {
         logger.info('Skill junctions created', {

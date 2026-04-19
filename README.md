@@ -59,7 +59,7 @@ Multiple auth methods supported:
 ## Getting Started
 
 1. Install the extension
-2. Sign up at **ptah.live** for a free 30-day Pro trial
+2. Sign up at **ptah.live** for a free 100-day Pro trial No credit card required
 3. Configure your AI provider in the sidebar settings
 4. Run the Setup Wizard to analyze your workspace
 5. Start chatting or use `/orchestrate` for complex tasks

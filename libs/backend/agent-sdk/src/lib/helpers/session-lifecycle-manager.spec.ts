@@ -70,6 +70,7 @@ describe('SessionLifecycleManager', () => {
 
   beforeEach(() => {
     // Construct directly with mock dependencies (bypassing DI)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     manager = new (SessionLifecycleManager as any)(
       createMockLogger(),
       createMockPermissionHandler(),

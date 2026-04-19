@@ -50,6 +50,32 @@
       <ptah-session-analytics-dashboard />
     </div>
   }
+
+  <!-- Harness Builder: Full-width setup wizard (injected via DI token to break circular dep) -->
+  @case ('harness-builder') {
+    <div class="h-full w-full">
+      @if (harnessBuilderComponent) {
+        <ng-container *ngComponentOutlet="harnessBuilderComponent" />
+      } @else {
+        <div class="flex items-center justify-center h-full">
+          <span class="loading loading-spinner loading-md"></span>
+        </div>
+      }
+    </div>
+  }
+
+  <!-- Setup Hub: Unified configuration dashboard (injected via DI token to break circular dep) -->
+  @case ('setup-hub') {
+    <div class="h-full w-full">
+      @if (setupHubComponent) {
+        <ng-container *ngComponentOutlet="setupHubComponent" />
+      } @else {
+        <div class="flex items-center justify-center h-full">
+          <span class="loading loading-spinner loading-md"></span>
+        </div>
+      }
+    </div>
+  }
 }
 
 <!-- 2. Shared chrome — ALWAYS rendered, hidden when standalone view is active -->

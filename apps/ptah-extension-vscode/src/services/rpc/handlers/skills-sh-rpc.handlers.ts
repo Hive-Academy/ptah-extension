@@ -493,9 +493,10 @@ export class SkillsShRpcHandlers {
         if (params.skillId) {
           args.push('--skill', params.skillId);
         }
-        // --agent: use '*' for all agents, or specific agent names
-        // Default to all supported agents when none specified
-        args.push('--agent', '*');
+        // Only install for Claude Code — Ptah's SkillJunctionService manages
+        // skill discovery via .claude/skills/ junctions. Installing for all agents
+        // ('*') pollutes the workspace with 28+ tool-specific directories.
+        args.push('--agent', 'claude-code');
         args.push('-y');
         if (params.scope === 'global') {
           args.push('-g');

@@ -51,6 +51,8 @@ import {
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
+import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../openrouter-provider/openrouter-provider.types';
+import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../local-provider/local-provider.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT } from '../constants';
 
@@ -121,6 +123,9 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
   }
   if (authEnv.ANTHROPIC_AUTH_TOKEN === CODEX_PROXY_TOKEN_PLACEHOLDER) {
     return 'openai-codex';
+  }
+  if (authEnv.ANTHROPIC_AUTH_TOKEN === OPENROUTER_PROXY_TOKEN_PLACEHOLDER) {
+    return 'openrouter';
   }
 
   // Check which provider matches this base URL (derived from registry to prevent ID mismatches)
@@ -450,16 +455,13 @@ export class SdkQueryOptionsBuilder {
     // The SDK's query() requires full model IDs like 'claude-opus-4-6' —
     // bare tier names cause "can't access model named opus" errors.
     const model = this.modelService.resolveModelId(sessionConfig.model);
-    const cwd = sessionConfig?.projectPath || require('os').homedir();
-
-    // Warn when falling back to os.homedir() — callers (ChatRpcHandlers)
-    // should always resolve projectPath from IWorkspaceProvider before reaching here.
     if (!sessionConfig?.projectPath) {
-      this.logger.warn(
-        `[SdkQueryOptionsBuilder] projectPath not provided — falling back to os.homedir(): ${cwd}. ` +
-          'Subagents will inherit this cwd. Ensure ChatRpcHandlers resolves workspace path.',
+      throw new Error(
+        'projectPath is required — cannot start an SDK session without a workspace folder. ' +
+          'Callers must resolve workspace path from IWorkspaceProvider before reaching here.',
       );
     }
+    const cwd = sessionConfig.projectPath;
 
     // Log resolved model and tier env vars for debugging (TASK_2025_132, TASK_2025_164: reads from AuthEnv)
     const envSonnet = this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL || 'default';
@@ -472,6 +474,14 @@ export class SdkQueryOptionsBuilder {
       envHaiku,
       baseUrl: this.authEnv.ANTHROPIC_BASE_URL || 'default',
     });
+
+    // Validate that non-Anthropic providers have ANTHROPIC_BASE_URL configured.
+    // Without this check, empty/missing base URL causes the SDK to silently fall
+    // back to api.anthropic.com while the auth token is a provider-specific
+    // placeholder (e.g., OLLAMA_AUTH_TOKEN_PLACEHOLDER), which Anthropic's API
+    // drops without responding — causing the UI to hang forever. Surface the
+    // misconfiguration immediately so the user sees a clear, actionable error.
+    this.validateBaseUrlForProvider();
 
     // Warn when main model is non-Claude but tier env vars still point to Claude.
     // This means subagents will silently use Claude models at higher premium rates.
@@ -626,6 +636,56 @@ export class SdkQueryOptionsBuilder {
         betas: this.buildBetas(),
       },
     };
+  }
+
+  /**
+   * Validate that ANTHROPIC_BASE_URL is present when the active auth token is
+   * a non-Anthropic provider placeholder.
+   *
+   * Background: providers like Ollama, Copilot, Codex, and OpenRouter write a
+   * known placeholder string into `ANTHROPIC_AUTH_TOKEN` (e.g. 'ollama',
+   * 'copilot-proxy-managed') and point `ANTHROPIC_BASE_URL` at their local
+   * endpoint. If the strategy's `configure()` never ran — typically because the
+   * user hasn't selected the provider yet — `ANTHROPIC_BASE_URL` stays empty
+   * while the placeholder token remains, and the SDK silently falls back to
+   * api.anthropic.com. Anthropic rejects/drops the request and the UI hangs.
+   *
+   * Throw here so the error surfaces to the UI with clear remediation.
+   */
+  private validateBaseUrlForProvider(): void {
+    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+    const authToken = this.authEnv.ANTHROPIC_AUTH_TOKEN;
+
+    if (baseUrl) {
+      // Base URL is set — SDK will route there, no hang risk.
+      return;
+    }
+
+    // Map of placeholder token → human-readable provider name.
+    // If the auth token matches any of these, the user has selected a
+    // non-Anthropic provider but its base URL isn't configured yet.
+    const placeholderToProvider: Record<string, string> = {
+      [OLLAMA_AUTH_TOKEN_PLACEHOLDER]: 'Ollama',
+      [COPILOT_PROXY_TOKEN_PLACEHOLDER]: 'GitHub Copilot',
+      [CODEX_PROXY_TOKEN_PLACEHOLDER]: 'OpenAI Codex',
+      [OPENROUTER_PROXY_TOKEN_PLACEHOLDER]: 'OpenRouter',
+    };
+
+    const providerName = authToken
+      ? placeholderToProvider[authToken]
+      : undefined;
+
+    if (providerName) {
+      const message =
+        `Provider '${providerName}' is not configured — ANTHROPIC_BASE_URL is missing. ` +
+        `Select the provider in settings to configure it, or switch to Anthropic direct.`;
+      this.logger.error(`[SdkQueryOptionsBuilder] ${message}`, {
+        providerName,
+        hasBaseUrl: false,
+        hasAuthToken: !!authToken,
+      });
+      throw new Error(message);
+    }
   }
 
   /**

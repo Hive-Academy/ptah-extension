@@ -158,6 +158,8 @@ export class TerminalComponent implements AfterViewInit, OnDestroy {
       },
     );
 
+    this.setupClipboardHandlers(container);
+
     // Auto-resize terminal when container dimensions change
     this.resizeObserver = new ResizeObserver(() => {
       if (this.fitAddon && this.terminal) {
@@ -170,5 +172,75 @@ export class TerminalComponent implements AfterViewInit, OnDestroy {
       }
     });
     this.resizeObserver.observe(container);
+  }
+
+  private setupClipboardHandlers(container: HTMLDivElement): void {
+    if (!this.terminal) return;
+
+    this.terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      if (event.type !== 'keydown') return true;
+
+      const isCtrl = event.ctrlKey && !event.altKey && !event.metaKey;
+
+      // Ctrl+Shift+C: copy selection
+      if (isCtrl && event.shiftKey && event.key === 'C') {
+        this.copySelection();
+        return false;
+      }
+
+      // Ctrl+C with active selection: copy instead of sending SIGINT
+      if (
+        isCtrl &&
+        !event.shiftKey &&
+        event.key === 'c' &&
+        this.terminal?.hasSelection()
+      ) {
+        this.copySelection();
+        return false;
+      }
+
+      // Ctrl+Shift+V: paste from clipboard
+      if (isCtrl && event.shiftKey && event.key === 'V') {
+        this.pasteFromClipboard();
+        return false;
+      }
+
+      return true;
+    });
+
+    // Right-click: paste from clipboard (standard terminal behavior)
+    container.addEventListener('contextmenu', (event: MouseEvent) => {
+      event.preventDefault();
+      this.pasteFromClipboard();
+    });
+  }
+
+  private copySelection(): void {
+    const selection = this.terminal?.getSelection();
+    if (selection) {
+      const ptahClipboard = (window as unknown as Record<string, unknown>)[
+        'ptahClipboard'
+      ] as { writeText: (text: string) => void } | undefined;
+      if (ptahClipboard) {
+        ptahClipboard.writeText(selection);
+      } else {
+        navigator.clipboard.writeText(selection);
+      }
+    }
+  }
+
+  private pasteFromClipboard(): void {
+    const ptahClipboard = (window as unknown as Record<string, unknown>)[
+      'ptahClipboard'
+    ] as { readText: () => Promise<string> } | undefined;
+    const readPromise = ptahClipboard
+      ? ptahClipboard.readText()
+      : navigator.clipboard.readText();
+
+    readPromise.then((text) => {
+      if (text) {
+        this.terminalService.writeToTerminal(this.terminalId(), text);
+      }
+    });
   }
 }

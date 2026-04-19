@@ -5,6 +5,7 @@ import { render } from 'ink';
 import { TuiDIContainer, type TuiBootstrapResult } from './di/container';
 import { TuiRpcMethodRegistrationService } from './services/tui-rpc-method-registration.service';
 import { App } from './components/App.js';
+import { TOKENS } from '@ptah-extension/vscode-core';
 
 /**
  * Check if stdin supports raw mode (required by Ink for keyboard input).
@@ -45,7 +46,8 @@ async function main(): Promise<void> {
       workspacePath: process.cwd(),
     });
 
-    const { transport, pushAdapter, fireAndForget, logger } = bootstrapResult;
+    const { container, transport, pushAdapter, fireAndForget, logger } =
+      bootstrapResult;
 
     // Phase 2: Register all RPC methods
     const rpcService = new TuiRpcMethodRegistrationService();

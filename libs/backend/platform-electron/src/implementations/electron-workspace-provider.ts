@@ -106,7 +106,7 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
     if (
       this.activeFolder &&
       !this.folders.some(
-        (f) => path.resolve(f) === path.resolve(this.activeFolder!),
+        (f) => path.resolve(f) === path.resolve(this.activeFolder!), // eslint-disable-line @typescript-eslint/no-non-null-assertion
       )
     ) {
       this.activeFolder = this.folders[0];

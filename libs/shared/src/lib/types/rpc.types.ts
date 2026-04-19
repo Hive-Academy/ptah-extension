@@ -191,6 +191,21 @@ import type {
 } from './rpc/rpc-agents.types';
 
 import type {
+  McpDirectorySearchParams,
+  McpDirectorySearchResult,
+  McpDirectoryGetDetailsParams,
+  McpDirectoryGetDetailsResult,
+  McpDirectoryInstallParams,
+  McpDirectoryInstallResult,
+  McpDirectoryUninstallParams,
+  McpDirectoryUninstallResult,
+  McpDirectoryListInstalledParams,
+  McpDirectoryListInstalledResult,
+  McpDirectoryGetPopularParams,
+  McpDirectoryGetPopularResult,
+} from './mcp-directory.types';
+
+import type {
   GitInfoParams,
   GitInfoResult,
   GitWorktreesParams,
@@ -219,6 +234,41 @@ import type {
 } from './rpc/rpc-terminal.types';
 
 import type {
+  HarnessInitializeParams,
+  HarnessInitializeResponse,
+  HarnessSuggestConfigParams,
+  HarnessSuggestConfigResponse,
+  HarnessSearchSkillsParams,
+  HarnessSearchSkillsResponse,
+  HarnessCreateSkillParams,
+  HarnessCreateSkillResponse,
+  HarnessDiscoverMcpParams,
+  HarnessDiscoverMcpResponse,
+  HarnessGeneratePromptParams,
+  HarnessGeneratePromptResponse,
+  HarnessGenerateClaudeMdParams,
+  HarnessGenerateClaudeMdResponse,
+  HarnessApplyParams,
+  HarnessApplyResponse,
+  HarnessSavePresetParams,
+  HarnessSavePresetResponse,
+  HarnessLoadPresetsParams,
+  HarnessLoadPresetsResponse,
+  HarnessChatParams,
+  HarnessChatResponse,
+  HarnessDesignAgentsParams,
+  HarnessDesignAgentsResponse,
+  HarnessGenerateSkillsParams,
+  HarnessGenerateSkillsResponse,
+  HarnessGenerateDocumentParams,
+  HarnessGenerateDocumentResponse,
+  HarnessAnalyzeIntentParams,
+  HarnessAnalyzeIntentResponse,
+  HarnessConverseParams,
+  HarnessConverseResponse,
+} from './rpc/rpc-harness.types';
+
+import type {
   ContextGetAllFilesParams,
   ContextGetAllFilesResult,
   ContextGetFileSuggestionsParams,
@@ -245,6 +295,7 @@ import type {
   QualityExportResult,
   PluginInfo,
   PluginConfigState,
+  PluginSkillEntry,
 } from './rpc/rpc-misc.types';
 
 // ============================================================
@@ -604,8 +655,12 @@ export interface RpcMethodRegistry {
     result: PluginConfigState;
   };
   'plugins:save-config': {
-    params: { enabledPluginIds: string[] };
+    params: { enabledPluginIds: string[]; disabledSkillIds?: string[] };
     result: { success: boolean; error?: string };
+  };
+  'plugins:list-skills': {
+    params: { pluginIds: string[] };
+    result: { skills: PluginSkillEntry[] };
   };
 
   // ---- Agent Orchestration Methods (TASK_2025_157) ----
@@ -615,7 +670,7 @@ export interface RpcMethodRegistry {
   };
   'agent:setConfig': {
     params: AgentSetConfigParams;
-    result: { success: boolean; error?: string };
+    result: { success: boolean; reloadRequired?: boolean; error?: string };
   };
   'agent:detectClis': {
     params: void;
@@ -724,6 +779,32 @@ export interface RpcMethodRegistry {
     result: SkillDetectionResult;
   };
 
+  // ---- MCP Server Directory Methods ----
+  'mcpDirectory:search': {
+    params: McpDirectorySearchParams;
+    result: McpDirectorySearchResult;
+  };
+  'mcpDirectory:getDetails': {
+    params: McpDirectoryGetDetailsParams;
+    result: McpDirectoryGetDetailsResult;
+  };
+  'mcpDirectory:install': {
+    params: McpDirectoryInstallParams;
+    result: McpDirectoryInstallResult;
+  };
+  'mcpDirectory:uninstall': {
+    params: McpDirectoryUninstallParams;
+    result: McpDirectoryUninstallResult;
+  };
+  'mcpDirectory:listInstalled': {
+    params: McpDirectoryListInstalledParams;
+    result: McpDirectoryListInstalledResult;
+  };
+  'mcpDirectory:getPopular': {
+    params: McpDirectoryGetPopularParams;
+    result: McpDirectoryGetPopularResult;
+  };
+
   // ---- Workspace Methods (Electron desktop) ----
   'workspace:getInfo': {
     params: Record<string, never>;
@@ -800,6 +881,24 @@ export interface RpcMethodRegistry {
       }>;
       error?: string;
     };
+  };
+
+  // ---- Electron File CRUD Methods ----
+  'editor:createFile': {
+    params: { filePath: string; content?: string };
+    result: { success: boolean; error?: string };
+  };
+  'editor:createFolder': {
+    params: { folderPath: string };
+    result: { success: boolean; error?: string };
+  };
+  'editor:renameItem': {
+    params: { oldPath: string; newPath: string };
+    result: { success: boolean; error?: string };
+  };
+  'editor:deleteItem': {
+    params: { itemPath: string; isDirectory: boolean };
+    result: { success: boolean; error?: string };
   };
 
   // ---- Electron File Methods (TASK_2025_203) ----
@@ -917,6 +1016,72 @@ export interface RpcMethodRegistry {
     result: TerminalCreateResult;
   };
   'terminal:kill': { params: TerminalKillParams; result: TerminalKillResult };
+
+  // ---- Harness Builder Methods ----
+  'harness:initialize': {
+    params: HarnessInitializeParams;
+    result: HarnessInitializeResponse;
+  };
+  'harness:suggest-config': {
+    params: HarnessSuggestConfigParams;
+    result: HarnessSuggestConfigResponse;
+  };
+  'harness:search-skills': {
+    params: HarnessSearchSkillsParams;
+    result: HarnessSearchSkillsResponse;
+  };
+  'harness:create-skill': {
+    params: HarnessCreateSkillParams;
+    result: HarnessCreateSkillResponse;
+  };
+  'harness:discover-mcp': {
+    params: HarnessDiscoverMcpParams;
+    result: HarnessDiscoverMcpResponse;
+  };
+  'harness:generate-prompt': {
+    params: HarnessGeneratePromptParams;
+    result: HarnessGeneratePromptResponse;
+  };
+  'harness:generate-claude-md': {
+    params: HarnessGenerateClaudeMdParams;
+    result: HarnessGenerateClaudeMdResponse;
+  };
+  'harness:apply': {
+    params: HarnessApplyParams;
+    result: HarnessApplyResponse;
+  };
+  'harness:save-preset': {
+    params: HarnessSavePresetParams;
+    result: HarnessSavePresetResponse;
+  };
+  'harness:load-presets': {
+    params: HarnessLoadPresetsParams;
+    result: HarnessLoadPresetsResponse;
+  };
+  'harness:chat': {
+    params: HarnessChatParams;
+    result: HarnessChatResponse;
+  };
+  'harness:design-agents': {
+    params: HarnessDesignAgentsParams;
+    result: HarnessDesignAgentsResponse;
+  };
+  'harness:generate-skills': {
+    params: HarnessGenerateSkillsParams;
+    result: HarnessGenerateSkillsResponse;
+  };
+  'harness:generate-document': {
+    params: HarnessGenerateDocumentParams;
+    result: HarnessGenerateDocumentResponse;
+  };
+  'harness:analyze-intent': {
+    params: HarnessAnalyzeIntentParams;
+    result: HarnessAnalyzeIntentResponse;
+  };
+  'harness:converse': {
+    params: HarnessConverseParams;
+    result: HarnessConverseResponse;
+  };
 }
 
 /**
@@ -1052,6 +1217,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'plugins:list-available',
   'plugins:get-config',
   'plugins:save-config',
+  'plugins:list-skills',
 
   // Agent Orchestration Methods (TASK_2025_157)
   'agent:getConfig',
@@ -1079,6 +1245,14 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'skillsSh:getPopular',
   'skillsSh:detectRecommended',
 
+  // MCP Server Directory Methods
+  'mcpDirectory:search',
+  'mcpDirectory:getDetails',
+  'mcpDirectory:install',
+  'mcpDirectory:uninstall',
+  'mcpDirectory:listInstalled',
+  'mcpDirectory:getPopular',
+
   // Workspace Methods (Electron desktop)
   'workspace:getInfo',
   'workspace:addFolder',
@@ -1095,6 +1269,10 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'editor:saveFile',
   'editor:getFileTree',
   'editor:getDirectoryChildren',
+  'editor:createFile',
+  'editor:createFolder',
+  'editor:renameItem',
+  'editor:deleteItem',
 
   // Electron File Methods (TASK_2025_203)
   'file:read',
@@ -1136,6 +1314,24 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // Terminal Methods (TASK_2025_227)
   'terminal:create',
   'terminal:kill',
+
+  // Harness Builder Methods
+  'harness:initialize',
+  'harness:suggest-config',
+  'harness:search-skills',
+  'harness:create-skill',
+  'harness:discover-mcp',
+  'harness:generate-prompt',
+  'harness:generate-claude-md',
+  'harness:apply',
+  'harness:save-preset',
+  'harness:load-presets',
+  'harness:chat',
+  'harness:design-agents',
+  'harness:generate-skills',
+  'harness:generate-document',
+  'harness:analyze-intent',
+  'harness:converse',
 ] as const;
 
 /**

@@ -85,6 +85,12 @@ import { AuthSecretsService } from '@ptah-extension/vscode-core';
 // Library registration functions (all accept container + logger, no vscode)
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+// Deep Agent SDK (LangChain runtime) — mirrors VS Code container.ts.
+import {
+  registerDeepAgentServices,
+  AgentRuntimeSelector,
+  DEEP_AGENT_TOKENS,
+} from '@ptah-extension/deep-agent-sdk';
 import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
@@ -140,6 +146,7 @@ import {
   ProviderRpcHandlers,
   LlmRpcHandlers,
   WebSearchRpcHandlers,
+  HarnessRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific RPC handler classes (TASK_2025_203 Batch 5)
@@ -151,7 +158,6 @@ import {
   ElectronFileRpcHandlers,
   ElectronConfigExtendedRpcHandlers,
   ElectronCommandRpcHandlers,
-  ElectronAuthExtendedRpcHandlers,
   ElectronSettingsRpcHandlers,
   ElectronAgentRpcHandlers,
   ElectronSkillsShRpcHandlers,
@@ -226,7 +232,7 @@ export class ElectronDIContainer {
     // ========================================
     // PHASE 1.1b: AuthSecretsService (real implementation)
     // ========================================
-    // AuthSecretsService manages encrypted credential storage (OAuth tokens, API keys).
+    // AuthSecretsService manages encrypted credential storage (API keys).
     // Uses `import type` for vscode — no runtime vscode dependency.
     // Resolves EXTENSION_CONTEXT (shimmed in Phase 1.5) which provides secrets storage.
     // Required by: AuthManager, SdkAgentAdapter, PtahCliRegistry, auth RPC handlers.
@@ -555,6 +561,23 @@ export class ElectronDIContainer {
     // NOTE: registerVsCodeLmToolsServices is now called in Phase 4 (TASK_2025_226 decoupled it from VS Code)
     registerSdkServices(container, logger);
 
+    // Phase 2.2.1: Deep Agent SDK (LangChain deep-agents runtime)
+    // Mirrors VS Code container.ts. Must run AFTER registerSdkServices() so the
+    // selector can resolve SDK_TOKENS.SDK_AGENT_ADAPTER as its inner Claude adapter.
+    // Registers: ModelFactoryService, StreamAdapterService, ToolBridgeService,
+    // SessionRegistry, DeepAgentAdapter, AgentRuntimeSelector.
+    registerDeepAgentServices(container, logger);
+
+    // TOKENS.AGENT_ADAPTER → AgentRuntimeSelector (the IAgentAdapter facade).
+    // Consumers that don't care which runtime backs the session inject this token.
+    // The selector dispatches to SDK or Deep based on `ptah.runtime`.
+    container.register(TOKENS.AGENT_ADAPTER, {
+      useFactory: (c) =>
+        c.resolve<AgentRuntimeSelector>(
+          DEEP_AGENT_TOKENS.AGENT_RUNTIME_SELECTOR,
+        ),
+    });
+
     // Phase 2.2.5: WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs (TASK_2025_214)
     // These tokens are required by WizardWebviewLifecycleService which is registered
     // unconditionally inside registerAgentGenerationServices(). In Electron, the wizard
@@ -709,13 +732,19 @@ export class ElectronDIContainer {
       );
       container.register(BROWSER_CAPABILITIES_TOKEN, {
         useValue: new ChromeLauncherBrowserCapabilities(
-          // getRecordingDir
-          () =>
-            workspaceProvider.getConfiguration<string>(
-              'ptah.browser',
-              'recordingDir',
-              '',
-            ) ?? '',
+          // getRecordingDir — defaults to {workspace}/.ptah/recordings/
+          () => {
+            const configured =
+              workspaceProvider.getConfiguration<string>(
+                'ptah',
+                'browser.recordingDir',
+                '',
+              ) ?? '';
+            if (configured) return configured;
+            const wsRoot = workspaceProvider.getWorkspaceRoot();
+            if (wsRoot) return `${wsRoot}/.ptah/recordings`;
+            return '';
+          },
         ),
       });
     }
@@ -790,6 +819,9 @@ export class ElectronDIContainer {
     // TASK_2025_241: WebSearchRpcHandlers - web search settings management (API keys, config, testing)
     container.registerSingleton(WebSearchRpcHandlers);
 
+    // Harness Setup Builder RPC handlers
+    container.registerSingleton(HarnessRpcHandlers);
+
     logger.info(
       '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
       {
@@ -811,6 +843,7 @@ export class ElectronDIContainer {
           'ProviderRpcHandlers',
           'LlmRpcHandlers',
           'WebSearchRpcHandlers',
+          'HarnessRpcHandlers',
         ],
       },
     );
@@ -845,7 +878,6 @@ export class ElectronDIContainer {
         ),
     });
     container.registerSingleton(ElectronCommandRpcHandlers);
-    container.registerSingleton(ElectronAuthExtendedRpcHandlers);
     container.registerSingleton(ElectronSettingsRpcHandlers);
     container.registerSingleton(ElectronAgentRpcHandlers);
     container.registerSingleton(ElectronSkillsShRpcHandlers);
@@ -877,7 +909,6 @@ export class ElectronDIContainer {
           'ElectronFileRpcHandlers',
           'ElectronConfigExtendedRpcHandlers',
           'ElectronCommandRpcHandlers',
-          'ElectronAuthExtendedRpcHandlers',
           'ElectronSettingsRpcHandlers',
           'ElectronAgentRpcHandlers',
           'ElectronSkillsShRpcHandlers',

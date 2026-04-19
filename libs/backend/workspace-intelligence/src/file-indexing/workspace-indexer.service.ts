@@ -359,7 +359,12 @@ export class WorkspaceIndexerService {
     const defaultExcludes =
       '**/node_modules/**,**/dist/**,**/build/**,**/.git/**,**/out/**,**/target/**,**/.nx/**';
 
-    const files = await this.fsProvider.findFiles(pattern, defaultExcludes);
+    const files = await this.fsProvider.findFiles(
+      pattern,
+      defaultExcludes,
+      undefined,
+      workspaceFolder,
+    );
 
     return files;
   }

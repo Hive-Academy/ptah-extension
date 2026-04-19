@@ -1,0 +1,144 @@
+@if (open()) {
+  <dialog class="modal modal-open" aria-labelledby="bulk-email-title">
+    <div class="modal-box max-w-2xl">
+      <header class="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h3 id="bulk-email-title" class="text-lg font-semibold">
+            Email Selected Users
+          </h3>
+          <p class="text-sm opacity-70">
+            {{ recipientCount() }} recipient(s)
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm btn-square"
+          aria-label="Close"
+          [disabled]="sending()"
+          (click)="onCloseClick()"
+        >
+          ✕
+        </button>
+      </header>
+
+      @if (result(); as r) {
+        <!-- Success summary view -->
+        <div class="alert alert-success mb-4">
+          <div>
+            <div class="font-semibold">
+              Sent {{ r.sent }} of {{ recipientCount() }}
+            </div>
+            @if (r.failed.length > 0) {
+              <div class="text-sm">{{ r.failed.length }} failed</div>
+            }
+          </div>
+        </div>
+
+        @if (r.failed.length > 0) {
+          <details class="mb-4">
+            <summary class="cursor-pointer text-sm opacity-70">
+              View failures
+            </summary>
+            <ul class="mt-2 max-h-40 overflow-auto text-xs">
+              @for (f of r.failed; track f.userId) {
+                <li class="border-b border-base-300 py-1">
+                  <span class="font-mono">{{ f.userId }}</span>:
+                  {{ f.error }}
+                </li>
+              }
+            </ul>
+          </details>
+        }
+
+        <div class="modal-action">
+          <button
+            type="button"
+            class="btn btn-primary"
+            (click)="onCloseClick()"
+          >
+            Close
+          </button>
+        </div>
+      } @else {
+        <!-- Form view -->
+        <form (submit)="onSubmit($event)" class="flex flex-col gap-3">
+          @if (errorMessage(); as msg) {
+            <div class="alert alert-error text-sm">
+              <span>{{ msg }}</span>
+            </div>
+          }
+
+          <label class="form-control">
+            <div class="label">
+              <span class="label-text">Subject</span>
+              <span class="label-text-alt">
+                {{ subject().length }} / 200
+              </span>
+            </div>
+            <input
+              type="text"
+              class="input input-bordered"
+              maxlength="200"
+              required
+              [value]="subject()"
+              (input)="onSubjectInput($event)"
+              [disabled]="sending()"
+              placeholder="Important announcement from Ptah"
+            />
+          </label>
+
+          <label class="form-control">
+            <div class="label">
+              <span class="label-text">HTML Body</span>
+              <span class="label-text-alt">
+                {{ html().length }} / 50000
+              </span>
+            </div>
+            <textarea
+              class="textarea textarea-bordered font-mono text-sm"
+              rows="10"
+              maxlength="50000"
+              required
+              [value]="html()"
+              (input)="onHtmlInput($event)"
+              [disabled]="sending()"
+              placeholder="<p>Hello…</p>"
+            ></textarea>
+          </label>
+
+          <div class="modal-action">
+            <button
+              type="button"
+              class="btn btn-ghost"
+              [disabled]="sending()"
+              (click)="onCloseClick()"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="btn btn-primary"
+              [disabled]="!canSubmit()"
+            >
+              @if (sending()) {
+                <span class="loading loading-spinner loading-sm"></span>
+                Sending…
+              } @else {
+                Send to {{ recipientCount() }}
+              }
+            </button>
+          </div>
+        </form>
+      }
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop"
+      aria-label="Close modal"
+      [disabled]="sending()"
+      (click)="onCloseClick()"
+    >
+      close
+    </button>
+  </dialog>
+}

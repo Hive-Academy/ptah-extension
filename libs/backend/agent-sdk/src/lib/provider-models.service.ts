@@ -27,6 +27,8 @@ import type {
 import { updatePricingMap } from '@ptah-extension/shared';
 import {
   getAnthropicProvider,
+  ANTHROPIC_DIRECT_PROVIDER_ID,
+  DEFAULT_PROVIDER_ID,
   type AnthropicProvider,
 } from './helpers/anthropic-provider-registry';
 import { TIER_ENV_VAR_MAP } from './helpers/sdk-model-service';
@@ -515,6 +517,40 @@ export class ProviderModelsService {
     this.logger.info(
       `[ProviderModelsService] Switched active provider tiers to ${providerId}`,
     );
+  }
+
+  /**
+   * Resolve the active provider ID based on the current auth method.
+   *
+   * Single source of truth for auth-method → provider-ID mapping.
+   * Used by config:models-list (tier overrides) and anywhere else
+   * that needs to know which provider's tier config is active.
+   *
+   * Mapping:
+   *  - apiKey / claudeCli     → ANTHROPIC_DIRECT_PROVIDER_ID (Anthropic native)
+   *  - thirdParty             → saved anthropicProviderId (OpenRouter, Moonshot, etc.)
+   */
+  resolveActiveProviderId(): string {
+    const rawMethod = this.config.getWithDefault<string>(
+      'authMethod',
+      'apiKey',
+    );
+    // Normalize legacy values ('oauth', 'auto' → 'apiKey', 'openrouter' → 'thirdParty')
+    let authMethod = rawMethod;
+    if (rawMethod === 'oauth' || rawMethod === 'auto') authMethod = 'apiKey';
+    if (rawMethod === 'openrouter') authMethod = 'thirdParty';
+
+    if (authMethod === 'apiKey' || authMethod === 'claudeCli') {
+      return ANTHROPIC_DIRECT_PROVIDER_ID;
+    }
+    if (authMethod === 'thirdParty') {
+      return this.config.getWithDefault<string>(
+        'anthropicProviderId',
+        DEFAULT_PROVIDER_ID,
+      );
+    }
+    // Unknown method — treat as direct Anthropic
+    return ANTHROPIC_DIRECT_PROVIDER_ID;
   }
 
   /**

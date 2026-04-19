@@ -39,8 +39,8 @@ import {
   getAnthropicProvider,
   getProviderAuthEnvVar,
   seedStaticModelPricing,
-  resolveActualModelForPricing,
 } from '../helpers/anthropic-provider-registry';
+import type { ModelResolver } from '../auth/model-resolver';
 import {
   assembleSystemPrompt,
   getActiveProviderId,
@@ -151,6 +151,9 @@ export class PtahCliAdapter implements IAIProvider {
   private readonly messageTransformer: SdkMessageTransformer;
   private readonly permissionHandler: SdkPermissionHandler;
 
+  /** Model resolution for pricing and tier mapping */
+  private readonly modelResolver?: ModelResolver;
+
   /** Optional hook handlers for subagent and compaction lifecycle */
   private readonly subagentHookHandler?: SubagentHookHandler;
   private readonly compactionHookHandler?: CompactionHookHandler;
@@ -171,6 +174,7 @@ export class PtahCliAdapter implements IAIProvider {
    * @param subagentHookHandler - Optional subagent hook handler for lifecycle tracking
    * @param compactionHookHandler - Optional compaction hook handler for UI notification
    * @param compactionConfigProvider - Optional compaction config provider
+   * @param modelResolver - Optional ModelResolver for pricing resolution
    */
   constructor(
     config: PtahCliConfig,
@@ -182,6 +186,7 @@ export class PtahCliAdapter implements IAIProvider {
     subagentHookHandler?: SubagentHookHandler,
     compactionHookHandler?: CompactionHookHandler,
     compactionConfigProvider?: CompactionConfigProvider,
+    modelResolver?: ModelResolver,
   ) {
     this.config = config;
     this.apiKey = apiKey;
@@ -192,6 +197,7 @@ export class PtahCliAdapter implements IAIProvider {
     this.subagentHookHandler = subagentHookHandler;
     this.compactionHookHandler = compactionHookHandler;
     this.compactionConfigProvider = compactionConfigProvider;
+    this.modelResolver = modelResolver;
 
     // Create isolated AuthEnv (NOT the DI singleton)
     this.authEnv = createEmptyAuthEnv();
@@ -207,7 +213,7 @@ export class PtahCliAdapter implements IAIProvider {
         : `Ptah CLI: ${config.name}`,
       vendor: provider?.name ?? 'Unknown',
       capabilities: PTAH_CLI_CAPABILITIES,
-      maxContextTokens: 200000,
+      maxContextTokens: 1_000_000,
       supportedModels: [],
     };
   }
@@ -977,6 +983,7 @@ export class PtahCliAdapter implements IAIProvider {
     const messageTransformer = this.messageTransformer;
     const authEnv = this.authEnv;
     const activeSessions = this.activeSessions;
+    const modelResolver = this.modelResolver;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -999,10 +1006,9 @@ export class PtahCliAdapter implements IAIProvider {
 
             // Extract stats from result message (log for debugging, not emitted)
             if (isResultMessage(sdkMessage)) {
-              const resolvedModel = resolveActualModelForPricing(
-                initialModel,
-                authEnv,
-              );
+              const resolvedModel =
+                modelResolver?.resolveForPricing(initialModel, authEnv) ??
+                initialModel;
               const totalCost = calculateMessageCost(resolvedModel, {
                 input: sdkMessage.usage.input_tokens,
                 output: sdkMessage.usage.output_tokens,

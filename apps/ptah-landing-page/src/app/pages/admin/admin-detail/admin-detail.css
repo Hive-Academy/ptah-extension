@@ -1,0 +1,8 @@
+/*
+ * Admin detail page — no custom styles needed.
+ * All presentation is handled by TailwindCSS + DaisyUI utility classes.
+ */
+
+:host {
+  display: block;
+}

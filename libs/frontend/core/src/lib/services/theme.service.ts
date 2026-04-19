@@ -1,29 +1,115 @@
 /**
  * ThemeService - Signal-based theme state management
  *
- * TASK_2025_100: DaisyUI Theme Consistency & Theme Toggle System
- *
- * This service provides centralized theme state management with:
- * - Signal-based reactive state (matching Angular 20+ patterns)
+ * Provides centralized theme state management with:
+ * - Signal-based reactive state (matching Angular 21+ patterns)
  * - Persistence via VSCodeService state API
  * - Automatic DOM data-theme attribute updates via effect()
  * - VS Code theme synchronization for initial state
- *
- * Theme Mapping:
- * - VS Code 'light' -> DaisyUI 'anubis-light'
- * - VS Code 'dark' -> DaisyUI 'anubis'
- * - VS Code 'high-contrast' -> DaisyUI 'anubis' (dark)
+ * - Support for all DaisyUI v4 prebuilt themes + custom Anubis themes
  */
 
 import { Injectable, signal, computed, effect, inject } from '@angular/core';
 import { VSCodeService } from './vscode.service';
 
 /**
- * Available DaisyUI theme names
- * - 'anubis': Dark theme (Egyptian gold accent on dark background)
- * - 'anubis-light': Light theme (dark text on light background)
+ * All available DaisyUI theme names (custom + prebuilt)
  */
-export type ThemeName = 'anubis' | 'anubis-light';
+export type ThemeName =
+  | 'anubis'
+  | 'anubis-light'
+  | 'light'
+  | 'dark'
+  | 'cupcake'
+  | 'bumblebee'
+  | 'emerald'
+  | 'corporate'
+  | 'synthwave'
+  | 'retro'
+  | 'cyberpunk'
+  | 'valentine'
+  | 'halloween'
+  | 'garden'
+  | 'forest'
+  | 'aqua'
+  | 'lofi'
+  | 'pastel'
+  | 'fantasy'
+  | 'wireframe'
+  | 'black'
+  | 'luxury'
+  | 'dracula'
+  | 'cmyk'
+  | 'autumn'
+  | 'business'
+  | 'acid'
+  | 'lemonade'
+  | 'night'
+  | 'coffee'
+  | 'winter'
+  | 'dim'
+  | 'nord'
+  | 'sunset';
+
+/**
+ * Theme metadata for the theme picker UI
+ */
+export interface ThemeInfo {
+  readonly name: ThemeName;
+  readonly label: string;
+  readonly isDark: boolean;
+}
+
+/**
+ * Complete list of themes with display labels and dark/light classification.
+ * Order matches DaisyUI's official theme list.
+ */
+export const DAISYUI_THEMES: readonly ThemeInfo[] = [
+  { name: 'anubis', label: 'Anubis', isDark: true },
+  { name: 'anubis-light', label: 'Anubis Light', isDark: false },
+  { name: 'light', label: 'Light', isDark: false },
+  { name: 'dark', label: 'Dark', isDark: true },
+  { name: 'cupcake', label: 'Cupcake', isDark: false },
+  { name: 'bumblebee', label: 'Bumblebee', isDark: false },
+  { name: 'emerald', label: 'Emerald', isDark: false },
+  { name: 'corporate', label: 'Corporate', isDark: false },
+  { name: 'synthwave', label: 'Synthwave', isDark: true },
+  { name: 'retro', label: 'Retro', isDark: false },
+  { name: 'cyberpunk', label: 'Cyberpunk', isDark: false },
+  { name: 'valentine', label: 'Valentine', isDark: false },
+  { name: 'halloween', label: 'Halloween', isDark: true },
+  { name: 'garden', label: 'Garden', isDark: false },
+  { name: 'forest', label: 'Forest', isDark: true },
+  { name: 'aqua', label: 'Aqua', isDark: true },
+  { name: 'lofi', label: 'Lofi', isDark: false },
+  { name: 'pastel', label: 'Pastel', isDark: false },
+  { name: 'fantasy', label: 'Fantasy', isDark: false },
+  { name: 'wireframe', label: 'Wireframe', isDark: false },
+  { name: 'black', label: 'Black', isDark: true },
+  { name: 'luxury', label: 'Luxury', isDark: true },
+  { name: 'dracula', label: 'Dracula', isDark: true },
+  { name: 'cmyk', label: 'CMYK', isDark: false },
+  { name: 'autumn', label: 'Autumn', isDark: false },
+  { name: 'business', label: 'Business', isDark: true },
+  { name: 'acid', label: 'Acid', isDark: false },
+  { name: 'lemonade', label: 'Lemonade', isDark: false },
+  { name: 'night', label: 'Night', isDark: true },
+  { name: 'coffee', label: 'Coffee', isDark: true },
+  { name: 'winter', label: 'Winter', isDark: false },
+  { name: 'dim', label: 'Dim', isDark: true },
+  { name: 'nord', label: 'Nord', isDark: false },
+  { name: 'sunset', label: 'Sunset', isDark: true },
+] as const;
+
+/** Set of dark theme names for O(1) lookup */
+const DARK_THEMES: ReadonlySet<string> = new Set(
+  DAISYUI_THEMES.filter((t) => t.isDark).map((t) => t.name),
+);
+
+/** Set of all valid theme names for validation */
+const ALL_THEME_NAMES: ReadonlySet<string> = new Set(
+  DAISYUI_THEMES.map((t) => t.name),
+);
 
 /**
  * State storage key for theme persistence
@@ -48,16 +134,12 @@ export class ThemeService {
 
   /**
    * Computed signal indicating if dark mode is active
-   * Useful for conditional rendering based on theme
    */
-  readonly isDarkMode = computed(() => this._currentTheme() === 'anubis');
+  readonly isDarkMode = computed(() => DARK_THEMES.has(this._currentTheme()));
 
   constructor() {
-    // Initialize theme from VS Code theme setting
     this.initializeTheme();
 
-    // Apply theme to DOM whenever signal changes
-    // effect() runs after signal update, ensuring DOM stays in sync
     effect(() => {
       const theme = this._currentTheme();
       document.documentElement.setAttribute('data-theme', theme);
@@ -65,37 +147,35 @@ export class ThemeService {
   }
 
   /**
-   * Initialize theme from VS Code theme setting
+   * Initialize theme from persisted state or VS Code theme setting.
    *
    * Priority:
-   * 1. VS Code theme from config (always sync with VS Code on load)
-   * 2. Default to 'anubis' (dark)
-   *
-   * Note: We use VS Code's theme as the source of truth so the extension
-   * always matches the user's VS Code color scheme on startup.
-   * This ensures consistent UX - light VS Code = light extension.
+   * 1. Persisted theme from VS Code state (user's last selection)
+   * 2. VS Code theme kind mapping (first-launch default)
+   * 3. Default 'anubis' (dark)
    */
   private initializeTheme(): void {
-    // Use VS Code theme as the default - always sync with VS Code on load
+    const persisted = this.vscode.getState<string>(THEME_STATE_KEY);
+    if (persisted && this.isValidTheme(persisted)) {
+      this._currentTheme.set(persisted);
+      return;
+    }
+
     const vscodeTheme = this.vscode.config().theme;
     if (vscodeTheme === 'light') {
       this._currentTheme.set('anubis-light');
     }
-    // 'dark' and 'high-contrast' both map to 'anubis' (dark theme)
-    // Default is already 'anubis', so no else branch needed
   }
 
   /**
    * Type guard to validate theme name
    */
   private isValidTheme(theme: unknown): theme is ThemeName {
-    return theme === 'anubis' || theme === 'anubis-light';
+    return typeof theme === 'string' && ALL_THEME_NAMES.has(theme);
   }
 
   /**
    * Set theme and persist preference
-   *
-   * @param theme - The theme to apply ('anubis' or 'anubis-light')
    */
   setTheme(theme: ThemeName): void {
     this._currentTheme.set(theme);
@@ -103,8 +183,7 @@ export class ThemeService {
   }
 
   /**
-   * Toggle between dark and light themes
-   * Convenience method for theme toggle UI
+   * Toggle between dark and light themes (legacy convenience method)
    */
   toggleTheme(): void {
     const newTheme =

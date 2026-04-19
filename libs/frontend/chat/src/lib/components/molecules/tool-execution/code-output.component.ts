@@ -110,6 +110,7 @@ export class CodeOutputComponent {
     // Processing pipeline
     str = this.extractMCPContent(str);
     str = this.stripSystemReminders(str);
+    str = this.stripAnsiCodes(str);
     str = this.stripLineNumbers(str);
 
     const language = this.detectLanguage();
@@ -174,6 +175,16 @@ export class CodeOutputComponent {
   }
 
   /**
+   * Strip ANSI escape codes (color/style sequences) from CLI output
+   * CLI tools like nx output colored text with sequences like \x1b[32m
+   * These render as garbled text in the webview if not stripped
+   */
+  private stripAnsiCodes(content: string): string {
+    // eslint-disable-next-line no-control-regex
+    return content.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+  }
+
+  /**
    * Strip <system-reminder> tags from content
    * Claude CLI adds these tags to tool results but they should not be displayed
    * Extracted from tool-call-item.component.ts:507-512
@@ -226,7 +237,7 @@ export class CodeOutputComponent {
           item !== null &&
           'type' in item &&
           (item as { type: string }).type === 'text' &&
-          'text' in item
+          'text' in item,
       );
 
       if (isMCPContent) {

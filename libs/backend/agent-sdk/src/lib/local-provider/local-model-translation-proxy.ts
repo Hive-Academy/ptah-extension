@@ -1,15 +1,17 @@
 /**
- * Local Model Translation Proxy - TASK_2025_265
+ * Local Model Translation Proxy - TASK_2025_265, updated TASK_2025_281
  *
- * Shared translation proxy for local OpenAI-compatible model servers
- * (Ollama, LM Studio). Both expose identical /v1/chat/completions and
- * /v1/models endpoints with no authentication.
+ * Translation proxy for local OpenAI-compatible model servers (LM Studio).
+ * LM Studio exposes /v1/chat/completions and /v1/models endpoints with
+ * no authentication.
  *
  * Architecture:
  * - `LocalModelTranslationProxy` is the base class (NOT @injectable)
- *   containing all shared logic for local providers.
- * - `OllamaTranslationProxy` and `LmStudioTranslationProxy` are thin
- *   @injectable subclasses that hardcode the provider ID.
+ *   containing all shared logic for local OpenAI-compat providers.
+ * - `LmStudioTranslationProxy` is the thin @injectable subclass.
+ *
+ * Note: Ollama no longer uses this proxy (TASK_2025_281). Ollama v0.14.0+
+ * speaks Anthropic Messages API natively — see OllamaModelDiscoveryService.
  *
  * All HTTP server logic, request/response translation, retry, and streaming
  * are handled by the base class in openai-translation/translation-proxy-base.ts.
@@ -32,8 +34,8 @@ import { getAnthropicProvider } from '../helpers/anthropic-provider-registry';
  * Handles endpoint resolution (custom URL from settings or provider default),
  * minimal headers (no auth), and dynamic model listing from the local server.
  *
- * NOT decorated with @injectable() -- the concrete subclasses
- * (OllamaTranslationProxy, LmStudioTranslationProxy) handle DI registration.
+ * NOT decorated with @injectable() -- the concrete subclass
+ * (LmStudioTranslationProxy) handles DI registration.
  */
 export class LocalModelTranslationProxy extends TranslationProxyBase {
   constructor(
@@ -42,7 +44,7 @@ export class LocalModelTranslationProxy extends TranslationProxyBase {
     private readonly providerId: string,
   ) {
     super(logger, {
-      name: providerId === 'ollama' ? 'Ollama' : 'LMStudio',
+      name: 'LMStudio',
       modelPrefix: '',
       completionsPath: '/chat/completions',
     });
@@ -174,22 +176,8 @@ export class LocalModelTranslationProxy extends TranslationProxyBase {
 }
 
 // ---------------------------------------------------------------------------
-// Injectable subclasses (one per local provider)
+// Injectable subclass (LM Studio only — Ollama uses OllamaModelDiscoveryService)
 // ---------------------------------------------------------------------------
-
-/**
- * Ollama translation proxy.
- * Thin injectable subclass that passes 'ollama' as the provider ID.
- */
-@injectable()
-export class OllamaTranslationProxy extends LocalModelTranslationProxy {
-  constructor(
-    @inject(TOKENS.LOGGER) logger: Logger,
-    @inject(TOKENS.CONFIG_MANAGER) configManager: ConfigManager,
-  ) {
-    super(logger, configManager, 'ollama');
-  }
-}
 
 /**
  * LM Studio translation proxy.

@@ -82,8 +82,8 @@ import {
                 VS Code Extension
               </h3>
               <p class="text-gray-400 mb-6 leading-relaxed">
-                Install from the Marketplace and get a 30-day free trial. Access
-                every provider, agent orchestration, and the full plugin
+                Install from the Marketplace and get a 100-day free trial.
+                Access every provider, agent orchestration, and the full plugin
                 ecosystem.
               </p>
               <ul class="space-y-2.5 mb-8">
@@ -94,7 +94,7 @@ import {
                     aria-hidden="true"
                   />
                   <span class="text-sm text-gray-400"
-                    >30-day free trial, no credit card</span
+                    >100-day free trial, no credit card</span
                   >
                 </li>
                 <li class="flex items-start gap-2.5">

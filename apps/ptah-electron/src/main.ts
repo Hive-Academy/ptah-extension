@@ -28,10 +28,7 @@ import {
   PLATFORM_TOKENS,
   ContentDownloadService,
 } from '@ptah-extension/platform-core';
-import type {
-  ISecretStorage,
-  IStateStorage,
-} from '@ptah-extension/platform-core';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
@@ -363,26 +360,6 @@ if (!gotLock) {
     }
 
     // ========================================
-    // PHASE 3: Load API Key from Secret Storage
-    // ========================================
-    // Load saved Anthropic API key and set in environment for Claude Agent SDK.
-    try {
-      const secretStorage = container.resolve<ISecretStorage>(
-        PLATFORM_TOKENS.SECRET_STORAGE,
-      );
-      const apiKey = await secretStorage.get('ptah.apiKey.anthropic');
-      if (apiKey) {
-        process.env['ANTHROPIC_API_KEY'] = apiKey;
-        console.log('[Ptah Electron] API key loaded from secret storage');
-      }
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Failed to load API key from secret storage:',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-
-    // ========================================
     // PHASE 3.5: License Verification
     // ========================================
     // Check license status before creating the window. If the license is invalid
@@ -436,23 +413,21 @@ if (!gotLock) {
     // ========================================
     // Initialize the SDK agent adapter so chat:start works.
     // Mirrors VS Code extension Step 7 (main.ts:568-589).
-    // Must happen AFTER Phase 3 (API key loaded into env) and BEFORE Phase 4.5 (RPC registration).
-    // The adapter reads ANTHROPIC_API_KEY from process.env (set in Phase 3).
+    // Must happen AFTER Phase 3.5 (license check) and BEFORE Phase 4.5 (RPC registration).
+    // AuthManager.configureAuthentication() reads API keys from AuthSecretsService.
     try {
-      const sdkAdapter = container.resolve(TOKENS.SDK_AGENT_ADAPTER) as {
+      const agentAdapter = container.resolve(TOKENS.AGENT_ADAPTER) as {
         initialize: () => Promise<boolean>;
         preloadSdk: () => Promise<void>;
       };
-      const authInitialized = await sdkAdapter.initialize();
+      const authInitialized = await agentAdapter.initialize();
 
       if (authInitialized) {
-        console.log(
-          '[Ptah Electron] SDK authentication initialized successfully',
-        );
+        console.log('[Ptah Electron] Agent adapters initialized successfully');
 
-        // Pre-load SDK in background (non-blocking) to speed up first chat.
+        // Pre-load SDKs in background (non-blocking) to speed up first chat.
         // Shifts ~100-200ms import cost from first user interaction to activation.
-        sdkAdapter.preloadSdk().catch((err) => {
+        agentAdapter.preloadSdk().catch((err) => {
           console.warn(
             '[Ptah Electron] SDK preload failed (will retry on first use):',
             err instanceof Error ? err.message : String(err),
@@ -465,7 +440,7 @@ if (!gotLock) {
       }
     } catch (error) {
       console.warn(
-        '[Ptah Electron] SDK initialization failed (non-fatal):',
+        '[Ptah Electron] Agent adapter initialization failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -583,19 +558,8 @@ if (!gotLock) {
         pluginConfig.enabledPluginIds,
       );
 
-      // Wire into command discovery for slash command autocomplete.
-      // COMMAND_DISCOVERY_SERVICE is NOT registered in Electron container,
-      // so we guard with isRegistered() to avoid resolution failure.
-      if (container.isRegistered(TOKENS.COMMAND_DISCOVERY_SERVICE)) {
-        const cmdDiscovery = container.resolve(
-          TOKENS.COMMAND_DISCOVERY_SERVICE,
-        ) as { setPluginPaths: (paths: string[]) => void };
-        cmdDiscovery.setPluginPaths(pluginPaths);
-      } else {
-        console.log(
-          '[Ptah Electron] COMMAND_DISCOVERY_SERVICE not registered, skipping plugin path wiring',
-        );
-      }
+      // Command discovery reads from .claude/commands/ and .claude/skills/
+      // (junctioned by SkillJunctionService) — no plugin path wiring needed.
 
       console.log(
         `[Ptah Electron] Plugin loader initialized (${pluginPaths.length} plugin paths)`,
@@ -629,9 +593,11 @@ if (!gotLock) {
       const config = pluginLoader.getWorkspacePluginConfig();
       const paths = pluginLoader.resolvePluginPaths(config.enabledPluginIds);
 
-      const junctionResult = skillJunction.activate(paths, () => {
-        const c = pluginLoader.getWorkspacePluginConfig();
-        return pluginLoader.resolvePluginPaths(c.enabledPluginIds);
+      const junctionResult = skillJunction.activate({
+        pluginPaths: paths,
+        disabledSkillIds: config.disabledSkillIds,
+        getPluginPaths: () => pluginLoader.resolveCurrentPluginPaths(),
+        getDisabledSkillIds: () => pluginLoader.getDisabledSkillIds(),
       });
 
       // Store reference for cleanup in will-quit handler
@@ -1152,6 +1118,20 @@ if (!gotLock) {
         initialView,
       };
     });
+
+    // ========================================
+    // PHASE 4.96: Clipboard IPC Handlers
+    // ========================================
+    // Provide reliable clipboard access for the sandboxed renderer.
+    // navigator.clipboard.readText() can fail in sandboxed Electron;
+    // these IPC handlers use the main process clipboard directly.
+    ipcMain.handle('clipboard:read-text', () => clipboard.readText());
+    ipcMain.on(
+      'clipboard:write-text',
+      (_event: Electron.IpcMainEvent, text: string) => {
+        clipboard.writeText(text);
+      },
+    );
 
     console.log(
       `[Ptah Electron] Startup config registered: initialView=${

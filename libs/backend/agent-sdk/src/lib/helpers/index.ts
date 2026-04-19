@@ -68,10 +68,8 @@ export {
   TIER_ENV_VAR_MAP,
   DEFAULT_FALLBACK_MODEL_ID,
   buildTierEnvDefaults,
-  resolveModelIdStatic,
   type ModelTier,
   type EnvMappedTier,
-  type ApiModelEntry,
 } from './sdk-model-service';
 // Slash command interceptor (TASK_2025_184)
 export {
@@ -109,5 +107,9 @@ export {
 // Skill junction management (TASK_2025_201)
 export {
   SkillJunctionService,
+  type SkillJunctionActivateOptions,
   type SkillJunctionResult,
 } from './skill-junction.service';
+
+// MCP Server Directory (discovery + installation)
+export * from './mcp-directory';

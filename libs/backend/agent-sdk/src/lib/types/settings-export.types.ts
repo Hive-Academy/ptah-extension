@@ -39,9 +39,6 @@ export const SECRET_KEYS = {
   /** License key — stored by LicenseService */
   LICENSE_KEY: 'ptah.licenseKey',
 
-  /** Claude OAuth token — stored by AuthSecretsService (KEY_MAP.oauthToken) */
-  OAUTH_TOKEN: 'ptah.auth.claudeOAuthToken',
-
   /** Anthropic API key — stored by AuthSecretsService (KEY_MAP.apiKey) */
   API_KEY: 'ptah.auth.anthropicApiKey',
 } as const;
@@ -163,8 +160,6 @@ export interface PtahSettingsExport {
 
   /** Authentication credentials from SecretStorage */
   auth: {
-    /** ptah.auth.claudeOAuthToken */
-    oauthToken?: string;
     /** ptah.auth.anthropicApiKey */
     apiKey?: string;
     /** Per-provider API keys keyed by provider ID */
@@ -207,7 +202,6 @@ export interface SettingsImportResult {
 export function countPopulatedSecrets(data: PtahSettingsExport): number {
   let count = 0;
   if (data.licenseKey) count++;
-  if (data.auth.oauthToken) count++;
   if (data.auth.apiKey) count++;
   if (data.auth.providerKeys) {
     count += Object.keys(data.auth.providerKeys).length;

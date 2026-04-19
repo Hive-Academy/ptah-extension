@@ -15,11 +15,6 @@ import { ClaudeRpcService } from './claude-rpc.service';
 import { SessionId, SdkModelInfo } from '@ptah-extension/shared';
 
 /**
- * Extended SdkModelInfo with selection state (from backend)
- */
-export type ModelInfoWithSelection = SdkModelInfo;
-
-/**
  * Model State Service - Signal-based model selection state
  *
  * Responsibilities:
@@ -50,7 +45,7 @@ export class ModelStateService {
 
   // Private mutable signals - now using full API model names
   private readonly _currentModel = signal<string>(''); // Populated from backend RPC
-  private readonly _availableModels = signal<ModelInfoWithSelection[]>([]);
+  private readonly _availableModels = signal<SdkModelInfo[]>([]);
   private readonly _isPending = signal(false);
   private readonly _isLoaded = signal(false);
 
@@ -138,12 +133,12 @@ export class ModelStateService {
    */
   async switchModel(
     model: string,
-    sessionId?: SessionId | null
+    sessionId?: SessionId | null,
   ): Promise<void> {
     // Prevent concurrent model switches (race condition protection)
     if (this._isPending()) {
       console.warn(
-        '[ModelStateService] Model switch already in progress, ignoring'
+        '[ModelStateService] Model switch already in progress, ignoring',
       );
       return;
     }
@@ -168,7 +163,7 @@ export class ModelStateService {
       if (!result.isSuccess()) {
         console.error(
           '[ModelStateService] Failed to switch model:',
-          result.error
+          result.error,
         );
         // Rollback to previous value
         this._currentModel.set(previousModel);
@@ -211,7 +206,7 @@ export class ModelStateService {
       } else {
         console.error(
           '[ModelStateService] Failed to load models:',
-          result.error
+          result.error,
         );
         // Keep fallback static list
         this._isLoaded.set(true);
@@ -233,7 +228,7 @@ export class ModelStateService {
       models.map((m) => ({
         ...m,
         isSelected: m.id === selectedId,
-      }))
+      })),
     );
   }
 }

@@ -35,8 +35,8 @@ import {
   TOKENS,
   type SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
-import { resolveActualModelForPricing } from './helpers/anthropic-provider-registry';
 import { SDK_TOKENS } from './di/tokens';
+import type { ModelResolver } from './auth/model-resolver';
 import {
   SDKMessage,
   SDKAssistantMessage,
@@ -54,6 +54,7 @@ import {
   isUserMessage,
   isAssistantMessage,
   isCompactBoundary,
+  isLocalCommandOutput,
 } from './types/sdk-types/claude-sdk.types';
 
 // Re-export isResultMessage for backward compatibility with stream-transformer.ts
@@ -143,6 +144,8 @@ export class SdkMessageTransformer {
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
+    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: ModelResolver,
   ) {}
 
   /**
@@ -155,6 +158,7 @@ export class SdkMessageTransformer {
       this.logger,
       this.authEnv,
       this.subagentRegistry,
+      this.modelResolver,
     );
   }
 
@@ -197,14 +201,7 @@ export class SdkMessageTransformer {
         // provides a deterministic alternative.
         if (sdkMessage.isSynthetic === true) {
           this.logger.debug(
-            '[SdkMessageTransformer] Skipping isSynthetic user message (skill/meta content)',
-          );
-          return [];
-        }
-
-        if (sdkMessage.isMeta === true) {
-          this.logger.debug(
-            '[SdkMessageTransformer] Skipping isMeta user message (skill/meta content)',
+            '[SdkMessageTransformer] Skipping synthetic user message (skill/meta content)',
           );
           return [];
         }
@@ -263,6 +260,43 @@ export class SdkMessageTransformer {
         };
 
         return [compactionCompleteEvent];
+      }
+
+      if (isLocalCommandOutput(sdkMessage)) {
+        // Local slash command output (e.g., /cost, /context).
+        // Emit as an assistant message with the command output text.
+        this.logger.info(
+          '[SdkMessageTransformer] Local command output received',
+          { contentLength: sdkMessage.content.length },
+        );
+        const messageId = `cmd_${generateEventId()}`;
+        const events: FlatStreamEventUnion[] = [
+          {
+            id: generateEventId(),
+            eventType: 'message_start',
+            timestamp: Date.now(),
+            sessionId: sessionId || sdkMessage.session_id || '',
+            messageId,
+            role: 'assistant',
+          } as MessageStartEvent,
+          {
+            id: generateEventId(),
+            eventType: 'text_delta',
+            timestamp: Date.now(),
+            sessionId: sessionId || sdkMessage.session_id || '',
+            messageId,
+            delta: sdkMessage.content,
+            blockIndex: 0,
+          } as TextDeltaEvent,
+          {
+            id: generateEventId(),
+            eventType: 'message_complete',
+            timestamp: Date.now(),
+            sessionId: sessionId || sdkMessage.session_id || '',
+            messageId,
+          } as MessageCompleteEvent,
+        ];
+        return events;
       }
 
       if (isResultMessage(sdkMessage)) {
@@ -710,8 +744,13 @@ export class SdkMessageTransformer {
 
     const events: FlatStreamEventUnion[] = [];
 
-    // Extract content blocks from Anthropic SDK message
-    const content = message.content || [];
+    // BetaContentBlock is a broad union from the SDK. JSONL history replay
+    // can include tool_result blocks in assistant messages which aren't in
+    // BetaContentBlock. We iterate using type guards that check block.type.
+    const content = (message.content || []) as unknown as Array<{
+      type: string;
+      [key: string]: unknown;
+    }>;
 
     // TASK_2025_094 FIX: Use Anthropic API's message.id for stable message correlation
     //
@@ -952,7 +991,7 @@ export class SdkMessageTransformer {
     // TASK_2025_164: Pass authEnv for provider-aware model resolution
     const cost = tokenUsage
       ? calculateMessageCost(
-          resolveActualModelForPricing(message.model || '', this.authEnv),
+          this.modelResolver.resolveForPricing(message.model || ''),
           tokenUsage,
         )
       : undefined;

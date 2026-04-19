@@ -264,6 +264,8 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
       'The agent runs while you continue working. ' +
       'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
       'For Ptah CLI agents, pass ptahCliId (from ptah_agent_list). ' +
+      'Use modelTier to control capability level: "opus" for complex/architectural tasks, ' +
+      '"sonnet" (default) for balanced work, "haiku" for fast/simple tasks. Only applies to Ptah CLI agents. ' +
       'To resume a previous CLI session, pass resume_session_id with the CLI session ID. ' +
       'Ideal for delegating: code reviews, test generation, documentation, ' +
       'and other independent subtasks.',
@@ -278,7 +280,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         },
         cli: {
           type: 'string',
-          enum: ['gemini', 'codex', 'copilot'],
+          enum: ['gemini', 'codex', 'copilot', 'cursor'],
           description:
             'Which CLI agent to use. Each requires its CLI installed on PATH. ' +
             'Omit to use the default (auto-detected or user-configured). ' +
@@ -317,6 +319,18 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
           description:
             'Model override for the CLI agent (e.g., "gemini-2.5-pro" for Gemini, "claude-sonnet-4.6" for Copilot). ' +
             'Uses user-configured default if omitted.',
+        },
+        modelTier: {
+          type: 'string',
+          enum: ['opus', 'sonnet', 'haiku'],
+          description:
+            'Model capability tier for Ptah CLI agents. Controls which model tier the spawned agent uses. ' +
+            '"opus" = most capable (complex architecture, deep analysis), ' +
+            '"sonnet" = balanced (default, general coding tasks), ' +
+            '"haiku" = fastest (simple tasks, quick lookups). ' +
+            "The tier maps to the actual provider model via the agent's tier mappings " +
+            '(e.g., opus → kimi-k2-thinking for Moonshot, opus → glm-5-code for Z.AI). ' +
+            'Only applies when ptahCliId is set. Ignored for standard CLI agents.',
         },
         resume_session_id: {
           type: 'string',
@@ -686,6 +700,7 @@ export function buildBrowserScreenshotTool(): MCPToolDefinition {
     name: 'ptah_browser_screenshot',
     description:
       'Take a screenshot of the current browser page. Returns the image as base64-encoded data. ' +
+      'Optionally saves the screenshot to disk in the workspace. ' +
       'Use this for visual verification of UI changes, layout inspection, or capturing test evidence.',
     inputSchema: {
       type: 'object',
@@ -704,6 +719,13 @@ export function buildBrowserScreenshotTool(): MCPToolDefinition {
           type: 'boolean',
           description:
             'Capture the full scrollable page instead of just the viewport (default: false)',
+        },
+        saveTo: {
+          type: 'string',
+          description:
+            'Save screenshot to disk. Use a filename (e.g. "homepage.png") to save under .ptah/screenshots/ in the workspace, ' +
+            'or an absolute path. The file extension determines the format if not specified. ' +
+            'Omit to return base64 data only without saving.',
         },
       },
     },
@@ -920,6 +942,123 @@ export function buildBrowserRecordStopTool(): MCPToolDefinition {
       type: 'object',
       properties: {},
     },
+  };
+}
+
+// ========================================
+// Harness Builder MCP Tools (TASK_2025_285)
+// ========================================
+
+/**
+ * Build the ptah_harness_search_skills tool definition
+ * Search available skills from enabled plugins
+ */
+export function buildHarnessSearchSkillsTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_harness_search_skills',
+    description:
+      'Search available skills from enabled plugins. Returns skill IDs, names, descriptions, ' +
+      'plugin IDs, and disabled status. Use an optional query to filter by name or description ' +
+      '(case-insensitive substring match). Omit query to list all skills.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Optional search query to filter skills by name or description',
+        },
+      },
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_harness_create_skill tool definition
+ * Create a new skill file on disk
+ */
+export function buildHarnessCreateSkillTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_harness_create_skill',
+    description:
+      'Create a new skill file. Writes a SKILL.md file to ' +
+      '~/.ptah/plugins/ptah-hrnss-{name}/skills/{name}/SKILL.md with YAML frontmatter ' +
+      'and the provided markdown content. Returns the skill ID and file path.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description:
+            'Skill name (will be sanitized to kebab-case for file paths)',
+        },
+        description: {
+          type: 'string',
+          description: 'Brief description of what this skill does',
+        },
+        content: {
+          type: 'string',
+          description:
+            'Full markdown content for the SKILL.md body (instructions, examples, constraints)',
+        },
+        allowedTools: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional list of tools this skill is allowed to use',
+        },
+      },
+      required: ['name', 'description', 'content'],
+    },
+    annotations: { destructiveHint: false, idempotentHint: false },
+  };
+}
+
+/**
+ * Build the ptah_harness_search_mcp_registry tool definition
+ * Search the official MCP server registry
+ */
+export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_harness_search_mcp_registry',
+    description:
+      'Search the official MCP Server Registry for servers matching a query. ' +
+      'Returns server names and descriptions. Use specific technology keywords ' +
+      '(e.g., "github", "postgresql", "slack") for best results.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query — use specific technology or tool names',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of results to return (default: 10)',
+        },
+      },
+      required: ['query'],
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  };
+}
+
+/**
+ * Build the harness_list_installed_mcp tool definition
+ * List MCP servers configured in the workspace
+ */
+export function buildHarnessListInstalledMcpTool(): MCPToolDefinition {
+  return {
+    name: 'harness_list_installed_mcp',
+    description:
+      'List MCP servers already installed and configured in the workspace. ' +
+      'Reads from .vscode/mcp.json and .mcp.json in the workspace root. ' +
+      'Use this to check what servers are already available before searching the registry.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+    annotations: { readOnlyHint: true },
   };
 }
 

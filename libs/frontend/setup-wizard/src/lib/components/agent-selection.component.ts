@@ -258,7 +258,7 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
                       </p>
 
                       <!-- Matched criteria -->
-                      @if (agent.matchedCriteria?.length) {
+                      @if (agent.matchedCriteria.length) {
                         <div class="flex flex-wrap gap-1 pl-6">
                           @for (
                             criteria of agent.matchedCriteria;

@@ -1,5 +1,5 @@
 import { Injectable, signal, computed, inject, Injector } from '@angular/core';
-import { TabState } from './chat.types';
+import { TabState, TabViewMode } from './chat.types';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { StreamingHandlerService } from './chat-store/streaming-handler.service';
 import { AgentMonitorStore } from './agent-monitor.store';
@@ -181,6 +181,14 @@ export class TabManagerService {
     () =>
       this._tabs().find((t) => t.id === this._activeTabId())?.compactionCount ??
       0,
+    { equal: (a, b) => a === b },
+  );
+
+  /** View mode for active tab. Defaults to 'full'. */
+  readonly activeTabViewMode = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.viewMode ??
+      'full',
     { equal: (a, b) => a === b },
   );
 
@@ -836,8 +844,18 @@ export class TabManagerService {
         // and become plain objects, causing "get is not a function" errors
         const sanitizedTabs = state.tabs.map((tab: TabState) => ({
           ...tab,
-          streamingState: null, // Clear transient streaming state
-          status: tab.status === 'streaming' ? 'loaded' : tab.status, // Reset stuck streaming status
+          streamingState: null,
+          // Backend sessions don't survive app restarts — clear the ID so
+          // the frontend starts a fresh session instead of attempting resume.
+          claudeSessionId: null,
+          status:
+            tab.status === 'streaming' ||
+            tab.status === 'resuming' ||
+            tab.status === 'switching'
+              ? 'loaded'
+              : tab.status,
+          queuedContent: null,
+          queuedOptions: null,
         }));
         this._tabs.set(sanitizedTabs);
         this._activeTabId.set(state.activeTabId);
@@ -876,6 +894,25 @@ export class TabManagerService {
    */
   isTabStreaming(tabId: string): boolean {
     return this._streamingTabIds().has(tabId);
+  }
+
+  /**
+   * Toggle a tab's view mode between 'full' and 'compact'.
+   * Each tab independently controls its view mode.
+   */
+  toggleTabViewMode(tabId: string): void {
+    const tab = this._tabs().find((t) => t.id === tabId);
+    if (!tab) return;
+    const newMode: TabViewMode =
+      (tab.viewMode ?? 'full') === 'full' ? 'compact' : 'full';
+    this.updateTab(tabId, { viewMode: newMode });
+  }
+
+  /**
+   * Get a specific tab's view mode.
+   */
+  getTabViewMode(tabId: string): TabViewMode {
+    return this._tabs().find((t) => t.id === tabId)?.viewMode ?? 'full';
   }
 
   // ============================================================================

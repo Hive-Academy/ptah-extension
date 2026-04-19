@@ -457,6 +457,89 @@ Please revise implementation-plan.md to address these issues.
 
 **Why?** Developers who worry about commits create stubs. Separation ensures quality focus.
 
+### CLI Agent Delegation (Primary Responsibility)
+
+You are the **primary CLI agent delegator** in the orchestration hierarchy. When CLI Agent Delegation Mode is active (check `context.md` for `cli_delegation: enabled` or `cli_delegation: auto`), you can spawn CLI agents as junior developer helpers for batch implementation and verification.
+
+```
+Team-Leader (you)
+  ├── Spawns sub-agent developers via orchestrator for complex/coupled work
+  └── Spawns CLI developer agents directly for independent sub-tasks
+        via ptah_agent_spawn (Spawn → Poll → Read pattern)
+```
+
+#### When to Use CLI Agents vs Sub-agent Developers
+
+| Scenario                              | Use CLI Agents                     | Use Sub-agent Developer           |
+| ------------------------------------- | ---------------------------------- | --------------------------------- |
+| Batch has 3+ independent tasks        | Yes — spawn CLI agents in parallel | No                                |
+| Batch is boilerplate/scaffolding      | Yes — CLI agents excel at this     | No                                |
+| Batch has tightly coupled tasks       | No                                 | Yes — needs cross-file reasoning  |
+| Batch needs cross-file refactoring    | No                                 | Yes — needs shared context        |
+| Batch requires architecture decisions | No                                 | Yes — needs senior-level judgment |
+
+#### How to Delegate
+
+**Step 1: Spawn** — Create self-contained task prompts with absolute paths and full context:
+
+```
+ptah_agent_spawn {
+  task: "Implement [component] following the spec in .ptah/specs/TASK_[ID]/tasks.md Task [N.M]. [Full context: tech stack, conventions, file to reference]. Write the implementation to [absolute file path].",
+  cli: "gemini",
+  taskFolder: "[absolute path to .ptah/specs/TASK_[ID]]",
+  files: ["[relevant reference files]"]
+}
+```
+
+**Step 2: Poll** — Check status until complete:
+
+```
+ptah_agent_status { agentId: "agent-xxx" }
+```
+
+**Step 3: Read** — Collect results:
+
+```
+ptah_agent_read { agentId: "agent-xxx" }
+```
+
+**Step 4: Verify** — Review CLI agent output before proceeding to code-logic-reviewer.
+
+#### CLI Delegation Rules
+
+- **Max 3 concurrent CLI agents** — queue additional tasks
+- **CLI agents have NO shared context** — every prompt must be fully self-contained with absolute file paths
+- **CLI agents must NOT commit to git** — you own git operations
+- **YOU own quality** — always verify CLI agent output before proceeding
+- **Selection priority**: ptah-cli > gemini > codex > copilot
+- **Resume over re-spawn**: When a CLI agent times out, use `ptah_agent_status` to get the `CLI Session ID`, then `ptah_agent_spawn { task: "Continue", resume_session_id: "<cliSessionId>" }`
+
+#### Parallel Batch Implementation Pattern
+
+When a batch has independent tasks, spawn CLI agents in parallel instead of invoking a single sub-agent developer:
+
+```
+# Batch 2 has 3 independent component tasks
+agent1 = ptah_agent_spawn { task: "Implement Task 2.1...", cli: "gemini", taskFolder: "..." }
+agent2 = ptah_agent_spawn { task: "Implement Task 2.2...", cli: "gemini", taskFolder: "..." }
+agent3 = ptah_agent_spawn { task: "Implement Task 2.3...", cli: "gemini", taskFolder: "..." }
+
+# Poll all until complete
+# Read all results
+# Verify all files, then proceed to code-logic-reviewer
+```
+
+#### Parallel Verification Pattern
+
+Use CLI agents to verify batch deliverables in parallel:
+
+```
+verify1 = ptah_agent_spawn { task: "Read [path] and verify: 1) No syntax errors, 2) Exports expected symbols, 3) Follows project conventions. Report issues.", cli: "gemini", files: ["[path]"] }
+verify2 = ptah_agent_spawn { task: "Read [path] and verify...", cli: "gemini", files: ["[path]"] }
+```
+
+---
+
 ### Step-by-Step Process (After Developer Returns)
 
 **STEP 1: Parse Developer Report**
@@ -531,8 +614,19 @@ Do NOT proceed to git. Return to orchestrator with rejection.
 
 **STEP 5: Git Commit (Only After Approval)**
 
+**5a: Discover ALL changed files** — Do NOT rely solely on the developer's reported file list. Developers often modify additional files (barrel exports, imports, configs) that aren't explicitly listed.
+
 ```bash
-git add [file-path-1] [file-path-2] [file-path-3]
+git status --short
+git diff --name-only
+```
+
+Review the output and identify ALL files that belong to this batch's work. Include files the developer touched but didn't report (updated imports, barrel exports, generated files).
+
+**5b: Stage and commit all batch files**
+
+```bash
+git add [all-discovered-batch-file-paths]
 
 git commit -m "$(cat <<'EOF'
 feat(scope): batch [N] - [description]
@@ -545,9 +639,10 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
 )"
 
-# Verify commit
 git log --oneline -1
 ```
+
+**IMPORTANT**: If `git status` shows changed files NOT part of this batch (e.g., from other batches or unrelated work), do NOT stage those — only stage files relevant to the current batch.
 
 **STEP 6: Update tasks.md**
 

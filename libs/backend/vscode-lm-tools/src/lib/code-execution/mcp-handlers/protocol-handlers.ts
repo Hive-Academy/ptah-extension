@@ -7,6 +7,8 @@
  * - tools/call: Execute a tool
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
 import type { CliType } from '@ptah-extension/shared';
 import type { PermissionPromptService } from '../../permission/permission-prompt.service';
@@ -49,6 +51,10 @@ import {
   buildBrowserStatusTool,
   buildBrowserRecordStartTool,
   buildBrowserRecordStopTool,
+  buildHarnessSearchSkillsTool,
+  buildHarnessCreateSkillTool,
+  buildHarnessSearchMcpRegistryTool,
+  buildHarnessListInstalledMcpTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -269,6 +275,16 @@ function handleToolsList(
           buildBrowserRecordStopTool(),
         ]
       : []),
+
+    // === Harness builder namespace (TASK_2025_285) ===
+    ...(!disabled.has('harness')
+      ? [
+          buildHarnessSearchSkillsTool(),
+          buildHarnessCreateSkillTool(),
+          buildHarnessSearchMcpRegistryTool(),
+          buildHarnessListInstalledMcpTool(),
+        ]
+      : []),
   ];
 
   return {
@@ -461,6 +477,7 @@ async function handleIndividualTool(
           files,
           taskFolder,
           model,
+          modelTier,
           resume_session_id,
         } = args as {
           task: string;
@@ -471,6 +488,7 @@ async function handleIndividualTool(
           files?: string[];
           taskFolder?: string;
           model?: string;
+          modelTier?: 'opus' | 'sonnet' | 'haiku';
           resume_session_id?: string;
         };
 
@@ -511,6 +529,7 @@ async function handleIndividualTool(
           cli: cli ?? (ptahCliId ? 'ptah-cli' : 'auto-detect'),
           ptahCliId,
           model: model ?? 'default',
+          modelTier: modelTier ?? 'sonnet',
           task: task.substring(0, 100) + (task.length > 100 ? '...' : ''),
           timeout,
           files: files?.length ?? 0,
@@ -527,6 +546,7 @@ async function handleIndividualTool(
           files,
           taskFolder,
           model,
+          modelTier,
           resumeSessionId: resume_session_id,
           // parentSessionId from MCP URL path (session-specific endpoint)
           // Falls back to getActiveSessionId() in buildAgentNamespace if not present
@@ -542,7 +562,9 @@ async function handleIndividualTool(
 
         return createToolSuccessResponse(
           request,
-          formatAgentSpawn(result),
+          formatAgentSpawn(result, {
+            modelTier: ptahCliId ? (modelTier ?? 'sonnet') : undefined,
+          }),
           deps,
         );
       }
@@ -793,16 +815,42 @@ async function handleIndividualTool(
       }
 
       case 'ptah_browser_screenshot': {
-        const { format, quality, fullPage } = args as {
+        const { format, quality, fullPage, saveTo } = args as {
           format?: 'png' | 'jpeg' | 'webp';
           quality?: number;
           fullPage?: boolean;
+          saveTo?: string;
         };
         const screenshotResult = await ptahAPI.browser.screenshot({
           format,
           quality,
           fullPage,
         });
+
+        // Save to disk if requested
+        if (saveTo && screenshotResult.data && !screenshotResult.error) {
+          try {
+            const filePath = await resolveScreenshotPath(
+              saveTo,
+              screenshotResult.format,
+              ptahAPI,
+            );
+            const dir = path.dirname(filePath);
+            if (!fs.existsSync(dir)) {
+              fs.mkdirSync(dir, { recursive: true });
+            }
+            fs.writeFileSync(
+              filePath,
+              Buffer.from(screenshotResult.data, 'base64'),
+            );
+            screenshotResult.filePath = filePath;
+          } catch (saveError) {
+            deps.logger.warn(
+              `Failed to save screenshot: ${saveError instanceof Error ? saveError.message : String(saveError)}`,
+              'ProtocolHandlers',
+            );
+          }
+        }
 
         // Return as MCP image content type so the AI model can visually inspect
         if (screenshotResult.data && !screenshotResult.error) {
@@ -816,6 +864,10 @@ async function handleIndividualTool(
           const text = formatBrowserScreenshot(screenshotResult);
           deps.onToolResult?.(request.id.toString(), text, false);
 
+          const savedNote = screenshotResult.filePath
+            ? ` | Saved to: ${screenshotResult.filePath}`
+            : '';
+
           return {
             jsonrpc: '2.0',
             id: request.id,
@@ -828,7 +880,7 @@ async function handleIndividualTool(
                 },
                 {
                   type: 'text',
-                  text: `Screenshot captured (${screenshotResult.format}, ~${Math.round((screenshotResult.data.length * 3) / 4 / 1024)}KB)`,
+                  text: `Screenshot captured (${screenshotResult.format}, ~${Math.round((screenshotResult.data.length * 3) / 4 / 1024)}KB)${savedNote}`,
                 },
               ],
             },
@@ -1017,6 +1069,142 @@ async function handleIndividualTool(
         );
       }
 
+      // Harness builder tools (TASK_2025_285)
+      case 'ptah_harness_search_skills': {
+        if (!ptahAPI.harness) {
+          return createToolSuccessResponse(
+            request,
+            JSON.stringify({
+              skills: [],
+              error: 'Harness namespace not available',
+            }),
+            deps,
+          );
+        }
+        const { query: skillQuery } = args as { query?: string };
+        const skills = await ptahAPI.harness.searchSkills(skillQuery);
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify({ skills, count: skills.length }),
+          deps,
+        );
+      }
+
+      case 'ptah_harness_create_skill': {
+        if (!ptahAPI.harness) {
+          return createToolSuccessResponse(
+            request,
+            JSON.stringify({ error: 'Harness namespace not available' }),
+            deps,
+          );
+        }
+        const {
+          name: skillName,
+          description: skillDescription,
+          content: skillContent,
+          allowedTools,
+        } = args as {
+          name: string;
+          description: string;
+          content: string;
+          allowedTools?: string[];
+        };
+
+        if (!skillName || !skillDescription || !skillContent) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "name", "description", and "content" are required.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const createResult = await ptahAPI.harness.createSkill(
+          skillName,
+          skillDescription,
+          skillContent,
+          allowedTools,
+        );
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(createResult),
+          deps,
+        );
+      }
+
+      case 'ptah_harness_search_mcp_registry': {
+        if (!ptahAPI.harness) {
+          return createToolSuccessResponse(
+            request,
+            JSON.stringify({
+              servers: [],
+              error: 'Harness namespace not available',
+            }),
+            deps,
+          );
+        }
+        const { query: registryQuery, limit: registryLimit } = args as {
+          query: string;
+          limit?: number;
+        };
+
+        if (!registryQuery || typeof registryQuery !== 'string') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "query" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const registryResult = await ptahAPI.harness.searchMcpRegistry(
+          registryQuery,
+          registryLimit,
+        );
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(registryResult),
+          deps,
+        );
+      }
+
+      case 'ptah_harness_list_installed_mcp': {
+        if (!ptahAPI.harness) {
+          return createToolSuccessResponse(
+            request,
+            JSON.stringify({
+              servers: [],
+              error: 'Harness namespace not available',
+            }),
+            deps,
+          );
+        }
+        const installedServers =
+          await ptahAPI.harness.listInstalledMcpServers();
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify({
+            servers: installedServers,
+            count: installedServers.length,
+          }),
+          deps,
+        );
+      }
+
       default:
         return null;
     }
@@ -1201,4 +1389,42 @@ function createErrorResponse(
       ...(data && { data }),
     },
   };
+}
+
+/**
+ * Resolve the screenshot file path from the saveTo parameter.
+ * - Absolute paths are used as-is.
+ * - Relative paths / filenames are placed under {workspace}/.ptah/screenshots/
+ * - If no extension, the format is appended.
+ */
+async function resolveScreenshotPath(
+  saveTo: string,
+  format: string,
+  ptahAPI: PtahAPI,
+): Promise<string> {
+  let filePath = saveTo.trim();
+
+  const ext = path.extname(filePath);
+  if (!ext) {
+    filePath = `${filePath}.${format}`;
+  }
+
+  if (path.isAbsolute(filePath)) {
+    return filePath;
+  }
+
+  let workspaceRoot: string | undefined;
+  try {
+    const info = await ptahAPI.workspace.getInfo();
+    workspaceRoot = info?.path;
+  } catch {
+    // Fall through to cwd
+  }
+
+  return path.join(
+    workspaceRoot || process.cwd(),
+    '.ptah',
+    'screenshots',
+    filePath,
+  );
 }

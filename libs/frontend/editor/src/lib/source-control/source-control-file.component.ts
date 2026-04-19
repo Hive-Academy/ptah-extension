@@ -15,6 +15,7 @@ import {
   FileMinus,
   FileQuestion,
   FileCode,
+  Folder,
 } from 'lucide-angular';
 import type { GitFileStatus } from '@ptah-extension/shared';
 
@@ -138,7 +139,9 @@ export class SourceControlFileComponent {
   });
 
   protected readonly statusIcon = computed(() => {
-    switch (this.file().status) {
+    const file = this.file();
+    if (file.status === '??' && file.isDirectory) return Folder;
+    switch (file.status) {
       case 'M':
         return FileEdit;
       case 'A':
@@ -153,7 +156,9 @@ export class SourceControlFileComponent {
   });
 
   protected readonly statusColor = computed(() => {
-    switch (this.file().status) {
+    const file = this.file();
+    if (file.status === '??' && file.isDirectory) return 'text-amber-500';
+    switch (file.status) {
       case 'M':
         return 'text-warning';
       case 'A':

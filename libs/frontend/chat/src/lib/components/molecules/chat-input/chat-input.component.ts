@@ -451,18 +451,32 @@ export class ChatInputComponent implements OnInit {
   });
 
   /**
-   * Computed signal for filtered suggestions
-   * Uses FilePickerService.searchFiles() for relevance-based sorting (exact match first,
-   * startsWith second, then by type preference, then alphabetical)
+   * Computed signal for filtered suggestions.
+   * Hybrid approach: merges local fuzzy results + server-side remote results.
+   * Local results appear immediately; remote results merge in when RPC completes.
    */
   readonly filteredSuggestions = computed(() => {
     const mode = this._suggestionMode();
     const query = this._currentQuery().toLowerCase().trim();
 
     if (mode === 'at-trigger') {
-      // Use searchFiles() for relevance-based filtering and sorting
-      const searchResults = this.filePicker.searchFiles(query);
-      return searchResults.map((f) => {
+      // Local fuzzy search (immediate, from cached workspace files)
+      const localResults = this.filePicker.searchFiles(query);
+
+      // Remote server-side search results (arrives async via signal)
+      const remoteResults = this.filePicker.remoteResults();
+
+      // Merge: local first, then remote results not already in local set
+      const seenPaths = new Set(localResults.map((f) => f.path));
+      const merged = [...localResults];
+      for (const remote of remoteResults) {
+        if (!seenPaths.has(remote.path)) {
+          merged.push(remote);
+          seenPaths.add(remote.path);
+        }
+      }
+
+      return merged.slice(0, 40).map((f) => {
         const isFolder = f.type === 'directory';
         return {
           type: 'file' as const,
@@ -721,6 +735,7 @@ export class ChatInputComponent implements OnInit {
     if (this._suggestionMode() === 'at-trigger') {
       this._showSuggestions.set(false);
       this._suggestionMode.set(null);
+      this.filePicker.clearRemoteResults();
     }
   }
 
@@ -755,10 +770,16 @@ export class ChatInputComponent implements OnInit {
   }
 
   /**
-   * Handle immediate query changes for responsive filtering
+   * Handle immediate query changes for responsive filtering.
+   * Also triggers debounced server-side search for @ file queries.
    */
   handleQueryChanged(query: string): void {
     this._currentQuery.set(query);
+
+    // Trigger server-side search for @ file queries (debounced inside service)
+    if (this._suggestionMode() === 'at-trigger') {
+      this.filePicker.searchFilesRemote(query);
+    }
   }
 
   // ============ END DIRECTIVE EVENT HANDLERS ============
@@ -933,6 +954,7 @@ export class ChatInputComponent implements OnInit {
     this._showSuggestions.set(false);
     this._suggestionMode.set(null);
     this._currentQuery.set('');
+    this.filePicker.clearRemoteResults();
   }
 
   /**
@@ -1070,17 +1092,17 @@ export class ChatInputComponent implements OnInit {
           result.data;
 
         let label: string;
-        if (authMethod === 'openrouter') {
+        if (authMethod === 'thirdParty') {
           const provider = availableProviders?.find(
             (p) => p.id === anthropicProviderId,
           );
           label = provider?.name ?? 'Provider';
-        } else if (authMethod === 'oauth') {
-          label = 'OAuth';
         } else if (authMethod === 'apiKey') {
           label = 'API Key';
+        } else if (authMethod === 'claudeCli') {
+          label = 'Claude CLI';
         } else {
-          label = 'Auto';
+          label = 'API Key';
         }
 
         this.authMethodLabel.set(label);

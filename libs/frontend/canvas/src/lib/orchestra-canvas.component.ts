@@ -5,9 +5,11 @@ import {
   inject,
   effect,
   signal,
+  computed,
   viewChild,
   ElementRef,
   untracked,
+  afterNextRender,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { GridStackOptions } from 'gridstack';
@@ -21,6 +23,7 @@ import { NativePopoverComponent } from '@ptah-extension/ui';
 import { AppStateManager } from '@ptah-extension/core';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
+import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasTileComponent } from './canvas-tile.component';
 import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
 
@@ -47,7 +50,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
 @Component({
   selector: 'ptah-orchestra-canvas',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [CanvasStore],
+  providers: [CanvasStore, CanvasLayoutService],
   imports: [
     FormsModule,
     GridstackComponent,
@@ -58,7 +61,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
     NativePopoverComponent,
   ],
   template: `
-    <div class="flex flex-col h-full bg-base-100 relative">
+    <div #canvasContainer class="flex flex-col h-full bg-base-100 relative">
       @if (canvasStore.tiles().length === 0) {
         <!-- Empty state: no tiles yet -->
         <ptah-canvas-empty-state (createSession)="openNewSessionPopover()" />
@@ -90,15 +93,16 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
         <!-- FAB: New tile button (floating bottom-right, hidden at max capacity) -->
         @if (canvasStore.canAddTile()) {
           <ptah-native-popover
+            class="absolute bottom-4 right-4 z-10"
             [isOpen]="sessionPopoverOpen()"
-            [placement]="'top'"
+            [placement]="'top-end'"
             [hasBackdrop]="true"
             [backdropClass]="'transparent'"
             (closed)="handleCancelSession()"
           >
             <button
               trigger
-              class="absolute bottom-4 right-4 btn btn-primary btn-circle shadow-lg z-10"
+              class="btn btn-primary btn-circle shadow-lg"
               title="Add new session tile"
               aria-label="Add new session tile"
               (click)="openNewSessionPopover()"
@@ -215,6 +219,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
   private readonly appState = inject(AppStateManager);
   private readonly tabManager = inject(TabManagerService);
   private readonly chatStore = inject(ChatStore);
+  private readonly layoutService = inject(CanvasLayoutService);
 
   protected readonly PlusIcon = Plus;
   protected readonly XIcon = X;
@@ -228,17 +233,13 @@ export class OrchestraCanvasComponent implements OnDestroy {
   private readonly emptyStateNameInputRef = viewChild<
     ElementRef<HTMLInputElement>
   >('emptyStateNameInputRef');
+  private readonly canvasContainer =
+    viewChild<ElementRef<HTMLElement>>('canvasContainer');
+  private readonly gridComp = viewChild(GridstackComponent);
 
-  /**
-   * Gridstack grid configuration.
-   * - column: 12-column grid (standard dashboard grid)
-   * - cellHeight: 80px per row unit
-   * - float: true allows free placement without auto-compaction
-   * - margin: gap between tiles
-   */
   readonly gsOptions: GridStackOptions = {
     column: 12,
-    cellHeight: 80,
+    cellHeight: 120,
     float: true,
     margin: 8,
     draggable: { handle: '.tile-header' },
@@ -246,7 +247,43 @@ export class OrchestraCanvasComponent implements OnDestroy {
     animate: true,
   };
 
+  protected readonly layout = computed(() => {
+    this.layoutService.containerWidth();
+    this.layoutService.containerHeight();
+    return this.layoutService.computeLayout(this.canvasStore.tileCount());
+  });
+
   constructor() {
+    // Start observing the canvas container for size changes after first render
+    afterNextRender(() => {
+      const el = this.canvasContainer()?.nativeElement;
+      if (el) {
+        this.layoutService.observe(el);
+      }
+    });
+
+    // Apply responsive layout to GridStack when container size or tile count changes
+    effect(() => {
+      const { cellHeight, tiles: tileLayouts } = this.layout();
+      const gridComp = this.gridComp();
+      if (!gridComp?.grid || tileLayouts.length === 0) return;
+
+      const grid = gridComp.grid;
+      const tiles = untracked(() => this.canvasStore.tiles());
+
+      grid.batchUpdate(true);
+      grid.cellHeight(cellHeight);
+
+      for (const node of grid.engine.nodes) {
+        const idx = tiles.findIndex((t) => t.tabId === node.id);
+        if (idx >= 0 && tileLayouts[idx] && node.el) {
+          grid.update(node.el, tileLayouts[idx]);
+        }
+      }
+
+      grid.batchUpdate(false);
+    });
+
     // Auto-focus session name input when popover opens
     effect(() => {
       if (this.sessionPopoverOpen()) {
@@ -258,11 +295,6 @@ export class OrchestraCanvasComponent implements OnDestroy {
       }
     });
 
-    // Restore canvas tiles from tabs that were persisted to localStorage.
-    // TabManagerService restores tabs before this component initializes; without
-    // this sync, the canvas starts empty while the hidden single-mode ChatView
-    // already shows the restored session — causing a session to appear in Chat
-    // but not in Canvas despite Canvas being the initial view.
     this.restoreCanvasTilesFromTabs();
 
     // Signal bridge: watch for session load requests from shared sidebar
@@ -274,8 +306,6 @@ export class OrchestraCanvasComponent implements OnDestroy {
           req.name,
         );
         this.appState.clearCanvasSessionRequest();
-        // Load the session's messages into the tab via ChatStore's full load flow
-        // (openSessionTab only creates an empty tab — switchSession triggers the RPC)
         if (tabId) {
           this.chatStore.switchSession(req.sessionId);
         }
@@ -291,13 +321,9 @@ export class OrchestraCanvasComponent implements OnDestroy {
       }
     });
 
-    // Reactive cleanup: remove orphaned tiles whose backing tab no longer exists.
-    // This handles the case where a session is deleted from the sidebar, which
-    // closes the tab via TabManagerService but leaves the canvas tile stale.
-    // Uses untracked() for tiles read to prevent re-triggering when removeTileOnly
-    // updates the _tiles signal.
+    // Reactive cleanup: remove orphaned tiles whose backing tab no longer exists
     effect(() => {
-      const tabs = this.tabManager.tabs(); // reactive dependency
+      const tabs = this.tabManager.tabs();
       const tabIds = new Set(tabs.map((t) => t.id));
       const tiles = untracked(() => this.canvasStore.tiles());
       for (const tile of tiles) {

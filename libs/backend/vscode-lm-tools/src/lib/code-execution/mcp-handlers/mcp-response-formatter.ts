@@ -497,7 +497,10 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
 /**
  * Format ptah_agent_spawn result
  */
-export function formatAgentSpawn(result: SpawnAgentResult): string {
+export function formatAgentSpawn(
+  result: SpawnAgentResult,
+  options?: { modelTier?: string },
+): string {
   try {
     const cliLabel = formatCliLabel(result.cli, result.ptahCliName);
 
@@ -507,6 +510,9 @@ export function formatAgentSpawn(result: SpawnAgentResult): string {
         p: [
           `**Agent ID:** ${result.agentId}`,
           `**CLI:** ${cliLabel}`,
+          ...(options?.modelTier
+            ? [`**Model Tier:** ${options.modelTier}`]
+            : []),
           `**Status:** ${result.status}`,
           `**Started:** ${result.startedAt}`,
           ...(result.cliSessionId
@@ -905,10 +911,13 @@ export function formatBrowserScreenshot(
     }
 
     const sizeKB = Math.round((result.data.length * 3) / 4 / 1024);
+    const savedLine = result.filePath
+      ? `  \n**Saved to:** \`${result.filePath}\``
+      : '';
     return json2md([
       { h2: 'Screenshot Captured' },
       {
-        p: `**Format:** ${result.format}  \n**Size:** ~${sizeKB}KB  \n**Data (base64):**`,
+        p: `**Format:** ${result.format}  \n**Size:** ~${sizeKB}KB${savedLine}  \n**Data (base64):**`,
       },
       { code: { content: result.data } },
     ]);

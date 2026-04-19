@@ -17,7 +17,6 @@ export { ElectronEditorRpcHandlers } from './electron-editor-rpc.handlers';
 export { ElectronFileRpcHandlers } from './electron-file-rpc.handlers';
 export { ElectronConfigExtendedRpcHandlers } from './electron-config-extended-rpc.handlers';
 export { ElectronCommandRpcHandlers } from './electron-command-rpc.handlers';
-export { ElectronAuthExtendedRpcHandlers } from './electron-auth-extended-rpc.handlers';
 export { ElectronSettingsRpcHandlers } from './electron-settings-rpc.handlers';
 export { ElectronAgentRpcHandlers } from './electron-agent-rpc.handlers';
 export { ElectronSkillsShRpcHandlers } from './electron-skills-sh-rpc.handlers';

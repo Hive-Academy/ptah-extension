@@ -66,11 +66,24 @@ import {
 } from '../copilot-provider';
 import { CodexAuthService, CodexTranslationProxy } from '../codex-provider';
 import {
-  OllamaTranslationProxy,
+  OpenRouterAuthService,
+  OpenRouterTranslationProxy,
+} from '../openrouter-provider';
+import {
+  OllamaModelDiscoveryService,
   LmStudioTranslationProxy,
 } from '../local-provider';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
+import { ModelResolver } from '../auth/model-resolver';
+import {
+  ApiKeyStrategy,
+  OAuthProxyStrategy,
+  LocalNativeStrategy,
+  LocalProxyStrategy,
+  CliStrategy,
+} from '../auth/strategies';
+import { DeepAgentHistoryReaderService } from '../helpers/history/deep-agent-history-reader.service';
 
 /**
  * Register all agent-sdk services in DI container
@@ -428,20 +441,95 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Local Model Provider Services (TASK_2025_265)
-  // Translation proxies for Ollama and LM Studio
+  // OpenRouter Provider Services
+  // Auth service (reads API key from SecretStorage) and translation proxy
+  // (Anthropic <-> OpenAI Chat Completions). Must be registered before
+  // AuthManager resolves (which depends on these via ApiKeyStrategy).
+  // ============================================================
+
+  container.register(
+    SDK_TOKENS.SDK_OPENROUTER_AUTH,
+    { useClass: OpenRouterAuthService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_OPENROUTER_PROXY,
+    { useClass: OpenRouterTranslationProxy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // ============================================================
+  // Local Model Provider Services (TASK_2025_265, updated TASK_2025_281)
+  // Ollama: model discovery service (Anthropic-native, no proxy)
+  // LM Studio: translation proxy (OpenAI-compat, still needs proxy)
   // Must be registered before AuthManager resolves (which depends on these)
   // ============================================================
 
   container.register(
-    SDK_TOKENS.SDK_OLLAMA_PROXY,
-    { useClass: OllamaTranslationProxy },
+    SDK_TOKENS.SDK_OLLAMA_DISCOVERY,
+    { useClass: OllamaModelDiscoveryService },
     { lifecycle: Lifecycle.Singleton },
   );
 
   container.register(
     SDK_TOKENS.SDK_LM_STUDIO_PROXY,
     { useClass: LmStudioTranslationProxy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // ============================================================
+  // Auth Strategies (TASK_AUTH_REFACTOR Phase 2)
+  // 5 strategies extract auth logic from the AuthManager god class
+  // Must be registered before AuthManager resolves (which depends on these)
+  // ============================================================
+
+  container.register(
+    SDK_TOKENS.SDK_API_KEY_STRATEGY,
+    { useClass: ApiKeyStrategy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_OAUTH_PROXY_STRATEGY,
+    { useClass: OAuthProxyStrategy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_LOCAL_NATIVE_STRATEGY,
+    { useClass: LocalNativeStrategy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_LOCAL_PROXY_STRATEGY,
+    { useClass: LocalProxyStrategy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_CLI_STRATEGY,
+    { useClass: CliStrategy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // ============================================================
+  // ModelResolver - Single source of truth for tier→model resolution (TASK_AUTH_REFACTOR)
+  // ============================================================
+  container.register(
+    SDK_TOKENS.SDK_MODEL_RESOLVER,
+    { useClass: ModelResolver },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // ============================================================
+  // Deep Agent History Reader
+  // Reads LangGraph checkpoint sessions from .ptah/deep-agent-sessions/
+  // ============================================================
+  container.register(
+    SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER,
+    { useClass: DeepAgentHistoryReaderService },
     { lifecycle: Lifecycle.Singleton },
   );
 

@@ -5,7 +5,7 @@
  *
  * Mirrors the Angular settings "Providers" tab with full parity:
  *   - All providers from auth:getAuthStatus (not hardcoded to 2)
- *   - Claude: API Key / OAuth mode toggle
+ *   - Claude: API Key authentication
  *   - GitHub Copilot: OAuth login / logout
  *   - OpenAI Codex: CLI auth status + login
  *   - Local providers (Ollama, LM Studio): no key needed
@@ -45,7 +45,6 @@ interface ProviderInfo {
 }
 
 interface AuthStatus {
-  hasOAuthToken: boolean;
   hasApiKey: boolean;
   hasOpenRouterKey: boolean;
   hasAnyProviderKey?: boolean;
@@ -56,6 +55,7 @@ interface AuthStatus {
   copilotUsername?: string;
   codexAuthenticated?: boolean;
   codexTokenStale?: boolean;
+  claudeCliInstalled?: boolean;
 }
 
 type SaveParams = Record<string, unknown>;
@@ -88,14 +88,10 @@ function providerIcon(id: string): string {
   }
 }
 
-function keyStatusLabel(
-  tileId: string,
-  auth: AuthStatus,
-  claudeMode: 'apiKey' | 'oauth',
-): string {
+function keyStatusLabel(tileId: string, auth: AuthStatus): string {
   if (tileId === CLAUDE_TILE_ID) {
-    if (claudeMode === 'oauth') {
-      return auth.hasOAuthToken ? 'Configured' : 'Not configured';
+    if (auth.authMethod === 'claudeCli') {
+      return auth.claudeCliInstalled ? 'CLI detected' : 'CLI not found';
     }
     return auth.hasApiKey ? 'Configured' : 'Not configured';
   }
@@ -118,14 +114,10 @@ function keyStatusLabel(
   return isActive ? 'Configured' : 'Not configured';
 }
 
-function keyStatusVariant(
-  tileId: string,
-  auth: AuthStatus,
-  claudeMode: 'apiKey' | 'oauth',
-): BadgeVariant {
-  const label = keyStatusLabel(tileId, auth, claudeMode);
+function keyStatusVariant(tileId: string, auth: AuthStatus): BadgeVariant {
+  const label = keyStatusLabel(tileId, auth);
   if (label === 'Not configured' || label === 'Not connected') return 'error';
-  if (label === 'Token expired') return 'warning';
+  if (label === 'Token expired' || label === 'CLI not found') return 'warning';
   return 'success';
 }
 
@@ -137,7 +129,6 @@ interface BrowseViewProps {
   tiles: string[];
   selectedIndex: number;
   auth: AuthStatus;
-  claudeMode: 'apiKey' | 'oauth';
   isActive: boolean;
 }
 
@@ -145,7 +136,6 @@ function BrowseView({
   tiles,
   selectedIndex,
   auth,
-  claudeMode,
   isActive,
 }: BrowseViewProps): React.JSX.Element {
   return (
@@ -157,8 +147,8 @@ function BrowseView({
             ? 'Claude'
             : (auth.availableProviders.find((p) => p.id === tileId)?.name ??
               tileId);
-        const statusLabel = keyStatusLabel(tileId, auth, claudeMode);
-        const variant = keyStatusVariant(tileId, auth, claudeMode);
+        const statusLabel = keyStatusLabel(tileId, auth);
+        const variant = keyStatusVariant(tileId, auth);
 
         return (
           <ListItem
@@ -183,7 +173,6 @@ function BrowseView({
 
 interface ClaudeConfigProps {
   auth: AuthStatus;
-  claudeMode: 'apiKey' | 'oauth';
   editingKey: boolean;
   keyInput: string;
   saving: boolean;
@@ -195,7 +184,6 @@ interface ClaudeConfigProps {
 
 function ClaudeConfig({
   auth,
-  claudeMode,
   editingKey,
   keyInput,
   saving,
@@ -206,11 +194,7 @@ function ClaudeConfig({
 }: ClaudeConfigProps): React.JSX.Element {
   const theme = useTheme();
 
-  const isOAuth = claudeMode === 'oauth';
-  const hasKey = isOAuth ? auth.hasOAuthToken : auth.hasApiKey;
-  const maskedDisplay = isOAuth
-    ? 'sk-ant-oat01-••••••••'
-    : 'sk-ant-api03-••••••••';
+  const hasKey = auth.hasApiKey;
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -221,69 +205,44 @@ function ClaudeConfig({
         </Text>
       </Box>
 
-      {/* Mode toggle */}
+      {/* Method label */}
       <Box gap={1}>
         <Text dimColor>Method:</Text>
-        <Text
-          color={!isOAuth ? theme.ui.brand : theme.ui.dimmed}
-          bold={!isOAuth}
-          inverse={!isOAuth && isActive}
-        >
+        <Text color={theme.ui.brand} bold inverse={isActive}>
           {' '}
           API Key{' '}
         </Text>
-        <Text dimColor>/</Text>
-        <Text
-          color={isOAuth ? theme.ui.brand : theme.ui.dimmed}
-          bold={isOAuth}
-          inverse={isOAuth && isActive}
-        >
-          {' '}
-          OAuth{' '}
-        </Text>
-        <Text dimColor>(Tab to toggle)</Text>
       </Box>
 
-      {/* Key / Token field */}
+      {/* Key field */}
       {saving ? (
         <Spinner label="Saving & testing..." />
       ) : editingKey ? (
         <Box gap={1}>
-          <Text color={theme.status.warning}>
-            {isOAuth ? 'Token: ' : 'Key: '}
-          </Text>
+          <Text color={theme.status.warning}>Key: </Text>
           <TextInput
             value={keyInput}
             onChange={onKeyChange}
             onSubmit={onKeySubmit}
-            placeholder={isOAuth ? 'Paste OAuth token...' : 'Paste API key...'}
+            placeholder="Paste API key..."
             focus={true}
             mask="*"
           />
         </Box>
       ) : hasKey ? (
         <Box gap={1}>
-          <Text dimColor>{isOAuth ? 'Token: ' : 'Key:    '}</Text>
+          <Text dimColor>Key: </Text>
           <Text color={theme.ui.dimmed} dimColor>
-            {maskedDisplay}
+            sk-ant-api03-••••••••
           </Text>
           <Text color={theme.status.success}> ✓</Text>
           <Text dimColor> (Enter: replace)</Text>
         </Box>
       ) : (
         <Box gap={1}>
-          <Text dimColor>{isOAuth ? 'Token: ' : 'Key:    '}</Text>
+          <Text dimColor>Key: </Text>
           <Text color={theme.status.error}>Not configured</Text>
           <Text dimColor> (Enter: add)</Text>
-        </Box>
-      )}
-
-      {/* OAuth warning */}
-      {isOAuth && (
-        <Box>
-          <Text color={theme.status.warning} dimColor>
-            ⚠ OAuth tokens no longer work in third-party tools
-          </Text>
         </Box>
       )}
 
@@ -345,7 +304,7 @@ function ClaudeConfig({
       {!editingKey && !saving && (
         <Box marginTop={1}>
           <Text dimColor italic>
-            Tab: toggle mode | Enter: edit key | S: save & test | Esc: back
+            Enter: edit key | S: save & test | Esc: back
           </Text>
         </Box>
       )}
@@ -752,9 +711,6 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
   // Sub-mode
   const [configuring, setConfiguring] = useState(false);
 
-  // Claude-specific state
-  const [claudeMode, setClaudeMode] = useState<'apiKey' | 'oauth'>('apiKey');
-
   // Key editing state (shared for Claude + API-key providers)
   const [editingKey, setEditingKey] = useState(false);
   const [keyInput, setKeyInput] = useState('');
@@ -776,12 +732,6 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
     );
     if (result) {
       setAuthStatus(result);
-      // Sync Claude mode to persisted auth method
-      if (result.authMethod === 'oauth') {
-        setClaudeMode('oauth');
-      } else {
-        setClaudeMode('apiKey');
-      }
     }
     setLoading(false);
   }, [call]);
@@ -865,13 +815,11 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
       if (!value.trim()) return;
 
       await runSaveAndTest({
-        authMethod: claudeMode,
-        ...(claudeMode === 'oauth'
-          ? { claudeOAuthToken: value.trim() }
-          : { anthropicApiKey: value.trim() }),
+        authMethod: 'apiKey',
+        anthropicApiKey: value.trim(),
       });
     },
-    [claudeMode, runSaveAndTest],
+    [runSaveAndTest],
   );
 
   const handleProviderKeySubmit = useCallback(
@@ -881,8 +829,8 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
       if (!value.trim()) return;
 
       await runSaveAndTest({
-        authMethod: 'openrouter',
-        openrouterApiKey: value.trim(),
+        authMethod: 'thirdParty',
+        providerApiKey: value.trim(),
         anthropicProviderId: selectedTileId,
       });
     },
@@ -891,14 +839,14 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
 
   const handleSaveAndTestExisting = useCallback(async (): Promise<void> => {
     if (isClaudeTile) {
-      await runSaveAndTest({ authMethod: claudeMode });
+      await runSaveAndTest({ authMethod: 'apiKey' });
     } else {
       await runSaveAndTest({
-        authMethod: 'openrouter',
+        authMethod: 'thirdParty',
         anthropicProviderId: selectedTileId,
       });
     }
-  }, [isClaudeTile, claudeMode, selectedTileId, runSaveAndTest]);
+  }, [isClaudeTile, selectedTileId, runSaveAndTest]);
 
   const handleCopilotLogin = useCallback(async (): Promise<void> => {
     setCopilotLoggingIn(true);
@@ -987,13 +935,6 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
         return;
       }
 
-      // Claude: Tab toggles API Key / OAuth
-      if (isClaudeTile && key.tab) {
-        setClaudeMode((prev) => (prev === 'apiKey' ? 'oauth' : 'apiKey'));
-        setStatusMsg(null);
-        return;
-      }
-
       // Enter: start key editing (Claude or standard API providers)
       if (key.return && (isClaudeTile || isApiKeyProvider)) {
         setEditingKey(true);
@@ -1075,7 +1016,6 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
         tiles={tiles}
         selectedIndex={providerIndex}
         auth={authStatus}
-        claudeMode={claudeMode}
         isActive={isActive}
       />
     );
@@ -1092,7 +1032,6 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
       {isClaudeTile && (
         <ClaudeConfig
           auth={authStatus}
-          claudeMode={claudeMode}
           editingKey={editingKey}
           keyInput={keyInput}
           saving={saving}
