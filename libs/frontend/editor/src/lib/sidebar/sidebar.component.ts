@@ -35,7 +35,10 @@ import { WorktreePanelComponent } from '../worktree/worktree-panel.component';
   ],
   template: `
     <aside
-      class="w-64 h-full flex flex-col flex-shrink-0 bg-base-200 border-r border-base-300"
+      class="h-full flex flex-col flex-shrink-0 bg-base-200 border-r border-base-300"
+      [style.width.px]="width()"
+      [style.min-width.px]="160"
+      [style.max-width.px]="480"
       role="complementary"
       aria-label="Sidebar"
     >
@@ -146,6 +149,7 @@ import { WorktreePanelComponent } from '../worktree/worktree-panel.component';
 })
 export class SidebarComponent {
   // Inputs
+  readonly width = input<number>(256);
   readonly files = input<FileTreeNode[]>([]);
   readonly activeFilePath = input<string | undefined>(undefined);
   readonly changedFiles = input<GitFileStatus[]>([]);

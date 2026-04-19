@@ -1,0 +1,84 @@
+@if (spec(); as s) {
+  <section class="flex flex-col gap-4">
+    <!-- Header: title + search + bulk actions -->
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <h2 class="text-xl font-semibold">{{ s.label }}</h2>
+        @if (s.readOnly) {
+          <span class="badge badge-ghost badge-sm">read-only</span>
+        }
+        <span class="text-sm opacity-60">({{ total() }} total)</span>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <input
+          type="search"
+          class="input input-bordered input-sm w-72 max-w-full"
+          [placeholder]="s.searchPlaceholder"
+          [value]="search()"
+          (input)="onSearchInput($event)"
+          aria-label="Search"
+        />
+
+        @if (s.supportsBulkEmail) {
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            [disabled]="selectedIds().length === 0"
+            (click)="onBulkEmailClick()"
+          >
+            Email Selected
+            @if (selectedIds().length > 0) {
+              <span class="badge badge-sm">{{ selectedIds().length }}</span>
+            }
+          </button>
+        }
+      </div>
+    </header>
+
+    <!-- Table -->
+    <ptah-admin-data-table
+      #table
+      [columns]="s.fields"
+      [rows]="rows()"
+      [total]="total()"
+      [page]="page()"
+      [pageSize]="pageSize()"
+      [sortBy]="sortBy()"
+      [sortOrder]="sortOrder()"
+      [selectable]="!!s.supportsBulkEmail"
+      [loading]="response() === null"
+      (sortChange)="onSortChange($event)"
+      (pageChange)="onPageChange($event)"
+      (rowClick)="onRowClick($event)"
+      (selectionChange)="onSelectionChange($event)"
+    />
+
+    @if (s.supportsBulkEmail) {
+      <ptah-admin-bulk-email-modal
+        [open]="bulkEmailOpen()"
+        [userIds]="selectedIds()"
+        (closeModal)="onBulkEmailClose()"
+        (submitted)="onBulkEmailSent($event)"
+      />
+    }
+
+    @if (bulkEmailToast(); as t) {
+      <div class="toast toast-end z-50">
+        <div class="alert alert-success">
+          <span>
+            Bulk email sent to {{ t.sent }} user(s)@if (t.failed.length > 0) {
+              , {{ t.failed.length }} failed
+            }.
+          </span>
+        </div>
+      </div>
+    }
+  </section>
+} @else {
+  <div class="alert alert-warning">
+    <span>
+      Unknown admin model. Pick a model from the sidebar.
+    </span>
+  </div>
+}

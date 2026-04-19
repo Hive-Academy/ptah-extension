@@ -30,7 +30,8 @@ import {
   CliDetectionService,
   CopilotPermissionBridge,
 } from '@ptah-extension/llm-abstraction';
-import { SdkAgentAdapter, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type { IAgentAdapter, ResultStatsPayload } from '@ptah-extension/shared';
 import {
   retryWithBackoff,
   MESSAGE_TYPES,
@@ -100,8 +101,8 @@ export class RpcMethodRegistrationService {
     private readonly agentWatcher: AgentSessionWatcherService,
     @inject(TOKENS.COMMAND_MANAGER)
     private readonly commandManager: CommandManager,
-    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
-    private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(TOKENS.AGENT_ADAPTER)
+    private readonly sdkAdapter: IAgentAdapter,
     // Domain-specific handlers
     @inject(ChatRpcHandlers) private readonly chatHandlers: ChatRpcHandlers,
     @inject(SessionRpcHandlers)
@@ -693,26 +694,7 @@ export class RpcMethodRegistrationService {
   /**
    * Send session stats to webview with retry logic
    */
-  private async sendStatsWithRetry(stats: {
-    sessionId: string;
-    cost: number;
-    tokens: {
-      input: number;
-      output: number;
-      cacheRead?: number;
-      cacheCreation?: number;
-    };
-    duration: number;
-    modelUsage?: Array<{
-      model: string;
-      inputTokens: number;
-      outputTokens: number;
-      contextWindow: number;
-      costUSD: number;
-      cacheReadInputTokens?: number;
-      lastTurnContextTokens?: number;
-    }>;
-  }): Promise<void> {
+  private async sendStatsWithRetry(stats: ResultStatsPayload): Promise<void> {
     try {
       await retryWithBackoff(
         () =>

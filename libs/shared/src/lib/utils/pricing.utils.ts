@@ -185,31 +185,37 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-sonnet-4.6': {
     inputCostPerToken: 0,
     outputCostPerToken: 0,
+    maxTokens: 200_000,
     provider: 'github-copilot',
   },
   'claude-opus-4.7': {
     inputCostPerToken: 0,
     outputCostPerToken: 0,
+    maxTokens: 1_000_000,
     provider: 'github-copilot',
   },
   'claude-opus-4.6': {
     inputCostPerToken: 0,
     outputCostPerToken: 0,
+    maxTokens: 1_000_000,
     provider: 'github-copilot',
   },
   'claude-opus-4.5': {
     inputCostPerToken: 0,
     outputCostPerToken: 0,
+    maxTokens: 200_000,
     provider: 'github-copilot',
   },
   'claude-sonnet-4.5': {
     inputCostPerToken: 0,
     outputCostPerToken: 0,
+    maxTokens: 200_000,
     provider: 'github-copilot',
   },
   'claude-haiku-4.5': {
     inputCostPerToken: 0,
     outputCostPerToken: 0,
+    maxTokens: 200_000,
     provider: 'github-copilot',
   },
 

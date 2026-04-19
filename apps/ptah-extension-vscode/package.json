@@ -2,7 +2,7 @@
   "name": "ptah-coding-orchestra",
   "displayName": "Ptah - The Coding Orchestra",
   "description": "The AI coding orchestra for VS Code. Provider-agnostic AI orchestration with intelligent workspace analysis, Code Execution MCP server, and project-adaptive multi-agent workflows.",
-  "version": "0.2.21",
+  "version": "0.2.22",
   "publisher": "ptah-extensions",
   "repository": {
     "type": "git",
@@ -204,6 +204,16 @@
         "ptah.model.selected": {
           "type": "string",
           "description": "AI model for new chat sessions. Left empty to use the SDK default (set on first initialization)."
+        },
+        "ptah.runtime": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "claude-sdk",
+            "deep-agent"
+          ],
+          "default": "auto",
+          "description": "Agent runtime backing chat sessions. 'auto' (default) picks Claude SDK for Anthropic/Claude auth and the LangChain deep-agent runtime for every other provider. 'claude-sdk' always uses the Claude Agent SDK. 'deep-agent' always uses the in-process LangChain runtime (Ollama, LM Studio, OpenRouter, Moonshot, Z.AI, Copilot, Codex). Requires a window reload after changing."
         },
         "ptah.autopilot.enabled": {
           "type": "boolean",

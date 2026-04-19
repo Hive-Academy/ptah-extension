@@ -64,6 +64,26 @@ Phase 7: User handles git (commits already created)
          |
          v
 Phase 8: modernization-detector --> Creates future-enhancements.md
+         (Orchestrator invokes after QA completes or is skipped)
+```
+
+### Phase 8: Modernization-Detector Invocation
+
+After QA completes (or is skipped), the orchestrator MUST invoke the modernization-detector:
+
+```typescript
+Task({
+  subagent_type: 'modernization-detector',
+  description: 'Analyze future improvements for TASK_[ID]',
+  prompt: `You are modernization-detector for TASK_[ID].
+
+**Task Folder**: [absolute path to .ptah/specs/TASK_[ID]]
+**Changes**: Review tasks.md for what was implemented
+
+Identify opportunities for future improvements, tech debt, and modernization.
+Write findings to future-enhancements.md in the task folder.
+See modernization-detector.md for detailed instructions.`,
+});
 ```
 
 ### Conditional Agent Triggers

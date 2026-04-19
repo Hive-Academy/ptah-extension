@@ -62,7 +62,6 @@ services:
       - ./apps/ptah-license-server/src:/app/apps/ptah-license-server/src:delegated
       - ./apps/ptah-license-server/prisma:/app/apps/ptah-license-server/prisma:delegated
       - ./apps/ptah-license-server/prisma.config.ts:/app/apps/ptah-license-server/prisma.config.ts:delegated
-      - license-server-node-modules:/app/node_modules
     ports:
       - '${LICENSE_SERVER_PORT:-3000}:3000'
     command: >
@@ -106,8 +105,6 @@ services:
 volumes:
   postgres-data:
     name: ptah_postgres_data
-  license-server-node-modules:
-    name: ptah_license_server_node_modules
 
 # =============================================================================
 # Networks

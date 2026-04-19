@@ -4,6 +4,7 @@ import { PricingPageComponent } from './pages/pricing/pricing-page.component';
 import { AuthPageComponent } from './pages/auth/auth-page.component';
 import { ProfilePageComponent } from './pages/profile/profile-page.component';
 import { TrialEndedPageComponent } from './pages/trial-ended/trial-ended-page.component';
+import { AdminAuthGuard } from './guards/admin-auth.guard';
 import { AuthGuard } from './guards/auth.guard';
 import { GuestGuard } from './guards/guest.guard';
 import { DocsPageComponent } from './pages/docs/docs-page.component';
@@ -104,6 +105,17 @@ export const routes: Routes = [
     path: 'trial-ended',
     component: TrialEndedPageComponent,
     canActivate: [AuthGuard], // Must be logged in, but no trial check
+  },
+  {
+    // Native admin dashboard (TASK_2025_290)
+    // Hidden route — NOT in nav, NOT in sitemap.
+    // Server-side enforcement via ADMIN_EMAILS allowlist is the source of
+    // truth; this client guard is just a UX shortcut for redirects.
+    path: 'admin',
+    canActivate: [AdminAuthGuard],
+    loadChildren: () =>
+      import('./pages/admin/admin.routes').then((m) => m.ADMIN_ROUTES),
+    data: { hideFromNav: true },
   },
   {
     path: '**',

@@ -554,28 +554,49 @@ export async function activate(
     commandDiscovery.initializeWatchers();
     logger.info('Autocomplete discovery watchers initialized (2 services)');
 
-    // Step 7: Initialize SDK authentication (TASK_2025_057 Batch 1)
-    const sdkAdapter = DIContainer.resolve(TOKENS.SDK_AGENT_ADAPTER) as {
+    // Step 7: Initialize agent adapters (SDK + DeepAgent) via RuntimeSelector
+    const agentAdapter = DIContainer.resolve(TOKENS.AGENT_ADAPTER) as {
       initialize: () => Promise<boolean>;
       preloadSdk: () => Promise<void>;
     };
-    const authInitialized = await sdkAdapter.initialize();
+    const authInitialized = await agentAdapter.initialize();
 
     if (!authInitialized) {
       logger.info(
         'SDK authentication not configured - users can configure in Ptah Settings',
       );
     } else {
-      logger.info('SDK authentication initialized successfully');
+      logger.info('Agent adapters initialized successfully');
 
-      // Pre-load SDK in background (non-blocking) to speed up first chat
+      // Pre-load SDKs in background (non-blocking) to speed up first chat
       // This shifts ~100-200ms import cost from first user interaction to activation
-      sdkAdapter.preloadSdk().catch((err) => {
+      agentAdapter.preloadSdk().catch((err) => {
         logger.warn('SDK preload failed (will retry on first use)', {
           error: err instanceof Error ? err.message : String(err),
         });
       });
     }
+
+    // Watch for runtime changes and prompt for window reload. Switching
+    // between Claude SDK and deep-agent runtimes rebinds DI registrations at
+    // activation time, so the window must reload to apply.
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration('ptah.runtime')) {
+          vscode.window
+            .showInformationMessage(
+              'Ptah runtime changed. Reload the window to apply the new agent runtime.',
+              'Reload Window',
+            )
+            .then((choice) => {
+              if (choice === 'Reload Window') {
+                vscode.commands.executeCommand('workbench.action.reloadWindow');
+              }
+            });
+        }
+      }),
+    );
+
     // Step 7.1.4: Ensure plugin/template content from GitHub (non-blocking)
     // TASK_2025_248: Plugins and templates are no longer bundled in the VSIX.
     // ContentDownloadService downloads them to ~/.ptah/ on first launch and

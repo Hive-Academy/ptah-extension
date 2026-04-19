@@ -1,0 +1,201 @@
+@if (spec(); as s) {
+  <section class="flex flex-col gap-4">
+    <!-- Header: back + title -->
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          (click)="onCancel()"
+        >
+          ← Back
+        </button>
+        <h2 class="text-xl font-semibold">{{ s.label }}</h2>
+        @if (s.readOnly) {
+          <span class="badge badge-ghost badge-sm">read-only</span>
+        }
+        @if (id(); as recordId) {
+          <span class="font-mono text-xs opacity-60">{{ recordId }}</span>
+        }
+      </div>
+    </header>
+
+    @if (loading()) {
+      <div class="flex items-center gap-2 text-sm opacity-70">
+        <span class="loading loading-spinner loading-sm"></span>
+        Loading…
+      </div>
+    }
+
+    @if (loadError(); as msg) {
+      <div class="alert alert-error">
+        <span>{{ msg }}</span>
+      </div>
+    }
+
+    @if (record(); as rec) {
+      <!-- Read view: all fields from spec -->
+      <div class="card bg-base-100 shadow-sm">
+        <div class="card-body">
+          <h3 class="card-title text-base">Record</h3>
+          <dl class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+            @for (f of s.fields; track f.key) {
+              <div class="flex flex-col">
+                <dt class="text-xs font-medium uppercase opacity-60">
+                  {{ f.label }}
+                </dt>
+                <dd class="break-words text-sm">
+                  @switch (f.type) {
+                    @case ('datetime') {
+                      @if (rec[f.key]; as v) {
+                        {{ $any(v) | date: 'medium' }}
+                      } @else {
+                        <span class="opacity-50">—</span>
+                      }
+                    }
+                    @case ('boolean') {
+                      @if (rec[f.key]) {
+                        <span class="badge badge-success badge-sm">Yes</span>
+                      } @else {
+                        <span class="badge badge-ghost badge-sm">No</span>
+                      }
+                    }
+                    @case ('json') {
+                      <pre class="max-h-40 overflow-auto rounded bg-base-200 p-2 text-xs">{{ renderRead(f, rec[f.key]) }}</pre>
+                    }
+                    @default {
+                      @if (rec[f.key] !== null && rec[f.key] !== undefined && rec[f.key] !== '') {
+                        {{ renderRead(f, rec[f.key]) }}
+                      } @else {
+                        <span class="opacity-50">—</span>
+                      }
+                    }
+                  }
+                </dd>
+              </div>
+            }
+          </dl>
+        </div>
+      </div>
+
+      <!-- Edit form: only when model is not read-only -->
+      @if (!s.readOnly && editableFields().length > 0) {
+        <form
+          class="card bg-base-100 shadow-sm"
+          (submit)="onSave($event)"
+        >
+          <div class="card-body">
+            <h3 class="card-title text-base">Edit</h3>
+
+            @if (saveError(); as msg) {
+              <div class="alert alert-error text-sm">
+                <span>{{ msg }}</span>
+              </div>
+            }
+
+            @if (savedAt()) {
+              <div class="alert alert-success text-sm">
+                <span>Saved successfully.</span>
+              </div>
+            }
+
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              @for (f of editableFields(); track f.key) {
+                <label class="form-control" [attr.for]="'field-' + f.key">
+                  <div class="label">
+                    <span class="label-text">{{ f.label }}</span>
+                    @if (isDirty(f)) {
+                      <span class="label-text-alt badge badge-warning badge-xs">
+                        modified
+                      </span>
+                    }
+                  </div>
+
+                  @switch (f.type) {
+                    @case ('boolean') {
+                      <input
+                        type="checkbox"
+                        class="toggle toggle-primary"
+                        [id]="'field-' + f.key"
+                        [checked]="boolValue(f)"
+                        (change)="onFieldInput(f, $event)"
+                        [disabled]="saving()"
+                      />
+                    }
+                    @case ('datetime') {
+                      <input
+                        type="datetime-local"
+                        class="input input-bordered"
+                        [id]="'field-' + f.key"
+                        [value]="stringValue(f)"
+                        (input)="onFieldInput(f, $event)"
+                        [disabled]="saving()"
+                      />
+                    }
+                    @case ('number') {
+                      <input
+                        type="number"
+                        class="input input-bordered"
+                        [id]="'field-' + f.key"
+                        [value]="stringValue(f)"
+                        (input)="onFieldInput(f, $event)"
+                        [disabled]="saving()"
+                      />
+                    }
+                    @case ('json') {
+                      <textarea
+                        class="textarea textarea-bordered font-mono text-xs"
+                        [id]="'field-' + f.key"
+                        rows="5"
+                        [value]="stringValue(f)"
+                        (input)="onFieldInput(f, $event)"
+                        [disabled]="saving()"
+                      ></textarea>
+                    }
+                    @default {
+                      <input
+                        type="text"
+                        class="input input-bordered"
+                        [id]="'field-' + f.key"
+                        [value]="stringValue(f)"
+                        (input)="onFieldInput(f, $event)"
+                        [disabled]="saving()"
+                      />
+                    }
+                  }
+                </label>
+              }
+            </div>
+
+            <div class="card-actions mt-2 justify-end">
+              <button
+                type="button"
+                class="btn btn-ghost"
+                [disabled]="saving()"
+                (click)="onCancel()"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="btn btn-primary"
+                [disabled]="saving()"
+              >
+                @if (saving()) {
+                  <span class="loading loading-spinner loading-sm"></span>
+                  Saving…
+                } @else {
+                  Save Changes
+                }
+              </button>
+            </div>
+          </div>
+        </form>
+      }
+    }
+  </section>
+} @else {
+  <div class="alert alert-warning">
+    <span>Unknown admin model. Pick a model from the sidebar.</span>
+  </div>
+}

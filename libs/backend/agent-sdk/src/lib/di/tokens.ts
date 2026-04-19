@@ -132,6 +132,9 @@ export const SDK_TOKENS = {
   SDK_LOCAL_PROXY_STRATEGY: Symbol.for('SdkLocalProxyStrategy'),
   SDK_CLI_STRATEGY: Symbol.for('SdkCliStrategy'),
   SDK_MODEL_RESOLVER: Symbol.for('SdkModelResolver'),
+
+  /** Deep Agent History Reader (reads LangGraph checkpoint sessions) */
+  SDK_DEEP_AGENT_HISTORY_READER: Symbol.for('SdkDeepAgentHistoryReader'),
 } as const;
 
 /**

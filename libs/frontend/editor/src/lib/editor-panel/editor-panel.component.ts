@@ -148,6 +148,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
         >
           @if (sidebarVisible()) {
             <ptah-sidebar
+              [width]="sidebarWidth()"
               [files]="editorService.fileTree()"
               [activeFilePath]="editorService.activeFilePath()"
               [changedFiles]="gitStatus.files()"
@@ -157,6 +158,14 @@ import type { FileTreeNode } from '../models/file-tree.model';
               (searchResultSelected)="onSearchResultSelected($event)"
               (contextMenuRequested)="onContextMenu($event)"
             />
+
+            <!-- Sidebar resize handle (vertical, draggable) -->
+            <div
+              class="w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors flex-shrink-0"
+              role="separator"
+              aria-label="Resize sidebar"
+              (mousedown)="onSidebarResizeStart($event)"
+            ></div>
           }
 
           <!-- Editor panes container (flex row for split view) -->
@@ -441,6 +450,9 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   private readonly ngZone = inject(NgZone);
   protected readonly sidebarVisible = signal(true);
 
+  /** Width of the sidebar in pixels. Default 256px, min 160px, max 480px. */
+  protected readonly sidebarWidth = signal(256);
+
   /** Whether the terminal panel is visible. */
   protected readonly terminalVisible = signal(false);
 
@@ -464,6 +476,10 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   private _resizeMouseMove: ((e: MouseEvent) => void) | null = null;
   private _resizeMouseUp: (() => void) | null = null;
 
+  /** Bound mouse event handlers for sidebar resize drag (stored for cleanup). */
+  private _sidebarResizeMouseMove: ((e: MouseEvent) => void) | null = null;
+  private _sidebarResizeMouseUp: (() => void) | null = null;
+
   /** Bound mouse event handlers for split divider drag (stored for cleanup). */
   private _splitResizeMouseMove: ((e: MouseEvent) => void) | null = null;
   private _splitResizeMouseUp: (() => void) | null = null;
@@ -477,7 +493,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
       this.editorService.switchWorkspace(workspaceRoot);
     }
 
-    this.gitStatus.startPolling();
+    this.gitStatus.startListening();
 
     // Listen for file:tree-changed push events from the backend so the
     // file explorer updates when files are added/deleted (e.g. git pull).
@@ -488,9 +504,10 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.gitStatus.stopPolling();
+    this.gitStatus.stopListening();
     this.editorService.stopFileTreeWatcher();
     this.cleanupResizeListeners();
+    this.cleanupSidebarResizeListeners();
     this.cleanupSplitResizeListeners();
   }
 
@@ -583,7 +600,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   protected onDiffRequested(relativePath: string): void {
-    const workspaceRoot = this.gitStatus.activeWorkspacePath;
+    const workspaceRoot = this.gitStatus.activeWorkspacePath();
     if (!workspaceRoot) return;
     const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
     const root = normalizedRoot.endsWith('/')
@@ -826,6 +843,52 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     if (this._resizeMouseUp) {
       document.removeEventListener('mouseup', this._resizeMouseUp);
       this._resizeMouseUp = null;
+    }
+  }
+
+  // ============================================================================
+  // SIDEBAR RESIZE
+  // ============================================================================
+
+  /**
+   * Handle mousedown on the sidebar resize handle.
+   * Starts tracking horizontal mouse movement to resize the sidebar.
+   * Width is clamped between 160px and 480px.
+   */
+  protected onSidebarResizeStart(event: MouseEvent): void {
+    event.preventDefault();
+
+    const startX = event.clientX;
+    const startWidth = this.sidebarWidth();
+
+    this.ngZone.runOutsideAngular(() => {
+      this._sidebarResizeMouseMove = (e: MouseEvent) => {
+        const deltaX = e.clientX - startX;
+        const newWidth = startWidth + deltaX;
+        const clampedWidth = Math.max(160, Math.min(480, newWidth));
+
+        this.ngZone.run(() => {
+          this.sidebarWidth.set(clampedWidth);
+        });
+      };
+
+      this._sidebarResizeMouseUp = () => {
+        this.cleanupSidebarResizeListeners();
+      };
+
+      document.addEventListener('mousemove', this._sidebarResizeMouseMove);
+      document.addEventListener('mouseup', this._sidebarResizeMouseUp);
+    });
+  }
+
+  private cleanupSidebarResizeListeners(): void {
+    if (this._sidebarResizeMouseMove) {
+      document.removeEventListener('mousemove', this._sidebarResizeMouseMove);
+      this._sidebarResizeMouseMove = null;
+    }
+    if (this._sidebarResizeMouseUp) {
+      document.removeEventListener('mouseup', this._sidebarResizeMouseUp);
+      this._sidebarResizeMouseUp = null;
     }
   }
 
