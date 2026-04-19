@@ -444,8 +444,8 @@ export class ElectronEditorRpcHandlers {
           };
         }
 
-        const maxFileResults = params.maxFileResults ?? 50;
-        const maxMatchesPerFile = params.maxMatchesPerFile ?? 20;
+        const maxFileResults = params.maxFileResults ?? 500;
+        const maxMatchesPerFile = params.maxMatchesPerFile ?? 100;
         const wsRoot = this.workspace.getWorkspaceRoot();
 
         if (!wsRoot) {

@@ -115,8 +115,8 @@ export const OUTPUT_VALIDATION_SERVICE = Symbol.for('OutputValidationService');
 // ========================================
 
 /**
- * AgentFileWriterService - Atomic file writing with rollback
- * Responsibilities: Write agents atomically, backup existing files, rollback on error
+ * AgentFileWriterService - Agent file writing with overwrite semantics
+ * Responsibilities: Write agents to .claude/agents/, overwrite existing in place
  */
 export const AGENT_FILE_WRITER_SERVICE = Symbol.for('AgentFileWriterService');
 

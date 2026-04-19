@@ -56,7 +56,7 @@ export class SdkMessageFactory {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_ATTACHMENT_PROCESSOR)
-    private readonly attachmentProcessor: AttachmentProcessorService
+    private readonly attachmentProcessor: AttachmentProcessorService,
   ) {}
 
   /**
@@ -75,7 +75,7 @@ export class SdkMessageFactory {
    * ```
    */
   async createUserMessage(
-    params: CreateMessageParams
+    params: CreateMessageParams,
   ): Promise<SDKUserMessage> {
     const { content, sessionId, files = [], images = [] } = params;
 
@@ -86,7 +86,7 @@ export class SdkMessageFactory {
 
     if (hasAttachments) {
       this.logger.debug(
-        `[SdkMessageFactory] Processing ${files.length} file attachments + ${images.length} inline images`
+        `[SdkMessageFactory] Processing ${files.length} file attachments + ${images.length} inline images`,
       );
 
       const contentBlocks: (
@@ -126,15 +126,14 @@ export class SdkMessageFactory {
     const messageId = MessageId.create();
     const messageIdStr = messageId.toString();
 
-    // Create SDK-compatible message structure
     const sdkMessage: SDKUserMessage = {
       type: 'user',
       uuid: messageIdStr as `${string}-${string}-${string}-${string}-${string}`,
       session_id: sessionId as string,
       message: {
-        role: 'user',
+        role: 'user' as const,
         content: messageContent,
-      },
+      } as SDKUserMessage['message'],
       parent_tool_use_id: null,
     };
 

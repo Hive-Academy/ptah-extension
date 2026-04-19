@@ -30,6 +30,7 @@ import {
   getAnthropicProvider,
   COPILOT_PROVIDER_ENTRY,
   CODEX_PROVIDER_ENTRY,
+  OllamaModelDiscoveryService,
 } from '@ptah-extension/agent-sdk';
 import { CliDetectionService } from '@ptah-extension/llm-abstraction';
 import {
@@ -68,6 +69,8 @@ export class ProviderRpcHandlers {
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
     private readonly sdkAdapter: SdkAgentAdapter,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_OLLAMA_DISCOVERY)
+    private readonly ollamaDiscovery: OllamaModelDiscoveryService,
   ) {}
 
   /**
@@ -77,6 +80,7 @@ export class ProviderRpcHandlers {
     this.registerCopilotDynamicFetcher();
     this.registerCodexDynamicFetcher();
     this.registerAnthropicDirectFetcher();
+    this.registerOllamaDynamicFetchers();
     this.registerListModels();
     this.registerSetModelTier();
     this.registerGetModelTiers();
@@ -283,6 +287,31 @@ export class ProviderRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * Register dynamic model fetchers for Ollama (local) and Ollama Cloud eagerly.
+   *
+   * Previously, these fetchers were only registered inside
+   * `LocalNativeStrategy.configure()` — which runs AFTER the user selects Ollama
+   * as the active provider. But the model dropdown is what the user uses to
+   * make that selection, creating a chicken-and-egg where the dropdown was
+   * always empty until the user had already configured Ollama.
+   *
+   * Registering at startup (same pattern as Copilot, Codex, Anthropic direct)
+   * makes the dropdown populate as soon as the UI queries it, independent of
+   * which provider is currently active. The discovery service tolerates Ollama
+   * being offline — it simply returns an empty array and ProviderModelsService
+   * falls back to `staticModels` on OLLAMA_PROVIDER_ENTRY.
+   */
+  private registerOllamaDynamicFetchers(): void {
+    this.providerModels.registerDynamicFetcher('ollama', () =>
+      this.ollamaDiscovery.listLocalModels(),
+    );
+    this.providerModels.registerDynamicFetcher('ollama-cloud', () =>
+      this.ollamaDiscovery.listCloudModels(),
+    );
+    this.logger.debug('[ProviderRpc] Registered eager Ollama dynamic fetchers');
   }
 
   /** Convert model ID slug to display name: "gpt-5.3-codex" → "GPT 5.3 Codex" */

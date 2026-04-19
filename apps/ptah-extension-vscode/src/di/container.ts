@@ -80,6 +80,13 @@ import {
 
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 
+// Deep Agent SDK (TASK_2025_248 / LangChain deep-agents runtime)
+import {
+  registerDeepAgentServices,
+  AgentRuntimeSelector,
+} from '@ptah-extension/deep-agent-sdk';
+import { DEEP_AGENT_TOKENS } from '@ptah-extension/deep-agent-sdk';
+
 import {
   registerVsCodeLmToolsServices,
   IDE_CAPABILITIES_TOKEN,
@@ -388,7 +395,7 @@ export class DIContainer {
           c.resolve(TOKENS.WEBVIEW_MANAGER),
           c.resolve(TOKENS.AGENT_SESSION_WATCHER_SERVICE),
           c.resolve(TOKENS.COMMAND_MANAGER),
-          c.resolve(SDK_TOKENS.SDK_AGENT_ADAPTER),
+          c.resolve(TOKENS.AGENT_ADAPTER),
           // Domain-specific handlers
           c.resolve(ChatRpcHandlers),
           c.resolve(SessionRpcHandlers),
@@ -489,6 +496,25 @@ export class DIContainer {
     // SDK_TOKENS.SDK_AGENT_ADAPTER both use Symbol.for('SdkAgentAdapter'), so
     // they are the same symbol. registerSdkServices() registers the adapter
     // directly against that symbol -- no bridge needed.
+
+    // ========================================
+    // PHASE 2.75: Deep Agent SDK (LangChain runtime)
+    // ========================================
+    // Registers: ModelFactoryService, StreamAdapterService, ToolBridgeService,
+    // SessionRegistry, DeepAgentAdapter, AgentRuntimeSelector.
+    // Must run AFTER registerSdkServices() so the selector can resolve
+    // SDK_TOKENS.SDK_AGENT_ADAPTER as its inner Claude adapter.
+    registerDeepAgentServices(container, logger);
+
+    // TOKENS.AGENT_ADAPTER → AgentRuntimeSelector (the IAgentAdapter facade).
+    // Consumers that don't care which runtime backs the session inject this
+    // token. The selector dispatches to SDK or Deep based on `ptah.runtime`.
+    container.register(TOKENS.AGENT_ADAPTER, {
+      useFactory: (c) =>
+        c.resolve<AgentRuntimeSelector>(
+          DEEP_AGENT_TOKENS.AGENT_RUNTIME_SELECTOR,
+        ),
+    });
 
     // ========================================
     // PHASE 2.8: Agent Generation Services (TASK_2025_069)

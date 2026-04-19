@@ -71,17 +71,22 @@ export const DEFAULT_FALLBACK_MODEL_ID = TIER_TO_MODEL_ID['default'];
  */
 const STATIC_FALLBACK_MODELS: ModelInfo[] = [
   {
-    value: TIER_TO_MODEL_ID['opus'],
+    value: 'default',
+    displayName: 'Default (recommended)',
+    description: 'Uses the best available model for your account',
+  },
+  {
+    value: 'opus',
     displayName: 'Claude Opus 4.7',
     description: 'Most capable model for complex tasks',
   },
   {
-    value: TIER_TO_MODEL_ID['sonnet'],
+    value: 'sonnet',
     displayName: 'Claude Sonnet 4.6',
     description: 'Best balance of speed and intelligence',
   },
   {
-    value: TIER_TO_MODEL_ID['haiku'],
+    value: 'haiku',
     displayName: 'Claude Haiku 4.5',
     description: 'Fastest and most compact model',
   },
@@ -165,6 +170,12 @@ export class SdkModelService {
   private cachedModels: ModelInfo[] = [];
 
   /**
+   * In-flight promise for getSupportedModels() to deduplicate concurrent calls.
+   * Prevents multiple SDK bridge subprocesses from spawning simultaneously.
+   */
+  private pendingModelsPromise: Promise<ModelInfo[]> | null = null;
+
+  /**
    * Cached models from Anthropic /v1/models API
    */
   private cachedApiModels: ApiModelEntry[] | null = null;
@@ -196,9 +207,23 @@ export class SdkModelService {
       return this.cachedModels;
     }
 
+    if (this.pendingModelsPromise) {
+      this.logger.debug(
+        '[SdkModelService] Deduplicating concurrent getSupportedModels() call',
+      );
+      return this.pendingModelsPromise;
+    }
+
+    this.pendingModelsPromise = this.fetchSupportedModelsInternal();
+    try {
+      return await this.pendingModelsPromise;
+    } finally {
+      this.pendingModelsPromise = null;
+    }
+  }
+
+  private async fetchSupportedModelsInternal(): Promise<ModelInfo[]> {
     const rawAuthMethod = this.config.get<string>('authMethod') || 'apiKey';
-    // Normalize legacy/unknown values to the canonical 3-way enum used throughout the codebase.
-    // 'openrouter' was an old thirdParty alias; 'oauth'/'auto' were legacy apiKey variants.
     let authMethod = rawAuthMethod;
     if (rawAuthMethod === 'openrouter') authMethod = 'thirdParty';
     else if (rawAuthMethod === 'oauth' || rawAuthMethod === 'auto')
@@ -215,22 +240,15 @@ export class SdkModelService {
     let models: ModelInfo[];
 
     if (authMethod === 'claudeCli') {
-      // Claude CLI: return query.supportedModels() directly — no env-var tier mapping.
-      // 'default' is preserved as a valid user choice meaning "let the SDK decide."
       models = await this.fetchModelsViaSdk();
     } else if (authMethod === 'apiKey') {
-      // Anthropic API key: /v1/models gives full versioned IDs — no tier mapping.
       models = await this.fetchModelsForApiKey();
     } else {
-      // Third-party providers (Copilot, Codex, OpenRouter, Moonshot, Z.AI, etc.):
-      // SDK returns tier slots; map them to provider-specific model IDs
       const sdkModels = await this.fetchModelsViaSdk();
       models = sdkModels.length > 0 ? this.applyTierMapping(sdkModels) : [];
     }
 
     if (models.length > 0) {
-      // Don't cache SDK tier-name fallback for apiKey auth — those are degraded results
-      // (bare tier names instead of full versioned IDs). Cache only when /v1/models succeeded.
       const isDegradedApiKeyFallback =
         authMethod === 'apiKey' &&
         models.every((m) => !m.value.startsWith('claude-'));
@@ -245,7 +263,7 @@ export class SdkModelService {
           displayName: m.displayName,
         })),
       });
-      return this.cachedModels;
+      return isDegradedApiKeyFallback ? models : this.cachedModels;
     }
 
     this.logger.warn(
@@ -295,29 +313,34 @@ export class SdkModelService {
 
     // Third-party providers: resolve tiers to provider-specific model IDs
     // and deduplicate (different tiers may map to the same provider model).
+    // 'default' resolves as opus but keeps its own display name and is NOT
+    // deduplicated against opus — users can select either.
     const seen = new Set<string>();
     const normalized: ModelInfo[] = [];
+    let isDefault = false;
 
     for (const m of models) {
-      // 'default' is an alias for 'opus' — skip it; the 'opus' entry covers it.
-      if (m.value.toLowerCase() === 'default') continue;
-      const resolvedValue = this.resolveModelId(m.value);
-      if (seen.has(resolvedValue)) continue;
-      seen.add(resolvedValue);
+      isDefault = m.value.toLowerCase() === 'default';
+      const resolvedValue = isDefault
+        ? this.resolveModelId('opus')
+        : this.resolveModelId(m.value);
+
+      // Don't deduplicate 'default' against opus — both should appear
+      if (!isDefault) {
+        if (seen.has(resolvedValue)) continue;
+        seen.add(resolvedValue);
+      }
 
       normalized.push({
         ...m,
-        value: resolvedValue,
+        value: isDefault ? 'default' : resolvedValue,
       });
     }
 
-    const defaultSkipped = models.filter(
-      (m) => m.value.toLowerCase() === 'default',
-    ).length;
-    const collisions = models.length - defaultSkipped - normalized.length;
+    const collisions = models.length - normalized.length;
     if (collisions > 0) {
       this.logger.debug(
-        `[SdkModelService] applyTierMapping: ${collisions} duplicate(s) collapsed (${models.length} → ${normalized.length}, ${defaultSkipped} 'default' skipped)`,
+        `[SdkModelService] applyTierMapping: ${collisions} duplicate(s) collapsed (${models.length} → ${normalized.length})`,
       );
     }
 

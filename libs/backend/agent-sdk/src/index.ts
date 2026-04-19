@@ -213,6 +213,7 @@ export {
   CopilotTranslationProxy,
   COPILOT_PROVIDER_ENTRY,
   COPILOT_DEFAULT_TIERS,
+  COPILOT_PROXY_TOKEN_PLACEHOLDER,
   readCopilotToken,
   getCopilotHostsPath,
   getCopilotAppsPath,

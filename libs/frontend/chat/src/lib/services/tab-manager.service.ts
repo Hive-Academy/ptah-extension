@@ -844,16 +844,16 @@ export class TabManagerService {
         // and become plain objects, causing "get is not a function" errors
         const sanitizedTabs = state.tabs.map((tab: TabState) => ({
           ...tab,
-          streamingState: null, // Clear transient streaming state
-          // TASK_2025_COMPACT_FIX: Also sanitize 'resuming' and 'switching' — these
-          // are transient states that should never persist across reloads.
+          streamingState: null,
+          // Backend sessions don't survive app restarts — clear the ID so
+          // the frontend starts a fresh session instead of attempting resume.
+          claudeSessionId: null,
           status:
             tab.status === 'streaming' ||
             tab.status === 'resuming' ||
             tab.status === 'switching'
               ? 'loaded'
               : tab.status,
-          // Clear stale queued content that may have been persisted during streaming
           queuedContent: null,
           queuedOptions: null,
         }));

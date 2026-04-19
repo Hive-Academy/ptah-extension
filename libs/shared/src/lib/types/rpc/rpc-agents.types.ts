@@ -96,6 +96,8 @@ export interface AgentOrchestrationConfig {
   disabledMcpNamespaces: string[];
   /** Whether the browser automation tools can navigate to localhost URLs (default: false) */
   browserAllowLocalhost: boolean;
+  /** Agent runtime selector (lives under ptah.runtime, not ptah.agentOrchestration.*) */
+  runtime: 'auto' | 'claude-sdk' | 'deep-agent';
 }
 
 /** CLI model option for agent:listCliModels */
@@ -141,6 +143,8 @@ export interface AgentSetConfigParams {
   disabledMcpNamespaces?: string[];
   /** Whether the browser automation tools can navigate to localhost URLs */
   browserAllowLocalhost?: boolean;
+  /** Agent runtime selector (lives under ptah.runtime, not ptah.agentOrchestration.*) */
+  runtime?: 'auto' | 'claude-sdk' | 'deep-agent';
 }
 
 // ============================================================

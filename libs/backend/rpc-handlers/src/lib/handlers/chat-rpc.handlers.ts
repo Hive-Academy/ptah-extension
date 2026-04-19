@@ -23,7 +23,6 @@ import {
   isPremiumTier,
 } from '@ptah-extension/vscode-core';
 import {
-  SdkAgentAdapter,
   SessionHistoryReaderService,
   SessionMetadataStore,
   SDK_TOKENS,
@@ -33,6 +32,7 @@ import {
   DEFAULT_FALLBACK_MODEL_ID,
   type EnhancedPromptsService,
 } from '@ptah-extension/agent-sdk';
+import type { IAgentAdapter } from '@ptah-extension/shared';
 
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
@@ -75,8 +75,8 @@ export class ChatRpcHandlers {
     private readonly webviewManager: WebviewManager,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
-    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
-    private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(TOKENS.AGENT_ADAPTER)
+    private readonly sdkAdapter: IAgentAdapter,
     @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
     private readonly historyReader: SessionHistoryReaderService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
@@ -788,28 +788,80 @@ export class ChatRpcHandlers {
                 DEFAULT_FALLBACK_MODEL_ID,
               );
 
-            // Resume the session to reconnect to Claude's conversation context
+            // Resume the session to reconnect to Claude's conversation context.
             // TASK_2025_108: Pass isPremium and mcpServerRunning to maintain premium features in resumed sessions
             // TASK_2025_151: Pass enhancedPromptsContent for AI-generated system prompt
             // TASK_2025_153: Pass pluginPaths for session plugin loading
-            const stream = await this.sdkAdapter.resumeSession(sessionId, {
-              projectPath: workspacePath,
-              model: currentModel,
-              isPremium,
-              mcpServerRunning,
-              enhancedPromptsContent,
-              pluginPaths,
-              tabId,
-              thinking: params.thinking, // TASK_2025_184: Reasoning configuration
-              effort: params.effort, // TASK_2025_184: Effort level
-            });
+            // Deep-agent runtime rejects resume — translate to a structured
+            // early return so the webview can show a reload prompt.
+            try {
+              const stream = await this.sdkAdapter.resumeSession(sessionId, {
+                projectPath: workspacePath,
+                model: currentModel,
+                isPremium,
+                mcpServerRunning,
+                enhancedPromptsContent,
+                pluginPaths,
+                tabId,
+                thinking: params.thinking, // TASK_2025_184: Reasoning configuration
+                effort: params.effort, // TASK_2025_184: Effort level
+              });
 
-            // Start streaming responses to webview (background - don't await)
-            // Pass tabId for event routing
-            this.streamExecutionNodesToWebview(sessionId, stream, tabId);
+              // Start streaming responses to webview (background - don't await)
+              // Pass tabId for event routing
+              this.streamExecutionNodesToWebview(sessionId, stream, tabId);
 
-            this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
-            justResumed = true;
+              this.logger.info(
+                `[RPC] Session ${sessionId} resumed successfully`,
+              );
+              justResumed = true;
+            } catch (resumeError) {
+              const message =
+                resumeError instanceof Error
+                  ? resumeError.message
+                  : String(resumeError);
+              // Deep-agent runtime can't replay Claude SDK JSONL history.
+              // Fall back to a fresh session bound to the same tabId so the
+              // user's message still gets answered without losing the tab.
+              if (message.startsWith('Session resume')) {
+                this.logger.info(
+                  '[RPC] chat:continue - falling back to startChatSession (deep-agent runtime cannot resume)',
+                  { sessionId, tabId },
+                );
+                const stream = await this.sdkAdapter.startChatSession({
+                  tabId,
+                  workspaceId: workspacePath,
+                  model: currentModel,
+                  projectPath: workspacePath,
+                  name,
+                  prompt,
+                  files: params.files ?? [],
+                  images: params.images ?? [],
+                  isPremium,
+                  mcpServerRunning,
+                  enhancedPromptsContent,
+                  pluginPaths,
+                  thinking: params.thinking,
+                  effort: params.effort,
+                });
+                this.streamExecutionNodesToWebview(
+                  tabId as SessionId,
+                  stream,
+                  tabId,
+                );
+                return { success: true, sessionId: tabId as SessionId };
+              }
+              this.logger.warn(
+                '[RPC] chat:continue - resumeSession rejected by runtime',
+                { sessionId, error: message },
+              );
+              const result: ChatContinueResult = {
+                success: false,
+                sessionId: sessionId as SessionId,
+                error: message,
+              };
+              return result;
+            }
           }
 
           // Extract files from params for debugging (Phase 2)
@@ -1105,32 +1157,49 @@ IMPORTANT INSTRUCTIONS:
       // SlashCommandResult uses discriminated union or optional rawCommand
       const command = interceptResult.rawCommand ?? prompt;
 
-      // Execute the slash command as a new query with resume
-      const stream = await this.sdkAdapter.executeSlashCommand(
-        sessionId,
-        command,
-        {
-          sessionConfig: {
-            model:
-              params.model ||
-              this.configManager.getWithDefault<string>(
-                'model.selected',
-                DEFAULT_FALLBACK_MODEL_ID,
-              ),
-            projectPath: workspacePath,
-          } as AISessionConfig,
-          isPremium,
-          mcpServerRunning,
-          enhancedPromptsContent,
-          pluginPaths,
-          tabId,
-        },
-      );
+      // Execute the slash command as a new query with resume. The deep-agent
+      // runtime does not support slash commands — surface a structured error
+      // back to the webview instead of failing mid-stream.
+      try {
+        const stream = await this.sdkAdapter.executeSlashCommand(
+          sessionId,
+          command,
+          {
+            sessionConfig: {
+              model:
+                params.model ||
+                this.configManager.getWithDefault<string>(
+                  'model.selected',
+                  DEFAULT_FALLBACK_MODEL_ID,
+                ),
+              projectPath: workspacePath,
+            } as AISessionConfig,
+            isPremium,
+            mcpServerRunning,
+            enhancedPromptsContent,
+            pluginPaths,
+            tabId,
+          },
+        );
 
-      // Reconnect streaming to the frontend
-      this.streamExecutionNodesToWebview(sessionId, stream, tabId);
+        // Reconnect streaming to the frontend
+        this.streamExecutionNodesToWebview(sessionId, stream, tabId);
 
-      return { success: true, sessionId };
+        return { success: true, sessionId };
+      } catch (slashError) {
+        const message =
+          slashError instanceof Error ? slashError.message : String(slashError);
+        this.logger.warn(
+          '[RPC] chat:continue - executeSlashCommand rejected by runtime',
+          { sessionId, command, error: message },
+        );
+        const result: ChatContinueResult = {
+          success: false,
+          sessionId,
+          error: message,
+        };
+        return result;
+      }
     }
 
     return null;

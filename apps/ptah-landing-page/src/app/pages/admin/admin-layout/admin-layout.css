@@ -1,0 +1,9 @@
+/*
+ * Admin layout — intentionally minimal scoped CSS.
+ * All visual styling is delegated to TailwindCSS + DaisyUI utility classes
+ * in the template, matching the landing-page convention.
+ */
+
+:host {
+  display: block;
+}

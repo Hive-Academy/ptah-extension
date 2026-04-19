@@ -62,11 +62,11 @@ export const MESSAGE_VALIDATOR = Symbol.for('MessageValidator');
 export const CONTEXT_MANAGER = Symbol.for('ContextManager');
 export const RPC_HANDLER = Symbol.for('RpcHandler');
 export const RPC_METHOD_REGISTRATION_SERVICE = Symbol.for(
-  'RpcMethodRegistrationService'
+  'RpcMethodRegistrationService',
 );
 // SDK_RPC_HANDLERS - DELETED in TASK_2025_092 (dead code - permission emitter moved to SdkPermissionHandler)
 export const AGENT_SESSION_WATCHER_SERVICE = Symbol.for(
-  'AgentSessionWatcherService'
+  'AgentSessionWatcherService',
 );
 export const SUBAGENT_REGISTRY_SERVICE = Symbol.for('SubagentRegistryService');
 
@@ -78,39 +78,39 @@ export const FILE_SYSTEM_SERVICE = Symbol.for('FileSystemService');
 export const CONTEXT_SERVICE = Symbol.for('ContextService');
 export const PROJECT_DETECTOR_SERVICE = Symbol.for('ProjectDetectorService');
 export const FRAMEWORK_DETECTOR_SERVICE = Symbol.for(
-  'FrameworkDetectorService'
+  'FrameworkDetectorService',
 );
 export const DEPENDENCY_ANALYZER_SERVICE = Symbol.for(
-  'DependencyAnalyzerService'
+  'DependencyAnalyzerService',
 );
 export const MONOREPO_DETECTOR_SERVICE = Symbol.for('MonorepoDetectorService');
 export const PATTERN_MATCHER_SERVICE = Symbol.for('PatternMatcherService');
 export const IGNORE_PATTERN_RESOLVER_SERVICE = Symbol.for(
-  'IgnorePatternResolverService'
+  'IgnorePatternResolverService',
 );
 export const FILE_TYPE_CLASSIFIER_SERVICE = Symbol.for(
-  'FileTypeClassifierService'
+  'FileTypeClassifierService',
 );
 export const WORKSPACE_INDEXER_SERVICE = Symbol.for('WorkspaceIndexerService');
 export const FILE_INDEXER_SERVICE = Symbol.for('FileIndexerService');
 export const WORKSPACE_ANALYZER_SERVICE = Symbol.for(
-  'WorkspaceAnalyzerService'
+  'WorkspaceAnalyzerService',
 );
 export const WORKSPACE_SERVICE = Symbol.for('WorkspaceService');
 export const FILE_RELEVANCE_SCORER = Symbol.for('FileRelevanceScorer');
 export const CONTEXT_SIZE_OPTIMIZER = Symbol.for('ContextSizeOptimizer');
 export const SEMANTIC_CONTEXT_EXTRACTOR = Symbol.for(
-  'SemanticContextExtractor'
+  'SemanticContextExtractor',
 );
 export const CONTEXT_ORCHESTRATION_SERVICE = Symbol.for(
-  'ContextOrchestrationService'
+  'ContextOrchestrationService',
 );
 export const TREE_SITTER_PARSER_SERVICE = Symbol.for('TreeSitterParserService');
 export const AST_ANALYSIS_SERVICE = Symbol.for('AstAnalysisService');
 export const AGENT_DISCOVERY_SERVICE = Symbol.for('AgentDiscoveryService');
 export const COMMAND_DISCOVERY_SERVICE = Symbol.for('CommandDiscoveryService');
 export const CONTEXT_ENRICHMENT_SERVICE = Symbol.for(
-  'ContextEnrichmentService'
+  'ContextEnrichmentService',
 );
 export const DEPENDENCY_GRAPH_SERVICE = Symbol.for('DependencyGraphService');
 
@@ -156,7 +156,7 @@ export const FEATURE_GATE_SERVICE = Symbol.for('FeatureGateService');
 // This resolves the collision where both workspace-intelligence (FileSystemService)
 // and template-generation (FileSystemAdapter) were using TOKENS.FILE_SYSTEM_SERVICE
 export const TEMPLATE_FILE_SYSTEM_ADAPTER = Symbol.for(
-  'TemplateFileSystemAdapter'
+  'TemplateFileSystemAdapter',
 );
 export const TEMPLATE_MANAGER = Symbol.for('TemplateManager');
 export const CONTENT_GENERATOR = Symbol.for('ContentGenerator');
@@ -165,7 +165,7 @@ export const TEMPLATE_PROCESSOR = Symbol.for('TemplateProcessor');
 export const TEMPLATE_FILE_MANAGER = Symbol.for('TemplateFileManager');
 export const TEMPLATE_ORCHESTRATOR = Symbol.for('TemplateOrchestrator');
 export const TEMPLATE_GENERATOR_SERVICE = Symbol.for(
-  'TemplateGeneratorService'
+  'TemplateGeneratorService',
 );
 
 // ========================================
@@ -203,6 +203,16 @@ export const GLOBAL_STATE = Symbol.for('GlobalState');
 
 // Agent SDK adapter token (TASK_2025_057 Batch 1)
 export const SDK_AGENT_ADAPTER = Symbol.for('SdkAgentAdapter');
+
+/**
+ * AgentAdapter facade token — resolves to the AgentRuntimeSelector which
+ * implements IAgentAdapter by dispatching to either SdkAgentAdapter or
+ * DeepAgentAdapter based on the user's `ptah.runtime` setting.
+ *
+ * All consumers that don't care which runtime backs the session should
+ * inject TOKENS.AGENT_ADAPTER typed as IAgentAdapter.
+ */
+export const AGENT_ADAPTER = Symbol.for('AgentAdapter');
 // PERMISSION_SERVICE - DELETED (over-engineered, unused)
 
 // DELETED tokens (TASK_2025_023 purge)
@@ -229,7 +239,7 @@ export const STORAGE_SERVICE = Symbol.for('StorageService');
  * Responsibilities: Sample files, detect anti-patterns, calculate quality score
  */
 export const CODE_QUALITY_ASSESSMENT_SERVICE = Symbol.for(
-  'CodeQualityAssessmentService'
+  'CodeQualityAssessmentService',
 );
 
 /**
@@ -237,7 +247,7 @@ export const CODE_QUALITY_ASSESSMENT_SERVICE = Symbol.for(
  * Responsibilities: Load rules, execute detection, aggregate results
  */
 export const ANTI_PATTERN_DETECTION_SERVICE = Symbol.for(
-  'AntiPatternDetectionService'
+  'AntiPatternDetectionService',
 );
 
 /**
@@ -245,7 +255,7 @@ export const ANTI_PATTERN_DETECTION_SERVICE = Symbol.for(
  * Responsibilities: Orchestrate workspace analysis + quality assessment + guidance generation
  */
 export const PROJECT_INTELLIGENCE_SERVICE = Symbol.for(
-  'ProjectIntelligenceService'
+  'ProjectIntelligenceService',
 );
 
 /**
@@ -253,7 +263,7 @@ export const PROJECT_INTELLIGENCE_SERVICE = Symbol.for(
  * Responsibilities: Prioritize issues, generate actionable guidance, respect token budgets
  */
 export const PRESCRIPTIVE_GUIDANCE_SERVICE = Symbol.for(
-  'PrescriptiveGuidanceService'
+  'PrescriptiveGuidanceService',
 );
 
 /**
@@ -283,7 +293,7 @@ export const ANGULAR_WEBVIEW_PROVIDER = Symbol.for('AngularWebviewProvider');
 export const COMMAND_HANDLERS = Symbol.for('CommandHandlers');
 export const WEBVIEW_EVENT_QUEUE = Symbol.for('WebviewEventQueue');
 export const WEBVIEW_INITIAL_DATA_BUILDER = Symbol.for(
-  'WebviewInitialDataBuilder'
+  'WebviewInitialDataBuilder',
 );
 export const WEBVIEW_HTML_GENERATOR = Symbol.for('WebviewHtmlGenerator');
 export const WEBVIEW_MESSAGE_HANDLER = Symbol.for('WebviewMessageHandler');
@@ -448,6 +458,7 @@ export const TOKENS = {
   STORAGE_SERVICE,
   // CONFIGURATION_PROVIDER - DELETED in TASK_2025_078
   SDK_AGENT_ADAPTER,
+  AGENT_ADAPTER,
   // PERMISSION_SERVICE - DELETED (over-engineered, unused)
   // DELETED (TASK_2025_023 cleanup): SESSION_MANAGER, INTERACTIVE_SESSION_MANAGER,
   // SESSION_PROXY, CLAUDE_DOMAIN_EVENT_PUBLISHER, CHAT_ORCHESTRATION_SERVICE,
