@@ -173,7 +173,7 @@ export class GitStatusBarComponent {
    * Converts relative git path to absolute path and opens in the editor.
    */
   protected onChangedFileClick(relativePath: string): void {
-    const workspaceRoot = this.gitStatus.activeWorkspacePath;
+    const workspaceRoot = this.gitStatus.activeWorkspacePath();
     if (!workspaceRoot) return;
 
     // Guard against path traversal — validate each segment individually.

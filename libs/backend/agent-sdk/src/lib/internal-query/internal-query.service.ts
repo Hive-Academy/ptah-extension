@@ -166,7 +166,8 @@ export class InternalQueryService {
     const options = await this.buildOptions(config, abortController, cliJsPath);
 
     const systemPromptObj =
-      typeof options.systemPrompt === 'object'
+      typeof options.systemPrompt === 'object' &&
+      !Array.isArray(options.systemPrompt)
         ? options.systemPrompt
         : undefined;
 

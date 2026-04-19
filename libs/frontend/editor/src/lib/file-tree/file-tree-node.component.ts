@@ -165,7 +165,7 @@ export class FileTreeNodeComponent {
    */
   readonly nodeGitStatus = computed((): GitFileStatus | undefined => {
     const absolutePath = this.node().path;
-    const workspaceRoot = this.gitStatus.activeWorkspacePath;
+    const workspaceRoot = this.gitStatus.activeWorkspacePath();
     if (!workspaceRoot) return undefined;
 
     // Normalize both to forward slashes for consistent comparison
@@ -273,7 +273,7 @@ export class FileTreeNodeComponent {
   readonly hasChangedChildren = computed((): boolean => {
     if (this.node().type !== 'directory') return false;
     const nodePath = this.node().path.replace(/\\/g, '/');
-    const workspaceRoot = this.gitStatus.activeWorkspacePath;
+    const workspaceRoot = this.gitStatus.activeWorkspacePath();
     if (!workspaceRoot) return false;
 
     const normalizedRoot = workspaceRoot.replace(/\\/g, '/');

@@ -2,9 +2,7 @@
  * Electron Resize Handle Component
  *
  * Generic drag handle for resizing adjacent panels in the Electron shell.
- * Unlike the existing ResizeHandleComponent (which uses PanelResizeService
- * for the agent monitor panel), this one emits drag events so the parent
- * can control any panel width.
+ * Uses raw mousedown/mousemove/mouseup for reliable, jank-free resizing.
  *
  * Usage:
  *   <ptah-electron-resize-handle
@@ -23,14 +21,15 @@ import {
   ChangeDetectionStrategy,
   input,
   output,
+  inject,
+  NgZone,
+  OnDestroy,
 } from '@angular/core';
-import { CdkDrag, CdkDragMove } from '@angular/cdk/drag-drop';
 import { RESIZE_HANDLE_STYLES } from './resize-handle.styles';
 
 @Component({
   selector: 'ptah-electron-resize-handle',
   standalone: true,
-  imports: [CdkDrag],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: RESIZE_HANDLE_STYLES,
   template: `
@@ -38,15 +37,13 @@ import { RESIZE_HANDLE_STYLES } from './resize-handle.styles';
       class="resize-handle"
       role="separator"
       aria-orientation="vertical"
-      cdkDrag
-      cdkDragLockAxis="x"
-      (cdkDragStarted)="onDragStart()"
-      (cdkDragMoved)="onDrag($event)"
-      (cdkDragEnded)="onDragEnd()"
+      (mousedown)="onMouseDown($event)"
     ></div>
   `,
 })
-export class ElectronResizeHandleComponent {
+export class ElectronResizeHandleComponent implements OnDestroy {
+  private readonly ngZone = inject(NgZone);
+
   /**
    * Which side the resizable panel is on.
    * 'left'  → width = pointer X position
@@ -55,29 +52,50 @@ export class ElectronResizeHandleComponent {
   readonly direction = input<'left' | 'right'>('left');
 
   readonly dragStarted = output<void>();
-  readonly dragMoved = output<number>(); // emits calculated width
+  readonly dragMoved = output<number>();
   readonly dragEnded = output<void>();
 
-  onDragStart(): void {
+  private mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
+  private mouseUpHandler: (() => void) | null = null;
+
+  onMouseDown(event: MouseEvent): void {
+    event.preventDefault();
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     this.dragStarted.emit();
+
+    this.ngZone.runOutsideAngular(() => {
+      this.mouseMoveHandler = (e: MouseEvent) => {
+        const pointerX = e.clientX;
+        const width =
+          this.direction() === 'left' ? pointerX : window.innerWidth - pointerX;
+        this.ngZone.run(() => this.dragMoved.emit(width));
+      };
+
+      this.mouseUpHandler = () => {
+        this.cleanup();
+        this.ngZone.run(() => this.dragEnded.emit());
+      };
+
+      document.addEventListener('mousemove', this.mouseMoveHandler);
+      document.addEventListener('mouseup', this.mouseUpHandler);
+    });
   }
 
-  onDrag(event: CdkDragMove): void {
-    // Reset CDK transform — we resize the panel, not translate the handle
-    event.source.element.nativeElement.style.transform = 'none';
-
-    const pointerX = event.pointerPosition.x;
-    const width =
-      this.direction() === 'left' ? pointerX : window.innerWidth - pointerX;
-
-    this.dragMoved.emit(width);
+  ngOnDestroy(): void {
+    this.cleanup();
   }
 
-  onDragEnd(): void {
+  private cleanup(): void {
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
-    this.dragEnded.emit();
+    if (this.mouseMoveHandler) {
+      document.removeEventListener('mousemove', this.mouseMoveHandler);
+      this.mouseMoveHandler = null;
+    }
+    if (this.mouseUpHandler) {
+      document.removeEventListener('mouseup', this.mouseUpHandler);
+      this.mouseUpHandler = null;
+    }
   }
 }

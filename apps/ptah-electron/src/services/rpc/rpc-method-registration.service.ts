@@ -35,9 +35,10 @@ import type {
   CliOutputSegment,
   FlatStreamEventUnion,
   AgentPermissionRequest,
+  IAgentAdapter,
+  ResultStatsPayload,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
 import type { AgentProcessManager } from '@ptah-extension/llm-abstraction';
 import type { CopilotPermissionBridge } from '@ptah-extension/llm-abstraction';
 
@@ -239,10 +240,12 @@ export class ElectronRpcMethodRegistrationService {
    * registered at DI construction time (Electron phases register them later).
    */
   private setupSdkCallbacks(): void {
-    // Lazy-resolve SdkAgentAdapter (may fail if SDK auth not configured)
-    if (!container.isRegistered(SDK_TOKENS.SDK_AGENT_ADAPTER)) {
+    // Lazy-resolve the agent adapter via TOKENS.AGENT_ADAPTER (the runtime-selector
+    // facade registered in Phase 2.2.1). Typed as IAgentAdapter so we don't depend
+    // on the concrete SDK class here.
+    if (!container.isRegistered(TOKENS.AGENT_ADAPTER)) {
       this.logger.warn(
-        '[Electron RPC] SdkAgentAdapter not registered — SDK callbacks skipped',
+        '[Electron RPC] AGENT_ADAPTER not registered — SDK callbacks skipped',
       );
       return;
     }
@@ -256,9 +259,7 @@ export class ElectronRpcMethodRegistrationService {
     }
 
     try {
-      const sdkAdapter = container.resolve<SdkAgentAdapter>(
-        SDK_TOKENS.SDK_AGENT_ADAPTER,
-      );
+      const sdkAdapter = container.resolve<IAgentAdapter>(TOKENS.AGENT_ADAPTER);
       const webviewManager = container.resolve<{
         broadcastMessage(type: string, payload: unknown): Promise<void>;
       }>(TOKENS.WEBVIEW_MANAGER);
@@ -459,26 +460,7 @@ export class ElectronRpcMethodRegistrationService {
     webviewManager: {
       broadcastMessage(type: string, payload: unknown): Promise<void>;
     },
-    stats: {
-      sessionId: string;
-      cost: number;
-      tokens: {
-        input: number;
-        output: number;
-        cacheRead?: number;
-        cacheCreation?: number;
-      };
-      duration: number;
-      modelUsage?: Array<{
-        model: string;
-        inputTokens: number;
-        outputTokens: number;
-        contextWindow: number;
-        costUSD: number;
-        cacheReadInputTokens?: number;
-        lastTurnContextTokens?: number;
-      }>;
-    },
+    stats: ResultStatsPayload,
   ): Promise<void> {
     try {
       await retryWithBackoff(

@@ -201,14 +201,7 @@ export class SdkMessageTransformer {
         // provides a deterministic alternative.
         if (sdkMessage.isSynthetic === true) {
           this.logger.debug(
-            '[SdkMessageTransformer] Skipping isSynthetic user message (skill/meta content)',
-          );
-          return [];
-        }
-
-        if (sdkMessage.isMeta === true) {
-          this.logger.debug(
-            '[SdkMessageTransformer] Skipping isMeta user message (skill/meta content)',
+            '[SdkMessageTransformer] Skipping synthetic user message (skill/meta content)',
           );
           return [];
         }
@@ -751,8 +744,13 @@ export class SdkMessageTransformer {
 
     const events: FlatStreamEventUnion[] = [];
 
-    // Extract content blocks from Anthropic SDK message
-    const content = message.content || [];
+    // BetaContentBlock is a broad union from the SDK. JSONL history replay
+    // can include tool_result blocks in assistant messages which aren't in
+    // BetaContentBlock. We iterate using type guards that check block.type.
+    const content = (message.content || []) as unknown as Array<{
+      type: string;
+      [key: string]: unknown;
+    }>;
 
     // TASK_2025_094 FIX: Use Anthropic API's message.id for stable message correlation
     //

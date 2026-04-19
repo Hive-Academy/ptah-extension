@@ -1,4 +1,6 @@
+export * from './lib/types/agent-adapter.types';
 export * from './lib/types/ai-provider.types';
+export * from './lib/types/tool-registry.types';
 export * from './lib/types/anti-pattern-rules.types';
 export * from './lib/types/branded.types';
 export * from './lib/types/claude-domain.types';

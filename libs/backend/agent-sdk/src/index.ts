@@ -81,6 +81,9 @@ export type {
   ProviderStaticModel,
 } from './lib/helpers';
 
+// Deep Agent History Reader (reads LangGraph checkpoint sessions)
+export { DeepAgentHistoryReaderService } from './lib/helpers';
+
 // CLI detector (Claude CLI availability check)
 export { ClaudeCliDetector } from './lib/detector/claude-cli-detector';
 
@@ -213,6 +216,7 @@ export {
   CopilotTranslationProxy,
   COPILOT_PROVIDER_ENTRY,
   COPILOT_DEFAULT_TIERS,
+  COPILOT_PROXY_TOKEN_PLACEHOLDER,
   readCopilotToken,
   getCopilotHostsPath,
   getCopilotAppsPath,
@@ -334,7 +338,7 @@ export type { IMcpServerInstaller } from './lib/helpers';
 // ============================================================
 // MCP Port Management
 // ============================================================
-export { setPtahMcpPort } from './lib/constants';
+export { PTAH_MCP_PORT, setPtahMcpPort } from './lib/constants';
 
 // ============================================================
 // Auth Strategy System (TASK_AUTH_REFACTOR)

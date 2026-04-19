@@ -22,7 +22,7 @@ import { injectable, inject } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import {
-  IAIProvider,
+  IAgentAdapter,
   ProviderId,
   ProviderInfo,
   ProviderHealth,
@@ -89,7 +89,7 @@ const SDK_PROVIDER_INFO: ProviderInfo = {
   description: 'Official Claude Agent SDK integration (in-process)',
   vendor: 'Anthropic',
   capabilities: SDK_CAPABILITIES,
-  maxContextTokens: 200000,
+  maxContextTokens: 1_000_000,
   supportedModels: [], // Dynamically populated via getSupportedModels()
 };
 
@@ -101,7 +101,7 @@ const SDK_PROVIDER_INFO: ProviderInfo = {
  * Main responsibilities: API surface, session coordination, SDK invocation.
  */
 @injectable()
-export class SdkAgentAdapter implements IAIProvider {
+export class SdkAgentAdapter implements IAgentAdapter {
   readonly providerId: ProviderId = 'claude-cli' as ProviderId;
   readonly info: ProviderInfo = SDK_PROVIDER_INFO;
 
@@ -479,8 +479,8 @@ export class SdkAgentAdapter implements IAIProvider {
     // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
     // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
     // TASK_2025_236: Pass worktree callbacks for worktree change notifications
-    const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
-      {
+    const { sdkQuery, initialModel, abortController } =
+      await this.sessionLifecycle.executeQuery({
         sessionId: trackingId,
         sessionConfig: config,
         initialPrompt: config.prompt
@@ -500,8 +500,7 @@ export class SdkAgentAdapter implements IAIProvider {
         enhancedPromptsContent,
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
-      },
-    );
+      });
 
     // projectPath is guaranteed by ChatRpcHandlers (validated before reaching here).
     const resolvedProjectPath = config?.projectPath || os.homedir();
@@ -519,6 +518,7 @@ export class SdkAgentAdapter implements IAIProvider {
       onSessionIdResolved: sessionIdCallback,
       onResultStats: this.resultStatsCallback || undefined,
       tabId: config?.tabId,
+      abortController,
     });
   }
 
@@ -625,8 +625,8 @@ export class SdkAgentAdapter implements IAIProvider {
     // TASK_2025_153: Pass pluginPaths for session plugin loading
     // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
     // TASK_2025_236: Pass worktree callbacks for worktree change notifications
-    const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
-      {
+    const { sdkQuery, initialModel, abortController } =
+      await this.sessionLifecycle.executeQuery({
         sessionId,
         sessionConfig: config,
         resumeSessionId: sessionId as string,
@@ -638,8 +638,7 @@ export class SdkAgentAdapter implements IAIProvider {
         enhancedPromptsContent,
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
-      },
-    );
+      });
 
     // For resumed sessions, just update lastActiveAt (metadata already exists)
     const resumeCallback = async (
@@ -667,6 +666,7 @@ export class SdkAgentAdapter implements IAIProvider {
       onSessionIdResolved: resumeCallback,
       onResultStats: this.resultStatsCallback || undefined,
       tabId: config?.tabId,
+      abortController,
     });
   }
 
@@ -801,7 +801,7 @@ export class SdkAgentAdapter implements IAIProvider {
       { command: command.substring(0, 50) },
     );
 
-    const { sdkQuery, initialModel } =
+    const { sdkQuery, initialModel, abortController } =
       await this.sessionLifecycle.executeSlashCommandQuery(sessionId, command, {
         sessionConfig: config.sessionConfig,
         isPremium: config.isPremium,
@@ -822,6 +822,7 @@ export class SdkAgentAdapter implements IAIProvider {
       onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
       onResultStats: this.resultStatsCallback || undefined,
       tabId: config.tabId,
+      abortController,
     });
   }
 

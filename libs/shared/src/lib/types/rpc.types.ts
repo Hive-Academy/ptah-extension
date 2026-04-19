@@ -670,7 +670,7 @@ export interface RpcMethodRegistry {
   };
   'agent:setConfig': {
     params: AgentSetConfigParams;
-    result: { success: boolean; error?: string };
+    result: { success: boolean; reloadRequired?: boolean; error?: string };
   };
   'agent:detectClis': {
     params: void;
