@@ -42,6 +42,7 @@ import type {
 import { Logger, TOKENS, ConfigManager } from '@ptah-extension/vscode-core';
 import {
   type AnthropicProviderId,
+  ModelResolver,
   OllamaModelDiscoveryService,
   SDK_TOKENS,
 } from '@ptah-extension/agent-sdk';
@@ -136,6 +137,8 @@ export class DeepAgentAdapter implements IAgentAdapter {
     private readonly toolBridge: ToolBridgeService,
     @inject(SDK_TOKENS.SDK_OLLAMA_DISCOVERY)
     private readonly ollamaDiscovery: OllamaModelDiscoveryService,
+    @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
+    private readonly modelResolver: ModelResolver,
   ) {}
 
   async preloadSdk(): Promise<void> {
@@ -241,7 +244,9 @@ export class DeepAgentAdapter implements IAgentAdapter {
     }
 
     const providerId = this.resolveActiveProvider();
-    const modelId = config.model ?? (await this.getDefaultModel()) ?? 'default';
+    const rawModel =
+      config.model ?? (await this.getDefaultModel()) ?? 'default';
+    const modelId = await this.resolveModelForProvider(rawModel, providerId);
     const prompt = config.prompt ?? '';
     const tabId = config.tabId;
     const trackingId = tabId as SessionId;
@@ -249,7 +254,8 @@ export class DeepAgentAdapter implements IAgentAdapter {
     this.logger.info('[DeepAgentAdapter] Starting deep-agent session', {
       tabId,
       providerId,
-      model: modelId,
+      rawModel,
+      resolvedModel: modelId,
     });
 
     const llm = await this.modelFactory.createChatModel(providerId, modelId);
@@ -461,6 +467,40 @@ export class DeepAgentAdapter implements IAgentAdapter {
   }
 
   // ---------------- private helpers ----------------
+
+  /**
+   * Resolve the model ID for the active provider.
+   *
+   * Uses the SDK's ModelResolver (reads ANTHROPIC_DEFAULT_*_MODEL env vars
+   * set by AuthManager). If the resolved model is a Claude model ID but the
+   * provider isn't Anthropic, falls back to model discovery.
+   */
+  private async resolveModelForProvider(
+    rawModel: string,
+    providerId: AnthropicProviderId,
+  ): Promise<string> {
+    const resolved = this.modelResolver.resolve(rawModel);
+
+    if (!resolved.startsWith('claude-')) {
+      return resolved;
+    }
+
+    // ModelResolver returned a Claude model ID — won't work on non-Anthropic providers.
+    const models = await this.getSupportedModels();
+    if (models.length > 0) {
+      this.logger.info(
+        `[DeepAgentAdapter] '${rawModel}' resolved to Claude model '${resolved}', ` +
+          `using discovered model instead: ${models[0].value}`,
+      );
+      return models[0].value;
+    }
+
+    this.logger.warn(
+      `[DeepAgentAdapter] No model discovery for ${providerId}, ` +
+        `using '${resolved}' — may fail if provider doesn't support Claude model names`,
+    );
+    return resolved;
+  }
 
   /**
    * Read the active provider ID from config.
