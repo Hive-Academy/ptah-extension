@@ -2,12 +2,15 @@
  * DeepAgentAdapter — IAgentAdapter implementation backed by LangChain's
  * `deepagents` package. Runs in-process with NO CLI subprocess.
  *
- * End-to-end flow for startChatSession:
- *   1. Resolve the active OpenAI-compat provider (Ollama, LM Studio, etc.)
- *   2. Build a ChatOpenAI via ModelFactoryService
- *   3. createDeepAgent({ llm, tools, instructions, checkpointer })
- *   4. graph.stream({messages:[HumanMessage]}, {streamMode:'messages'})
- *   5. StreamAdapter.transform(stream) → FlatStreamEventUnion
+ * Full feature parity with SdkAgentAdapter:
+ *   - System prompts (identity + PTAH_CORE + enhanced + user custom)
+ *   - Plugin skills passed to createDeepAgent({ skills })
+ *   - MCP tools bridged via ToolBridgeService (IToolRegistry → StructuredTools)
+ *   - FilesystemBackend for workspace file access
+ *   - CLAUDE.md / AGENTS.md memory paths
+ *   - Persistent sessions via JsonFileCheckpointer (JSON files in workspace)
+ *   - Session resume via checkpointer thread_id lookup
+ *   - Permission level → interruptOn mapping
  *
  * Slash commands / worktree / compaction are NOT supported — they are
  * Claude-SDK-specific. Attempts throw a clear error so the RPC layer can
@@ -15,9 +18,10 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { createDeepAgent } from 'deepagents';
-import { MemorySaver } from '@langchain/langgraph';
+import { createDeepAgent, FilesystemBackend } from 'deepagents';
 import { HumanMessage } from '@langchain/core/messages';
+import { existsSync } from 'fs';
+import { join } from 'path';
 import type {
   IAgentAdapter,
   AgentModelInfo,
@@ -38,12 +42,18 @@ import type {
   ProviderCapabilities,
   SessionId,
   AIMessageOptions,
+  AuthEnv,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS, ConfigManager } from '@ptah-extension/vscode-core';
 import {
   type AnthropicProviderId,
   ModelResolver,
   OllamaModelDiscoveryService,
+  PluginLoaderService,
+  SessionMetadataStore,
+  assembleSystemPrompt,
+  discoverPluginSkills,
+  PTAH_MCP_PORT,
   SDK_TOKENS,
 } from '@ptah-extension/agent-sdk';
 import { DEEP_AGENT_TOKENS } from '../di/tokens';
@@ -54,12 +64,14 @@ import {
 } from '../session-registry/session-registry.service';
 import { StreamAdapterService } from '../stream-adapter/stream-adapter.service';
 import { ToolBridgeService } from '../tool-bridge/tool-bridge.service';
+import { JsonFileCheckpointer } from '../checkpointer/json-file-checkpointer';
+import { PTAH_SUBAGENTS } from '../subagents/subagent-definitions';
 
 const DEEP_AGENT_CAPABILITIES: ProviderCapabilities = {
   streaming: true,
   fileAttachments: true,
   contextManagement: true,
-  sessionPersistence: false,
+  sessionPersistence: true,
   multiTurn: true,
   codeGeneration: true,
   imageAnalysis: false,
@@ -69,7 +81,7 @@ const DEEP_AGENT_CAPABILITIES: ProviderCapabilities = {
 const DEEP_AGENT_PROVIDER_INFO: ProviderInfo = {
   id: 'ptah-cli' as ProviderId,
   name: 'Ptah Deep Agent (LangChain)',
-  version: '0.1.0',
+  version: '0.2.0',
   description:
     'Multi-provider agent runtime powered by LangChain deepagents (in-process, no CLI)',
   vendor: 'LangChain + Ptah',
@@ -81,21 +93,13 @@ const DEEP_AGENT_PROVIDER_INFO: ProviderInfo = {
 const SLASH_COMMAND_UNSUPPORTED_MSG =
   'Slash commands require the Claude SDK runtime. Set ptah.runtime to claude-sdk in settings.';
 
-const RESUME_UNSUPPORTED_MSG =
-  'Session resume (from JSONL history) requires the Claude SDK runtime. ' +
-  'On deep-agent the LangGraph MemorySaver keeps context in-process only. ' +
-  'Set ptah.runtime to claude-sdk to resume past Claude SDK sessions.';
-
 const DEFAULT_INSTRUCTIONS =
   'You are Ptah, an AI coding assistant running inside VS Code. ' +
   'Help the user with code, explanations, and development tasks. ' +
   'Prefer concise, accurate answers. When using tools, keep the user informed.';
 
-/**
- * Minimal structural view of deepagents' compiled graph — just the
- * `stream` method we actually use. Avoids dragging the full LangGraph
- * ReactAgent types into this file's public surface.
- */
+const CHECKPOINTER_DIR_NAME = '.ptah/deep-agent-sessions';
+
 interface StreamableGraph {
   stream(
     input: { messages: unknown[] },
@@ -117,6 +121,8 @@ export class DeepAgentAdapter implements IAgentAdapter {
     status: 'initializing' as ProviderStatus,
     lastCheck: Date.now(),
   };
+  private checkpointer: JsonFileCheckpointer | null = null;
+  private currentPermissionLevel: AgentPermissionLevel = 'ask';
 
   private sessionIdResolvedCallback: SessionIdResolvedCallback | null = null;
   private resultStatsCallback: ResultStatsCallback | null = null;
@@ -139,6 +145,11 @@ export class DeepAgentAdapter implements IAgentAdapter {
     private readonly ollamaDiscovery: OllamaModelDiscoveryService,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: ModelResolver,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
+    private readonly pluginLoader: PluginLoaderService,
+    @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
+    private readonly metadataStore: SessionMetadataStore,
   ) {}
 
   async preloadSdk(): Promise<void> {
@@ -176,11 +187,6 @@ export class DeepAgentAdapter implements IAgentAdapter {
     return null;
   }
 
-  /**
-   * Return the supported models for the currently active provider.
-   * Ollama gets dynamic discovery via /api/tags; other providers return
-   * an empty list in Phase 1 (the user enters a model name manually).
-   */
   async getSupportedModels(): Promise<readonly AgentModelInfo[]> {
     const providerId = this.resolveActiveProvider();
     if (providerId === 'ollama') {
@@ -256,22 +262,57 @@ export class DeepAgentAdapter implements IAgentAdapter {
       providerId,
       rawModel,
       resolvedModel: modelId,
+      isPremium: config.isPremium,
+      hasPluginPaths: !!(config.pluginPaths && config.pluginPaths.length > 0),
+      hasEnhancedPrompts: !!config.enhancedPromptsContent,
     });
 
     const llm = await this.modelFactory.createChatModel(providerId, modelId);
-    const tools = await this.toolBridge.getTools();
     const abortController = new AbortController();
-    const instructions = config.enhancedPromptsContent ?? DEFAULT_INSTRUCTIONS;
+
+    // Load MCP tools from the Ptah HTTP MCP server (if running)
+    if (config.isPremium && config.mcpServerRunning !== false) {
+      const mcpUrl = `http://localhost:${PTAH_MCP_PORT}`;
+      await this.toolBridge.loadMcpTools(mcpUrl);
+    }
+    const tools = await this.toolBridge.getTools();
+
+    const systemPrompt = this.buildSystemPrompt(config, providerId);
+    const skillPaths = this.resolveSkillPaths(config.pluginPaths);
+    const memoryPaths = this.resolveMemoryPaths(config);
+    const backend = this.createBackend(config);
+    const checkpointer = this.getOrCreateCheckpointer(config);
+    const interruptOn = this.mapPermissionToInterrupt();
+
+    const subagents = PTAH_SUBAGENTS.map((sa) => ({
+      ...sa,
+      model: llm,
+    }));
+
+    this.logger.info('[DeepAgentAdapter] createDeepAgent params', {
+      hasSystemPrompt: !!systemPrompt,
+      systemPromptLength: systemPrompt?.length ?? 0,
+      toolCount: tools.length,
+      skillPathCount: skillPaths.length,
+      memoryPathCount: memoryPaths.length,
+      subagentCount: subagents.length,
+      hasBackend: !!backend,
+      hasCheckpointer: !!checkpointer,
+      interruptOnKeys: Object.keys(interruptOn),
+    });
 
     const agent = createDeepAgent({
       model: llm,
-      // `tools` in Phase 1 is empty — deepagents' built-ins take over.
-      // Casting is unavoidable here because deepagents' tools generic is
-      // a deep inference union; we deliberately pass [] which satisfies
-      // the base constraint at runtime.
       tools: tools as never,
-      systemPrompt: instructions,
-      checkpointer: new MemorySaver(),
+      systemPrompt: systemPrompt ?? DEFAULT_INSTRUCTIONS,
+      checkpointer: checkpointer ?? true,
+      backend: backend ?? undefined,
+      skills: skillPaths.length > 0 ? skillPaths : undefined,
+      memory: memoryPaths.length > 0 ? memoryPaths : undefined,
+      subagents: subagents as never,
+      interruptOn:
+        Object.keys(interruptOn).length > 0 ? interruptOn : undefined,
+      name: 'ptah-deep-agent',
     });
 
     const threadId = String(trackingId);
@@ -287,8 +328,20 @@ export class DeepAgentAdapter implements IAgentAdapter {
     };
     this.sessionRegistry.register(session);
 
-    // Notify the ID-resolved sink with our synthetic session ID. The
-    // deep-agent runtime has no external UUID — tabId doubles as it.
+    // Register in SessionMetadataStore so session appears in sidebar
+    const workspaceId = config.projectPath ?? config.workspaceId ?? '';
+    if (workspaceId) {
+      const sessionName = config.name ?? `Deep Agent — ${modelId}`;
+      this.metadataStore
+        .create(threadId, workspaceId, sessionName)
+        .catch((err) =>
+          this.logger.warn(
+            '[DeepAgentAdapter] Failed to save session metadata',
+            err instanceof Error ? err : new Error(String(err)),
+          ),
+        );
+    }
+
     if (this.sessionIdResolvedCallback) {
       try {
         this.sessionIdResolvedCallback(tabId, threadId);
@@ -364,10 +417,6 @@ export class DeepAgentAdapter implements IAgentAdapter {
         `[DeepAgentAdapter] No active session for ${String(sessionId)}`,
       );
     }
-    // deepagents follow-on turns are driven by re-streaming with the same
-    // thread_id; the MemorySaver re-hydrates context. For parity with the
-    // SDK's "append-to-live-session" model we'd need a persistent queue —
-    // Phase 2. For now, kick a new stream and drain it in the background.
     const graph = session.graph as unknown as StreamableGraph;
     const stream = await graph.stream(
       { messages: [new HumanMessage(content)] },
@@ -377,24 +426,132 @@ export class DeepAgentAdapter implements IAgentAdapter {
         streamMode: 'messages',
       },
     );
-    // Drain to keep the checkpointer in sync. Caller doesn't get events
-    // from this helper — full streaming turns go through startChatSession.
     for await (const _ of this.streamAdapter.transform({
       stream,
       sessionId,
       abortSignal: session.abortController.signal,
       model: session.model,
     })) {
-      // discard
       void _;
     }
   }
 
   async resumeSession(
-    _sessionId: SessionId,
-    _config?: AgentSessionResumeConfig,
+    sessionId: SessionId,
+    config?: AgentSessionResumeConfig,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
-    throw new Error(RESUME_UNSUPPORTED_MSG);
+    if (!this.checkpointer) {
+      throw new Error(
+        'Session resume requires a persistent checkpointer. ' +
+          'No workspace path was available to create one.',
+      );
+    }
+
+    const threadId = String(sessionId);
+    const tuple = await this.checkpointer.getTuple({
+      configurable: { thread_id: threadId },
+    });
+
+    if (!tuple) {
+      throw new Error(
+        `[DeepAgentAdapter] No persisted session found for thread '${threadId}'. ` +
+          'The session may have been created with in-memory checkpointing only.',
+      );
+    }
+
+    this.logger.info('[DeepAgentAdapter] Resuming session from checkpoint', {
+      threadId,
+      checkpointId: tuple.checkpoint.id,
+    });
+
+    const providerId = this.resolveActiveProvider();
+    const rawModel =
+      config?.model ?? (await this.getDefaultModel()) ?? 'default';
+    const modelId = await this.resolveModelForProvider(rawModel, providerId);
+    const llm = await this.modelFactory.createChatModel(providerId, modelId);
+    const tools = await this.toolBridge.getTools();
+    const abortController = new AbortController();
+
+    const systemPrompt = config
+      ? this.buildSystemPrompt(
+          {
+            isPremium: config.isPremium,
+            enhancedPromptsContent: config.enhancedPromptsContent,
+            pluginPaths: config.pluginPaths,
+            systemPrompt: config.systemPrompt,
+          } as AgentSessionStartConfig,
+          providerId,
+        )
+      : DEFAULT_INSTRUCTIONS;
+
+    const skillPaths = this.resolveSkillPaths(config?.pluginPaths);
+    const memoryPaths = this.resolveMemoryPaths(config);
+
+    const agent = createDeepAgent({
+      model: llm,
+      tools: tools as never,
+      systemPrompt: systemPrompt ?? DEFAULT_INSTRUCTIONS,
+      checkpointer: this.checkpointer,
+      skills: skillPaths.length > 0 ? skillPaths : undefined,
+      memory: memoryPaths.length > 0 ? memoryPaths : undefined,
+      name: 'ptah-deep-agent',
+    });
+
+    const trackingId = sessionId;
+    const session: DeepAgentSession = {
+      tabId: config?.tabId ?? threadId,
+      sessionId: trackingId,
+      threadId,
+      graph: agent,
+      abortController,
+      startedAt: Date.now(),
+      providerId,
+      model: modelId,
+    };
+    this.sessionRegistry.register(session);
+
+    if (this.sessionIdResolvedCallback) {
+      try {
+        this.sessionIdResolvedCallback(session.tabId, threadId);
+      } catch {
+        // ignore
+      }
+    }
+
+    // Stream with existing thread_id to resume from checkpoint
+    const streamable = agent as unknown as StreamableGraph;
+    const rawStream = await streamable.stream(
+      { messages: [] },
+      {
+        configurable: { thread_id: threadId },
+        signal: abortController.signal,
+        streamMode: 'messages',
+      },
+    );
+
+    return this.streamAdapter.transform(
+      {
+        stream: rawStream,
+        sessionId: trackingId,
+        tabId: session.tabId,
+        abortSignal: abortController.signal,
+        model: modelId,
+      },
+      (payload) => {
+        if (this.resultStatsCallback) {
+          try {
+            this.resultStatsCallback({
+              sessionId: payload.sessionId,
+              cost: 0,
+              tokens: { input: 0, output: 0 },
+              duration: payload.durationMs,
+            });
+          } catch {
+            // ignore
+          }
+        }
+      },
+    );
   }
 
   isSessionActive(sessionId: SessionId): boolean {
@@ -430,10 +587,11 @@ export class DeepAgentAdapter implements IAgentAdapter {
 
   async setSessionPermissionLevel(
     _sessionId: SessionId,
-    _level: AgentPermissionLevel,
+    level: AgentPermissionLevel,
   ): Promise<void> {
+    this.currentPermissionLevel = level;
     this.logger.info(
-      '[DeepAgentAdapter] setSessionPermissionLevel is a no-op on deep-agent runtime',
+      `[DeepAgentAdapter] Permission level set to '${level}' (applied to new sessions)`,
     );
   }
 
@@ -452,9 +610,6 @@ export class DeepAgentAdapter implements IAgentAdapter {
   }
   setCompactionStartCallback(cb: CompactionStartCallback): void {
     this.compactionStartCallback = cb;
-    // Compaction is a Claude SDK concept — we silently accept the
-    // callback so the selector can forward to both adapters without
-    // error, but we never invoke it.
     void this.compactionStartCallback;
   }
   setWorktreeCreatedCallback(cb: WorktreeCreatedCallback): void {
@@ -466,15 +621,173 @@ export class DeepAgentAdapter implements IAgentAdapter {
     void this.worktreeRemovedCallback;
   }
 
-  // ---------------- private helpers ----------------
+  // ─── Private helpers ───────────────────────────────────────────
 
   /**
-   * Resolve the model ID for the active provider.
-   *
-   * Uses the SDK's ModelResolver (reads ANTHROPIC_DEFAULT_*_MODEL env vars
-   * set by AuthManager). If the resolved model is a Claude model ID but the
-   * provider isn't Anthropic, falls back to model discovery.
+   * Build the full system prompt using the same assembleSystemPrompt()
+   * function that the Claude SDK adapter uses. The deep agent receives
+   * the assembled content directly as its systemPrompt parameter
+   * (no SDK preset — deepagents has its own base prompt).
    */
+  private buildSystemPrompt(
+    config: Partial<AgentSessionStartConfig>,
+    providerId: AnthropicProviderId,
+  ): string | null {
+    const result = assembleSystemPrompt({
+      providerId,
+      authEnv: this.authEnv,
+      userSystemPrompt: config.systemPrompt,
+      isPremium: config.isPremium ?? false,
+      mcpServerRunning: config.mcpServerRunning ?? false,
+      enhancedPromptsContent: config.enhancedPromptsContent,
+    });
+
+    if (!result.content) return null;
+
+    // Prepend discovered skill info so the model knows what's available
+    const pluginPaths = config.pluginPaths ?? [];
+    if (pluginPaths.length > 0) {
+      const skills = discoverPluginSkills(pluginPaths);
+      if (skills.length > 0) {
+        const skillList = skills
+          .map(
+            (s) =>
+              `- **${s.skillName}** (plugin: ${s.pluginId}): ${s.description}`,
+          )
+          .join('\n');
+        return `${result.content}\n\n## Available Skills\n\n${skillList}`;
+      }
+    }
+
+    return result.content;
+  }
+
+  /**
+   * Resolve plugin paths to skill directory paths for deepagents.
+   * Each plugin's skills/ directory is passed so deepagents can
+   * discover and load SKILL.md files via its native skill system.
+   */
+  private resolveSkillPaths(pluginPaths?: string[]): string[] {
+    const paths = pluginPaths ?? [];
+    if (paths.length === 0) {
+      try {
+        const resolved = this.pluginLoader.resolveCurrentPluginPaths();
+        return resolved.map((p) => join(p, 'skills'));
+      } catch {
+        return [];
+      }
+    }
+    return paths.map((p) => join(p, 'skills')).filter((p) => existsSync(p));
+  }
+
+  /**
+   * Resolve memory file paths (CLAUDE.md, AGENTS.md) for deepagents.
+   * These are loaded at agent startup and injected into the system prompt.
+   */
+  private resolveMemoryPaths(
+    config?: Partial<AgentSessionStartConfig | AgentSessionResumeConfig>,
+  ): string[] {
+    const paths: string[] = [];
+    const projectPath = config?.projectPath;
+
+    if (projectPath) {
+      const claudeMd = join(projectPath, 'CLAUDE.md');
+      if (existsSync(claudeMd)) paths.push(claudeMd);
+
+      const agentsMd = join(projectPath, '.deepagents', 'AGENTS.md');
+      if (existsSync(agentsMd)) paths.push(agentsMd);
+
+      const ptahAgentsMd = join(projectPath, '.ptah', 'AGENTS.md');
+      if (existsSync(ptahAgentsMd)) paths.push(ptahAgentsMd);
+    }
+
+    // Global agents memory
+    const homeDir = process.env['USERPROFILE'] || process.env['HOME'] || '';
+    if (homeDir) {
+      const globalAgents = join(homeDir, '.deepagents', 'AGENTS.md');
+      if (existsSync(globalAgents)) paths.push(globalAgents);
+
+      const ptahGlobalAgents = join(homeDir, '.ptah', 'AGENTS.md');
+      if (existsSync(ptahGlobalAgents)) paths.push(ptahGlobalAgents);
+    }
+
+    return paths;
+  }
+
+  /**
+   * Create a FilesystemBackend rooted at the workspace path.
+   * Gives deepagents native file read/write/edit/grep/glob capabilities.
+   */
+  private createBackend(
+    config: Partial<AgentSessionStartConfig>,
+  ): FilesystemBackend | null {
+    const projectPath = config.projectPath;
+    if (!projectPath) {
+      this.logger.warn(
+        '[DeepAgentAdapter] No projectPath — FilesystemBackend disabled',
+      );
+      return null;
+    }
+    return new FilesystemBackend({ rootDir: projectPath });
+  }
+
+  /**
+   * Get or create a persistent checkpointer for the workspace.
+   * Stores session state as JSON files in {workspace}/.ptah/deep-agent-sessions/
+   */
+  private getOrCreateCheckpointer(
+    config: Partial<AgentSessionStartConfig>,
+  ): JsonFileCheckpointer | null {
+    const projectPath = config.projectPath;
+    if (!projectPath) {
+      this.logger.warn(
+        '[DeepAgentAdapter] No projectPath — using in-memory checkpointing only',
+      );
+      return null;
+    }
+
+    if (!this.checkpointer) {
+      const checkpointDir = join(projectPath, CHECKPOINTER_DIR_NAME);
+      this.checkpointer = new JsonFileCheckpointer(checkpointDir);
+      this.logger.info('[DeepAgentAdapter] Created JsonFileCheckpointer', {
+        dir: checkpointDir,
+      });
+    }
+    return this.checkpointer;
+  }
+
+  /**
+   * Map the current permission level to deepagents' interruptOn config.
+   *
+   * - 'ask' (default): interrupt on all tool calls for user approval
+   * - 'auto-edit': interrupt only on destructive operations
+   * - 'yolo'/'bypassPermissions': no interrupts
+   */
+  private mapPermissionToInterrupt(): Record<string, boolean> {
+    switch (this.currentPermissionLevel) {
+      case 'ask':
+      case 'plan':
+      case 'default':
+        return {
+          write_file: true,
+          edit_file: true,
+          execute: true,
+          bash: true,
+        };
+      case 'auto-edit':
+      case 'acceptEdits':
+        return {
+          execute: true,
+          bash: true,
+        };
+      case 'yolo':
+      case 'bypassPermissions':
+        return {};
+      default:
+        return {};
+    }
+  }
+
   private async resolveModelForProvider(
     rawModel: string,
     providerId: AnthropicProviderId,
@@ -485,7 +798,6 @@ export class DeepAgentAdapter implements IAgentAdapter {
       return resolved;
     }
 
-    // ModelResolver returned a Claude model ID — won't work on non-Anthropic providers.
     const models = await this.getSupportedModels();
     if (models.length > 0) {
       this.logger.info(
@@ -502,13 +814,6 @@ export class DeepAgentAdapter implements IAgentAdapter {
     return resolved;
   }
 
-  /**
-   * Read the active provider ID from config.
-   *
-   * Uses the same `anthropicProviderId` config key that AuthManager reads.
-   * The runtime selector already guarantees this adapter is only called for
-   * non-Claude-native providers, so `anthropicProviderId` is always set.
-   */
   private resolveActiveProvider(): AnthropicProviderId {
     const providerId =
       this.config.get<string>('anthropicProviderId') ?? 'ollama';

@@ -32,3 +32,4 @@ export {
   ToolBridgeService,
   type BridgedTool,
 } from './lib/tool-bridge/tool-bridge.service';
+export { JsonFileCheckpointer } from './lib/checkpointer/json-file-checkpointer';
