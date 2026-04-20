@@ -155,6 +155,7 @@ export class ElectronEditorRpcHandlers {
     this.registerCreateFolder();
     this.registerRenameItem();
     this.registerDeleteItem();
+    this.registerListAllFiles();
   }
 
   /** Validate that a file path is within the workspace root. Returns error message or null. */
@@ -444,8 +445,8 @@ export class ElectronEditorRpcHandlers {
           };
         }
 
-        const maxFileResults = params.maxFileResults ?? 500;
-        const maxMatchesPerFile = params.maxMatchesPerFile ?? 100;
+        const maxFileResults = params.maxFileResults ?? 2000;
+        const maxMatchesPerFile = params.maxMatchesPerFile ?? 200;
         const wsRoot = this.workspace.getWorkspaceRoot();
 
         if (!wsRoot) {
@@ -737,6 +738,51 @@ export class ElectronEditorRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * Return a flat, sorted list of all workspace file paths (relative to root).
+   * Used by the Quick Open file picker for fast, unbounded file listing.
+   */
+  private registerListAllFiles(): void {
+    this.rpcHandler.registerMethod('editor:listAllFiles', async () => {
+      const wsRoot = this.workspace.getWorkspaceRoot();
+      if (!wsRoot) {
+        return { success: false, error: 'No workspace folder open', files: [] };
+      }
+
+      try {
+        const excludePattern = '**/{node_modules,dist,.git,.nx,.cache}/**';
+        const filePaths = await this.fs.findFiles(
+          wsRoot.replace(/\\/g, '/') + '/**/*',
+          excludePattern,
+        );
+
+        const relativePaths: string[] = [];
+        for (const filePath of filePaths) {
+          const ext = nodePath.extname(filePath).toLowerCase();
+          if (BINARY_EXTENSIONS.has(ext)) {
+            continue;
+          }
+          relativePaths.push(
+            nodePath.relative(wsRoot, filePath).replace(/\\/g, '/'),
+          );
+        }
+
+        relativePaths.sort();
+
+        return { success: true, files: relativePaths };
+      } catch (error) {
+        this.logger.error('[Electron RPC] editor:listAllFiles failed', {
+          error: error instanceof Error ? error.message : String(error),
+        } as unknown as Error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+          files: [],
+        };
+      }
+    });
   }
 
   /**
