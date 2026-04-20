@@ -56,6 +56,7 @@ export { SidebarComponent } from './lib/sidebar/sidebar.component';
 export { SourceControlPanelComponent } from './lib/source-control/source-control-panel.component';
 export { SourceControlFileComponent } from './lib/source-control/source-control-file.component';
 export { SearchPanelComponent } from './lib/search/search-panel.component';
+export { QuickOpenComponent } from './lib/quick-open/quick-open.component';
 
 // Services
 export { EditorService } from './lib/services/editor.service';

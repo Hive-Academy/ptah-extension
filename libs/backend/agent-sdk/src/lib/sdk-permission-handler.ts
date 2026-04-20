@@ -77,6 +77,8 @@ interface AskUserQuestionRequest {
   timeoutAt: number;
   /** Session ID this question belongs to (for UI routing to correct tab) */
   sessionId?: string;
+  /** Frontend tab ID for direct tab routing (authoritative over sessionId) */
+  tabId?: string;
 }
 
 /**
@@ -1055,7 +1057,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       toolUseId,
       timestamp: now,
       timeoutAt: 0,
-      sessionId, // TASK_2025_187: Route question UI to correct session tab
+      sessionId,
+      tabId: sessionId, // sessionId here IS the tabId (from createCallback closure)
     };
 
     this.logger.info('[SdkPermissionHandler] Sending AskUserQuestion request', {

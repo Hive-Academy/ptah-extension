@@ -177,6 +177,8 @@ export interface AskUserQuestionRequest {
   readonly timeoutAt: number;
   /** Session ID this question belongs to (for UI routing to correct tab) */
   readonly sessionId?: string;
+  /** Frontend tab ID for direct tab routing (authoritative over sessionId) */
+  readonly tabId?: string;
 }
 
 /**
