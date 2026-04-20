@@ -16,6 +16,7 @@ import {
   SessionMetadataStore,
   SDK_TOKENS,
   SessionHistoryReaderService,
+  DeepAgentHistoryReaderService,
 } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
@@ -51,6 +52,8 @@ export class SessionRpcHandlers {
     private readonly metadataStore: SessionMetadataStore,
     @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
     private readonly historyReader: SessionHistoryReaderService,
+    @inject(SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER)
+    private readonly deepAgentHistoryReader: DeepAgentHistoryReaderService,
   ) {}
 
   /**
@@ -303,14 +306,41 @@ export class SessionRpcHandlers {
     sessionId: string,
     workspacePath: string,
   ): Promise<void> {
-    const sessionFilePath = await this.findSessionFile(
+    // Handle deep agent sessions separately — they use a directory, not a single file
+    if (this.deepAgentHistoryReader.hasSession(sessionId, workspacePath)) {
+      const threadDir = path.join(
+        workspacePath,
+        '.ptah',
+        'deep-agent-sessions',
+        sessionId,
+      );
+      try {
+        await fs.rm(threadDir, { recursive: true, force: true });
+        this.logger.info(
+          'RPC: session:delete - deleted deep agent session directory',
+          { sessionId, threadDir },
+        );
+      } catch (err) {
+        this.logger.warn(
+          'RPC: session:delete - failed to delete deep agent session directory',
+          {
+            sessionId,
+            threadDir,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
+      return;
+    }
+
+    const sessionFilePath = await this.findJsonlSessionFile(
       sessionId,
       workspacePath,
     );
 
     if (!sessionFilePath) {
       this.logger.debug(
-        'RPC: session:delete - JSONL file not found on disk (already deleted or never created)',
+        'RPC: session:delete - session file not found on disk (already deleted or never created)',
         { sessionId },
       );
       return;
@@ -525,10 +555,20 @@ export class SessionRpcHandlers {
         const results = await Promise.allSettled(
           batch.map(async (sessionId) => {
             try {
-              const { stats } = await this.historyReader.readSessionHistory(
+              // Check deep agent sessions first, then fall back to JSONL
+              const isDeepAgent = this.deepAgentHistoryReader.hasSession(
                 sessionId,
                 workspacePath,
               );
+              const { stats } = isDeepAgent
+                ? await this.deepAgentHistoryReader.readSessionHistory(
+                    sessionId,
+                    workspacePath,
+                  )
+                : await this.historyReader.readSessionHistory(
+                    sessionId,
+                    workspacePath,
+                  );
 
               // Get CLI agent types from metadata (gemini, codex, copilot, ptah-cli)
               const metadata = await this.metadataStore.get(sessionId);
@@ -553,14 +593,23 @@ export class SessionRpcHandlers {
                 };
               }
 
+              const statsAny = stats as Record<string, unknown>;
               return {
                 sessionId,
-                model: stats.model ?? null,
+                model: (statsAny['model'] as string) ?? null,
                 totalCost: stats.totalCost,
                 tokens: stats.tokens,
                 messageCount: stats.messageCount,
-                agentSessionCount: stats.agentSessionCount ?? 0,
-                modelUsageList: stats.modelUsageList,
+                agentSessionCount:
+                  (statsAny['agentSessionCount'] as number) ?? 0,
+                modelUsageList: statsAny['modelUsageList'] as
+                  | Array<{
+                      model: string;
+                      inputTokens: number;
+                      outputTokens: number;
+                      costUSD: number;
+                    }>
+                  | undefined,
                 cliAgents,
                 status: 'ok' as const,
               };
@@ -620,12 +669,35 @@ export class SessionRpcHandlers {
   }
 
   /**
-   * Find the session JSONL file on disk
+   * Find the session file on disk — checks both Claude SDK JSONL files
+   * and deep agent checkpoint directories.
    *
-   * Looks for the session file in ~/.claude/projects/{workspace}/
-   * Returns the file path if it exists, null otherwise.
+   * Claude SDK sessions: ~/.claude/projects/{workspace}/{sessionId}.jsonl
+   * Deep agent sessions: {workspacePath}/.ptah/deep-agent-sessions/{sessionId}/metadata.json
    */
   private async findSessionFile(
+    sessionId: string,
+    workspacePath: string,
+  ): Promise<string | null> {
+    // 1. Check Claude SDK JSONL files
+    const jsonlPath = await this.findJsonlSessionFile(sessionId, workspacePath);
+    if (jsonlPath) return jsonlPath;
+
+    // 2. Fallback: check deep agent checkpoint directory
+    if (this.deepAgentHistoryReader.hasSession(sessionId, workspacePath)) {
+      return path.join(
+        workspacePath,
+        '.ptah',
+        'deep-agent-sessions',
+        sessionId,
+        'metadata.json',
+      );
+    }
+
+    return null;
+  }
+
+  private async findJsonlSessionFile(
     sessionId: string,
     workspacePath: string,
   ): Promise<string | null> {
@@ -635,30 +707,23 @@ export class SessionRpcHandlers {
     try {
       await fs.access(projectsDir);
     } catch {
-      // Projects directory doesn't exist
       return null;
     }
 
-    // Generate the escaped workspace path (Claude's format)
     const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
     const dirs = await fs.readdir(projectsDir);
 
-    // Try exact match
     let sessionDir: string | undefined = escapedPath;
     if (!dirs.includes(escapedPath)) {
-      // Try case-insensitive match
       const lowerEscaped = escapedPath.toLowerCase();
       sessionDir = dirs.find((d) => d.toLowerCase() === lowerEscaped);
 
       if (!sessionDir) {
-        // Try normalized match: treat hyphens and underscores as equivalent.
-        // Claude CLI may normalize path separators differently (e.g., replacing _ with -)
         const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
         sessionDir = dirs.find((d) => normalize(d) === normalize(escapedPath));
       }
 
       if (!sessionDir) {
-        // Try partial match (workspace name only)
         const workspaceName = path.basename(workspacePath);
         const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
         sessionDir = dirs.find(

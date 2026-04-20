@@ -34,6 +34,7 @@ import {
   SDK_TOKENS,
   PtahCliRegistry,
   SessionMetadataStore,
+  DeepAgentHistoryReaderService,
 } from '@ptah-extension/agent-sdk';
 import type {
   AgentOrchestrationConfig,
@@ -65,6 +66,8 @@ export class ElectronAgentRpcHandlers {
     private readonly workspace: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.STATE_STORAGE)
     private readonly stateStorage: IStateStorage,
+    @inject(SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER)
+    private readonly deepAgentHistoryReader: DeepAgentHistoryReaderService,
   ) {}
 
   register(): void {
@@ -679,6 +682,10 @@ export class ElectronAgentRpcHandlers {
     }
   }
 
+  /**
+   * Check if a session file exists on disk — checks both Claude SDK JSONL
+   * and deep agent checkpoint directories.
+   */
   private async sessionFileExists(
     sessionId: string,
     workspacePath: string,
@@ -697,17 +704,23 @@ export class ElectronAgentRpcHandlers {
           normalize(d) === normalizedEscaped,
       );
 
-      if (!matchedDir) return false;
-
-      const sessionFile = path.join(
-        projectsDir,
-        matchedDir,
-        `${sessionId}.jsonl`,
-      );
-      await fs.access(sessionFile);
-      return true;
+      if (matchedDir) {
+        const sessionFile = path.join(
+          projectsDir,
+          matchedDir,
+          `${sessionId}.jsonl`,
+        );
+        try {
+          await fs.access(sessionFile);
+          return true;
+        } catch {
+          // JSONL not found, fall through to deep agent check
+        }
+      }
     } catch {
-      return false;
+      // Projects dir doesn't exist, fall through to deep agent check
     }
+
+    return this.deepAgentHistoryReader.hasSession(sessionId, workspacePath);
   }
 }
