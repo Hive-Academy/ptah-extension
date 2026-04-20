@@ -1,4 +1,5 @@
 import { Injectable, signal, computed, inject, Injector } from '@angular/core';
+import { ModelStateService } from '@ptah-extension/core';
 import { TabState, TabViewMode } from './chat.types';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { StreamingHandlerService } from './chat-store/streaming-handler.service';
@@ -37,6 +38,7 @@ export class TabManagerService {
   private readonly confirmationDialog = inject(ConfirmationDialogService);
   private readonly injector = inject(Injector);
   private readonly workspacePartition = inject(TabWorkspacePartitionService);
+  private readonly modelState = inject(ModelStateService);
 
   // ============================================================================
   // PRIVATE STATE SIGNALS
@@ -451,6 +453,13 @@ export class TabManagerService {
     this._tabs.update((tabs) => [...tabs, newTab]);
     this._activeTabId.set(id);
     this.saveTabState();
+
+    this.modelState.refreshModels().catch((err) => {
+      console.warn(
+        '[TabManagerService] refreshModels after createTab failed:',
+        err,
+      );
+    });
 
     return id;
   }

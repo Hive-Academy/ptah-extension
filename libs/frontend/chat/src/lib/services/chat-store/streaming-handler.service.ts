@@ -124,8 +124,10 @@ export class StreamingHandlerService {
           this.tabManager.findTabBySessionId(event.sessionId) ?? undefined;
       }
 
-      // If no tab found, check if active tab needs session ID initialization
-      if (!targetTab) {
+      // If no tab found and no tabId was provided, initialize active empty tab.
+      // Only do this when tabId is absent (legitimate first event for a brand-new session).
+      // If tabId WAS provided but the tab wasn't found, don't hijack an unrelated empty tab.
+      if (!targetTab && !tabId) {
         const activeTab = this.tabManager.activeTab();
 
         if (
@@ -147,17 +149,18 @@ export class StreamingHandlerService {
 
           targetTab = this.tabManager.activeTab() ?? undefined;
         }
+      }
 
-        if (!targetTab) {
-          if (!this.warnedNoTargetSessions.has(event.sessionId)) {
-            this.warnedNoTargetSessions.add(event.sessionId);
-            console.warn(
-              '[StreamingHandlerService] No target tab for event',
-              event.sessionId,
-            );
-          }
-          return null;
+      if (!targetTab) {
+        if (!this.warnedNoTargetSessions.has(event.sessionId)) {
+          this.warnedNoTargetSessions.add(event.sessionId);
+          console.warn(
+            '[StreamingHandlerService] No target tab for event',
+            event.sessionId,
+            tabId ? `(tabId: ${tabId} not found)` : '(no tabId provided)',
+          );
         }
+        return null;
       }
 
       // If tab doesn't have claudeSessionId yet, set it and ensure streaming status

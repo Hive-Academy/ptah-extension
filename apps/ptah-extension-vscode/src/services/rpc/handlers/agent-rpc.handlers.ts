@@ -20,6 +20,7 @@ import {
   SDK_TOKENS,
   PtahCliRegistry,
   SessionMetadataStore,
+  DeepAgentHistoryReaderService,
 } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -63,6 +64,8 @@ export class AgentRpcHandlers {
     private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER)
+    private readonly deepAgentHistoryReader: DeepAgentHistoryReaderService,
   ) {}
 
   /**
@@ -891,8 +894,8 @@ export class AgentRpcHandlers {
   }
 
   /**
-   * Check if a session JSONL file exists on disk.
-   * Claude stores sessions in ~/.claude/projects/{escaped-workspace-path}/{sessionId}.jsonl
+   * Check if a session file exists on disk — checks both Claude SDK JSONL
+   * and deep agent checkpoint directories.
    */
   private async sessionFileExists(
     sessionId: string,
@@ -903,7 +906,6 @@ export class AgentRpcHandlers {
       const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
       const dirs = await fs.readdir(projectsDir);
 
-      // Find the matching project directory (case-insensitive, normalized)
       const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
       const normalizedEscaped = normalize(escapedPath);
       const matchedDir = dirs.find(
@@ -913,17 +915,23 @@ export class AgentRpcHandlers {
           normalize(d) === normalizedEscaped,
       );
 
-      if (!matchedDir) return false;
-
-      const sessionFile = path.join(
-        projectsDir,
-        matchedDir,
-        `${sessionId}.jsonl`,
-      );
-      await fs.access(sessionFile);
-      return true;
+      if (matchedDir) {
+        const sessionFile = path.join(
+          projectsDir,
+          matchedDir,
+          `${sessionId}.jsonl`,
+        );
+        try {
+          await fs.access(sessionFile);
+          return true;
+        } catch {
+          // JSONL not found, fall through to deep agent check
+        }
+      }
     } catch {
-      return false;
+      // Projects dir doesn't exist, fall through to deep agent check
     }
+
+    return this.deepAgentHistoryReader.hasSession(sessionId, workspacePath);
   }
 }

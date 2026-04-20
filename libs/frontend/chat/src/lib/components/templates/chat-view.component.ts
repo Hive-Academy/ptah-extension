@@ -132,7 +132,10 @@ export class ChatViewComponent {
   /** Session-scoped agents for the embedded panel */
   readonly sessionAgents = computed(() => {
     const sid = this.resolvedSessionId();
-    if (!sid) return this.agentMonitorStore.agents();
+    if (!sid) {
+      if (this._sessionContext) return [];
+      return this.agentMonitorStore.agents();
+    }
     return this.agentMonitorStore.agentsForSession(sid);
   });
 
@@ -398,10 +401,18 @@ export class ChatViewComponent {
     const allQuestions = this.chatStore.questionRequests();
     if (allQuestions.length === 0) return [];
 
-    const sessionId = this.resolvedSessionId();
-    if (!sessionId) return allQuestions; // No session context — show all (initial state)
+    // Match by tabId (authoritative routing key from backend).
+    // The question's sessionId field is actually the tabId in the backend,
+    // NOT the SDK UUID that claudeSessionId stores. Use tabId for reliable matching.
+    const tabId = this.resolvedTabId();
+    if (!tabId) {
+      if (this._sessionContext) return [];
+      return allQuestions;
+    }
 
-    return allQuestions.filter((q) => q.sessionId === sessionId);
+    return allQuestions.filter(
+      (q) => q.tabId === tabId || q.sessionId === tabId,
+    );
   });
 
   readonly resolvedQueuedContent = computed(() => {
