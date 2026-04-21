@@ -35,6 +35,7 @@ import type {
   SessionId,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 
 // -------------------- Local shape guards --------------------
 // We avoid importing LangChain types into the public surface of this
@@ -110,7 +111,11 @@ function nextEventId(prefix: string): string {
 
 @injectable()
 export class StreamAdapterService {
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
+  ) {}
 
   /**
    * Consume a LangGraph 'messages' stream and emit FlatStreamEventUnion.
@@ -254,9 +259,26 @@ export class StreamAdapterService {
         });
       }
     } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+
+      // AbortError is an expected, controlled shutdown — not a real failure.
+      // It is thrown when endSession() calls AbortController.abort() either
+      // during an explicit chat:abort or as post-completion cleanup in the
+      // finally block of streamExecutionNodesToWebview. In both cases the
+      // consumer is already done with the stream; swallow silently.
+      if (error.name === 'AbortError') {
+        this.logger.debug(
+          '[DeepAgent.StreamAdapter] Stream aborted (expected shutdown)',
+        );
+        return;
+      }
+
+      this.sentryService.captureException(error, {
+        errorSource: 'StreamAdapterService.transform',
+      });
       this.logger.error(
         '[DeepAgent.StreamAdapter] Stream transform failed',
-        err instanceof Error ? err : new Error(String(err)),
+        error,
       );
       throw err;
     }

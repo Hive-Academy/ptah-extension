@@ -20,6 +20,7 @@ import {
   LicenseService,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
@@ -193,6 +194,8 @@ export class AgentProcessManager {
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -1313,11 +1316,19 @@ export class AgentProcessManager {
           '/T',
           '/F',
         ]);
-      } catch {
+      } catch (err) {
         // taskkill failed (process already dead or access denied), fallback
+        this.sentryService.captureException(
+          err instanceof Error ? err : new Error(String(err)),
+          { errorSource: 'AgentProcessManager.killProcess.taskkill' },
+        );
         try {
           child.kill();
-        } catch {
+        } catch (killErr) {
+          this.sentryService.captureException(
+            killErr instanceof Error ? killErr : new Error(String(killErr)),
+            { errorSource: 'AgentProcessManager.killProcess.fallbackKill' },
+          );
           /* already dead */
         }
       }
@@ -1332,7 +1343,11 @@ export class AgentProcessManager {
           resolved = true;
           try {
             child.kill('SIGKILL');
-          } catch {
+          } catch (err) {
+            this.sentryService.captureException(
+              err instanceof Error ? err : new Error(String(err)),
+              { errorSource: 'AgentProcessManager.killProcess.SIGKILL' },
+            );
             /* already dead */
           }
           resolve();
@@ -1565,7 +1580,11 @@ export class AgentProcessManager {
         }
         return undefined;
       }
-    } catch {
+    } catch (err) {
+      this.sentryService.captureException(
+        err instanceof Error ? err : new Error(String(err)),
+        { errorSource: 'AgentProcessManager.resolveMcpPort' },
+      );
       this.logger.info(
         '[AgentProcessManager] MCP port resolution failed (license check error)',
       );

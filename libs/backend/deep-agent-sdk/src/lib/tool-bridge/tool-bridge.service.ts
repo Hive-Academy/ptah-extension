@@ -14,6 +14,7 @@ import { tool } from '@langchain/core/tools';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { IToolRegistry, ToolDef } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 
 export type BridgedTool = StructuredToolInterface;
 
@@ -32,7 +33,11 @@ export class ToolBridgeService {
   private toolRegistry: IToolRegistry | null = null;
   private mcpTools: BridgedTool[] = [];
 
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
+  ) {}
 
   setToolRegistry(registry: IToolRegistry): void {
     this.toolRegistry = registry;
@@ -82,9 +87,13 @@ export class ToolBridgeService {
         `[DeepAgent.ToolBridge] Loaded ${this.mcpTools.length} MCP tools from ${mcpBaseUrl}`,
       );
     } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.sentryService.captureException(error, {
+        errorSource: 'ToolBridgeService.loadMcpTools',
+      });
       this.logger.warn(
         '[DeepAgent.ToolBridge] Failed to load MCP tools',
-        err instanceof Error ? err : new Error(String(err)),
+        error,
       );
     }
   }
@@ -98,9 +107,13 @@ export class ToolBridgeService {
         try {
           tools.push(this.bridgeRegistryTool(def));
         } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          this.sentryService.captureException(error, {
+            errorSource: 'ToolBridgeService.getTools',
+          });
           this.logger.warn(
             `[DeepAgent.ToolBridge] Failed to bridge tool '${def.name}'`,
-            err instanceof Error ? err : new Error(String(err)),
+            error,
           );
         }
       }
@@ -155,9 +168,13 @@ export class ToolBridgeService {
         },
       ) as unknown as BridgedTool;
     } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.sentryService.captureException(error, {
+        errorSource: 'ToolBridgeService.bridgeMcpTool',
+      });
       this.logger.warn(
         `[DeepAgent.ToolBridge] Failed to bridge MCP tool '${def.name}'`,
-        err instanceof Error ? err : new Error(String(err)),
+        error,
       );
       return null;
     }

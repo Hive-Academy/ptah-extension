@@ -1,6 +1,7 @@
 import { injectable, inject } from 'tsyringe';
 import { Result } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { WorkspaceAnalyzerService } from '@ptah-extension/workspace-intelligence';
 import {
   ITemplateOrchestrator,
@@ -26,7 +27,9 @@ export class TemplateGeneratorService {
     private readonly workspaceAnalyzer: WorkspaceAnalyzerService,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspace: IWorkspaceProvider
+    private readonly workspace: IWorkspaceProvider,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -35,7 +38,7 @@ export class TemplateGeneratorService {
    * @returns Result with success message or error
    */
   public async generateTemplates(
-    config?: ProjectConfig
+    config?: ProjectConfig,
   ): Promise<Result<string, Error>> {
     try {
       // Get workspace root from platform-agnostic workspace provider
@@ -82,19 +85,19 @@ export class TemplateGeneratorService {
       // Orchestrate template generation
       const result = await this.orchestrator.orchestrateGeneration(
         projectContext,
-        projectConfig
+        projectConfig,
       );
 
       if (result.isErr()) {
         if (result.error) {
           this.logger.error(
             `Template generation failed: ${result.error.message}`,
-            result.error
+            result.error,
           );
           return Result.err(result.error);
         } else {
           const unknownError = new Error(
-            'Unknown error during template generation'
+            'Unknown error during template generation',
           );
           this.logger.error(unknownError.message, unknownError);
           return Result.err(unknownError);
@@ -105,6 +108,9 @@ export class TemplateGeneratorService {
       return Result.ok('Templates generated successfully.');
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
+      this.sentryService.captureException(err, {
+        errorSource: 'TemplateGeneratorService.generateTemplates',
+      });
       this.logger.error('Unexpected error during template generation', err);
       return Result.err(err);
     }

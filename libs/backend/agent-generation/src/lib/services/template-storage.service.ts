@@ -12,6 +12,7 @@ import { readdir, readFile } from 'fs/promises';
 import { join } from 'path';
 import matter from 'gray-matter';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { ITemplateStorageService } from '../interfaces/template-storage.interface';
 import { AgentTemplate } from '../types/core.types';
@@ -63,6 +64,8 @@ export class TemplateStorageService implements ITemplateStorageService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
     templatesPath?: string,
   ) {
     // In production, templatesPath is always injected by the DI container
@@ -231,6 +234,10 @@ export class TemplateStorageService implements ITemplateStorageService {
 
       return result;
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'TemplateStorageService.loadTemplate' },
+      );
       this.logger.error(
         `Error loading template: ${templateId}`,
         error as Error,

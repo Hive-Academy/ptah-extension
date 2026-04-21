@@ -11,6 +11,7 @@
  */
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type { CliType, CliDetectionResult } from '@ptah-extension/shared';
 import type {
   CliAdapter,
@@ -31,7 +32,11 @@ export class CliDetectionService {
   /** Cached model lists per CLI type */
   private modelCache: Map<CliType, CliModelInfo[]> | null = null;
 
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
+  ) {
     this.adapters.set('gemini', new GeminiCliAdapter());
     this.adapters.set('codex', new CodexCliAdapter());
 
@@ -95,9 +100,13 @@ export class CliDetectionService {
           );
         }
       } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'CliDetectionService.doDetectAll',
+        });
         this.logger.error(
           `[CliDetection] Error detecting ${adapter.displayName}`,
-          error instanceof Error ? error : new Error(String(error)),
+          err,
         );
         results.set(name, {
           cli: name,
@@ -160,9 +169,13 @@ export class CliDetectionService {
         const models = await adapter.listModels();
         cache.set(detection.cli, models);
       } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'CliDetectionService.listModelsForAll',
+        });
         this.logger.warn(
           `[CliDetection] Failed to list models for ${detection.cli}`,
-          { error: error instanceof Error ? error.message : String(error) },
+          { error: err.message },
         );
       }
     }
