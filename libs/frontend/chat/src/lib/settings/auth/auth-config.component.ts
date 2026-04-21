@@ -325,7 +325,16 @@ export class AuthConfigComponent implements OnInit {
         currentMethod === 'thirdParty'
           ? this.providerKey().trim() || undefined
           : undefined,
-      anthropicProviderId: this.authState.selectedProviderId(),
+      // Only persist the third-party provider id when the user is actually
+      // saving a third-party configuration. When auth method is Claude-native
+      // (apiKey / claudeCli), the selected provider tile is orphaned UI state
+      // and must not overwrite the stored last-used provider id — otherwise
+      // switching back to a provider tile would inherit a stale/unrelated id
+      // (e.g. saving claudeCli with a leftover 'ollama-cloud' selection).
+      anthropicProviderId:
+        currentMethod === 'thirdParty'
+          ? this.authState.selectedProviderId()
+          : undefined,
     };
 
     await this.authState.saveAndTest(params);

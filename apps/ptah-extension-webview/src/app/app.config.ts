@@ -8,6 +8,7 @@ import { provideMarkdown, MARKED_EXTENSIONS, SANITIZE } from 'ngx-markdown';
 import { provideMonacoEditor } from 'ngx-monaco-editor-v2';
 import DOMPurify from 'dompurify';
 import {
+  VSCodeService,
   provideVSCodeService,
   provideMessageRouter,
   MESSAGE_HANDLERS,
@@ -135,6 +136,7 @@ export const appConfig: ApplicationConfig = {
     provideVSCodeService(),
     // Message routing: handler registration pattern (replaces VSCodeService routing)
     provideMessageRouter(),
+    { provide: MESSAGE_HANDLERS, useExisting: VSCodeService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ClaudeRpcService, multi: true },
     {
       provide: MESSAGE_HANDLERS,
