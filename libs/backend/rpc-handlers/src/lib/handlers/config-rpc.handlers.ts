@@ -15,6 +15,7 @@ import {
   TOKENS,
   ConfigManager,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   SdkAgentAdapter,
   SdkPermissionHandler,
@@ -58,6 +59,8 @@ export class ConfigRpcHandlers {
     private readonly permissionHandler: SdkPermissionHandler,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: ModelResolver,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -151,6 +154,10 @@ export class ConfigRpcHandlers {
           'RPC: config:model-switch failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ConfigRpcHandlers.registerModelSwitch' },
+        );
         throw error;
       }
     });
@@ -210,6 +217,10 @@ export class ConfigRpcHandlers {
           this.logger.error(
             'RPC: config:model-get failed',
             error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'ConfigRpcHandlers.registerModelGet' },
           );
           throw error;
         }
@@ -304,6 +315,10 @@ export class ConfigRpcHandlers {
           'RPC: config:autopilot-toggle failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ConfigRpcHandlers.registerAutopilotToggle' },
+        );
         throw error;
       }
     });
@@ -334,6 +349,10 @@ export class ConfigRpcHandlers {
           this.logger.error(
             'RPC: config:autopilot-get failed',
             error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'ConfigRpcHandlers.registerAutopilotGet' },
           );
           throw error;
         }
@@ -496,6 +515,10 @@ export class ConfigRpcHandlers {
             'RPC: config:models-list failed',
             error instanceof Error ? error : new Error(String(error)),
           );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'ConfigRpcHandlers.registerModelsList' },
+          );
           throw error;
         }
       },
@@ -550,6 +573,10 @@ export class ConfigRpcHandlers {
           'RPC: config:effort-get failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ConfigRpcHandlers.registerEffortGet' },
+        );
         throw error;
       }
     });
@@ -575,6 +602,10 @@ export class ConfigRpcHandlers {
         this.logger.error(
           'RPC: config:effort-set failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ConfigRpcHandlers.registerEffortSet' },
         );
         throw error;
       }

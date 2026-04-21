@@ -32,6 +32,7 @@ import {
   TOKENS,
   registerVsCodeCoreServices,
   LicenseService,
+  SentryService,
 } from '@ptah-extension/vscode-core';
 
 // Import app-level RPC service and handlers (TASK_2025_074: Modular architecture)
@@ -168,6 +169,15 @@ export class DIContainer {
 
     // Now Logger can be registered and resolved safely
     container.registerSingleton(TOKENS.LOGGER, Logger);
+
+    // ========================================
+    // PHASE 1.1: Sentry Error Monitoring (registered early for activation failure capture)
+    // ========================================
+    // SentryService depends on LOGGER — must come after Logger registration.
+    // Registered in setupMinimal() so it is available even if full setup fails.
+    if (!container.isRegistered(TOKENS.SENTRY_SERVICE)) {
+      container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
+    }
 
     // ========================================
     // PHASE 1.5: ConfigManager (required by LicenseService)
@@ -307,6 +317,7 @@ export class DIContainer {
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c,
+          c.resolve(TOKENS.SENTRY_SERVICE),
         ),
     });
 
@@ -316,6 +327,7 @@ export class DIContainer {
           c.resolve(TOKENS.LOGGER),
           c.resolve(TOKENS.RPC_HANDLER),
           c,
+          c.resolve(TOKENS.SENTRY_SERVICE),
         ),
     });
 
@@ -345,6 +357,7 @@ export class DIContainer {
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
           c,
+          c.resolve(TOKENS.SENTRY_SERVICE),
         ),
     });
 
@@ -379,6 +392,7 @@ export class DIContainer {
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c,
+          c.resolve(TOKENS.SENTRY_SERVICE),
         ),
     });
 

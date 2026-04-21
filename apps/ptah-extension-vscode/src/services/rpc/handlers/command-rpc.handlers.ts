@@ -15,6 +15,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type {
   CommandExecuteParams,
   CommandExecuteResponse,
@@ -35,7 +36,9 @@ import * as vscode from 'vscode';
 export class CommandRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler
+    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -78,7 +81,7 @@ export class CommandRpcHandlers {
         const ALLOWED_EXACT_COMMANDS = ['workbench.action.reloadWindow'];
         const isAllowed =
           ALLOWED_COMMAND_PREFIXES.some((prefix) =>
-            command.startsWith(prefix)
+            command.startsWith(prefix),
           ) || ALLOWED_EXACT_COMMANDS.includes(command);
 
         if (!isAllowed) {
@@ -98,9 +101,13 @@ export class CommandRpcHandlers {
 
         return { success: true };
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'CommandRpcHandlers.registerCommandExecute' },
+        );
         this.logger.error(
           'RPC: command:execute failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return {
           success: false,

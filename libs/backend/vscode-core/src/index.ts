@@ -121,6 +121,13 @@ export type {
 export { FeatureGateService } from './services/feature-gate.service';
 export type { Feature, ProOnlyFeature } from './services/feature-gate.service';
 
+// Sentry Error Monitoring Service (TASK_2025_287)
+export { SentryService } from './services/sentry.service';
+export type {
+  SentryInitOptions,
+  SentryErrorContext,
+} from './services/sentry.service';
+
 // Platform Abstraction Interfaces (TASK_2025_203)
 // Defined in @ptah-extension/rpc-handlers (import directly from there)
 // NOT re-exported here to avoid circular dependency:

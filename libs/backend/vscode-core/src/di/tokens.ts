@@ -69,6 +69,7 @@ export const AGENT_SESSION_WATCHER_SERVICE = Symbol.for(
   'AgentSessionWatcherService',
 );
 export const SUBAGENT_REGISTRY_SERVICE = Symbol.for('SubagentRegistryService');
+export const SENTRY_SERVICE = Symbol.for('SentryService');
 
 // ========================================
 // Workspace Intelligence Service Tokens
@@ -352,6 +353,7 @@ export const TOKENS = {
   // SDK_RPC_HANDLERS - DELETED in TASK_2025_092
   AGENT_SESSION_WATCHER_SERVICE,
   SUBAGENT_REGISTRY_SERVICE,
+  SENTRY_SERVICE,
 
   // ========================================
   // Workspace Intelligence

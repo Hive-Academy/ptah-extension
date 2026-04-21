@@ -11,6 +11,7 @@
 
 import { injectable, inject, container } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   CliDetectionService,
   CopilotPermissionBridge,
@@ -66,6 +67,8 @@ export class AgentRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER)
     private readonly deepAgentHistoryReader: DeepAgentHistoryReaderService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -188,6 +191,10 @@ export class AgentRpcHandlers {
 
           return result;
         } catch (error) {
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AgentRpcHandlers.registerGetConfig' },
+          );
           this.logger.error(
             'RPC: agent:getConfig failed',
             error instanceof Error ? error : new Error(String(error)),
@@ -237,6 +244,10 @@ export class AgentRpcHandlers {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'AgentRpcHandlers.registerSetConfig' },
+        );
         this.logger.error(
           'RPC: agent:setConfig failed',
           error instanceof Error ? error : new Error(errorMessage),
@@ -462,6 +473,10 @@ export class AgentRpcHandlers {
 
           return { clis: detectedClis };
         } catch (error) {
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AgentRpcHandlers.registerDetectClis' },
+          );
           this.logger.error(
             'RPC: agent:detectClis failed',
             error instanceof Error ? error : new Error(String(error)),
@@ -514,6 +529,10 @@ export class AgentRpcHandlers {
 
           return result;
         } catch (error) {
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AgentRpcHandlers.registerListCliModels' },
+          );
           this.logger.error(
             'RPC: agent:listCliModels failed',
             error instanceof Error ? error : new Error(String(error)),
@@ -657,6 +676,10 @@ export class AgentRpcHandlers {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'AgentRpcHandlers.registerPermissionResponse' },
+        );
         this.logger.error(
           'RPC: agent:permissionResponse failed',
           error instanceof Error ? error : new Error(errorMessage),
@@ -694,6 +717,10 @@ export class AgentRpcHandlers {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'AgentRpcHandlers.registerAgentStop' },
+        );
         this.logger.error(
           'RPC: agent:stop failed',
           error instanceof Error ? error : new Error(errorMessage),
@@ -784,6 +811,10 @@ export class AgentRpcHandlers {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'AgentRpcHandlers.registerResumeCliSession' },
+        );
         this.logger.error(
           'RPC: agent:resumeCliSession failed',
           error instanceof Error ? error : new Error(errorMessage),

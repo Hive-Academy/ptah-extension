@@ -12,6 +12,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { ISaveDialogProvider } from '../platform-abstractions';
@@ -53,7 +54,9 @@ export class QualityRpcHandlers {
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SAVE_DIALOG_PROVIDER)
-    private readonly saveDialogProvider: ISaveDialogProvider
+    private readonly saveDialogProvider: ISaveDialogProvider,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -96,7 +99,7 @@ export class QualityRpcHandlers {
         const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
         if (!workspaceRoot) {
           throw new Error(
-            'No workspace folder open. Please open a folder to analyze.'
+            'No workspace folder open. Please open a folder to analyze.',
           );
         }
 
@@ -108,9 +111,8 @@ export class QualityRpcHandlers {
         // Track timing to detect if result came from cache
         const preCallMs = Date.now();
 
-        const intelligence = await this.intelligenceService.getIntelligence(
-          workspaceRoot
-        );
+        const intelligence =
+          await this.intelligenceService.getIntelligence(workspaceRoot);
 
         // Determine cache status: fresh analysis takes measurable time,
         // cached results return nearly instantly
@@ -121,7 +123,7 @@ export class QualityRpcHandlers {
         if (!fromCache) {
           try {
             await this.historyService.recordAssessment(
-              intelligence.qualityAssessment
+              intelligence.qualityAssessment,
             );
           } catch (historyError) {
             // History recording failure should not block the response
@@ -147,7 +149,11 @@ export class QualityRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: quality:getAssessment failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'QualityRpcHandlers.registerGetAssessment' },
         );
         throw error;
       }
@@ -179,7 +185,11 @@ export class QualityRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: quality:getHistory failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'QualityRpcHandlers.registerGetHistory' },
         );
         throw error;
       }
@@ -202,7 +212,7 @@ export class QualityRpcHandlers {
           const format = params?.format;
           if (!format || !['markdown', 'json', 'csv'].includes(format)) {
             throw new Error(
-              `Invalid export format: ${format}. Supported formats: markdown, json, csv`
+              `Invalid export format: ${format}. Supported formats: markdown, json, csv`,
             );
           }
 
@@ -212,13 +222,12 @@ export class QualityRpcHandlers {
           const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
           if (!workspaceRoot) {
             throw new Error(
-              'No workspace folder open. Please open a folder to export.'
+              'No workspace folder open. Please open a folder to export.',
             );
           }
 
-          const intelligence = await this.intelligenceService.getIntelligence(
-            workspaceRoot
-          );
+          const intelligence =
+            await this.intelligenceService.getIntelligence(workspaceRoot);
 
           // Generate export content based on format
           let content: string;
@@ -282,11 +291,15 @@ export class QualityRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: quality:export failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'QualityRpcHandlers.registerExport' },
           );
           throw error;
         }
-      }
+      },
     );
   }
 

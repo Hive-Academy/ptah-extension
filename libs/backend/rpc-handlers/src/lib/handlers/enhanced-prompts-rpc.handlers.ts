@@ -26,6 +26,7 @@ import {
   TOKENS,
   LicenseService,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   EnhancedPromptsService,
   SDK_TOKENS,
@@ -95,6 +96,8 @@ export class EnhancedPromptsRpcHandlers {
     private readonly saveDialogProvider: ISaveDialogProvider,
     @inject('DependencyContainer')
     private readonly container: DependencyContainer,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -169,6 +172,10 @@ export class EnhancedPromptsRpcHandlers {
         this.logger.error(
           'RPC: enhancedPrompts:getStatus failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'EnhancedPromptsRpcHandlers.registerGetStatus' },
         );
 
         return {
@@ -380,6 +387,10 @@ export class EnhancedPromptsRpcHandlers {
           'RPC: enhancedPrompts:runWizard failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'EnhancedPromptsRpcHandlers.registerRunWizard' },
+        );
 
         return {
           success: false,
@@ -434,6 +445,10 @@ export class EnhancedPromptsRpcHandlers {
         this.logger.error(
           'RPC: enhancedPrompts:setEnabled failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'EnhancedPromptsRpcHandlers.registerSetEnabled' },
         );
 
         return {
@@ -536,6 +551,10 @@ export class EnhancedPromptsRpcHandlers {
           'RPC: enhancedPrompts:regenerate failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'EnhancedPromptsRpcHandlers.registerRegenerate' },
+        );
 
         return {
           success: false,
@@ -584,6 +603,12 @@ export class EnhancedPromptsRpcHandlers {
         this.logger.error(
           'RPC: enhancedPrompts:getPromptContent failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          {
+            errorSource: 'EnhancedPromptsRpcHandlers.registerGetPromptContent',
+          },
         );
 
         return {
@@ -665,6 +690,10 @@ export class EnhancedPromptsRpcHandlers {
         this.logger.error(
           'RPC: enhancedPrompts:download failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'EnhancedPromptsRpcHandlers.registerDownload' },
         );
 
         return {
