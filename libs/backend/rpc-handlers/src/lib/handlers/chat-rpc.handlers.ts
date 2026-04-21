@@ -22,6 +22,7 @@ import {
   AgentSessionWatcherService,
   isPremiumTier,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   SessionHistoryReaderService,
   DeepAgentHistoryReaderService,
@@ -102,6 +103,8 @@ export class ChatRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER)
     private readonly deepAgentHistoryReader: DeepAgentHistoryReaderService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -687,6 +690,10 @@ export class ChatRpcHandlers {
             'RPC: chat:start failed',
             error instanceof Error ? error : new Error(String(error)),
           );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'ChatRpcHandlers.registerChatStart' },
+          );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
@@ -808,6 +815,7 @@ export class ChatRpcHandlers {
                 tabId,
                 thinking: params.thinking, // TASK_2025_184: Reasoning configuration
                 effort: params.effort, // TASK_2025_184: Effort level
+                prompt, // DeepAgent runtime includes this in the LangGraph stream input
               });
 
               // Start streaming responses to webview (background - don't await)
@@ -1073,6 +1081,10 @@ IMPORTANT INSTRUCTIONS:
           this.logger.error(
             'RPC: chat:continue failed',
             error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'ChatRpcHandlers.registerChatContinue' },
           );
           return {
             success: false,
@@ -1387,6 +1399,10 @@ IMPORTANT INSTRUCTIONS:
             'RPC: chat:resume failed',
             error instanceof Error ? error : new Error(String(error)),
           );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'ChatRpcHandlers.registerChatResume' },
+          );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
@@ -1426,6 +1442,10 @@ IMPORTANT INSTRUCTIONS:
             'RPC: chat:abort failed',
             error instanceof Error ? error : new Error(String(error)),
           );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'ChatRpcHandlers.registerChatAbort' },
+          );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
@@ -1464,6 +1484,10 @@ IMPORTANT INSTRUCTIONS:
         this.logger.error(
           'RPC: chat:running-agents failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ChatRpcHandlers.registerChatRunningAgents' },
         );
         return { agents: [] };
       }
@@ -1561,6 +1585,10 @@ IMPORTANT INSTRUCTIONS:
         this.logger.error(
           'RPC: agent:backgroundList failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ChatRpcHandlers.registerBackgroundAgentHandlers' },
         );
         return { agents: [] };
       }
@@ -1756,6 +1784,10 @@ IMPORTANT INSTRUCTIONS:
         this.logger.error(
           `[RPC] Error streaming flat events for session ${sessionId}, tabId ${tabId} after ${eventCount} events`,
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ChatRpcHandlers.streamExecutionNodesToWebview' },
         );
       }
 

@@ -118,6 +118,9 @@ export const SDK_TOKENS = {
   SDK_OLLAMA_DISCOVERY: Symbol.for('SdkOllamaDiscovery'),
   SDK_LM_STUDIO_PROXY: Symbol.for('SdkLmStudioProxy'),
 
+  /** Ollama Cloud metadata service — live tags + pricing (TASK_OLLAMA_CLOUD_KEY) */
+  SDK_OLLAMA_CLOUD_METADATA: Symbol.for('SdkOllamaCloudMetadata'),
+
   /** Skill Junction Service (TASK_2025_201) */
   SDK_SKILL_JUNCTION: Symbol.for('SdkSkillJunction'),
 

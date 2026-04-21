@@ -2,6 +2,7 @@ import path from 'path';
 import { injectable, inject } from 'tsyringe';
 import { Result } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   ITemplateOrchestrator,
   ITemplateProcessor,
@@ -28,7 +29,9 @@ export class TemplateOrchestratorService implements ITemplateOrchestrator {
     private readonly contentGenerator: ITemplateContentGenerator,
     @inject(TOKENS.TEMPLATE_FILE_MANAGER)
     private readonly fileManager: ITemplateFileManager,
-    @inject(TOKENS.LOGGER) private readonly logger: Logger
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -38,12 +41,12 @@ export class TemplateOrchestratorService implements ITemplateOrchestrator {
     message: string,
     operation: string,
     cause?: Error,
-    additionalContext?: Record<string, unknown>
+    additionalContext?: Record<string, unknown>,
   ): Result<never, Error> {
     const error = new TemplateGenerationError(
       message,
       { ...additionalContext, operation },
-      cause
+      cause,
     );
     this.logger.error(error.message, error);
     return Result.err(error);
@@ -56,7 +59,7 @@ export class TemplateOrchestratorService implements ITemplateOrchestrator {
     message: string,
     operation: string,
     caughtError: unknown,
-    additionalContext?: Record<string, unknown>
+    additionalContext?: Record<string, unknown>,
   ): Result<never, Error> {
     const cause =
       caughtError instanceof Error
@@ -66,7 +69,7 @@ export class TemplateOrchestratorService implements ITemplateOrchestrator {
       message,
       operation,
       cause,
-      additionalContext
+      additionalContext,
     );
   }
 
@@ -79,12 +82,12 @@ export class TemplateOrchestratorService implements ITemplateOrchestrator {
    */
   async orchestrateGeneration(
     projectContext: ProjectContext,
-    config: ProjectConfig
+    config: ProjectConfig,
   ): Promise<Result<void, Error>> {
     const resolvedOutputDir: string =
       config.templateGeneration?.outputDir || './generated-templates';
     this.logger.debug(
-      `Resolved template output directory: ${resolvedOutputDir}`
+      `Resolved template output directory: ${resolvedOutputDir}`,
     );
 
     const errors: { fileType: string; error: Error; phase: string }[] = [];
@@ -100,7 +103,7 @@ export class TemplateOrchestratorService implements ITemplateOrchestrator {
           'Failed to create template directory structure',
           'createTemplateDirectory',
           dirResult.error || new Error('Unknown directory creation error'),
-          { targetDir: resolvedOutputDir }
+          { targetDir: resolvedOutputDir },
         );
       }
 
@@ -144,7 +147,7 @@ export class TemplateOrchestratorService implements ITemplateOrchestrator {
         const contentResult = await this.contentGenerator.generateContent(
           fileType,
           projectContext,
-          templateResult.value
+          templateResult.value,
         );
 
         if (contentResult.isErr()) {
@@ -170,11 +173,11 @@ export class TemplateOrchestratorService implements ITemplateOrchestrator {
         // Write the generated content
         const outputFilePath = path.join(
           resolvedOutputDir,
-          `${fileTypeStr}.md`
+          `${fileTypeStr}.md`,
         );
         const writeResult = await this.fileManager.writeTemplateFile(
           outputFilePath,
-          contentResult.value
+          contentResult.value,
         );
 
         if (writeResult.isErr()) {
@@ -206,22 +209,26 @@ export class TemplateOrchestratorService implements ITemplateOrchestrator {
                 fileType: e.fileType,
                 phase: e.phase,
               })),
-            }
+            },
           );
         }
 
         // Log warnings but continue if at least one file was generated
         this.logger.warn(
-          `Template generation completed with ${errors.length} errors:\n- ${errorSummary}`
+          `Template generation completed with ${errors.length} errors:\n- ${errorSummary}`,
         );
       }
 
       return Result.ok(undefined);
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'TemplateOrchestratorService.orchestrateGeneration' },
+      );
       return this._wrapCaughtError(
         'Unexpected error during template generation',
         'orchestrateGeneration',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }

@@ -33,3 +33,4 @@ export {
   type BridgedTool,
 } from './lib/tool-bridge/tool-bridge.service';
 export { JsonFileCheckpointer } from './lib/checkpointer/json-file-checkpointer';
+export { DeepAgentInternalQueryAdapter } from './lib/internal-query/deep-agent-internal-query.adapter';

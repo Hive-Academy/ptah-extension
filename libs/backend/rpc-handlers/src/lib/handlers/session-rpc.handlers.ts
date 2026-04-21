@@ -12,6 +12,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   SessionMetadataStore,
   SDK_TOKENS,
@@ -54,6 +55,8 @@ export class SessionRpcHandlers {
     private readonly historyReader: SessionHistoryReaderService,
     @inject(SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER)
     private readonly deepAgentHistoryReader: DeepAgentHistoryReaderService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -132,6 +135,10 @@ export class SessionRpcHandlers {
             'RPC: session:list failed',
             error instanceof Error ? error : new Error(String(error)),
           );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'SessionRpcHandlers.registerSessionList' },
+          );
           throw new Error(
             `Failed to list sessions: ${
               error instanceof Error ? error.message : String(error)
@@ -188,6 +195,10 @@ export class SessionRpcHandlers {
             'RPC: session:load failed',
             error instanceof Error ? error : new Error(String(error)),
           );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'SessionRpcHandlers.registerSessionLoad' },
+          );
           throw new Error(
             `Failed to load session: ${
               error instanceof Error ? error.message : String(error)
@@ -237,6 +248,10 @@ export class SessionRpcHandlers {
           'RPC: session:delete failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'SessionRpcHandlers.registerSessionDelete' },
+        );
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),
@@ -283,6 +298,10 @@ export class SessionRpcHandlers {
           this.logger.error(
             'RPC: session:rename failed',
             error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'SessionRpcHandlers.registerSessionRename' },
           );
           return {
             success: false,
@@ -482,6 +501,10 @@ export class SessionRpcHandlers {
             'RPC: session:validate failed',
             error instanceof Error ? error : new Error(String(error)),
           );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'SessionRpcHandlers.registerSessionValidate' },
+          );
           return { exists: false };
         }
       },
@@ -519,6 +542,10 @@ export class SessionRpcHandlers {
         this.logger.error(
           'RPC: session:cli-sessions failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'SessionRpcHandlers.registerSessionCliSessions' },
         );
         return { cliSessions: [] };
       }

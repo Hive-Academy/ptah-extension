@@ -16,6 +16,7 @@ import {
   TOKENS,
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type { AuthEnv } from '@ptah-extension/shared';
 import type {
   IAuthStrategy,
@@ -51,6 +52,8 @@ export class ApiKeyStrategy implements IAuthStrategy {
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_OPENROUTER_PROXY)
     private readonly openRouterProxy: ITranslationProxy,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
@@ -97,6 +100,10 @@ export class ApiKeyStrategy implements IAuthStrategy {
     try {
       await this.openRouterProxy.stop();
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'ApiKeyStrategy.stopOpenRouterProxyIfRunning' },
+      );
       this.logger.warn(
         `[${this.name}] Failed to stop OpenRouter proxy: ${
           error instanceof Error ? error.message : String(error)
@@ -171,6 +178,13 @@ export class ApiKeyStrategy implements IAuthStrategy {
         );
       }
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          errorSource: 'ApiKeyStrategy.configureOpenRouterProxy',
+          activeProvider: providerId,
+        },
+      );
       this.logger.error(
         `[${this.name}] Failed to start OpenRouter translation proxy: ${
           error instanceof Error ? error.message : String(error)

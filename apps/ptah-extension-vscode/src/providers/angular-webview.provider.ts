@@ -100,9 +100,21 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         onReady: () => {
           this.logger.info('Sidebar webview ready signal received');
           this.markWebviewReady();
+          // Send current workspace info after Angular bootstraps — handles the
+          // race condition where workspaceFolders wasn't yet available when the
+          // HTML was generated (common on Linux when VS Code starts without a folder).
+          this.broadcastWorkspaceChanged();
         },
       },
       this._disposables,
+    );
+
+    // Keep workspace root in sync when the user opens/closes folders while the
+    // sidebar is already visible (e.g. File > Open Folder on Linux/macOS).
+    this._disposables.push(
+      vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        this.broadcastWorkspaceChanged();
+      }),
     );
   }
 
@@ -210,6 +222,19 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     this.logger.info(
       `Panel ${panelId} created, ${this._panels.size} total panels`,
     );
+  }
+
+  /**
+   * Broadcast the current workspace root to all open webviews.
+   * Called on initial webview ready and on onDidChangeWorkspaceFolders.
+   */
+  private broadcastWorkspaceChanged(): void {
+    const workspaceInfo = this.htmlGenerator.buildWorkspaceInfo();
+    const message = { type: 'workspaceChanged', payload: { workspaceInfo } };
+    this._view?.webview.postMessage(message);
+    for (const panel of this._panels.values()) {
+      panel.webview.postMessage(message);
+    }
   }
 
   /**

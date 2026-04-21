@@ -29,7 +29,7 @@ import {
   ContentDownloadService,
 } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import { TOKENS, SentryService } from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
   EnhancedPromptsService,
@@ -129,6 +129,23 @@ if (!gotLock) {
     };
 
     const container = ElectronDIContainer.setup(platformOptions);
+
+    // Initialize Sentry — DSN injected at build time via esbuild define.
+    // Production builds contain the real DSN; development gets empty string (no-op).
+    const sentryDsn =
+      typeof __SENTRY_DSN__ !== 'undefined' ? __SENTRY_DSN__ : '';
+    if (sentryDsn) {
+      const sentryService = container.resolve<SentryService>(
+        TOKENS.SENTRY_SERVICE,
+      );
+      sentryService.initialize({
+        dsn: sentryDsn,
+        environment: 'production',
+        release: app.getVersion(),
+        platform: 'electron',
+        extensionVersion: app.getVersion(),
+      });
+    }
 
     // ========================================
     // PHASE 2.1: Verify Critical DI Tokens

@@ -81,6 +81,7 @@ import { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import { FeatureGateService } from '@ptah-extension/vscode-core';
 import { LicenseService } from '@ptah-extension/vscode-core';
 import { AuthSecretsService } from '@ptah-extension/vscode-core';
+import { SentryService } from '@ptah-extension/vscode-core';
 
 // Library registration functions (all accept container + logger, no vscode)
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
@@ -219,6 +220,13 @@ export class ElectronDIContainer {
     container.register(TOKENS.LOGGER, { useValue: logger });
 
     logger.info('[Electron DI] Starting service registration...');
+
+    // ========================================
+    // PHASE 1.0b: SentryService (error monitoring)
+    // ========================================
+    // Depends only on LOGGER. Required by auth strategies and RPC handlers.
+    // Remains inert unless initialized with a DSN from main.ts.
+    container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
 
     // ========================================
     // PHASE 1.1: LicenseService (real implementation)
@@ -771,6 +779,7 @@ export class ElectronDIContainer {
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c,
+          c.resolve(TOKENS.SENTRY_SERVICE),
         ),
     });
     container.registerSingleton(LicenseRpcHandlers);
@@ -784,6 +793,7 @@ export class ElectronDIContainer {
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c,
+          c.resolve(TOKENS.SENTRY_SERVICE),
         ),
     });
     container.registerSingleton(AutocompleteRpcHandlers);
@@ -803,6 +813,7 @@ export class ElectronDIContainer {
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
           c,
+          c.resolve(TOKENS.SENTRY_SERVICE),
         ),
     });
     container.registerSingleton(QualityRpcHandlers);
@@ -814,6 +825,7 @@ export class ElectronDIContainer {
           c.resolve(TOKENS.LOGGER),
           c.resolve(TOKENS.RPC_HANDLER),
           c,
+          c.resolve(TOKENS.SENTRY_SERVICE),
         ),
     });
     // TASK_2025_241: WebSearchRpcHandlers - web search settings management (API keys, config, testing)

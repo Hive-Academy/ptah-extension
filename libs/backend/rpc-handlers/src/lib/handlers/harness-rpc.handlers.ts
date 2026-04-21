@@ -32,6 +32,7 @@ import {
   TOKENS,
   ConfigManager,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
   PluginLoaderService,
@@ -239,6 +240,8 @@ export class HarnessRpcHandlers {
     private readonly messageTransformer: SdkMessageTransformer,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   private requireWorkspaceRoot(): string {
@@ -402,6 +405,10 @@ export class HarnessRpcHandlers {
           'RPC: harness:initialize failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerInitialize' },
+        );
         throw error;
       }
     });
@@ -448,6 +455,10 @@ export class HarnessRpcHandlers {
           'RPC: harness:suggest-config failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerSuggestConfig' },
+        );
         throw error;
       }
     });
@@ -493,6 +504,10 @@ export class HarnessRpcHandlers {
         this.logger.error(
           'RPC: harness:search-skills failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerSearchSkills' },
         );
         throw error;
       }
@@ -578,6 +593,10 @@ export class HarnessRpcHandlers {
         this.logger.error(
           'RPC: harness:create-skill failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerCreateSkill' },
         );
         throw error;
       }
@@ -692,6 +711,10 @@ export class HarnessRpcHandlers {
           'RPC: harness:discover-mcp failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerDiscoverMcp' },
+        );
         throw error;
       }
     });
@@ -737,6 +760,10 @@ export class HarnessRpcHandlers {
           'RPC: harness:generate-prompt failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerGeneratePrompt' },
+        );
         throw error;
       }
     });
@@ -771,6 +798,10 @@ export class HarnessRpcHandlers {
         this.logger.error(
           'RPC: harness:generate-claude-md failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerGenerateClaudeMd' },
         );
         throw error;
       }
@@ -871,6 +902,10 @@ export class HarnessRpcHandlers {
             'RPC: harness:apply failed',
             error instanceof Error ? error : new Error(String(error)),
           );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'HarnessRpcHandlers.registerApply' },
+          );
           throw error;
         }
       },
@@ -914,6 +949,10 @@ export class HarnessRpcHandlers {
           'RPC: harness:save-preset failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerSavePreset' },
+        );
         throw error;
       }
     });
@@ -944,6 +983,10 @@ export class HarnessRpcHandlers {
         this.logger.error(
           'RPC: harness:load-presets failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerLoadPresets' },
         );
         throw error;
       }
@@ -986,6 +1029,10 @@ export class HarnessRpcHandlers {
           this.logger.error(
             'RPC: harness:chat failed',
             error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'HarnessRpcHandlers.registerChat' },
           );
           // Graceful fallback to stub if LLM fails
           return {
@@ -1033,6 +1080,10 @@ export class HarnessRpcHandlers {
           'RPC: harness:design-agents failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerDesignAgents' },
+        );
         throw error;
       }
     });
@@ -1076,6 +1127,10 @@ export class HarnessRpcHandlers {
           'RPC: harness:generate-skills failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerGenerateSkills' },
+        );
         throw error;
       }
     });
@@ -1116,6 +1171,10 @@ export class HarnessRpcHandlers {
         this.logger.error(
           'RPC: harness:generate-document failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerGenerateDocument' },
         );
         throw error;
       }
@@ -1190,6 +1249,10 @@ export class HarnessRpcHandlers {
         this.logger.error(
           'RPC: harness:analyze-intent failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerAnalyzeIntent' },
         );
         throw error;
       }
@@ -3696,6 +3759,10 @@ If this is the first message, analyze the user's intent and propose a complete i
         this.logger.error('harness:converse failed', {
           error: error instanceof Error ? error.message : String(error),
         });
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'HarnessRpcHandlers.registerConverse' },
+        );
         throw error;
       }
     });
