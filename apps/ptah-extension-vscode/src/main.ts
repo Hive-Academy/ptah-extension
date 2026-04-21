@@ -497,13 +497,14 @@ export async function activate(
     // This allows license verification before full service initialization
     DIContainer.setupMinimal(context);
 
-    // Initialize Sentry error monitoring if DSN is configured
+    // Initialize Sentry — DSN is injected at build time via esbuild define.
+    // Production builds contain the real DSN; development builds get an empty
+    // string so no events are sent during local development.
     const sentryService = DIContainer.resolve<SentryService>(
       TOKENS.SENTRY_SERVICE,
     );
-    const sentryDsn = vscode.workspace
-      .getConfiguration('ptah')
-      .get<string>('sentryDsn', '');
+    const sentryDsn =
+      typeof __SENTRY_DSN__ !== 'undefined' ? __SENTRY_DSN__ : '';
     if (sentryDsn) {
       const isDev = context.extensionMode === vscode.ExtensionMode.Development;
       sentryService.initialize({
