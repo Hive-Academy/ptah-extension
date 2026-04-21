@@ -12,6 +12,7 @@
 import { injectable, inject } from 'tsyringe';
 import { tool } from '@langchain/core/tools';
 import type { StructuredToolInterface } from '@langchain/core/tools';
+import type { RunnableConfig } from '@langchain/core/runnables';
 import type { IToolRegistry, ToolDef } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
@@ -143,23 +144,42 @@ export class ToolBridgeService {
       };
 
       return tool(
-        async (input: Record<string, unknown>) => {
-          const response = await fetch(mcpBaseUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: Date.now(),
-              method: 'tools/call',
-              params: { name: def.name, arguments: input },
-            }),
-          });
+        async (input: Record<string, unknown>, config?: RunnableConfig) => {
+          // Return errors as string content rather than throwing. Throwing
+          // inside ToolNode's Promise.all can cascade-cancel sibling tool
+          // calls (e.g. `task` subagents), leaving orphaned tool_use blocks
+          // that cause the provider to synthesize "cancelled — another
+          // message came in" errors on the next turn.
+          try {
+            const response = await fetch(mcpBaseUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: Date.now(),
+                method: 'tools/call',
+                params: { name: def.name, arguments: input },
+              }),
+              signal: config?.signal,
+            });
 
-          const result = (await response.json()) as {
-            result?: { content?: Array<{ text?: string }> };
-          };
-          const content = result?.result?.content ?? [];
-          return content.map((c) => c.text ?? '').join('\n') || 'OK';
+            if (!response.ok) {
+              return `Error: MCP tool '${def.name}' returned HTTP ${response.status}`;
+            }
+
+            const result = (await response.json()) as {
+              result?: { content?: Array<{ text?: string }> };
+              error?: { message?: string };
+            };
+            if (result?.error) {
+              return `Error: ${result.error.message ?? 'MCP tool failed'}`;
+            }
+            const content = result?.result?.content ?? [];
+            return content.map((c) => c.text ?? '').join('\n') || 'OK';
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return `Error: MCP tool '${def.name}' failed — ${message}`;
+          }
         },
         {
           name: def.name,
@@ -193,8 +213,16 @@ export class ToolBridgeService {
 
     return tool(
       async (input: Record<string, unknown>) => {
-        const result = await def.execute(input);
-        return typeof result === 'string' ? result : JSON.stringify(result);
+        // See bridgeMcpTool: errors must return as string content, never
+        // throw, so sibling tool_calls in a parallel ToolNode batch are
+        // not cascade-cancelled.
+        try {
+          const result = await def.execute(input);
+          return typeof result === 'string' ? result : JSON.stringify(result);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return `Error: tool '${def.name}' failed — ${message}`;
+        }
       },
       {
         name: def.name,

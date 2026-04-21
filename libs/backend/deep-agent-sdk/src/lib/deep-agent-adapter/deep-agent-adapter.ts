@@ -46,6 +46,10 @@ import type {
 } from '@ptah-extension/shared';
 import { Logger, TOKENS, ConfigManager } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import type {
+  AgentDiscoveryService,
+  AgentInfo,
+} from '@ptah-extension/workspace-intelligence';
 import {
   type AnthropicProviderId,
   ModelResolver,
@@ -153,6 +157,8 @@ export class DeepAgentAdapter implements IAgentAdapter {
     private readonly metadataStore: SessionMetadataStore,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(TOKENS.AGENT_DISCOVERY_SERVICE)
+    private readonly agentDiscovery: AgentDiscoveryService,
   ) {}
 
   async preloadSdk(): Promise<void> {
@@ -292,10 +298,14 @@ export class DeepAgentAdapter implements IAgentAdapter {
     const checkpointer = this.getOrCreateCheckpointer(config);
     const interruptOn = this.mapPermissionToInterrupt();
 
-    const subagents = PTAH_SUBAGENTS.map((sa) => ({
-      ...sa,
-      model: llm,
-    }));
+    // Subagents: prefer .claude/agents/*.md from the workspace (parity with
+    // the Claude SDK runtime) and fall back to PTAH_SUBAGENTS if the user
+    // has no agent files configured. Subagents inherit parent model/tools
+    // via deepagents — do NOT inject the shared `llm` instance here, as
+    // sharing one ChatModel across the parent graph and every concurrent
+    // subagent creates re-entrance conflicts when `task` runs in parallel
+    // with other tool_calls.
+    const subagents = await this.resolveSubagents();
 
     this.logger.info('[DeepAgentAdapter] createDeepAgent params', {
       hasSystemPrompt: !!systemPrompt,
@@ -726,6 +736,59 @@ export class DeepAgentAdapter implements IAgentAdapter {
    * Each plugin's skills/ directory is passed so deepagents can
    * discover and load SKILL.md files via its native skill system.
    */
+  /**
+   * Discover subagents from `.claude/agents/*.md` (project + user scope),
+   * mapped to deepagents' SubAgent shape. Falls back to the built-in
+   * `PTAH_SUBAGENTS` list if the workspace has no agent files so the
+   * `task` tool always has specialists to delegate to.
+   *
+   * Built-in AgentDiscovery entries are Claude-Code-specific (Explore,
+   * Plan, etc.) and are filtered out — deepagents doesn't share those
+   * internal tools.
+   */
+  private async resolveSubagents(): Promise<
+    Array<{ name: string; description: string; systemPrompt: string }>
+  > {
+    try {
+      const result = await this.agentDiscovery.discoverAgents();
+      const discovered = (result.agents ?? []).filter(
+        (a: AgentInfo) => a.scope !== 'builtin' && a.prompt.trim().length > 0,
+      );
+
+      if (discovered.length === 0) {
+        this.logger.info(
+          '[DeepAgentAdapter] No .claude/agents/*.md found — using built-in PTAH_SUBAGENTS',
+          { builtinCount: PTAH_SUBAGENTS.length },
+        );
+        return [...PTAH_SUBAGENTS];
+      }
+
+      this.logger.info(
+        '[DeepAgentAdapter] Loaded subagents from .claude/agents',
+        {
+          projectCount: discovered.filter((a) => a.scope === 'project').length,
+          userCount: discovered.filter((a) => a.scope === 'user').length,
+        },
+      );
+
+      return discovered.map((a) => ({
+        name: a.name,
+        description: a.description,
+        systemPrompt: a.prompt,
+      }));
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.sentryService.captureException(error, {
+        errorSource: 'DeepAgentAdapter.resolveSubagents',
+      });
+      this.logger.warn(
+        '[DeepAgentAdapter] Agent discovery failed — falling back to PTAH_SUBAGENTS',
+        error,
+      );
+      return [...PTAH_SUBAGENTS];
+    }
+  }
+
   private resolveSkillPaths(pluginPaths?: string[]): string[] {
     const paths = pluginPaths ?? [];
     if (paths.length === 0) {
