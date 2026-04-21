@@ -177,8 +177,17 @@ export class ElectronRpcMethodRegistrationService {
     // TASK_2025_243: Port from VS Code for real-time agent monitor sidebar
     this.setupAgentMonitorListeners();
 
-    // Phase 4: Verify all expected RPC methods are registered
-    verifyRpcRegistration(this.rpcHandler, this.logger);
+    // Phase 4: Verify all expected RPC methods are registered.
+    // mcpDirectory:* are VS Code-only (use VS Code's extension host MCP APIs).
+    // Electron provides its own MCP server but not the directory browser feature.
+    verifyRpcRegistration(this.rpcHandler, this.logger, [
+      'mcpDirectory:search',
+      'mcpDirectory:getDetails',
+      'mcpDirectory:install',
+      'mcpDirectory:uninstall',
+      'mcpDirectory:listInstalled',
+      'mcpDirectory:getPopular',
+    ]);
 
     this.logger.info('[Electron RPC] All RPC methods registered', {
       methods: this.rpcHandler.getRegisteredMethods(),

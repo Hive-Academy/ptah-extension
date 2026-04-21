@@ -14,8 +14,17 @@
 
 import { injectable, inject, DependencyContainer } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type {
+  Logger,
+  RpcHandler,
+  IAuthSecretsService,
+} from '@ptah-extension/vscode-core';
+import {
+  SDK_TOKENS,
+  ANTHROPIC_PROVIDERS,
+  DEFAULT_PROVIDER_ID,
+} from '@ptah-extension/agent-sdk';
+import type { ConfigManager } from '@ptah-extension/vscode-core';
 
 /** Last-resort fallback when no user preference is stored and SDK init hasn't run.
  *  'default' lets the SDK resolve to its current default model dynamically. */
@@ -26,12 +35,15 @@ export class ElectronConfigExtendedRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    private readonly container: DependencyContainer
+    private readonly container: DependencyContainer,
   ) {}
 
   register(): void {
     this.registerModelSet();
     this.initializePermissionHandler();
+    this.registerSetApiKey();
+    this.registerGetStatus();
+    this.registerGetApiKeyStatus();
   }
 
   /**
@@ -56,8 +68,111 @@ export class ElectronConfigExtendedRpcHandlers {
           await storageService.set('autopilot.enabled', params.autopilot);
         }
         return { success: true };
-      }
+      },
     );
+  }
+
+  /** auth:setApiKey — store an API key for the given provider */
+  private registerSetApiKey(): void {
+    this.rpcHandler.registerMethod<
+      { provider: string; apiKey: string },
+      { success: boolean; error?: string }
+    >('auth:setApiKey', async (params) => {
+      try {
+        const authSecrets = this.container.resolve<IAuthSecretsService>(
+          TOKENS.AUTH_SECRETS_SERVICE,
+        );
+        if (params?.apiKey?.trim()) {
+          await authSecrets.setProviderKey(params.provider, params.apiKey);
+        } else {
+          await authSecrets.deleteProviderKey(params.provider);
+        }
+        return { success: true };
+      } catch (error) {
+        this.logger.error('[Electron RPC] auth:setApiKey failed', {
+          provider: params?.provider,
+          error: error instanceof Error ? error.message : String(error),
+        } as unknown as Error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+  }
+
+  /** auth:getStatus — simple auth status for the active provider */
+  private registerGetStatus(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      { isAuthenticated: boolean; provider: string; hasApiKey: boolean }
+    >('auth:getStatus', async () => {
+      try {
+        const authSecrets = this.container.resolve<IAuthSecretsService>(
+          TOKENS.AUTH_SECRETS_SERVICE,
+        );
+        const configManager = this.container.resolve<ConfigManager>(
+          TOKENS.CONFIG_MANAGER,
+        );
+        const provider = configManager.getWithDefault<string>(
+          'anthropicProviderId',
+          DEFAULT_PROVIDER_ID,
+        );
+        const hasApiKey = await authSecrets.hasProviderKey(provider);
+        return { isAuthenticated: hasApiKey, provider, hasApiKey };
+      } catch (error) {
+        this.logger.error('[Electron RPC] auth:getStatus failed', {
+          error: error instanceof Error ? error.message : String(error),
+        } as unknown as Error);
+        return {
+          isAuthenticated: false,
+          provider: DEFAULT_PROVIDER_ID,
+          hasApiKey: false,
+        };
+      }
+    });
+  }
+
+  /** auth:getApiKeyStatus — list all providers with their key presence */
+  private registerGetApiKeyStatus(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      {
+        providers: Array<{
+          provider: string;
+          displayName: string;
+          hasApiKey: boolean;
+          isDefault: boolean;
+        }>;
+      }
+    >('auth:getApiKeyStatus', async () => {
+      try {
+        const authSecrets = this.container.resolve<IAuthSecretsService>(
+          TOKENS.AUTH_SECRETS_SERVICE,
+        );
+        const configManager = this.container.resolve<ConfigManager>(
+          TOKENS.CONFIG_MANAGER,
+        );
+        const activeProvider = configManager.getWithDefault<string>(
+          'anthropicProviderId',
+          DEFAULT_PROVIDER_ID,
+        );
+        const providers = await Promise.all(
+          ANTHROPIC_PROVIDERS.map(async (p) => ({
+            provider: p.id,
+            displayName: p.name,
+            hasApiKey: await authSecrets.hasProviderKey(p.id),
+            isDefault: p.id === activeProvider,
+          })),
+        );
+        return { providers };
+      } catch (error) {
+        this.logger.error('[Electron RPC] auth:getApiKeyStatus failed', {
+          error: error instanceof Error ? error.message : String(error),
+        } as unknown as Error);
+        return { providers: [] };
+      }
+    });
   }
 
   /**
@@ -73,7 +188,7 @@ export class ElectronConfigExtendedRpcHandlers {
       const savedEnabled = initStorageService.get('autopilot.enabled', false);
       const savedLevel = initStorageService.get(
         'autopilot.permissionLevel',
-        'ask'
+        'ask',
       );
       if (savedEnabled && savedLevel !== 'ask') {
         const permissionHandler = this.container.resolve<{
@@ -82,13 +197,13 @@ export class ElectronConfigExtendedRpcHandlers {
         permissionHandler.setPermissionLevel(savedLevel);
         this.logger.info(
           '[Electron RPC] Initialized permission handler from saved config',
-          { permissionLevel: savedLevel } as unknown as Error
+          { permissionLevel: savedLevel } as unknown as Error,
         );
       }
     } catch {
       // Permission handler may not be registered yet -- best-effort
       this.logger.debug(
-        '[Electron RPC] Permission handler initialization skipped (best-effort)'
+        '[Electron RPC] Permission handler initialization skipped (best-effort)',
       );
     }
   }
