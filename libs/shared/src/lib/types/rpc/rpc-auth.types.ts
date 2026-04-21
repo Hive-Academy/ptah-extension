@@ -137,6 +137,17 @@ export interface AnthropicProviderInfo {
   isLocal?: boolean;
   /** Base URL for the provider API endpoint (used for local provider endpoint display) */
   baseUrl?: string;
+  /**
+   * Whether this provider supports an OPTIONAL API key.
+   *
+   * Distinct from `authType: 'apiKey'` (required key that drives strategy
+   * routing). When true, the provider keeps its existing `authType` (typically
+   * `'none'` for local-routed providers) but the UI should still surface an
+   * API-key input. Currently used by `ollama-cloud` to unlock metadata-only
+   * features (live model discovery, per-token pricing) while inference
+   * continues to work without a key.
+   */
+  supportsOptionalApiKey?: boolean;
 }
 
 /**

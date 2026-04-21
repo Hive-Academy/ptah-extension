@@ -34,6 +34,7 @@ import {
   FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
 import { SessionMetadataStore } from './session-metadata-store';
 import { ModelInfo } from './types/sdk-types/claude-sdk.types';
@@ -177,6 +178,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly modelService: SdkModelService,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -306,6 +309,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
         }
       } catch (modelError) {
         // Non-fatal - continue initialization even if model setup fails
+        this.sentryService.captureException(
+          modelError instanceof Error
+            ? modelError
+            : new Error(String(modelError)),
+          { errorSource: 'SdkAgentAdapter.initialize' },
+        );
         this.logger.warn(
           '[SdkAgentAdapter] Failed to set default model',
           modelError instanceof Error
@@ -319,6 +328,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
     } catch (error) {
       const errorObj =
         error instanceof Error ? error : new Error(String(error));
+      this.sentryService.captureException(errorObj, {
+        errorSource: 'SdkAgentAdapter.initialize',
+      });
       this.logger.error('[SdkAgentAdapter] Initialization failed', errorObj);
       this.health = {
         status: 'error' as ProviderStatus,

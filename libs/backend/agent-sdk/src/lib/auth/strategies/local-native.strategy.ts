@@ -11,7 +11,13 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  ConfigManager,
+  TOKENS,
+  IAuthSecretsService,
+} from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type {
   IAuthStrategy,
   AuthConfigureResult,
@@ -20,6 +26,7 @@ import type {
 import { SDK_TOKENS } from '../../di/tokens';
 import type { ProviderModelsService } from '../../provider-models.service';
 import type { OllamaModelDiscoveryService } from '../../local-provider/ollama-model-discovery.service';
+import type { OllamaCloudMetadataService } from '../../local-provider/ollama-cloud-metadata.service';
 import type { ICopilotTranslationProxy } from '../../copilot-provider/copilot-provider.types';
 import type { ITranslationProxy } from '../../openai-translation';
 import type { LocalModelTranslationProxy } from '../../local-provider/local-model-translation-proxy';
@@ -44,6 +51,12 @@ export class LocalNativeStrategy implements IAuthStrategy {
     private readonly codexProxy: ITranslationProxy,
     @inject(SDK_TOKENS.SDK_LM_STUDIO_PROXY)
     private readonly lmStudioProxy: LocalModelTranslationProxy,
+    @inject(SDK_TOKENS.SDK_OLLAMA_CLOUD_METADATA)
+    private readonly cloudMetadata: OllamaCloudMetadataService,
+    @inject(TOKENS.AUTH_SECRETS_SERVICE)
+    private readonly authSecrets: IAuthSecretsService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
@@ -81,7 +94,16 @@ export class LocalNativeStrategy implements IAuthStrategy {
       this.logger.info(
         `[${this.name}] Ollama v${version} - Anthropic Messages API supported`,
       );
-    } catch {
+    } catch (versionError) {
+      this.sentryService.captureException(
+        versionError instanceof Error
+          ? versionError
+          : new Error(String(versionError)),
+        {
+          errorSource: 'LocalNativeStrategy.configure',
+          activeProvider: providerId,
+        },
+      );
       this.logger.warn(
         `[${this.name}] Ollama server not reachable at ${baseUrl}. Ensure Ollama is running.`,
       );
@@ -105,6 +127,15 @@ export class LocalNativeStrategy implements IAuthStrategy {
         );
       }
     } catch (modelError) {
+      this.sentryService.captureException(
+        modelError instanceof Error
+          ? modelError
+          : new Error(String(modelError)),
+        {
+          errorSource: 'LocalNativeStrategy.configure',
+          activeProvider: providerId,
+        },
+      );
       this.logger.warn(
         `[${this.name}] Failed to list Ollama models: ${
           modelError instanceof Error ? modelError.message : String(modelError)
@@ -136,6 +167,44 @@ export class LocalNativeStrategy implements IAuthStrategy {
     const providerName =
       providerId === 'ollama-cloud' ? 'Ollama Cloud' : 'Ollama';
 
+    // Step 5: For ollama-cloud, kick off a metadata refresh
+    // (TASK_OLLAMA_CLOUD_KEY). Reads the optional API key from SecretStorage
+    // via IAuthSecretsService.getProviderKey('ollama-cloud') — same slot the
+    // auth UI writes to via auth:saveSettings, so saving/replacing/clearing the
+    // key in the settings panel automatically triggers a fresh metadata fetch
+    // here on the next sdkAdapter.reset() (which auth:saveSettings awaits) or
+    // on the SecretStorage 'ptah.auth.*' change notification handled by
+    // ConfigWatcher. Cache is also explicitly cleared to drop any stale tags
+    // or pricing from a prior key. Inference is unaffected and proceeds
+    // immediately via localhost:11434.
+    if (providerId === 'ollama-cloud') {
+      const apiKey = (
+        (await this.authSecrets.getProviderKey('ollama-cloud')) ?? ''
+      ).trim();
+      if (apiKey.length > 0) {
+        this.cloudMetadata.refresh(apiKey).then(
+          () => {
+            this.logger.debug(
+              `[${this.name}] Ollama Cloud metadata refresh complete`,
+            );
+          },
+          (err) => {
+            this.logger.warn(
+              `[${this.name}] Ollama Cloud metadata refresh failed: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          },
+        );
+      } else {
+        // No key configured — drop any cached tags/pricing from a prior key.
+        this.cloudMetadata.clearCache();
+        this.logger.debug(
+          `[${this.name}] No Ollama Cloud API key configured — skipping live metadata fetch (using static catalog + zero-cost pricing fallback)`,
+        );
+      }
+    }
+
     this.logger.info(
       `[${this.name}] Using ${providerName} (Anthropic-native at ${baseUrl})`,
     );
@@ -152,6 +221,8 @@ export class LocalNativeStrategy implements IAuthStrategy {
   async teardown(): Promise<void> {
     // Clear Ollama model discovery cache
     this.ollamaDiscovery.clearCache();
+    // Clear Ollama Cloud metadata cache (TASK_OLLAMA_CLOUD_KEY)
+    this.cloudMetadata.clearCache();
   }
 
   /**
@@ -168,6 +239,10 @@ export class LocalNativeStrategy implements IAuthStrategy {
       try {
         await proxy.stop();
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'LocalNativeStrategy.stopProxyIfRunning' },
+        );
         this.logger.warn(
           `[${this.name}] Failed to stop ${proxyName} proxy: ${
             error instanceof Error ? error.message : String(error)

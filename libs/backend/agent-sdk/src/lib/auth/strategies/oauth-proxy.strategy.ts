@@ -10,6 +10,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type {
   IAuthStrategy,
   AuthConfigureResult,
@@ -43,6 +44,8 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     private readonly codexProxy: ITranslationProxy,
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
@@ -127,6 +130,13 @@ export class OAuthProxyStrategy implements IAuthStrategy {
         );
       }
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          errorSource: 'OAuthProxyStrategy.configureCopilotOAuth',
+          activeProvider: providerId,
+        },
+      );
       this.logger.error(
         `[${this.name}] Failed to start translation proxy: ${
           error instanceof Error ? error.message : String(error)
@@ -226,6 +236,13 @@ export class OAuthProxyStrategy implements IAuthStrategy {
         );
       }
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          errorSource: 'OAuthProxyStrategy.configureCodexOAuth',
+          activeProvider: providerId,
+        },
+      );
       this.logger.error(
         `[${this.name}] Failed to start Codex translation proxy: ${
           error instanceof Error ? error.message : String(error)
@@ -276,6 +293,10 @@ export class OAuthProxyStrategy implements IAuthStrategy {
       try {
         await proxy.stop();
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'OAuthProxyStrategy.stopProxyIfRunning' },
+        );
         this.logger.warn(
           `[${this.name}] Failed to stop ${proxyName} proxy: ${
             error instanceof Error ? error.message : String(error)

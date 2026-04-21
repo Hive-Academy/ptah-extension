@@ -111,6 +111,20 @@ export interface AnthropicProvider {
     readonly opus: string;
     readonly haiku: string;
   };
+  /**
+   * Whether this provider supports an OPTIONAL API key (TASK_OLLAMA_CLOUD_KEY).
+   *
+   * Distinct from `authType: 'apiKey'` (which means the key is REQUIRED for
+   * inference and changes strategy routing). When `supportsOptionalApiKey` is
+   * true, the provider keeps `authType: 'none'` (so strategy resolution still
+   * routes to local-native), but the UI can collect a key for metadata-only
+   * features such as live model discovery and per-token pricing fetches.
+   *
+   * Currently used by `ollama-cloud`: inference still proxies through local
+   * Ollama (no key needed), but a configured key unlocks live model tags from
+   * ollama.com/api/tags and pricing from ollama.com/api/usage.
+   */
+  supportsOptionalApiKey?: boolean;
 }
 
 /**

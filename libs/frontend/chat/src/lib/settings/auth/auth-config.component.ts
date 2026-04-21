@@ -130,10 +130,37 @@ export class AuthConfigComponent implements OnInit {
     return this.selectedProvider()?.id === 'openai-codex';
   });
 
-  /** Whether the selected provider is a local model server (Ollama, LM Studio) (TASK_2025_265) */
+  /**
+   * Whether the selected provider supports an OPTIONAL API key.
+   *
+   * When true, the standard API-key input branch should render even though
+   * the provider's `authType` is `'none'` (so strategy routing stays on the
+   * local-native path). The key is metadata-only (e.g., live model discovery,
+   * pricing). Today only `ollama-cloud` opts in via the backend registry.
+   */
+  readonly supportsOptionalKey = computed(() => {
+    return this.selectedProvider()?.supportsOptionalApiKey === true;
+  });
+
+  /**
+   * Whether the selected provider is a local model server (Ollama, LM Studio) (TASK_2025_265).
+   *
+   * Excludes providers that opt into `supportsOptionalApiKey` (like Ollama
+   * Cloud), so the API-key input branch can render for them instead of the
+   * "no key needed" local-provider branch.
+   */
   readonly isLocalProvider = computed(() => {
     const provider = this.selectedProvider();
-    return provider?.authType === 'none';
+    return provider?.authType === 'none' && !this.supportsOptionalKey();
+  });
+
+  /**
+   * Whether the selected provider is Ollama Cloud.
+   * Ollama Cloud uses an OPTIONAL API key — inference works without it via
+   * `ollama signin`; the key only enables live model tags and accurate cost tracking.
+   */
+  readonly isOllamaCloudProvider = computed(() => {
+    return this.selectedProvider()?.id === 'ollama-cloud';
   });
 
   /**
@@ -213,6 +240,12 @@ export class AuthConfigComponent implements OnInit {
 
     // Local providers (Ollama, LM Studio) are always ready -- no credentials needed
     if (this.isLocalProvider()) {
+      return true;
+    }
+
+    // Optional-key providers (e.g., Ollama Cloud) -- always allow save/test
+    // even with no input value, since inference works without a key.
+    if (this.supportsOptionalKey()) {
       return true;
     }
 

@@ -12,6 +12,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type {
   IAuthStrategy,
   AuthConfigureResult,
@@ -39,6 +40,8 @@ export class LocalProxyStrategy implements IAuthStrategy {
     private readonly copilotProxy: ICopilotTranslationProxy,
     @inject(SDK_TOKENS.SDK_CODEX_PROXY)
     private readonly codexProxy: ITranslationProxy,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
@@ -77,6 +80,13 @@ export class LocalProxyStrategy implements IAuthStrategy {
         );
       }
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          errorSource: 'LocalProxyStrategy.configure',
+          activeProvider: providerId,
+        },
+      );
       this.logger.error(
         `[${this.name}] Failed to start LM Studio translation proxy: ${
           error instanceof Error ? error.message : String(error)
@@ -134,6 +144,10 @@ export class LocalProxyStrategy implements IAuthStrategy {
       try {
         await proxy.stop();
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'LocalProxyStrategy.stopProxyIfRunning' },
+        );
         this.logger.warn(
           `[${this.name}] Failed to stop ${proxyName} proxy: ${
             error instanceof Error ? error.message : String(error)

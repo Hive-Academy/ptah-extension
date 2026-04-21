@@ -395,23 +395,28 @@ export class ChatViewComponent {
    * Resolved question requests: scoped to this tile's session in canvas mode.
    * Prevents question cards from appearing in ALL tiles — only the session that
    * triggered the question shows the card.
-   * Same pattern as resolvedIsCompacting (TASK_2025_098).
+   *
+   * Matches against BOTH the frontend tab UUID (resolvedTabId) AND the real SDK
+   * session UUID (resolvedSessionId / claudeSessionId). The backend may embed either
+   * identifier depending on whether the session is new or resumed, so checking both
+   * handles all cases without relying on backend routing correctness.
    */
   readonly resolvedQuestionRequests = computed(() => {
     const allQuestions = this.chatStore.questionRequests();
     if (allQuestions.length === 0) return [];
 
-    // Match by tabId (authoritative routing key from backend).
-    // The question's sessionId field is actually the tabId in the backend,
-    // NOT the SDK UUID that claudeSessionId stores. Use tabId for reliable matching.
-    const tabId = this.resolvedTabId();
-    if (!tabId) {
+    const tabId = this.resolvedTabId(); // frontend UUID (e.g. "tab-abc123")
+    const sessionId = this.resolvedSessionId(); // real SDK UUID (e.g. "session-xyz")
+
+    if (!tabId && !sessionId) {
       if (this._sessionContext) return [];
       return allQuestions;
     }
 
     return allQuestions.filter(
-      (q) => q.tabId === tabId || q.sessionId === tabId,
+      (q) =>
+        (tabId && (q.tabId === tabId || q.sessionId === tabId)) ||
+        (sessionId && (q.tabId === sessionId || q.sessionId === sessionId)),
     );
   });
 
