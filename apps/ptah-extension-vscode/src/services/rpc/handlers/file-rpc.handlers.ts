@@ -11,6 +11,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { FileOpenParams, FileOpenResult } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
@@ -24,6 +25,8 @@ export class FileRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -81,6 +84,10 @@ export class FileRpcHandlers {
 
           return { success: true };
         } catch (error) {
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'FileRpcHandlers.registerFileOpen' },
+          );
           this.logger.error(
             'RPC: file:open failed',
             error instanceof Error ? error : new Error(String(error)),
@@ -130,6 +137,10 @@ export class FileRpcHandlers {
 
           return { files };
         } catch (error) {
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'FileRpcHandlers.registerPick' },
+          );
           this.logger.error(
             'RPC: file:pick failed',
             error instanceof Error ? error : new Error(String(error)),
@@ -230,6 +241,10 @@ export class FileRpcHandlers {
 
           return { images };
         } catch (error) {
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'FileRpcHandlers.registerPickImages' },
+          );
           this.logger.error(
             'RPC: file:pick-images failed',
             error instanceof Error ? error : new Error(String(error)),

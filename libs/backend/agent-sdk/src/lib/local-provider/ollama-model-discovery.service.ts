@@ -15,9 +15,20 @@
 import * as http from 'http';
 import * as https from 'https';
 import { injectable, inject } from 'tsyringe';
-import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  ConfigManager,
+  TOKENS,
+  IAuthSecretsService,
+} from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
 import { getAnthropicProvider } from '../helpers/anthropic-provider-registry';
+import { SDK_TOKENS } from '../di/tokens';
+import {
+  OllamaCloudMetadataService,
+  isCloudTag,
+} from './ollama-cloud-metadata.service';
 
 /** Ollama /api/version response shape */
 interface OllamaVersionResponse {
@@ -270,6 +281,12 @@ export class OllamaModelDiscoveryService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
+    @inject(SDK_TOKENS.SDK_OLLAMA_CLOUD_METADATA)
+    private readonly cloudMetadata: OllamaCloudMetadataService,
+    @inject(TOKENS.AUTH_SECRETS_SERVICE)
+    private readonly authSecrets: IAuthSecretsService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -339,7 +356,7 @@ export class OllamaModelDiscoveryService {
    * Returns only non-cloud models.
    */
   async listLocalModels(): Promise<ProviderModelInfo[]> {
-    return this.listModels('ollama', (name) => !name.endsWith(':cloud'));
+    return this.listModels('ollama', (name) => !isCloudTag(name));
   }
 
   /**
@@ -362,10 +379,86 @@ export class OllamaModelDiscoveryService {
       supportsToolUse: meta.supportsToolUse,
     }));
 
-    // Step 2: Try to fetch dynamic models from /api/tags and merge any extras
+    // Step 1.5: When the user has configured an ollama.com API key
+    // (TASK_OLLAMA_CLOUD_KEY), fetch the live tag list from
+    // https://ollama.com/api/tags and overlay it on the static list. Live
+    // entries WIN on id overlap. The metadata service is resilient —
+    // failures degrade to `[]` and never throw, so the static catalog still
+    // ships. Note: ollama.com/api/tags returns only models the signed-in
+    // user has pulled, NOT the full public catalog — so this is a supplement
+    // to KNOWN_CLOUD_MODELS, not a replacement.
+    const apiKey = await this.getOllamaCloudApiKey();
+    if (apiKey) {
+      try {
+        const liveTags = await this.cloudMetadata.fetchCloudTags(apiKey);
+        if (liveTags.length > 0) {
+          const merged = new Map<string, ProviderModelInfo>();
+          // Static first…
+          for (const m of staticModels) merged.set(m.id, m);
+          // …then live, replacing any overlaps and adding new ids.
+          for (const tag of liveTags) {
+            const existing = merged.get(tag.id);
+            // Strip cloud suffix to look up known metadata.
+            const baseName = tag.id
+              .replace(/:cloud$/, '')
+              .replace(/-cloud$/, '');
+            const knownMeta = KNOWN_CLOUD_MODELS[baseName];
+            merged.set(tag.id, {
+              id: tag.id,
+              name: existing?.name ?? this.formatModelName(tag.id),
+              description:
+                existing?.description ??
+                (knownMeta
+                  ? (knownMeta.description ??
+                    this.buildCloudDescription(knownMeta))
+                  : 'Cloud model'),
+              contextLength: existing?.contextLength ?? 128000,
+              supportsToolUse: existing?.supportsToolUse ?? true,
+            });
+          }
+          const newIds = liveTags
+            .map((t) => t.id)
+            .filter((id) => !staticModels.some((s) => s.id === id));
+          this.logger.info(
+            `[OllamaModelDiscovery] listCloudModels: ${staticModels.length} static + ${liveTags.length} live (ollama.com/api/tags) = ${merged.size} total. ` +
+              `New from live: [${newIds.slice(0, 8).join(', ')}${newIds.length > 8 ? ', …' : ''}]`,
+          );
+          return Array.from(merged.values());
+        } else {
+          this.logger.warn(
+            `[OllamaModelDiscovery] listCloudModels: live ollama.com/api/tags returned 0 cloud tags — ` +
+              `falling back to bundled static catalog (${staticModels.length} models). ` +
+              `This is expected if the user has not yet pulled any cloud models via 'ollama pull <model>:cloud'. ` +
+              `Check the output channel above for the full HTTP response shape.`,
+          );
+        }
+      } catch (error) {
+        // Defensive — fetchCloudTags should never throw, but be safe.
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          {
+            errorSource: 'OllamaModelDiscoveryService.listCloudModels',
+            activeProvider: 'ollama-cloud',
+          },
+        );
+        this.logger.warn(
+          `[OllamaModelDiscovery] Live cloud tag fetch failed unexpectedly: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    } else {
+      this.logger.debug(
+        `[OllamaModelDiscovery] listCloudModels: no ollama.com API key configured — using static catalog (${staticModels.length} models) plus any local /api/tags extras`,
+      );
+    }
+
+    // Step 2: Try to fetch dynamic models from local Ollama /api/tags and
+    // merge any extras (covers users who pulled cloud models locally without
+    // configuring an API key).
     try {
       const dynamicModels = await this.listModels('ollama-cloud', (name) =>
-        name.endsWith(':cloud'),
+        isCloudTag(name),
       );
 
       // Merge: add any dynamic models not already in the static catalog
@@ -373,20 +466,40 @@ export class OllamaModelDiscoveryService {
       const extras = dynamicModels.filter((m) => !staticIds.has(m.id));
 
       if (extras.length > 0) {
-        this.logger.debug(
-          `[OllamaModelDiscovery] Found ${extras.length} additional cloud models from /api/tags`,
-          { extras: extras.map((m) => m.id) },
+        this.logger.info(
+          `[OllamaModelDiscovery] listCloudModels: found ${extras.length} additional cloud models from local /api/tags: [${extras
+            .map((m) => m.id)
+            .join(', ')}]`,
         );
       }
 
       return [...staticModels, ...extras];
-    } catch {
+    } catch (tagsError) {
       // /api/tags failed — return static catalog only (still useful)
+      this.sentryService.captureException(
+        tagsError instanceof Error ? tagsError : new Error(String(tagsError)),
+        {
+          errorSource: 'OllamaModelDiscoveryService.listCloudModels',
+          activeProvider: 'ollama-cloud',
+        },
+      );
       this.logger.debug(
-        `[OllamaModelDiscovery] /api/tags unavailable, returning ${staticModels.length} known cloud models`,
+        `[OllamaModelDiscovery] listCloudModels: local /api/tags unavailable — returning ${staticModels.length} bundled cloud models only`,
       );
       return staticModels;
     }
+  }
+
+  /**
+   * Read the optional ollama.com API key from SecretStorage via
+   * IAuthSecretsService — same slot the auth UI writes to via
+   * `auth:saveSettings` → `setProviderKey('ollama-cloud', ...)`. Returns null
+   * when unset (the common case — inference still works via `ollama signin`).
+   */
+  private async getOllamaCloudApiKey(): Promise<string | null> {
+    const raw = await this.authSecrets.getProviderKey('ollama-cloud');
+    const trimmed = typeof raw === 'string' ? raw.trim() : '';
+    return trimmed.length > 0 ? trimmed : null;
   }
 
   /**
@@ -452,6 +565,13 @@ export class OllamaModelDiscoveryService {
 
       return enriched;
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          errorSource: 'OllamaModelDiscoveryService.listModels',
+          activeProvider: providerId,
+        },
+      );
       this.logger.warn(
         `[OllamaModelDiscovery] Failed to list models: ${
           error instanceof Error ? error.message : String(error)
@@ -499,8 +619,8 @@ export class OllamaModelDiscoveryService {
     }
 
     // For cloud models, use known catalog (saves HTTP round-trip)
-    if (modelName.endsWith(':cloud')) {
-      const baseName = modelName.replace(/:cloud$/, '');
+    if (isCloudTag(modelName)) {
+      const baseName = modelName.replace(/:cloud$/, '').replace(/-cloud$/, '');
       const known = KNOWN_CLOUD_MODELS[baseName];
       if (known) {
         const metadata: ModelMetadataCache = {
@@ -525,8 +645,12 @@ export class OllamaModelDiscoveryService {
       const metadata = this.parseShowResponse(showResponse, modelName);
       this.metadataCache.set(modelName, metadata);
       return metadata;
-    } catch {
+    } catch (showError) {
       // Fallback: conservative defaults with shorter cache TTL
+      this.sentryService.captureException(
+        showError instanceof Error ? showError : new Error(String(showError)),
+        { errorSource: 'OllamaModelDiscoveryService.getModelMetadata' },
+      );
       const fallback: ModelMetadataCache = {
         contextLength: 8192,
         supportsToolUse: this.inferToolUseFromFamily(modelName),
@@ -599,12 +723,15 @@ export class OllamaModelDiscoveryService {
    * "kimi-k2.5:cloud" -> "Kimi K2.5 (Cloud)"
    */
   private formatModelName(name: string): string {
-    const isCloud = name.endsWith(':cloud');
-    const baseName = name.replace(/:latest$/, '').replace(/:cloud$/, '');
+    const cloud = isCloudTag(name);
+    const baseName = name
+      .replace(/:latest$/, '')
+      .replace(/:cloud$/, '')
+      .replace(/-cloud$/, '');
     const display = baseName
       .replace(/-/g, ' ')
       .replace(/\b\w/g, (c) => c.toUpperCase());
-    return isCloud ? `${display} (Cloud)` : display;
+    return cloud ? `${display} (Cloud)` : display;
   }
 
   /**

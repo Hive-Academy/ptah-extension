@@ -85,7 +85,15 @@ export const OLLAMA_PROVIDER_ENTRY: AnthropicProvider = {
  *
  * Key characteristics:
  * - `baseUrl`: Same localhost endpoint (cloud requests proxied by local Ollama)
- * - `authType: 'none'` -- auth handled by `ollama signin` (stored locally)
+ * - `authType: 'none'` -- inference auth still handled by `ollama signin`
+ *   (stored locally). Strategy routing stays on `local-native`.
+ * - `supportsOptionalApiKey: true` -- the user MAY paste an ollama.com API
+ *   key to unlock metadata-only enhancements (TASK_OLLAMA_CLOUD_KEY):
+ *     • Live cloud model list from ollama.com/api/tags (filters `:cloud`)
+ *     • Per-request usage + pricing from ollama.com/api/usage, seeding
+ *       DEFAULT_MODEL_PRICING so the stats panel shows real per-token costs.
+ *   The key is metadata-only — inference always proxies through localhost:11434.
+ *   When no key is set, the static catalog and `ollama signin` flow still work.
  * - `requiresProxy: false` -- Anthropic-native API
  * - `isLocal: false` -- inference runs in the cloud (free tier ~30K req/mo)
  * - Cloud models use `:cloud` suffix (e.g., `kimi-k2.5:cloud`, `glm-5:cloud`)
@@ -95,14 +103,21 @@ export const OLLAMA_CLOUD_PROVIDER_ENTRY: AnthropicProvider = {
   name: 'Ollama Cloud',
   baseUrl: 'http://localhost:11434',
   authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
+  // Keep authType='none' so strategy resolver routes to LocalNativeStrategy
+  // (Ollama proxy on localhost). The optional key is metadata-only and is
+  // expressed via supportsOptionalApiKey instead.
   authType: 'none',
+  supportsOptionalApiKey: true,
   requiresProxy: false,
   isLocal: false,
   keyPrefix: '',
   helpUrl: 'https://ollama.com/blog/ollama-cloud',
-  description: 'Run cloud GPU models via Ollama Cloud (free tier available)',
-  keyPlaceholder: 'No API key needed — sign in via `ollama signin`',
-  maskedKeyDisplay: 'Cloud (ollama signin)',
+  description:
+    'Run cloud GPU models via Ollama Cloud (free tier available). ' +
+    'Optionally paste an ollama.com API key to enable live model discovery and pricing.',
+  keyPlaceholder:
+    'Optional — paste ollama.com API key to enable live models & pricing',
+  maskedKeyDisplay: 'Cloud (ollama signin or optional API key)',
   defaultTiers: {
     haiku: 'ministral-3:cloud',
     sonnet: 'kimi-k2.5:cloud',

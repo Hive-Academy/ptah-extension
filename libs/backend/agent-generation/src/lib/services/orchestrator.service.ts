@@ -21,6 +21,7 @@ import { injectable, inject } from 'tsyringe';
 import { existsSync } from 'fs';
 import * as path from 'path';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import type {
   CliTarget,
@@ -221,6 +222,8 @@ export class AgentGenerationOrchestratorService {
     private readonly monorepoDetector: MonorepoDetectorService,
     @inject(AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE)
     private readonly multiCliWriter: MultiCliAgentWriterService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {
     this.logger.debug('AgentGenerationOrchestratorService initialized');
   }
@@ -514,6 +517,10 @@ export class AgentGenerationOrchestratorService {
 
       return Result.ok(summary);
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'AgentGenerationOrchestratorService.generateAgents' },
+      );
       this.logger.error(
         'Agent generation failed with unexpected error',
         error as Error,
@@ -621,6 +628,10 @@ export class AgentGenerationOrchestratorService {
 
       return Result.ok(context);
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'AgentGenerationOrchestratorService.analyzeWorkspace' },
+      );
       this.logger.error('Workspace analysis failed', error as Error);
       return Result.err(
         new Error(`Workspace analysis failed: ${(error as Error).message}`),

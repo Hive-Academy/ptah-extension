@@ -11,6 +11,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
   PluginLoaderService,
@@ -47,6 +48,8 @@ export class PluginRpcHandlers {
     private readonly skillJunction: SkillJunctionService,
     @inject(TOKENS.COMMAND_DISCOVERY_SERVICE)
     private readonly commandDiscovery: CommandDiscoveryService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -95,6 +98,10 @@ export class PluginRpcHandlers {
           'RPC: plugins:list-available failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'PluginRpcHandlers.registerListAvailable' },
+        );
         throw error;
       }
     });
@@ -126,6 +133,10 @@ export class PluginRpcHandlers {
           this.logger.error(
             'RPC: plugins:get-config failed',
             error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'PluginRpcHandlers.registerGetConfig' },
           );
           throw error;
         }
@@ -237,6 +248,10 @@ export class PluginRpcHandlers {
           'RPC: plugins:save-config failed',
           error instanceof Error ? error : new Error(errorMessage),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'PluginRpcHandlers.registerSaveConfig' },
+        );
 
         return { success: false, error: errorMessage };
       }
@@ -278,6 +293,10 @@ export class PluginRpcHandlers {
         this.logger.error(
           'RPC: plugins:list-skills failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'PluginRpcHandlers.registerListSkills' },
         );
         throw error;
       }

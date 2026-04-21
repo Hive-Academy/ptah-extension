@@ -23,6 +23,13 @@ export interface DeepAgentSession {
   readonly startedAt: number;
   readonly providerId: string;
   readonly model: string;
+  /** Set to true when the LangGraph stream completes naturally. Guards endSession()
+   *  from calling abort() after completion, which causes Pregel async rejections. */
+  streamCompleted: boolean;
+  /** Set to true by resumeSession() when the user prompt was included in the
+   *  LangGraph stream input. sendMessageToSession() checks this and skips the
+   *  duplicate send, then resets the flag. */
+  resumeConsumedPrompt: boolean;
 }
 
 @injectable()

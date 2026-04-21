@@ -16,6 +16,7 @@ import {
   LicenseService,
   LicenseStatus,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type { IPlatformCommands } from '../platform-abstractions';
 import type {
   LicenseGetStatusParams,
@@ -51,6 +52,8 @@ export class LicenseRpcHandlers {
     private readonly licenseService: LicenseService,
     @inject(TOKENS.PLATFORM_COMMANDS)
     private readonly platformCommands: IPlatformCommands,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -107,6 +110,10 @@ export class LicenseRpcHandlers {
         this.logger.error(
           'RPC: license:getStatus failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'LicenseRpcHandlers.registerGetStatus' },
         );
 
         // TASK_2025_128: On error, check cached status to determine fallback.
@@ -214,6 +221,10 @@ export class LicenseRpcHandlers {
             'RPC: license:setKey failed',
             error instanceof Error ? error : new Error(String(error)),
           );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'LicenseRpcHandlers.registerSetKey' },
+          );
           return {
             success: false,
             error:
@@ -253,6 +264,10 @@ export class LicenseRpcHandlers {
         this.logger.error(
           'RPC: license:clearKey failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'LicenseRpcHandlers.registerClearKey' },
         );
         return {
           success: false,

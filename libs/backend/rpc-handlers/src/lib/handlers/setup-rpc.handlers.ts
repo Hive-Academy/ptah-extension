@@ -23,6 +23,7 @@ import {
   type LicenseStatus,
   ConfigManager,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   PLATFORM_TOKENS,
@@ -91,6 +92,8 @@ export class SetupRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject('DependencyContainer')
     private readonly container: DependencyContainer,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**

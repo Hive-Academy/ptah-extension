@@ -45,6 +45,11 @@ import type {
   AuthEnv,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS, ConfigManager } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
+import type {
+  AgentDiscoveryService,
+  AgentInfo,
+} from '@ptah-extension/workspace-intelligence';
 import {
   type AnthropicProviderId,
   ModelResolver,
@@ -150,6 +155,10 @@ export class DeepAgentAdapter implements IAgentAdapter {
     private readonly pluginLoader: PluginLoaderService,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly metadataStore: SessionMetadataStore,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
+    @inject(TOKENS.AGENT_DISCOVERY_SERVICE)
+    private readonly agentDiscovery: AgentDiscoveryService,
   ) {}
 
   async preloadSdk(): Promise<void> {
@@ -198,10 +207,11 @@ export class DeepAgentAdapter implements IAgentAdapter {
           description: m.description,
         }));
       } catch (err) {
-        this.logger.warn(
-          '[DeepAgentAdapter] Ollama discovery failed',
-          err instanceof Error ? err : new Error(String(err)),
-        );
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.sentryService.captureException(error, {
+          errorSource: 'DeepAgentAdapter.getSupportedModels',
+        });
+        this.logger.warn('[DeepAgentAdapter] Ollama discovery failed', error);
         return [];
       }
     }
@@ -214,9 +224,13 @@ export class DeepAgentAdapter implements IAgentAdapter {
           description: m.description,
         }));
       } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.sentryService.captureException(error, {
+          errorSource: 'DeepAgentAdapter.getSupportedModels',
+        });
         this.logger.warn(
           '[DeepAgentAdapter] Ollama cloud discovery failed',
-          err instanceof Error ? err : new Error(String(err)),
+          error,
         );
         return [];
       }
@@ -284,10 +298,14 @@ export class DeepAgentAdapter implements IAgentAdapter {
     const checkpointer = this.getOrCreateCheckpointer(config);
     const interruptOn = this.mapPermissionToInterrupt();
 
-    const subagents = PTAH_SUBAGENTS.map((sa) => ({
-      ...sa,
-      model: llm,
-    }));
+    // Subagents: prefer .claude/agents/*.md from the workspace (parity with
+    // the Claude SDK runtime) and fall back to PTAH_SUBAGENTS if the user
+    // has no agent files configured. Subagents inherit parent model/tools
+    // via deepagents — do NOT inject the shared `llm` instance here, as
+    // sharing one ChatModel across the parent graph and every concurrent
+    // subagent creates re-entrance conflicts when `task` runs in parallel
+    // with other tool_calls.
+    const subagents = await this.resolveSubagents();
 
     this.logger.info('[DeepAgentAdapter] createDeepAgent params', {
       hasSystemPrompt: !!systemPrompt,
@@ -325,6 +343,8 @@ export class DeepAgentAdapter implements IAgentAdapter {
       startedAt: Date.now(),
       providerId,
       model: modelId,
+      streamCompleted: false,
+      resumeConsumedPrompt: false,
     };
     this.sessionRegistry.register(session);
 
@@ -372,6 +392,14 @@ export class DeepAgentAdapter implements IAgentAdapter {
         model: modelId,
       },
       (payload) => {
+        // Mark stream as naturally completed so endSession() skips abort().
+        // Without this guard, abort() fires after Pregel's graph has already
+        // resolved, causing an async rejection via processTicksAndRejections.
+        const completedSession = this.sessionRegistry.get(trackingId);
+        if (completedSession) {
+          completedSession.streamCompleted = true;
+        }
+
         if (this.resultStatsCallback) {
           try {
             this.resultStatsCallback({
@@ -394,13 +422,15 @@ export class DeepAgentAdapter implements IAgentAdapter {
   endSession(sessionId: SessionId): void {
     const session = this.sessionRegistry.get(sessionId);
     if (session) {
-      try {
-        session.abortController.abort();
-      } catch (err) {
-        this.logger.warn(
-          '[DeepAgentAdapter] Error aborting session',
-          err instanceof Error ? err : new Error(String(err)),
-        );
+      if (!session.streamCompleted) {
+        try {
+          session.abortController.abort();
+        } catch (err) {
+          this.logger.warn(
+            '[DeepAgentAdapter] Error aborting session',
+            err instanceof Error ? err : new Error(String(err)),
+          );
+        }
       }
       this.sessionRegistry.remove(sessionId);
     }
@@ -417,6 +447,16 @@ export class DeepAgentAdapter implements IAgentAdapter {
         `[DeepAgentAdapter] No active session for ${String(sessionId)}`,
       );
     }
+
+    // resumeSession() already sent the prompt as part of the LangGraph stream.
+    // The caller (chat-rpc.handlers) still calls sendMessageToSession() for
+    // Claude SDK compat, but for deep-agent that would duplicate the send and
+    // silently discard the response. Skip and reset the flag.
+    if (session.resumeConsumedPrompt) {
+      session.resumeConsumedPrompt = false;
+      return;
+    }
+
     const graph = session.graph as unknown as StreamableGraph;
     const stream = await graph.stream(
       { messages: [new HumanMessage(content)] },
@@ -498,6 +538,7 @@ export class DeepAgentAdapter implements IAgentAdapter {
     });
 
     const trackingId = sessionId;
+    const promptProvided = !!config?.prompt;
     const session: DeepAgentSession = {
       tabId: config?.tabId ?? threadId,
       sessionId: trackingId,
@@ -507,21 +548,37 @@ export class DeepAgentAdapter implements IAgentAdapter {
       startedAt: Date.now(),
       providerId,
       model: modelId,
+      streamCompleted: false,
+      // When a prompt is included in the resume stream, sendMessageToSession()
+      // must skip the duplicate send to prevent the response being silently dropped.
+      resumeConsumedPrompt: promptProvided,
     };
     this.sessionRegistry.register(session);
 
     if (this.sessionIdResolvedCallback) {
       try {
         this.sessionIdResolvedCallback(session.tabId, threadId);
-      } catch {
-        // ignore
+      } catch (err) {
+        this.sentryService.captureException(
+          err instanceof Error ? err : new Error(String(err)),
+          {
+            errorSource:
+              'DeepAgentAdapter.resumeSession.sessionIdResolvedCallback',
+          },
+        );
       }
     }
 
-    // Stream with existing thread_id to resume from checkpoint
+    // Stream with existing thread_id to resume from checkpoint.
+    // Include the new user prompt in messages so LangGraph processes the new
+    // turn — without it, the model would re-generate based on the checkpoint
+    // state alone, ignoring the user's actual new message.
     const streamable = agent as unknown as StreamableGraph;
+    const resumeMessages = config?.prompt
+      ? [new HumanMessage(config.prompt)]
+      : [];
     const rawStream = await streamable.stream(
-      { messages: [] },
+      { messages: resumeMessages },
       {
         configurable: { thread_id: threadId },
         signal: abortController.signal,
@@ -538,6 +595,11 @@ export class DeepAgentAdapter implements IAgentAdapter {
         model: modelId,
       },
       (payload) => {
+        const completedSession = this.sessionRegistry.get(trackingId);
+        if (completedSession) {
+          completedSession.streamCompleted = true;
+        }
+
         if (this.resultStatsCallback) {
           try {
             this.resultStatsCallback({
@@ -546,8 +608,14 @@ export class DeepAgentAdapter implements IAgentAdapter {
               tokens: { input: 0, output: 0 },
               duration: payload.durationMs,
             });
-          } catch {
-            // ignore
+          } catch (err) {
+            this.sentryService.captureException(
+              err instanceof Error ? err : new Error(String(err)),
+              {
+                errorSource:
+                  'DeepAgentAdapter.resumeSession.resultStatsCallback',
+              },
+            );
           }
         }
       },
@@ -573,10 +641,11 @@ export class DeepAgentAdapter implements IAgentAdapter {
       session.abortController.abort();
       return true;
     } catch (err) {
-      this.logger.warn(
-        '[DeepAgentAdapter] interruptCurrentTurn failed',
-        err instanceof Error ? err : new Error(String(err)),
-      );
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.sentryService.captureException(error, {
+        errorSource: 'DeepAgentAdapter.interruptCurrentTurn',
+      });
+      this.logger.warn('[DeepAgentAdapter] interruptCurrentTurn failed', error);
       return false;
     }
   }
@@ -667,6 +736,59 @@ export class DeepAgentAdapter implements IAgentAdapter {
    * Each plugin's skills/ directory is passed so deepagents can
    * discover and load SKILL.md files via its native skill system.
    */
+  /**
+   * Discover subagents from `.claude/agents/*.md` (project + user scope),
+   * mapped to deepagents' SubAgent shape. Falls back to the built-in
+   * `PTAH_SUBAGENTS` list if the workspace has no agent files so the
+   * `task` tool always has specialists to delegate to.
+   *
+   * Built-in AgentDiscovery entries are Claude-Code-specific (Explore,
+   * Plan, etc.) and are filtered out — deepagents doesn't share those
+   * internal tools.
+   */
+  private async resolveSubagents(): Promise<
+    Array<{ name: string; description: string; systemPrompt: string }>
+  > {
+    try {
+      const result = await this.agentDiscovery.discoverAgents();
+      const discovered = (result.agents ?? []).filter(
+        (a: AgentInfo) => a.scope !== 'builtin' && a.prompt.trim().length > 0,
+      );
+
+      if (discovered.length === 0) {
+        this.logger.info(
+          '[DeepAgentAdapter] No .claude/agents/*.md found — using built-in PTAH_SUBAGENTS',
+          { builtinCount: PTAH_SUBAGENTS.length },
+        );
+        return [...PTAH_SUBAGENTS];
+      }
+
+      this.logger.info(
+        '[DeepAgentAdapter] Loaded subagents from .claude/agents',
+        {
+          projectCount: discovered.filter((a) => a.scope === 'project').length,
+          userCount: discovered.filter((a) => a.scope === 'user').length,
+        },
+      );
+
+      return discovered.map((a) => ({
+        name: a.name,
+        description: a.description,
+        systemPrompt: a.prompt,
+      }));
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.sentryService.captureException(error, {
+        errorSource: 'DeepAgentAdapter.resolveSubagents',
+      });
+      this.logger.warn(
+        '[DeepAgentAdapter] Agent discovery failed — falling back to PTAH_SUBAGENTS',
+        error,
+      );
+      return [...PTAH_SUBAGENTS];
+    }
+  }
+
   private resolveSkillPaths(pluginPaths?: string[]): string[] {
     const paths = pluginPaths ?? [];
     if (paths.length === 0) {
@@ -792,7 +914,12 @@ export class DeepAgentAdapter implements IAgentAdapter {
     rawModel: string,
     providerId: AnthropicProviderId,
   ): Promise<string> {
-    const resolved = this.modelResolver.resolve(rawModel);
+    // Strip Claude SDK context-window suffixes (e.g. 'sonnet[1m]' → 'sonnet').
+    // ModelResolver only recognises bare tier names; the bracket suffix causes
+    // it to fall through to the "unknown model" pass-through branch, sending an
+    // invalid model name to Ollama/third-party providers.
+    const baseTier = rawModel.replace(/\[.*\]$/, '');
+    const resolved = this.modelResolver.resolve(baseTier);
 
     if (!resolved.startsWith('claude-')) {
       return resolved;

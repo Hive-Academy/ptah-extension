@@ -72,6 +72,7 @@ import {
 import {
   OllamaModelDiscoveryService,
   LmStudioTranslationProxy,
+  OllamaCloudMetadataService,
 } from '../local-provider';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
@@ -465,6 +466,14 @@ export function registerSdkServices(
   // LM Studio: translation proxy (OpenAI-compat, still needs proxy)
   // Must be registered before AuthManager resolves (which depends on these)
   // ============================================================
+
+  // Ollama Cloud metadata service — must be registered BEFORE
+  // OllamaModelDiscoveryService (which now injects it via SDK_OLLAMA_CLOUD_METADATA)
+  container.register(
+    SDK_TOKENS.SDK_OLLAMA_CLOUD_METADATA,
+    { useClass: OllamaCloudMetadataService },
+    { lifecycle: Lifecycle.Singleton },
+  );
 
   container.register(
     SDK_TOKENS.SDK_OLLAMA_DISCOVERY,

@@ -14,6 +14,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES, Result } from '@ptah-extension/shared';
 import { ISetupWizardService } from '../interfaces/setup-wizard.interface';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
@@ -37,7 +38,9 @@ export class SetupWizardService implements ISetupWizardService {
     @inject(AGENT_GENERATION_TOKENS.WIZARD_WEBVIEW_LIFECYCLE)
     private readonly webviewLifecycle: WizardWebviewLifecycleService,
     @inject(TOKENS.PLATFORM_COMMANDS)
-    private readonly platformCommands: { reloadWindow(): Promise<void> }
+    private readonly platformCommands: { reloadWindow(): Promise<void> },
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {
     this.logger.debug('SetupWizardService initialized');
   }
@@ -50,7 +53,7 @@ export class SetupWizardService implements ISetupWizardService {
   async launchWizard(workspacePath: string): Promise<Result<void, Error>> {
     if (this.isLaunching) {
       this.logger.warn(
-        'Wizard launch already in progress, ignoring duplicate request'
+        'Wizard launch already in progress, ignoring duplicate request',
       );
       return Result.ok(undefined);
     }
@@ -69,7 +72,7 @@ export class SetupWizardService implements ISetupWizardService {
 
       // Check if panel already exists
       const existingPanel = this.webviewLifecycle.getPanel(
-        this.WIZARD_VIEW_TYPE
+        this.WIZARD_VIEW_TYPE,
       );
       if (existingPanel) {
         existingPanel.reveal();
@@ -85,7 +88,7 @@ export class SetupWizardService implements ISetupWizardService {
             const msg = message as { type?: string };
             if (msg.type === MESSAGE_TYPES.SETUP_WIZARD_COMPLETE) {
               this.logger.info(
-                'Wizard complete - closing panel and reloading window'
+                'Wizard complete - closing panel and reloading window',
               );
               this.webviewLifecycle.disposeWebview(this.WIZARD_VIEW_TYPE);
               await this.platformCommands.reloadWindow();
@@ -93,12 +96,12 @@ export class SetupWizardService implements ISetupWizardService {
             }
             return false;
           },
-        ]
+        ],
       );
 
       if (!panel) {
         return Result.err(
-          new Error('Failed to create wizard webview panel. Please try again.')
+          new Error('Failed to create wizard webview panel. Please try again.'),
         );
       }
 
@@ -106,9 +109,13 @@ export class SetupWizardService implements ISetupWizardService {
 
       return Result.ok(undefined);
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'SetupWizardService.launchWizard' },
+      );
       this.logger.error('Failed to launch wizard', error as Error);
       return Result.err(
-        new Error(`Wizard launch failed: ${(error as Error).message}`)
+        new Error(`Wizard launch failed: ${(error as Error).message}`),
       );
     } finally {
       this.isLaunching = false;
@@ -120,7 +127,7 @@ export class SetupWizardService implements ISetupWizardService {
    */
   async cancelWizard(
     _sessionId: string,
-    _saveProgress: boolean
+    _saveProgress: boolean,
   ): Promise<Result<void, Error>> {
     try {
       this.logger.info('Cancelling wizard');
@@ -128,9 +135,13 @@ export class SetupWizardService implements ISetupWizardService {
       this.logger.info('Wizard cancelled successfully');
       return Result.ok(undefined);
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'SetupWizardService.cancelWizard' },
+      );
       this.logger.error('Failed to cancel wizard', error as Error);
       return Result.err(
-        new Error(`Wizard cancellation failed: ${(error as Error).message}`)
+        new Error(`Wizard cancellation failed: ${(error as Error).message}`),
       );
     }
   }

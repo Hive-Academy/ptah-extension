@@ -499,12 +499,7 @@
         >
           <lucide-angular [img]="ServerIcon" class="w-3.5 h-3.5 opacity-70" />
           <span class="text-base-content/70">
-            @if (selectedProvider()?.id === 'ollama-cloud') {
-              No API key needed — sign in via
-              <code class="text-[10px]">ollama signin</code>
-            } @else {
-              No API key needed — runs locally
-            }
+            No API key needed — runs locally
           </span>
         </div>
 
@@ -523,12 +518,15 @@
       </div>
     }
 
-    <!-- Standard API Key Provider Input (OpenRouter, Moonshot, Z.AI) -->
+    <!-- Standard API Key Provider Input (OpenRouter, Moonshot, Z.AI, + optional-key providers like Ollama Cloud) -->
     @if (!isOAuthProvider() && !isLocalProvider()) {
       <div class="form-control">
         <label class="label py-1 justify-start gap-2" for="providerKey">
           <span class="label-text text-xs font-medium">
             {{ selectedProvider()?.name ?? 'Provider' }} API Key
+            @if (supportsOptionalKey()) {
+              <span class="text-base-content/50 font-normal">(optional)</span>
+            }
           </span>
           @if (authState.isLoading()) {
             <span
@@ -598,12 +596,42 @@
             name="providerKey"
             class="input input-bordered input-sm w-full text-xs"
             [placeholder]="
-              selectedProvider()?.keyPlaceholder ?? 'Enter API key...'
+              supportsOptionalKey()
+                ? (selectedProvider()?.keyPlaceholder ??
+                  'Optional — leave blank to skip')
+                : (selectedProvider()?.keyPlaceholder ?? 'Enter API key...')
             "
           />
         }
         <div class="label flex-col items-start gap-0.5 py-1">
-          @if (selectedProvider(); as provider) {
+          @if (supportsOptionalKey() && isOllamaCloudProvider()) {
+            <span class="label-text-alt text-[10px] opacity-70 leading-relaxed">
+              <strong>Optional.</strong> Without a key, models load from a
+              static catalog and costs show as $0. Add a key to enable live
+              model discovery and accurate pricing. Get one at
+              <a
+                href="https://ollama.com/settings/keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="link link-primary font-semibold"
+                >ollama.com/settings/keys</a
+              >
+            </span>
+          } @else if (supportsOptionalKey() && selectedProvider(); as provider) {
+            <span class="label-text-alt text-[10px] opacity-70 leading-relaxed">
+              <strong>Optional.</strong> {{ provider.description }}
+              @if (provider.helpUrl) {
+                Get a key at
+                <a
+                  [href]="provider.helpUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="link link-primary font-semibold"
+                  >{{ provider.helpUrl | slice: 8 }}</a
+                >
+              }
+            </span>
+          } @else if (selectedProvider(); as provider) {
             <span class="label-text-alt text-[10px] opacity-70">
               <strong>{{ provider.name }}:</strong> {{ provider.description }}.
               Get key from

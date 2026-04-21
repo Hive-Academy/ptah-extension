@@ -14,6 +14,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
   PtahCliRegistry,
@@ -43,7 +44,9 @@ export class PtahCliRpcHandlers {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)
-    private readonly ptahCliRegistry: PtahCliRegistry
+    private readonly ptahCliRegistry: PtahCliRegistry,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -89,11 +92,15 @@ export class PtahCliRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: ptahCli:list failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'PtahCliRpcHandlers.registerList' },
           );
           throw error;
         }
-      }
+      },
     );
   }
 
@@ -113,7 +120,7 @@ export class PtahCliRpcHandlers {
           const agent = await this.ptahCliRegistry.createAgent(
             params.name,
             params.providerId,
-            params.apiKey
+            params.apiKey,
           );
 
           this.logger.info('RPC: ptahCli:create success', {
@@ -128,11 +135,15 @@ export class PtahCliRpcHandlers {
             error instanceof Error ? error.message : String(error);
           this.logger.error(
             'RPC: ptahCli:create failed',
-            error instanceof Error ? error : new Error(errorMessage)
+            error instanceof Error ? error : new Error(errorMessage),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(errorMessage),
+            { errorSource: 'PtahCliRpcHandlers.registerCreate' },
           );
           return { success: false, error: errorMessage };
         }
-      }
+      },
     );
   }
 
@@ -172,7 +183,7 @@ export class PtahCliRpcHandlers {
           await this.ptahCliRegistry.updateAgent(
             params.id,
             updates,
-            params.apiKey
+            params.apiKey,
           );
 
           this.logger.info('RPC: ptahCli:update success', {
@@ -185,11 +196,15 @@ export class PtahCliRpcHandlers {
             error instanceof Error ? error.message : String(error);
           this.logger.error(
             'RPC: ptahCli:update failed',
-            error instanceof Error ? error : new Error(errorMessage)
+            error instanceof Error ? error : new Error(errorMessage),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(errorMessage),
+            { errorSource: 'PtahCliRpcHandlers.registerUpdate' },
           );
           return { success: false, error: errorMessage };
         }
-      }
+      },
     );
   }
 
@@ -217,11 +232,15 @@ export class PtahCliRpcHandlers {
             error instanceof Error ? error.message : String(error);
           this.logger.error(
             'RPC: ptahCli:delete failed',
-            error instanceof Error ? error : new Error(errorMessage)
+            error instanceof Error ? error : new Error(errorMessage),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(errorMessage),
+            { errorSource: 'PtahCliRpcHandlers.registerDelete' },
           );
           return { success: false, error: errorMessage };
         }
-      }
+      },
     );
   }
 
@@ -254,7 +273,11 @@ export class PtahCliRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: ptahCli:testConnection failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'PtahCliRpcHandlers.registerTestConnection' },
         );
         return { success: false, error: errorMessage };
       }
@@ -327,7 +350,11 @@ export class PtahCliRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: ptahCli:listModels failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'PtahCliRpcHandlers.registerListModels' },
         );
         return { models: [], isStatic: true, error: errorMessage };
       }

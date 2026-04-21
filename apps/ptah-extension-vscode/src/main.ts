@@ -6,6 +6,7 @@ import {
   type LicenseService,
   type LicenseStatus,
   TOKENS,
+  SentryService,
 } from '@ptah-extension/vscode-core';
 import { resolveEnvironment } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
@@ -495,6 +496,25 @@ export async function activate(
     // Initialize minimal DI container with only license-related services
     // This allows license verification before full service initialization
     DIContainer.setupMinimal(context);
+
+    // Initialize Sentry — DSN is injected at build time via esbuild define.
+    // Production builds contain the real DSN; development builds get an empty
+    // string so no events are sent during local development.
+    const sentryService = DIContainer.resolve<SentryService>(
+      TOKENS.SENTRY_SERVICE,
+    );
+    const sentryDsn =
+      typeof __SENTRY_DSN__ !== 'undefined' ? __SENTRY_DSN__ : '';
+    if (sentryDsn) {
+      const isDev = context.extensionMode === vscode.ExtensionMode.Development;
+      sentryService.initialize({
+        dsn: sentryDsn,
+        environment: isDev ? 'development' : 'production',
+        release: context.extension.packageJSON['version'] as string,
+        platform: 'vscode',
+        extensionVersion: context.extension.packageJSON['version'] as string,
+      });
+    }
 
     // ========================================
     // STEP 2: LICENSE VERIFICATION (BLOCKING)
@@ -1169,6 +1189,15 @@ export async function activate(
       'Failed to activate Ptah extension',
       error instanceof Error ? error : new Error(String(error)),
     );
+    try {
+      const sentry = DIContainer.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
+      sentry.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'activate' },
+      );
+    } catch {
+      // Sentry may not be initialized yet — ignore
+    }
     vscode.window.showErrorMessage(
       `Ptah activation failed: ${
         error instanceof Error ? error.message : 'Unknown error'
@@ -1177,7 +1206,7 @@ export async function activate(
   }
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
   const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
   logger.info('Deactivating Ptah extension');
 
@@ -1207,5 +1236,16 @@ export function deactivate(): void {
 
   ptahExtension?.dispose();
   ptahExtension = undefined;
+
+  // Flush pending Sentry events before the process exits
+  try {
+    const sentryService = DIContainer.resolve<SentryService>(
+      TOKENS.SENTRY_SERVICE,
+    );
+    await sentryService.flush(2000);
+  } catch {
+    // Ignore — extension is shutting down
+  }
+
   DIContainer.clear();
 }

@@ -21,6 +21,16 @@ export {
 // Ollama model discovery (injectable) — TASK_2025_281
 export { OllamaModelDiscoveryService } from './ollama-model-discovery.service';
 
+// Ollama Cloud metadata service (injectable) — TASK_OLLAMA_CLOUD_KEY
+// Fetches live model tags from https://ollama.com/api/tags when the user
+// configures an optional API key. Pricing fetch is a no-op (no public
+// pricing endpoint exists on ollama.com — bundled defaults are used).
+export {
+  OllamaCloudMetadataService,
+  isCloudTag,
+  type OllamaCloudTag,
+} from './ollama-cloud-metadata.service';
+
 // Constants and type guards
 export {
   LOCAL_PROXY_TOKEN_PLACEHOLDER,

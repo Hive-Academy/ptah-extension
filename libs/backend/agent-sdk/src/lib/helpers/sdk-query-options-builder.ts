@@ -506,9 +506,14 @@ export class SdkQueryOptionsBuilder {
       mcpServerRunning,
     );
 
-    // Create permission callback with sessionId for UI routing (TASK_2025_187)
+    // Create permission callback with tabId for UI routing (TASK_2025_187).
+    // For new sessions sessionId == tabId (trackingId = tabId from startChatSession).
+    // For RESUMED sessions sessionId is the real SDK UUID while sessionConfig.tabId
+    // is still the frontend tab ID — use tabId so AskUserQuestion/permission cards
+    // route to the correct tab instead of being silently filtered out.
+    const routingId = sessionConfig?.tabId ?? sessionId;
     const canUseToolCallback: CanUseTool =
-      this.permissionHandler.createCallback(sessionId);
+      this.permissionHandler.createCallback(routingId);
 
     // Create merged hooks (subagent + compaction + worktree)
     // TASK_2025_098: Pass sessionId and callback for compaction hooks
@@ -569,11 +574,13 @@ export class SdkQueryOptionsBuilder {
         canUseTool: canUseToolCallback,
         includePartialMessages: true,
         // Load settings from project and local directories.
-        // IMPORTANT: Exclude 'user' when using a translation proxy because
-        // ~/.claude/settings.json may contain auth from a previous `claude login`
-        // that overrides ANTHROPIC_BASE_URL and routes requests to api.anthropic.com
-        // instead of our local proxy.
-        settingSources: this.authEnv.ANTHROPIC_BASE_URL?.includes('127.0.0.1')
+        // IMPORTANT: Exclude 'user' when using a translation proxy OR local provider
+        // (Ollama uses localhost, not 127.0.0.1) because ~/.claude/settings.json may
+        // contain auth from a previous `claude login` that overrides ANTHROPIC_BASE_URL
+        // and routes requests to api.anthropic.com instead of our local endpoint.
+        settingSources: /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(
+          this.authEnv.ANTHROPIC_BASE_URL?.trim() ?? '',
+        )
           ? ['project', 'local']
           : ['user', 'project', 'local'],
         // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
