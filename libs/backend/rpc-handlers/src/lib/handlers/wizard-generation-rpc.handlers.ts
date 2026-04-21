@@ -25,6 +25,7 @@ import {
   TOKENS,
   LicenseService,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
@@ -150,6 +151,8 @@ export class WizardGenerationRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject('DependencyContainer')
     private readonly container: DependencyContainer,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -540,6 +543,12 @@ export class WizardGenerationRpcHandlers {
           'RPC: wizard:submit-selection unexpected error',
           error instanceof Error ? error : new Error(errorMessage),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          {
+            errorSource: 'WizardGenerationRpcHandlers.registerSubmitSelection',
+          },
+        );
         this.isGenerating = false;
         return {
           success: false,
@@ -745,6 +754,10 @@ export class WizardGenerationRpcHandlers {
           this.logger.warn('RPC: wizard:cancel error', {
             error: errorMessage,
           });
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(errorMessage),
+            { errorSource: 'WizardGenerationRpcHandlers.registerCancel' },
+          );
 
           // Reset generation flag even on error to prevent deadlock
           this.isGenerating = false;
@@ -907,6 +920,10 @@ export class WizardGenerationRpcHandlers {
         this.logger.error(
           'RPC: wizard:retry-item unexpected error',
           error instanceof Error ? error : new Error(errorMessage),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'WizardGenerationRpcHandlers.registerRetryItem' },
         );
         return {
           success: false,

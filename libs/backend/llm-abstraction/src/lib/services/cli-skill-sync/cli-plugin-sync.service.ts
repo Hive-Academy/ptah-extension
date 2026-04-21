@@ -19,6 +19,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type { CliTarget, CliSkillSyncStatus } from '@ptah-extension/shared';
 import { CliDetectionService } from '../cli-detection.service';
 import type { ICliSkillInstaller } from './cli-skill-installer.interface';
@@ -52,6 +53,8 @@ export class CliPluginSyncService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {
     // Register installers (one per supported CLI target)
     this.installers.set('codex', new CodexSkillInstaller());
@@ -151,14 +154,18 @@ export class CliPluginSyncService {
         );
         results.push(status);
       } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'CliPluginSyncService.syncOnActivation',
+        });
         this.logger.warn(`[CliPluginSync] Sync failed for ${cli}`, {
-          error: error instanceof Error ? error.message : String(error),
+          error: err.message,
         });
         results.push({
           cli,
           synced: false,
           skillCount: 0,
-          error: error instanceof Error ? error.message : String(error),
+          error: err.message,
         });
       }
     }
@@ -200,11 +207,15 @@ export class CliPluginSyncService {
         );
         results.push(status);
       } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'CliPluginSyncService.syncForce',
+        });
         results.push({
           cli,
           synced: false,
           skillCount: 0,
-          error: error instanceof Error ? error.message : String(error),
+          error: err.message,
         });
       }
     }
@@ -373,8 +384,12 @@ export class CliPluginSyncService {
         )
         .map((result) => result.cli as CliTarget);
     } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.sentryService.captureException(err, {
+        errorSource: 'CliPluginSyncService.getInstalledCliTargets',
+      });
       this.logger.warn('[CliPluginSync] CLI detection failed', {
-        error: error instanceof Error ? error.message : String(error),
+        error: err.message,
       });
       return [];
     }

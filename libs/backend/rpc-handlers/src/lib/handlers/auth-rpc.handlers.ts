@@ -18,6 +18,7 @@ import {
   ConfigManager,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type {
   IPlatformCommands,
   IPlatformAuthProvider,
@@ -67,6 +68,8 @@ export class AuthRpcHandlers {
     private readonly platformAuth: IPlatformAuthProvider,
     @inject(SDK_TOKENS.SDK_CLI_DETECTOR)
     private readonly cliDetector: ClaudeCliDetector,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -111,6 +114,10 @@ export class AuthRpcHandlers {
           this.logger.error(
             'RPC: auth:getHealth failed',
             error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AuthRpcHandlers.registerGetHealth' },
           );
           throw error;
         }
@@ -191,6 +198,10 @@ export class AuthRpcHandlers {
           authType: 'authType' in p ? p.authType : undefined,
           isLocal: 'isLocal' in p ? p.isLocal : undefined,
           baseUrl: p.baseUrl,
+          supportsOptionalApiKey:
+            'supportsOptionalApiKey' in p
+              ? p.supportsOptionalApiKey
+              : undefined,
         }));
 
         // Check Copilot auth status (TASK_2025_191)
@@ -269,6 +280,10 @@ export class AuthRpcHandlers {
         this.logger.error(
           'RPC: auth:getAuthStatus failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerGetAuthStatus' },
         );
         throw error;
       }
@@ -386,6 +401,10 @@ export class AuthRpcHandlers {
           'RPC: auth:saveSettings failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerSaveSettings' },
+        );
         throw error;
       }
     });
@@ -452,6 +471,10 @@ export class AuthRpcHandlers {
           'RPC: auth:testConnection failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerTestConnection' },
+        );
         throw error;
       }
     });
@@ -498,6 +521,10 @@ export class AuthRpcHandlers {
           'RPC: auth:copilotLogin failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerCopilotLogin' },
+        );
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Login failed',
@@ -524,6 +551,10 @@ export class AuthRpcHandlers {
           this.logger.error(
             'RPC: auth:copilotLogout failed',
             error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AuthRpcHandlers.registerCopilotLogout' },
           );
           return { success: false };
         }
@@ -562,6 +593,10 @@ export class AuthRpcHandlers {
         this.logger.error(
           'RPC: auth:copilotStatus failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerCopilotStatus' },
         );
         return { authenticated: false };
       }

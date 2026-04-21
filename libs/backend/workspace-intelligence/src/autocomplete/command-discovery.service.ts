@@ -9,6 +9,8 @@ import type {
   IFileSystemProvider,
   IDisposable,
 } from '@ptah-extension/platform-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 
 /**
  * Command information
@@ -68,6 +70,8 @@ export class CommandDiscoveryService {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fsProvider: IFileSystemProvider,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -261,8 +265,9 @@ export class CommandDiscoveryService {
    */
   private async getAllMarkdownFiles(dir: string): Promise<string[]> {
     const files: string[] = [];
+    const sentryService = this.sentryService;
 
-    async function scan(currentDir: string) {
+    const scan = async (currentDir: string): Promise<void> => {
       try {
         const entries = await fs.readdir(currentDir, { withFileTypes: true });
 
@@ -283,8 +288,12 @@ export class CommandDiscoveryService {
           `[CommandDiscovery] Cannot scan ${currentDir}:`,
           errorMessage,
         );
+        sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'CommandDiscoveryService.getAllMarkdownFiles' },
+        );
       }
-    }
+    };
 
     await scan(dir);
     return files;
@@ -324,6 +333,10 @@ export class CommandDiscoveryService {
       console.error(
         `[CommandDiscovery] Failed to parse command file ${filePath}:`,
         errorMessage,
+      );
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'CommandDiscoveryService.parseCommandFile' },
       );
       return null;
     }
@@ -401,6 +414,10 @@ export class CommandDiscoveryService {
       console.debug(
         `[CommandDiscovery] Skills directory not accessible at ${skillsDir}:`,
         error instanceof Error ? error.message : String(error),
+      );
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'CommandDiscoveryService.scanWorkspaceSkills' },
       );
     }
 

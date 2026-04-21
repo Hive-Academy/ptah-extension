@@ -2,6 +2,7 @@ import path from 'path';
 import { injectable, inject } from 'tsyringe';
 import { Result } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { ITemplateFileManager } from '../interfaces';
 import { TemplateFileError } from '../errors';
 import { FileSystemAdapter } from '../adapters/file-system.adapter';
@@ -17,7 +18,9 @@ export class TemplateFileManagerService implements ITemplateFileManager {
     // TASK_2025_071 Batch 5: Use dedicated adapter token (not FILE_SYSTEM_SERVICE)
     @inject(TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER)
     private readonly fileSystem: FileSystemAdapter,
-    @inject(TOKENS.LOGGER) private readonly logger: Logger
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -27,13 +30,13 @@ export class TemplateFileManagerService implements ITemplateFileManager {
     message: string,
     filePath: string,
     operation: string,
-    cause?: Error | null
+    cause?: Error | null,
   ): Result<never> {
     const error = new TemplateFileError(
       message,
       filePath,
       { operation },
-      cause ?? undefined
+      cause ?? undefined,
     );
     this.logger.error(error.message, error);
     return Result.err(error);
@@ -46,12 +49,15 @@ export class TemplateFileManagerService implements ITemplateFileManager {
     message: string,
     filePathOrContext: string,
     operation: string,
-    caughtError: unknown
+    caughtError: unknown,
   ): Result<never> {
     const cause =
       caughtError instanceof Error
         ? caughtError
         : new Error(String(caughtError));
+    this.sentryService.captureException(cause, {
+      errorSource: `TemplateFileManagerService.${operation}`,
+    });
     return this._handleFileError(message, filePathOrContext, operation, cause);
   }
 
@@ -71,14 +77,14 @@ export class TemplateFileManagerService implements ITemplateFileManager {
         // If directory already exists, that's fine
         if (dirResult.error?.message.includes('EEXIST')) {
           this.logger.debug(
-            `Template directory already exists: ${templatesDir}`
+            `Template directory already exists: ${templatesDir}`,
           );
         } else {
           return this._handleFileError(
             'Failed to create template directory',
             templatesDir,
             'createDirectory',
-            dirResult.error
+            dirResult.error,
           );
         }
       } else {
@@ -91,7 +97,7 @@ export class TemplateFileManagerService implements ITemplateFileManager {
         'Error creating template directory structure',
         baseDir,
         'createStructure',
-        error
+        error,
       );
     }
   }
@@ -104,7 +110,7 @@ export class TemplateFileManagerService implements ITemplateFileManager {
    */
   async writeTemplateFile(
     filePath: string,
-    content: string
+    content: string,
   ): Promise<Result<void>> {
     try {
       // Ensure the directory exists before writing the file
@@ -115,7 +121,7 @@ export class TemplateFileManagerService implements ITemplateFileManager {
           'Failed to create directory for file',
           dirPath,
           'createDirectory',
-          dirResult.error
+          dirResult.error,
         );
       }
 
@@ -126,7 +132,7 @@ export class TemplateFileManagerService implements ITemplateFileManager {
           'Failed to write template file',
           filePath,
           'writeFile',
-          result.error
+          result.error,
         );
       }
       this.logger.debug(`Successfully wrote template file: ${filePath}`);
@@ -136,7 +142,7 @@ export class TemplateFileManagerService implements ITemplateFileManager {
         'Error writing template file',
         filePath,
         'writeFileCatch',
-        error
+        error,
       );
     }
   }
@@ -156,7 +162,7 @@ export class TemplateFileManagerService implements ITemplateFileManager {
         } else {
           this.logger.error(
             `Failed to read template file (non-ENOENT): ${filePath}`,
-            result.error ?? new Error('Unknown error')
+            result.error ?? new Error('Unknown error'),
           );
         }
         const message = result.error?.message.includes('ENOENT')
@@ -166,14 +172,14 @@ export class TemplateFileManagerService implements ITemplateFileManager {
           message,
           filePath,
           'readFile',
-          result.error
+          result.error,
         );
       }
       if (result.value === undefined) {
         return this._handleFileError(
           'File content is undefined',
           filePath,
-          'readFile'
+          'readFile',
         );
       }
       this.logger.debug(`Successfully read template file: ${filePath}`);
@@ -183,7 +189,7 @@ export class TemplateFileManagerService implements ITemplateFileManager {
         'Error reading template file',
         filePath,
         'readFileCatch',
-        error
+        error,
       );
     }
   }
@@ -196,17 +202,17 @@ export class TemplateFileManagerService implements ITemplateFileManager {
    */
   async copyDirectoryRecursive(
     sourceDir: string,
-    destDir: string
+    destDir: string,
   ): Promise<Result<void, Error>> {
     try {
       this.logger.debug(
-        `Copying directory recursively from ${sourceDir} to ${destDir}`
+        `Copying directory recursively from ${sourceDir} to ${destDir}`,
       );
 
       // Use the FileSystemService to perform the actual copy
       const result = await this.fileSystem.copyDirectoryRecursive(
         sourceDir,
-        destDir
+        destDir,
       );
 
       if (result.isErr()) {
@@ -214,12 +220,12 @@ export class TemplateFileManagerService implements ITemplateFileManager {
           `Failed to copy directory ${sourceDir} to ${destDir}`,
           sourceDir,
           'copyDirectoryRecursive',
-          result.error
+          result.error,
         );
       }
 
       this.logger.debug(
-        `Successfully copied directory from ${sourceDir} to ${destDir}`
+        `Successfully copied directory from ${sourceDir} to ${destDir}`,
       );
       return Result.ok(undefined);
     } catch (error) {
@@ -227,7 +233,7 @@ export class TemplateFileManagerService implements ITemplateFileManager {
         `Unexpected error during directory copy`,
         sourceDir,
         'copyDirectoryRecursiveCatch',
-        error
+        error,
       );
     }
   }

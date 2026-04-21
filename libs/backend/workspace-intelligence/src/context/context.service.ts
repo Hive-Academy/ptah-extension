@@ -15,6 +15,8 @@ import type {
   ContextInfo,
   OptimizationSuggestion,
 } from '@ptah-extension/shared';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 
 // Import token symbols directly (avoids circular dependency with vscode-core)
 const LOGGER = Symbol.for('Logger');
@@ -131,6 +133,8 @@ export class ContextService {
     private readonly editorProvider: IEditorProvider,
     @inject(PLATFORM_TOKENS.COMMAND_REGISTRY)
     private readonly commandRegistry: ICommandRegistry,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {
     this.loadFromWorkspaceState();
   }
@@ -222,6 +226,10 @@ export class ContextService {
         this.logger.warn(
           `Failed to read file for token estimation: ${filePath}`,
           error,
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ContextService.getTokenEstimate' },
         );
       }
     }
@@ -667,8 +675,12 @@ export class ContextService {
         for (const subDir of subDirs) {
           await processDirectory(subDir, depth + 1);
         }
-      } catch {
+      } catch (error) {
         // Skip if directory listing fails
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ContextService.discoverDirectories' },
+        );
       }
     };
 

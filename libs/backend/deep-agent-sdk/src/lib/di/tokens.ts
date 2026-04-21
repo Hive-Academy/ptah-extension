@@ -26,6 +26,9 @@ export const DEEP_AGENT_TOKENS = {
 
   /** IToolRegistry implementation — registered by the app layer. */
   TOOL_REGISTRY: Symbol.for('PtahToolRegistry'),
+
+  /** Deep-agent backed one-shot internal query adapter. */
+  DEEP_AGENT_INTERNAL_QUERY: Symbol.for('DeepAgentInternalQuery'),
 } as const;
 
 export type DeepAgentDIToken = keyof typeof DEEP_AGENT_TOKENS;

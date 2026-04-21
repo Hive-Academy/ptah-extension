@@ -290,6 +290,24 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   },
 
   // ============================================================================
+  // Ollama Cloud — :cloud-suffixed models (TASK_OLLAMA_CLOUD_KEY)
+  //
+  // Bundled at $0/$0 so the stats panel renders cost UI immediately (instead of
+  // falling through to the $3/$15 default). When the user configures an
+  // ollama.com API key, OllamaCloudMetadataService fetches per-token pricing
+  // from ollama.com/api/usage and overlays real costs via
+  // registerProviderPricing(). The `:cloud` suffix lets the partial-match
+  // scanner catch every catalog entry (kimi-k2.5:cloud, glm-5:cloud, etc.).
+  // ============================================================================
+  ':cloud': {
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+    cacheReadCostPerToken: 0,
+    cacheCreationCostPerToken: 0,
+    provider: 'ollama-cloud',
+  },
+
+  // ============================================================================
   // Default Fallback (when model not found)
   // Uses Claude Sonnet 4.5 pricing as reasonable default
   // ============================================================================
@@ -330,6 +348,35 @@ export function updatePricingMap(
   newPricing: Record<string, ModelPricing>,
 ): void {
   modelPricingMap = { ...modelPricingMap, ...newPricing };
+}
+
+/**
+ * Register provider-supplied pricing into the runtime pricing map
+ * (TASK_OLLAMA_CLOUD_KEY).
+ *
+ * Semantic alias for {@link updatePricingMap} — lets providers (e.g. Ollama
+ * Cloud's metadata service after fetching ollama.com/api/usage) seed real
+ * per-token costs that {@link calculateMessageCost} will then surface in the
+ * stats panel. Both exact and lowercase keys are added so partial-match lookup
+ * still works regardless of caller casing.
+ *
+ * @param entries - Map of model ID → pricing
+ */
+export function registerProviderPricing(
+  entries: Record<string, ModelPricing>,
+): void {
+  if (!entries || Object.keys(entries).length === 0) {
+    return;
+  }
+  const normalized: Record<string, ModelPricing> = {};
+  for (const [id, pricing] of Object.entries(entries)) {
+    normalized[id] = pricing;
+    const lower = id.toLowerCase();
+    if (lower !== id) {
+      normalized[lower] = pricing;
+    }
+  }
+  updatePricingMap(normalized);
 }
 
 /**

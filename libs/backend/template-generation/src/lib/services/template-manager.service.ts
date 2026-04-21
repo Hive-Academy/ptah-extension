@@ -2,6 +2,7 @@ import path from 'path';
 import { injectable, inject } from 'tsyringe';
 import { Result } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { FileSystemAdapter } from '../adapters/file-system.adapter';
 import { IPtahTemplateManager } from '../interfaces/template-manager.interface';
 import { TemplateProcessingError } from '../errors';
@@ -21,7 +22,9 @@ export class TemplateManagerService implements IPtahTemplateManager {
     @inject(TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER)
     private readonly fileSystem: FileSystemAdapter,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    config?: { templateDir?: string; templateExt?: string }
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
+    config?: { templateDir?: string; templateExt?: string },
   ) {
     this.baseTemplateDir = config?.templateDir ?? 'templates';
     this.templateExt = config?.templateExt ?? '.md';
@@ -38,7 +41,7 @@ export class TemplateManagerService implements IPtahTemplateManager {
     return path.join(
       this.baseTemplateDir,
       'template-generation',
-      `${name}-template${this.templateExt}`
+      `${name}-template${this.templateExt}`,
     );
   }
 
@@ -60,7 +63,7 @@ export class TemplateManagerService implements IPtahTemplateManager {
           `Failed to load template: ${name}`,
           name,
           { operation: 'loadTemplate', templatePath },
-          readResult.error
+          readResult.error,
         );
         this.logger.error(error.message, error);
         return Result.err(error);
@@ -70,7 +73,7 @@ export class TemplateManagerService implements IPtahTemplateManager {
         const error = new TemplateProcessingError(
           `Template content is empty: ${name}`,
           name,
-          { operation: 'loadTemplate', templatePath }
+          { operation: 'loadTemplate', templatePath },
         );
         this.logger.error(error.message, error);
         return Result.err(error);
@@ -83,7 +86,11 @@ export class TemplateManagerService implements IPtahTemplateManager {
         `Unexpected error loading template: ${name}`,
         name,
         { operation: 'loadTemplate' },
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'TemplateManagerService.loadTemplate' },
       );
       this.logger.error(wrappedError.message, wrappedError);
       return Result.err(wrappedError);
@@ -100,7 +107,7 @@ export class TemplateManagerService implements IPtahTemplateManager {
    */
   public async processTemplate(
     name: string,
-    context: Record<string, unknown>
+    context: Record<string, unknown>,
   ): Promise<Result<string, Error>> {
     try {
       // Load the template
@@ -114,7 +121,7 @@ export class TemplateManagerService implements IPtahTemplateManager {
         const error = new TemplateProcessingError(
           `Template content is empty: ${name}`,
           name,
-          { operation: 'processTemplate' }
+          { operation: 'processTemplate' },
         );
         this.logger.error(error.message, error);
         return Result.err(error);
@@ -127,7 +134,7 @@ export class TemplateManagerService implements IPtahTemplateManager {
         const replacementValue = String(value);
         processedContent = processedContent.replace(
           new RegExp(placeholder, 'g'),
-          replacementValue
+          replacementValue,
         );
       }
 
@@ -138,7 +145,11 @@ export class TemplateManagerService implements IPtahTemplateManager {
         `Unexpected error processing template: ${name}`,
         name,
         { operation: 'processTemplate' },
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'TemplateManagerService.processTemplate' },
       );
       this.logger.error(wrappedError.message, wrappedError);
       return Result.err(wrappedError);

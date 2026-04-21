@@ -13,6 +13,7 @@
 import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   McpRegistryProvider,
   McpInstallService,
@@ -40,6 +41,8 @@ export class McpDirectoryRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -86,6 +89,10 @@ export class McpDirectoryRpcHandlers {
           nextCursor: result.next_cursor,
         };
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'McpDirectoryRpcHandlers.registerSearch' },
+        );
         this.logger.error('RPC: mcpDirectory:search failed', {
           error: String(error),
         });
@@ -116,6 +123,10 @@ export class McpDirectoryRpcHandlers {
 
         return server;
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'McpDirectoryRpcHandlers.registerGetDetails' },
+        );
         this.logger.error('RPC: mcpDirectory:getDetails failed', {
           error: String(error),
         });
@@ -171,6 +182,10 @@ export class McpDirectoryRpcHandlers {
 
         return { results };
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'McpDirectoryRpcHandlers.registerInstall' },
+        );
         this.logger.error('RPC: mcpDirectory:install failed', {
           error: String(error),
         });
@@ -209,6 +224,10 @@ export class McpDirectoryRpcHandlers {
 
         return { results };
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'McpDirectoryRpcHandlers.registerUninstall' },
+        );
         this.logger.error('RPC: mcpDirectory:uninstall failed', {
           error: String(error),
         });
@@ -232,6 +251,10 @@ export class McpDirectoryRpcHandlers {
 
         return { servers };
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'McpDirectoryRpcHandlers.registerListInstalled' },
+        );
         this.logger.error('RPC: mcpDirectory:listInstalled failed', {
           error: String(error),
         });
@@ -253,6 +276,10 @@ export class McpDirectoryRpcHandlers {
         const servers = await this.registryProvider.getPopular();
         return { servers };
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'McpDirectoryRpcHandlers.registerGetPopular' },
+        );
         this.logger.error('RPC: mcpDirectory:getPopular failed', {
           error: String(error),
         });

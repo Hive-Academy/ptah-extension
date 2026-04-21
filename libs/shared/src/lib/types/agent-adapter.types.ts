@@ -104,6 +104,10 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
   tabId?: string;
+  /** New user message to send as part of this resumed turn.
+   *  Runtimes that handle the prompt inside resumeSession() (e.g. deep-agent)
+   *  should set a flag so the caller's sendMessageToSession() is skipped. */
+  prompt?: string;
 }
 
 /**

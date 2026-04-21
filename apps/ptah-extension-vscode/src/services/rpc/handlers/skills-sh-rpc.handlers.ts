@@ -19,6 +19,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as vscode from 'vscode';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type {
   SkillShEntry,
   InstalledSkill,
@@ -246,6 +247,8 @@ export class SkillsShRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -322,6 +325,10 @@ export class SkillsShRpcHandlers {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'SkillsShRpcHandlers.registerSearch' },
+        );
         this.logger.error(
           'RPC: skillsSh:search failed',
           error instanceof Error ? error : new Error(errorMessage),
@@ -426,6 +433,10 @@ export class SkillsShRpcHandlers {
 
         return { skills };
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'SkillsShRpcHandlers.registerListInstalled' },
+        );
         this.logger.error(
           'RPC: skillsSh:listInstalled failed',
           error instanceof Error ? error : new Error(String(error)),
@@ -535,6 +546,10 @@ export class SkillsShRpcHandlers {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'SkillsShRpcHandlers.registerInstall' },
+        );
         this.logger.error(
           'RPC: skillsSh:install failed',
           error instanceof Error ? error : new Error(errorMessage),
@@ -613,6 +628,10 @@ export class SkillsShRpcHandlers {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'SkillsShRpcHandlers.registerUninstall' },
+        );
         this.logger.error(
           'RPC: skillsSh:uninstall failed',
           error instanceof Error ? error : new Error(errorMessage),
@@ -691,6 +710,10 @@ export class SkillsShRpcHandlers {
 
         return { skills };
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'SkillsShRpcHandlers.registerGetPopular' },
+        );
         this.logger.error(
           'RPC: skillsSh:getPopular failed',
           error instanceof Error ? error : new Error(String(error)),
@@ -746,6 +769,10 @@ export class SkillsShRpcHandlers {
             recommendedSkills: enriched,
           };
         } catch (error) {
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'SkillsShRpcHandlers.registerDetectRecommended' },
+          );
           this.logger.error(
             'RPC: skillsSh:detectRecommended failed',
             error instanceof Error ? error : new Error(String(error)),

@@ -20,6 +20,7 @@ import {
   ConfigManager,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type { IModelDiscovery } from '../platform-abstractions';
 import {
   ProviderModelsService,
@@ -71,6 +72,8 @@ export class ProviderRpcHandlers {
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_OLLAMA_DISCOVERY)
     private readonly ollamaDiscovery: OllamaModelDiscoveryService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -425,6 +428,10 @@ export class ProviderRpcHandlers {
           'RPC: provider:listModels failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ProviderRpcHandlers.registerListModels' },
+        );
         throw error;
       }
     });
@@ -472,6 +479,10 @@ export class ProviderRpcHandlers {
           'RPC: provider:setModelTier failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ProviderRpcHandlers.registerSetModelTier' },
+        );
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),
@@ -510,6 +521,10 @@ export class ProviderRpcHandlers {
         this.logger.error(
           'RPC: provider:getModelTiers failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ProviderRpcHandlers.registerGetModelTiers' },
         );
         throw error;
       }
@@ -550,6 +565,10 @@ export class ProviderRpcHandlers {
         this.logger.error(
           'RPC: provider:clearModelTier failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ProviderRpcHandlers.registerClearModelTier' },
         );
         return {
           success: false,

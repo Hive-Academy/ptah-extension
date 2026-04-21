@@ -16,6 +16,7 @@
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS, FileType } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -160,6 +161,8 @@ export class WorkspaceService implements IDisposable {
     private readonly fileSystem: FileSystemService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {
     // Initialize workspace analysis on construction
     this.updateWorkspaceAnalysis().catch((error) => {
@@ -274,6 +277,10 @@ export class WorkspaceService implements IDisposable {
       return this.currentAnalysis;
     } catch (error) {
       console.error('Failed to update workspace analysis:', error);
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        { errorSource: 'WorkspaceService.updateWorkspaceAnalysis' },
+      );
       this.currentAnalysis = undefined;
       return undefined;
     }
