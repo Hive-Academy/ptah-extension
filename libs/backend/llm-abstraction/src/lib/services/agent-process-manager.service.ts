@@ -63,6 +63,9 @@ const COMPLETED_AGENT_TTL = 30 * 60 * 1000;
 /** Throttle interval for output delta events: 200ms */
 const OUTPUT_FLUSH_INTERVAL = 200;
 
+/** Graceful delay (ms) after exit before emitting agent:exited, giving the UI time to process last output chunks */
+const GRACEFUL_EXIT_DELAY_MS = 3000;
+
 /**
  * Shell metacharacters — kept for reference only.
  * spawn() is called WITHOUT shell:true, so args are passed directly
@@ -1236,14 +1239,19 @@ export class AgentProcessManager {
 
     this.scheduleCleanup(agentId);
 
-    this.events.emit('agent:exited', tracked.info);
+    // Delay the exit event so the UI has time to process the last output chunks
+    // before the agent card is marked as complete.
+    const exitInfo = tracked.info;
+    setTimeout(() => {
+      this.events.emit('agent:exited', exitInfo);
 
-    this.logger.info('[AgentProcessManager] Agent exited', {
-      agentId,
-      status: tracked.info.status,
-      exitCode: code,
-      signal,
-    });
+      this.logger.info('[AgentProcessManager] Agent exited', {
+        agentId,
+        status: exitInfo.status,
+        exitCode: code,
+        signal,
+      });
+    }, GRACEFUL_EXIT_DELAY_MS);
   }
 
   /**
