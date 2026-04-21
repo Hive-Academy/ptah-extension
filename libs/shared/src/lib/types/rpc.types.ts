@@ -900,6 +900,37 @@ export interface RpcMethodRegistry {
     params: { itemPath: string; isDirectory: boolean };
     result: { success: boolean; error?: string };
   };
+  'editor:getSetting': {
+    params: { key: string };
+    result: { success: boolean; value?: unknown; error?: string };
+  };
+  'editor:updateSetting': {
+    params: { key: string; value: unknown };
+    result: { success: boolean; error?: string };
+  };
+  'editor:searchInFiles': {
+    params: {
+      query: string;
+      isRegex: boolean;
+      caseSensitive: boolean;
+      maxFileResults?: number;
+      maxMatchesPerFile?: number;
+    };
+    result: {
+      success: boolean;
+      files: Array<{
+        filePath: string;
+        matches: Array<{ line: number; lineText: string; matchText: string }>;
+      }>;
+      truncated: boolean;
+      totalMatches: number;
+      error?: string;
+    };
+  };
+  'editor:listAllFiles': {
+    params: Record<string, never>;
+    result: { success: boolean; files: string[]; error?: string };
+  };
 
   // ---- Electron File Methods (TASK_2025_203) ----
   'file:read': {
@@ -1273,6 +1304,10 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'editor:createFolder',
   'editor:renameItem',
   'editor:deleteItem',
+  'editor:getSetting',
+  'editor:updateSetting',
+  'editor:searchInFiles',
+  'editor:listAllFiles',
 
   // Electron File Methods (TASK_2025_203)
   'file:read',
