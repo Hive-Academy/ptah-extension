@@ -815,6 +815,7 @@ export class ChatRpcHandlers {
                 tabId,
                 thinking: params.thinking, // TASK_2025_184: Reasoning configuration
                 effort: params.effort, // TASK_2025_184: Effort level
+                prompt, // DeepAgent runtime includes this in the LangGraph stream input
               });
 
               // Start streaming responses to webview (background - don't await)
