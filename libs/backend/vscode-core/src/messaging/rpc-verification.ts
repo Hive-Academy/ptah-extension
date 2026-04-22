@@ -77,7 +77,7 @@ export interface RpcVerificationResult {
 export function verifyRpcRegistration(
   rpcHandler: RpcHandler,
   logger: Logger,
-  excludeMethods?: string[]
+  excludeMethods?: string[],
 ): RpcVerificationResult {
   const registeredMethods = rpcHandler.getRegisteredMethods();
 
@@ -122,13 +122,13 @@ export function verifyRpcRegistration(
   // Log the verification result
   if (valid && orphanHandlers.length === 0) {
     logger.info(
-      `[RPC Verification] All ${result.expectedCount} RPC methods correctly registered`
+      `[RPC Verification] All ${result.expectedCount} RPC methods correctly registered`,
     );
   } else {
     if (missingHandlers.length > 0) {
       logger.error(
         `[RPC Verification] CRITICAL: ${missingHandlers.length} methods missing handlers`,
-        new Error(`Missing handlers: ${missingHandlers.join(', ')}`)
+        new Error(`Missing handlers: ${missingHandlers.join(', ')}`),
       );
     }
 
@@ -136,7 +136,7 @@ export function verifyRpcRegistration(
       logger.warn(
         `[RPC Verification] ${
           orphanHandlers.length
-        } orphan handlers (not in registry): ${orphanHandlers.join(', ')}`
+        } orphan handlers (not in registry): ${orphanHandlers.join(', ')}`,
       );
     }
   }
@@ -164,17 +164,18 @@ export function verifyRpcRegistration(
  */
 export function assertRpcRegistration(
   rpcHandler: RpcHandler,
-  logger: Logger
+  logger: Logger,
+  excludeMethods?: string[],
 ): void {
-  const result = verifyRpcRegistration(rpcHandler, logger);
+  const result = verifyRpcRegistration(rpcHandler, logger, excludeMethods);
 
   if (!result.valid) {
     throw new Error(
       `RPC registration incomplete! Missing handlers for: ${result.missingHandlers.join(
-        ', '
+        ', ',
       )}\n` +
         `Expected ${result.expectedCount} methods, found ${result.actualCount} handlers.\n` +
-        `This usually means a handler was not registered in RpcMethodRegistrationService.`
+        `This usually means a handler was not registered in RpcMethodRegistrationService.`,
     );
   }
 }
