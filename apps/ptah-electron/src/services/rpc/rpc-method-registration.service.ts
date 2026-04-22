@@ -20,12 +20,17 @@
  */
 
 import { injectable, inject, container } from 'tsyringe';
-import { TOKENS, verifyRpcRegistration } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  verifyRpcRegistration,
+  assertRpcRegistration,
+} from '@ptah-extension/vscode-core';
 import type {
   Logger,
   RpcHandler,
   AgentSummaryChunk,
   AgentStartEvent,
+  SentryService,
 } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES, retryWithBackoff } from '@ptah-extension/shared';
 import type {
@@ -180,18 +185,60 @@ export class ElectronRpcMethodRegistrationService {
     // Phase 4: Verify all expected RPC methods are registered.
     // mcpDirectory:* are VS Code-only (use VS Code's extension host MCP APIs).
     // Electron provides its own MCP server but not the directory browser feature.
-    verifyRpcRegistration(this.rpcHandler, this.logger, [
+    const ELECTRON_EXCLUDED_METHODS = [
       'mcpDirectory:search',
       'mcpDirectory:getDetails',
       'mcpDirectory:install',
       'mcpDirectory:uninstall',
       'mcpDirectory:listInstalled',
       'mcpDirectory:getPopular',
-    ]);
+    ];
+    const verificationResult = verifyRpcRegistration(
+      this.rpcHandler,
+      this.logger,
+      ELECTRON_EXCLUDED_METHODS,
+    );
+
+    if (!verificationResult.valid) {
+      const driftError = new Error(
+        `Missing: ${verificationResult.missingHandlers.join(', ')}. ` +
+          `Add handlers or remove from RpcMethodRegistry.`,
+      );
+      // RPC hardening: surface production drift to Sentry so shipped builds
+      // with missing handlers are caught immediately after rollout.
+      this.reportDriftToSentry(driftError, verificationResult.missingHandlers);
+    }
+
+    // RPC hardening (Fix 3): fail fast in development so registration drift
+    // is caught before the renderer window loads the webview URL.
+    if (process.env['NODE_ENV'] === 'development') {
+      assertRpcRegistration(
+        this.rpcHandler,
+        this.logger,
+        ELECTRON_EXCLUDED_METHODS,
+      );
+    }
 
     this.logger.info('[Electron RPC] All RPC methods registered', {
       methods: this.rpcHandler.getRegisteredMethods(),
     } as unknown as Error);
+  }
+
+  /**
+   * Report RPC registration drift to Sentry via lazy container resolution.
+   * No-op when Sentry is not registered (tests) or not initialized (no DSN).
+   */
+  private reportDriftToSentry(error: Error, missing: string[]): void {
+    try {
+      if (!container.isRegistered(TOKENS.SENTRY_SERVICE)) return;
+      const sentry = container.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
+      sentry.captureException(error, {
+        errorSource: 'rpc-registration-drift',
+        extra: { missingMethods: missing, platform: 'electron' },
+      });
+    } catch {
+      // Never let Sentry reporting break app initialization.
+    }
   }
 
   private registerSharedHandlers(): void {

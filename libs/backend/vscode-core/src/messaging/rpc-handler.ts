@@ -21,13 +21,14 @@
  *   });
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import { TOKENS } from '../di/tokens';
 import type { Logger } from '../logging/logger';
 import type {
   LicenseService,
   LicenseStatus,
 } from '../services/license.service';
+import type { SentryService } from '../services/sentry.service';
 import type {
   RpcMessage,
   RpcResponse,
@@ -267,6 +268,10 @@ export class RpcHandler {
       const errorObj =
         error instanceof Error ? error : new Error(String(error));
       this.logger.error(`RpcHandler: Method "${method}" failed`, errorObj);
+      this.reportToSentry(errorObj, {
+        errorSource: 'rpc-handler',
+        extra: { method, correlationId },
+      });
       return {
         success: false,
         error: errorObj.message,
@@ -319,6 +324,27 @@ export class RpcHandler {
    */
   private isValidMethodName(name: string): boolean {
     return ALLOWED_METHOD_PREFIXES.some((prefix) => name.startsWith(prefix));
+  }
+
+  /**
+   * Report a handler exception to Sentry at the single RPC chokepoint.
+   *
+   * Resolved lazily via the container so RpcHandler's constructor signature
+   * stays unchanged and tests without Sentry registered keep working. The
+   * reporting path is itself wrapped in try/catch so a Sentry failure can
+   * never break the RPC response flow.
+   */
+  private reportToSentry(
+    error: Error,
+    context: { errorSource: string; extra: Record<string, unknown> },
+  ): void {
+    try {
+      if (!container.isRegistered(TOKENS.SENTRY_SERVICE)) return;
+      const sentry = container.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
+      sentry.captureException(error, context);
+    } catch {
+      // Never let Sentry reporting break the RPC response path.
+    }
   }
 
   /**

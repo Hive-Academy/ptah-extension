@@ -13,7 +13,7 @@
  * TASK_2025_074: Refactored from ~1500 lines to ~150 lines orchestrator
  */
 
-import { injectable, inject, DependencyContainer } from 'tsyringe';
+import { injectable, inject, DependencyContainer, container } from 'tsyringe';
 import {
   Logger,
   RpcHandler,
@@ -24,7 +24,9 @@ import {
   CommandManager,
   SubagentRegistryService,
   verifyRpcRegistration,
+  assertRpcRegistration,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   AgentProcessManager,
   CliDetectionService,
@@ -241,13 +243,46 @@ export class RpcMethodRegistrationService {
     );
 
     if (!verificationResult.valid) {
+      const driftError = new Error(
+        `Missing: ${verificationResult.missingHandlers.join(', ')}. ` +
+          `Add handlers or remove from RpcMethodRegistry.`,
+      );
       this.logger.error(
         `RPC registration incomplete: ${verificationResult.missingHandlers.length} methods missing`,
-        new Error(
-          `Missing: ${verificationResult.missingHandlers.join(', ')}. ` +
-            `Add handlers or remove from RpcMethodRegistry.`,
-        ),
+        driftError,
       );
+      // RPC hardening: surface production drift to Sentry so shipped builds
+      // with missing handlers are caught immediately after rollout.
+      this.reportDriftToSentry(driftError, verificationResult.missingHandlers);
+    }
+
+    // RPC hardening (Fix 3): fail fast when running as a development build.
+    // In production we already logged the mismatch above and continue, so
+    // a user-hostile crash is avoided — but during development this throws
+    // immediately so registration drift is caught before the webview mounts.
+    if (process.env['NODE_ENV'] === 'development') {
+      assertRpcRegistration(
+        this.rpcHandler,
+        this.logger,
+        ELECTRON_ONLY_METHODS,
+      );
+    }
+  }
+
+  /**
+   * Report RPC registration drift to Sentry via lazy container resolution.
+   * No-op when Sentry is not registered (tests) or not initialized (no DSN).
+   */
+  private reportDriftToSentry(error: Error, missing: string[]): void {
+    try {
+      if (!container.isRegistered(TOKENS.SENTRY_SERVICE)) return;
+      const sentry = container.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
+      sentry.captureException(error, {
+        errorSource: 'rpc-registration-drift',
+        extra: { missingMethods: missing, platform: 'vscode' },
+      });
+    } catch {
+      // Never let Sentry reporting break extension activation.
     }
   }
 

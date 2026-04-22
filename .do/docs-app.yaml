@@ -1,0 +1,61 @@
+# =============================================================================
+# DigitalOcean App Platform Specification — Docs Site
+# =============================================================================
+#
+# This file defines the static site hosting for the Ptah documentation site
+# (Astro Starlight) on App Platform.
+#
+# ARCHITECTURE:
+#   - Static Site: ptah-docs (Astro Starlight) -> docs.ptah.live (App Platform, free)
+#
+# This is a SEPARATE DO app from the landing page (.do/app.yaml) so that docs
+# and landing can be deployed independently.
+#
+# DEPLOYMENT (first time):
+#   doctl apps create --spec .do/docs-app.yaml
+#
+# UPDATE:
+#   doctl apps update <DOCS_APP_ID> --spec .do/docs-app.yaml
+#
+# TRIGGER NEW DEPLOYMENT (used by GHA):
+#   doctl apps create-deployment <DOCS_APP_ID> --wait
+#
+# =============================================================================
+
+name: ptah-docs
+region: fra
+
+# Custom domain — docs.ptah.live (subdomain)
+# DNS: CNAME record pointing to the DO App Platform default URL
+# (<app-name>.ondigitalocean.app), OR ALIAS/A records if the DNS provider
+# supports them for apex — here we use a subdomain so CNAME is appropriate.
+domains:
+  - domain: docs.ptah.live
+    type: PRIMARY
+
+ingress:
+  rules:
+    - component:
+        name: docs
+      match:
+        path:
+          prefix: /
+
+alerts:
+  - rule: DEPLOYMENT_FAILED
+  - rule: DOMAIN_FAILED
+
+# =============================================================================
+# Static Site: Docs (Astro Starlight)
+# =============================================================================
+static_sites:
+  - name: docs
+    github:
+      repo: Hive-Academy/ptah-extension
+      branch: release/docs
+      deploy_on_push: false
+    source_dir: /
+    build_command: bash scripts/do-docs-build.sh
+    output_dir: dist/apps/ptah-docs
+    environment_slug: node-js
+    catchall_document: index.html
