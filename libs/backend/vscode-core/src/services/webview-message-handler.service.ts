@@ -36,7 +36,7 @@ export interface WebviewMessage {
  */
 export type CustomMessageHandler = (
   message: WebviewMessage,
-  webview: vscode.Webview
+  webview: vscode.Webview,
 ) => Promise<boolean>;
 
 /**
@@ -148,7 +148,7 @@ export interface WebviewMessageHandlerConfig {
 export class WebviewMessageHandlerService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler
+    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
   ) {}
 
   /**
@@ -160,12 +160,12 @@ export class WebviewMessageHandlerService {
    */
   setupMessageListener(
     config: WebviewMessageHandlerConfig,
-    disposables?: vscode.Disposable[]
+    disposables?: vscode.Disposable[],
   ): vscode.Disposable {
     const disposable = config.webview.onDidReceiveMessage(
       async (message: WebviewMessage) => {
         await this.handleMessage(config, message);
-      }
+      },
     );
 
     if (disposables) {
@@ -180,7 +180,7 @@ export class WebviewMessageHandlerService {
    */
   async handleMessage(
     config: WebviewMessageHandlerConfig,
-    message: WebviewMessage
+    message: WebviewMessage,
   ): Promise<void> {
     const { webviewId, webview, customHandlers, onReady } = config;
 
@@ -237,7 +237,7 @@ export class WebviewMessageHandlerService {
     } catch (error) {
       this.logger.error(
         `[${webviewId}] Error handling message`,
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
 
       // Send error response to webview if message has correlationId
@@ -259,7 +259,7 @@ export class WebviewMessageHandlerService {
   private async handleRpcMessage(
     webviewId: string,
     webview: vscode.Webview,
-    message: WebviewMessage
+    message: WebviewMessage,
   ): Promise<void> {
     // Frontend wraps RPC data in 'payload' object, so unwrap it
     const rpcData = (message.payload || message) as {
@@ -285,12 +285,13 @@ export class WebviewMessageHandlerService {
 
       // Send response back (correlationId and data are the canonical fields)
       // TASK_2025_124: Include errorCode for license-related errors
+      // RPC hardening: error is always a string at the dispatcher boundary.
       await webview.postMessage({
         type: MESSAGE_TYPES.RPC_RESPONSE,
         correlationId: reqId,
         success: response.success,
         data: response.data,
-        error: response.error ? { message: response.error } : undefined,
+        error: response.error,
         errorCode: response.errorCode,
       });
     } catch (error) {
@@ -299,9 +300,7 @@ export class WebviewMessageHandlerService {
         correlationId: reqId,
         success: false,
         data: undefined,
-        error: {
-          message: error instanceof Error ? error.message : 'Unknown error',
-        },
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
   }
@@ -316,7 +315,7 @@ export class WebviewMessageHandlerService {
    */
   private async handleMcpPermissionResponse(
     webviewId: string,
-    message: WebviewMessage
+    message: WebviewMessage,
   ): Promise<void> {
     try {
       if (container.isRegistered(TOKENS.PERMISSION_PROMPT_SERVICE)) {
@@ -329,13 +328,13 @@ export class WebviewMessageHandlerService {
         });
       } else {
         this.logger.warn(
-          `[${webviewId}] PermissionPromptService not registered (MCP not enabled)`
+          `[${webviewId}] PermissionPromptService not registered (MCP not enabled)`,
         );
       }
     } catch (error) {
       this.logger.error(
         `[${webviewId}] Failed to process MCP permission response`,
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }
@@ -350,7 +349,7 @@ export class WebviewMessageHandlerService {
    */
   private async handleAskUserQuestionResponse(
     webviewId: string,
-    message: WebviewMessage
+    message: WebviewMessage,
   ): Promise<void> {
     try {
       const payload = message.payload as
@@ -360,7 +359,7 @@ export class WebviewMessageHandlerService {
       const SDK_PERMISSION_HANDLER = Symbol.for('SdkPermissionHandler');
       if (container.isRegistered(SDK_PERMISSION_HANDLER)) {
         const permissionHandler = container.resolve<ISdkPermissionHandler>(
-          SDK_PERMISSION_HANDLER
+          SDK_PERMISSION_HANDLER,
         );
         permissionHandler.handleQuestionResponse({
           id: payload?.id ?? '',
@@ -376,7 +375,7 @@ export class WebviewMessageHandlerService {
     } catch (error) {
       this.logger.error(
         `[${webviewId}] Failed to process AskUserQuestion response`,
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }
@@ -395,7 +394,7 @@ export class WebviewMessageHandlerService {
    */
   private async handleAgentMonitorPermissionResponse(
     webviewId: string,
-    message: WebviewMessage
+    message: WebviewMessage,
   ): Promise<void> {
     try {
       const payload = message.payload as
@@ -403,7 +402,7 @@ export class WebviewMessageHandlerService {
         | undefined;
       if (!payload?.requestId) {
         this.logger.warn(
-          `[${webviewId}] Agent permission response missing requestId`
+          `[${webviewId}] Agent permission response missing requestId`,
         );
         return;
       }
@@ -430,7 +429,7 @@ export class WebviewMessageHandlerService {
     } catch (error) {
       this.logger.error(
         `[${webviewId}] Failed to process agent permission response`,
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }
@@ -448,7 +447,7 @@ export class WebviewMessageHandlerService {
    */
   private async handleSdkPermissionResponse(
     webviewId: string,
-    message: WebviewMessage
+    message: WebviewMessage,
   ): Promise<void> {
     try {
       const payload = (message.payload || message.response) as
@@ -464,7 +463,7 @@ export class WebviewMessageHandlerService {
       const SDK_PERMISSION_HANDLER = Symbol.for('SdkPermissionHandler');
       if (container.isRegistered(SDK_PERMISSION_HANDLER)) {
         const permissionHandler = container.resolve<ISdkPermissionHandler>(
-          SDK_PERMISSION_HANDLER
+          SDK_PERMISSION_HANDLER,
         );
         // TASK_2025_101_FIX: Pass correct PermissionResponse structure
         // Previously passed 'approved' (boolean) which is NOT in PermissionResponse interface
@@ -488,7 +487,7 @@ export class WebviewMessageHandlerService {
     } catch (error) {
       this.logger.error(
         `[${webviewId}] Failed to process SDK permission response`,
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }

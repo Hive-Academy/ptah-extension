@@ -13,6 +13,7 @@
     "deepagents": "1.9.0",
     "@langchain/core": "1.1.40",
     "@langchain/langgraph-checkpoint": "1.0.1",
-    "@langchain/openai": "1.4.4"
+    "@langchain/openai": "1.4.4",
+    "@ptah-extension/workspace-intelligence": "0.0.1"
   }
 }

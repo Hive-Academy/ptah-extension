@@ -1,0 +1,49 @@
+{
+  "name": "ptah-docs",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/ptah-docs/src",
+  "tags": ["scope:docs", "type:app"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": ["{workspaceRoot}/dist/apps/ptah-docs"],
+      "options": {
+        "cwd": "apps/ptah-docs",
+        "command": "astro build --outDir ../../dist/apps/ptah-docs"
+      }
+    },
+    "dev": {
+      "executor": "nx:run-commands",
+      "continuous": true,
+      "options": {
+        "cwd": "apps/ptah-docs",
+        "command": "astro dev"
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "continuous": true,
+      "options": {
+        "cwd": "apps/ptah-docs",
+        "command": "astro dev"
+      }
+    },
+    "preview": {
+      "executor": "nx:run-commands",
+      "continuous": true,
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "apps/ptah-docs",
+        "command": "astro preview --outDir ../../dist/apps/ptah-docs"
+      }
+    },
+    "check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/ptah-docs",
+        "command": "astro check"
+      }
+    }
+  }
+}

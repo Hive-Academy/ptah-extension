@@ -57,3 +57,6 @@ Thumbs.db
 
 # License file — triggers marketplace scanner
 LICENSE.md
+
+# Docs site — separate Astro/Starlight app, never bundled into the extension
+**/apps/ptah-docs/**
