@@ -159,6 +159,12 @@ jobs:
         if: steps.cache-modules.outputs.cache-hit != 'true'
         run: npm ci
 
+      # Workaround for npm/cli#4828: package-lock.json generated on Windows
+      # omits Linux rollup platform binaries. Install them explicitly.
+      - name: Install rollup Linux binary (Linux only)
+        if: runner.os == 'Linux'
+        run: npm install @rollup/rollup-linux-x64-gnu --no-save --force
+
       # dmg-license is a required dep of dmg-builder but is macOS-native and was excluded
       # from the lock file (generated on Windows). Install it explicitly on macOS.
       - name: Install dmg-license (macOS only)

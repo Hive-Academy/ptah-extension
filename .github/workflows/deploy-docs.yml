@@ -38,7 +38,11 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-modules.outputs.cache-hit != 'true'
-        run: npm ci
+        # Workaround for npm/cli#4828: package-lock.json generated on Windows
+        # omits Linux rollup platform binaries. Install them explicitly.
+        run: |
+          npm ci
+          npm install @rollup/rollup-linux-x64-gnu --no-save --force
 
       - name: Build docs site (pre-deploy sanity check)
         run: npx nx build ptah-docs
