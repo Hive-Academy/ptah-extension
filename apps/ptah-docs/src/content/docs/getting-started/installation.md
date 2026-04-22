@@ -49,8 +49,6 @@ Download the installer that matches your platform from the latest release assets
 If you see "Windows protected your PC," verify the publisher is **Ptah Extensions** before proceeding. Do not run installers from any other source.
 :::
 
-![Windows installer screen](/screenshots/install-windows.png)
-
 ## Install on macOS
 
 1. Open `Ptah-<version>.dmg`.
@@ -59,8 +57,6 @@ If you see "Windows protected your PC," verify the publisher is **Ptah Extension
 4. Open **Applications** and double-click **Ptah**. On first launch, macOS asks you to confirm the app was downloaded from the internet — click **Open**.
 
 If macOS blocks the app with a Gatekeeper message, go to **System Settings → Privacy & Security**, scroll to the Security section, and click **Open Anyway** next to the Ptah notice.
-
-![macOS install drag-and-drop](/screenshots/install-macos.png)
 
 ## Install on Linux
 

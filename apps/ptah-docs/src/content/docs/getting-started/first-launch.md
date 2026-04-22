@@ -81,8 +81,6 @@ If Ptah finds a Claude CLI session history at `~/.claude/projects/`, it offers t
 Session imports read local files only. Nothing is uploaded during the import step.
 :::
 
-![Session import dialog](/screenshots/setup-import.png)
-
 ## After the wizard
 
 Once setup finishes, Ptah drops you into the main workspace view with:
