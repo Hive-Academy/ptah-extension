@@ -1,0 +1,53 @@
+/*
+ * Ptah brand — dark-first theme with gold accent (#D4AF37).
+ * Applied on top of Starlight's default theme tokens.
+ */
+
+:root {
+  --ptah-gold: #d4af37;
+  --ptah-gold-soft: #e6c65c;
+  --ptah-gold-dim: #9b8028;
+}
+
+/* Dark theme (default) */
+:root[data-theme='dark'],
+:root {
+  --sl-color-accent-low: #3a2f0b;
+  --sl-color-accent: var(--ptah-gold);
+  --sl-color-accent-high: var(--ptah-gold-soft);
+
+  --sl-color-bg-nav: #0b0b0d;
+  --sl-color-bg-sidebar: #0e0e10;
+  --sl-color-bg: #121214;
+
+  --sl-color-text-accent: var(--ptah-gold-soft);
+}
+
+/* Light theme — keep readable */
+:root[data-theme='light'] {
+  --sl-color-accent-low: #fbf1cf;
+  --sl-color-accent: var(--ptah-gold-dim);
+  --sl-color-accent-high: #6c5a1c;
+
+  --sl-color-text-accent: var(--ptah-gold-dim);
+}
+
+/* Brand touch on the hero page title */
+.hero h1,
+.site-title {
+  background: linear-gradient(
+    120deg,
+    var(--ptah-gold) 0%,
+    var(--ptah-gold-soft) 50%,
+    var(--ptah-gold) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Subtle gold underline on in-content links */
+.sl-markdown-content a:not(:where(.not-content *)) {
+  text-decoration-color: var(--ptah-gold-dim);
+  text-underline-offset: 3px;
+}

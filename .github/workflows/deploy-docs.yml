@@ -1,0 +1,54 @@
+name: Deploy Docs Site
+
+on:
+  push:
+    branches:
+      - release/docs
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-docs
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 22
+  NX_TUI: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Cache node_modules — skips npm ci on cache hit
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Build docs site (pre-deploy sanity check)
+        run: npx nx build ptah-docs
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Deploy
+        run: |
+          doctl apps update ${{ secrets.DO_DOCS_APP_ID }} --spec .do/docs-app.yaml
+          doctl apps create-deployment ${{ secrets.DO_DOCS_APP_ID }} --wait
