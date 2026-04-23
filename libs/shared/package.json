@@ -18,6 +18,8 @@
   "dependencies": {
     "uuid": "^11.1.0",
     "zod": "^4.1.12",
-    "jsonrepair": "^3.13.1"
+    "jsonrepair": "^3.13.1",
+    "reflect-metadata": "^0.2.2",
+    "tsyringe": "^4.10.0"
   }
 }

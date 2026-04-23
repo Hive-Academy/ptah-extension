@@ -1378,7 +1378,6 @@ type _MissingRpcMethodNames = Exclude<
   RpcMethodName,
   (typeof RPC_METHOD_NAMES)[number]
 >;
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _AssertAllRpcMethodsListed = [_MissingRpcMethodNames] extends [never]
   ? true
   : ['RPC_METHOD_NAMES missing entries for', _MissingRpcMethodNames];
