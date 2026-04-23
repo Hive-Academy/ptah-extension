@@ -574,7 +574,7 @@ export async function activate(
     commandDiscovery.initializeWatchers();
     logger.info('Autocomplete discovery watchers initialized (2 services)');
 
-    // Step 7: Initialize agent adapters (SDK + DeepAgent) via RuntimeSelector
+    // Step 7: Initialize agent adapter (SDK-only, resolves via TOKENS.AGENT_ADAPTER)
     const agentAdapter = DIContainer.resolve(TOKENS.AGENT_ADAPTER) as {
       initialize: () => Promise<boolean>;
       preloadSdk: () => Promise<void>;
@@ -596,26 +596,6 @@ export async function activate(
         });
       });
     }
-
-    // Watch for runtime changes and prompt for window reload. Switching
-    // between Claude SDK and deep-agent runtimes rebinds DI registrations at
-    // activation time, so the window must reload to apply.
-    context.subscriptions.push(
-      vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('ptah.runtime')) {
-          vscode.window
-            .showInformationMessage(
-              'Ptah runtime changed. Reload the window to apply the new agent runtime.',
-              'Reload Window',
-            )
-            .then((choice) => {
-              if (choice === 'Reload Window') {
-                vscode.commands.executeCommand('workbench.action.reloadWindow');
-              }
-            });
-        }
-      }),
-    );
 
     // Step 7.1.4: Ensure plugin/template content from GitHub (non-blocking)
     // TASK_2025_248: Plugins and templates are no longer bundled in the VSIX.

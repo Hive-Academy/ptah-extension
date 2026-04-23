@@ -206,12 +206,10 @@ export const GLOBAL_STATE = Symbol.for('GlobalState');
 export const SDK_AGENT_ADAPTER = Symbol.for('SdkAgentAdapter');
 
 /**
- * AgentAdapter facade token — resolves to the AgentRuntimeSelector which
- * implements IAgentAdapter by dispatching to either SdkAgentAdapter or
- * DeepAgentAdapter based on the user's `ptah.runtime` setting.
+ * AgentAdapter facade token — resolves to SdkAgentAdapter.
+ * deep-agent runtime removed in TASK_2025_293.
  *
- * All consumers that don't care which runtime backs the session should
- * inject TOKENS.AGENT_ADAPTER typed as IAgentAdapter.
+ * All consumers should inject TOKENS.AGENT_ADAPTER typed as IAgentAdapter.
  */
 export const AGENT_ADAPTER = Symbol.for('AgentAdapter');
 // PERMISSION_SERVICE - DELETED (over-engineered, unused)
