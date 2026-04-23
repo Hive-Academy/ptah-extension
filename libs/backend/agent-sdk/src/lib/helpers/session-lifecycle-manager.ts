@@ -812,6 +812,9 @@ export class SessionLifecycleManager {
               | 'bypassPermissions'
               | 'plan');
 
+      // Guard so we only abort once per session on the first provider error —
+      // multiple stderr chunks can match, and repeated aborts would log noise.
+      let providerErrorAborted = false;
       const queryOptions = await this.queryOptionsBuilder.build({
         userMessageStream,
         abortController,
@@ -827,6 +830,32 @@ export class SessionLifecycleManager {
         pluginPaths,
         permissionMode: initialPermissionMode,
         pathToClaudeCodeExecutable,
+        onProviderError: (stderrChunk: string) => {
+          if (providerErrorAborted || abortController.signal.aborted) return;
+          providerErrorAborted = true;
+          const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
+          const model = sessionConfig?.model ?? 'unknown';
+          const summary = stderrChunk.slice(0, 500);
+          this.logger.error(
+            `[SessionLifecycle] Provider error detected on stderr — aborting session ${sessionId} ` +
+              `(baseUrl=${baseUrl}, model=${model}): ${summary}`,
+          );
+          try {
+            abortController.abort(
+              new Error(
+                `Provider returned an error (baseUrl="${baseUrl}", model="${model}"). ` +
+                  `Details: ${summary}`,
+              ),
+            );
+          } catch (abortErr) {
+            this.logger.warn(
+              '[SessionLifecycle] Failed to abort on provider error',
+              abortErr instanceof Error
+                ? abortErr
+                : new Error(String(abortErr)),
+            );
+          }
+        },
       });
 
       // Determine the effective prompt for the SDK query:

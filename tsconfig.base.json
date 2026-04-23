@@ -32,9 +32,6 @@
       "@ptah-extension/llm-abstraction": [
         "libs/backend/llm-abstraction/src/index.ts"
       ],
-      "@ptah-extension/llm-abstraction/vscode-lm": [
-        "libs/backend/llm-abstraction/src/vscode-lm.ts"
-      ],
       "@ptah-extension/platform-cli": [
         "libs/backend/platform-cli/src/index.ts"
       ],
@@ -47,7 +44,6 @@
       "@ptah-extension/platform-vscode": [
         "libs/backend/platform-vscode/src/index.ts"
       ],
-      "@ptah-extension/providers": ["libs/frontend/providers/src/index.ts"],
       "@ptah-extension/rpc-handlers": [
         "libs/backend/rpc-handlers/src/index.ts"
       ],

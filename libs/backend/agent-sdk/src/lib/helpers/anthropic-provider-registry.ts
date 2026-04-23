@@ -158,10 +158,17 @@ export const ANTHROPIC_PROVIDERS = [
     keyPlaceholder: 'Enter Moonshot API key...',
     maskedKeyDisplay: '••••••••••••',
     modelsEndpoint: 'https://api.moonshot.ai/v1/models',
+    // Moonshot's official Claude Code / Anthropic-compatible guide documents
+    // mapping all three tiers to `kimi-k2.5` — it is the only model validated
+    // against the /anthropic/ endpoint. Other IDs like `kimi-k2.6` and
+    // `kimi-k2-0905-preview` exist on the native /v1/ API but are not
+    // confirmed to route through the Anthropic-compatible layer, and using
+    // them here caused the UI to hang when the endpoint dropped the request.
+    // @see https://platform.kimi.ai/docs/guide/agent-support.en-US
     defaultTiers: {
       sonnet: 'kimi-k2.5',
-      opus: 'kimi-k2.6',
-      haiku: 'kimi-k2',
+      opus: 'kimi-k2.5',
+      haiku: 'kimi-k2.5',
     },
     staticModels: [
       {
@@ -214,10 +221,11 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Next-generation flagship model (256K context)',
         contextLength: 256000,
         supportsToolUse: true,
-        inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens (estimated, same tier as K2.5)
-        outputCostPerToken: 3e-6, // $3.00 per 1M tokens (estimated)
-        cacheReadCostPerToken: 0.023e-6, // 10% of input
-        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
+        // Official pricing from https://platform.kimi.ai/docs/pricing/chat-k26
+        inputCostPerToken: 0.95e-6, // $0.95 per 1M tokens (cache miss)
+        outputCostPerToken: 4e-6, // $4.00 per 1M tokens
+        cacheReadCostPerToken: 0.16e-6, // $0.16 per 1M tokens (cache hit)
+        cacheCreationCostPerToken: 1.1875e-6, // 125% of input
       },
     ],
   },
