@@ -54,6 +54,7 @@
         "libs/frontend/setup-wizard/src/index.ts"
       ],
       "@ptah-extension/shared": ["libs/shared/src/index.ts"],
+      "@ptah-extension/shared/testing": ["libs/shared/src/testing/index.ts"],
       "@ptah-extension/ui": ["libs/frontend/ui/src/index.ts"],
       "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
       "@ptah-extension/vscode-lm-tools": [
