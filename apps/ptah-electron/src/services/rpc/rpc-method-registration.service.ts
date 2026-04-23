@@ -296,9 +296,7 @@ export class ElectronRpcMethodRegistrationService {
    * registered at DI construction time (Electron phases register them later).
    */
   private setupSdkCallbacks(): void {
-    // Lazy-resolve the agent adapter via TOKENS.AGENT_ADAPTER (the runtime-selector
-    // facade registered in Phase 2.2.1). Typed as IAgentAdapter so we don't depend
-    // on the concrete SDK class here.
+    // Lazy-resolve SdkAgentAdapter via TOKENS.AGENT_ADAPTER (direct binding, registered after registerSdkServices)
     if (!container.isRegistered(TOKENS.AGENT_ADAPTER)) {
       this.logger.warn(
         '[Electron RPC] AGENT_ADAPTER not registered — SDK callbacks skipped',

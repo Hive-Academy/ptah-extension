@@ -629,13 +629,6 @@ export async function activate(
         workspaceStateStorage,
       );
       logger.info('Plugin loader initialized');
-
-      // Resolve plugin paths for junction creation (commands and skills
-      // are discovered from .claude/ directory, not from plugin paths directly)
-      const pluginConfig = pluginLoader.getWorkspacePluginConfig();
-      const pluginPaths = pluginLoader.resolvePluginPaths(
-        pluginConfig.enabledPluginIds,
-      );
     } catch (pluginLoaderError) {
       logger.warn('Plugin loader initialization failed', {
         error:

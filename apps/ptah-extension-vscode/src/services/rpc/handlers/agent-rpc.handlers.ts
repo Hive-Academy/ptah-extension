@@ -889,8 +889,8 @@ export class AgentRpcHandlers {
   }
 
   /**
-   * Check if a session file exists on disk — checks both Claude SDK JSONL
-   * and deep agent checkpoint directories.
+   * Check if a Claude SDK JSONL session file exists on disk.
+   * Returns true if the file is found, false otherwise.
    */
   private async sessionFileExists(
     sessionId: string,
@@ -920,11 +920,11 @@ export class AgentRpcHandlers {
           await fs.access(sessionFile);
           return true;
         } catch {
-          // JSONL not found, fall through to deep agent check
+          // JSONL file not found
         }
       }
     } catch {
-      // Projects dir doesn't exist, fall through to deep agent check
+      // Projects dir doesn't exist
     }
 
     return false;

@@ -322,7 +322,7 @@ export class SessionRpcHandlers {
     sessionId: string,
     workspacePath: string,
   ): Promise<void> {
-    const sessionFilePath = await this.findJsonlSessionFile(
+    const sessionFilePath = await this.findSessionFile(
       sessionId,
       workspacePath,
     );
@@ -656,20 +656,11 @@ export class SessionRpcHandlers {
   }
 
   /**
-   * Find the session file on disk — checks both Claude SDK JSONL files
-   * and deep agent checkpoint directories.
+   * Find the Claude SDK JSONL session file on disk.
    *
    * Claude SDK sessions: ~/.claude/projects/{workspace}/{sessionId}.jsonl
-   * Deep agent sessions: {workspacePath}/.ptah/deep-agent-sessions/{sessionId}/metadata.json
    */
   private async findSessionFile(
-    sessionId: string,
-    workspacePath: string,
-  ): Promise<string | null> {
-    return this.findJsonlSessionFile(sessionId, workspacePath);
-  }
-
-  private async findJsonlSessionFile(
     sessionId: string,
     workspacePath: string,
   ): Promise<string | null> {

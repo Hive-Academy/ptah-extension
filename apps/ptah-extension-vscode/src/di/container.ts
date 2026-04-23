@@ -506,10 +506,14 @@ export class DIContainer {
     // directly against that symbol -- no bridge needed.
 
     // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (direct binding, deep-agent removed TASK_2025_293)
-    container.register(TOKENS.AGENT_ADAPTER, {
-      useFactory: (c) =>
-        c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
-    });
+    container.register(
+      TOKENS.AGENT_ADAPTER,
+      {
+        useFactory: (c) =>
+          c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
+      },
+      { lifecycle: Lifecycle.Singleton },
+    );
 
     // ========================================
     // PHASE 2.8: Agent Generation Services (TASK_2025_069)
