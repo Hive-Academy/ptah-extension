@@ -6,6 +6,10 @@
 export { TOKENS } from './di/tokens';
 export { registerVsCodeCoreServices } from './di';
 
+// TASK_2025_291 Wave C1: Platform-agnostic registration helper for non-VS-Code hosts
+export { registerVsCodeCorePlatformAgnostic } from './di/register-platform-agnostic';
+export type { PlatformAgnosticRegistrationOptions } from './di/register-platform-agnostic';
+
 // NOTE: DIContainer moved to apps/ptah-extension-vscode/src/di/container.ts
 // This library exports services, TOKENS, and registration function
 // DO NOT export tokens directly - only export via TOKENS namespace
