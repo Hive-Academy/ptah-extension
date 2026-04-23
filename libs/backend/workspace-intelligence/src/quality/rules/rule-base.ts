@@ -15,8 +15,11 @@ import type {
   AntiPatternMatch,
   AntiPatternType,
   AntiPatternSeverity,
+  MaybeAsync,
   RuleCategory,
 } from '@ptah-extension/shared';
+
+import { stripCommentsAndStrings } from './strip-comments-and-strings';
 
 // ============================================
 // Factory Configuration Types
@@ -46,6 +49,18 @@ export interface RegexRuleConfig {
   suggestionTemplate: string;
   /** Whether the rule is enabled by default (defaults to true) */
   enabledByDefault?: boolean;
+  /**
+   * If true, the rule runs against the ORIGINAL source text instead of the
+   * content with comments/strings stripped. Default: false (stripping is on).
+   *
+   * Set to `true` for rules whose subject IS a comment or string — e.g.
+   * detectors for `@ts-ignore`, `@ts-nocheck`, or `TODO:` markers. Without
+   * this flag, such rules would never match because the pre-processor blanks
+   * their target content.
+   *
+   * TASK_2025_291 Wave B (B3)
+   */
+  matchInCommentsAndStrings?: boolean;
 }
 
 /**
@@ -68,11 +83,20 @@ export interface HeuristicRuleConfig {
   fileExtensions: string[];
   /**
    * Custom check function that analyzes file content.
+   *
+   * May return synchronously (e.g. regex/structural scans) or asynchronously
+   * (e.g. AST-backed analyses using tree-sitter). Consumers of the produced
+   * `AntiPatternRule.detect` must `await Promise.resolve(...)` the result.
+   *
+   * TASK_2025_291 Wave B (B2): widened from `AntiPatternMatch[]` to
+   * `MaybeAsync<AntiPatternMatch[]>` so rules like `functionTooLargeRule`
+   * can call into the async `TreeSitterParserService`.
+   *
    * @param content - File content to analyze
    * @param filePath - Relative file path
-   * @returns Array of detected anti-pattern matches
+   * @returns Array of detected anti-pattern matches (or a Promise for one)
    */
-  check: (content: string, filePath: string) => AntiPatternMatch[];
+  check: (content: string, filePath: string) => MaybeAsync<AntiPatternMatch[]>;
   /** Template string for the fix suggestion */
   suggestionTemplate: string;
   /** Whether the rule is enabled by default (defaults to true) */
@@ -120,22 +144,43 @@ export function createRegexRule(config: RegexRuleConfig): AntiPatternRule {
 
     detect: (content: string, filePath: string): AntiPatternMatch[] => {
       const matches: AntiPatternMatch[] = [];
-      const lines = content.split('\n');
+      // TASK_2025_291 B3: Strip comment/string contents before matching so
+      // rules don't mis-fire on e.g. `// TODO: fix any` or `"console.log(x)"`.
+      // The stripper preserves line count and per-line column positions, so
+      // offsets computed against the stripped text are valid in the original
+      // source — line/column in reported matches still point to the right
+      // spot. We report `matchedText` from the ORIGINAL source so callers see
+      // meaningful output (the stripped version would be spaces).
+      //
+      // Rules whose subject IS a comment/string (e.g. `@ts-ignore`) opt out
+      // via `matchInCommentsAndStrings: true`.
+      const scanTarget = config.matchInCommentsAndStrings
+        ? content
+        : stripCommentsAndStrings(content);
+      const strippedLines = scanTarget.split('\n');
+      const originalLines = content.split('\n');
 
-      lines.forEach((line, lineIndex) => {
+      strippedLines.forEach((strippedLine, lineIndex) => {
         // Reset regex lastIndex for global patterns
         const pattern = new RegExp(config.pattern.source, config.pattern.flags);
         let match: RegExpExecArray | null;
 
-        while ((match = pattern.exec(line)) !== null) {
+        while ((match = pattern.exec(strippedLine)) !== null) {
+          const col = match.index ?? 0;
+          const originalLine = originalLines[lineIndex] ?? '';
+          const originalMatch = originalLine.substring(
+            col,
+            col + match[0].length,
+          );
+
           matches.push({
             type: config.id,
             location: {
               file: filePath,
               line: lineIndex + 1, // 1-indexed
-              column: (match.index ?? 0) + 1, // 1-indexed
+              column: col + 1, // 1-indexed
             },
-            matchedText: match[0],
+            matchedText: originalMatch || match[0],
           });
 
           // Prevent infinite loops for non-global patterns
@@ -189,7 +234,7 @@ export function createRegexRule(config: RegexRuleConfig): AntiPatternRule {
  * ```
  */
 export function createHeuristicRule(
-  config: HeuristicRuleConfig
+  config: HeuristicRuleConfig,
 ): AntiPatternRule {
   return {
     id: config.id,
@@ -247,7 +292,7 @@ export function getFileExtension(filePath: string): string {
  */
 export function hasMatchingExtension(
   filePath: string,
-  extensions: string[]
+  extensions: string[],
 ): boolean {
   const ext = getFileExtension(filePath);
   return extensions.includes(ext);

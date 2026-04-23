@@ -41,7 +41,7 @@ function createMockLogger() {
  */
 function createMockPattern(
   type: AntiPatternType = 'typescript-explicit-any',
-  overrides: Partial<AntiPattern> = {}
+  overrides: Partial<AntiPattern> = {},
 ): AntiPattern {
   return {
     type,
@@ -431,19 +431,19 @@ describe('AntiPatternDetectionService - Async Methods', () => {
       const content = 'const x: any = 5;\nconst y: any = "hello";';
       const patterns = await service.detectPatternsAsync(
         content,
-        'src/test.ts'
+        'src/test.ts',
       );
 
       expect(patterns.length).toBeGreaterThan(0);
       expect(patterns.some((p) => p.type === 'typescript-explicit-any')).toBe(
-        true
+        true,
       );
     });
 
     it('should return empty array for files with no extension', async () => {
       const patterns = await service.detectPatternsAsync(
         'content',
-        'Dockerfile'
+        'Dockerfile',
       );
 
       expect(patterns).toEqual([]);
@@ -465,7 +465,7 @@ describe('AntiPatternDetectionService - Async Methods', () => {
 
       const patterns = await service.detectPatternsAsync(
         content,
-        'src/test.ts'
+        'src/test.ts',
       );
 
       // Should still get results from rules that didn't fail
@@ -479,10 +479,10 @@ describe('AntiPatternDetectionService - Async Methods', () => {
         const y = z!;
       `;
 
-      const syncPatterns = service.detectPatterns(content, 'src/test.ts');
+      const syncPatterns = await service.detectPatterns(content, 'src/test.ts');
       const asyncPatterns = await service.detectPatternsAsync(
         content,
-        'src/test.ts'
+        'src/test.ts',
       );
 
       // Same pattern types should be found (order may differ)
@@ -520,7 +520,7 @@ describe('AntiPatternDetectionService - Async Methods', () => {
 
       // Both files have explicit-any, should be aggregated
       const anyPattern = patterns.find(
-        (p) => p.type === 'typescript-explicit-any'
+        (p) => p.type === 'typescript-explicit-any',
       );
       expect(anyPattern).toBeDefined();
       expect(anyPattern?.frequency).toBeGreaterThanOrEqual(2);
@@ -562,7 +562,7 @@ describe('AntiPatternDetectionService - Async Methods', () => {
       // Patterns should be sorted by frequency (descending)
       for (let i = 1; i < patterns.length; i++) {
         expect(patterns[i - 1].frequency).toBeGreaterThanOrEqual(
-          patterns[i].frequency
+          patterns[i].frequency,
         );
       }
     });
@@ -584,11 +584,11 @@ describe('CodeQualityAssessmentService - Adaptive Sampling', () => {
     // Bind the methods we're testing
     service.calculateAdaptiveSampleSize =
       CodeQualityAssessmentService.prototype.calculateAdaptiveSampleSize.bind(
-        service
+        service,
       );
     service.getFrameworkPriorityPatterns =
       CodeQualityAssessmentService.prototype.getFrameworkPriorityPatterns.bind(
-        service
+        service,
       );
   });
 

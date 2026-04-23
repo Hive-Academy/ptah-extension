@@ -7,15 +7,173 @@
  * Rules included:
  * - File too large (>500 lines warning, >1000 lines error)
  * - Too many imports (>15 imports)
- * - Function too large (>50 lines)
+ * - Function too large (>50 lines) — AST-backed via tree-sitter
  *
  * TASK_2025_141: Unified Project Intelligence with Code Quality Assessment
+ * TASK_2025_291 Wave B (B2): functionTooLargeRule migrated from brace-counting
+ *   heuristic to tree-sitter AST queries. The old counter mis-fired on braces
+ *   inside strings / template literals / regex literals and miscounted nested
+ *   function bodies.
  *
  * @packageDocumentation
  */
 
 import type { AntiPatternRule, AntiPatternMatch } from '@ptah-extension/shared';
 import { createHeuristicRule } from './rule-base';
+import type {
+  TreeSitterParserService,
+  QueryMatch,
+} from '../../ast/tree-sitter-parser.service';
+import type { SupportedLanguage } from '../../ast/tree-sitter.config';
+import { EXTENSION_LANGUAGE_MAP } from '../../ast/tree-sitter.config';
+
+// ============================================
+// Module-Level Parser Configuration (TASK_2025_291 B2)
+// ============================================
+
+/**
+ * Module-scoped tree-sitter parser used by {@link functionTooLargeRule}.
+ *
+ * The anti-pattern rule factory (`createHeuristicRule`) does not accept
+ * injected dependencies — rules are plain data objects shared by the
+ * `RuleRegistry`. To give the rule access to the already-registered DI
+ * singleton parser without refactoring the entire rule pipeline, we expose
+ * a module-level setter that the library's DI bootstrap calls once at
+ * startup. If the setter is never called, the rule returns `[]` with a
+ * single one-time warning — the rest of the detection pipeline is
+ * unaffected.
+ *
+ * This is intentionally simple: a setter + a nullable reference. It is
+ * strictly a DI-bridge shim, not a general service locator.
+ */
+let treeSitter: TreeSitterParserService | null = null;
+let hasWarnedAboutMissingParser = false;
+
+/**
+ * Provides the module-level tree-sitter parser that
+ * {@link functionTooLargeRule} uses for AST-backed function-size analysis.
+ *
+ * Must be called once during library bootstrap, AFTER the
+ * `TreeSitterParserService` singleton has been registered in the DI
+ * container. Subsequent calls overwrite the previous reference.
+ *
+ * @param parser - A resolved `TreeSitterParserService` instance.
+ *
+ * @example
+ * ```typescript
+ * // In libs/backend/workspace-intelligence/src/di/register.ts:
+ * import { configureArchitectureRules } from '../quality/rules/architecture-rules';
+ *
+ * container.registerSingleton(TOKENS.TREE_SITTER_PARSER_SERVICE, TreeSitterParserService);
+ * configureArchitectureRules(container.resolve<TreeSitterParserService>(
+ *   TOKENS.TREE_SITTER_PARSER_SERVICE
+ * ));
+ * ```
+ */
+export function configureArchitectureRules(
+  parser: TreeSitterParserService,
+): void {
+  treeSitter = parser;
+  hasWarnedAboutMissingParser = false;
+}
+
+/**
+ * Resets the module-level parser reference. Test-only.
+ * Exported for unit tests that need to exercise the "no parser configured"
+ * code path deterministically.
+ * @internal
+ */
+export function resetArchitectureRulesForTests(): void {
+  treeSitter = null;
+  hasWarnedAboutMissingParser = false;
+}
+
+// ============================================
+// Helpers
+// ============================================
+
+/**
+ * Maps a file path extension to a tree-sitter supported language.
+ * Returns `undefined` for extensions we don't have a grammar for.
+ */
+function languageFromPath(filePath: string): SupportedLanguage | undefined {
+  const lastDot = filePath.lastIndexOf('.');
+  if (lastDot === -1) {
+    return undefined;
+  }
+  const ext = filePath.substring(lastDot).toLowerCase();
+  return EXTENSION_LANGUAGE_MAP[ext];
+}
+
+/**
+ * Function-body node types produced by the tree-sitter JS/TS grammars.
+ * We select the match capture that represents the outermost function
+ * construct so nested functions are counted against their own bodies
+ * rather than rolled into their parents.
+ */
+const FUNCTION_DECLARATION_CAPTURES: ReadonlySet<string> = new Set([
+  'function.declaration',
+  'generator.declaration',
+  'arrow.declaration',
+  'arrow_var.declaration',
+  'method.declaration',
+]);
+
+/**
+ * Name captures associated with each declaration capture (for `matchedText`).
+ */
+const FUNCTION_NAME_CAPTURES: ReadonlySet<string> = new Set([
+  'function.name',
+  'generator.name',
+  'arrow.name',
+  'arrow_var.name',
+  'method.name',
+]);
+
+const FUNCTION_LINE_THRESHOLD = 50;
+
+/**
+ * Converts a single tree-sitter `QueryMatch` produced by the function query
+ * (see `LANGUAGE_QUERIES_MAP.*.functionQuery`) into an `AntiPatternMatch`
+ * if the function body exceeds the line threshold.
+ */
+function matchToAntiPattern(
+  match: QueryMatch,
+  filePath: string,
+): AntiPatternMatch | null {
+  const declarationCapture = match.captures.find((c) =>
+    FUNCTION_DECLARATION_CAPTURES.has(c.name),
+  );
+  if (!declarationCapture) {
+    return null;
+  }
+
+  // tree-sitter positions are 0-indexed rows; AntiPatternMatch.location.line is 1-indexed.
+  const startLine = declarationCapture.startPosition.row + 1;
+  const endLine = declarationCapture.endPosition.row + 1;
+  const lineCount = endLine - startLine + 1;
+
+  if (lineCount <= FUNCTION_LINE_THRESHOLD) {
+    return null;
+  }
+
+  const nameCapture = match.captures.find((c) =>
+    FUNCTION_NAME_CAPTURES.has(c.name),
+  );
+
+  return {
+    type: 'arch-function-too-large',
+    location: {
+      file: filePath,
+      line: startLine,
+    },
+    matchedText: nameCapture?.text ?? declarationCapture.text.slice(0, 80),
+    metadata: {
+      lineCount,
+      threshold: FUNCTION_LINE_THRESHOLD,
+    },
+  };
+}
 
 // ============================================
 // Architecture Rules
@@ -156,97 +314,67 @@ export const tooManyImportsRule: AntiPatternRule = createHeuristicRule({
  * - Maintain over time
  * - Reuse in other contexts
  *
- * Threshold: >50 lines triggers detection
+ * Threshold: >50 lines triggers detection.
  *
- * Detection approach: Uses regex-based heuristic to find function declarations
- * and counts lines by tracking balanced braces. Note: This is a simplified
- * approach; AST analysis would be more accurate but is heavier.
+ * Detection approach (TASK_2025_291 B2): uses tree-sitter AST queries via
+ * {@link TreeSitterParserService.queryFunctions} to locate function, method
+ * and arrow-function declarations. Function length is measured from the
+ * declaration's start row to its end row (inclusive), which is robust to:
+ *
+ * - Braces inside string / template-literal / regex-literal content
+ *   (the previous brace-counting heuristic mis-fired on all three).
+ * - Nested functions (each declaration reports its own body size, instead
+ *   of the outer function rolling the inner body into its own count).
+ *
+ * If the module-level parser is not configured (see
+ * {@link configureArchitectureRules}) or if tree-sitter analysis fails, the
+ * rule logs a single warning and returns an empty array rather than block
+ * the rest of the detection pipeline.
  *
  * @severity warning - Functions should be focused and concise
- *
- * @example Detected patterns:
- * ```typescript
- * // Detected: function with 60+ lines
- * function processData(input: Data) {
- *   // ... 60 lines of code
- * }
- *
- * // Detected: arrow function with 55+ lines
- * const handler = async (req, res) => {
- *   // ... 55 lines of code
- * };
- *
- * // NOT detected: short function
- * function add(a: number, b: number) {
- *   return a + b;
- * }
- * ```
  */
 export const functionTooLargeRule: AntiPatternRule = createHeuristicRule({
   id: 'arch-function-too-large',
   name: 'Function Too Large',
-  description: 'Detects functions exceeding 50 lines',
+  description: 'Detects functions exceeding 50 lines (AST-backed)',
   severity: 'warning',
   category: 'architecture',
   fileExtensions: ['.ts', '.tsx', '.js', '.jsx'],
-  check: (content: string, filePath: string): AntiPatternMatch[] => {
-    const matches: AntiPatternMatch[] = [];
+  check: async (
+    content: string,
+    filePath: string,
+  ): Promise<AntiPatternMatch[]> => {
+    const language = languageFromPath(filePath);
+    if (!language) {
+      return [];
+    }
 
-    // Pattern to match function declarations:
-    // - Regular functions: function name(...) or async function name(...)
-    // - Arrow functions: const/let/var name = (...) => or const/let/var name = async (...) =>
-    // - Method shorthand: name(...) { (in objects/classes)
-    const functionPattern =
-      /(?:async\s+)?(?:function\s+\w+|(?:const|let|var)\s+\w+\s*=\s*(?:async\s+)?(?:function|\([^)]*\)\s*=>|\w+\s*=>))/g;
-
-    let match: RegExpExecArray | null;
-    while ((match = functionPattern.exec(content)) !== null) {
-      const startIndex = match.index;
-
-      // Calculate start line number
-      const beforeMatch = content.substring(0, startIndex);
-      const startLine = (beforeMatch.match(/\n/g) || []).length + 1;
-
-      // Find the opening brace and count until balanced closing brace
-      let braceCount = 0;
-      let foundStart = false;
-      let endIndex = startIndex;
-
-      for (let i = startIndex; i < content.length; i++) {
-        const char = content[i];
-
-        if (char === '{') {
-          braceCount++;
-          foundStart = true;
-        } else if (char === '}') {
-          braceCount--;
-
-          if (foundStart && braceCount === 0) {
-            endIndex = i;
-            break;
-          }
-        }
+    if (!treeSitter) {
+      if (!hasWarnedAboutMissingParser) {
+        hasWarnedAboutMissingParser = true;
+        console.warn(
+          '[arch-function-too-large] TreeSitterParserService is not configured; ' +
+            'skipping function-size analysis. Call configureArchitectureRules() ' +
+            'during DI bootstrap to enable it.',
+        );
       }
+      return [];
+    }
 
-      // If we found a complete function body
-      if (foundStart && braceCount === 0) {
-        const functionContent = content.substring(startIndex, endIndex + 1);
-        const lineCount = (functionContent.match(/\n/g) || []).length + 1;
+    const result = await treeSitter.queryFunctions(content, language);
+    if (result.isErr()) {
+      console.warn(
+        `[arch-function-too-large] tree-sitter query failed for ${filePath}:`,
+        result.error?.message ?? 'unknown error',
+      );
+      return [];
+    }
 
-        if (lineCount > 50) {
-          matches.push({
-            type: 'arch-function-too-large',
-            location: {
-              file: filePath,
-              line: startLine,
-            },
-            matchedText: match[0],
-            metadata: {
-              lineCount,
-              threshold: 50,
-            },
-          });
-        }
+    const matches: AntiPatternMatch[] = [];
+    for (const queryMatch of result.value ?? []) {
+      const antiPattern = matchToAntiPattern(queryMatch, filePath);
+      if (antiPattern) {
+        matches.push(antiPattern);
       }
     }
 
