@@ -15,6 +15,7 @@ import { ContactModule } from '../contact/contact.module';
 import { SessionModule } from '../session/session.module';
 import { HealthModule } from '../health/health.module';
 import { AdminModule } from '../admin/admin.module';
+import { AuditModule } from '../audit/audit.module';
 
 /**
  * AppModule - Root application module
@@ -64,6 +65,9 @@ import { AdminModule } from '../admin/admin.module';
 
     // Core infrastructure
     PrismaModule,
+    // TASK_2025_292: cross-cutting admin audit log (global; consumed by
+    // AdminModule, LicenseModule, MarketingModule).
+    AuditModule,
 
     // Feature modules
     LicenseModule,
