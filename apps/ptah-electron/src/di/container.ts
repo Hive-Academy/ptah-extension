@@ -85,13 +85,11 @@ import { SentryService } from '@ptah-extension/vscode-core';
 
 // Library registration functions (all accept container + logger, no vscode)
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
-import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
-// Deep Agent SDK (LangChain runtime) — mirrors VS Code container.ts.
 import {
-  registerDeepAgentServices,
-  AgentRuntimeSelector,
-  DEEP_AGENT_TOKENS,
-} from '@ptah-extension/deep-agent-sdk';
+  registerSdkServices,
+  SDK_TOKENS,
+  SdkAgentAdapter,
+} from '@ptah-extension/agent-sdk';
 import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
@@ -569,21 +567,10 @@ export class ElectronDIContainer {
     // NOTE: registerVsCodeLmToolsServices is now called in Phase 4 (TASK_2025_226 decoupled it from VS Code)
     registerSdkServices(container, logger);
 
-    // Phase 2.2.1: Deep Agent SDK (LangChain deep-agents runtime)
-    // Mirrors VS Code container.ts. Must run AFTER registerSdkServices() so the
-    // selector can resolve SDK_TOKENS.SDK_AGENT_ADAPTER as its inner Claude adapter.
-    // Registers: ModelFactoryService, StreamAdapterService, ToolBridgeService,
-    // SessionRegistry, DeepAgentAdapter, AgentRuntimeSelector.
-    registerDeepAgentServices(container, logger);
-
-    // TOKENS.AGENT_ADAPTER → AgentRuntimeSelector (the IAgentAdapter facade).
-    // Consumers that don't care which runtime backs the session inject this token.
-    // The selector dispatches to SDK or Deep based on `ptah.runtime`.
+    // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (direct binding, deep-agent removed TASK_2025_293)
     container.register(TOKENS.AGENT_ADAPTER, {
       useFactory: (c) =>
-        c.resolve<AgentRuntimeSelector>(
-          DEEP_AGENT_TOKENS.AGENT_RUNTIME_SELECTOR,
-        ),
+        c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
     });
 
     // Phase 2.2.5: WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs (TASK_2025_214)
