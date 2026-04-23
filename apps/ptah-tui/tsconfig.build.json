@@ -23,9 +23,6 @@
         "libs/backend/rpc-handlers/src/index.ts"
       ],
       "@ptah-extension/shared": ["libs/shared/src/index.ts"],
-      "@ptah-extension/template-generation": [
-        "libs/backend/template-generation/src/index.ts"
-      ],
       "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
       "@ptah-extension/vscode-lm-tools": [
         "libs/backend/vscode-lm-tools/src/index.ts"

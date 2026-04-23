@@ -95,7 +95,6 @@ import {
   AGENT_GENERATION_TOKENS,
 } from '@ptah-extension/agent-generation';
 import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
-import { registerTemplateGenerationServices } from '@ptah-extension/template-generation';
 import {
   registerVsCodeLmToolsServices,
   BROWSER_CAPABILITIES_TOKEN,
@@ -617,9 +616,6 @@ export class ElectronDIContainer {
 
     // Phase 2.5: CLI Abstraction (TASK_2025_212: vestigial LLM services removed, CLI services only)
     registerLlmAbstractionServices(container, logger);
-
-    // Phase 2.6: Template Generation
-    registerTemplateGenerationServices(container, logger);
 
     // ========================================
     // PHASE 3: Storage Adapters

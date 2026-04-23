@@ -6,7 +6,7 @@
  *
  * TASK_2025_071: Refactored from direct registrations to orchestration pattern
  * - Libraries: vscode-core, workspace-intelligence, vscode-lm-tools, agent-sdk,
- *              agent-generation, llm-abstraction, template-generation
+ *              agent-generation, llm-abstraction
  * - App-level: Logger (must be first), RpcMethodRegistrationService (requires container),
  *              storage adapters, webview services
  *
@@ -91,8 +91,6 @@ import {
 import { VscodeIDECapabilities } from '@ptah-extension/vscode-lm-tools/vscode';
 
 import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
-
-import { registerTemplateGenerationServices } from '@ptah-extension/template-generation';
 
 import {
   registerPlatformVscodeServices,
@@ -201,8 +199,7 @@ export class DIContainer {
    * 5. agent-sdk
    * 6. agent-generation
    * 7. llm-abstraction (NEW - fixes LlmService error)
-   * 8. template-generation (NEW)
-   * 9. App-level services (RPC, storage, webview)
+   * 8. App-level services (RPC, storage, webview)
    *
    * IMPORTANT (TASK_2025_121): This method should only be called AFTER license
    * verification passes. Use setupMinimal() first to check license status.
@@ -553,13 +550,6 @@ export class DIContainer {
 
     // TASK_2025_209: TOKENS.LLM_RPC_HANDLERS deleted. Shared LlmRpcHandlers (from @ptah-extension/rpc-handlers)
     // is now platform-agnostic and registered in Phase 2.5 as AppLlmRpcHandlers.
-
-    // ========================================
-    // PHASE 2.10: Template Generation Services (TASK_2025_071)
-    // ========================================
-    // Template processing and generation services
-    // This registration function was created but NEVER called in container.ts
-    registerTemplateGenerationServices(container, logger);
 
     // ========================================
     // PHASE 3: Storage Adapters (app-level)

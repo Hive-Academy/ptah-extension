@@ -72,7 +72,6 @@ import {
   AGENT_GENERATION_TOKENS,
 } from '@ptah-extension/agent-generation';
 import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
-import { registerTemplateGenerationServices } from '@ptah-extension/template-generation';
 import {
   registerVsCodeLmToolsServices,
   BROWSER_CAPABILITIES_TOKEN,
@@ -451,9 +450,6 @@ export class TuiDIContainer {
 
     // Phase 2.4: LLM Abstraction
     registerLlmAbstractionServices(container, logger);
-
-    // Phase 2.5: Template Generation
-    registerTemplateGenerationServices(container, logger);
 
     // ========================================
     // PHASE 3: Storage Adapters

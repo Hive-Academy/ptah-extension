@@ -402,11 +402,6 @@ class CustomProvider extends BaseLlmProvider {
 - Template processing with LLM adaptation
 - Dynamic agent generation
 
-**Used by `@ptah-extension/template-generation`**:
-
-- Template variable resolution
-- Content expansion and formatting
-
 **Uses `@ptah-extension/vscode-core`**:
 
 - Logger for structured logging

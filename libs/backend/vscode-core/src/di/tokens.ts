@@ -151,23 +151,13 @@ export const LICENSE_COMMANDS = Symbol.for('LicenseCommands');
 export const FEATURE_GATE_SERVICE = Symbol.for('FeatureGateService');
 
 // ========================================
-// Template Generation Service Tokens
+// Template Generation Service Tokens — DELETED
 // ========================================
-// TASK_2025_071 Batch 5: Dedicated token for template-generation's FileSystemAdapter
-// This resolves the collision where both workspace-intelligence (FileSystemService)
-// and template-generation (FileSystemAdapter) were using TOKENS.FILE_SYSTEM_SERVICE
-export const TEMPLATE_FILE_SYSTEM_ADAPTER = Symbol.for(
-  'TemplateFileSystemAdapter',
-);
-export const TEMPLATE_MANAGER = Symbol.for('TemplateManager');
-export const CONTENT_GENERATOR = Symbol.for('ContentGenerator');
-export const CONTENT_PROCESSOR = Symbol.for('ContentProcessor');
-export const TEMPLATE_PROCESSOR = Symbol.for('TemplateProcessor');
-export const TEMPLATE_FILE_MANAGER = Symbol.for('TemplateFileManager');
-export const TEMPLATE_ORCHESTRATOR = Symbol.for('TemplateOrchestrator');
-export const TEMPLATE_GENERATOR_SERVICE = Symbol.for(
-  'TemplateGeneratorService',
-);
+// The entire @ptah-extension/template-generation library was removed as dead code.
+// Removed tokens: TEMPLATE_FILE_SYSTEM_ADAPTER, TEMPLATE_MANAGER, CONTENT_GENERATOR,
+// CONTENT_PROCESSOR, TEMPLATE_PROCESSOR, TEMPLATE_FILE_MANAGER, TEMPLATE_ORCHESTRATOR,
+// TEMPLATE_GENERATOR_SERVICE. The real content-generation pipeline lives in
+// @ptah-extension/agent-generation (ContentGenerationService).
 
 // ========================================
 // Code Execution MCP (TASK_2025_025)
@@ -417,16 +407,8 @@ export const TOKENS = {
   FEATURE_GATE_SERVICE,
 
   // ========================================
-  // Template Generation
+  // Template Generation — DELETED (library removed as dead code)
   // ========================================
-  TEMPLATE_FILE_SYSTEM_ADAPTER, // TASK_2025_071 Batch 5: Dedicated adapter token
-  TEMPLATE_MANAGER,
-  CONTENT_GENERATOR,
-  CONTENT_PROCESSOR,
-  TEMPLATE_PROCESSOR,
-  TEMPLATE_FILE_MANAGER,
-  TEMPLATE_ORCHESTRATOR,
-  TEMPLATE_GENERATOR_SERVICE,
 
   // ========================================
   // Code Execution MCP (TASK_2025_025)
