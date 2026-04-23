@@ -21,7 +21,6 @@ import {
   SDK_TOKENS,
   PtahCliRegistry,
   SessionMetadataStore,
-  DeepAgentHistoryReaderService,
 } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -65,8 +64,6 @@ export class AgentRpcHandlers {
     private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
-    @inject(SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER)
-    private readonly deepAgentHistoryReader: DeepAgentHistoryReaderService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {}
@@ -963,6 +960,6 @@ export class AgentRpcHandlers {
       // Projects dir doesn't exist, fall through to deep agent check
     }
 
-    return this.deepAgentHistoryReader.hasSession(sessionId, workspacePath);
+    return false;
   }
 }

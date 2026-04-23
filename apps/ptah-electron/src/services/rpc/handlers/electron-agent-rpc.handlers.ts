@@ -34,7 +34,6 @@ import {
   SDK_TOKENS,
   PtahCliRegistry,
   SessionMetadataStore,
-  DeepAgentHistoryReaderService,
 } from '@ptah-extension/agent-sdk';
 import type {
   AgentOrchestrationConfig,
@@ -66,8 +65,6 @@ export class ElectronAgentRpcHandlers {
     private readonly workspace: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.STATE_STORAGE)
     private readonly stateStorage: IStateStorage,
-    @inject(SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER)
-    private readonly deepAgentHistoryReader: DeepAgentHistoryReaderService,
   ) {}
 
   register(): void {
@@ -721,6 +718,6 @@ export class ElectronAgentRpcHandlers {
       // Projects dir doesn't exist, fall through to deep agent check
     }
 
-    return this.deepAgentHistoryReader.hasSession(sessionId, workspacePath);
+    return false;
   }
 }

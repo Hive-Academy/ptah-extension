@@ -21,9 +21,6 @@
         "libs/backend/agent-generation/src/index.ts"
       ],
       "@ptah-extension/agent-sdk": ["libs/backend/agent-sdk/src/index.ts"],
-      "@ptah-extension/deep-agent-sdk": [
-        "libs/backend/deep-agent-sdk/src/index.ts"
-      ],
       "@ptah-extension/canvas": ["libs/frontend/canvas/src/index.ts"],
       "@ptah-extension/chat": ["libs/frontend/chat/src/index.ts"],
       "@ptah-extension/core": ["libs/frontend/core/src/index.ts"],

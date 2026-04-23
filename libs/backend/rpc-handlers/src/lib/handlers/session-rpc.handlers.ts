@@ -17,7 +17,6 @@ import {
   SessionMetadataStore,
   SDK_TOKENS,
   SessionHistoryReaderService,
-  DeepAgentHistoryReaderService,
 } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
@@ -53,8 +52,6 @@ export class SessionRpcHandlers {
     private readonly metadataStore: SessionMetadataStore,
     @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
     private readonly historyReader: SessionHistoryReaderService,
-    @inject(SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER)
-    private readonly deepAgentHistoryReader: DeepAgentHistoryReaderService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {}
@@ -325,33 +322,6 @@ export class SessionRpcHandlers {
     sessionId: string,
     workspacePath: string,
   ): Promise<void> {
-    // Handle deep agent sessions separately — they use a directory, not a single file
-    if (this.deepAgentHistoryReader.hasSession(sessionId, workspacePath)) {
-      const threadDir = path.join(
-        workspacePath,
-        '.ptah',
-        'deep-agent-sessions',
-        sessionId,
-      );
-      try {
-        await fs.rm(threadDir, { recursive: true, force: true });
-        this.logger.info(
-          'RPC: session:delete - deleted deep agent session directory',
-          { sessionId, threadDir },
-        );
-      } catch (err) {
-        this.logger.warn(
-          'RPC: session:delete - failed to delete deep agent session directory',
-          {
-            sessionId,
-            threadDir,
-            error: err instanceof Error ? err.message : String(err),
-          },
-        );
-      }
-      return;
-    }
-
     const sessionFilePath = await this.findJsonlSessionFile(
       sessionId,
       workspacePath,
@@ -582,20 +552,10 @@ export class SessionRpcHandlers {
         const results = await Promise.allSettled(
           batch.map(async (sessionId) => {
             try {
-              // Check deep agent sessions first, then fall back to JSONL
-              const isDeepAgent = this.deepAgentHistoryReader.hasSession(
+              const { stats } = await this.historyReader.readSessionHistory(
                 sessionId,
                 workspacePath,
               );
-              const { stats } = isDeepAgent
-                ? await this.deepAgentHistoryReader.readSessionHistory(
-                    sessionId,
-                    workspacePath,
-                  )
-                : await this.historyReader.readSessionHistory(
-                    sessionId,
-                    workspacePath,
-                  );
 
               // Get CLI agent types from metadata (gemini, codex, copilot, ptah-cli)
               const metadata = await this.metadataStore.get(sessionId);
@@ -706,22 +666,7 @@ export class SessionRpcHandlers {
     sessionId: string,
     workspacePath: string,
   ): Promise<string | null> {
-    // 1. Check Claude SDK JSONL files
-    const jsonlPath = await this.findJsonlSessionFile(sessionId, workspacePath);
-    if (jsonlPath) return jsonlPath;
-
-    // 2. Fallback: check deep agent checkpoint directory
-    if (this.deepAgentHistoryReader.hasSession(sessionId, workspacePath)) {
-      return path.join(
-        workspacePath,
-        '.ptah',
-        'deep-agent-sessions',
-        sessionId,
-        'metadata.json',
-      );
-    }
-
-    return null;
+    return this.findJsonlSessionFile(sessionId, workspacePath);
   }
 
   private async findJsonlSessionFile(

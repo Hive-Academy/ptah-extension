@@ -81,9 +81,6 @@ export type {
   ProviderStaticModel,
 } from './lib/helpers';
 
-// Deep Agent History Reader (reads LangGraph checkpoint sessions)
-export { DeepAgentHistoryReaderService } from './lib/helpers';
-
 // CLI detector (Claude CLI availability check)
 export { ClaudeCliDetector } from './lib/detector/claude-cli-detector';
 

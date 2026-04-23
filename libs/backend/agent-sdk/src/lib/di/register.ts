@@ -84,7 +84,6 @@ import {
   LocalProxyStrategy,
   CliStrategy,
 } from '../auth/strategies';
-import { DeepAgentHistoryReaderService } from '../helpers/history/deep-agent-history-reader.service';
 
 /**
  * Register all agent-sdk services in DI container
@@ -529,16 +528,6 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_MODEL_RESOLVER,
     { useClass: ModelResolver },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
-  // Deep Agent History Reader
-  // Reads LangGraph checkpoint sessions from .ptah/deep-agent-sessions/
-  // ============================================================
-  container.register(
-    SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER,
-    { useClass: DeepAgentHistoryReaderService },
     { lifecycle: Lifecycle.Singleton },
   );
 

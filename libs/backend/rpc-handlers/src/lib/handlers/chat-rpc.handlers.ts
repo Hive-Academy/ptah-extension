@@ -25,7 +25,6 @@ import {
 import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   SessionHistoryReaderService,
-  DeepAgentHistoryReaderService,
   SessionMetadataStore,
   SDK_TOKENS,
   PluginLoaderService,
@@ -101,8 +100,6 @@ export class ChatRpcHandlers {
     private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
-    @inject(SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER)
-    private readonly deepAgentHistoryReader: DeepAgentHistoryReaderService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {}
@@ -1265,74 +1262,21 @@ IMPORTANT INSTRUCTIONS:
             }
           }
 
-          // Detect deep agent sessions by checking the checkpoint directory.
-          // Deep agent sessions live in {workspace}/.ptah/deep-agent-sessions/
-          // while Claude SDK sessions live in ~/.claude/projects/ as JSONL files.
-          const isDeepAgentSession = this.deepAgentHistoryReader.hasSession(
+          // TASK_2025_092 FIX: Read full session history as FlatStreamEventUnion[]
+          // This includes tool calls, thinking blocks, agent spawns, etc.
+          // Also includes aggregated usage stats from JSONL
+          const result = await this.historyReader.readSessionHistory(
             sessionId,
             resolvedWorkspacePath,
           );
+          const events = result.events;
+          const stats = result.stats;
 
-          let events: FlatStreamEventUnion[];
-          let stats: {
-            totalCost: number;
-            tokens: {
-              input: number;
-              output: number;
-              cacheRead: number;
-              cacheCreation: number;
-            };
-            messageCount: number;
-            model?: string;
-            agentSessionCount?: number;
-            modelUsageList?: Array<{
-              model: string;
-              inputTokens: number;
-              outputTokens: number;
-              costUSD: number;
-            }>;
-          } | null;
-          let messages: {
-            id: string;
-            role: 'user' | 'assistant';
-            content: string;
-            timestamp: number;
-          }[];
-
-          if (isDeepAgentSession) {
-            this.logger.info(
-              '[RPC] chat:resume - deep agent session detected',
-              {
-                sessionId,
-              },
-            );
-            const result = await this.deepAgentHistoryReader.readSessionHistory(
-              sessionId,
-              resolvedWorkspacePath,
-            );
-            events = result.events;
-            stats = result.stats;
-            messages = await this.deepAgentHistoryReader.readHistoryAsMessages(
-              sessionId,
-              resolvedWorkspacePath,
-            );
-          } else {
-            // TASK_2025_092 FIX: Read full session history as FlatStreamEventUnion[]
-            // This includes tool calls, thinking blocks, agent spawns, etc.
-            // Also includes aggregated usage stats from JSONL
-            const result = await this.historyReader.readSessionHistory(
-              sessionId,
-              resolvedWorkspacePath,
-            );
-            events = result.events;
-            stats = result.stats;
-
-            // Also read simple messages for backward compatibility
-            messages = await this.historyReader.readHistoryAsMessages(
-              sessionId,
-              resolvedWorkspacePath,
-            );
-          }
+          // Also read simple messages for backward compatibility
+          const messages = await this.historyReader.readHistoryAsMessages(
+            sessionId,
+            resolvedWorkspacePath,
+          );
 
           // TASK_2025_109: Register interrupted agents from history into SubagentRegistryService
           // This enables context injection in chat:continue for cold-loaded sessions.
