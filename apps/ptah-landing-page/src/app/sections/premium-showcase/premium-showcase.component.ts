@@ -116,8 +116,9 @@ import { LucideAngularModule, ArrowRight, Check } from 'lucide-angular';
                     </div>
                   </div>
                   <a
-                    [routerLink]="['/docs']"
-                    fragment="providers"
+                    href="https://docs.ptah.live/providers/"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     class="inline-flex items-center gap-3 text-[#f4d47c] hover:text-[#d4af37] font-medium text-sm transition-colors group"
                   >
                     <div
@@ -229,8 +230,9 @@ import { LucideAngularModule, ArrowRight, Check } from 'lucide-angular';
                     </div>
                   </div>
                   <a
-                    [routerLink]="['/docs']"
-                    fragment="plugins"
+                    href="https://docs.ptah.live/plugins/"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     class="inline-flex items-center gap-3 text-[#f4d47c] hover:text-[#d4af37] font-medium text-sm transition-colors group"
                   >
                     <div
@@ -343,8 +345,9 @@ import { LucideAngularModule, ArrowRight, Check } from 'lucide-angular';
                     </div>
                   </div>
                   <a
-                    [routerLink]="['/docs']"
-                    fragment="agent-orchestration"
+                    href="https://docs.ptah.live/agents/agent-orchestration/"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     class="inline-flex items-center gap-3 text-[#f4d47c] hover:text-[#d4af37] font-medium text-sm transition-colors group"
                   >
                     <div
@@ -454,8 +457,9 @@ import { LucideAngularModule, ArrowRight, Check } from 'lucide-angular';
                     </div>
                   </div>
                   <a
-                    [routerLink]="['/docs']"
-                    fragment="setup-wizard"
+                    href="https://docs.ptah.live/agents/setup-wizard/"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     class="inline-flex items-center gap-3 text-[#f4d47c] hover:text-[#d4af37] font-medium text-sm transition-colors group"
                   >
                     <div

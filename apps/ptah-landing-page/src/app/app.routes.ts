@@ -7,7 +7,6 @@ import { TrialEndedPageComponent } from './pages/trial-ended/trial-ended-page.co
 import { AdminAuthGuard } from './guards/admin-auth.guard';
 import { AuthGuard } from './guards/auth.guard';
 import { GuestGuard } from './guards/guest.guard';
-import { DocsPageComponent } from './pages/docs/docs-page.component';
 import { DownloadPageComponent } from './pages/download/download-page.component';
 import { TermsPageComponent } from './pages/legal/terms-page.component';
 import { PrivacyPageComponent } from './pages/legal/privacy-page.component';
@@ -53,8 +52,18 @@ export const routes: Routes = [
     component: LandingPageComponent,
   },
   {
+    // Docs moved to docs.ptah.live (Astro Starlight). Preserve /docs as a
+    // redirect so old marketing links and bookmarks still land on the new site.
     path: 'docs',
-    component: DocsPageComponent,
+    canActivate: [
+      () => {
+        if (typeof window !== 'undefined') {
+          window.location.replace('https://docs.ptah.live');
+        }
+        return false;
+      },
+    ],
+    children: [],
   },
   {
     path: 'download',

@@ -91,7 +91,9 @@ import { AuthService } from '../services/auth.service';
 
         <!-- Docs Link -->
         <a
-          routerLink="/docs"
+          href="https://docs.ptah.live"
+          target="_blank"
+          rel="noopener noreferrer"
           class="text-white/80 hover:text-amber-400 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
           aria-label="View documentation"
         >
@@ -281,7 +283,9 @@ import { AuthService } from '../services/auth.service';
 
           <!-- Docs Link -->
           <a
-            routerLink="/docs"
+            href="https://docs.ptah.live"
+            target="_blank"
+            rel="noopener noreferrer"
             class="flex items-center px-4 py-3 text-white/80 hover:text-amber-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
             role="menuitem"
             (click)="closeMobileMenu()"
