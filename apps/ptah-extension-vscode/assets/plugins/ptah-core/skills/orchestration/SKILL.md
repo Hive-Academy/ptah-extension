@@ -136,7 +136,6 @@ else
 | tasks.md (IN PROGRESS)  | Team-leader MODE 2 (verify)         |
 | tasks.md (IMPLEMENTED)  | Team-leader MODE 2 (commit)         |
 | tasks.md (all COMPLETE) | Team-leader MODE 3 OR QA choice     |
-| QA complete (no future-enhancements.md) | Invoke modernization-detector |
 | future-enhancements.md  | Workflow complete                   |
 
 See [task-tracking.md](references/task-tracking.md) for full phase detection.
@@ -213,14 +212,19 @@ See [team-leader-modes.md](references/team-leader-modes.md) for detailed integra
 
 ## CLI Agent Delegation Mode
 
-Enable a **3-tier hierarchy** where the **team-leader** is the primary CLI agent delegator, spawning CLI agents as junior developer helpers for batch implementation and verification.
+Enable a **2-tier hierarchy** where the **main orchestrator (Claude)** is the sole spawner of sub-agents and CLI agents. Team-leader is advisory only — it recommends per-batch executors in `tasks.md` and the orchestrator acts on those recommendations.
 
 ```
-Tier 1: Claude (Orchestrator) — coordinates workflow, runs Checkpoint 0.1
-  └── Tier 2: Team-Leader (Primary CLI Delegator) — via Agent tool
-        ├── Spawns CLI agents for independent batch tasks — via ptah_agent_spawn
-        ├── Spawns CLI agents for parallel verification
-        └── Falls back to sub-agent developers for coupled/complex work
+Tier 1: Claude (Orchestrator) — SOLE authority for spawning
+  ├── Spawns team-leader (advisory role: decompose, verify, commit)
+  ├── Spawns sub-agent developers (backend-developer, frontend-developer, etc.)
+  ├── Spawns CLI agents via ptah_agent_spawn (sequential or parallel)
+  ├── Spawns code-logic-reviewer when team-leader returns NEEDS REVIEW
+  └── Runs Checkpoint 0.1 to enable CLI mode
+
+Tier 2: Team-Leader (Advisory only — NEVER spawns)
+  └── Writes tasks.md with per-batch Recommended Executor + Execution Mode
+        Orchestrator reads recommendations and spawns accordingly
 ```
 
 ### How It Works
@@ -228,32 +232,33 @@ Tier 1: Claude (Orchestrator) — coordinates workflow, runs Checkpoint 0.1
 1. **Discovery**: At orchestration start, run `ptah_agent_list` to find available CLI agents
 2. **Checkpoint 0.1**: Present available agents to user and ask whether to enable delegation
 3. **Store in context.md**: Record `cli_delegation: enabled|disabled|auto` and available agents
-4. **Team-leader delegates**: In MODE 2, team-leader spawns CLI agents for independent batch tasks instead of (or alongside) sub-agent developers. The team-leader agent template has full CLI delegation instructions built in.
+4. **Team-leader recommends, orchestrator spawns**: Team-leader MODE 1 fills `Recommended Executor` + `Execution Mode` on each batch in `tasks.md`. When team-leader returns `NEXT BATCH ASSIGNED: [executor/mode]`, the ORCHESTRATOR spawns the executor — sub-agent via `Task`, or CLI via `ptah_agent_spawn` (parallel fan-out when mode is `parallel`).
 
 ### Quick Reference
 
-| Aspect                  | Detail                                                               |
-| ----------------------- | -------------------------------------------------------------------- |
-| **Activation**          | Checkpoint 0.1 (auto-discovered, user-confirmed)                     |
-| **Primary delegator**   | team-leader (has CLI delegation built into MODE 2)                   |
-| **Available agents**    | gemini, codex, copilot, ptah-cli (user-configured)                   |
-| **Concurrency limit**   | Max 3 CLI agents simultaneously                                      |
-| **Selection priority**  | ptah-cli > gemini > codex > copilot                                  |
-| **Decision authority**  | Team-leader decides when to use CLI agents vs sub-agent developers   |
-| **Quality ownership**   | Team-leader owns quality — verifies all CLI agent output             |
+| Aspect                  | Detail                                                                    |
+| ----------------------- | ------------------------------------------------------------------------- |
+| **Activation**          | Checkpoint 0.1 (auto-discovered, user-confirmed)                          |
+| **Sole spawner**        | Main orchestrator (Claude) — NO agent spawns sub-agents or CLI agents     |
+| **Team-leader role**    | Advisory: fills `Recommended Executor` + `Execution Mode` on each batch   |
+| **Available agents**    | gemini, codex, copilot, ptah-cli (user-configured)                        |
+| **Concurrency limit**   | Max 3 CLI agents simultaneously                                           |
+| **Selection priority**  | ptah-cli > gemini > codex > copilot                                       |
+| **Decision authority**  | Team-leader recommends; orchestrator executes the recommendation          |
+| **Quality ownership**   | code-logic-reviewer (spawned by orchestrator on team-leader's NEEDS REVIEW) + team-leader verification before commit |
 
-### When Team-Leader Uses CLI Agents vs Sub-agent Developers
+### Executor Recommendation Heuristics (Applied by Team-Leader in tasks.md)
 
-| Use CLI Agents (ptah_agent_spawn)           | Use Sub-agent Developers (Agent tool)    |
-| ------------------------------------------- | ---------------------------------------- |
-| Batch has 3+ independent tasks              | Tightly coupled tasks needing shared ctx |
-| Boilerplate / scaffolding work              | Cross-file refactoring                   |
-| Parallel file verification                  | Architecture decisions required          |
-| Independent component implementation        | Complex business logic                   |
+| Use CLI Agents (orchestrator spawns via ptah_agent_spawn) | Use Sub-agent Developers (orchestrator spawns via Task) |
+| --------------------------------------------------------- | ------------------------------------------------------- |
+| Batch has 3+ independent, file-disjoint tasks             | Tightly coupled tasks needing shared context            |
+| Boilerplate / scaffolding work                            | Cross-file refactoring                                  |
+| Independent component implementation                      | Architecture decisions required                         |
+| Migration across many files                               | Complex business logic                                  |
 
-### Secondary Delegation (Other Sub-agents)
+### Secondary Delegation (Sub-agents other than team-leader)
 
-Other sub-agents (PM, Architect, Researcher, Tester, Reviewers) may also delegate focused sub-tasks to CLI agents when CLI mode is active. For these agents, append the CLI delegation injection block to their prompts. However, the **team-leader is the primary and most impactful delegator** — it handles the bulk of CLI agent work during batch implementation.
+Other sub-agents (PM, Architect, Researcher, Tester, Reviewers, Developers) MAY delegate focused sub-tasks to CLI agents when CLI mode is active — they can call `ptah_agent_spawn` directly for grunt work. This is **different from team-leader**, which is strictly advisory and never spawns.
 
 ### CLI Delegation Prompt Injection (For Secondary Delegators)
 
@@ -294,34 +299,9 @@ independently-executable sub-tasks to speed up your work.
 [role-specific examples injected per agent type — see agent-catalog.md]
 ```
 
-**Note**: The team-leader does NOT need this injection block — its agent template already has full CLI delegation instructions built into MODE 2.
+**Note**: The team-leader does NOT receive this injection block — it is strictly advisory and is forbidden from spawning sub-agents or CLI agents. Its recommendations live in `tasks.md` under `Recommended Executor` / `Execution Mode` per batch.
 
 See [cli-agent-delegation.md](references/cli-agent-delegation.md) for the comprehensive reference.
-
----
-
-## Post-QA: Modernization-Detector Phase
-
-After QA completes (or is skipped), invoke the modernization-detector as the final workflow phase. This applies to FEATURE, BUGFIX, REFACTORING, and DEVOPS workflows.
-
-**Skip if**: DOCUMENTATION, RESEARCH, CREATIVE, or SAAS_INIT workflows (no modernization analysis needed).
-
-```typescript
-Task({
-  subagent_type: 'modernization-detector',
-  description: 'Analyze future improvements for TASK_[ID]',
-  prompt: `You are modernization-detector for TASK_[ID].
-
-**Task Folder**: [absolute path to .ptah/specs/TASK_[ID]]
-**Changes**: Review tasks.md for what was implemented
-
-Identify opportunities for future improvements, tech debt, and modernization.
-Write findings to future-enhancements.md in the task folder.
-See modernization-detector.md for detailed instructions.`,
-});
-```
-
-Once `future-enhancements.md` is created, the workflow is complete. Present the summary to the user.
 
 ---
 
