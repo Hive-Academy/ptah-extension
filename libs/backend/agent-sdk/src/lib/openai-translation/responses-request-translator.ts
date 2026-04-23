@@ -18,6 +18,7 @@
  * No classes, no side effects, no external dependencies beyond types.
  */
 
+import { resolveImageMediaType } from '@ptah-extension/shared';
 import type {
   AnthropicMessagesRequest,
   AnthropicMessage,
@@ -129,7 +130,7 @@ export interface OpenAIResponsesRequest {
  */
 export function translateAnthropicToResponses(
   anthropicRequest: AnthropicMessagesRequest,
-  options?: TranslateOptions
+  options?: TranslateOptions,
 ): OpenAIResponsesRequest {
   const input: ResponsesInputItem[] = [];
 
@@ -143,7 +144,7 @@ export function translateAnthropicToResponses(
 
   // 2. Translate conversation messages
   const conversationItems = translateMessagesToResponsesInput(
-    anthropicRequest.messages
+    anthropicRequest.messages,
   );
   input.push(...conversationItems);
 
@@ -190,7 +191,7 @@ export function translateAnthropicToResponses(
  * Used to populate the `instructions` field required by Codex API.
  */
 export function extractSystemText(
-  system: AnthropicSystemPrompt | undefined
+  system: AnthropicSystemPrompt | undefined,
 ): string | undefined {
   if (system == null) return undefined;
 
@@ -215,7 +216,7 @@ export function extractSystemText(
  * Returns undefined if no system prompt is provided.
  */
 export function translateSystemToDeveloper(
-  system: AnthropicSystemPrompt | undefined
+  system: AnthropicSystemPrompt | undefined,
 ): ResponsesMessageItem | undefined {
   if (system == null) return undefined;
 
@@ -243,7 +244,7 @@ export function translateSystemToDeveloper(
  * tool_result (as function_call_output items).
  */
 export function translateMessagesToResponsesInput(
-  messages: AnthropicMessage[]
+  messages: AnthropicMessage[],
 ): ResponsesInputItem[] {
   const result: ResponsesInputItem[] = [];
 
@@ -268,7 +269,7 @@ export function translateMessagesToResponsesInput(
  *   { type: "function", function: { name: "tool_name", description: "...", parameters: {...} } }
  */
 export function translateToolsForResponses(
-  tools: AnthropicToolDefinition[]
+  tools: AnthropicToolDefinition[],
 ): ResponsesToolDefinition[] {
   return tools.map((tool) => ({
     type: 'function' as const,
@@ -288,7 +289,7 @@ export function translateToolsForResponses(
  * tool_result blocks become separate function_call_output items.
  */
 function translateUserMessageToResponses(
-  msg: AnthropicMessage
+  msg: AnthropicMessage,
 ): ResponsesInputItem[] {
   const results: ResponsesInputItem[] = [];
 
@@ -349,7 +350,7 @@ function translateUserMessageToResponses(
  * tool_use blocks become separate function_call items.
  */
 function translateAssistantMessageToResponses(
-  msg: AnthropicMessage
+  msg: AnthropicMessage,
 ): ResponsesInputItem[] {
   if (typeof msg.content === 'string') {
     return [
@@ -418,7 +419,7 @@ function translateAssistantMessageToResponses(
  * Convert an Anthropic tool_result block into a Responses API function_call_output item.
  */
 function translateToolResultToFunctionCallOutput(
-  toolResult: AnthropicToolResultBlock
+  toolResult: AnthropicToolResultBlock,
 ): ResponsesFunctionCallOutputItem {
   let output: string;
 
@@ -450,7 +451,7 @@ function translateToolResultToFunctionCallOutput(
  * (those are handled separately).
  */
 function flattenToResponsesContentParts(
-  blocks: AnthropicContentBlock[]
+  blocks: AnthropicContentBlock[],
 ): ResponsesContentPart[] {
   const parts: ResponsesContentPart[] = [];
 
@@ -462,9 +463,21 @@ function flattenToResponsesContentParts(
       });
     } else if (block.type === 'image') {
       const img = block as AnthropicImageBlock;
+      // Poisoned sessions (pre-validator history) can carry SVG / BMP / empty
+      // media_types that OpenAI-shape providers will reject. Route through the
+      // shared resolver so magic-byte sniffing wins and unknowns are dropped.
+      const resolved = resolveImageMediaType(
+        img.source.media_type,
+        img.source.data,
+      );
+      if (resolved === null) {
+        // Skip the image entirely — matches how tool_use/tool_result are
+        // filtered out of this flatten function.
+        continue;
+      }
       parts.push({
         type: 'input_image',
-        image_url: `data:${img.source.media_type};base64,${img.source.data}`,
+        image_url: `data:${resolved};base64,${img.source.data}`,
       });
     }
   }

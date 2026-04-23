@@ -10,6 +10,7 @@
  * Extracted from copilot-request-translator.ts with parameterized model prefix.
  */
 
+import { resolveImageMediaType } from '@ptah-extension/shared';
 import type {
   AnthropicMessagesRequest,
   AnthropicMessage,
@@ -356,10 +357,23 @@ function flattenContentBlocks(
       parts.push({ type: 'text', text: (block as AnthropicTextBlock).text });
     } else if (block.type === 'image') {
       const img = block as AnthropicImageBlock;
+      // Poisoned sessions (pre-validator history) can carry SVG / BMP / empty
+      // media_types that OpenAI-shape providers will reject. Route through the
+      // shared resolver so magic-byte sniffing wins and unknowns are dropped.
+      const resolved = resolveImageMediaType(
+        img.source.media_type,
+        img.source.data,
+      );
+      if (resolved === null) {
+        // Skip the image entirely — matches how tool_use/tool_result are
+        // filtered out of flattenContentBlocks (positional indices are not
+        // load-bearing here; this function only emits content parts).
+        continue;
+      }
       parts.push({
         type: 'image_url',
         image_url: {
-          url: `data:${img.source.media_type};base64,${img.source.data}`,
+          url: `data:${resolved};base64,${img.source.data}`,
         },
       });
     }

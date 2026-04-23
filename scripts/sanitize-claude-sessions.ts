@@ -38,7 +38,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { resolveImageMediaType } from '../libs/shared/src/lib/utils/image-media-type';
+import {
+  MAX_IMAGE_SIZE_BYTES,
+  resolveImageMediaType,
+} from '../libs/shared/src/lib/utils/image-media-type';
 
 interface PerFileStats {
   file: string;
@@ -46,6 +49,7 @@ interface PerFileStats {
   linesModified: number;
   imagesPatched: number;
   imagesReplaced: number;
+  imagesOversize: number;
 }
 
 interface RunOptions {
@@ -54,6 +58,22 @@ interface RunOptions {
 }
 
 const REPLACEMENT_TEXT = '[image removed — invalid media_type]';
+const OVERSIZE_REPLACEMENT_TEXT = '[image removed — exceeds 5MB]';
+
+/**
+ * Estimate decoded byte size from a base64 string without allocating the
+ * decoded buffer. Base64 is ~1.333× binary (4 chars = 3 bytes), so the
+ * `length * 0.75` figure is a tight lower bound — padding '=' characters
+ * add at most 2 bytes of overestimate, which we accept in exchange for
+ * avoiding a full decode of potentially megabytes of payload. This matches
+ * the MAX_IMAGE_SIZE_BYTES semantics used elsewhere (5 MB of decoded bytes).
+ */
+function estimateDecodedSize(base64: string): number {
+  if (!base64) return 0;
+  // Strip whitespace so line-wrapped base64 isn't counted as payload.
+  const cleaned = base64.replace(/\s+/g, '');
+  return Math.floor(cleaned.length * 0.75);
+}
 
 function parseArgs(argv: readonly string[]): RunOptions {
   const dryRun = argv.includes('--dry-run');
@@ -102,6 +122,7 @@ function isBase64ImageBlock(value: unknown): value is {
 interface SanitizeCounts {
   patched: number;
   replaced: number;
+  oversize: number;
   changed: boolean;
 }
 
@@ -113,6 +134,7 @@ function sanitizeValue(root: unknown): SanitizeCounts {
   const counts: SanitizeCounts = {
     patched: 0,
     replaced: 0,
+    oversize: 0,
     changed: false,
   };
 
@@ -133,14 +155,28 @@ function sanitizeValue(root: unknown): SanitizeCounts {
       const data = typeof source.data === 'string' ? source.data : '';
       const resolved = resolveImageMediaType(claimed, data);
 
-      if (resolved === null) {
-        const replacement = { type: 'text' as const, text: REPLACEMENT_TEXT };
+      const writeReplacement = (text: string): void => {
+        const replacement = { type: 'text' as const, text };
         if (Array.isArray(parent)) {
           parent[key as number] = replacement;
         } else {
           (parent as Record<string, unknown>)[key as string] = replacement;
         }
+      };
+
+      if (resolved === null) {
+        writeReplacement(REPLACEMENT_TEXT);
         counts.replaced += 1;
+        counts.changed = true;
+        return;
+      }
+
+      // Even a legit PNG/JPEG will get rejected by the Anthropic API if its
+      // decoded size exceeds 5 MB. Replace oversize images with a text
+      // placeholder so session resume succeeds.
+      if (estimateDecodedSize(data) > MAX_IMAGE_SIZE_BYTES) {
+        writeReplacement(OVERSIZE_REPLACEMENT_TEXT);
+        counts.oversize += 1;
         counts.changed = true;
         return;
       }
@@ -169,7 +205,7 @@ function sanitizeValue(root: unknown): SanitizeCounts {
   // Kick off from a synthetic parent so `visit` can mutate the root if need be.
   const wrapper: { root: unknown } = { root };
   visit(wrapper, 'root');
-  return { ...counts, changed: counts.changed };
+  return counts;
 }
 
 function processFile(file: string, options: RunOptions): PerFileStats {
@@ -179,6 +215,7 @@ function processFile(file: string, options: RunOptions): PerFileStats {
     linesModified: 0,
     imagesPatched: 0,
     imagesReplaced: 0,
+    imagesOversize: 0,
   };
 
   let original: string;
@@ -219,6 +256,7 @@ function processFile(file: string, options: RunOptions): PerFileStats {
       stats.linesModified += 1;
       stats.imagesPatched += counts.patched;
       stats.imagesReplaced += counts.replaced;
+      stats.imagesOversize += counts.oversize;
       fileChanged = true;
       outLines[i] = JSON.stringify(parsed);
     } else {
@@ -229,7 +267,17 @@ function processFile(file: string, options: RunOptions): PerFileStats {
   if (fileChanged && !options.dryRun) {
     const backup = `${file}.bak`;
     try {
-      fs.writeFileSync(backup, original, 'utf8');
+      // Skip-if-exists: a second run must never overwrite the pristine
+      // original with the already-sanitized content. Timestamped backups
+      // would just clutter the sessions directory, so we just leave the
+      // earliest backup in place.
+      if (fs.existsSync(backup)) {
+        console.log(
+          `[sanitize-claude-sessions] [skip backup] ${backup} already exists — preserving original`,
+        );
+      } else {
+        fs.writeFileSync(backup, original, 'utf8');
+      }
       fs.writeFileSync(file, outLines.join('\n'), 'utf8');
     } catch (err) {
       console.error(
@@ -266,15 +314,21 @@ function main(argv: readonly string[]): void {
   let filesModified = 0;
   let totalPatched = 0;
   let totalReplaced = 0;
+  let totalOversize = 0;
   const perFile: PerFileStats[] = [];
 
   for (const file of all) {
     filesScanned += 1;
     const stats = processFile(file, options);
-    if (stats.imagesPatched > 0 || stats.imagesReplaced > 0) {
+    if (
+      stats.imagesPatched > 0 ||
+      stats.imagesReplaced > 0 ||
+      stats.imagesOversize > 0
+    ) {
       filesModified += 1;
       totalPatched += stats.imagesPatched;
       totalReplaced += stats.imagesReplaced;
+      totalOversize += stats.imagesOversize;
       perFile.push(stats);
     }
   }
@@ -289,6 +343,9 @@ function main(argv: readonly string[]): void {
   console.log(
     `Images replaced: ${totalReplaced} (unrecoverable — replaced with text block)`,
   );
+  console.log(
+    `Oversize images: ${totalOversize} (> 5MB decoded — replaced with text block)`,
+  );
   if (dryRun) {
     console.log('Mode:            dry-run (no files written)');
   }
@@ -299,7 +356,8 @@ function main(argv: readonly string[]): void {
     for (const f of perFile) {
       console.log(
         `  ${f.file}: ${f.linesModified}/${f.linesScanned} lines, ` +
-          `patched=${f.imagesPatched}, replaced=${f.imagesReplaced}`,
+          `patched=${f.imagesPatched}, replaced=${f.imagesReplaced}, ` +
+          `oversize=${f.imagesOversize}`,
       );
     }
   }
