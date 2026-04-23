@@ -29,6 +29,7 @@ import { homedir } from 'node:os';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { SdkError } from '../errors';
 import type { ICodexAuthService, CodexAuthFile } from './codex-provider.types';
 
 // ---------------------------------------------------------------------------
@@ -122,7 +123,7 @@ export class CodexAuthService implements ICodexAuthService {
   async getHeaders(): Promise<Record<string, string>> {
     const token = await this.resolveAccessToken();
     if (!token) {
-      throw new Error(
+      throw new SdkError(
         'Not authenticated with Codex. Run `codex login` to authenticate.',
       );
     }

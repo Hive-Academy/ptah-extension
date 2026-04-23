@@ -50,7 +50,7 @@ import type {
 } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import type { ISaveDialogProvider } from '../platform-abstractions';
+import type { ISaveDialogProvider } from '@ptah-extension/platform-core';
 
 /**
  * RPC handlers for Enhanced Prompts operations

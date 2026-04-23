@@ -34,6 +34,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import type { SdkHandle } from '@ptah-extension/llm-abstraction';
 import { SDK_TOKENS } from '../di/tokens';
+import { SdkError } from '../errors';
 import type { SdkModuleLoader } from '../helpers/sdk-module-loader';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { SdkPermissionHandler } from '../sdk-permission-handler';
@@ -178,7 +179,7 @@ export class PtahCliRegistry {
     await this.configPersistence.ensureMigrated();
     const provider = getAnthropicProvider(providerId);
     if (!provider) {
-      throw new Error(`Unknown provider: ${providerId}`);
+      throw new SdkError(`Unknown provider: ${providerId}`);
     }
 
     const id = generateAgentId();
@@ -242,7 +243,7 @@ export class PtahCliRegistry {
     const configs = this.configPersistence.loadConfigs();
     const index = configs.findIndex((c) => c.id === id);
     if (index === -1) {
-      throw new Error(`Agent not found: ${id}`);
+      throw new SdkError(`Agent not found: ${id}`);
     }
 
     const existing = configs[index];

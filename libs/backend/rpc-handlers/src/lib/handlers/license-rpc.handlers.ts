@@ -17,7 +17,7 @@ import {
   LicenseStatus,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import type { IPlatformCommands } from '../platform-abstractions';
+import type { IPlatformCommands } from '@ptah-extension/platform-core';
 import type {
   LicenseGetStatusParams,
   LicenseGetStatusResponse,

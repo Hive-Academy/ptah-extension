@@ -30,8 +30,16 @@ export type { IEditorProvider } from './interfaces/editor-provider.interface';
 export type { ITokenCounter } from './interfaces/token-counter.interface';
 export type { IDiagnosticsProvider } from './interfaces/diagnostics-provider.interface';
 
+// Platform abstractions (moved from @ptah-extension/rpc-handlers in C8)
+export type {
+  IPlatformCommands,
+  IPlatformAuthProvider,
+  ISaveDialogProvider,
+  IModelDiscovery,
+} from './interfaces/platform-abstractions.interface';
+
 // DI Tokens
-export { PLATFORM_TOKENS } from './tokens';
+export { PLATFORM_TOKENS } from './di';
 
 // Utilities
 export { createEvent } from './utils/event-emitter';

@@ -50,6 +50,9 @@ export {
   type DynamicModelFetcher,
 } from './lib/provider-models.service';
 
+// Errors (TASK_2025_291 Wave C8)
+export { SdkError } from './lib/errors';
+
 // DI registration exports
 export { registerSdkServices } from './lib/di/register';
 export { SDK_TOKENS } from './lib/di/tokens';

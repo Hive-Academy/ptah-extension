@@ -35,9 +35,11 @@ export {
 } from './lib/handlers';
 
 // Platform abstraction interfaces (TASK_2025_203 Batch 2)
+// Moved to @ptah-extension/platform-core in Wave C8 (TASK_2025_291).
+// Re-exported here for backwards-compat; prefer importing from platform-core directly.
 export type {
   IPlatformCommands,
   IPlatformAuthProvider,
   ISaveDialogProvider,
   IModelDiscovery,
-} from './lib/platform-abstractions';
+} from '@ptah-extension/platform-core';

@@ -15,7 +15,7 @@ import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import type { ISaveDialogProvider } from '../platform-abstractions';
+import type { ISaveDialogProvider } from '@ptah-extension/platform-core';
 import type {
   QualityGetAssessmentParams,
   QualityGetAssessmentResult,

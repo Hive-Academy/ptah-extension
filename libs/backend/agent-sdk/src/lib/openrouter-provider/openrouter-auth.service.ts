@@ -18,6 +18,7 @@ import {
   TOKENS,
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import { SdkError } from '../errors';
 import type { IOpenRouterAuthService } from './openrouter-provider.types';
 
 /**
@@ -63,7 +64,7 @@ export class OpenRouterAuthService implements IOpenRouterAuthService {
   async getHeaders(): Promise<Record<string, string>> {
     const key = await this.getApiKey();
     if (!key) {
-      throw new Error(
+      throw new SdkError(
         'OpenRouter API key is not configured. Set it via Settings > Authentication.',
       );
     }

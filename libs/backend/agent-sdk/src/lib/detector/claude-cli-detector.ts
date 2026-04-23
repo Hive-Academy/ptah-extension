@@ -9,6 +9,7 @@ import * as os from 'os';
 import { spawn } from 'child_process';
 import { injectable } from 'tsyringe';
 import { ClaudeCliHealth } from '@ptah-extension/shared';
+import { SdkError } from '../errors';
 import { ClaudeCliPathResolver } from './claude-cli-path-resolver';
 
 export interface ClaudeInstallation {
@@ -139,10 +140,10 @@ export class ClaudeCliDetector {
 
       return null;
     } catch (error) {
-      throw new Error(
+      throw new SdkError(
         `Claude CLI detection failed: ${
           error instanceof Error ? error.message : 'Unknown error'
-        }`
+        }`,
       );
     }
   }
@@ -158,7 +159,7 @@ export class ClaudeCliDetector {
         {
           timeout: 10000,
           isWSL: installation.isWSL,
-        }
+        },
       );
 
       if (!result.success) {
@@ -196,7 +197,7 @@ export class ClaudeCliDetector {
         {
           timeout: 5000,
           isWSL: installation.isWSL,
-        }
+        },
       );
 
       const responseTime = Date.now() - startTime;
@@ -294,7 +295,7 @@ export class ClaudeCliDetector {
         ['config', 'get', 'prefix'],
         {
           timeout: 10000,
-        }
+        },
       );
 
       if (!npmResult.success) {
@@ -428,7 +429,7 @@ export class ClaudeCliDetector {
   private async executeCommand(
     command: string,
     args: string[],
-    options: { timeout?: number; isWSL?: boolean } = {}
+    options: { timeout?: number; isWSL?: boolean } = {},
   ): Promise<CommandResult> {
     return new Promise((resolve) => {
       const { timeout = 30000, isWSL = false } = options;
@@ -530,9 +531,9 @@ export class ClaudeCliDetector {
             '@anthropic-ai',
             'claude-code',
             'bin',
-            'claude.js'
+            'claude.js',
           ),
-          path.join(globalPrefix, 'node_modules', '.bin', 'claude.cmd')
+          path.join(globalPrefix, 'node_modules', '.bin', 'claude.cmd'),
         );
         break;
 
@@ -547,8 +548,8 @@ export class ClaudeCliDetector {
             '@anthropic-ai',
             'claude-code',
             'bin',
-            'claude.js'
-          )
+            'claude.js',
+          ),
         );
         break;
     }
@@ -567,7 +568,7 @@ export class ClaudeCliDetector {
       case 'win32':
         paths.push(
           'C:\\Program Files\\nodejs\\claude.cmd',
-          'C:\\ProgramData\\npm\\claude.cmd'
+          'C:\\ProgramData\\npm\\claude.cmd',
         );
         break;
 
@@ -575,7 +576,7 @@ export class ClaudeCliDetector {
         paths.push(
           '/usr/local/bin/claude',
           '/opt/homebrew/bin/claude',
-          '/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.js'
+          '/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.js',
         );
         break;
 
@@ -602,7 +603,7 @@ export class ClaudeCliDetector {
       case 'win32':
         paths.push(
           path.join(homeDir, 'AppData', 'Roaming', 'npm', 'claude.cmd'),
-          path.join(homeDir, '.npm-global', 'bin', 'claude.cmd')
+          path.join(homeDir, '.npm-global', 'bin', 'claude.cmd'),
         );
         break;
 
@@ -615,14 +616,14 @@ export class ClaudeCliDetector {
             'Application Support',
             'npm',
             'bin',
-            'claude'
-          )
+            'claude',
+          ),
         );
         break;
 
       case 'linux':
         paths.push(
-          path.join(homeDir, '.local', 'share', 'npm', 'bin', 'claude')
+          path.join(homeDir, '.local', 'share', 'npm', 'bin', 'claude'),
         );
         break;
     }

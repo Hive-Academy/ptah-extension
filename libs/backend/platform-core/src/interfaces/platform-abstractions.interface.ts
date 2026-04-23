@@ -1,13 +1,16 @@
 /**
- * Platform Abstraction Interfaces (TASK_2025_203)
+ * Platform Abstraction Interfaces (L0.5)
  *
- * These interfaces abstract VS Code-specific APIs that Tier 2 handlers need.
- * Each platform (VS Code, Electron) provides its own implementation.
+ * These interfaces abstract platform-specific APIs (VS Code, Electron, CLI)
+ * that higher-layer code (rpc-handlers, agent-sdk, app-level services) needs.
+ * Each platform (VS Code, Electron, CLI) provides its own implementation.
  *
- * Defined in the rpc-handlers library (not vscode-core) because:
- * - They are consumed by handler classes in this library
- * - Placing them here avoids circular dependencies
- * - Both apps import from @ptah-extension/rpc-handlers
+ * Defined in platform-core (L0.5) per the monorepo layer rule:
+ * platform abstraction interfaces live at the same layer as PLATFORM_TOKENS.
+ *
+ * Moved from @ptah-extension/rpc-handlers (L4) in Wave C8 (TASK_2025_291).
+ * The rpc-handlers public barrel re-exports from here for backwards-compatible
+ * consumption; new code should import from @ptah-extension/platform-core.
  */
 
 /**

@@ -21,7 +21,7 @@ import {
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import type { IModelDiscovery } from '../platform-abstractions';
+import type { IModelDiscovery } from '@ptah-extension/platform-core';
 import {
   ProviderModelsService,
   SdkAgentAdapter,

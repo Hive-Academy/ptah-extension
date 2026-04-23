@@ -24,6 +24,7 @@ import type {
   PluginSkillEntry,
 } from '@ptah-extension/shared';
 import type { IStateStorage } from '@ptah-extension/platform-core';
+import { SdkError } from '../errors';
 
 /** VS Code workspaceState key for plugin configuration */
 const PLUGIN_CONFIG_KEY = 'ptah.plugins.config';
@@ -214,7 +215,7 @@ export class PluginLoaderService {
     config: Pick<PluginConfigState, 'enabledPluginIds' | 'disabledSkillIds'>,
   ): Promise<void> {
     if (!this.workspaceState) {
-      throw new Error(
+      throw new SdkError(
         'PluginLoaderService not initialized: workspaceState is null',
       );
     }

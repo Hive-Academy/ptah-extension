@@ -18,6 +18,7 @@
  */
 
 import { updatePricingMap, type ModelPricing } from '@ptah-extension/shared';
+import { SdkError } from '../errors';
 import { COPILOT_PROVIDER_ENTRY } from '../copilot-provider';
 import { CODEX_PROVIDER_ENTRY } from '../codex-provider';
 import {
@@ -446,7 +447,7 @@ export function getProviderBaseUrl(id: string): string {
   // Fallback to default provider (OpenRouter)
   const defaultProvider = getAnthropicProvider(DEFAULT_PROVIDER_ID);
   if (!defaultProvider) {
-    throw new Error(
+    throw new SdkError(
       `Default provider '${DEFAULT_PROVIDER_ID}' not found in registry`,
     );
   }

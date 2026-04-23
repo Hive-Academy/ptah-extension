@@ -22,7 +22,7 @@ import type { SentryService } from '@ptah-extension/vscode-core';
 import type {
   IPlatformCommands,
   IPlatformAuthProvider,
-} from '../platform-abstractions';
+} from '@ptah-extension/platform-core';
 import {
   SdkAgentAdapter,
   SDK_TOKENS,

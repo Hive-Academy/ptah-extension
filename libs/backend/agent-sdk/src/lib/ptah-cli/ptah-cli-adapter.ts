@@ -31,6 +31,7 @@ import {
   EffortLevel,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { SdkError } from '../errors';
 import type { SdkModuleLoader } from '../helpers/sdk-module-loader';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { SdkPermissionHandler } from '../sdk-permission-handler';
@@ -338,7 +339,7 @@ export class PtahCliAdapter implements IAIProvider {
     } & PtahCliPremiumConfig,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
-      throw new Error(
+      throw new SdkError(
         `PtahCliAdapter "${this.config.name}" not initialized. Call initialize() first.`,
       );
     }
@@ -426,7 +427,7 @@ export class PtahCliAdapter implements IAIProvider {
     config?: AISessionConfig & { tabId?: string } & PtahCliPremiumConfig,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
-      throw new Error(
+      throw new SdkError(
         `PtahCliAdapter "${this.config.name}" not initialized. Call initialize() first.`,
       );
     }
@@ -546,7 +547,7 @@ export class PtahCliAdapter implements IAIProvider {
   ): Promise<void> {
     const session = this.activeSessions.get(sessionId as string);
     if (!session) {
-      throw new Error(`[PtahCliAdapter] Session not found: ${sessionId}`);
+      throw new SdkError(`[PtahCliAdapter] Session not found: ${sessionId}`);
     }
 
     this.logger.info(`[PtahCliAdapter] Sending message to ${sessionId}`, {

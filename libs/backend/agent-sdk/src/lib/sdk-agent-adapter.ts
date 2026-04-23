@@ -36,6 +36,7 @@ import {
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
+import { SdkError } from './errors';
 import { SessionMetadataStore } from './session-metadata-store';
 import { ModelInfo } from './types/sdk-types/claude-sdk.types';
 import {
@@ -478,7 +479,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
-      throw new Error(
+      throw new SdkError(
         'SdkAgentAdapter not initialized. Call initialize() first.',
       );
     }
@@ -609,7 +610,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
-      throw new Error(
+      throw new SdkError(
         'SdkAgentAdapter not initialized. Call initialize() first.',
       );
     }
@@ -814,7 +815,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     config: SlashCommandConfig & { tabId?: string },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
-      throw new Error(
+      throw new SdkError(
         'SdkAgentAdapter not initialized. Call initialize() first.',
       );
     }

@@ -24,6 +24,7 @@ import {
   EffortLevel,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
+import { SdkError } from '../errors';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
@@ -484,7 +485,7 @@ export class SdkQueryOptionsBuilder {
 
     // Model is required - SDK sets default in config at startup
     if (!sessionConfig?.model) {
-      throw new Error('Model not provided - ensure SDK is initialized');
+      throw new SdkError('Model not provided - ensure SDK is initialized');
     }
 
     // Resolve bare tier names ('opus', 'sonnet', 'haiku') to full model IDs.
@@ -492,7 +493,7 @@ export class SdkQueryOptionsBuilder {
     // bare tier names cause "can't access model named opus" errors.
     const model = this.modelService.resolveModelId(sessionConfig.model);
     if (!sessionConfig?.projectPath) {
-      throw new Error(
+      throw new SdkError(
         'projectPath is required — cannot start an SDK session without a workspace folder. ' +
           'Callers must resolve workspace path from IWorkspaceProvider before reaching here.',
       );
@@ -743,7 +744,7 @@ export class SdkQueryOptionsBuilder {
         hasBaseUrl: false,
         hasAuthToken: !!authToken,
       });
-      throw new Error(message);
+      throw new SdkError(message);
     }
   }
 

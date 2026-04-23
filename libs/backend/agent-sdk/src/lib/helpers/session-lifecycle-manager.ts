@@ -32,6 +32,7 @@ import {
   type AuthEnv,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
+import { SdkError } from '../errors';
 import {
   SDKUserMessage,
   SDKMessage,
@@ -976,7 +977,7 @@ export class SessionLifecycleManager {
   ): Promise<void> {
     const session = this.activeSessions.get(sessionId as string);
     if (!session) {
-      throw new Error(`Session not found: ${sessionId}`);
+      throw new SdkError(`Session not found: ${sessionId}`);
     }
 
     // Mark this session as the most recently active so MCP tool calls
@@ -1119,11 +1120,11 @@ export class SessionLifecycleManager {
   ): Promise<void> {
     const session = this.activeSessions.get(sessionId as string);
     if (!session) {
-      throw new Error(`Session not found: ${sessionId}`);
+      throw new SdkError(`Session not found: ${sessionId}`);
     }
 
     if (!session.query) {
-      throw new Error(`Session query not initialized: ${sessionId}`);
+      throw new SdkError(`Session query not initialized: ${sessionId}`);
     }
 
     this.logger.info(
@@ -1172,11 +1173,11 @@ export class SessionLifecycleManager {
     }
 
     if (!session) {
-      throw new Error(`Session not found: ${sessionId}`);
+      throw new SdkError(`Session not found: ${sessionId}`);
     }
 
     if (!session.query) {
-      throw new Error(`Session query not initialized: ${sessionId}`);
+      throw new SdkError(`Session query not initialized: ${sessionId}`);
     }
 
     // Resolve model through provider overrides (e.g., claude-sonnet-4-6 → glm-5.1 on Z.AI)

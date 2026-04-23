@@ -18,7 +18,7 @@ import type {
   LlmListProviderModelsParams,
   LlmListProviderModelsResponse,
 } from '@ptah-extension/shared';
-import type { IModelDiscovery } from '../platform-abstractions';
+import type { IModelDiscovery } from '@ptah-extension/platform-core';
 
 /** Secret storage key prefix for provider API keys */
 const API_KEY_PREFIX = 'ptah.apiKey';

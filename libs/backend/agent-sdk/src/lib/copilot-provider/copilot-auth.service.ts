@@ -34,6 +34,7 @@ import type {
   CopilotAuthState,
   CopilotTokenResponse,
 } from './copilot-provider.types';
+import { SdkError } from '../errors';
 import { readCopilotToken, writeCopilotToken } from './copilot-file-auth';
 import {
   executeDeviceCodeFlow,
@@ -317,7 +318,7 @@ export class CopilotAuthService implements ICopilotAuthService {
   async getHeaders(): Promise<Record<string, string>> {
     const state = await this.getAuthState();
     if (!state) {
-      throw new Error(
+      throw new SdkError(
         'Not authenticated with GitHub Copilot. Call login() first.',
       );
     }

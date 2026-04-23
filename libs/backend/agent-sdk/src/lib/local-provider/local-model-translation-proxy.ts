@@ -22,6 +22,7 @@ import * as https from 'https';
 import { injectable, inject } from 'tsyringe';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import { TranslationProxyBase } from '../openai-translation';
+import { SdkError } from '../errors';
 import { getAnthropicProvider } from '../helpers/anthropic-provider-registry';
 
 // ---------------------------------------------------------------------------
@@ -64,7 +65,7 @@ export class LocalModelTranslationProxy extends TranslationProxyBase {
 
     const provider = getAnthropicProvider(this.providerId);
     if (!provider?.baseUrl) {
-      throw new Error(
+      throw new SdkError(
         `No base URL configured for provider '${this.providerId}'`,
       );
     }
