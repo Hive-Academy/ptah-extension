@@ -61,6 +61,7 @@
     "serve:extension": "nx serve ptah-extension-vscode",
     "prepare": "husky || true",
     "validate-skill": "npx ts-node scripts/validate-orchestration-skill.ts",
+    "sanitize:sessions": "npx ts-node --project scripts/tsconfig.json scripts/sanitize-claude-sessions.ts",
     "electron:serve": "nx serve ptah-electron",
     "electron:watch": "nx serve:watch ptah-electron",
     "electron:launch": "node apps/ptah-electron/scripts/launch.js",

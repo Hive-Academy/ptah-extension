@@ -17,6 +17,10 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+import {
+  MAX_IMAGE_SIZE_BYTES,
+  resolveImageMediaType,
+} from '@ptah-extension/shared';
 
 @injectable()
 export class ElectronFileRpcHandlers {
@@ -201,18 +205,6 @@ export class ElectronFileRpcHandlers {
           const fsModule = await import('node:fs/promises');
           const pathModule = await import('node:path');
 
-          const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
-          const MIME_MAP: Record<string, string> = {
-            png: 'image/png',
-            jpg: 'image/jpeg',
-            jpeg: 'image/jpeg',
-            gif: 'image/gif',
-            webp: 'image/webp',
-            svg: 'image/svg+xml',
-            bmp: 'image/bmp',
-            ico: 'image/x-icon',
-          };
-
           const properties: Array<'openFile' | 'multiSelections'> = [
             'openFile' as const,
           ];
@@ -220,22 +212,15 @@ export class ElectronFileRpcHandlers {
             properties.push('multiSelections' as const);
           }
 
+          // Only offer extensions that map to Anthropic-allowed media types.
+          // Magic-byte sniffing (below) is the source of truth.
           const result = await electronDialog.showOpenDialog({
             properties,
             title: 'Attach Images',
             filters: [
               {
                 name: 'Images',
-                extensions: [
-                  'png',
-                  'jpg',
-                  'jpeg',
-                  'gif',
-                  'webp',
-                  'svg',
-                  'bmp',
-                  'ico',
-                ],
+                extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'],
               },
             ],
           });
@@ -260,7 +245,7 @@ export class ElectronFileRpcHandlers {
 
           for (const filePath of result.filePaths) {
             const stat = await fsModule.stat(filePath);
-            if (stat.size > MAX_IMAGE_SIZE) {
+            if (stat.size > MAX_IMAGE_SIZE_BYTES) {
               this.logger.warn(
                 'RPC: file:pick-images skipping oversized file',
                 {
@@ -273,8 +258,18 @@ export class ElectronFileRpcHandlers {
 
             const data = await fsModule.readFile(filePath);
             const base64 = data.toString('base64');
-            const ext = pathModule.extname(filePath).toLowerCase().slice(1);
-            const mediaType = MIME_MAP[ext] || `image/${ext}`;
+            // Sniff the bytes — extension is unreliable, magic bytes are
+            // the only thing the Anthropic API will accept.
+            const mediaType = resolveImageMediaType(undefined, base64);
+            if (mediaType === null) {
+              this.logger.warn(
+                'RPC: file:pick-images skipping unsupported image (no matching magic bytes)',
+                {
+                  path: filePath,
+                } as unknown as Error,
+              );
+              continue;
+            }
 
             images.push({
               data: base64,

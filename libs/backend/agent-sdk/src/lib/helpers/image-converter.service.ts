@@ -13,6 +13,10 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
+  MAX_IMAGE_SIZE_BYTES,
+  resolveImageMediaType,
+} from '@ptah-extension/shared';
+import {
   TextBlock,
   ToolResultBlock,
 } from '../types/sdk-types/claude-sdk.types';
@@ -31,10 +35,10 @@ type UserMessageContentBlock =
     }
   | ToolResultBlock;
 
-/** Maximum allowed image size (5MB) - matches Claude API limits */
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+/** Maximum allowed image size — shared with the rest of the codebase. */
+const MAX_IMAGE_SIZE = MAX_IMAGE_SIZE_BYTES;
 
-/** Supported image extensions */
+/** Supported image extensions (filter gate; sniffing is the real check). */
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 
 @injectable()
@@ -50,7 +54,7 @@ export class ImageConverterService {
    */
   async convertToContentBlocks(
     text: string,
-    files: readonly string[]
+    files: readonly string[],
   ): Promise<UserMessageContentBlock[]> {
     const blocks: UserMessageContentBlock[] = [{ type: 'text', text }];
 
@@ -59,7 +63,7 @@ export class ImageConverterService {
     }
 
     this.logger.debug(
-      `[ImageConverter] Checking ${files.length} files for images`
+      `[ImageConverter] Checking ${files.length} files for images`,
     );
 
     for (const file of files) {
@@ -76,31 +80,43 @@ export class ImageConverterService {
                 stats.size /
                 1024 /
                 1024
-              ).toFixed(2)}MB exceeds limit 5MB`
+              ).toFixed(2)}MB exceeds limit 5MB`,
             );
             continue;
           }
 
-          // Read and convert
+          // Read, base64-encode, then sniff. The previous ext-based switch
+          // had an `application/octet-stream` fallback that is actively
+          // rejected by the Anthropic API; trusting the ext would also let
+          // mislabeled files (e.g. a PNG renamed .jpg) through.
           const data = await fs.readFile(file);
-          const mediaType = this.getMediaType(ext);
+          const base64 = data.toString('base64');
+          const mediaType = resolveImageMediaType(undefined, base64);
+          if (mediaType === null) {
+            this.logger.warn(
+              `[ImageConverter] Skipping image ${path.basename(
+                file,
+              )}: unrecognized magic bytes`,
+            );
+            continue;
+          }
 
           blocks.push({
             type: 'image',
             source: {
               type: 'base64',
               media_type: mediaType,
-              data: data.toString('base64'),
+              data: base64,
             },
           });
 
           this.logger.debug(
-            `[ImageConverter] Processed image: ${path.basename(file)}`
+            `[ImageConverter] Processed image: ${path.basename(file)}`,
           );
         } catch (err) {
           this.logger.warn(
             `[ImageConverter] Failed to process image ${file}`,
-            err instanceof Error ? err : new Error(String(err))
+            err instanceof Error ? err : new Error(String(err)),
           );
         }
       }
@@ -110,31 +126,12 @@ export class ImageConverterService {
   }
 
   /**
-   * Map extension to MIME type
-   */
-  private getMediaType(ext: string): string {
-    switch (ext) {
-      case '.png':
-        return 'image/png';
-      case '.jpg':
-      case '.jpeg':
-        return 'image/jpeg';
-      case '.gif':
-        return 'image/gif';
-      case '.webp':
-        return 'image/webp';
-      default:
-        return 'application/octet-stream';
-    }
-  }
-
-  /**
    * Check if any files in the list are images
    */
   hasImages(files: readonly string[]): boolean {
     if (!files || files.length === 0) return false;
     return files.some((f) =>
-      IMAGE_EXTENSIONS.has(path.extname(f || '').toLowerCase())
+      IMAGE_EXTENSIONS.has(path.extname(f || '').toLowerCase()),
     );
   }
 }

@@ -22,6 +22,8 @@ import {
 } from 'lucide-angular';
 import {
   InlineImageAttachment,
+  MAX_IMAGE_SIZE_BYTES,
+  resolveImageMediaType,
   type EffortLevel,
 } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
@@ -160,6 +162,17 @@ interface PastedImage {
               </div>
             </div>
           }
+        </div>
+      }
+
+      <!-- Image attachment validation error (auto-clears after 4s) -->
+      @if (imageAttachmentError()) {
+        <div
+          class="flex items-center gap-1.5 text-xs text-error px-2"
+          role="alert"
+          aria-live="polite"
+        >
+          <span>{{ imageAttachmentError() }}</span>
         </div>
       }
 
@@ -405,6 +418,13 @@ export class ChatInputComponent implements OnInit {
   private readonly _isPickingFiles = signal(false);
   private readonly _isPickingImages = signal(false);
 
+  // Inline user-facing error for image attachment validation (auto-clears after 4s).
+  // Follows the same pattern as editor.service.ts showError/_error (signal + timeout).
+  private readonly _imageAttachmentError = signal<string | null>(null);
+  readonly imageAttachmentError = this._imageAttachmentError.asReadonly();
+  private _imageAttachmentErrorTimeout: ReturnType<typeof setTimeout> | null =
+    null;
+
   // Public signals
   readonly currentMessage = this._currentMessage.asReadonly();
   readonly suggestionMode = this._suggestionMode.asReadonly();
@@ -528,7 +548,27 @@ export class ChatInputComponent implements OnInit {
   }
 
   /**
-   * Handle clipboard paste - extract images from clipboard
+   * Show a transient, user-visible error near the input area.
+   * Mirrors the signal+timeout pattern used in editor.service.ts showError().
+   * Auto-clears after 4 seconds.
+   */
+  private showImageAttachmentError(message: string): void {
+    if (this._imageAttachmentErrorTimeout) {
+      clearTimeout(this._imageAttachmentErrorTimeout);
+    }
+    this._imageAttachmentError.set(message);
+    this._imageAttachmentErrorTimeout = setTimeout(() => {
+      this._imageAttachmentError.set(null);
+      this._imageAttachmentErrorTimeout = null;
+    }, 4000);
+  }
+
+  /**
+   * Handle clipboard paste - extract images from clipboard.
+   *
+   * Layer 2 defense-in-depth validation: magic-byte sniffing via
+   * resolveImageMediaType() + 5MB size cap. Unsupported/oversized images
+   * are rejected at the UI boundary before hitting the API.
    */
   handlePaste(event: ClipboardEvent): void {
     const items = event.clipboardData?.items;
@@ -540,19 +580,40 @@ export class ChatInputComponent implements OnInit {
         const file = item.getAsFile();
         if (!file) continue;
 
+        // Pre-check blob size against the API cap before decoding.
+        if (file.size > MAX_IMAGE_SIZE_BYTES) {
+          this.showImageAttachmentError('Image too large — 5MB max');
+          continue;
+        }
+
         const reader = new FileReader();
         reader.onload = () => {
           const dataUrl = reader.result as string;
           // Extract base64 data (remove "data:image/png;base64," prefix)
           const base64 = dataUrl.split(',')[1];
-          const mediaType = item.type;
+
+          // Size check on decoded bytes (belt-and-suspenders, base64 overhead ~33%)
+          const decodedSize = Math.floor(base64.length * 0.75);
+          if (decodedSize > MAX_IMAGE_SIZE_BYTES) {
+            this.showImageAttachmentError('Image too large — 5MB max');
+            return;
+          }
+
+          // Authoritative magic-byte sniff; do NOT trust item.type verbatim.
+          const mediaType = resolveImageMediaType(item.type, base64);
+          if (!mediaType) {
+            this.showImageAttachmentError(
+              'Unsupported image format — use PNG, JPEG, GIF, or WebP',
+            );
+            return;
+          }
 
           const pastedImage: PastedImage = {
             id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             data: base64,
             mediaType,
             dataUrl,
-            name: `pasted-image.${mediaType.split('/')[1] || 'png'}`,
+            name: `pasted-image.${mediaType.split('/')[1]}`,
           };
 
           this._pastedImages.update((imgs) => [...imgs, pastedImage]);
@@ -626,11 +687,23 @@ export class ChatInputComponent implements OnInit {
       if (!result.success || !result.data?.images?.length) return;
 
       for (const img of result.data.images) {
+        // Layer 2 belt-and-suspenders: backend already sniffed these, so a
+        // null here is a bug — warn in console but don't toast the user.
+        const mediaType = resolveImageMediaType(img.mediaType, img.data);
+        if (!mediaType) {
+          console.warn(
+            '[ChatInput] Picker returned image that failed client-side validation:',
+            img.name,
+            img.mediaType,
+          );
+          continue;
+        }
+
         const pastedImage: PastedImage = {
           id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           data: img.data,
-          mediaType: img.mediaType,
-          dataUrl: `data:${img.mediaType};base64,${img.data}`,
+          mediaType,
+          dataUrl: `data:${mediaType};base64,${img.data}`,
           name: img.name,
         };
 
@@ -683,15 +756,30 @@ export class ChatInputComponent implements OnInit {
     for (const file of Array.from(files)) {
       if (!file.type.startsWith('image/')) continue;
 
+      // Pre-check blob size against the API cap before decoding.
+      if (file.size > MAX_IMAGE_SIZE_BYTES) {
+        this.showImageAttachmentError('Image too large — 5MB max');
+        continue;
+      }
+
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = reader.result as string;
         const base64 = dataUrl.split(',')[1];
 
+        // Authoritative magic-byte sniff; do NOT trust file.type verbatim.
+        const mediaType = resolveImageMediaType(file.type, base64);
+        if (!mediaType) {
+          this.showImageAttachmentError(
+            'Unsupported image format — use PNG, JPEG, GIF, or WebP',
+          );
+          return;
+        }
+
         const droppedImage: PastedImage = {
           id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           data: base64,
-          mediaType: file.type,
+          mediaType,
           dataUrl,
           name: file.name,
         };
