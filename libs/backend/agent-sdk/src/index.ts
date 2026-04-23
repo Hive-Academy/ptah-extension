@@ -50,9 +50,6 @@ export {
   type DynamicModelFetcher,
 } from './lib/provider-models.service';
 
-// @deprecated Use ProviderModelsService instead
-export { ProviderModelsService as OpenRouterModelsService } from './lib/provider-models.service';
-
 // DI registration exports
 export { registerSdkServices } from './lib/di/register';
 export { SDK_TOKENS } from './lib/di/tokens';
