@@ -8,6 +8,7 @@ import { AuditModule } from '../audit/audit.module';
 import { UnsubscribeTokenService } from './services/unsubscribe-token.service';
 import { TemplateRenderService } from './services/template-render.service';
 import { SegmentResolverService } from './services/segment-resolver.service';
+import { MarketingService } from './services/marketing.service';
 import { PublicMarketingController } from './controllers/public-marketing.controller';
 import { AdminMarketingController } from './controllers/admin-marketing.controller';
 
@@ -24,12 +25,14 @@ import { AdminMarketingController } from './controllers/admin-marketing.controll
     UnsubscribeTokenService,
     TemplateRenderService,
     SegmentResolverService,
+    MarketingService,
   ],
   controllers: [PublicMarketingController, AdminMarketingController],
   exports: [
     UnsubscribeTokenService,
     TemplateRenderService,
     SegmentResolverService,
+    MarketingService,
   ],
 })
 export class MarketingModule {}

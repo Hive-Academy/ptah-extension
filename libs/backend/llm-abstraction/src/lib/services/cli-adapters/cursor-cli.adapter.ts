@@ -77,7 +77,11 @@ export class CursorCliAdapter implements CliAdapter {
 
   async detect(): Promise<CliDetectionResult> {
     try {
-      const binaryPath = await resolveCliPath('cursor');
+      // IMPORTANT: resolve 'cursor-agent' (headless CLI), NOT 'cursor' (GUI IDE).
+      // On Windows, `cursor` on PATH points to the Cursor IDE Electron app;
+      // passing CLI flags to it causes "not in list of known options" warnings
+      // and launches the IDE instead of running headless.
+      const binaryPath = await resolveCliPath('cursor-agent');
       if (!binaryPath) {
         return { cli: 'cursor', installed: false, supportsSteer: false };
       }
@@ -117,9 +121,8 @@ export class CursorCliAdapter implements CliAdapter {
   buildCommand(options: CliCommandOptions): CliCommand {
     const taskPrompt = buildTaskPrompt(options);
     return {
-      binary: 'cursor',
+      binary: 'cursor-agent',
       args: [
-        'agent',
         '--output-format',
         'stream-json',
         '--trust',
@@ -240,7 +243,6 @@ export class CursorCliAdapter implements CliAdapter {
     let capturedSessionId: string | undefined;
 
     const args = [
-      'agent',
       '--output-format',
       'stream-json',
       '--trust', // Bypass workspace confirmation prompts
@@ -309,7 +311,7 @@ export class CursorCliAdapter implements CliAdapter {
 
     // Spawn using cross-spawn — transparent .cmd handling on Windows.
     // No needsConsole needed (Cursor does not use node-pty/ConPTY internally).
-    const binary = options.binaryPath ?? 'cursor';
+    const binary = options.binaryPath ?? 'cursor-agent';
     const child = spawnCli(binary, args, {
       cwd: options.workingDirectory,
     });

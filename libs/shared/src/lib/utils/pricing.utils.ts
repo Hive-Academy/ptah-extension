@@ -610,6 +610,7 @@ export function formatModelDisplayName(modelId: string): string {
   if (lower.includes('gemini')) return 'Gemini';
 
   // Moonshot Kimi models
+  if (lower.includes('kimi-k2.6')) return 'Kimi K2.6';
   if (lower.includes('kimi-k2.5')) return 'Kimi K2.5';
   if (lower.includes('kimi-k2-thinking')) return 'Kimi K2 Thinking';
   if (lower.includes('kimi-k2')) return 'Kimi K2';

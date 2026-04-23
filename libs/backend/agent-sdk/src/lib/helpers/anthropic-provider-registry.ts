@@ -160,7 +160,7 @@ export const ANTHROPIC_PROVIDERS = [
     modelsEndpoint: 'https://api.moonshot.ai/v1/models',
     defaultTiers: {
       sonnet: 'kimi-k2.5',
-      opus: 'kimi-k2-thinking',
+      opus: 'kimi-k2.6',
       haiku: 'kimi-k2',
     },
     staticModels: [
@@ -205,6 +205,17 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
         outputCostPerToken: 3e-6, // $3.00 per 1M tokens
+        cacheReadCostPerToken: 0.023e-6, // 10% of input
+        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
+      },
+      {
+        id: 'kimi-k2.6',
+        name: 'Kimi K2.6',
+        description: 'Next-generation flagship model (256K context)',
+        contextLength: 256000,
+        supportsToolUse: true,
+        inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens (estimated, same tier as K2.5)
+        outputCostPerToken: 3e-6, // $3.00 per 1M tokens (estimated)
         cacheReadCostPerToken: 0.023e-6, // 10% of input
         cacheCreationCostPerToken: 0.2875e-6, // 125% of input
       },

@@ -1,9 +1,11 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from '../app/auth/auth.module';
 import { EmailModule } from '../email/email.module';
+import { LicenseModule } from '../license/license.module';
 import { AdminController } from './admin.controller';
 import { AdminGuard } from './admin.guard';
+import { AdminThrottlerGuard } from './admin-throttler.guard';
 import { AdminService } from './admin.service';
 
 /**
@@ -19,8 +21,17 @@ import { AdminService } from './admin.service';
  * Leaf module: exports nothing (no other module should consume admin services).
  */
 @Module({
-  imports: [ConfigModule, AuthModule, EmailModule],
+  imports: [
+    ConfigModule,
+    AuthModule,
+    EmailModule,
+    forwardRef(() => LicenseModule),
+  ],
   controllers: [AdminController],
-  providers: [AdminService, AdminGuard],
+  // `AuditModule` is `@Global()` — `AuditLogService` resolves without import.
+  // `AdminThrottlerGuard` is a per-route guard, provided (not exported) so
+  // `@UseGuards(AdminThrottlerGuard)` on controller methods can DI it.
+  providers: [AdminService, AdminGuard, AdminThrottlerGuard],
+  exports: [AdminThrottlerGuard],
 })
 export class AdminModule {}

@@ -213,36 +213,10 @@ function resolveCodexBinaryForElectron(): string | undefined {
     const platformPkg = CODEX_PLATFORM_PACKAGES[targetTriple];
     if (!platformPkg) return undefined;
 
-    // Resolve the SDK package root via package.json (immune to entry point changes).
-    // package.json always sits at the package root, so we only need 3 levels of '..'
-    // to reach node_modules/, regardless of how the SDK's main export is structured.
-    let sdkPkgJsonPath: string;
-    try {
-      sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
-    } catch {
-      return undefined;
-    }
-
-    if (!sdkPkgJsonPath.includes('app.asar')) return undefined;
-
-    // Navigate from codex-sdk/package.json to node_modules/ base directory
-    // sdkPkgJsonPath: .../app.asar/node_modules/@openai/codex-sdk/package.json
-    // We need:        .../app.asar.unpacked/node_modules/@openai/<platform-pkg>/vendor/<triple>/codex/<binary>
-    const nodeModulesOpenai = path.resolve(
-      sdkPkgJsonPath,
-      '..', // codex-sdk/
-      '..', // @openai/
-      '..', // node_modules/
-    );
-
     const binaryName = process.platform === 'win32' ? 'codex.exe' : 'codex';
-
-    // Platform package name without scope: e.g., "@openai/codex-win32-x64" -> "codex-win32-x64"
     const pkgDir = platformPkg.split('/')[1];
-
-    // Build path inside app.asar, then replace with app.asar.unpacked
-    const asarBinaryPath = path.join(
-      nodeModulesOpenai,
+    const relativeBinary = path.join(
+      'node_modules',
       '@openai',
       pkgDir,
       'vendor',
@@ -251,20 +225,51 @@ function resolveCodexBinaryForElectron(): string | undefined {
       binaryName,
     );
 
-    // Replace app.asar with app.asar.unpacked (only first occurrence)
-    const unpackedBinaryPath = asarBinaryPath.replace(
-      /app\.asar(?!\.unpacked)/,
-      'app.asar.unpacked',
-    );
-
-    if (existsSync(unpackedBinaryPath)) {
-      return unpackedBinaryPath;
+    // Primary strategy: derive from process.resourcesPath (packaged Electron).
+    // resourcesPath points to .../Ptah/resources — the unpacked binary lives at
+    // resources/app.asar.unpacked/node_modules/@openai/<pkg>/vendor/<triple>/codex/<bin>.
+    // This is robust even when the SDK is bundled by esbuild and require.resolve fails.
+    const resourcesPath = (
+      process as NodeJS.Process & { resourcesPath?: string }
+    ).resourcesPath;
+    if (resourcesPath) {
+      const unpackedFromResources = path.join(
+        resourcesPath,
+        'app.asar.unpacked',
+        relativeBinary,
+      );
+      if (existsSync(unpackedFromResources)) {
+        return unpackedFromResources;
+      }
     }
 
-    // ASAR environment detected but unpacked binary not found — likely asarUnpack
-    // config is missing or the Codex platform package wasn't installed.
+    // Fallback: resolve via SDK package.json (works in dev/unbundled contexts).
+    let sdkPkgJsonPath: string | undefined;
+    try {
+      sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
+    } catch {
+      sdkPkgJsonPath = undefined;
+    }
+
+    if (sdkPkgJsonPath) {
+      const nodeModulesRoot = path.resolve(
+        sdkPkgJsonPath,
+        '..',
+        '..',
+        '..',
+        '..',
+      );
+      const candidate = path.join(nodeModulesRoot, relativeBinary);
+      const unpacked = candidate.replace(
+        /app\.asar(?!\.unpacked)/,
+        'app.asar.unpacked',
+      );
+      if (existsSync(unpacked)) return unpacked;
+      if (existsSync(candidate)) return candidate;
+    }
+
     console.warn(
-      `[CodexAdapter] Electron ASAR detected but unpacked binary not found at: ${unpackedBinaryPath}`,
+      `[CodexAdapter] Electron detected but Codex binary not found. Tried resourcesPath=${resourcesPath ?? '<none>'}, sdkPath=${sdkPkgJsonPath ?? '<none>'}`,
     );
     return undefined;
   } catch (err) {

@@ -14,7 +14,11 @@ export class ResendWebhookGuard implements CanActivate {
   private readonly secret: string;
 
   constructor(private readonly config: ConfigService) {
-    this.secret = this.config.get<string>('RESEND_WEBHOOK_SECRET') || '';
+    let secret = this.config.get<string>('RESEND_WEBHOOK_SECRET') || '';
+    if (secret.startsWith('whsec_')) {
+      secret = secret.substring(6);
+    }
+    this.secret = secret;
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -60,7 +64,11 @@ export class ResendWebhookGuard implements CanActivate {
     // 5. Compute signature
     // Payload format: <svix-id>.<svix-timestamp>.<rawBody>
     const toSign = `${svixId}.${svixTimestamp}.${rawBody.toString('utf8')}`;
-    const hmac = crypto.createHmac('sha256', this.secret);
+    // The secret is base64 encoded (after stripping whsec_ prefix)
+    const hmac = crypto.createHmac(
+      'sha256',
+      Buffer.from(this.secret, 'base64'),
+    );
     const computedSignature = hmac.update(toSign).digest('base64');
 
     // 6. Iterate and verify signatures (Svix provides multiple space-separated 'v1,<sig>' pairs)
@@ -82,7 +90,7 @@ export class ResendWebhookGuard implements CanActivate {
           verified = true;
           break;
         }
-      } catch (err) {
+      } catch {
         // Handle potential base64 decoding errors
         continue;
       }
@@ -96,7 +104,7 @@ export class ResendWebhookGuard implements CanActivate {
     // Attach parsed body to request so controller can use it
     try {
       request.body = JSON.parse(rawBody.toString('utf8'));
-    } catch (err) {
+    } catch {
       this.logger.warn('Failed to parse Resend webhook body as JSON');
       throw new UnauthorizedException('Invalid JSON payload');
     }

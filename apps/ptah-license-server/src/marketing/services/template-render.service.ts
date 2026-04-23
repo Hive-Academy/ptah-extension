@@ -1,105 +1,135 @@
-import { Injectable } from '@nestjs/common';
-import sanitizeHtml from 'sanitize-html';
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import sanitizeHtml = require('sanitize-html');
 import { injectCampaignFooter } from '../utils/footer-injector';
-
-const ALLOWED_VARIABLES = ['firstName', 'email', 'unsubscribeUrl'] as const;
 
 @Injectable()
 export class TemplateRenderService {
-  private readonly allowedTags = [
-    'a',
-    'abbr',
-    'b',
-    'blockquote',
-    'br',
-    'caption',
-    'cite',
-    'code',
-    'col',
-    'colgroup',
-    'dd',
-    'del',
-    'details',
-    'div',
-    'dl',
-    'dt',
-    'em',
-    'figcaption',
-    'figure',
-    'h1',
-    'h2',
-    'h3',
-    'h4',
-    'h5',
-    'h6',
-    'hr',
-    'i',
-    'img',
-    'ins',
-    'kbd',
-    'li',
-    'mark',
-    'ol',
-    'p',
-    'pre',
-    'q',
-    's',
-    'section',
-    'small',
-    'span',
-    'strong',
-    'sub',
-    'summary',
-    'sup',
-    'table',
-    'tbody',
-    'td',
-    'tfoot',
-    'th',
-    'thead',
-    'time',
-    'tr',
-    'u',
-    'ul',
-  ];
+  private readonly postalAddress: string;
 
-  sanitizeForStorage(htmlBody: string): string {
-    return (sanitizeHtml as any)(htmlBody, {
-      allowedTags: this.allowedTags,
-      allowedAttributes: {
-        '*': ['style', 'class'],
-        a: ['href', 'target', 'rel'],
-        img: ['src', 'alt', 'width', 'height'],
+  // Implementation plan Â§8.3 whitelist
+  public static readonly SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+    allowedTags: [
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'p',
+      'a',
+      'ul',
+      'ol',
+      'li',
+      'strong',
+      'em',
+      'br',
+      'hr',
+      'div',
+      'span',
+      'img',
+      'table',
+      'thead',
+      'tbody',
+      'tr',
+      'td',
+      'th',
+      'blockquote',
+      'code',
+      'pre',
+    ],
+    allowedAttributes: {
+      a: ['href', 'title', 'target', 'rel'],
+      img: ['src', 'alt', 'width', 'height', 'style'],
+      '*': ['style', 'class', 'id'],
+    },
+    allowedSchemes: ['http', 'https', 'mailto'],
+    allowedSchemesByTag: { img: ['http', 'https', 'data'] },
+    disallowedTagsMode: 'discard',
+    allowVulnerableTags: false,
+    allowedStyles: {
+      '*': {
+        color: [/.*/],
+        'background-color': [/.*/],
+        'font-size': [/.*/],
+        'text-align': [/.*/],
+        padding: [/.*/],
+        margin: [/.*/],
+        width: [/.*/],
+        height: [/.*/],
+        display: [/.*/],
+        'font-family': [/.*/],
+        'line-height': [/.*/],
+        border: [/.*/],
+        'text-decoration': [/.*/],
+        'max-width': [/.*/],
       },
-      disallowedTagsMode: 'discard',
-    });
+    },
+  };
+
+  constructor(private readonly configService: ConfigService) {
+    this.postalAddress =
+      this.configService.get<string>('MARKETING_POSTAL_ADDRESS') || '';
   }
 
+  /**
+   * Render template with variables and sanitize
+   */
   render(params: {
     htmlBody: string;
     subject: string;
     user: { firstName?: string | null; email: string };
     unsubscribeUrl: string;
-    postalAddress: string;
   }): { html: string; subject: string } {
-    const vars: Record<(typeof ALLOWED_VARIABLES)[number], string> = {
-      firstName: params.user.firstName ?? params.user.email.split('@')[0],
-      email: params.user.email,
-      unsubscribeUrl: params.unsubscribeUrl,
-    };
-    let html = params.htmlBody;
-    let subject = params.subject;
-    for (const [key, val] of Object.entries(vars)) {
-      const re = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
-      html = html.replace(re, val);
-      subject = subject.replace(re, val);
-    }
-    html = this.sanitizeForStorage(html);
-    html = injectCampaignFooter(
-      html,
-      params.postalAddress,
-      params.unsubscribeUrl,
+    const { htmlBody, subject, user, unsubscribeUrl } = params;
+
+    // 1. Substitution (variable allowlist)
+    const firstName = user.firstName || user.email.split('@')[0];
+
+    const renderedHtml = htmlBody
+      .replace(/{{firstName}}/g, firstName)
+      .replace(/{{email}}/g, user.email)
+      .replace(/{{unsubscribeUrl}}/g, unsubscribeUrl);
+
+    const renderedSubject = subject
+      .replace(/{{firstName}}/g, firstName)
+      .replace(/{{email}}/g, user.email);
+
+    // 2. Sanitize
+    const sanitizedHtml = sanitizeHtml(
+      renderedHtml,
+      TemplateRenderService.SANITIZE_OPTIONS,
     );
-    return { html, subject };
+
+    // 3. Append Footer
+    const finalHtml = injectCampaignFooter(
+      sanitizedHtml,
+      this.postalAddress,
+      unsubscribeUrl,
+    );
+
+    return {
+      html: finalHtml,
+      subject: renderedSubject,
+    };
+  }
+
+  /**
+   * Sanitize for storage (called on save)
+   * Throws if sanitised output differs from input (R5)
+   */
+  sanitizeForStorage(htmlBody: string): string {
+    const sanitized = sanitizeHtml(
+      htmlBody,
+      TemplateRenderService.SANITIZE_OPTIONS,
+    );
+
+    if (sanitized.trim() !== htmlBody.trim()) {
+      throw new BadRequestException({
+        code: 'TEMPLATE_SANITISE_REJECTED',
+        message:
+          'The template contains disallowed HTML tags or attributes and has been rejected.',
+      });
+    }
+
+    return sanitized;
   }
 }
