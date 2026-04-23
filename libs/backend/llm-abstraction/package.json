@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@ptah-extension/shared": "*",
+    "@ptah-extension/platform-core": "0.0.1",
     "@ptah-extension/vscode-core": "0.0.1",
     "tsyringe": "^4.8.0"
   }

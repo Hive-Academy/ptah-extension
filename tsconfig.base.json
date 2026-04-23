@@ -38,6 +38,9 @@
       "@ptah-extension/platform-core": [
         "libs/backend/platform-core/src/index.ts"
       ],
+      "@ptah-extension/platform-core/testing": [
+        "libs/backend/platform-core/src/testing/index.ts"
+      ],
       "@ptah-extension/platform-electron": [
         "libs/backend/platform-electron/src/index.ts"
       ],
@@ -57,6 +60,9 @@
       "@ptah-extension/shared/testing": ["libs/shared/src/testing/index.ts"],
       "@ptah-extension/ui": ["libs/frontend/ui/src/index.ts"],
       "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
+      "@ptah-extension/vscode-core/testing": [
+        "libs/backend/vscode-core/src/testing/index.ts"
+      ],
       "@ptah-extension/vscode-lm-tools": [
         "libs/backend/vscode-lm-tools/src/index.ts"
       ],

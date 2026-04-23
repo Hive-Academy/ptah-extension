@@ -5,6 +5,16 @@
   "type": "commonjs",
   "main": "./index.cjs",
   "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.cjs"
+    },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "default": "./src/testing/index.ts"
+    }
+  },
   "dependencies": {
     "axios": "^1.15.0",
     "tsyringe": "^4.10.0",
