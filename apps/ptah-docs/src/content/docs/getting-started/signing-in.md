@@ -8,6 +8,10 @@ Ptah has two layers of authentication:
 1. A **Ptah license** that controls which app features are unlocked.
 2. **Provider credentials** (API keys or OAuth tokens) that let Ptah talk to the AI services you use.
 
+<video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
+  <source src="/assets/videos/auth.mp4" type="video/mp4" />
+</video>
+
 This page covers both. Neither is required to start using Ptah — the Free tier works out of the box with any provider you configure — but Pro unlocks advanced workflows.
 
 ## License tiers
