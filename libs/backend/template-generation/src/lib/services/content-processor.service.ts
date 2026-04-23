@@ -70,18 +70,19 @@ export class ContentProcessorService implements IContentProcessor {
    */
   async processTemplate(
     template: string,
-    data: Record<string, unknown>
+    data: Record<string, unknown>,
   ): Promise<Result<string>> {
     try {
       let processed = template;
 
       // Simple variable replacement: {{variableName}}
+      // Use function replacement so $, $&, $1... in the value are treated as literals.
       for (const [key, value] of Object.entries(data)) {
         const placeholder = `{{${key}}}`;
         const replacementValue = String(value);
         processed = processed.replace(
           new RegExp(placeholder, 'g'),
-          replacementValue
+          () => replacementValue,
         );
       }
 

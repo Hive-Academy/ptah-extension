@@ -467,6 +467,10 @@ export class ProviderRpcHandlers {
           validated.modelId,
         );
 
+        // Clear SDK model cache so the next config:models-list call re-fetches
+        // models with the updated tier env vars applied.
+        this.sdkAdapter.clearModelCache();
+
         this.logger.info('RPC: provider:setModelTier completed', {
           providerId,
           tier: validated.tier,
@@ -554,6 +558,10 @@ export class ProviderRpcHandlers {
         });
 
         await this.providerModels.clearModelTier(providerId, validated.tier);
+
+        // Clear SDK model cache so the next config:models-list call re-fetches
+        // models without the removed tier override.
+        this.sdkAdapter.clearModelCache();
 
         this.logger.info('RPC: provider:clearModelTier completed', {
           providerId,

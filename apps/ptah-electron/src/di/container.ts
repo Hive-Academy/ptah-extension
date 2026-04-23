@@ -49,7 +49,7 @@
 
 import 'reflect-metadata';
 import * as path from 'path';
-import { container, DependencyContainer, Lifecycle } from 'tsyringe';
+import { container, DependencyContainer } from 'tsyringe';
 
 import {
   registerPlatformElectronServices,
@@ -568,14 +568,14 @@ export class ElectronDIContainer {
     registerSdkServices(container, logger);
 
     // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (direct binding, deep-agent removed TASK_2025_293)
-    container.register(
-      TOKENS.AGENT_ADAPTER,
-      {
-        useFactory: (c) =>
-          c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
-      },
-      { lifecycle: Lifecycle.Singleton },
-    );
+    // NOTE: tsyringe rejects Lifecycle.Singleton with factory providers. The factory
+    // delegates to SDK_TOKENS.SDK_AGENT_ADAPTER which is already registered as a
+    // singleton (useClass + Lifecycle.Singleton in registerSdkServices), so every
+    // call returns the same cached instance.
+    container.register(TOKENS.AGENT_ADAPTER, {
+      useFactory: (c) =>
+        c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
+    });
 
     // Phase 2.2.5: WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs (TASK_2025_214)
     // These tokens are required by WizardWebviewLifecycleService which is registered

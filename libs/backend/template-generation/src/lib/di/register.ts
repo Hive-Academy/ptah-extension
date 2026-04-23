@@ -20,6 +20,7 @@
 import { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { TemplateManagerService } from '../services/template-manager.service';
 import { ContentGeneratorService } from '../services/content-generator.service';
 import { ContentProcessorService } from '../services/content-processor.service';
@@ -58,20 +59,20 @@ import { FileSystemAdapter } from '../adapters/file-system.adapter';
  */
 export function registerTemplateGenerationServices(
   container: DependencyContainer,
-  logger: Logger
+  logger: Logger,
 ): void {
   // TASK_2025_071 Batch 7: Dependency validation - fail fast if prerequisites missing
   if (!container.isRegistered(TOKENS.LOGGER)) {
     throw new Error(
-      '[Template Generation] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.'
+      '[Template Generation] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.',
     );
   }
 
-  // FileSystemAdapter depends on workspace-intelligence's FileSystemService
-  if (!container.isRegistered(TOKENS.FILE_SYSTEM_SERVICE)) {
+  // FileSystemAdapter depends on the platform-layer FILE_SYSTEM_PROVIDER
+  if (!container.isRegistered(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)) {
     throw new Error(
-      '[Template Generation] DEPENDENCY ERROR: workspace-intelligence services must be registered before template-generation. ' +
-        'Ensure registerWorkspaceIntelligenceServices is called BEFORE registerTemplateGenerationServices in container.ts.'
+      '[Template Generation] DEPENDENCY ERROR: PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER must be registered before template-generation. ' +
+        'Ensure the platform layer (VS Code or Electron) is registered BEFORE registerTemplateGenerationServices in container.ts.',
     );
   }
 
@@ -82,32 +83,32 @@ export function registerTemplateGenerationServices(
   // FileSystemAdapter wraps workspace-intelligence's FileSystemService (which uses TOKENS.FILE_SYSTEM_SERVICE)
   container.registerSingleton(
     TOKENS.TEMPLATE_FILE_SYSTEM_ADAPTER,
-    FileSystemAdapter
+    FileSystemAdapter,
   );
   container.registerSingleton(TOKENS.TEMPLATE_MANAGER, TemplateManagerService);
   container.registerSingleton(
     TOKENS.CONTENT_PROCESSOR,
-    ContentProcessorService
+    ContentProcessorService,
   );
   container.registerSingleton(
     TOKENS.CONTENT_GENERATOR,
-    ContentGeneratorService
+    ContentGeneratorService,
   );
   container.registerSingleton(
     TOKENS.TEMPLATE_PROCESSOR,
-    TemplateProcessorService
+    TemplateProcessorService,
   );
   container.registerSingleton(
     TOKENS.TEMPLATE_FILE_MANAGER,
-    TemplateFileManagerService
+    TemplateFileManagerService,
   );
   container.registerSingleton(
     TOKENS.TEMPLATE_ORCHESTRATOR,
-    TemplateOrchestratorService
+    TemplateOrchestratorService,
   );
   container.registerSingleton(
     TOKENS.TEMPLATE_GENERATOR_SERVICE,
-    TemplateGeneratorService
+    TemplateGeneratorService,
   );
 
   logger.info('[Template Generation] Services registered', {

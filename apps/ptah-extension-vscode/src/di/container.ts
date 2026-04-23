@@ -506,14 +506,14 @@ export class DIContainer {
     // directly against that symbol -- no bridge needed.
 
     // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (direct binding, deep-agent removed TASK_2025_293)
-    container.register(
-      TOKENS.AGENT_ADAPTER,
-      {
-        useFactory: (c) =>
-          c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
-      },
-      { lifecycle: Lifecycle.Singleton },
-    );
+    // NOTE: tsyringe rejects Lifecycle.Singleton with factory providers. The factory
+    // delegates to SDK_TOKENS.SDK_AGENT_ADAPTER which is already registered as a
+    // singleton (useClass + Lifecycle.Singleton in registerSdkServices), so every
+    // call returns the same cached instance.
+    container.register(TOKENS.AGENT_ADAPTER, {
+      useFactory: (c) =>
+        c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
+    });
 
     // ========================================
     // PHASE 2.8: Agent Generation Services (TASK_2025_069)

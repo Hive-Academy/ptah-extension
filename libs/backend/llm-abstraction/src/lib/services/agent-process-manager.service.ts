@@ -1502,6 +1502,15 @@ export class AgentProcessManager {
 
   private validateWorkingDirectory(dir: string): void {
     const workspaceRoot = this.getWorkspaceRoot();
+    // Reject if workspace root is missing. An empty workspaceRoot would pass
+    // the startsWith check for any directory (empty string is a prefix of
+    // everything), effectively disabling the guard.
+    if (!workspaceRoot || workspaceRoot.trim() === '') {
+      throw new Error('Cannot spawn agent process: no workspace root is open.');
+    }
+    if (!dir || dir.trim() === '') {
+      throw new Error('Working directory is required but was empty.');
+    }
     // Normalize paths for cross-platform comparison
     const normalizedDir = dir.replace(/\\/g, '/').toLowerCase();
     const normalizedRoot = workspaceRoot.replace(/\\/g, '/').toLowerCase();

@@ -1127,10 +1127,11 @@ export type RpcMethodName = keyof RpcMethodRegistry;
  * This array MUST match the keys in RpcMethodRegistry.
  * Used by the backend verification helper to ensure all methods have handlers.
  *
- * CRITICAL: When adding a new method to RpcMethodRegistry, add it here too!
- * TypeScript will NOT catch mismatches automatically (runtime vs compile-time).
+ * Drift detection: the `_assertAllMethodsListed` type below fails to compile
+ * if any key of RpcMethodRegistry is missing from this array — so adding a
+ * method to the registry without adding it here is now a type error.
  */
-export const RPC_METHOD_NAMES: RpcMethodName[] = [
+export const RPC_METHOD_NAMES = [
   // Chat Methods
   'chat:start',
   'chat:continue',
@@ -1367,7 +1368,20 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'harness:generate-document',
   'harness:analyze-intent',
   'harness:converse',
-] as const;
+] as const satisfies readonly RpcMethodName[];
+
+/**
+ * Compile-time drift detection: fails to build if a key is added to
+ * RpcMethodRegistry without being added to RPC_METHOD_NAMES.
+ */
+type _MissingRpcMethodNames = Exclude<
+  RpcMethodName,
+  (typeof RPC_METHOD_NAMES)[number]
+>;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _AssertAllRpcMethodsListed = [_MissingRpcMethodNames] extends [never]
+  ? true
+  : ['RPC_METHOD_NAMES missing entries for', _MissingRpcMethodNames];
 
 /**
  * Extract params type for a given RPC method

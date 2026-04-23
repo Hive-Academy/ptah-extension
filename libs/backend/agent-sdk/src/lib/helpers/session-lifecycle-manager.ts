@@ -784,125 +784,150 @@ export class SessionLifecycleManager {
       }
     }
 
-    // Step 4: Get SDK query function
-    const queryFn = await this.moduleLoader.getQueryFunction();
+    // Steps 4-7 may throw (SDK module load failure, options build failure,
+    // query construction failure). If any step fails after preRegisterActiveSession
+    // in Step 2, the session would be left orphaned in activeSessions. Wrap the
+    // init sequence in try/catch and clean up the pre-registered session on failure.
+    try {
+      // Step 4: Get SDK query function
+      const queryFn = await this.moduleLoader.getQueryFunction();
 
-    // Step 5: Create user message stream
-    const userMessageStream = this.createUserMessageStream(
-      sessionId,
-      abortController,
-    );
-
-    // Step 6: Build query options
-    // TASK_2025_098: Pass sessionId and onCompactionStart for compaction hooks
-    // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
-    // Resolve initial SDK permission mode from current autopilot config
-    const currentLevel = this.permissionHandler.getPermissionLevel();
-    const initialPermissionMode =
-      currentLevel === 'ask'
-        ? 'default'
-        : (SessionLifecycleManager.PERMISSION_MODE_MAP[currentLevel] as
-            | 'default'
-            | 'acceptEdits'
-            | 'bypassPermissions'
-            | 'plan');
-
-    const queryOptions = await this.queryOptionsBuilder.build({
-      userMessageStream,
-      abortController,
-      sessionConfig,
-      resumeSessionId,
-      sessionId: sessionId as string,
-      onCompactionStart,
-      onWorktreeCreated,
-      onWorktreeRemoved,
-      isPremium,
-      mcpServerRunning,
-      enhancedPromptsContent,
-      pluginPaths,
-      permissionMode: initialPermissionMode,
-      pathToClaudeCodeExecutable,
-    });
-
-    // Determine the effective prompt for the SDK query:
-    // - Resume sessions: idle prompt (messages via streamInput)
-    // - Slash commands: raw string (SDK parses commands from string prompts only)
-    // - Regular messages: iterable (messages queued as SDKUserMessage)
-    const isResume = !!resumeSessionId;
-    let effectivePrompt: string | AsyncIterable<SDKUserMessage>;
-    let promptMode: string;
-
-    if (isSlashCommand) {
-      // TASK_2025_184: Slash commands MUST be passed as raw string prompt
-      // even when resuming. The SDK only parses commands from string prompts.
-      effectivePrompt = initialContent;
-      promptMode = isResume
-        ? 'string (slash command + resume)'
-        : 'string (slash command)';
-    } else if (isResume) {
-      effectivePrompt = this.createIdlePromptStream(abortController);
-      promptMode = 'idle+streamInput';
-    } else {
-      effectivePrompt = queryOptions.prompt;
-      promptMode = 'iterable';
-    }
-
-    // NOTE: Do NOT set maxTurns: 1 for slash commands.
-    // Built-in commands (/compact, /cost, /context) bypass the turn loop entirely
-    // (SDK TerminalReason is "unset" for local slash commands), so maxTurns is
-    // irrelevant. Setting maxTurns: 1 actually BREAKS command recognition — the
-    // SDK sends the raw string to Claude as a regular message instead of parsing
-    // it as a built-in command.
-    // The session terminates naturally because streamInput is not connected
-    // (see Step 7b below), so no further input can arrive after the command.
-
-    this.logger.info('[SessionLifecycle] Starting SDK query with options', {
-      model: queryOptions.options.model,
-      cwd: queryOptions.options.cwd,
-      permissionMode: queryOptions.options.permissionMode,
-      maxTurns: queryOptions.options.maxTurns,
-      isResume,
-      isSlashCommand,
-      promptMode,
-    });
-
-    // Step 7: Start SDK query
-    const sdkQuery: Query = queryFn({
-      prompt: effectivePrompt,
-      options: queryOptions.options as Options,
-    });
-    const initialModel = queryOptions.options.model;
-
-    // Step 7b: Connect streamInput for follow-up message delivery
-    // Resume sessions: ALL messages come via streamInput (idle prompt)
-    // Regular sessions: follow-up messages come from the iterable
-    // Slash commands: Do NOT connect streamInput. The SDK processes the
-    // command from the string prompt and terminates naturally. Connecting
-    // streamInput would keep the query alive waiting for input that never
-    // comes, preventing the for-await-of loop from exiting.
-    if (isResume && !isSlashCommand) {
-      sdkQuery.streamInput(userMessageStream).catch((err) => {
-        this.logger.warn('[SessionLifecycle] streamInput error', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-      this.logger.info(
-        `[SessionLifecycle] Connected streamInput for session: ${sessionId} (${promptMode})`,
+      // Step 5: Create user message stream
+      const userMessageStream = this.createUserMessageStream(
+        sessionId,
+        abortController,
       );
+
+      // Step 6: Build query options
+      // TASK_2025_098: Pass sessionId and onCompactionStart for compaction hooks
+      // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
+      // Resolve initial SDK permission mode from current autopilot config
+      const currentLevel = this.permissionHandler.getPermissionLevel();
+      const initialPermissionMode =
+        currentLevel === 'ask'
+          ? 'default'
+          : (SessionLifecycleManager.PERMISSION_MODE_MAP[currentLevel] as
+              | 'default'
+              | 'acceptEdits'
+              | 'bypassPermissions'
+              | 'plan');
+
+      const queryOptions = await this.queryOptionsBuilder.build({
+        userMessageStream,
+        abortController,
+        sessionConfig,
+        resumeSessionId,
+        sessionId: sessionId as string,
+        onCompactionStart,
+        onWorktreeCreated,
+        onWorktreeRemoved,
+        isPremium,
+        mcpServerRunning,
+        enhancedPromptsContent,
+        pluginPaths,
+        permissionMode: initialPermissionMode,
+        pathToClaudeCodeExecutable,
+      });
+
+      // Determine the effective prompt for the SDK query:
+      // - Resume sessions: idle prompt (messages via streamInput)
+      // - Slash commands: raw string (SDK parses commands from string prompts only)
+      // - Regular messages: iterable (messages queued as SDKUserMessage)
+      const isResume = !!resumeSessionId;
+      let effectivePrompt: string | AsyncIterable<SDKUserMessage>;
+      let promptMode: string;
+
+      if (isSlashCommand) {
+        // TASK_2025_184: Slash commands MUST be passed as raw string prompt
+        // even when resuming. The SDK only parses commands from string prompts.
+        effectivePrompt = initialContent;
+        promptMode = isResume
+          ? 'string (slash command + resume)'
+          : 'string (slash command)';
+      } else if (isResume) {
+        effectivePrompt = this.createIdlePromptStream(abortController);
+        promptMode = 'idle+streamInput';
+      } else {
+        effectivePrompt = queryOptions.prompt;
+        promptMode = 'iterable';
+      }
+
+      // NOTE: Do NOT set maxTurns: 1 for slash commands.
+      // Built-in commands (/compact, /cost, /context) bypass the turn loop entirely
+      // (SDK TerminalReason is "unset" for local slash commands), so maxTurns is
+      // irrelevant. Setting maxTurns: 1 actually BREAKS command recognition — the
+      // SDK sends the raw string to Claude as a regular message instead of parsing
+      // it as a built-in command.
+      // The session terminates naturally because streamInput is not connected
+      // (see Step 7b below), so no further input can arrive after the command.
+
+      this.logger.info('[SessionLifecycle] Starting SDK query with options', {
+        model: queryOptions.options.model,
+        cwd: queryOptions.options.cwd,
+        permissionMode: queryOptions.options.permissionMode,
+        maxTurns: queryOptions.options.maxTurns,
+        isResume,
+        isSlashCommand,
+        promptMode,
+      });
+
+      // Step 7: Start SDK query
+      const sdkQuery: Query = queryFn({
+        prompt: effectivePrompt,
+        options: queryOptions.options as Options,
+      });
+      const initialModel = queryOptions.options.model;
+
+      // Step 7b: Connect streamInput for follow-up message delivery
+      // Resume sessions: ALL messages come via streamInput (idle prompt)
+      // Regular sessions: follow-up messages come from the iterable
+      // Slash commands: Do NOT connect streamInput. The SDK processes the
+      // command from the string prompt and terminates naturally. Connecting
+      // streamInput would keep the query alive waiting for input that never
+      // comes, preventing the for-await-of loop from exiting.
+      if (isResume && !isSlashCommand) {
+        sdkQuery.streamInput(userMessageStream).catch((err) => {
+          this.logger.warn('[SessionLifecycle] streamInput error', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        this.logger.info(
+          `[SessionLifecycle] Connected streamInput for session: ${sessionId} (${promptMode})`,
+        );
+      }
+
+      // Step 8: Set the query on the session
+      this.setSessionQuery(sessionId, sdkQuery);
+
+      this.logger.info(
+        `[SessionLifecycle] Query started for session: ${sessionId}`,
+      );
+
+      return {
+        sdkQuery,
+        initialModel,
+        abortController,
+      };
+    } catch (err) {
+      // Init failed after preRegisterActiveSession — remove the orphan session
+      // so retries aren't blocked by a stale entry and callers see a clean error.
+      this.activeSessions.delete(sessionId as string);
+      if (this._lastActiveTabId === (sessionId as string)) {
+        const remaining = Array.from(this.activeSessions.keys());
+        this._lastActiveTabId =
+          remaining.length > 0 ? remaining[remaining.length - 1] : null;
+      }
+      try {
+        abortController.abort();
+      } catch {
+        // ignore
+      }
+      this.logger.error(
+        `[SessionLifecycle] Query init failed for session ${sessionId}; rolling back pre-registration`,
+        err instanceof Error ? err : new Error(String(err)),
+      );
+      throw err;
     }
-
-    // Step 8: Set the query on the session
-    this.setSessionQuery(sessionId, sdkQuery);
-
-    this.logger.info(
-      `[SessionLifecycle] Query started for session: ${sessionId}`,
-    );
-
-    return {
-      sdkQuery,
-      initialModel,
-      abortController,
-    };
   }
 
   /**

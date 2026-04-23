@@ -56,40 +56,40 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
 
   // Claude 4.7 Opus (latest flagship)
   'claude-opus-4-7': {
-    inputCostPerToken: 5e-6, // $5.00 per 1M tokens
-    outputCostPerToken: 25e-6, // $25.00 per 1M tokens
-    cacheReadCostPerToken: 5e-7, // $0.50 per 1M tokens
-    cacheCreationCostPerToken: 6.25e-6, // $6.25 per 1M tokens
+    inputCostPerToken: 15e-6, // $15.00 per 1M tokens
+    outputCostPerToken: 75e-6, // $75.00 per 1M tokens
+    cacheReadCostPerToken: 1.5e-6, // $1.50 per 1M tokens
+    cacheCreationCostPerToken: 18.75e-6, // $18.75 per 1M tokens
     maxTokens: 1_000_000,
     provider: 'anthropic',
   },
 
   // Claude 4.6 Opus (previous flagship — 1M context window)
   'claude-opus-4-6-20250623': {
-    inputCostPerToken: 5e-6, // $5.00 per 1M tokens
-    outputCostPerToken: 25e-6, // $25.00 per 1M tokens
-    cacheReadCostPerToken: 5e-7, // $0.50 per 1M tokens
-    cacheCreationCostPerToken: 6.25e-6, // $6.25 per 1M tokens
+    inputCostPerToken: 15e-6, // $15.00 per 1M tokens
+    outputCostPerToken: 75e-6, // $75.00 per 1M tokens
+    cacheReadCostPerToken: 1.5e-6, // $1.50 per 1M tokens
+    cacheCreationCostPerToken: 18.75e-6, // $18.75 per 1M tokens
     maxTokens: 1_000_000,
     provider: 'anthropic',
   },
 
   // Claude 4.6 Opus (short alias)
   'claude-opus-4-6': {
-    inputCostPerToken: 5e-6,
-    outputCostPerToken: 25e-6,
-    cacheReadCostPerToken: 5e-7,
-    cacheCreationCostPerToken: 6.25e-6,
+    inputCostPerToken: 15e-6,
+    outputCostPerToken: 75e-6,
+    cacheReadCostPerToken: 1.5e-6,
+    cacheCreationCostPerToken: 18.75e-6,
     maxTokens: 1_000_000,
     provider: 'anthropic',
   },
 
   // Claude 4.5 Opus (previous flagship)
   'claude-opus-4-5-20251101': {
-    inputCostPerToken: 5e-6, // $5.00 per 1M tokens
-    outputCostPerToken: 25e-6, // $25.00 per 1M tokens
-    cacheReadCostPerToken: 5e-7, // $0.50 per 1M tokens
-    cacheCreationCostPerToken: 6.25e-6, // $6.25 per 1M tokens
+    inputCostPerToken: 15e-6, // $15.00 per 1M tokens
+    outputCostPerToken: 75e-6, // $75.00 per 1M tokens
+    cacheReadCostPerToken: 1.5e-6, // $1.50 per 1M tokens
+    cacheCreationCostPerToken: 18.75e-6, // $18.75 per 1M tokens
     maxTokens: 200_000,
     provider: 'anthropic',
   },

@@ -116,7 +116,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
    * Returns the assigned port and full URL.
    */
   async start(): Promise<{ port: number; url: string }> {
-    if (this.server) {
+    if (this.isRunning()) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const url = this.getUrl()!;
       this.logger.info(`${this.logPrefix} Already running at ${url}`);
@@ -174,7 +174,12 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       return;
     }
 
+    // Null fields immediately so isRunning() returns false at once and any
+    // concurrent start() call doesn't re-use this half-closed server.
     const server = this.server;
+    this.server = null;
+    this.port = null;
+
     return new Promise<void>((resolve) => {
       const forceTimeout = setTimeout(() => {
         this.logger.warn(
@@ -196,8 +201,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       server.close(() => {
         clearTimeout(forceTimeout);
         this.logger.info(`${this.logPrefix} Translation proxy stopped`);
-        this.server = null;
-        this.port = null;
         resolve();
       });
     });

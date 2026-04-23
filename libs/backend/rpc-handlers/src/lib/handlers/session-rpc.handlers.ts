@@ -14,6 +14,10 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
+import {
   SessionMetadataStore,
   SDK_TOKENS,
   SessionHistoryReaderService,
@@ -54,7 +58,24 @@ export class SessionRpcHandlers {
     private readonly historyReader: SessionHistoryReaderService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
+
+  /**
+   * Verify that a workspacePath supplied by the frontend is one of the
+   * currently open workspace folders. Prevents the webview from reading or
+   * operating on arbitrary paths outside the active workspace.
+   */
+  private isAuthorizedWorkspace(workspacePath: string): boolean {
+    if (!workspacePath) return false;
+    const folders = this.workspaceProvider.getWorkspaceFolders();
+    if (!folders || folders.length === 0) return false;
+    const normalize = (p: string) =>
+      path.resolve(p).replace(/\\/g, '/').toLowerCase();
+    const target = normalize(workspacePath);
+    return folders.some((f) => normalize(f) === target);
+  }
 
   /**
    * Register all session RPC methods
@@ -96,6 +117,14 @@ export class SessionRpcHandlers {
             limit,
             offset,
           });
+
+          if (!this.isAuthorizedWorkspace(workspacePath)) {
+            this.logger.warn(
+              'RPC: session:list rejected — workspacePath outside active workspace',
+              { workspacePath },
+            );
+            throw new Error('workspace-not-authorized');
+          }
 
           // Get session metadata for workspace
           const allSessions =
@@ -448,6 +477,14 @@ export class SessionRpcHandlers {
             sessionId,
             workspacePath,
           });
+
+          if (!this.isAuthorizedWorkspace(workspacePath)) {
+            this.logger.warn(
+              'RPC: session:validate rejected — workspacePath outside active workspace',
+              { workspacePath },
+            );
+            return { exists: false };
+          }
 
           const filePath = await this.findSessionFile(
             sessionId as string,

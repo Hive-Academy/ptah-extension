@@ -27,6 +27,7 @@ import {
   stripAnsiCodes,
   buildTaskPrompt,
   resolveCliPath,
+  resolveWindowsCmd,
   spawnCli,
 } from './cli-adapter.utils';
 
@@ -493,11 +494,13 @@ export class CodexCliAdapter implements CliAdapter {
     const electronBinaryPath = resolveCodexBinaryForElectron();
     if (electronBinaryPath) {
       codexOptions.codexPathOverride = electronBinaryPath;
-    } else if (
-      options.binaryPath &&
-      !options.binaryPath.toLowerCase().endsWith('.cmd')
-    ) {
-      codexOptions.codexPathOverride = options.binaryPath;
+    } else if (options.binaryPath) {
+      // Windows npm installs .cmd shims that the bundled codex-sdk's
+      // require.resolve() cannot locate. Resolve to the underlying native
+      // binary before passing as codexPathOverride.
+      codexOptions.codexPathOverride = await resolveWindowsCmd(
+        options.binaryPath,
+      );
     }
 
     const codex = new sdk.Codex(codexOptions);

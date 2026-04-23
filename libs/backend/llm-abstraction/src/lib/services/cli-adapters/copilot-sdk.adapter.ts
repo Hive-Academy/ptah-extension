@@ -920,8 +920,12 @@ export class CopilotSdkAdapter implements CliAdapter {
       clientOptions.useLoggedInUser = true;
     }
 
-    this.client = new sdkModule.CopilotClient(clientOptions);
-    await this.client.start();
+    // Assign this.client only AFTER start() succeeds. If start() throws,
+    // this.client stays null so a subsequent call can retry initialization
+    // instead of reusing a half-initialized client.
+    const client = new sdkModule.CopilotClient(clientOptions);
+    await client.start();
+    this.client = client;
   }
 
   /**

@@ -128,13 +128,14 @@ export class TemplateManagerService implements IPtahTemplateManager {
       }
 
       // Simple variable replacement: {{variableName}}
+      // Use function replacement so $, $&, $1... in the value are treated as literals.
       let processedContent = templateContent;
       for (const [key, value] of Object.entries(context)) {
         const placeholder = `{{${key}}}`;
         const replacementValue = String(value);
         processedContent = processedContent.replace(
           new RegExp(placeholder, 'g'),
-          replacementValue,
+          () => replacementValue,
         );
       }
 

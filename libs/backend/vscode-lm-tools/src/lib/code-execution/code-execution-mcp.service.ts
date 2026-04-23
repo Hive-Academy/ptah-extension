@@ -183,10 +183,28 @@ export class CodeExecutionMCP implements IDisposable {
   }
 
   /**
-   * Dispose of server resources
+   * Dispose of server resources (IDisposable contract — synchronous).
+   *
+   * Prefer disposeAsync() when the caller can await cleanup. This sync form
+   * kicks off stop() and surfaces any teardown error to the logger instead
+   * of silently swallowing it (which is what happened when dispose() simply
+   * called this.stop() without handling the returned promise).
    */
   dispose(): void {
-    this.stop();
+    this.disposeAsync().catch((error) => {
+      this.logger.error(
+        '[CodeExecutionMCP] Error during dispose',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    });
+  }
+
+  /**
+   * Async dispose — await this when the caller can wait for HTTP server
+   * shutdown to complete before proceeding (e.g., during app quit).
+   */
+  async disposeAsync(): Promise<void> {
+    await this.stop();
   }
 
   /**

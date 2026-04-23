@@ -355,9 +355,20 @@ export class SdkAgentAdapter implements IAgentAdapter {
       );
     });
     this.authManager.clearAuthentication();
+    // Clear model cache so next getSupportedModels() re-fetches with fresh auth/tier env vars.
+    // This covers all reset paths: auth switches, provider changes, and tier mapping changes.
+    this.modelService.clearCache();
     this.initialized = false;
     this.cliJsPath = null;
     this.logger.info('[SdkAgentAdapter] Disposed successfully');
+  }
+
+  /**
+   * Clear the SDK model cache so the next getSupportedModels() call re-fetches.
+   * Call this whenever tier mappings or auth env vars change without a full reset.
+   */
+  clearModelCache(): void {
+    this.modelService.clearCache();
   }
 
   /**

@@ -14,6 +14,7 @@
  * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.workspace.workspaceFolders with IWorkspaceProvider)
  */
 
+import * as path from 'path';
 import { injectable, inject, DependencyContainer } from 'tsyringe';
 import {
   Logger,
@@ -703,7 +704,8 @@ export class SetupRpcHandlers {
         'AnalysisStorageService',
       );
 
-      return storageService.loadMultiPhase(workspaceRoot, params.filename);
+      const safeFilename = path.basename(params.filename);
+      return storageService.loadMultiPhase(workspaceRoot, safeFilename);
     });
   }
 

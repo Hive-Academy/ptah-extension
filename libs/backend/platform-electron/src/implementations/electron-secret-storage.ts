@@ -21,6 +21,13 @@ import type { ISecretStorage } from '@ptah-extension/platform-core';
 import type { IEvent, SecretChangeEvent } from '@ptah-extension/platform-core';
 import { createEvent } from '@ptah-extension/platform-core';
 
+/**
+ * Plain-text fallback marker. Prepended to values stored when safeStorage
+ * encryption is not available (e.g. Linux without a keyring). Distinguishes
+ * raw strings from base64-encoded encrypted buffers on read.
+ */
+const PLAIN_MARKER = 'plain:';
+
 /** Minimal safeStorage interface — matches Electron's safeStorage module */
 export interface SafeStorageApi {
   isEncryptionAvailable(): boolean;
@@ -37,7 +44,7 @@ export class ElectronSecretStorage implements ISecretStorage {
 
   constructor(
     storageDirPath: string,
-    private readonly safeStorage: SafeStorageApi
+    private readonly safeStorage: SafeStorageApi,
   ) {
     this.filePath = path.join(storageDirPath, 'secrets.json');
     const [event, fire] = createEvent<SecretChangeEvent>();
@@ -47,25 +54,31 @@ export class ElectronSecretStorage implements ISecretStorage {
   }
 
   async get(key: string): Promise<string | undefined> {
-    const encrypted = this.secrets[key];
-    if (!encrypted) return undefined;
+    const stored = this.secrets[key];
+    if (!stored) return undefined;
+
+    // Plain-text fallback marker (written when encryption was unavailable at
+    // store() time). Honour the marker regardless of current encryption state
+    // so credentials survive round-trips across encryption-availability changes.
+    if (stored.startsWith(PLAIN_MARKER)) {
+      return stored.slice(PLAIN_MARKER.length);
+    }
 
     if (!this.safeStorage.isEncryptionAvailable()) {
-      // Fallback: return raw value if encryption not available (Linux without keyring)
       console.warn(
-        '[ElectronSecretStorage] Encryption not available, returning raw value'
+        '[ElectronSecretStorage] Encryption not available and stored value has no plain marker; cannot decrypt',
       );
-      return encrypted;
+      return undefined;
     }
 
     try {
-      const buffer = Buffer.from(encrypted, 'base64');
+      const buffer = Buffer.from(stored, 'base64');
       return this.safeStorage.decryptString(buffer);
     } catch (error) {
       console.error(
         '[ElectronSecretStorage] Failed to decrypt secret:',
         key,
-        error
+        error,
       );
       return undefined;
     }
@@ -76,15 +89,16 @@ export class ElectronSecretStorage implements ISecretStorage {
       const encrypted = this.safeStorage.encryptString(value);
       this.secrets[key] = encrypted.toString('base64');
     } else {
-      // Fallback: store raw (with warning)
+      // Fallback: tag with plain: marker so get() can distinguish a raw value
+      // from a base64-encoded encrypted buffer on future reads.
       console.warn(
-        '[ElectronSecretStorage] Encryption not available, storing raw'
+        '[ElectronSecretStorage] Encryption not available, storing with plain: marker',
       );
-      this.secrets[key] = value;
+      this.secrets[key] = PLAIN_MARKER + value;
     }
     this.writePromise = this.writePromise.then(
       () => this.persist(),
-      () => this.persist()
+      () => this.persist(),
     );
     await this.writePromise;
     this.fireChange({ key });
@@ -95,7 +109,7 @@ export class ElectronSecretStorage implements ISecretStorage {
     delete this.secrets[key];
     this.writePromise = this.writePromise.then(
       () => this.persist(),
-      () => this.persist()
+      () => this.persist(),
     );
     await this.writePromise;
     this.fireChange({ key });
@@ -119,7 +133,7 @@ export class ElectronSecretStorage implements ISecretStorage {
     await fsPromises.writeFile(
       tmpPath,
       JSON.stringify(this.secrets, null, 2),
-      'utf-8'
+      'utf-8',
     );
     await fsPromises.rename(tmpPath, this.filePath);
   }
