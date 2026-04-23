@@ -7,7 +7,7 @@
  */
 import type { IAIProvider, AISessionConfig } from './ai-provider.types';
 import type { SessionId } from './branded.types';
-import type { FlatStreamEventUnion } from './execution-node.types';
+import type { FlatStreamEventUnion } from './execution';
 
 /**
  * Callback signatures — mirrored from agent-sdk's SdkAgentAdapter public API.

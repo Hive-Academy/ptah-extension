@@ -4,7 +4,7 @@
  */
 
 import { SessionId, CorrelationId } from './branded.types';
-import type { FlatStreamEventUnion } from './execution-node.types';
+import type { FlatStreamEventUnion } from './execution';
 
 /**
  * Supported AI Provider IDs

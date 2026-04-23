@@ -34,7 +34,7 @@ import type {
   SubagentQueryParams,
   SubagentQueryResult,
 } from './subagent-registry.types';
-import type { SavedAnalysisMetadata } from './setup-wizard.types';
+import type { SavedAnalysisMetadata } from './wizard';
 
 // Types from child files used in the registry
 import type {
