@@ -26,7 +26,7 @@ env:
 jobs:
   main:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     # Skip if PR was closed/merged, or if commit message is a version bump
     if: |
       (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') &&
@@ -73,5 +73,12 @@ jobs:
         uses: nrwl/nx-set-shas@v4
         with:
           main-branch-name: main
+
+      # Required coverage gate (TASK_2025_294 W8.B1). Per-project
+      # `coverageThreshold` stanzas in each `jest.config.ts` are ratcheted
+      # to the current baseline rounded down to the nearest 5. A drop below
+      # the floor fails the job; specs are free to increase coverage.
+      - name: Run affected tests with coverage
+        run: npx nx affected -t test --coverage --parallel=3
 
       - run: npx nx affected -t build --exclude=infra-test
