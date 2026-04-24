@@ -13,7 +13,7 @@ import {
 } from './setup-wizard-state.service';
 import { VSCodeService } from '@ptah-extension/core';
 
-describe.skip('SetupWizardStateService', () => {
+describe('SetupWizardStateService', () => {
   let service: SetupWizardStateService;
   let mockVSCodeService: Partial<VSCodeService>;
 
@@ -278,7 +278,9 @@ describe.skip('SetupWizardStateService', () => {
         'generation',
         'completion',
       ];
-      const expected = [0, 20, 30, 40, 50, 100];
+      // stepProgress map from SetupWizardStateService: welcome=5, scan=20,
+      // analysis=35, selection=50, generation=55, completion=100.
+      const expected = [5, 20, 35, 50, 55, 100];
 
       steps.forEach((step, index) => {
         service.setCurrentStep(step);
@@ -307,7 +309,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:scan-progress', payload },
-        })
+        }),
       );
 
       expect(service.scanProgress()).toEqual(payload);
@@ -326,7 +328,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:analysis-complete', payload },
-        })
+        }),
       );
 
       expect(service.analysisResults()).toEqual(payload);
@@ -349,7 +351,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:available-agents', payload: { agents } },
-        })
+        }),
       );
 
       expect(service.availableAgents()).toEqual(agents);
@@ -367,7 +369,7 @@ describe.skip('SetupWizardStateService', () => {
             type: 'setup-wizard:generation-progress',
             payload: { progress },
           },
-        })
+        }),
       );
 
       expect(service.generationProgress()).toEqual(progress);
@@ -383,7 +385,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:generation-complete', payload },
-        })
+        }),
       );
 
       // Completion data should always be stored
@@ -393,7 +395,12 @@ describe.skip('SetupWizardStateService', () => {
       expect(service.currentStep()).toBe('welcome');
     });
 
-    it('should auto-transition to completion when on generation step', () => {
+    it('should auto-transition from generation to enhance step on complete', () => {
+      // After TASK_2025_149, the post-generation auto-transition hands off to
+      // the `enhance` step (Enhanced Prompts) rather than jumping straight to
+      // `completion`. The service's `setCurrentStepIfGeneration` helper fires
+      // on the generation-complete message only when the current step is
+      // 'generation'.
       service.setCurrentStep('generation');
 
       const payload: CompletionData = {
@@ -405,11 +412,11 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:generation-complete', payload },
-        })
+        }),
       );
 
       expect(service.completionData()).toEqual(payload);
-      expect(service.currentStep()).toBe('completion');
+      expect(service.currentStep()).toBe('enhance');
     });
 
     it('should handle error message', () => {
@@ -421,25 +428,26 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:error', payload },
-        })
+        }),
       );
 
       expect(service.errorState()).toEqual(payload);
     });
 
-    it('should ignore invalid messages', () => {
-      jest.spyOn(console, 'warn');
+    it('should ignore messages that are not wizard-shaped', () => {
+      // WizardMessageDispatcher validates the `type` discriminator but not
+      // payload shape (payloads are passed straight to the per-phase
+      // handlers). Messages without a `type` matching a wizard prefix are
+      // silently ignored — currentStep should remain unchanged.
+      const initialStep = service.currentStep();
 
       window.dispatchEvent(
         new MessageEvent('message', {
-          data: {
-            type: 'setup-wizard:scan-progress',
-            payload: { invalid: true },
-          },
-        })
+          data: { payload: { invalid: true } },
+        }),
       );
 
-      expect(console.warn).toHaveBeenCalled();
+      expect(service.currentStep()).toBe(initialStep);
     });
 
     it('should handle message processing errors', () => {
@@ -448,7 +456,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:scan-progress', payload: null },
-        })
+        }),
       );
 
       expect(service.errorState()).toBeTruthy();
@@ -460,7 +468,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'unknown:message', payload: {} },
-        })
+        }),
       );
 
       expect(service.currentStep()).toBe(initialStep);
@@ -472,7 +480,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { payload: {} },
-        })
+        }),
       );
 
       expect(service.currentStep()).toBe(initialStep);
@@ -490,10 +498,12 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:scan-progress', payload },
-        })
+        }),
       );
 
-      expect(service.generationProgress()?.percentComplete).toBe(NaN);
+      // The service guards `totalFiles > 0` before computing the ratio, so
+      // a 0/0 scan-progress payload yields a clean `0` rather than NaN.
+      expect(service.generationProgress()?.percentComplete).toBe(0);
     });
 
     it('should handle toggling non-existent agent', () => {
@@ -532,11 +542,11 @@ describe.skip('SetupWizardStateService', () => {
                 'AI-powered analysis unavailable. Using quick analysis mode.',
             },
           },
-        })
+        }),
       );
 
       expect(service.fallbackWarning()).toBe(
-        'AI-powered analysis unavailable. Using quick analysis mode.'
+        'AI-powered analysis unavailable. Using quick analysis mode.',
       );
       expect(service.errorState()).toBeNull();
     });
@@ -552,7 +562,7 @@ describe.skip('SetupWizardStateService', () => {
               details: 'Stack trace details',
             },
           },
-        })
+        }),
       );
 
       expect(service.errorState()).toEqual({
@@ -571,7 +581,7 @@ describe.skip('SetupWizardStateService', () => {
               message: 'Some error without type',
             },
           },
-        })
+        }),
       );
 
       expect(service.errorState()).toEqual({
@@ -600,7 +610,8 @@ describe.skip('SetupWizardStateService', () => {
 
     it('should return correct percentComplete for enhance step', () => {
       service.setCurrentStep('enhance');
-      expect(service.percentComplete()).toBe(55);
+      // stepProgress: enhance=85 (post-generation but pre-completion)
+      expect(service.percentComplete()).toBe(85);
     });
 
     it('should return canProceed=false for enhance step', () => {
@@ -628,7 +639,7 @@ describe.skip('SetupWizardStateService', () => {
               enhancedPromptsUsed: true,
             },
           },
-        })
+        }),
       );
 
       const completionData = service.completionData();
@@ -648,7 +659,7 @@ describe.skip('SetupWizardStateService', () => {
               duration: 30000,
             },
           },
-        })
+        }),
       );
 
       const completionData = service.completionData();
@@ -668,7 +679,7 @@ describe.skip('SetupWizardStateService', () => {
               enhancedPromptsUsed: false,
             },
           },
-        })
+        }),
       );
 
       const completionData = service.completionData();

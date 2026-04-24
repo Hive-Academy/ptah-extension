@@ -8,6 +8,15 @@ import {
 } from '../services/setup-wizard-state.service';
 import { VSCodeService } from '@ptah-extension/core';
 
+// F8: CompletionComponent was rewritten for multi-phase + enhanced-prompts
+// integration (TASK_2025_149, TASK_2025_206). The spec still targets the
+// pre-refactor template ("Your personalized agents have been generated...",
+// "Open Agents Folder" button, stat cards, tips alert) that has since been
+// replaced by an orchestrate-focused "Quick Start Guide". 15/23 tests fail on
+// outdated text/layout assertions; the remaining structural tests now hit
+// missing state signals from the refactored facade. Rewriting this spec
+// against the new template is out of scope for the F8 pre-existing-failure
+// batch. Tracking as a follow-up.
 describe.skip('CompletionComponent', () => {
   let component: CompletionComponent;
   let fixture: ComponentFixture<CompletionComponent>;
@@ -54,7 +63,7 @@ describe.skip('CompletionComponent', () => {
     it('should display success message', () => {
       const text = fixture.nativeElement.textContent;
       expect(text).toContain(
-        'Your personalized agents have been generated and are ready to use'
+        'Your personalized agents have been generated and are ready to use',
       );
     });
   });
@@ -493,7 +502,7 @@ describe.skip('CompletionComponent', () => {
 
     it('should have responsive button layout', () => {
       const buttonContainer = fixture.nativeElement.querySelector(
-        '.flex.flex-col.sm\\:flex-row'
+        '.flex.flex-col.sm\\:flex-row',
       );
       expect(buttonContainer).toBeTruthy();
     });

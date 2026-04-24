@@ -1,9 +1,28 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ConfirmationModalComponent } from './confirmation-modal.component';
 
-describe.skip('ConfirmationModalComponent', () => {
+describe('ConfirmationModalComponent', () => {
   let component: ConfirmationModalComponent;
   let fixture: ComponentFixture<ConfirmationModalComponent>;
+
+  beforeAll(() => {
+    // jsdom does not implement <dialog>.showModal / close — stub them so the
+    // component's open/close effects don't throw during detectChanges().
+    if (!HTMLDialogElement.prototype.showModal) {
+      HTMLDialogElement.prototype.showModal = function showModal(
+        this: HTMLDialogElement,
+      ) {
+        this.setAttribute('open', '');
+      } as HTMLDialogElement['showModal'];
+    }
+    if (!HTMLDialogElement.prototype.close) {
+      HTMLDialogElement.prototype.close = function close(
+        this: HTMLDialogElement,
+      ) {
+        this.removeAttribute('open');
+      } as HTMLDialogElement['close'];
+    }
+  });
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -20,7 +39,11 @@ describe.skip('ConfirmationModalComponent', () => {
 
   describe('Input Properties', () => {
     it('should have required title input', () => {
+      // `message` is also a required input on this component, so provide a
+      // value before detectChanges() to avoid NG0950 on the required-input
+      // check before we can read the rendered heading.
       fixture.componentRef.setInput('title', 'Test Title');
+      fixture.componentRef.setInput('message', 'body');
       fixture.detectChanges();
 
       const heading = fixture.nativeElement.querySelector('h3');
@@ -238,26 +261,14 @@ describe.skip('ConfirmationModalComponent', () => {
       fixture.detectChanges();
     });
 
-    // it('should show modal when show() is called', () => {
-    //   jest.spyOn(component['modal'].nativeElement, 'showModal');
-
-    //   component.show();
-
-    //   expect(component['modal'].nativeElement.showModal).toHaveBeenCalled();
-    // });
-
-    // it('should hide modal when hide() is called', () => {
-    //   jest.spyOn(component['modal'].nativeElement, 'close');
-
-    //   component.hide();
-
-    //   expect(component['modal'].nativeElement.close).toHaveBeenCalled();
-    // });
-
-    // it('should have static modal ViewChild', () => {
-    //   expect(component['modal']).toBeTruthy();
-    //   expect(component['modal'].nativeElement.tagName).toBe('DIALOG');
-    // });
+    it('should expose show() and hide() methods', () => {
+      // The original show/hide tests spied on ViewChild internals that no
+      // longer exist on the refactored component. Validate the public API
+      // surface instead — the real visibility behavior is now covered by
+      // the Backdrop Click and Custom Styling suites below.
+      expect(typeof component.show).toBe('function');
+      expect(typeof component.hide).toBe('function');
+    });
   });
 
   describe('Backdrop Click', () => {
@@ -274,7 +285,7 @@ describe.skip('ConfirmationModalComponent', () => {
       });
 
       const backdropButton = fixture.nativeElement.querySelector(
-        '.modal-backdrop button'
+        '.modal-backdrop button',
       );
       backdropButton.click();
     });
@@ -283,7 +294,7 @@ describe.skip('ConfirmationModalComponent', () => {
       jest.spyOn(component, 'hide');
 
       const backdropButton = fixture.nativeElement.querySelector(
-        '.modal-backdrop button'
+        '.modal-backdrop button',
       );
       backdropButton.click();
 
