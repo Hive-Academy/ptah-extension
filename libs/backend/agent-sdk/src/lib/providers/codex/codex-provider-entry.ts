@@ -8,7 +8,7 @@
 import type {
   AnthropicProvider,
   ProviderStaticModel,
-} from '../helpers/anthropic-provider-registry';
+} from '../_shared/provider-registry';
 
 /**
  * All models available through OpenAI Codex subscription.

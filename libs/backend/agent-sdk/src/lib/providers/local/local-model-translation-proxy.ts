@@ -21,9 +21,9 @@ import * as http from 'http';
 import * as https from 'https';
 import { injectable, inject } from 'tsyringe';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
-import { TranslationProxyBase } from '../openai-translation';
-import { SdkError } from '../errors';
-import { getAnthropicProvider } from '../helpers/anthropic-provider-registry';
+import { TranslationProxyBase } from '../_shared/translation';
+import { SdkError } from '../../errors';
+import { getAnthropicProvider } from '../_shared/provider-registry';
 
 // ---------------------------------------------------------------------------
 // Base class (NOT injectable -- subclasses provide DI)

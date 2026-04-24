@@ -60,20 +60,7 @@ import {
   PtahCliConfigPersistence,
   PtahCliSpawnOptions,
 } from '../ptah-cli';
-import {
-  CopilotAuthService,
-  CopilotTranslationProxy,
-} from '../copilot-provider';
-import { CodexAuthService, CodexTranslationProxy } from '../codex-provider';
-import {
-  OpenRouterAuthService,
-  OpenRouterTranslationProxy,
-} from '../openrouter-provider';
-import {
-  OllamaModelDiscoveryService,
-  LmStudioTranslationProxy,
-  OllamaCloudMetadataService,
-} from '../local-provider';
+import { registerProviders } from '../providers';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import { ModelResolver } from '../auth/model-resolver';
@@ -404,87 +391,10 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // ============================================================
-  // Copilot Provider Services (TASK_2025_186)
-  // Auth service and translation proxy for GitHub Copilot integration
-  // Must be registered before AuthManager resolves (which depends on these)
-  // ============================================================
-
-  container.register(
-    SDK_TOKENS.SDK_COPILOT_AUTH,
-    { useClass: CopilotAuthService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_COPILOT_PROXY,
-    { useClass: CopilotTranslationProxy },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
-  // Codex Provider Services (TASK_2025_193)
-  // Auth service and translation proxy for OpenAI Codex integration
-  // Must be registered before AuthManager resolves (which depends on these)
-  // ============================================================
-
-  container.register(
-    SDK_TOKENS.SDK_CODEX_AUTH,
-    { useClass: CodexAuthService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_CODEX_PROXY,
-    { useClass: CodexTranslationProxy },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
-  // OpenRouter Provider Services
-  // Auth service (reads API key from SecretStorage) and translation proxy
-  // (Anthropic <-> OpenAI Chat Completions). Must be registered before
-  // AuthManager resolves (which depends on these via ApiKeyStrategy).
-  // ============================================================
-
-  container.register(
-    SDK_TOKENS.SDK_OPENROUTER_AUTH,
-    { useClass: OpenRouterAuthService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_OPENROUTER_PROXY,
-    { useClass: OpenRouterTranslationProxy },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
-  // Local Model Provider Services (TASK_2025_265, updated TASK_2025_281)
-  // Ollama: model discovery service (Anthropic-native, no proxy)
-  // LM Studio: translation proxy (OpenAI-compat, still needs proxy)
-  // Must be registered before AuthManager resolves (which depends on these)
-  // ============================================================
-
-  // Ollama Cloud metadata service — must be registered BEFORE
-  // OllamaModelDiscoveryService (which now injects it via SDK_OLLAMA_CLOUD_METADATA)
-  container.register(
-    SDK_TOKENS.SDK_OLLAMA_CLOUD_METADATA,
-    { useClass: OllamaCloudMetadataService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_OLLAMA_DISCOVERY,
-    { useClass: OllamaModelDiscoveryService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_LM_STUDIO_PROXY,
-    { useClass: LmStudioTranslationProxy },
-    { lifecycle: Lifecycle.Singleton },
-  );
+  // Provider services (Copilot, Codex, OpenRouter, Ollama, LM Studio).
+  // Extracted to registerProviders() helper in TASK_2025_291 Wave C3.
+  // Must register before AuthManager (auth strategies depend on these tokens).
+  registerProviders(container);
 
   // ============================================================
   // Auth Strategies (TASK_AUTH_REFACTOR Phase 2)

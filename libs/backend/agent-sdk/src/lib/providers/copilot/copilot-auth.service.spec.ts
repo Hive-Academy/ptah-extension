@@ -75,7 +75,7 @@ import {
 } from '@ptah-extension/platform-core';
 import { CopilotAuthService } from './copilot-auth.service';
 import type { CopilotTokenResponse } from './copilot-provider.types';
-import { SdkError } from '../errors';
+import { SdkError } from '../../errors';
 import * as fileAuth from './copilot-file-auth';
 import * as deviceAuth from './copilot-device-code-auth';
 

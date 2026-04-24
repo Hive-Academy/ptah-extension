@@ -6,7 +6,7 @@
  * Registered into the Anthropic-compatible provider registry.
  */
 
-import type { AnthropicProvider } from '../helpers/anthropic-provider-registry';
+import type { AnthropicProvider } from '../_shared/provider-registry';
 
 /**
  * Ollama provider entry — LOCAL models via Anthropic-native API.

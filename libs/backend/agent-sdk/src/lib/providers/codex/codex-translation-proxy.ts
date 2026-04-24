@@ -15,8 +15,8 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { TranslationProxyBase } from '../openai-translation';
-import { SDK_TOKENS } from '../di/tokens';
+import { TranslationProxyBase } from '../_shared/translation';
+import { SDK_TOKENS } from '../../di/tokens';
 import type { ICodexAuthService } from './codex-provider.types';
 import {
   CODEX_PROVIDER_ENTRY,

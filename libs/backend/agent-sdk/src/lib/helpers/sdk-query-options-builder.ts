@@ -48,12 +48,12 @@ import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
-} from './anthropic-provider-registry';
+} from '../providers/_shared/provider-registry';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
-import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
-import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
-import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../openrouter-provider/openrouter-provider.types';
-import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../local-provider/local-provider.types';
+import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../providers/copilot/copilot-provider.types';
+import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../providers/codex/codex-provider.types';
+import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../providers/openrouter/openrouter-provider.types';
+import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local/local-provider.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT } from '../constants';
 

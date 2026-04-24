@@ -40,7 +40,7 @@ import {
   getAnthropicProvider,
   getProviderAuthEnvVar,
   seedStaticModelPricing,
-} from '../helpers/anthropic-provider-registry';
+} from '../providers/_shared/provider-registry';
 import type { ModelResolver } from '../auth/model-resolver';
 import {
   assembleSystemPrompt,

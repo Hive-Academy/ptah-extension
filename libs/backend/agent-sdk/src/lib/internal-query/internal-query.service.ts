@@ -53,7 +53,7 @@ import { CompactionHookHandler } from '../helpers/compaction-hook-handler';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
-} from '../helpers/anthropic-provider-registry';
+} from '../providers/_shared/provider-registry';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import type {
   Options as SdkQueryOptions,

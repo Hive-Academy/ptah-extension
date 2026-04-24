@@ -12,10 +12,10 @@ import { injectable, inject } from 'tsyringe';
 import * as https from 'https';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
-import { TranslationProxyBase } from '../openai-translation';
+import { TranslationProxyBase } from '../_shared/translation';
 import type { ICopilotAuthService } from './copilot-provider.types';
 import { COPILOT_PROVIDER_ENTRY } from './copilot-provider-entry';
-import { SDK_TOKENS } from '../di/tokens';
+import { SDK_TOKENS } from '../../di/tokens';
 
 /** Default Copilot API endpoint (used when auth state has no override) */
 const DEFAULT_COPILOT_API_ENDPOINT = 'https://api.githubcopilot.com';

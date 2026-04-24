@@ -49,8 +49,8 @@ import {
   getProviderAuthEnvVar,
   seedStaticModelPricing,
   type AnthropicProvider,
-} from '../helpers/anthropic-provider-registry';
-import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../local-provider';
+} from '../providers/_shared/provider-registry';
+import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local';
 import { buildSafeEnv } from '../helpers/build-safe-env';
 import { TIER_TO_MODEL_ID, type ModelTier } from '../helpers/sdk-model-service';
 import type { Options } from '../types/sdk-types/claude-sdk.types';

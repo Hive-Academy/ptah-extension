@@ -26,7 +26,7 @@ import { createMockAuthSecretsService } from '@ptah-extension/vscode-core/testin
 import type { MockAuthSecretsService } from '@ptah-extension/vscode-core/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { OpenRouterAuthService } from './openrouter-auth.service';
-import { SdkError } from '../errors';
+import { SdkError } from '../../errors';
 
 const PROVIDER_ID = 'openrouter';
 

@@ -43,9 +43,9 @@ import {
 
 import { ApiKeyStrategy } from './api-key.strategy';
 import type { AuthConfigureContext } from '../auth-strategy.types';
-import type { ITranslationProxy } from '../../openai-translation';
+import type { ITranslationProxy } from '../../providers/_shared/translation';
 import type { ProviderModelsService } from '../../provider-models.service';
-import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../../openrouter-provider';
+import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../../providers/openrouter';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers

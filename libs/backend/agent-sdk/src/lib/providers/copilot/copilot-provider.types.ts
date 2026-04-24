@@ -34,7 +34,7 @@ export type {
   AnthropicToolDefinition,
   AnthropicToolChoice,
   AnthropicMessagesRequest,
-} from '../openai-translation';
+} from '../_shared/translation';
 
 // ---------------------------------------------------------------------------
 // Copilot Constants

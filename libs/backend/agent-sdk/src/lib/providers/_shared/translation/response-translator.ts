@@ -104,7 +104,7 @@ export class OpenAIResponseTranslator {
    */
   constructor(
     private readonly model: string,
-    private readonly requestId: string
+    private readonly requestId: string,
   ) {}
 
   /**
@@ -162,7 +162,7 @@ export class OpenAIResponseTranslator {
         sseEvent('content_block_stop', {
           type: 'content_block_stop',
           index: this.blockIndex,
-        })
+        }),
       );
       this.inTextBlock = false;
     }
@@ -178,7 +178,7 @@ export class OpenAIResponseTranslator {
         type: 'message_delta',
         delta: { stop_reason: stopReason, stop_sequence: null },
         usage: { output_tokens: this.outputTokens },
-      })
+      }),
     );
 
     // message_stop
@@ -268,7 +268,7 @@ export class OpenAIResponseTranslator {
           type: 'content_block_start',
           index: this.blockIndex,
           content_block: { type: 'text', text: '' },
-        })
+        }),
       );
       this.inTextBlock = true;
     }
@@ -279,7 +279,7 @@ export class OpenAIResponseTranslator {
         type: 'content_block_delta',
         index: this.blockIndex,
         delta: { type: 'text_delta', text },
-      })
+      }),
     );
 
     return events;
@@ -303,7 +303,7 @@ export class OpenAIResponseTranslator {
         sseEvent('content_block_stop', {
           type: 'content_block_stop',
           index: this.blockIndex,
-        })
+        }),
       );
       this.blockIndex++;
       this.inTextBlock = false;
@@ -352,7 +352,7 @@ export class OpenAIResponseTranslator {
             name: buffer.name,
             input: {},
           },
-        })
+        }),
       );
     }
 
@@ -366,7 +366,7 @@ export class OpenAIResponseTranslator {
             type: 'input_json_delta',
             partial_json: toolDelta.function.arguments,
           },
-        })
+        }),
       );
     }
 
@@ -393,7 +393,7 @@ export class OpenAIResponseTranslator {
               name: buffer.name,
               input: {},
             },
-          })
+          }),
         );
       }
 
@@ -403,7 +403,7 @@ export class OpenAIResponseTranslator {
           sseEvent('content_block_stop', {
             type: 'content_block_stop',
             index: buffer.assignedBlockIndex,
-          })
+          }),
         );
       }
     }
@@ -433,7 +433,7 @@ export class OpenAIResponseTranslator {
         sseEvent('content_block_stop', {
           type: 'content_block_stop',
           index: this.blockIndex,
-        })
+        }),
       );
       this.inTextBlock = false;
     }
@@ -472,7 +472,7 @@ export class OpenAIResponseTranslator {
         type: 'message_delta',
         delta: { stop_reason: stopReason, stop_sequence: null },
         usage: { output_tokens: this.outputTokens },
-      })
+      }),
     );
 
     // message_stop

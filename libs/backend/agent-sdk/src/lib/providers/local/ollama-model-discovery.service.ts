@@ -23,8 +23,8 @@ import {
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
-import { getAnthropicProvider } from '../helpers/anthropic-provider-registry';
-import { SDK_TOKENS } from '../di/tokens';
+import { getAnthropicProvider } from '../_shared/provider-registry';
+import { SDK_TOKENS } from '../../di/tokens';
 import {
   OllamaCloudMetadataService,
   isCloudTag,

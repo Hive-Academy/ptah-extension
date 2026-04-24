@@ -18,14 +18,14 @@
  */
 
 import { updatePricingMap, type ModelPricing } from '@ptah-extension/shared';
-import { SdkError } from '../errors';
-import { COPILOT_PROVIDER_ENTRY } from '../copilot-provider';
-import { CODEX_PROVIDER_ENTRY } from '../codex-provider';
+import { SdkError } from '../../errors';
+import { COPILOT_PROVIDER_ENTRY } from '../copilot';
+import { CODEX_PROVIDER_ENTRY } from '../codex';
 import {
   OLLAMA_PROVIDER_ENTRY,
   OLLAMA_CLOUD_PROVIDER_ENTRY,
   LM_STUDIO_PROVIDER_ENTRY,
-} from '../local-provider';
+} from '../local';
 
 /**
  * Static model definition for providers without a dynamic models API

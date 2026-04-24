@@ -49,7 +49,7 @@ export type {
 // ---------------------------------------------------------------------------
 
 // Response translator (renamed: CopilotResponseTranslator -> OpenAIResponseTranslator)
-export { OpenAIResponseTranslator as CopilotResponseTranslator } from '../openai-translation';
+export { OpenAIResponseTranslator as CopilotResponseTranslator } from '../_shared/translation';
 
 // Request translator (pure functions, stateless)
 export {
@@ -58,11 +58,11 @@ export {
   translateMessages,
   translateTools,
   translateToolChoice,
-} from '../openai-translation';
+} from '../_shared/translation';
 
 // Protocol type re-exports for backward compatibility
 export type {
   AnthropicMessagesRequest,
   OpenAIChatCompletionsRequest,
   OpenAIStreamChunk,
-} from '../openai-translation';
+} from '../_shared/translation';

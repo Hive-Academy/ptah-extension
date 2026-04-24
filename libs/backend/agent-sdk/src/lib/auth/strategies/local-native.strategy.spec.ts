@@ -49,17 +49,17 @@ import {
 
 import { LocalNativeStrategy } from './local-native.strategy';
 import type { AuthConfigureContext } from '../auth-strategy.types';
-import type { OllamaModelDiscoveryService } from '../../local-provider/ollama-model-discovery.service';
-import type { OllamaCloudMetadataService } from '../../local-provider/ollama-cloud-metadata.service';
-import type { ICopilotTranslationProxy } from '../../copilot-provider/copilot-provider.types';
-import type { ITranslationProxy } from '../../openai-translation';
-import type { LocalModelTranslationProxy } from '../../local-provider/local-model-translation-proxy';
+import type { OllamaModelDiscoveryService } from '../../providers/local/ollama-model-discovery.service';
+import type { OllamaCloudMetadataService } from '../../providers/local/ollama-cloud-metadata.service';
+import type { ICopilotTranslationProxy } from '../../providers/copilot/copilot-provider.types';
+import type { ITranslationProxy } from '../../providers/_shared/translation';
+import type { LocalModelTranslationProxy } from '../../providers/local/local-model-translation-proxy';
 import type {
   ProviderModelsService,
   DynamicModelFetcher,
 } from '../../provider-models.service';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
-import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../../local-provider';
+import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../../providers/local';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers

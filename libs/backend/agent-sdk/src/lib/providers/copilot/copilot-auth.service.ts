@@ -34,7 +34,7 @@ import type {
   CopilotAuthState,
   CopilotTokenResponse,
 } from './copilot-provider.types';
-import { SdkError } from '../errors';
+import { SdkError } from '../../errors';
 import { readCopilotToken, writeCopilotToken } from './copilot-file-auth';
 import {
   executeDeviceCodeFlow,

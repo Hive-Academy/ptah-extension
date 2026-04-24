@@ -35,11 +35,11 @@ import type { AuthConfigureContext } from '../auth-strategy.types';
 import type {
   ICopilotAuthService,
   ICopilotTranslationProxy,
-} from '../../copilot-provider/copilot-provider.types';
-import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../../copilot-provider/copilot-provider.types';
-import type { ICodexAuthService } from '../../codex-provider/codex-provider.types';
-import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../../codex-provider/codex-provider.types';
-import type { ITranslationProxy } from '../../openai-translation';
+} from '../../providers/copilot/copilot-provider.types';
+import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../../providers/copilot/copilot-provider.types';
+import type { ICodexAuthService } from '../../providers/codex/codex-provider.types';
+import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../../providers/codex/codex-provider.types';
+import type { ITranslationProxy } from '../../providers/_shared/translation';
 import type { ProviderModelsService } from '../../provider-models.service';
 
 // ---------------------------------------------------------------------------

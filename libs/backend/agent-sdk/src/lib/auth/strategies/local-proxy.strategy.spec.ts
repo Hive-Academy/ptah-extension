@@ -30,15 +30,15 @@ import { createMockSentryService } from '@ptah-extension/vscode-core/testing';
 
 import { LocalProxyStrategy } from './local-proxy.strategy';
 import type { AuthConfigureContext } from '../auth-strategy.types';
-import type { LocalModelTranslationProxy } from '../../local-provider/local-model-translation-proxy';
-import type { ICopilotTranslationProxy } from '../../copilot-provider/copilot-provider.types';
-import type { ITranslationProxy } from '../../openai-translation';
+import type { LocalModelTranslationProxy } from '../../providers/local/local-model-translation-proxy';
+import type { ICopilotTranslationProxy } from '../../providers/copilot/copilot-provider.types';
+import type { ITranslationProxy } from '../../providers/_shared/translation';
 import type {
   ProviderModelsService,
   DynamicModelFetcher,
 } from '../../provider-models.service';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
-import { LOCAL_PROXY_TOKEN_PLACEHOLDER } from '../../local-provider';
+import { LOCAL_PROXY_TOKEN_PLACEHOLDER } from '../../providers/local';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers

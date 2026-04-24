@@ -28,7 +28,7 @@ import {
   getAnthropicProvider,
   DEFAULT_PROVIDER_ID,
   ANTHROPIC_DIRECT_PROVIDER_ID,
-} from './anthropic-provider-registry';
+} from '../providers/_shared/provider-registry';
 
 export interface AuthResult {
   configured: boolean;

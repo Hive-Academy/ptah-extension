@@ -19,7 +19,7 @@ import type { MockWorkspaceProvider } from '@ptah-extension/platform-core/testin
 import type { Logger } from '@ptah-extension/vscode-core';
 import { CodexAuthService } from './codex-auth.service';
 import type { CodexAuthFile } from './codex-provider.types';
-import { SdkError } from '../errors';
+import { SdkError } from '../../errors';
 
 // -----------------------------------------------------------------------------
 // node:fs/promises mock — codex-auth reads ~/.codex/auth.json directly.

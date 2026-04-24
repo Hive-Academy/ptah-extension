@@ -31,7 +31,7 @@ import {
   ANTHROPIC_DIRECT_PROVIDER_ID,
   DEFAULT_PROVIDER_ID,
   type AnthropicProvider,
-} from './helpers/anthropic-provider-registry';
+} from './providers/_shared/provider-registry';
 import { TIER_ENV_VAR_MAP } from './helpers/sdk-model-service';
 import { SDK_TOKENS } from './di/tokens';
 

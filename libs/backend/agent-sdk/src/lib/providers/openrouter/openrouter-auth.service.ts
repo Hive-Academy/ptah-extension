@@ -18,7 +18,7 @@ import {
   TOKENS,
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
-import { SdkError } from '../errors';
+import { SdkError } from '../../errors';
 import type { IOpenRouterAuthService } from './openrouter-provider.types';
 
 /**
