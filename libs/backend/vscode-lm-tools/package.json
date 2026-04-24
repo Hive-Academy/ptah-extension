@@ -12,6 +12,7 @@
     "@ptah-extension/vscode-core": "0.0.1",
     "@ptah-extension/shared": "0.0.1",
     "@ptah-extension/workspace-intelligence": "0.0.1",
+    "@ptah-extension/agent-sdk": "0.0.1",
     "json2md": "^2.0.1",
     "minimatch": "10.2.4",
     "exa-js": "^2.10.2",
