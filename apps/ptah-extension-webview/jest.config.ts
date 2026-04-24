@@ -12,7 +12,11 @@ export default {
       },
     ],
   },
-  transformIgnorePatterns: ['node_modules/(?!.*\\.mjs$)'],
+  // Allow marked + ngx-markdown through ts-jest; both ship pure-ESM
+  // entrypoints that the default CJS transform refuses to parse.
+  transformIgnorePatterns: [
+    'node_modules/(?!(?:.*\\.mjs$|marked|ngx-markdown))',
+  ],
   snapshotSerializers: [
     'jest-preset-angular/build/serializers/no-ng-attributes',
     'jest-preset-angular/build/serializers/ng-snapshot',
