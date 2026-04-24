@@ -9,6 +9,16 @@
  * privileged filesystem access (mirrors the Electron impl's harness).
  */
 
+// chokidar@5 is pure ESM, which ts-jest CJS cannot load. The contract test
+// for `createFileWatcher` only asserts the returned object's shape, so stub
+// the module with a minimal sync watcher that satisfies chokidar's API.
+jest.mock('chokidar', () => ({
+  watch: () => ({
+    on: () => undefined,
+    close: () => Promise.resolve(),
+  }),
+}));
+
 import 'reflect-metadata';
 import * as fs from 'fs/promises';
 import * as os from 'os';

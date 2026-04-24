@@ -132,7 +132,14 @@ export class CliWorkspaceProvider implements IWorkspaceProvider {
    * Fires onDidChangeWorkspaceFolders event.
    */
   setWorkspaceFolders(folders: string[]): void {
-    this.folders = folders.map((f) => path.resolve(f));
+    // Only resolve relative paths — absolute inputs are preserved verbatim so
+    // POSIX fixtures like `/root` round-trip correctly on Windows. On Windows
+    // `path.resolve('/root')` would prepend the current drive letter and
+    // silently mangle an already-absolute POSIX path. The Electron impl
+    // stores the seed verbatim too; this aligns both impls.
+    this.folders = folders.map((f) =>
+      path.isAbsolute(f) ? f : path.resolve(f),
+    );
     this.fireFoldersChange(undefined as unknown as void);
   }
 

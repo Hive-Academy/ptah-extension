@@ -120,8 +120,10 @@ export class CliUserInteraction implements IUserInteraction {
   }
 
   async showInputBox(_options?: InputBoxOptions): Promise<string | undefined> {
-    // v1 stub: return empty string (will be upgraded to TUI in Batch 6)
-    return '';
+    // v1 stub: return undefined (equivalent to "cancelled") until the TUI in
+    // Batch 6 wires a real prompt. Returning '' would masquerade as a valid
+    // user input and break callers that branch on undefined = cancellation.
+    return undefined;
   }
 
   async withProgress<T>(

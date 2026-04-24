@@ -139,14 +139,13 @@ describe('CliUserInteraction — CLI-specific behaviour', () => {
     await expect(provider.showQuickPick([])).resolves.toBeUndefined();
   });
 
-  // TODO(W4.B3): impl divergence — `showInputBox` returns `''` (empty string)
-  //   in v1, but `runUserInteractionContract` accepts only `undefined` or the
-  //   scripted value. `''` is neither, so the contract test "resolves with
-  //   the scripted value or undefined" fails. The impl comment calls this a
-  //   v1 stub slated for upgrade in a later batch — until then, either widen
-  //   the contract to accept `''` or return `undefined` from the stub.
-  it('showInputBox returns empty string as the v1 stub contract', async () => {
-    await expect(provider.showInputBox({ prompt: 'name?' })).resolves.toBe('');
+  it('showInputBox returns undefined as the v1 stub contract', async () => {
+    // v1 returns `undefined` (cancelled) until the Batch 6 TUI wires a real
+    // prompt. Returning `''` previously masqueraded as a valid input and
+    // broke the shared `runUserInteractionContract` assertion set.
+    await expect(
+      provider.showInputBox({ prompt: 'name?' }),
+    ).resolves.toBeUndefined();
   });
 
   it('withProgress runs the task directly and returns its resolved value', async () => {
