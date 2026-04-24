@@ -12,6 +12,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
   registerAllRpcHandlers,
+  registerChatServices,
   verifyAndReportRpcRegistration,
   __debugAssertSharedHandlersDisjoint,
 } from '@ptah-extension/rpc-handlers';
@@ -141,6 +142,8 @@ export class TuiRpcMethodRegistrationService {
    * persistence.
    */
   registerAll(): void {
+    registerChatServices(container);
+
     registerAllRpcHandlers(container, { exclude: [HarnessRpcHandlers] });
 
     wireSdkCallbacks(container, {

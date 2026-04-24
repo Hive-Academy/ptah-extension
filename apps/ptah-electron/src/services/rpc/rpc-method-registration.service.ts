@@ -19,6 +19,7 @@ import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
   registerAllRpcHandlers,
   registerHarnessServices,
+  registerChatServices,
   verifyAndReportRpcRegistration,
   __debugAssertSharedHandlersDisjoint,
 } from '@ptah-extension/rpc-handlers';
@@ -99,6 +100,10 @@ export class ElectronRpcMethodRegistrationService {
     // Wave C7d: wire the six extracted harness services BEFORE
     // `registerAllRpcHandlers` resolves `HarnessRpcHandlers`.
     registerHarnessServices(container);
+
+    // Wave C7e: wire the four extracted chat services BEFORE
+    // `registerAllRpcHandlers` resolves `ChatRpcHandlers`.
+    registerChatServices(container);
 
     registerAllRpcHandlers(container);
     this.registerElectronHandlers();
