@@ -70,7 +70,7 @@ import type {
   ProviderModelsService,
   SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
-import type { CliDetectionService } from '@ptah-extension/llm-abstraction';
+import type { CliDetectionService } from '@ptah-extension/agent-sdk';
 import type { AuthEnv } from '@ptah-extension/shared';
 import {
   createMockLogger,

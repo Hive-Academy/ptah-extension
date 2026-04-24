@@ -67,7 +67,7 @@ export interface SdkHandle {
   /** Register a callback to receive rich FlatStreamEventUnion events.
    *  Only Ptah CLI adapter implements this. Enables full ExecutionNode rendering. */
   readonly onStreamEvent?: (
-    callback: (event: FlatStreamEventUnion) => void
+    callback: (event: FlatStreamEventUnion) => void,
   ) => void;
   /** Update the agentId used for permission routing.
    *  Called by AgentProcessManager after assigning the real agentId, so

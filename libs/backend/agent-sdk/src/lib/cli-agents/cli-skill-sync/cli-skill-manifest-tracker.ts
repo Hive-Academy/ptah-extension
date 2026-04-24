@@ -80,7 +80,7 @@ export class CliSkillManifestTracker {
   async updateSyncHash(
     cli: CliTarget,
     pluginPaths: string[],
-    pluginIds: string[]
+    pluginIds: string[],
   ): Promise<void> {
     const hash = await this.computeContentHash(pluginPaths);
     const state = this.getState();
@@ -153,7 +153,7 @@ export class CliSkillManifestTracker {
   private async collectFileEntries(
     dirPath: string,
     pluginRoot: string,
-    entries: string[]
+    entries: string[],
   ): Promise<void> {
     let dirEntries: string[];
     try {

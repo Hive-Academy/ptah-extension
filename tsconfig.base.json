@@ -32,9 +32,6 @@
       "@ptah-extension/editor/services": [
         "libs/frontend/editor/src/services.ts"
       ],
-      "@ptah-extension/llm-abstraction": [
-        "libs/backend/llm-abstraction/src/index.ts"
-      ],
       "@ptah-extension/platform-cli": [
         "libs/backend/platform-cli/src/index.ts"
       ],

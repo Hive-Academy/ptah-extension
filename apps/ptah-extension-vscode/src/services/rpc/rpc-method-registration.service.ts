@@ -31,7 +31,7 @@ import {
   AgentProcessManager,
   CliDetectionService,
   CopilotPermissionBridge,
-} from '@ptah-extension/llm-abstraction';
+} from '@ptah-extension/agent-sdk';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { IAgentAdapter, ResultStatsPayload } from '@ptah-extension/shared';
 import {

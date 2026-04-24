@@ -45,7 +45,7 @@ import type {
   GenerationSummary,
   OrchestratorGenerationOptions,
 } from '@ptah-extension/agent-generation';
-import { CliDetectionService } from '@ptah-extension/llm-abstraction';
+import { CliDetectionService } from '@ptah-extension/agent-sdk';
 import { Result } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';

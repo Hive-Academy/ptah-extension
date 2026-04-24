@@ -38,7 +38,7 @@ import {
   CODEX_PROVIDER_ENTRY,
   OllamaModelDiscoveryService,
 } from '@ptah-extension/agent-sdk';
-import { CliDetectionService } from '@ptah-extension/llm-abstraction';
+import { CliDetectionService } from '@ptah-extension/agent-sdk';
 import {
   ProviderListModelsParams,
   ProviderListModelsResult,

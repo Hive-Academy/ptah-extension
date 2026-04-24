@@ -46,7 +46,7 @@ export async function resolveCliPath(binary: string): Promise<string | null> {
 export function spawnCli(
   binary: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv; needsConsole?: boolean }
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; needsConsole?: boolean },
 ): ChildProcess {
   return crossSpawn(binary, args, {
     cwd: options.cwd,

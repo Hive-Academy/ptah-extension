@@ -268,7 +268,7 @@ export class CopilotPermissionBridge {
    */
   resolvePermission(
     requestId: string,
-    decision: AgentPermissionDecision
+    decision: AgentPermissionDecision,
   ): void {
     const entry = this.pending.get(requestId);
     if (entry) {

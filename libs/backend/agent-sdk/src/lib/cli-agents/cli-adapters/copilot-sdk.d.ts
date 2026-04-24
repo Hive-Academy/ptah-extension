@@ -24,7 +24,7 @@ declare module '@github/copilot-sdk' {
     readonly id: string;
     sendMessage(
       message: string,
-      options?: { signal?: AbortSignal }
+      options?: { signal?: AbortSignal },
     ): AsyncIterable<CopilotEvent>;
   }
 

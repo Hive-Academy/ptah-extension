@@ -14,7 +14,11 @@
 import { DependencyContainer, Lifecycle } from 'tsyringe';
 import { createEmptyAuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
+import { CliDetectionService } from '../cli-agents/cli-detection.service';
+import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
+import { CliPluginSyncService } from '../cli-agents/cli-skill-sync/cli-plugin-sync.service';
 import { SessionMetadataStore } from '../session-metadata-store';
 import { SessionImporterService } from '../session-importer.service';
 import { SessionHistoryReaderService } from '../session-history-reader.service';
@@ -389,6 +393,29 @@ export function registerSdkServices(
     SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR,
     { useClass: SlashCommandInterceptor },
     { lifecycle: Lifecycle.Singleton },
+  );
+
+  // ============================================================
+  // CLI Agent Services (ex-llm-abstraction, folded in Wave C5 of
+  // TASK_2025_291)
+  // CliDetectionService enumerates installed CLI agents (Gemini, Codex,
+  // Copilot, Cursor). AgentProcessManager spawns and supervises their
+  // processes. CliPluginSyncService mirrors MCP plugins into each CLI's
+  // native extension format.
+  // Tokens live in @ptah-extension/vscode-core (cross-layer platform
+  // tokens) — resolve-call sites at apps are unchanged.
+  // ============================================================
+  container.registerSingleton(
+    TOKENS.CLI_DETECTION_SERVICE,
+    CliDetectionService,
+  );
+  container.registerSingleton(
+    TOKENS.AGENT_PROCESS_MANAGER,
+    AgentProcessManager,
+  );
+  container.registerSingleton(
+    TOKENS.CLI_PLUGIN_SYNC_SERVICE,
+    CliPluginSyncService,
   );
 
   // Provider services (Copilot, Codex, OpenRouter, Ollama, LM Studio).

@@ -32,7 +32,7 @@ import {
   TOKENS,
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
-import type { SdkHandle } from '@ptah-extension/llm-abstraction';
+import type { SdkHandle } from '../cli-agents/cli-adapters';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkError } from '../errors';
 import type { SdkModuleLoader } from '../helpers/sdk-module-loader';

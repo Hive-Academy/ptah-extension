@@ -25,8 +25,6 @@ import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
 } from '@ptah-extension/agent-generation';
-import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
-
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 
 /**
@@ -104,8 +102,8 @@ export function registerPhase2Libraries(
   // reaches SdkPermissionHandler which requires TOKENS.WEBVIEW_MANAGER,
   // and that is only registered in main.ts after IPC bridge initialization.
 
-  // ========================================
-  // PHASE 2.5: CLI Abstraction (TASK_2025_212: vestigial LLM services removed, CLI services only)
-  // ========================================
-  registerLlmAbstractionServices(container, logger);
+  // TASK_2025_291 Wave C5: CLI agent services (CliDetectionService,
+  // AgentProcessManager, CliPluginSyncService) are now registered by
+  // registerSdkServices (called earlier in Phase 2). The llm-abstraction
+  // library has been deleted.
 }

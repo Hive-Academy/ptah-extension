@@ -12,7 +12,7 @@
  */
 function createFakeEventGenerator(
   events: FakeCodexEvent[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): AsyncGenerator<FakeCodexEvent> {
   let index = 0;
   const gen: AsyncGenerator<FakeCodexEvent> = {
@@ -137,14 +137,14 @@ describe('CodexCliAdapter', () => {
           cmd: string,
           args: string[],
           _opts: Record<string, unknown>,
-          cb?: (err: Error | null, result: { stdout: string }) => void
+          cb?: (err: Error | null, result: { stdout: string }) => void,
         ) => {
           if (args[0] === 'codex' && (cmd === 'where' || cmd === 'which')) {
             cb?.(null, { stdout: '/usr/local/bin/codex\n' });
           } else if (args[0] === '--version') {
             cb?.(null, { stdout: '1.2.3\n' });
           }
-        }
+        },
       );
 
       const result = await adapter.detect();
@@ -161,10 +161,10 @@ describe('CodexCliAdapter', () => {
           _cmd: string,
           _args: string[],
           _opts: Record<string, unknown>,
-          cb?: (err: Error | null) => void
+          cb?: (err: Error | null) => void,
         ) => {
           cb?.(new Error('not found'));
-        }
+        },
       );
 
       const result = await adapter.detect();
@@ -450,7 +450,7 @@ describe('CodexCliAdapter', () => {
         () =>
           new Promise((_resolve, reject) => {
             setTimeout(() => reject(new Error('SDK initialization failed')), 5);
-          })
+          }),
       );
 
       const handle = await adapter.runSdk(defaultOptions);
@@ -462,7 +462,7 @@ describe('CodexCliAdapter', () => {
 
       expect(exitCode).toBe(1);
       expect(output.some((o) => o.includes('SDK initialization failed'))).toBe(
-        true
+        true,
       );
     });
 
@@ -493,7 +493,7 @@ describe('CodexCliAdapter', () => {
       mockRunStreamed.mockImplementation(
         (
           _task: string,
-          opts: { signal?: AbortSignal }
+          opts: { signal?: AbortSignal },
         ): Promise<{ events: AsyncGenerator<FakeCodexEvent> }> => {
           let firstCallDone = false;
           const gen: AsyncGenerator<FakeCodexEvent> = {
@@ -542,7 +542,7 @@ describe('CodexCliAdapter', () => {
             },
           };
           return Promise.resolve({ events: gen });
-        }
+        },
       );
 
       const handle = await adapter.runSdk(defaultOptions);

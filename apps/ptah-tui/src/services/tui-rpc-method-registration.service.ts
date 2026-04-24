@@ -27,7 +27,7 @@ import type {
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
-import type { AgentProcessManager } from '@ptah-extension/llm-abstraction';
+import type { AgentProcessManager } from '@ptah-extension/agent-sdk';
 
 // Shared handler classes (all 17)
 import {

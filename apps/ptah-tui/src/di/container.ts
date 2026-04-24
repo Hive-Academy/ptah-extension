@@ -71,7 +71,6 @@ import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
 } from '@ptah-extension/agent-generation';
-import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
 import {
   registerVsCodeLmToolsServices,
   BROWSER_CAPABILITIES_TOKEN,
@@ -448,8 +447,9 @@ export class TuiDIContainer {
       '[TUI DI] SETUP_WIZARD_SERVICE stub registered (no setup wizard in CLI)',
     );
 
-    // Phase 2.4: LLM Abstraction
-    registerLlmAbstractionServices(container, logger);
+    // TASK_2025_291 Wave C5: CLI agent services now registered by
+    // registerSdkServices (earlier in Phase 2). The llm-abstraction
+    // library has been deleted.
 
     // ========================================
     // PHASE 3: Storage Adapters

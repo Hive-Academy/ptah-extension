@@ -348,5 +348,27 @@ export type {
   AuthConfigureContext,
 } from './lib/auth';
 
+// ============================================================
+// CLI Agents (TASK_2025_291 Wave C5)
+// Relocated from the deleted @ptah-extension/llm-abstraction library.
+// External agent processes (Gemini, Codex, Copilot, Cursor) that Ptah
+// spawns and coordinates via stdio — peers of the Agent SDK itself,
+// not LLM providers.
+// ============================================================
+export {
+  CliDetectionService,
+  AgentProcessManager,
+  CopilotPermissionBridge,
+  CliPluginSyncService,
+} from './lib/cli-agents';
+export type {
+  CliAdapter,
+  CliCommand,
+  CliCommandOptions,
+  CliModelInfo,
+  SdkHandle,
+  ICliSkillInstaller,
+} from './lib/cli-agents';
+
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';

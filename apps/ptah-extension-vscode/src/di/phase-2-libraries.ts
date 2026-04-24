@@ -37,7 +37,6 @@ import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
 } from '@ptah-extension/agent-generation';
-import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
@@ -146,15 +145,12 @@ export function registerPhase2Libraries(
     );
   }
 
-  // ========================================
-  // PHASE 2.9: CLI Abstraction Services (TASK_2025_071, TASK_2025_212)
-  // ========================================
-  // TASK_2025_212: Vestigial LLM provider services (LlmSecretsService,
-  // LlmConfigurationService, ProviderRegistry, LlmService) removed. Only CLI
-  // detection/management services remain.
-  registerLlmAbstractionServices(container, logger);
-
   // TASK_2025_209: TOKENS.LLM_RPC_HANDLERS deleted. Shared LlmRpcHandlers (from
   // @ptah-extension/rpc-handlers) is now platform-agnostic and registered in
   // Phase 1.6 as AppLlmRpcHandlers.
+  //
+  // TASK_2025_291 Wave C5: CLI agent services (CliDetectionService,
+  // AgentProcessManager, CliPluginSyncService) are now registered by
+  // registerSdkServices (called earlier in Phase 2). The llm-abstraction
+  // library has been deleted.
 }
