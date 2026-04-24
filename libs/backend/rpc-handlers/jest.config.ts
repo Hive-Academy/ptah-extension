@@ -7,4 +7,10 @@ export default {
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: '../../../coverage/libs/backend/rpc-handlers',
+  // Handler files transitively import `@ptah-extension/agent-sdk` and
+  // `@ptah-extension/vscode-core`, both of which pull in real `vscode` typings.
+  // Swap `vscode` for the shared root mock so specs can run under Node.
+  moduleNameMapper: {
+    '^vscode$': '<rootDir>/../../../__mocks__/vscode.ts',
+  },
 };

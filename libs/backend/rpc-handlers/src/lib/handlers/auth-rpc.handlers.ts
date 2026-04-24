@@ -10,7 +10,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { z } from 'zod';
 import {
   Logger,
   RpcHandler,
@@ -41,6 +40,7 @@ import {
   AuthGetAuthStatusParams,
   AuthGetAuthStatusResponse,
 } from '@ptah-extension/shared';
+import { AuthSettingsSchema } from './auth-rpc.schema';
 
 /**
  * RPC handlers for authentication operations
@@ -294,17 +294,6 @@ export class AuthRpcHandlers {
    * auth:saveSettings - Save authentication settings
    */
   private registerSaveSettings(): void {
-    const AuthSettingsSchema = z.object({
-      authMethod: z.enum(['apiKey', 'claudeCli', 'thirdParty']),
-      anthropicApiKey: z.string().optional(),
-      providerApiKey: z.string().optional(),
-      // TASK_2025_129 Batch 3: Selected Anthropic-compatible provider
-      // Validated against known provider IDs from the registry
-      anthropicProviderId: z
-        .enum(ANTHROPIC_PROVIDERS.map((p) => p.id) as [string, ...string[]])
-        .optional(),
-    });
-
     this.rpcHandler.registerMethod<
       unknown,
       { success: boolean; error?: string }
