@@ -370,5 +370,25 @@ export type {
   ICliSkillInstaller,
 } from './lib/cli-agents';
 
+// ============================================================
+// RPC Wiring helpers (TASK_2025_291 Wave C4b)
+// Shared SDK callback + agent event wiring reused by VS Code,
+// Electron, and TUI RPC registration services.
+// ============================================================
+export {
+  wireSdkCallbacks,
+  type WireSdkCallbacksOptions,
+  type WireSdkCallbacksContext,
+  type SdkCallbackPlatform,
+  type WorktreeCreatedData,
+} from './lib/wiring/sdk-callbacks';
+export {
+  wireAgentEventListeners,
+  persistCliSessionReference,
+  type WireAgentEventListenersOptions,
+  type WireAgentEventListenersContext,
+  type AgentEventPlatform,
+} from './lib/wiring/agent-events';
+
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';

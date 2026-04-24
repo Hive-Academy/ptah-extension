@@ -38,6 +38,7 @@ import {
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for session operations (SDK-based)
@@ -49,6 +50,16 @@ import * as os from 'os';
  */
 @injectable()
 export class SessionRpcHandlers {
+  static readonly METHODS = [
+    'session:list',
+    'session:load',
+    'session:delete',
+    'session:rename',
+    'session:validate',
+    'session:cli-sessions',
+    'session:stats-batch',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

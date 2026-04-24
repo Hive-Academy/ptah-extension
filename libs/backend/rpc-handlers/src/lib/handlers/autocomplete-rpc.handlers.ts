@@ -14,6 +14,7 @@ import {
   AutocompleteAgentsParams,
   AutocompleteCommandsParams,
 } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 interface AgentDiscoveryService {
   searchAgents(request: {
@@ -34,6 +35,11 @@ interface CommandDiscoveryService {
  */
 @injectable()
 export class AutocompleteRpcHandlers {
+  static readonly METHODS = [
+    'autocomplete:agents',
+    'autocomplete:commands',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

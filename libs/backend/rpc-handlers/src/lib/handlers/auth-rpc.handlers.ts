@@ -41,12 +41,24 @@ import {
   AuthGetAuthStatusResponse,
 } from '@ptah-extension/shared';
 import { AuthSettingsSchema } from './auth-rpc.schema';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for authentication operations
  */
 @injectable()
 export class AuthRpcHandlers {
+  static readonly METHODS = [
+    'auth:getHealth',
+    'auth:getAuthStatus',
+    'auth:saveSettings',
+    'auth:testConnection',
+    'auth:copilotLogin',
+    'auth:copilotLogout',
+    'auth:copilotStatus',
+    'auth:codexLogin',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

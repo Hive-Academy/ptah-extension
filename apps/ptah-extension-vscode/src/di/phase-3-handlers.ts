@@ -169,40 +169,22 @@ export function registerPhase3Handlers(
   // RPC Method Registration Service (orchestrator)
   // ========================================
   // Registered as factory because it requires the container instance.
-  // TASK_2025_074 / _079 / _103 / _137 / _235: All domain handlers threaded in.
+  // TASK_2025_291 Wave C4b: shared-handler fan-out + wiring moved into helpers,
+  // so the factory only threads LOGGER / RPC_HANDLER / COMMAND_MANAGER and the
+  // five Tier-3 VS Code-specific handlers. ChatRpcHandlers is still injected
+  // so the wiring helpers can resolve PTAH CLI session IDs via its public API.
   container.register(TOKENS.RPC_METHOD_REGISTRATION_SERVICE, {
     useFactory: (c) =>
       new RpcMethodRegistrationService(
         c.resolve(TOKENS.LOGGER),
         c.resolve(TOKENS.RPC_HANDLER),
-        c.resolve(TOKENS.WEBVIEW_MANAGER),
-        c.resolve(TOKENS.AGENT_SESSION_WATCHER_SERVICE),
         c.resolve(TOKENS.COMMAND_MANAGER),
-        c.resolve(TOKENS.AGENT_ADAPTER),
-        // Domain-specific handlers
         c.resolve(ChatRpcHandlers),
-        c.resolve(SessionRpcHandlers),
-        c.resolve(ContextRpcHandlers),
-        c.resolve(AutocompleteRpcHandlers),
         c.resolve(FileRpcHandlers),
-        c.resolve(ConfigRpcHandlers),
-        c.resolve(AuthRpcHandlers),
-        c.resolve(SetupRpcHandlers),
-        c.resolve(LicenseRpcHandlers),
-        c.resolve(AppLlmRpcHandlers),
-        c.resolve(ProviderRpcHandlers),
-        c.resolve(SubagentRpcHandlers),
-        c.resolve(CommandRpcHandlers), // TASK_2025_126
-        c.resolve(EnhancedPromptsRpcHandlers), // TASK_2025_137
-        c.resolve(QualityRpcHandlers), // TASK_2025_144
-        c.resolve(WizardGenerationRpcHandlers), // TASK_2025_148
-        c.resolve(PluginRpcHandlers), // TASK_2025_153
-        c.resolve(AgentRpcHandlers), // TASK_2025_157
-        c.resolve(PtahCliRpcHandlers), // TASK_2025_167
-        c.resolve(SkillsShRpcHandlers), // TASK_2025_204
-        c.resolve(McpDirectoryRpcHandlers), // MCP Server Directory
-        c.resolve(WebSearchRpcHandlers), // TASK_2025_235
-        c.resolve(HarnessRpcHandlers),
+        c.resolve(CommandRpcHandlers),
+        c.resolve(AgentRpcHandlers),
+        c.resolve(SkillsShRpcHandlers),
+        c.resolve(McpDirectoryRpcHandlers),
         c, // Pass container instance
       ),
   });

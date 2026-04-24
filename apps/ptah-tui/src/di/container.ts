@@ -58,6 +58,7 @@ import { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import { FeatureGateService } from '@ptah-extension/vscode-core';
 import { LicenseService } from '@ptah-extension/vscode-core';
 import { AuthSecretsService } from '@ptah-extension/vscode-core';
+import { SentryService } from '@ptah-extension/vscode-core';
 
 // Library registration functions (all accept container + logger, no vscode)
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
@@ -66,6 +67,7 @@ import type {
   EnhancedPromptsService,
   IMultiPhaseAnalysisReader,
   PluginLoaderService,
+  SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
 import {
   registerAgentGenerationServices,
@@ -192,6 +194,14 @@ export class TuiDIContainer {
     container.register(TOKENS.LOGGER, { useValue: logger });
 
     logger.info('[TUI DI] Starting service registration...');
+
+    // ========================================
+    // PHASE 1.0b: SentryService (opt-in; uninitialized until SENTRY_DSN is set)
+    // ========================================
+    // Wave C4b: shared RPC handler factories require TOKENS.SENTRY_SERVICE.
+    // The service is a no-op until `initialize()` is called with a DSN, so
+    // registering it unconditionally is safe for the CLI.
+    container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);
 
     // ========================================
     // PHASE 1.1: LicenseService + AuthSecretsService (real implementations)
@@ -414,6 +424,14 @@ export class TuiDIContainer {
     // Phase 2.2: Agent SDK (Claude Agent SDK integration)
     registerSdkServices(container, logger);
 
+    // TOKENS.AGENT_ADAPTER -> SdkAgentAdapter (Wave C4b: shared wiring helpers
+    // resolve via TOKENS.AGENT_ADAPTER; mirror VS Code / Electron pattern so
+    // the helper sees the adapter when called from tui-rpc-method-registration).
+    container.register(TOKENS.AGENT_ADAPTER, {
+      useFactory: (c) =>
+        c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
+    });
+
     // Phase 2.2.5: WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs
     // These tokens are required by WizardWebviewLifecycleService which is registered
     // unconditionally inside registerAgentGenerationServices(). In CLI, the wizard
@@ -544,6 +562,7 @@ export class TuiDIContainer {
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c,
+          c.resolve(TOKENS.SENTRY_SERVICE),
         ),
     });
 
@@ -558,6 +577,7 @@ export class TuiDIContainer {
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c,
+          c.resolve(TOKENS.SENTRY_SERVICE),
         ),
     });
 
@@ -578,6 +598,7 @@ export class TuiDIContainer {
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
           c,
+          c.resolve(TOKENS.SENTRY_SERVICE),
         ),
     });
 
@@ -591,6 +612,7 @@ export class TuiDIContainer {
           c.resolve(TOKENS.LOGGER),
           c.resolve(TOKENS.RPC_HANDLER),
           c,
+          c.resolve(TOKENS.SENTRY_SERVICE),
         ),
     });
 

@@ -27,6 +27,7 @@ import {
   SubagentQueryParams,
   SubagentQueryResult,
 } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for subagent operations (query only)
@@ -39,6 +40,10 @@ import {
  */
 @injectable()
 export class SubagentRpcHandlers {
+  static readonly METHODS = [
+    'chat:subagent-query',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

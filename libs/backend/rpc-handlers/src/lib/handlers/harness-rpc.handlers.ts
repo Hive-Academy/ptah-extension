@@ -103,6 +103,7 @@ import type {
   HarnessFlatStreamPayload,
   SessionId,
 } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /** Structured output shape from the LLM suggestion call */
 interface LlmSuggestionOutput {
@@ -221,6 +222,25 @@ function getHarnessesDir(): string {
  */
 @injectable()
 export class HarnessRpcHandlers {
+  static readonly METHODS = [
+    'harness:initialize',
+    'harness:suggest-config',
+    'harness:search-skills',
+    'harness:create-skill',
+    'harness:discover-mcp',
+    'harness:generate-prompt',
+    'harness:generate-claude-md',
+    'harness:apply',
+    'harness:save-preset',
+    'harness:load-presets',
+    'harness:chat',
+    'harness:design-agents',
+    'harness:generate-skills',
+    'harness:generate-document',
+    'harness:analyze-intent',
+    'harness:converse',
+  ] as const satisfies readonly RpcMethodName[];
+
   private readonly registryProvider = new McpRegistryProvider();
 
   constructor(

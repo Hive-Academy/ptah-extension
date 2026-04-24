@@ -25,12 +25,22 @@ import type {
   IWebSearchProvider,
 } from '@ptah-extension/vscode-lm-tools';
 import { SECRET_KEY_PREFIX, VALID_PROVIDERS } from './web-search-rpc.schema';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for web search settings management
  */
 @injectable()
 export class WebSearchRpcHandlers {
+  static readonly METHODS = [
+    'webSearch:getApiKeyStatus',
+    'webSearch:setApiKey',
+    'webSearch:deleteApiKey',
+    'webSearch:test',
+    'webSearch:getConfig',
+    'webSearch:setConfig',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

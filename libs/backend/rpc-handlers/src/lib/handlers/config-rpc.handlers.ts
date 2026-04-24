@@ -41,12 +41,23 @@ import {
   getModelPricingDescription,
   type EffortLevel,
 } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for configuration operations
  */
 @injectable()
 export class ConfigRpcHandlers {
+  static readonly METHODS = [
+    'config:model-switch',
+    'config:model-get',
+    'config:autopilot-toggle',
+    'config:autopilot-get',
+    'config:models-list',
+    'config:effort-get',
+    'config:effort-set',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

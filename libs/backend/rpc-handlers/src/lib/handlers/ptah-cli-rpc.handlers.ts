@@ -34,12 +34,22 @@ import type {
   PtahCliListModelsParams,
   PtahCliListModelsResult,
 } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for Ptah CLI management operations
  */
 @injectable()
 export class PtahCliRpcHandlers {
+  static readonly METHODS = [
+    'ptahCli:list',
+    'ptahCli:create',
+    'ptahCli:update',
+    'ptahCli:delete',
+    'ptahCli:testConnection',
+    'ptahCli:listModels',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

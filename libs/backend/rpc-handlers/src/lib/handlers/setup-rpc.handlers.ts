@@ -65,6 +65,7 @@ import type {
 } from '@ptah-extension/shared';
 import { Result } from '@ptah-extension/shared';
 import type { MultiPhaseManifest } from '@ptah-extension/agent-generation';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * SetupStatus response type for setup-status:get-status RPC method
@@ -82,6 +83,22 @@ interface SetupStatusResponse {
  */
 @injectable()
 export class SetupRpcHandlers {
+  static readonly METHODS = [
+    'setup-status:get-status',
+    'setup-wizard:launch',
+    'wizard:deep-analyze',
+    'wizard:recommend-agents',
+    'wizard:cancel-analysis',
+    'wizard:list-analyses',
+    'wizard:load-analysis',
+    'wizard:list-agent-packs',
+    'wizard:install-pack-agents',
+    'wizard:new-project-select-type',
+    'wizard:new-project-submit-answers',
+    'wizard:new-project-get-plan',
+    'wizard:new-project-approve-plan',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

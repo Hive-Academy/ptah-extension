@@ -58,6 +58,7 @@ import {
 } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
@@ -69,6 +70,15 @@ interface WebviewManager {
  */
 @injectable()
 export class ChatRpcHandlers {
+  static readonly METHODS = [
+    'chat:start',
+    'chat:continue',
+    'chat:resume',
+    'chat:abort',
+    'chat:running-agents',
+    'agent:backgroundList',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

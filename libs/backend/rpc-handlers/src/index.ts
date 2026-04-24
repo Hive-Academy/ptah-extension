@@ -43,3 +43,7 @@ export type {
   ISaveDialogProvider,
   IModelDiscovery,
 } from '@ptah-extension/platform-core';
+
+// Registration helpers (TASK_2025_291 Wave C4b)
+export * from './lib/register-all';
+export * from './lib/verify-and-report';

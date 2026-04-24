@@ -27,6 +27,7 @@ import type {
   LicenseClearKeyResponse,
   LicenseTier,
 } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for license operations
@@ -45,6 +46,12 @@ import type {
  */
 @injectable()
 export class LicenseRpcHandlers {
+  static readonly METHODS = [
+    'license:getStatus',
+    'license:setKey',
+    'license:clearKey',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
