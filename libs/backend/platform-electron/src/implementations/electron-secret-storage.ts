@@ -54,14 +54,24 @@ export class ElectronSecretStorage implements ISecretStorage {
   }
 
   async get(key: string): Promise<string | undefined> {
+    // Use strict `in` / `undefined` check — an empty-string value is a
+    // legitimate secret and must round-trip as `""`, not `undefined`.
+    if (!(key in this.secrets)) return undefined;
     const stored = this.secrets[key];
-    if (!stored) return undefined;
+    if (stored === undefined) return undefined;
 
     // Plain-text fallback marker (written when encryption was unavailable at
     // store() time). Honour the marker regardless of current encryption state
     // so credentials survive round-trips across encryption-availability changes.
     if (stored.startsWith(PLAIN_MARKER)) {
       return stored.slice(PLAIN_MARKER.length);
+    }
+
+    // Empty string with no marker means the ciphertext was empty — treat as
+    // empty-string plaintext. safeStorage.decryptString on an empty Buffer is
+    // platform-dependent, so short-circuit for determinism.
+    if (stored === '') {
+      return '';
     }
 
     if (!this.safeStorage.isEncryptionAvailable()) {
