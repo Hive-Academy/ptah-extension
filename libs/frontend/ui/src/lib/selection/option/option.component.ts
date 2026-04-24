@@ -1,10 +1,12 @@
 import {
+  ChangeDetectorRef,
   Component,
+  ElementRef,
+  effect,
+  inject,
   input,
   output,
-  ElementRef,
-  inject,
-  effect,
+  signal,
 } from '@angular/core';
 import { Highlightable } from '@angular/cdk/a11y';
 
@@ -35,13 +37,13 @@ import { Highlightable } from '@angular/cdk/a11y';
   host: {
     '[id]': 'optionId()',
     class: 'block px-3 py-2 rounded-md cursor-pointer transition-colors',
-    '[class.bg-primary]': 'isActive',
-    '[class.text-primary-content]': 'isActive',
-    '[class.hover:bg-base-300]': '!isActive',
+    '[class.bg-primary]': 'isActive()',
+    '[class.text-primary-content]': 'isActive()',
+    '[class.hover:bg-base-300]': '!isActive()',
     '(click)': 'handleClick()',
     '(mouseenter)': 'hovered.emit()',
     role: 'option',
-    '[attr.aria-selected]': 'isActive',
+    '[attr.aria-selected]': 'isActive()',
     tabindex: '-1',
   },
   template: `
@@ -51,6 +53,7 @@ import { Highlightable } from '@angular/cdk/a11y';
 })
 export class OptionComponent<T = unknown> implements Highlightable {
   private readonly elementRef = inject(ElementRef);
+  private readonly cdr = inject(ChangeDetectorRef);
 
   // Inputs
   readonly optionId = input.required<string>();
@@ -60,8 +63,17 @@ export class OptionComponent<T = unknown> implements Highlightable {
   readonly selected = output<T>();
   readonly hovered = output<void>();
 
-  // Highlightable interface state
-  isActive = false;
+  /**
+   * Highlightable interface state, exposed as a signal so host bindings
+   * (`[class.bg-primary]`, `[attr.aria-selected]`, etc.) track it
+   * reactively. `ActiveDescendantKeyManager.setFirstItemActive()` mutates
+   * this synchronously during change detection, so using a plain field
+   * triggers NG0100 (ExpressionChangedAfterItHasBeenCheckedError) when
+   * the host bindings are re-checked. Signals defer the re-read to the
+   * next scheduler tick, which avoids the false positive while still
+   * rendering the correct state.
+   */
+  readonly isActive = signal(false);
 
   constructor() {
     // Validate optionId is non-empty
@@ -69,18 +81,19 @@ export class OptionComponent<T = unknown> implements Highlightable {
       const id = this.optionId();
       if (!id || id.trim().length === 0) {
         throw new Error(
-          '[OptionComponent] optionId must be a non-empty string. Empty optionId breaks ARIA aria-activedescendant pattern.'
+          '[OptionComponent] optionId must be a non-empty string. Empty optionId breaks ARIA aria-activedescendant pattern.',
         );
       }
     });
   }
 
   /**
-   * Highlightable interface - called by ActiveDescendantKeyManager
-   * Sets visual active state without moving focus
+   * Highlightable interface - called by ActiveDescendantKeyManager.
+   * Sets visual active state without moving focus.
    */
   setActiveStyles(): void {
-    this.isActive = true;
+    this.isActive.set(true);
+    this.cdr.markForCheck();
     // Scroll into view when activated via keyboard
     this.elementRef.nativeElement.scrollIntoView({
       block: 'nearest',
@@ -89,11 +102,12 @@ export class OptionComponent<T = unknown> implements Highlightable {
   }
 
   /**
-   * Highlightable interface - called by ActiveDescendantKeyManager
-   * Removes visual active state
+   * Highlightable interface - called by ActiveDescendantKeyManager.
+   * Removes visual active state.
    */
   setInactiveStyles(): void {
-    this.isActive = false;
+    this.isActive.set(false);
+    this.cdr.markForCheck();
   }
 
   /**

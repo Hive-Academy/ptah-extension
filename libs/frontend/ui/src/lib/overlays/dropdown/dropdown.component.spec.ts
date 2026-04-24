@@ -12,7 +12,7 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
   standalone: true,
   imports: [DropdownComponent],
   template: `
-    <lib-dropdown
+    <ptah-dropdown
       [isOpen]="isOpen()"
       [positions]="positions()"
       [hasBackdrop]="hasBackdrop()"
@@ -27,7 +27,7 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
         <div class="option">Option 1</div>
         <div class="option">Option 2</div>
       </div>
-    </lib-dropdown>
+    </ptah-dropdown>
   `,
 })
 class TestHostComponent {

@@ -89,7 +89,7 @@ describe('SessionManager - Session State Machine', () => {
     service.confirmSessionId(confirmedId2);
 
     expect(consoleWarnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Session already confirmed')
+      expect.stringContaining('Session already confirmed'),
     );
     // Session ID should NOT change on double confirm
     expect(service.sessionId()).toBe(confirmedId1);
@@ -291,32 +291,33 @@ describe('SessionManager - Session State Machine', () => {
   });
 
   // ============================================================================
-  // BACKWARD COMPATIBILITY WITH OLD API
+  // API MIGRATION: confirmSessionId replaces deprecated setClaudeSessionId
   // ============================================================================
 
-  it('should maintain backward compatibility with setClaudeSessionId (deprecated)', () => {
-    const realId = 'real_compat_123';
+  it('should transition draft status to streaming when confirming session', () => {
+    const realId = 'real_compat_123' as SessionId;
 
     service.setStatus('draft');
-    service.setSessionId(realId);
+    service.confirmSessionId(realId);
 
     expect(service.sessionId()).toBe(realId);
-    expect(service.status()).toBe('streaming'); // Old API transitions status
+    expect(service.status()).toBe('streaming'); // confirmSessionId transitions draft → streaming
   });
 
-  it('should work with both old and new API during transition period', () => {
+  it('should support full draft → confirmed lifecycle via setSessionId + confirmSessionId', () => {
     const draftId = 'draft_123' as SessionId;
-    const realId = 'real_abc';
+    const realId = 'real_abc' as SessionId;
 
     // New API: setSessionId with state
     service.setSessionId(draftId, 'draft');
     expect(service.sessionId()).toBe(draftId);
     expect(service.sessionState()).toBe('draft');
 
-    // Old API: setClaudeSessionId (deprecated but functional)
+    // Confirm real ID from backend (replaces deprecated setClaudeSessionId)
     service.setStatus('draft');
-    service.setSessionId(realId);
+    service.confirmSessionId(realId);
     expect(service.sessionId()).toBe(realId);
+    expect(service.sessionState()).toBe('confirmed');
     expect(service.status()).toBe('streaming');
   });
 
@@ -374,7 +375,7 @@ describe('SessionManager - Session State Machine', () => {
       expect.objectContaining({
         draftId,
         confirmedId,
-      })
+      }),
     );
 
     consoleLogSpy.mockRestore();
@@ -386,7 +387,7 @@ describe('SessionManager - Session State Machine', () => {
     service.failSession();
 
     expect(consoleLogSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Session marked as failed')
+      expect.stringContaining('Session marked as failed'),
     );
 
     consoleLogSpy.mockRestore();

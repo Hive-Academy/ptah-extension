@@ -13,14 +13,14 @@ export default {
   // transform both packages so the contract suite loads them as CJS.
   transformIgnorePatterns: ['node_modules/(?!(chokidar|readdirp)/)'],
   coverageDirectory: '../../../coverage/libs/backend/platform-electron',
-  // Ratchet floor from TASK_2025_294 W8.B1 baseline (S 92.49 / B 78.53 /
-  // F 90.0 / L 93.71). Rounded down to the nearest 5.
+  // Ratchet floor post-F7 baseline (S 94.95 / B 78.37 / F 91.11 / L 96.57).
+  // Rounded down to the nearest 5; only `lines` moves (90 -> 95).
   coverageThreshold: {
     global: {
       statements: 90,
       branches: 75,
       functions: 90,
-      lines: 90,
+      lines: 95,
     },
   },
 };

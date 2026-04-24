@@ -55,6 +55,10 @@ describe('ChatInputComponent', () => {
     searchFiles: jest.fn().mockReturnValue([]),
     ensureFilesLoaded: jest.fn().mockResolvedValue(undefined),
     workspaceFiles: signal([]),
+    // Remote server-side search API (added after initial spec authored)
+    searchFilesRemote: jest.fn(),
+    clearRemoteResults: jest.fn(),
+    remoteResults: signal([]),
   };
 
   const mockCommandDiscovery = {
@@ -429,10 +433,10 @@ describe('ChatInputComponent', () => {
 
       await component.handleSend();
 
+      // sendOrQueueMessage now takes an options object (files/images/tabId)
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         '/ptah-core:orchestrate Create TASK_2025_004',
-        [],
-        undefined,
+        { files: undefined, images: undefined, tabId: undefined },
       );
     });
 
@@ -446,8 +450,7 @@ describe('ChatInputComponent', () => {
 
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         '/orchestrate:Create TASK_2025_004',
-        [],
-        undefined,
+        { files: undefined, images: undefined, tabId: undefined },
       );
     });
 
@@ -459,8 +462,7 @@ describe('ChatInputComponent', () => {
 
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         'Hello, world!',
-        [],
-        undefined,
+        { files: undefined, images: undefined, tabId: undefined },
       );
     });
 
@@ -472,8 +474,7 @@ describe('ChatInputComponent', () => {
 
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         '/compact',
-        [],
-        undefined,
+        { files: undefined, images: undefined, tabId: undefined },
       );
     });
 
@@ -485,8 +486,7 @@ describe('ChatInputComponent', () => {
 
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         '/ptah-core:review-code file.ts',
-        [],
-        undefined,
+        { files: undefined, images: undefined, tabId: undefined },
       );
     });
   });
