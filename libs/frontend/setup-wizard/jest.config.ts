@@ -23,15 +23,17 @@ export default {
     'jest-preset-angular/build/serializers/ng-snapshot',
     'jest-preset-angular/build/serializers/html-comment',
   ],
-  // W8.B1 baseline could not be captured (TS compile errors prevent the
-  // suite from running). A 5% floor still catches regressions once the
-  // specs compile — later waves will repair and raise it.
+  // F8 post-fix baseline: Statements 37.84 / Branches 17.50 / Functions
+  // 25.86 / Lines 38.09 (162 passing tests, 101 skipped with rationale).
+  // Floors rounded DOWN to nearest 5 to catch regressions without
+  // flapping on minor refactors. Raise once the 3 skipped suites
+  // (scan-progress, agent-selection, completion) are rewritten.
   coverageThreshold: {
     global: {
-      statements: 5,
-      branches: 5,
-      functions: 5,
-      lines: 5,
+      statements: 35,
+      branches: 15,
+      functions: 25,
+      lines: 35,
     },
   },
 };
