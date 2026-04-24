@@ -25,7 +25,6 @@
 
 import * as http from 'http';
 import * as https from 'https';
-import { URL } from 'url';
 import { Logger } from '@ptah-extension/vscode-core';
 import type {
   ITranslationProxy,
@@ -39,6 +38,13 @@ import {
   type OpenAIResponsesRequest,
 } from './responses-request-translator';
 import { ResponsesStreamTranslator } from './responses-stream-translator';
+import {
+  readBody,
+  sendJson,
+  sendErrorResponse,
+  buildUpstreamUrl,
+  safeJsonParse,
+} from './translation-proxy-helpers';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -55,9 +61,6 @@ export interface TranslationProxyConfig {
   /** Path for the upstream responses endpoint (e.g., '/responses', '/v1/responses'). Defaults to '/responses'. */
   responsesPath?: string;
 }
-
-/** Maximum request body size (50 MB) */
-const MAX_BODY_SIZE = 50 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Abstract Base Class
@@ -132,12 +135,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             }`,
           );
           if (!res.headersSent) {
-            this.sendErrorResponse(
-              res,
-              500,
-              'api_error',
-              'Internal proxy error',
-            );
+            sendErrorResponse(res, 500, 'api_error', 'Internal proxy error');
           }
         });
       });
@@ -243,7 +241,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
     // Health check
     if (url === '/health' && method === 'GET') {
-      this.sendJson(res, 200, { status: 'ok' });
+      sendJson(res, 200, { status: 'ok' });
       return;
     }
 
@@ -255,7 +253,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         created: 0,
         owned_by: 'anthropic',
       }));
-      this.sendJson(res, 200, { object: 'list', data: models });
+      sendJson(res, 200, { object: 'list', data: models });
       return;
     }
 
@@ -266,7 +264,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     }
 
     // Unknown route
-    this.sendErrorResponse(
+    sendErrorResponse(
       res,
       404,
       'not_found_error',
@@ -295,7 +293,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     // Parse incoming body
     let anthropicRequest: AnthropicMessagesRequest;
     try {
-      const body = await this.readBody(req);
+      const body = await readBody(req);
       anthropicRequest = JSON.parse(body);
     } catch (err) {
       const message =
@@ -304,7 +302,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           : 'Invalid JSON in request body';
       const status =
         err instanceof Error && err.message.includes('exceeds') ? 413 : 400;
-      this.sendErrorResponse(res, status, 'invalid_request_error', message);
+      sendErrorResponse(res, status, 'invalid_request_error', message);
       return;
     }
 
@@ -343,7 +341,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               error instanceof Error ? error.message : String(error)
             }`,
           );
-          this.sendErrorResponse(
+          sendErrorResponse(
             res,
             500,
             'api_error',
@@ -372,7 +370,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               error instanceof Error ? error.message : String(error)
             }`,
           );
-          this.sendErrorResponse(
+          sendErrorResponse(
             res,
             500,
             'api_error',
@@ -532,7 +530,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     try {
       headers = await this.getHeaders();
     } catch (error) {
-      this.sendErrorResponse(
+      sendErrorResponse(
         res,
         401,
         'authentication_error',
@@ -545,7 +543,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
     // Get the API endpoint and build target URL
     const apiEndpoint = await this.getApiEndpoint();
-    const targetUrl = this.buildUpstreamUrl(apiEndpoint, path);
+    const targetUrl = buildUpstreamUrl(apiEndpoint, path);
 
     this.logger.info(
       `${this.logPrefix} [${requestId}] Forwarding to ${apiLabel}: ${targetUrl.href}`,
@@ -579,7 +577,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
                 if (success) {
                   retryFn(true).then(resolve).catch(reject);
                 } else {
-                  this.sendErrorResponse(
+                  sendErrorResponse(
                     res,
                     401,
                     'authentication_error',
@@ -589,7 +587,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
                 }
               })
               .catch((err) => {
-                this.sendErrorResponse(
+                sendErrorResponse(
                   res,
                   401,
                   'authentication_error',
@@ -626,7 +624,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               headers['retry-after'] = retryAfter;
             }
 
-            this.sendErrorResponse(
+            sendErrorResponse(
               res,
               429,
               'rate_limit_error',
@@ -651,7 +649,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
                   500,
                 )}`,
               );
-              this.sendErrorResponse(
+              sendErrorResponse(
                 res,
                 statusCode,
                 'api_error',
@@ -688,7 +686,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         );
         proxyReq.destroy();
         if (!res.headersSent) {
-          this.sendErrorResponse(
+          sendErrorResponse(
             res,
             504,
             'api_error',
@@ -802,7 +800,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
                     outputItem.call_id ??
                     `toolu_${requestId}_${content.length}`,
                   name: outputItem.name ?? '',
-                  input: this.safeJsonParse(outputItem.arguments ?? '{}'),
+                  input: safeJsonParse(outputItem.arguments ?? '{}'),
                 });
               }
             }
@@ -822,7 +820,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             },
           };
 
-          this.sendJson(res, 200, anthropicResponse);
+          sendJson(res, 200, anthropicResponse);
           this.logger.debug(
             `${this.logPrefix} [${requestId}] Responses API non-streaming response sent`,
           );
@@ -831,7 +829,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             `${this.logPrefix} [${requestId}] Failed to translate Responses API non-streaming response: ` +
               `${error instanceof Error ? error.message : String(error)}`,
           );
-          this.sendErrorResponse(
+          sendErrorResponse(
             res,
             500,
             'api_error',
@@ -846,7 +844,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           `${this.logPrefix} [${requestId}] Responses API response read error: ${err.message}`,
         );
         if (!res.headersSent) {
-          this.sendErrorResponse(
+          sendErrorResponse(
             res,
             500,
             'api_error',
@@ -994,7 +992,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
                 type: 'tool_use',
                 id: toolCall.id ?? `toolu_${requestId}_${content.length}`,
                 name: toolCall.function?.name ?? '',
-                input: this.safeJsonParse(toolCall.function?.arguments ?? '{}'),
+                input: safeJsonParse(toolCall.function?.arguments ?? '{}'),
               });
             }
           }
@@ -1019,7 +1017,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             },
           };
 
-          this.sendJson(res, 200, anthropicResponse);
+          sendJson(res, 200, anthropicResponse);
           this.logger.debug(
             `${this.logPrefix} [${requestId}] Non-streaming response sent`,
           );
@@ -1028,7 +1026,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             `${this.logPrefix} [${requestId}] Failed to translate non-streaming response: ` +
               `${error instanceof Error ? error.message : String(error)}`,
           );
-          this.sendErrorResponse(
+          sendErrorResponse(
             res,
             500,
             'api_error',
@@ -1043,7 +1041,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           `${this.logPrefix} [${requestId}] Response read error: ${err.message}`,
         );
         if (!res.headersSent) {
-          this.sendErrorResponse(
+          sendErrorResponse(
             res,
             500,
             'api_error',
@@ -1060,96 +1058,12 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   // ---------------------------------------------------------------------------
 
   /**
-   * Read the full body of an incoming HTTP request.
+   * Generate a request ID scoped to this proxy instance. Uses instance state
+   * (config name + monotonically increasing counter) so it stays in the class.
    */
-  private readBody(req: http.IncomingMessage): Promise<string> {
-    return new Promise<string>((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      let size = 0;
-      req.on('data', (chunk: Buffer) => {
-        size += chunk.length;
-        if (size > MAX_BODY_SIZE) {
-          req.destroy();
-          reject(new Error(`Request body exceeds ${MAX_BODY_SIZE} bytes`));
-          return;
-        }
-        chunks.push(chunk);
-      });
-      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-      req.on('error', reject);
-    });
-  }
-
-  /**
-   * Send a JSON response with optional extra headers.
-   */
-  private sendJson(
-    res: http.ServerResponse,
-    statusCode: number,
-    body: Record<string, unknown>,
-    extraHeaders?: Record<string, string>,
-  ): void {
-    const json = JSON.stringify(body);
-    res.writeHead(statusCode, {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(json).toString(),
-      ...extraHeaders,
-    });
-    res.end(json);
-  }
-
-  /**
-   * Send an Anthropic-format error response with optional extra headers.
-   */
-  private sendErrorResponse(
-    res: http.ServerResponse,
-    statusCode: number,
-    errorType: string,
-    message: string,
-    extraHeaders?: Record<string, string>,
-  ): void {
-    this.sendJson(
-      res,
-      statusCode,
-      {
-        type: 'error',
-        error: {
-          type: errorType,
-          message,
-        },
-      },
-      extraHeaders,
-    );
-  }
-
-  /**
-   * Build the full upstream URL by joining the base endpoint and path.
-   * Unlike `new URL(path, base)` which replaces the base path when path
-   * starts with '/', this method properly concatenates them:
-   *   'https://api.openai.com/v1' + '/responses' → 'https://api.openai.com/v1/responses'
-   *   'https://chatgpt.com/backend-api/codex' + '/responses' → 'https://chatgpt.com/backend-api/codex/responses'
-   */
-  private buildUpstreamUrl(baseEndpoint: string, path: string): URL {
-    // Strip trailing slash from base, strip leading slash from path
-    const base = baseEndpoint.replace(/\/+$/, '');
-    const suffix = path.replace(/^\/+/, '');
-    return new URL(`${base}/${suffix}`);
-  }
-
   private generateRequestId(): string {
     const prefix = this.config.name.toLowerCase().substring(0, 3);
     return `${prefix}_${Date.now().toString(36)}_${(this
       .requestCounter++).toString(36)}`;
-  }
-
-  /**
-   * Safely parse JSON, returning the parsed value or an empty object on failure.
-   */
-  private safeJsonParse(str: string): Record<string, unknown> {
-    try {
-      return JSON.parse(str);
-    } catch {
-      return {};
-    }
   }
 }
