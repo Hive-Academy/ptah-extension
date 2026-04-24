@@ -47,3 +47,6 @@ export type {
 // Registration helpers (TASK_2025_291 Wave C4b)
 export * from './lib/register-all';
 export * from './lib/verify-and-report';
+
+// Harness sub-service DI tokens + registration helper (TASK_2025_291 Wave C7d)
+export { HARNESS_TOKENS, registerHarnessServices } from './lib/harness';

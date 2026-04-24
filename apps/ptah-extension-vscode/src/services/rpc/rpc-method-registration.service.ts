@@ -23,6 +23,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import {
   registerAllRpcHandlers,
+  registerHarnessServices,
   verifyAndReportRpcRegistration,
   __debugAssertSharedHandlersDisjoint,
 } from '@ptah-extension/rpc-handlers';
@@ -112,6 +113,10 @@ export class RpcMethodRegistrationService {
    * Register all RPC methods and wire SDK / agent events.
    */
   registerAll(): void {
+    // Wave C7d: wire the six extracted harness services BEFORE
+    // `registerAllRpcHandlers` resolves `HarnessRpcHandlers`.
+    registerHarnessServices(this.container);
+
     registerAllRpcHandlers(this.container);
 
     this.fileHandlers.register();

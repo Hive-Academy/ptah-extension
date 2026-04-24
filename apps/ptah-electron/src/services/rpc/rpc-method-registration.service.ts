@@ -18,6 +18,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
   registerAllRpcHandlers,
+  registerHarnessServices,
   verifyAndReportRpcRegistration,
   __debugAssertSharedHandlersDisjoint,
 } from '@ptah-extension/rpc-handlers';
@@ -95,6 +96,10 @@ export class ElectronRpcMethodRegistrationService {
    * handlers register supplementary/override methods.
    */
   registerAll(): void {
+    // Wave C7d: wire the six extracted harness services BEFORE
+    // `registerAllRpcHandlers` resolves `HarnessRpcHandlers`.
+    registerHarnessServices(container);
+
     registerAllRpcHandlers(container);
     this.registerElectronHandlers();
 
