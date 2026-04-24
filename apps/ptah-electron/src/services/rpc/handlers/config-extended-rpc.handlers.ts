@@ -31,7 +31,7 @@ import type { ConfigManager } from '@ptah-extension/vscode-core';
 const DEFAULT_MODEL = 'default';
 
 @injectable()
-export class ElectronConfigExtendedRpcHandlers {
+export class ConfigExtendedRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

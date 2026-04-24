@@ -121,7 +121,7 @@ const TECH_SKILL_KEYWORDS: Record<string, string[]> = {
 const SAFE_SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 
 @injectable()
-export class ElectronSkillsShRpcHandlers {
+export class SkillsShRpcHandlers {
   private popularCache: { data: SkillShEntry[]; timestamp: number } | null =
     null;
 
@@ -458,7 +458,7 @@ export class ElectronSkillsShRpcHandlers {
         if (
           this.popularCache &&
           Date.now() - this.popularCache.timestamp <
-            ElectronSkillsShRpcHandlers.POPULAR_CACHE_TTL_MS
+            SkillsShRpcHandlers.POPULAR_CACHE_TTL_MS
         ) {
           return { skills: this.popularCache.data };
         }

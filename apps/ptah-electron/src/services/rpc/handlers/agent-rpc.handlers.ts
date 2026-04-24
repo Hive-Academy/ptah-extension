@@ -49,7 +49,7 @@ import type {
 } from '@ptah-extension/shared';
 
 @injectable()
-export class ElectronAgentRpcHandlers {
+export class AgentRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -511,7 +511,7 @@ export class ElectronAgentRpcHandlers {
           );
           if (!cliSessionExists) {
             this.logger.warn(
-              `[ElectronAgentRpc] CLI session file not found for ${params.cliSessionId} — starting fresh`,
+              `[AgentRpc] CLI session file not found for ${params.cliSessionId} — starting fresh`,
             );
           }
           result = await this.agentProcessManager.spawn({
@@ -592,7 +592,7 @@ export class ElectronAgentRpcHandlers {
 
     if (!sessionFileExists) {
       this.logger.warn(
-        `[ElectronAgentRpc] Session file not found for ${params.cliSessionId} — starting fresh instead of resuming`,
+        `[AgentRpc] Session file not found for ${params.cliSessionId} — starting fresh instead of resuming`,
       );
     }
 
@@ -607,7 +607,7 @@ export class ElectronAgentRpcHandlers {
           .createChild(sessionId, workspaceRoot, sessionName)
           .catch((err) =>
             this.logger.warn(
-              `[ElectronAgentRpc] Failed to save child session metadata: ${err}`,
+              `[AgentRpc] Failed to save child session metadata: ${err}`,
             ),
           );
       });

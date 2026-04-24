@@ -42,20 +42,22 @@ import {
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific RPC handler classes (TASK_2025_203 Batch 5).
-// TASK_2025_209: ElectronLlmRpcHandlers, ElectronChatExtendedRpcHandlers removed (unified into shared).
-// Re-added: ElectronAgentRpcHandlers, ElectronSkillsShRpcHandlers, ElectronLayoutRpcHandlers.
+// TASK_2025_209: the Electron-prefixed LlmRpcHandlers and ChatExtendedRpcHandlers
+// were unified into the shared versions; electron-specific AgentRpcHandlers,
+// SkillsShRpcHandlers, and LayoutRpcHandlers were re-added.
+// TASK_2025_291 Wave C6: Electron prefix dropped from class and file names.
 import {
-  ElectronWorkspaceRpcHandlers,
-  ElectronEditorRpcHandlers,
-  ElectronFileRpcHandlers,
-  ElectronConfigExtendedRpcHandlers,
-  ElectronCommandRpcHandlers,
-  ElectronSettingsRpcHandlers,
-  ElectronAgentRpcHandlers,
-  ElectronSkillsShRpcHandlers,
-  ElectronLayoutRpcHandlers,
-  ElectronGitRpcHandlers,
-  ElectronTerminalRpcHandlers,
+  WorkspaceRpcHandlers,
+  EditorRpcHandlers,
+  FileRpcHandlers,
+  ConfigExtendedRpcHandlers,
+  CommandRpcHandlers,
+  SettingsRpcHandlers,
+  AgentRpcHandlers,
+  SkillsShRpcHandlers,
+  LayoutRpcHandlers,
+  GitRpcHandlers,
+  TerminalRpcHandlers,
 } from '../services/rpc/handlers';
 
 import { GitInfoService } from '../services/git-info.service';
@@ -71,8 +73,8 @@ import { ElectronRpcMethodRegistrationService } from '../services/rpc/rpc-method
  * when ElectronRpcMethodRegistrationService.registerAll() runs in main.ts.
  *
  * NOTE: Factory-based registrations (SetupRpcHandlers, WizardGenerationRpcHandlers,
- * EnhancedPromptsRpcHandlers, LlmRpcHandlers, ElectronEditorRpcHandlers,
- * ElectronConfigExtendedRpcHandlers) exist because these handlers need the
+ * EnhancedPromptsRpcHandlers, LlmRpcHandlers, EditorRpcHandlers,
+ * ConfigExtendedRpcHandlers) exist because these handlers need the
  * DependencyContainer interface itself (no reflection metadata) or resolve
  * WEBVIEW_MANAGER which is registered later in main.ts Phase 4.
  */
@@ -181,11 +183,11 @@ export function registerPhase4Handlers(
   // ========================================
   // PHASE 4.2: Electron-specific RPC Handler Classes (TASK_2025_203 Batch 5)
   // ========================================
-  container.registerSingleton(ElectronWorkspaceRpcHandlers);
-  // ElectronEditorRpcHandlers requires container for lazy resolution.
-  container.register(ElectronEditorRpcHandlers, {
+  container.registerSingleton(WorkspaceRpcHandlers);
+  // EditorRpcHandlers requires container for lazy resolution.
+  container.register(EditorRpcHandlers, {
     useFactory: (c) =>
-      new ElectronEditorRpcHandlers(
+      new EditorRpcHandlers(
         c.resolve(TOKENS.LOGGER),
         c.resolve(TOKENS.RPC_HANDLER),
         c.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
@@ -193,37 +195,38 @@ export function registerPhase4Handlers(
         c,
       ),
   });
-  container.registerSingleton(ElectronFileRpcHandlers);
-  // TASK_2025_209: ElectronLlmRpcHandlers, ElectronChatExtendedRpcHandlers, ElectronAgentRpcHandlers
-  // removed (unified into shared LlmRpcHandlers and ChatRpcHandlers).
-  // ElectronConfigExtendedRpcHandlers requires container for lazy resolution.
-  container.register(ElectronConfigExtendedRpcHandlers, {
+  container.registerSingleton(FileRpcHandlers);
+  // TASK_2025_209: the Electron-prefixed LlmRpcHandlers, ChatExtendedRpcHandlers,
+  // and AgentRpcHandlers were unified into the shared LlmRpcHandlers and
+  // ChatRpcHandlers (electron-specific AgentRpcHandlers was re-added below).
+  // ConfigExtendedRpcHandlers requires container for lazy resolution.
+  container.register(ConfigExtendedRpcHandlers, {
     useFactory: (c) =>
-      new ElectronConfigExtendedRpcHandlers(
+      new ConfigExtendedRpcHandlers(
         c.resolve(TOKENS.LOGGER),
         c.resolve(TOKENS.RPC_HANDLER),
         c,
       ),
   });
-  container.registerSingleton(ElectronCommandRpcHandlers);
-  container.registerSingleton(ElectronSettingsRpcHandlers);
-  container.registerSingleton(ElectronAgentRpcHandlers);
-  container.registerSingleton(ElectronSkillsShRpcHandlers);
-  container.registerSingleton(ElectronLayoutRpcHandlers);
+  container.registerSingleton(CommandRpcHandlers);
+  container.registerSingleton(SettingsRpcHandlers);
+  container.registerSingleton(AgentRpcHandlers);
+  container.registerSingleton(SkillsShRpcHandlers);
+  container.registerSingleton(LayoutRpcHandlers);
 
   // GitInfoService (TASK_2025_227): Plain class instantiated with logger.
   const gitInfoService = new GitInfoService(logger);
   container.register(ELECTRON_TOKENS.GIT_INFO_SERVICE, {
     useValue: gitInfoService,
   });
-  container.registerSingleton(ElectronGitRpcHandlers);
+  container.registerSingleton(GitRpcHandlers);
 
   // PtyManagerService (TASK_2025_227): Terminal PTY session management.
   const ptyManagerService = new PtyManagerService(logger);
   container.register(ELECTRON_TOKENS.PTY_MANAGER_SERVICE, {
     useValue: ptyManagerService,
   });
-  container.registerSingleton(ElectronTerminalRpcHandlers);
+  container.registerSingleton(TerminalRpcHandlers);
 
   // Register the orchestrator itself.
   container.registerSingleton(ElectronRpcMethodRegistrationService);
@@ -232,17 +235,17 @@ export function registerPhase4Handlers(
     '[Electron DI] Electron-specific RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
     {
       handlers: [
-        'ElectronWorkspaceRpcHandlers',
-        'ElectronEditorRpcHandlers',
-        'ElectronFileRpcHandlers',
-        'ElectronConfigExtendedRpcHandlers',
-        'ElectronCommandRpcHandlers',
-        'ElectronSettingsRpcHandlers',
-        'ElectronAgentRpcHandlers',
-        'ElectronSkillsShRpcHandlers',
-        'ElectronLayoutRpcHandlers',
-        'ElectronGitRpcHandlers',
-        'ElectronTerminalRpcHandlers',
+        'WorkspaceRpcHandlers',
+        'EditorRpcHandlers',
+        'FileRpcHandlers',
+        'ConfigExtendedRpcHandlers',
+        'CommandRpcHandlers',
+        'SettingsRpcHandlers',
+        'AgentRpcHandlers',
+        'SkillsShRpcHandlers',
+        'LayoutRpcHandlers',
+        'GitRpcHandlers',
+        'TerminalRpcHandlers',
       ],
     },
   );

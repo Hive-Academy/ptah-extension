@@ -7,8 +7,9 @@
  *
  * TASK_2025_203 Batch 5: Rewritten from ~2300-line procedural file to ~200-line class orchestrator.
  * TASK_2025_209: Unified LlmRpcHandlers, ChatRpcHandlers (chat:send-message, chat:stop).
- * Re-added ElectronAgentRpcHandlers, ElectronSkillsShRpcHandlers, ElectronLayoutRpcHandlers
+ * Re-added AgentRpcHandlers, SkillsShRpcHandlers, LayoutRpcHandlers
  * with proper Electron-specific implementations using platform-agnostic services.
+ * TASK_2025_291 Wave C6: dropped redundant Electron prefix from class and file names.
  *
  * Handler registration order:
  * 1. Shared handlers (17 handlers from @ptah-extension/rpc-handlers)
@@ -70,18 +71,19 @@ import {
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific handler classes
+// TASK_2025_291 Wave C6: Electron prefix dropped from class and file names.
 import {
-  ElectronWorkspaceRpcHandlers,
-  ElectronEditorRpcHandlers,
-  ElectronFileRpcHandlers,
-  ElectronConfigExtendedRpcHandlers,
-  ElectronCommandRpcHandlers,
-  ElectronSettingsRpcHandlers,
-  ElectronAgentRpcHandlers,
-  ElectronSkillsShRpcHandlers,
-  ElectronLayoutRpcHandlers,
-  ElectronGitRpcHandlers,
-  ElectronTerminalRpcHandlers,
+  WorkspaceRpcHandlers,
+  EditorRpcHandlers,
+  FileRpcHandlers,
+  ConfigExtendedRpcHandlers,
+  CommandRpcHandlers,
+  SettingsRpcHandlers,
+  AgentRpcHandlers,
+  SkillsShRpcHandlers,
+  LayoutRpcHandlers,
+  GitRpcHandlers,
+  TerminalRpcHandlers,
 } from './handlers';
 import { ELECTRON_TOKENS } from '../../di/electron-tokens';
 import type { GitInfoService } from '../git-info.service';
@@ -132,28 +134,28 @@ export class ElectronRpcMethodRegistrationService {
     @inject(HarnessRpcHandlers)
     private readonly harnessHandlers: HarnessRpcHandlers,
     // Electron-specific handlers
-    @inject(ElectronWorkspaceRpcHandlers)
-    private readonly workspaceHandlers: ElectronWorkspaceRpcHandlers,
-    @inject(ElectronEditorRpcHandlers)
-    private readonly editorHandlers: ElectronEditorRpcHandlers,
-    @inject(ElectronFileRpcHandlers)
-    private readonly fileHandlers: ElectronFileRpcHandlers,
-    @inject(ElectronConfigExtendedRpcHandlers)
-    private readonly configExtendedHandlers: ElectronConfigExtendedRpcHandlers,
-    @inject(ElectronCommandRpcHandlers)
-    private readonly commandHandlers: ElectronCommandRpcHandlers,
-    @inject(ElectronSettingsRpcHandlers)
-    private readonly settingsHandlers: ElectronSettingsRpcHandlers,
-    @inject(ElectronAgentRpcHandlers)
-    private readonly agentHandlers: ElectronAgentRpcHandlers,
-    @inject(ElectronSkillsShRpcHandlers)
-    private readonly skillsShHandlers: ElectronSkillsShRpcHandlers,
-    @inject(ElectronLayoutRpcHandlers)
-    private readonly layoutHandlers: ElectronLayoutRpcHandlers,
-    @inject(ElectronGitRpcHandlers)
-    private readonly gitHandlers: ElectronGitRpcHandlers,
-    @inject(ElectronTerminalRpcHandlers)
-    private readonly terminalHandlers: ElectronTerminalRpcHandlers,
+    @inject(WorkspaceRpcHandlers)
+    private readonly workspaceHandlers: WorkspaceRpcHandlers,
+    @inject(EditorRpcHandlers)
+    private readonly editorHandlers: EditorRpcHandlers,
+    @inject(FileRpcHandlers)
+    private readonly fileHandlers: FileRpcHandlers,
+    @inject(ConfigExtendedRpcHandlers)
+    private readonly configExtendedHandlers: ConfigExtendedRpcHandlers,
+    @inject(CommandRpcHandlers)
+    private readonly commandHandlers: CommandRpcHandlers,
+    @inject(SettingsRpcHandlers)
+    private readonly settingsHandlers: SettingsRpcHandlers,
+    @inject(AgentRpcHandlers)
+    private readonly agentHandlers: AgentRpcHandlers,
+    @inject(SkillsShRpcHandlers)
+    private readonly skillsShHandlers: SkillsShRpcHandlers,
+    @inject(LayoutRpcHandlers)
+    private readonly layoutHandlers: LayoutRpcHandlers,
+    @inject(GitRpcHandlers)
+    private readonly gitHandlers: GitRpcHandlers,
+    @inject(TerminalRpcHandlers)
+    private readonly terminalHandlers: TerminalRpcHandlers,
   ) {}
 
   /**
@@ -945,36 +947,36 @@ export class ElectronRpcMethodRegistrationService {
       name: string;
       handler: { register(): void };
     }> = [
-      { name: 'ElectronWorkspaceRpcHandlers', handler: this.workspaceHandlers },
-      { name: 'ElectronEditorRpcHandlers', handler: this.editorHandlers },
-      { name: 'ElectronFileRpcHandlers', handler: this.fileHandlers },
+      { name: 'WorkspaceRpcHandlers', handler: this.workspaceHandlers },
+      { name: 'EditorRpcHandlers', handler: this.editorHandlers },
+      { name: 'FileRpcHandlers', handler: this.fileHandlers },
       {
-        name: 'ElectronConfigExtendedRpcHandlers',
+        name: 'ConfigExtendedRpcHandlers',
         handler: this.configExtendedHandlers,
       },
-      { name: 'ElectronCommandRpcHandlers', handler: this.commandHandlers },
+      { name: 'CommandRpcHandlers', handler: this.commandHandlers },
       {
-        name: 'ElectronSettingsRpcHandlers',
+        name: 'SettingsRpcHandlers',
         handler: this.settingsHandlers,
       },
       {
-        name: 'ElectronAgentRpcHandlers',
+        name: 'AgentRpcHandlers',
         handler: this.agentHandlers,
       },
       {
-        name: 'ElectronSkillsShRpcHandlers',
+        name: 'SkillsShRpcHandlers',
         handler: this.skillsShHandlers,
       },
       {
-        name: 'ElectronLayoutRpcHandlers',
+        name: 'LayoutRpcHandlers',
         handler: this.layoutHandlers,
       },
       {
-        name: 'ElectronGitRpcHandlers',
+        name: 'GitRpcHandlers',
         handler: this.gitHandlers,
       },
       {
-        name: 'ElectronTerminalRpcHandlers',
+        name: 'TerminalRpcHandlers',
         handler: this.terminalHandlers,
       },
     ];

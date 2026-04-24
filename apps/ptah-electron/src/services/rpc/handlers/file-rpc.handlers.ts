@@ -23,7 +23,7 @@ import {
 } from '@ptah-extension/shared';
 
 @injectable()
-export class ElectronFileRpcHandlers {
+export class FileRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

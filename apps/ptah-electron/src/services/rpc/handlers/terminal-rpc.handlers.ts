@@ -26,7 +26,7 @@ import type { PtyManagerService } from '../../pty-manager.service';
 import { ELECTRON_TOKENS } from '../../../di/electron-tokens';
 
 @injectable()
-export class ElectronTerminalRpcHandlers {
+export class TerminalRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -54,7 +54,7 @@ export class ElectronTerminalRpcHandlers {
         const wsRoot = this.workspace.getWorkspaceRoot();
         const cwd = params?.cwd || wsRoot || require('os').homedir();
 
-        this.logger.info('[ElectronTerminalRpc] Creating terminal session', {
+        this.logger.info('[TerminalRpc] Creating terminal session', {
           cwd,
           shell: params?.shell,
           name: params?.name,
@@ -70,7 +70,7 @@ export class ElectronTerminalRpcHandlers {
         } catch (error) {
           const message =
             error instanceof Error ? error.message : String(error);
-          this.logger.error('[ElectronTerminalRpc] Failed to create terminal', {
+          this.logger.error('[TerminalRpc] Failed to create terminal', {
             error: message,
           } as unknown as Error);
           throw new Error(message);
@@ -90,7 +90,7 @@ export class ElectronTerminalRpcHandlers {
           return { success: false, error: 'id is required' };
         }
 
-        this.logger.info('[ElectronTerminalRpc] Killing terminal session', {
+        this.logger.info('[TerminalRpc] Killing terminal session', {
           id: params.id,
         } as unknown as Error);
 

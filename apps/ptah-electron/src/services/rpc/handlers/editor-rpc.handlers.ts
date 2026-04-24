@@ -130,7 +130,7 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 @injectable()
-export class ElectronEditorRpcHandlers {
+export class EditorRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

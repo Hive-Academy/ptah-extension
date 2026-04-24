@@ -28,7 +28,7 @@ interface WebviewBroadcaster {
 }
 
 @injectable()
-export class ElectronCommandRpcHandlers {
+export class CommandRpcHandlers {
   /** Resolved URLs for the current environment (dev vs production) */
   private readonly urls = resolveEnvironment(
     process.env['NODE_ENV'] === 'development',

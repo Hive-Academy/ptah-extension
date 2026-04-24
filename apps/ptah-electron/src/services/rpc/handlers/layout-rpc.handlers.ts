@@ -18,7 +18,7 @@ import type { IStateStorage } from '@ptah-extension/platform-core';
 const LAYOUT_STORAGE_KEY = 'electron.layout.state';
 
 @injectable()
-export class ElectronLayoutRpcHandlers {
+export class LayoutRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

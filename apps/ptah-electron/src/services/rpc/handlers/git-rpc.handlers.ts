@@ -37,7 +37,7 @@ import type { GitInfoService } from '../../git-info.service';
 import { ELECTRON_TOKENS } from '../../../di/electron-tokens';
 
 @injectable()
-export class ElectronGitRpcHandlers {
+export class GitRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -71,7 +71,7 @@ export class ElectronGitRpcHandlers {
         const wsRoot = this.workspace.getWorkspaceRoot();
         if (!wsRoot) {
           this.logger.debug(
-            '[ElectronGitRpc] git:info called with no workspace open',
+            '[GitRpc] git:info called with no workspace open',
           );
           return {
             isGitRepo: false,
@@ -127,7 +127,7 @@ export class ElectronGitRpcHandlers {
           };
         }
 
-        this.logger.info('[ElectronGitRpc] Adding worktree', {
+        this.logger.info('[GitRpc] Adding worktree', {
           branch: params.branch,
           path: params.path,
           createBranch: params.createBranch,
@@ -166,7 +166,7 @@ export class ElectronGitRpcHandlers {
         };
       }
 
-      this.logger.info('[ElectronGitRpc] Removing worktree', {
+      this.logger.info('[GitRpc] Removing worktree', {
         worktreePath: params.path,
         force: params.force,
       } as unknown as Error);
@@ -238,7 +238,7 @@ export class ElectronGitRpcHandlers {
         }
 
         this.logger.warn(
-          '[ElectronGitRpc] git:discard called — this is a destructive operation',
+          '[GitRpc] git:discard called — this is a destructive operation',
           { paths: params.paths } as unknown as Error,
         );
 

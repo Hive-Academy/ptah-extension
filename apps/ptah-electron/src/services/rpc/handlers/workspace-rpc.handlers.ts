@@ -24,7 +24,7 @@ import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electro
 import type { WorkspaceContextManager } from '../../workspace-context-manager';
 
 @injectable()
-export class ElectronWorkspaceRpcHandlers {
+export class WorkspaceRpcHandlers {
   private readonly workspaceContextManager: WorkspaceContextManager;
 
   constructor(

@@ -421,7 +421,7 @@ export async function handleLicenseBlocking(
 
               // If a license key was imported, schedule a window reload so the
               // extension re-runs activation with the new credentials.
-              // Same pattern as Electron's ElectronSettingsRpcHandlers — 1.5s
+              // Same pattern as Electron's SettingsRpcHandlers — 1.5s
               // delay lets the RPC response reach the webview before reload.
               if (imported.includes('ptah.licenseKey')) {
                 setTimeout(

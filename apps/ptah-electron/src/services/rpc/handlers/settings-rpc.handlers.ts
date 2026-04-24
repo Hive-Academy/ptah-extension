@@ -33,7 +33,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
 
 @injectable()
-export class ElectronSettingsRpcHandlers {
+export class SettingsRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

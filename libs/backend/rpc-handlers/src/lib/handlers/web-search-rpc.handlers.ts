@@ -24,16 +24,7 @@ import type {
   WebSearchProviderType,
   IWebSearchProvider,
 } from '@ptah-extension/vscode-lm-tools';
-
-/** Secret key pattern for web search API keys */
-const SECRET_KEY_PREFIX = 'ptah.webSearch.apiKey';
-
-/** Valid provider names */
-const VALID_PROVIDERS: ReadonlySet<string> = new Set([
-  'tavily',
-  'serper',
-  'exa',
-]);
+import { SECRET_KEY_PREFIX, VALID_PROVIDERS } from './web-search-rpc.schema';
 
 /**
  * RPC handlers for web search settings management
