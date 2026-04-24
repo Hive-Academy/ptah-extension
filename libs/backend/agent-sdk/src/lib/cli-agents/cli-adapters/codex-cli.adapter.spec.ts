@@ -92,15 +92,36 @@ jest.mock('@openai/codex-sdk', () => {
   };
 });
 
-// Mock child_process for detect() tests
+// Mock cli-adapter.utils so detect()'s resolveCliPath and the SDK's
+// spawnCli version probe can be intercepted deterministically across
+// platforms (otherwise `which codex` on Windows finds the real .CMD shim
+// installed on the developer's machine). stripAnsiCodes / buildTaskPrompt
+// are preserved via jest.requireActual so production formatting still runs
+// inside the adapter under test.
+const mockResolveCliPath = jest.fn();
+const mockSpawnCli = jest.fn();
+jest.mock('./cli-adapter.utils', () => {
+  const actual = jest.requireActual<typeof import('./cli-adapter.utils')>(
+    './cli-adapter.utils',
+  );
+  return {
+    ...actual,
+    resolveCliPath: (...args: unknown[]) => mockResolveCliPath(...args),
+    spawnCli: (...args: unknown[]) => mockSpawnCli(...args),
+  };
+});
+
+// Mock child_process defensively in case any transitive import reaches for it.
 const mockExecFile = jest.fn();
 jest.mock('child_process', () => ({
   execFile: mockExecFile,
+  spawn: jest.fn(),
 }));
 
 // Import adapter AFTER mocks are declared
 import { CodexCliAdapter } from './codex-cli.adapter';
 import type { SdkHandle } from './cli-adapter.interface';
+import { EventEmitter } from 'events';
 
 describe('CodexCliAdapter', () => {
   let adapter: CodexCliAdapter;
@@ -129,60 +150,72 @@ describe('CodexCliAdapter', () => {
     jest.resetModules();
   });
 
+  /**
+   * Build a minimal fake ChildProcess that simulates the `--version` probe
+   * inside detect(). The adapter wires setEncoding + data + close listeners
+   * via spawnCli, so we emit a single stdout chunk and close.
+   */
+  function createFakeVersionChild(stdout: string): EventEmitter & {
+    stdout: EventEmitter & { setEncoding: jest.Mock };
+    kill: jest.Mock;
+  } {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter & { setEncoding: jest.Mock };
+      kill: jest.Mock;
+    };
+    const stdoutEmitter = Object.assign(new EventEmitter(), {
+      setEncoding: jest.fn(),
+    });
+    child.stdout = stdoutEmitter;
+    child.kill = jest.fn();
+    // Emit stdout + close on the next tick so listeners (attached after
+    // spawnCli returns inside detect()) see the data.
+    setImmediate(() => {
+      stdoutEmitter.emit('data', stdout);
+      child.emit('close', 0);
+    });
+    return child;
+  }
+
   describe('detect()', () => {
     it('should return installed: true when codex binary is found', async () => {
-      // Mock `which codex` success
-      mockExecFile.mockImplementation(
-        (
-          cmd: string,
-          args: string[],
-          _opts: Record<string, unknown>,
-          cb?: (err: Error | null, result: { stdout: string }) => void,
-        ) => {
-          if (args[0] === 'codex' && (cmd === 'where' || cmd === 'which')) {
-            cb?.(null, { stdout: '/usr/local/bin/codex\n' });
-          } else if (args[0] === '--version') {
-            cb?.(null, { stdout: '1.2.3\n' });
-          }
-        },
-      );
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/codex');
+      mockSpawnCli.mockImplementation(() => createFakeVersionChild('1.2.3\n'));
 
       const result = await adapter.detect();
 
       expect(result.cli).toBe('codex');
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/codex');
+      expect(result.version).toBe('1.2.3');
       expect(result.supportsSteer).toBe(false);
     });
 
     it('should return installed: false when codex binary is not found', async () => {
-      mockExecFile.mockImplementation(
-        (
-          _cmd: string,
-          _args: string[],
-          _opts: Record<string, unknown>,
-          cb?: (err: Error | null) => void,
-        ) => {
-          cb?.(new Error('not found'));
-        },
-      );
+      mockResolveCliPath.mockResolvedValue(null);
 
       const result = await adapter.detect();
 
       expect(result.cli).toBe('codex');
       expect(result.installed).toBe(false);
+      expect(result.supportsSteer).toBe(false);
     });
   });
 
   describe('buildCommand()', () => {
-    it('should build a --quiet command with the task prompt', () => {
+    it('should build an `exec --full-auto --ephemeral` command with the task prompt', () => {
+      // TASK_2025_157: CLI fallback was migrated from `--quiet` to the
+      // `exec` subcommand with `--full-auto --ephemeral` for non-interactive,
+      // auto-approve, no-session-persistence execution.
       const cmd = adapter.buildCommand({
         task: 'Write a test',
         workingDirectory: '/project',
       });
 
       expect(cmd.binary).toBe('codex');
-      expect(cmd.args).toContain('--quiet');
+      expect(cmd.args).toContain('exec');
+      expect(cmd.args).toContain('--full-auto');
+      expect(cmd.args).toContain('--ephemeral');
       expect(cmd.args).toContain('Write a test');
     });
   });
@@ -219,8 +252,14 @@ describe('CodexCliAdapter', () => {
       const handle: SdkHandle = await adapter.runSdk(defaultOptions);
 
       expect(mockCodexConstructor).toHaveBeenCalledTimes(1);
+      // TASK_2025_177: threadOptions now always includes the headless
+      // approvalPolicy/sandboxMode/skipGitRepoCheck trio so Codex runs
+      // non-interactively without permission hooks.
       expect(mockStartThread).toHaveBeenCalledWith({
         workingDirectory: '/project/root',
+        approvalPolicy: 'never',
+        sandboxMode: 'danger-full-access',
+        skipGitRepoCheck: true,
       });
       expect(handle.abort).toBeInstanceOf(AbortController);
       expect(typeof handle.done.then).toBe('function');
@@ -292,7 +331,9 @@ describe('CodexCliAdapter', () => {
 
       await handle.done;
 
-      expect(output).toContain('[Reasoning] Thinking about the problem\n');
+      // TASK_2025_177: reasoning items are surfaced as "[Thinking] ..." in
+      // the plain-output stream (the structured segment uses type 'thinking').
+      expect(output).toContain('[Thinking] Thinking about the problem\n');
     });
 
     it('should push command_execution output to onOutput callback', async () => {
