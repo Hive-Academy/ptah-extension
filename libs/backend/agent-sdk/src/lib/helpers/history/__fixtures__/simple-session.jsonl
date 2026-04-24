@@ -1,0 +1,3 @@
+{"uuid":"msg-1","sessionId":"session-abc","timestamp":"2026-01-01T00:00:00.000Z","type":"system","subtype":"init","model":"claude-sonnet-4-20250514"}
+{"uuid":"msg-2","sessionId":"session-abc","timestamp":"2026-01-01T00:00:01.000Z","type":"user","message":{"role":"user","content":"Hello Claude"}}
+{"uuid":"msg-3","sessionId":"session-abc","timestamp":"2026-01-01T00:00:02.000Z","type":"assistant","message":{"role":"assistant","model":"claude-sonnet-4-20250514","content":[{"type":"text","text":"Hi there!"}],"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
