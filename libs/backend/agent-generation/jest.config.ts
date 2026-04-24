@@ -10,8 +10,10 @@ export default {
   moduleNameMapper: {
     '^vscode$': '<rootDir>/../../../__mocks__/vscode.ts',
   },
-  // Ratchet floor from TASK_2025_294 W8.B1 baseline (S 86.1 / B 72.07 /
-  // F 85.48 / L 86.45). Rounded down to the nearest 5.
+  // Ratchet floor after TASK_2025_294 F6 (agent-generation test
+  // stabilization). Post-fix baseline measured: S 87.86 / B 72.66 /
+  // F 87.61 / L 88.02 (246 tests passing, 7 skipped). Floor rounded
+  // down to the nearest 5, never exceeding actual.
   coverageThreshold: {
     global: {
       statements: 85,
