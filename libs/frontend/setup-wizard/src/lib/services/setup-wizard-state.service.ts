@@ -1,29 +1,17 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
-import {
-  createEmptyStreamingState,
-  type StreamingState,
-} from '@ptah-extension/chat';
+import { type StreamingState } from '@ptah-extension/chat';
 import {
   AgentRecommendation,
-  AnalysisCompletePayload,
   AnalysisPhase,
   AnalysisStreamPayload,
-  AvailableAgentsPayload,
-  GenerationCompletePayload,
-  GenerationProgressPayload,
   GenerationStreamPayload,
   ProjectAnalysisResult,
   SavedAnalysisMetadata,
-  ScanProgressPayload,
-  WizardErrorPayload,
-  WizardMessage,
-  WizardMessageType,
 } from '@ptah-extension/shared';
 import type { AgentPackInfoDto } from '@ptah-extension/shared';
 import type {
   EnhancedPromptsSummary,
-  FlatStreamEventUnion,
   MultiPhaseAnalysisResponse,
 } from '@ptah-extension/shared';
 import type {
@@ -33,6 +21,11 @@ import type {
   MasterPlan,
   AnswerValue,
 } from '@ptah-extension/shared';
+import { WizardStreamAccumulator } from './setup-wizard/wizard-stream-accumulator';
+import { WizardMessageDispatcher } from './setup-wizard/wizard-message-dispatcher';
+import { WizardPhaseAnalysis } from './setup-wizard/wizard-phase-analysis';
+import { WizardPhaseGeneration } from './setup-wizard/wizard-phase-generation';
+import type { WizardInternalState } from './setup-wizard/wizard-internal-state';
 
 // Re-export shared types for backward compatibility with existing consumers
 export type {
@@ -213,12 +206,6 @@ export class SetupWizardStateService {
    * Prevents duplicate registration for root-level service.
    */
   private isMessageListenerRegistered = false;
-
-  /**
-   * Message handler reference for cleanup.
-   * Stored to allow removal during dispose().
-   */
-  private messageHandler: ((event: MessageEvent) => void) | null = null;
 
   // === State Signals ===
 
@@ -822,21 +809,88 @@ export class SetupWizardStateService {
     };
   });
 
+  // ============================================================================
+  // HELPER COMPOSITION (Wave C7b split)
+  // ============================================================================
+
+  private readonly streamAccumulator: WizardStreamAccumulator;
+  private readonly phaseAnalysis: WizardPhaseAnalysis;
+  private readonly phaseGeneration: WizardPhaseGeneration;
+  private readonly messageDispatcher: WizardMessageDispatcher;
+
   public constructor() {
+    const internalState: WizardInternalState = {
+      projectContext: this.projectContextSignal,
+      availableAgents: this.availableAgentsSignal,
+      generationProgress: this.generationProgressSignal,
+      scanProgress: this.scanProgressSignal,
+      analysisResults: this.analysisResultsSignal,
+      completionData: this.completionDataSignal,
+      errorState: this.errorStateSignal,
+      analysisStream: this.analysisStreamSignal,
+      generationStream: this.generationStreamSignal,
+      enhanceStream: this.enhanceStreamSignal,
+      phaseStreamingStates: this.phaseStreamingStatesSignal,
+      currentPhaseNumber: this._currentPhaseNumber,
+      totalPhaseCount: this._totalPhaseCount,
+      phaseStatuses: this._phaseStatuses,
+      skillGenerationProgress: this.skillGenerationProgressSignal,
+      fallbackWarning: this.fallbackWarningSignal,
+      setStepToAnalysis: (): void => {
+        this.currentStepSignal.set('analysis');
+      },
+      setCurrentStepIfGeneration: (): void => {
+        if (this.currentStepSignal() === 'generation') {
+          this.currentStepSignal.set('enhance');
+        }
+      },
+    };
+
+    this.streamAccumulator = new WizardStreamAccumulator(
+      this.phaseStreamingStatesSignal,
+    );
+    this.phaseAnalysis = new WizardPhaseAnalysis(
+      internalState,
+      this.streamAccumulator,
+    );
+    this.phaseGeneration = new WizardPhaseGeneration(
+      internalState,
+      this.streamAccumulator,
+    );
+
+    this.messageDispatcher = new WizardMessageDispatcher(
+      {
+        handleScanProgress: (p): void =>
+          this.phaseAnalysis.handleScanProgress(p),
+        handleAnalysisStream: (p): void =>
+          this.phaseAnalysis.handleAnalysisStream(p),
+        handleAnalysisComplete: (p): void =>
+          this.phaseAnalysis.handleAnalysisComplete(p),
+        handleAvailableAgents: (p): void =>
+          this.phaseAnalysis.handleAvailableAgents(p),
+        handleEnhanceStream: (p): void =>
+          this.phaseAnalysis.handleEnhanceStream(p),
+        handleGenerationProgress: (p): void =>
+          this.phaseGeneration.handleGenerationProgress(p),
+        handleGenerationComplete: (p): void =>
+          this.phaseGeneration.handleGenerationComplete(p),
+        handleGenerationStream: (p): void =>
+          this.phaseGeneration.handleGenerationStream(p),
+        handleError: (p): void => this.phaseGeneration.handleError(p),
+      },
+      this.errorStateSignal,
+    );
+
     this.ensureMessageListenerRegistered();
   }
 
   /**
    * Ensure message listener is registered exactly once.
-   * Safe to call multiple times - uses flag to prevent duplicate registration.
-   * This is the proper pattern for root-level services that are never destroyed.
+   * Safe to call multiple times. Delegates to the message dispatcher.
    */
   private ensureMessageListenerRegistered(): void {
-    if (this.isMessageListenerRegistered) {
-      return;
-    }
-
-    this.setupMessageListener();
+    if (this.isMessageListenerRegistered) return;
+    this.messageDispatcher.ensureRegistered();
     this.isMessageListenerRegistered = true;
   }
 
@@ -1064,7 +1118,7 @@ export class SetupWizardStateService {
     this.completionDataSignal.set(null);
     this.errorStateSignal.set(null);
     this.fallbackWarningSignal.set(null);
-    this.generationStreamInitialized = false;
+    this.phaseGeneration.resetPassState();
     // Reset deep analysis state (TASK_2025_111)
     this.deepAnalysisSignal.set(null);
     this.recommendationsSignal.set([]);
@@ -1434,501 +1488,16 @@ export class SetupWizardStateService {
     });
   }
 
-  // ============================================================================
-  // Message Handling with Discriminated Union (TASK_2025_113 - T3.2)
-  // ============================================================================
-
-  /**
-   * Type guard for WizardMessage discriminated union.
-   * Validates message structure matches expected format for type-safe handling.
-   *
-   * @param message - Unknown message from MessageEvent
-   * @returns true if message is a valid WizardMessage
-   */
-  private isWizardMessage(message: unknown): message is WizardMessage {
-    if (
-      typeof message !== 'object' ||
-      message === null ||
-      !('type' in message) ||
-      !('payload' in message)
-    ) {
-      return false;
-    }
-
-    const validTypes: WizardMessageType[] = [
-      'setup-wizard:scan-progress',
-      'setup-wizard:analysis-stream',
-      'setup-wizard:analysis-complete',
-      'setup-wizard:available-agents',
-      'setup-wizard:generation-progress',
-      'setup-wizard:generation-complete',
-      'setup-wizard:generation-stream',
-      'setup-wizard:enhance-stream',
-      'setup-wizard:error',
-    ];
-
-    return validTypes.includes(
-      (message as { type: string }).type as WizardMessageType,
-    );
-  }
-
-  /**
-   * Setup message listener for backend progress updates.
-   * Uses discriminated union for type-safe message handling.
-   * Handles all setup-wizard:* messages from the extension backend.
-   * Stores handler reference for cleanup in dispose().
-   */
-  private setupMessageListener(): void {
-    this.messageHandler = (event: MessageEvent) => {
-      const message = event.data;
-
-      // Validate message is a wizard message using discriminated union type guard
-      if (!this.isWizardMessage(message)) {
-        return; // Ignore non-wizard messages
-      }
-
-      try {
-        // Type-safe switch with exhaustive checking via discriminated union
-        switch (message.type) {
-          case 'setup-wizard:scan-progress':
-            this.handleScanProgress(message.payload);
-            break;
-
-          case 'setup-wizard:analysis-complete':
-            this.handleAnalysisComplete(message.payload);
-            break;
-
-          case 'setup-wizard:available-agents':
-            this.handleAvailableAgents(message.payload);
-            break;
-
-          case 'setup-wizard:generation-progress':
-            this.handleGenerationProgress(message.payload);
-            break;
-
-          case 'setup-wizard:generation-complete':
-            this.handleGenerationComplete(message.payload);
-            break;
-
-          case 'setup-wizard:analysis-stream':
-            this.handleAnalysisStream(message.payload);
-            break;
-
-          case 'setup-wizard:generation-stream':
-            this.handleGenerationStream(message.payload);
-            break;
-
-          case 'setup-wizard:enhance-stream':
-            this.enhanceStreamSignal.update((msgs) => [
-              ...msgs,
-              message.payload,
-            ]);
-            break;
-
-          case 'setup-wizard:error':
-            this.handleError(message.payload);
-            break;
-
-          default: {
-            const _exhaustiveCheck: never = message;
-            console.warn('Unhandled wizard message type:', _exhaustiveCheck);
-          }
-        }
-      } catch (error) {
-        console.error('Error handling setup wizard message:', error);
-        this.errorStateSignal.set({
-          message: 'Failed to process backend message',
-          details: error instanceof Error ? error.message : String(error),
-        });
-      }
-    };
-
-    window.addEventListener('message', this.messageHandler);
-  }
-
-  /**
-   * Handle scan progress updates.
-   * Payload is now typed via discriminated union.
-   * Propagates agentic analysis fields (currentPhase, phaseLabel, etc.) when present.
-   *
-   * @param payload - Typed ScanProgressPayload from shared types
-   */
-  private handleScanProgress(payload: ScanProgressPayload): void {
-    this.scanProgressSignal.set({
-      filesScanned: payload.filesScanned,
-      totalFiles: payload.totalFiles,
-      detections: payload.detections,
-      currentPhase: payload.currentPhase,
-      phaseLabel: payload.phaseLabel,
-      agentReasoning: payload.agentReasoning,
-      completedPhases: payload.completedPhases,
-    });
-    this.generationProgressSignal.set({
-      phase: 'analysis',
-      percentComplete:
-        payload.totalFiles > 0
-          ? Math.round((payload.filesScanned / payload.totalFiles) * 100)
-          : 0,
-      filesScanned: payload.filesScanned,
-      totalFiles: payload.totalFiles,
-      detections: payload.detections,
-    });
-
-    // TASK_2025_154: Extract multi-phase analysis progress fields
-    if (payload.currentPhaseNumber !== undefined) {
-      this._currentPhaseNumber.set(payload.currentPhaseNumber);
-    }
-    if (payload.totalPhaseCount !== undefined) {
-      this._totalPhaseCount.set(payload.totalPhaseCount);
-    }
-    if (payload.phaseStatuses) {
-      this._phaseStatuses.set(payload.phaseStatuses);
-    }
-  }
-
-  /**
-   * Handle analysis stream messages for live transcript display.
-   * Appends each message to the accumulated stream for backward compat (stats dashboard),
-   * and accumulates flat events into per-phase StreamingState for ExecutionNode rendering.
-   *
-   * @param payload - Typed AnalysisStreamPayload from shared types
-   */
-  private handleAnalysisStream(payload: AnalysisStreamPayload): void {
-    // Existing: keep flat payload accumulation for backward compat (stats dashboard uses it)
-    this.analysisStreamSignal.update((messages) => [...messages, payload]);
-
-    // TASK_2025_229: Accumulate flat events into per-phase StreamingState
-    if (payload.flatEvent) {
-      this.accumulateFlatEvent(payload.flatEvent);
-    }
-  }
-
-  /**
-   * Handle generation stream messages for live transcript display.
-   * Clears stale analysis streaming states on the first generation event
-   * so the transcript component shows generation output instead of old analysis data.
-   * Accumulates flat events into phaseStreamingStates for ExecutionNode rendering.
-   */
-  private generationStreamInitialized = false;
-
-  private handleGenerationStream(payload: GenerationStreamPayload): void {
-    // Clear stale analysis streaming states on first generation event
-    if (!this.generationStreamInitialized) {
-      this.generationStreamInitialized = true;
-      this.phaseStreamingStatesSignal.set(new Map());
-    }
-
-    // Keep flat payload accumulation for backward compat
-    this.generationStreamSignal.update((msgs) => [...msgs, payload]);
-
-    // Accumulate flat events into per-phase StreamingState for ExecutionNode rendering
-    if (payload.flatEvent) {
-      this.accumulateFlatEvent(payload.flatEvent);
-    }
-  }
-
-  /**
-   * Accumulate a FlatStreamEventUnion into the appropriate phase's StreamingState.
-   * Mirrors the accumulation logic in ChatStore's streaming handler.
-   * TASK_2025_229
-   */
-  private accumulateFlatEvent(event: FlatStreamEventUnion): void {
-    const phaseKey = event.messageId;
-
-    this.phaseStreamingStatesSignal.update((statesMap) => {
-      const newMap = new Map(statesMap);
-      const prev = newMap.get(phaseKey);
-
-      // Clone or create StreamingState — never mutate the previous reference.
-      // This ensures Angular signal consumers detect changes correctly.
-      const state: StreamingState = prev
-        ? {
-            events: new Map(prev.events),
-            messageEventIds: [...prev.messageEventIds],
-            toolCallMap: new Map(prev.toolCallMap),
-            textAccumulators: new Map(prev.textAccumulators),
-            toolInputAccumulators: new Map(prev.toolInputAccumulators),
-            agentSummaryAccumulators: new Map(prev.agentSummaryAccumulators),
-            agentContentBlocksMap: new Map(prev.agentContentBlocksMap),
-            currentMessageId: prev.currentMessageId,
-            currentTokenUsage: prev.currentTokenUsage,
-            eventsByMessage: new Map(prev.eventsByMessage),
-            pendingStats: prev.pendingStats,
-          }
-        : createEmptyStreamingState();
-
-      // Store event by ID
-      state.events.set(event.id, event);
-
-      // Index by messageId
-      const messageEvents = [
-        ...(state.eventsByMessage.get(event.messageId) ?? []),
-        event,
-      ];
-      state.eventsByMessage.set(event.messageId, messageEvents);
-
-      // Handle event-type-specific accumulation
-      switch (event.eventType) {
-        case 'message_start':
-          if (!state.messageEventIds.includes(event.messageId)) {
-            state.messageEventIds.push(event.messageId);
-          }
-          state.currentMessageId = event.messageId;
-          break;
-
-        case 'text_delta': {
-          if (!state.messageEventIds.includes(event.messageId)) {
-            state.messageEventIds.push(event.messageId);
-          }
-          const textKey = `${event.messageId}-block-${event.blockIndex}`;
-          const existing = state.textAccumulators.get(textKey) ?? '';
-          state.textAccumulators.set(textKey, existing + event.delta);
-          break;
-        }
-
-        case 'thinking_start':
-          // Store the event — tree builder needs it to create thinking nodes
-          break;
-
-        case 'thinking_delta': {
-          const thinkKey = `${event.messageId}-thinking-${event.blockIndex}`;
-          const existingThink = state.textAccumulators.get(thinkKey) ?? '';
-          state.textAccumulators.set(thinkKey, existingThink + event.delta);
-          break;
-        }
-
-        case 'tool_start': {
-          const toolChildren = [
-            ...(state.toolCallMap.get(event.toolCallId) ?? []),
-            event.id,
-          ];
-          state.toolCallMap.set(event.toolCallId, toolChildren);
-          break;
-        }
-
-        case 'tool_delta': {
-          const inputKey = `${event.toolCallId}-input`;
-          const existingInput = state.toolInputAccumulators.get(inputKey) ?? '';
-          state.toolInputAccumulators.set(
-            inputKey,
-            existingInput + event.delta,
-          );
-          const deltaToolChildren = [
-            ...(state.toolCallMap.get(event.toolCallId) ?? []),
-            event.id,
-          ];
-          state.toolCallMap.set(event.toolCallId, deltaToolChildren);
-          break;
-        }
-
-        case 'tool_result': {
-          const resultToolChildren = [
-            ...(state.toolCallMap.get(event.toolCallId) ?? []),
-            event.id,
-          ];
-          state.toolCallMap.set(event.toolCallId, resultToolChildren);
-          break;
-        }
-
-        case 'message_complete':
-          state.currentMessageId = null;
-          break;
-
-        // Events the wizard doesn't need to accumulate
-        case 'message_delta':
-        case 'signature_delta':
-        case 'agent_start':
-        case 'compaction_start':
-        case 'compaction_complete':
-        case 'background_agent_started':
-        case 'background_agent_progress':
-        case 'background_agent_completed':
-        case 'background_agent_stopped':
-          break;
-      }
-
-      newMap.set(phaseKey, state);
-      return newMap;
-    });
-  }
-
-  /**
-   * Handle analysis complete.
-   * Payload is now typed via discriminated union.
-   *
-   * @param payload - Typed AnalysisCompletePayload from shared types
-   */
-  private handleAnalysisComplete(payload: AnalysisCompletePayload): void {
-    // Map AnalysisCompletePayload to local AnalysisResults format
-    const analysisResults: AnalysisResults = {
-      projectContext: {
-        type: payload.projectContext.type,
-        techStack: payload.projectContext.techStack,
-        architecture: payload.projectContext.architecture,
-        isMonorepo: payload.projectContext.isMonorepo,
-        monorepoType: payload.projectContext.monorepoType,
-        packageCount: payload.projectContext.packageCount,
-      },
-    };
-
-    this.analysisResultsSignal.set(analysisResults);
-    this.projectContextSignal.set(analysisResults.projectContext);
-    this.currentStepSignal.set('analysis');
-  }
-
-  /**
-   * Handle available agents.
-   * Payload is now typed via discriminated union.
-   *
-   * @param payload - Typed AvailableAgentsPayload from shared types
-   */
-  private handleAvailableAgents(payload: AvailableAgentsPayload): void {
-    // Map AvailableAgentsPayload to local AgentSelection[] format
-    const agents: AgentSelection[] = payload.agents.map((agent) => ({
-      id: agent.id,
-      name: agent.name,
-      selected: agent.selected,
-      score: agent.score,
-      reason: agent.reason,
-      autoInclude: agent.autoInclude,
-    }));
-
-    this.availableAgentsSignal.set(agents);
-  }
-
-  /**
-   * Handle generation progress updates.
-   * Payload is now typed via discriminated union.
-   *
-   * Updates both the overall generation progress signal and per-item
-   * skill generation progress when currentAgent information is available.
-   *
-   * @param payload - Typed GenerationProgressPayload from shared types
-   */
-  private handleGenerationProgress(payload: GenerationProgressPayload): void {
-    this.generationProgressSignal.set(payload.progress);
-
-    // Update per-item tracking in skillGenerationProgressSignal
-    const items = this.skillGenerationProgressSignal();
-    if (items.length === 0) {
-      // Items not yet initialized -- skip per-item updates.
-      // The items are initialized by the frontend component that calls
-      // submitAgentSelection() before generation begins.
-      return;
-    }
-
-    const { currentAgent, phase, percentComplete } = payload.progress;
-
-    if (phase === 'complete') {
-      // Mark all remaining pending/in-progress items as complete
-      this.skillGenerationProgressSignal.update((currentItems) =>
-        currentItems.map((item) =>
-          item.status === 'pending' || item.status === 'in-progress'
-            ? { ...item, status: 'complete' as const, progress: 100 }
-            : item,
-        ),
-      );
-      return;
-    }
-
-    if (currentAgent) {
-      this.skillGenerationProgressSignal.update((currentItems) =>
-        currentItems.map((item) => {
-          // Match by name or ID (backend may send either)
-          const isCurrentAgent =
-            item.name === currentAgent || item.id === currentAgent;
-
-          if (isCurrentAgent && item.status !== 'complete') {
-            // Mark this item as in-progress (but don't flip completed items back)
-            return {
-              ...item,
-              status: 'in-progress' as const,
-              progress: Math.min(percentComplete, 99),
-            };
-          }
-
-          // Mark previously in-progress items as complete
-          // (if a new agent is current, the previous one must be done)
-          if (item.status === 'in-progress') {
-            return {
-              ...item,
-              status: 'complete' as const,
-              progress: 100,
-            };
-          }
-
-          return item;
-        }),
-      );
-    }
-  }
-
-  /**
-   * Handle generation complete.
-   * Payload is now typed via discriminated union.
-   *
-   * @param payload - Typed GenerationCompletePayload from shared types
-   */
-  private handleGenerationComplete(payload: GenerationCompletePayload): void {
-    const completionData: CompletionData = {
-      success: payload.success,
-      generatedCount: payload.generatedCount,
-      duration: payload.duration,
-      errors: payload.errors,
-      warnings: payload.warnings,
-      enhancedPromptsUsed: payload.enhancedPromptsUsed,
-    };
-
-    // Always store completion data so it's available when generation step mounts
-    this.completionDataSignal.set(completionData);
-
-    // Auto-transition to enhance step when generation completes on the generation step.
-    // The user will proceed through the enhance step for Enhanced Prompts before
-    // reaching the completion step.
-    const currentStep = this.currentStepSignal();
-    if (currentStep === 'generation') {
-      this.currentStepSignal.set('enhance');
-    }
-  }
-
-  /**
-   * Handle error messages.
-   * Payload is now typed via discriminated union.
-   *
-   * @param payload - Typed ErrorPayload from shared types
-   */
-  private handleError(payload: WizardErrorPayload): void {
-    if (payload.type === 'fallback-warning') {
-      this.fallbackWarningSignal.set(payload.message);
-      return;
-    }
-
-    const errorState: ErrorState = {
-      message: payload.message,
-      details: payload.details,
-    };
-
-    this.errorStateSignal.set(errorState);
-  }
-
   /**
    * Cleanup for testing or explicit teardown.
-   * Removes message listener and resets registration flag.
+   * Removes the message listener and resets the registration flag.
    *
-   * Note: Root services (providedIn: 'root') are never destroyed in normal operation.
-   * This method is provided for:
-   * - Unit tests that need to clean up between test runs
-   * - Explicit teardown scenarios
-   * - Debugging memory leaks
-   *
-   * In production, this method is typically not called since root services
-   * persist for the lifetime of the application.
+   * Note: Root services (providedIn: 'root') are never destroyed in
+   * normal operation. This method exists for unit tests, explicit
+   * teardown scenarios, and memory-leak debugging.
    */
   public dispose(): void {
-    if (this.messageHandler) {
-      window.removeEventListener('message', this.messageHandler);
-      this.messageHandler = null;
-      this.isMessageListenerRegistered = false;
-    }
+    this.messageDispatcher.dispose();
+    this.isMessageListenerRegistered = false;
   }
 }
