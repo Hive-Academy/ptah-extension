@@ -1122,253 +1122,278 @@ export interface RpcMethodRegistry {
 export type RpcMethodName = keyof RpcMethodRegistry;
 
 /**
- * All RPC method names as a runtime array
+ * Compile-enforced map from RPC method name → placeholder.
  *
- * This array MUST match the keys in RpcMethodRegistry.
- * Used by the backend verification helper to ensure all methods have handlers.
+ * Typed as Record<RpcMethodName, true>: the compiler requires every key of
+ * RpcMethodRegistry to appear as a key here (excess-property check forbids
+ * any extra keys). So adding a new entry to RpcMethodRegistry above WITHOUT
+ * adding it here is a compile error — and the error points at the single
+ * site that needs to change.
  *
- * Drift detection: the `_assertAllMethodsListed` type below fails to compile
- * if any key of RpcMethodRegistry is missing from this array — so adding a
- * method to the registry without adding it here is now a type error.
+ * Runtime-visible via Object.keys() → RPC_METHOD_NAMES. Insertion order
+ * matches declaration order (ES2015+ object-key order for string keys), and
+ * this object declares keys in the same order as the former hand-maintained
+ * RPC_METHOD_NAMES array (which itself mirrored RpcMethodRegistry's section
+ * layout). No consumer currently depends on iteration order —
+ * verifyRpcRegistration uses set-membership checks only.
  */
-export const RPC_METHOD_NAMES = [
+const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   // Chat Methods
-  'chat:start',
-  'chat:continue',
-  'chat:abort',
-  'chat:running-agents',
-  'chat:resume',
+  'chat:start': true,
+  'chat:continue': true,
+  'chat:abort': true,
+  'chat:running-agents': true,
+  'chat:resume': true,
 
   // Session Methods
-  'session:list',
-  'session:load',
-  'session:delete',
-  'session:rename',
-  'session:validate',
-  'session:cli-sessions',
-  'session:stats-batch',
+  'session:list': true,
+  'session:load': true,
+  'session:delete': true,
+  'session:rename': true,
+  'session:validate': true,
+  'session:cli-sessions': true,
+  'session:stats-batch': true,
 
   // Context Methods
-  'context:getAllFiles',
-  'context:getFileSuggestions',
+  'context:getAllFiles': true,
+  'context:getFileSuggestions': true,
 
   // Autocomplete Methods
-  'autocomplete:agents',
-  'autocomplete:commands',
+  'autocomplete:agents': true,
+  'autocomplete:commands': true,
 
   // File Methods
-  'file:open',
-  'file:pick',
-  'file:pick-images',
+  'file:open': true,
+  'file:pick': true,
+  'file:pick-images': true,
 
   // Config Methods
-  'config:model-switch',
-  'config:model-get',
-  'config:autopilot-toggle',
-  'config:autopilot-get',
-  'config:models-list',
-  'config:effort-get',
-  'config:effort-set',
+  'config:model-switch': true,
+  'config:model-get': true,
+  'config:autopilot-toggle': true,
+  'config:autopilot-get': true,
+  'config:models-list': true,
+  'config:effort-get': true,
+  'config:effort-set': true,
 
   // Auth Methods
-  'auth:getHealth',
-  'auth:saveSettings',
-  'auth:testConnection',
-  'auth:getAuthStatus',
-  'auth:copilotLogin',
-  'auth:copilotLogout',
-  'auth:copilotStatus',
-  'auth:codexLogin',
+  'auth:getHealth': true,
+  'auth:saveSettings': true,
+  'auth:testConnection': true,
+  'auth:getAuthStatus': true,
+  'auth:copilotLogin': true,
+  'auth:copilotLogout': true,
+  'auth:copilotStatus': true,
+  'auth:codexLogin': true,
 
   // Setup Methods
-  'setup-status:get-status',
-  'setup-wizard:launch',
-  'wizard:deep-analyze',
-  'wizard:recommend-agents',
-  'wizard:cancel-analysis',
+  'setup-status:get-status': true,
+  'setup-wizard:launch': true,
+  'wizard:deep-analyze': true,
+  'wizard:recommend-agents': true,
+  'wizard:cancel-analysis': true,
   // Wizard Generation Methods (TASK_2025_148)
-  'wizard:submit-selection',
-  'wizard:cancel',
-  'wizard:retry-item',
+  'wizard:submit-selection': true,
+  'wizard:cancel': true,
+  'wizard:retry-item': true,
   // Wizard Analysis History Methods (v2 Multi-Phase)
-  'wizard:list-analyses',
-  'wizard:load-analysis',
+  'wizard:list-analyses': true,
+  'wizard:load-analysis': true,
   // Agent Pack Browser Methods (TASK_2025_258)
-  'wizard:list-agent-packs',
-  'wizard:install-pack-agents',
+  'wizard:list-agent-packs': true,
+  'wizard:install-pack-agents': true,
   // New Project Wizard Methods
-  'wizard:new-project-select-type',
-  'wizard:new-project-submit-answers',
-  'wizard:new-project-get-plan',
-  'wizard:new-project-approve-plan',
+  'wizard:new-project-select-type': true,
+  'wizard:new-project-submit-answers': true,
+  'wizard:new-project-get-plan': true,
+  'wizard:new-project-approve-plan': true,
 
   // License Methods
-  'license:getStatus',
-  'license:setKey',
-  'license:clearKey',
+  'license:getStatus': true,
+  'license:setKey': true,
+  'license:clearKey': true,
 
   // Command Methods (TASK_2025_126)
-  'command:execute',
+  'command:execute': true,
 
   // LLM Provider Methods
-  'llm:getProviderStatus',
-  'llm:setApiKey',
-  'llm:removeApiKey',
-  'llm:getDefaultProvider',
-  'llm:setDefaultProvider',
-  'llm:setDefaultModel',
-  'llm:validateApiKeyFormat',
-  'llm:listVsCodeModels',
-  'llm:listProviderModels',
+  'llm:getProviderStatus': true,
+  'llm:setApiKey': true,
+  'llm:removeApiKey': true,
+  'llm:getDefaultProvider': true,
+  'llm:setDefaultProvider': true,
+  'llm:setDefaultModel': true,
+  'llm:validateApiKeyFormat': true,
+  'llm:listVsCodeModels': true,
+  'llm:listProviderModels': true,
 
   // Provider Model Methods (TASK_2025_091 Phase 2, generalized TASK_2025_132)
-  'provider:listModels',
-  'provider:setModelTier',
-  'provider:getModelTiers',
-  'provider:clearModelTier',
+  'provider:listModels': true,
+  'provider:setModelTier': true,
+  'provider:getModelTiers': true,
+  'provider:clearModelTier': true,
 
   // Subagent Methods (TASK_2025_103)
   // TASK_2025_109: chat:subagent-resume removed - now uses context injection
-  'chat:subagent-query',
+  'chat:subagent-query': true,
 
   // Enhanced Prompts Methods (TASK_2025_137)
-  'enhancedPrompts:getStatus',
-  'enhancedPrompts:runWizard',
-  'enhancedPrompts:setEnabled',
-  'enhancedPrompts:regenerate',
+  'enhancedPrompts:getStatus': true,
+  'enhancedPrompts:runWizard': true,
+  'enhancedPrompts:setEnabled': true,
+  'enhancedPrompts:regenerate': true,
   // TASK_2025_149 Batch 5: Settings UI prompt content & download
-  'enhancedPrompts:getPromptContent',
-  'enhancedPrompts:download',
+  'enhancedPrompts:getPromptContent': true,
+  'enhancedPrompts:download': true,
 
   // Quality Dashboard Methods (TASK_2025_144)
-  'quality:getAssessment',
-  'quality:getHistory',
-  'quality:export',
+  'quality:getAssessment': true,
+  'quality:getHistory': true,
+  'quality:export': true,
 
   // Plugin Methods (TASK_2025_153)
-  'plugins:list-available',
-  'plugins:get-config',
-  'plugins:save-config',
-  'plugins:list-skills',
+  'plugins:list-available': true,
+  'plugins:get-config': true,
+  'plugins:save-config': true,
+  'plugins:list-skills': true,
 
   // Agent Orchestration Methods (TASK_2025_157)
-  'agent:getConfig',
-  'agent:setConfig',
-  'agent:detectClis',
-  'agent:listCliModels',
-  'agent:permissionResponse', // TASK_2025_162: Copilot SDK permission response
-  'agent:stop',
-  'agent:resumeCliSession', // TASK_2025_173: CLI agent session resume
-  'agent:backgroundList', // TASK_2025_168: Background agent listing
+  'agent:getConfig': true,
+  'agent:setConfig': true,
+  'agent:detectClis': true,
+  'agent:listCliModels': true,
+  'agent:permissionResponse': true, // TASK_2025_162: Copilot SDK permission response
+  'agent:stop': true,
+  'agent:resumeCliSession': true, // TASK_2025_173: CLI agent session resume
+  'agent:backgroundList': true, // TASK_2025_168: Background agent listing
 
   // Ptah CLI Agent Methods (TASK_2025_167 -> TASK_2025_170)
-  'ptahCli:list',
-  'ptahCli:create',
-  'ptahCli:update',
-  'ptahCli:delete',
-  'ptahCli:testConnection',
-  'ptahCli:listModels',
+  'ptahCli:list': true,
+  'ptahCli:create': true,
+  'ptahCli:update': true,
+  'ptahCli:delete': true,
+  'ptahCli:testConnection': true,
+  'ptahCli:listModels': true,
 
   // Skills.sh Marketplace Methods (TASK_2025_204)
-  'skillsSh:search',
-  'skillsSh:listInstalled',
-  'skillsSh:install',
-  'skillsSh:uninstall',
-  'skillsSh:getPopular',
-  'skillsSh:detectRecommended',
+  'skillsSh:search': true,
+  'skillsSh:listInstalled': true,
+  'skillsSh:install': true,
+  'skillsSh:uninstall': true,
+  'skillsSh:getPopular': true,
+  'skillsSh:detectRecommended': true,
 
   // MCP Server Directory Methods
-  'mcpDirectory:search',
-  'mcpDirectory:getDetails',
-  'mcpDirectory:install',
-  'mcpDirectory:uninstall',
-  'mcpDirectory:listInstalled',
-  'mcpDirectory:getPopular',
+  'mcpDirectory:search': true,
+  'mcpDirectory:getDetails': true,
+  'mcpDirectory:install': true,
+  'mcpDirectory:uninstall': true,
+  'mcpDirectory:listInstalled': true,
+  'mcpDirectory:getPopular': true,
 
   // Workspace Methods (Electron desktop)
-  'workspace:getInfo',
-  'workspace:addFolder',
-  'workspace:removeFolder',
-  'workspace:switch',
-  'workspace:registerFolder',
+  'workspace:getInfo': true,
+  'workspace:addFolder': true,
+  'workspace:removeFolder': true,
+  'workspace:switch': true,
+  'workspace:registerFolder': true,
 
   // Layout Methods (Electron desktop)
-  'layout:persist',
-  'layout:restore',
+  'layout:persist': true,
+  'layout:restore': true,
 
   // Electron Editor Methods (TASK_2025_203)
-  'editor:openFile',
-  'editor:saveFile',
-  'editor:getFileTree',
-  'editor:getDirectoryChildren',
-  'editor:createFile',
-  'editor:createFolder',
-  'editor:renameItem',
-  'editor:deleteItem',
-  'editor:getSetting',
-  'editor:updateSetting',
-  'editor:searchInFiles',
-  'editor:listAllFiles',
+  'editor:openFile': true,
+  'editor:saveFile': true,
+  'editor:getFileTree': true,
+  'editor:getDirectoryChildren': true,
+  'editor:createFile': true,
+  'editor:createFolder': true,
+  'editor:renameItem': true,
+  'editor:deleteItem': true,
+  'editor:getSetting': true,
+  'editor:updateSetting': true,
+  'editor:searchInFiles': true,
+  'editor:listAllFiles': true,
 
   // Electron File Methods (TASK_2025_203)
-  'file:read',
-  'file:exists',
-  'file:save-dialog',
+  'file:read': true,
+  'file:exists': true,
+  'file:save-dialog': true,
 
   // Electron Config Extended Methods (TASK_2025_203)
-  'config:model-set',
+  'config:model-set': true,
 
   // Electron Auth Extended Methods (TASK_2025_203)
-  'auth:setApiKey',
-  'auth:getStatus',
-  'auth:getApiKeyStatus',
+  'auth:setApiKey': true,
+  'auth:getStatus': true,
+  'auth:getApiKeyStatus': true,
 
   // Electron Settings Methods (TASK_2025_210)
-  'settings:export',
-  'settings:import',
+  'settings:export': true,
+  'settings:import': true,
 
   // Web Search Settings Methods (TASK_2025_235)
-  'webSearch:getApiKeyStatus',
-  'webSearch:setApiKey',
-  'webSearch:deleteApiKey',
-  'webSearch:test',
-  'webSearch:getConfig',
-  'webSearch:setConfig',
+  'webSearch:getApiKeyStatus': true,
+  'webSearch:setApiKey': true,
+  'webSearch:deleteApiKey': true,
+  'webSearch:test': true,
+  'webSearch:getConfig': true,
+  'webSearch:setConfig': true,
 
   // Git Methods (TASK_2025_227)
-  'git:info',
-  'git:worktrees',
-  'git:addWorktree',
-  'git:removeWorktree',
+  'git:info': true,
+  'git:worktrees': true,
+  'git:addWorktree': true,
+  'git:removeWorktree': true,
   // Source control methods (TASK_2025_273)
-  'git:stage',
-  'git:unstage',
-  'git:discard',
-  'git:commit',
-  'git:showFile',
+  'git:stage': true,
+  'git:unstage': true,
+  'git:discard': true,
+  'git:commit': true,
+  'git:showFile': true,
 
   // Terminal Methods (TASK_2025_227)
-  'terminal:create',
-  'terminal:kill',
+  'terminal:create': true,
+  'terminal:kill': true,
 
   // Harness Builder Methods
-  'harness:initialize',
-  'harness:suggest-config',
-  'harness:search-skills',
-  'harness:create-skill',
-  'harness:discover-mcp',
-  'harness:generate-prompt',
-  'harness:generate-claude-md',
-  'harness:apply',
-  'harness:save-preset',
-  'harness:load-presets',
-  'harness:chat',
-  'harness:design-agents',
-  'harness:generate-skills',
-  'harness:generate-document',
-  'harness:analyze-intent',
-  'harness:converse',
-] as const satisfies readonly RpcMethodName[];
+  'harness:initialize': true,
+  'harness:suggest-config': true,
+  'harness:search-skills': true,
+  'harness:create-skill': true,
+  'harness:discover-mcp': true,
+  'harness:generate-prompt': true,
+  'harness:generate-claude-md': true,
+  'harness:apply': true,
+  'harness:save-preset': true,
+  'harness:load-presets': true,
+  'harness:chat': true,
+  'harness:design-agents': true,
+  'harness:generate-skills': true,
+  'harness:generate-document': true,
+  'harness:analyze-intent': true,
+  'harness:converse': true,
+};
+
+/**
+ * All RPC method names as a runtime array.
+ *
+ * Derived from RPC_METHOD_ENTRIES via Object.keys(). Key iteration order is
+ * stable in ES2015+ for string keys (insertion order), so this array
+ * reflects the declaration order of RPC_METHOD_ENTRIES above.
+ *
+ * The `as readonly RpcMethodName[]` cast is sound because the type of
+ * RPC_METHOD_ENTRIES guarantees its keys ARE exactly RpcMethodName —
+ * Object.keys widens to string[], the cast re-narrows.
+ *
+ * Used by the backend verification helper (verifyRpcRegistration) to ensure
+ * all methods have handlers. Consumers of this export are unchanged by the
+ * derivation swap.
+ */
+export const RPC_METHOD_NAMES = Object.keys(
+  RPC_METHOD_ENTRIES,
+) as readonly RpcMethodName[];
 
 /**
  * Compile-time drift detection: fails to build if a key is added to
