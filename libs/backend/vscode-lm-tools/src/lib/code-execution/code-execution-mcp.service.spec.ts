@@ -609,17 +609,84 @@ describe('CodeExecutionMCP — error propagation', () => {
     fsReadFileSyncMock.mockReturnValue(
       JSON.stringify({ mcpServers: { ptah: { type: 'http', url: 'x' } } }),
     );
-    fsWriteFileSyncMock.mockImplementationOnce(() => {
-      throw new Error('disk full');
-    });
 
     const { service, logger } = build({ folders: ['/ws'] });
     await service.start();
+    // Must register first — unregisterFromMcpJson now early-returns when the
+    // service was never registered, guarding the on-shutdown disk read.
+    service.ensureRegisteredForSubagents();
+
+    // Fail the unregister rewrite (the registration write already succeeded).
+    fsWriteFileSyncMock.mockImplementationOnce(() => {
+      throw new Error('disk full');
+    });
 
     await expect(service.stop()).resolves.toBeUndefined();
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('Failed to unregister from .mcp.json'),
       'CodeExecutionMCP',
     );
+  });
+});
+
+// ===========================================================================
+// 4. unregister idempotency — Bug #9 (Wave A.B1)
+// ===========================================================================
+
+describe('CodeExecutionMCP — unregister idempotency', () => {
+  it('stop() without prior ensureRegisteredForSubagents() does not read .mcp.json', async () => {
+    // Repro of Bug #9: stop() unconditionally invoked unregisterFromMcpJson(),
+    // which in turn fs.readFileSync'd .mcp.json on every shutdown — even when
+    // ensureRegisteredForSubagents() never ran (e.g., free-tier sessions).
+    const { service } = build({ folders: ['/ws'] });
+    await service.start();
+
+    // Note: NO ensureRegisteredForSubagents() call here.
+    await service.stop();
+
+    expect(fsReadFileSyncMock).not.toHaveBeenCalled();
+    expect(fsExistsSyncMock).not.toHaveBeenCalled();
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  it('stop() after ensureRegisteredForSubagents() does perform the unregister read+write', async () => {
+    fsExistsSyncMock.mockReturnValue(true);
+    fsReadFileSyncMock.mockReturnValue(
+      JSON.stringify({ mcpServers: { ptah: { type: 'http', url: 'x' } } }),
+    );
+
+    const { service } = build({ folders: ['/ws'] });
+    await service.start();
+    service.ensureRegisteredForSubagents();
+
+    // Reset write counter so we count only the unregister write, not register.
+    fsWriteFileSyncMock.mockClear();
+    fsReadFileSyncMock.mockClear();
+
+    await service.stop();
+
+    expect(fsReadFileSyncMock).toHaveBeenCalledTimes(1);
+    expect(fsWriteFileSyncMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a second stop() is a no-op for the .mcp.json read after a successful unregister', async () => {
+    fsExistsSyncMock.mockReturnValue(true);
+    fsReadFileSyncMock.mockReturnValue(
+      JSON.stringify({ mcpServers: { ptah: { type: 'http', url: 'x' } } }),
+    );
+
+    const { service } = build({ folders: ['/ws'] });
+    await service.start();
+    service.ensureRegisteredForSubagents();
+    await service.stop();
+
+    fsReadFileSyncMock.mockClear();
+    fsExistsSyncMock.mockClear();
+    fsWriteFileSyncMock.mockClear();
+
+    await service.stop();
+
+    expect(fsReadFileSyncMock).not.toHaveBeenCalled();
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
   });
 });

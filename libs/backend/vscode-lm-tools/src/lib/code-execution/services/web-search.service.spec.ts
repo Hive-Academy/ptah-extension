@@ -283,10 +283,15 @@ describe('WebSearchService', () => {
       expect(MockedTavily).not.toHaveBeenCalled();
     });
 
-    it('treats empty-string API key as missing', async () => {
+    it('allows empty-string API key through to the provider (no "No API key" error)', async () => {
+      // Empty-string secrets (e.g. user cleared their key) should NOT raise
+      // the configuration-guidance error — they should be passed through to
+      // the provider, which will produce a more specific upstream error.
+      mockProviderResult(MockedTavily, { results: [], summary: undefined });
       const secretStorage = createSecretStorage('');
       const { service } = buildService({ secretStorage });
-      await expect(service.search('q')).rejects.toThrow(/No API key/);
+      await expect(service.search('q')).resolves.toBeDefined();
+      expect(MockedTavily).toHaveBeenCalledWith('');
     });
   });
 

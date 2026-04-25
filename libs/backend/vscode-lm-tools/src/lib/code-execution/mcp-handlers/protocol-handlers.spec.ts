@@ -428,9 +428,10 @@ describe('protocol-handlers › malformed message rejection', () => {
     expect(res.error?.message).toMatch(/Unknown tool: totally_unknown_tool/);
   });
 
-  it('returns -32603 Internal error when tools/call params is missing (uncaught throw)', async () => {
-    // params is required by handleToolsCall — its destructure throws on undefined.
-    // The outer try/catch in handleMCPRequest must translate this into a -32603.
+  it('returns -32602 Invalid params when tools/call params is missing', async () => {
+    // Per JSON-RPC 2.0: missing/invalid params must surface as -32602, not the
+    // generic -32603 Internal error that an uncaught destructure TypeError
+    // would otherwise produce.
     const deps = buildDeps();
     const res = await handleMCPRequest(
       makeRequest({ id: 5, method: 'tools/call' }),
@@ -438,7 +439,25 @@ describe('protocol-handlers › malformed message rejection', () => {
     );
 
     expect(res.result).toBeUndefined();
-    expect(res.error?.code).toBe(-32603);
+    expect(res.error?.code).toBe(-32602);
     expect(typeof res.error?.message).toBe('string');
+    expect(res.error?.message).toMatch(/[Ii]nvalid params/);
+  });
+
+  it('returns -32602 Invalid params when tools/call params lacks a "name" string', async () => {
+    const deps = buildDeps();
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 6,
+        method: 'tools/call',
+        // arguments present but no name — still invalid per JSON-RPC 2.0.
+        params: { arguments: {} } as unknown as MCPRequest['params'],
+      }),
+      deps,
+    );
+
+    expect(res.result).toBeUndefined();
+    expect(res.error?.code).toBe(-32602);
+    expect(res.error?.message).toMatch(/[Ii]nvalid params/);
   });
 });

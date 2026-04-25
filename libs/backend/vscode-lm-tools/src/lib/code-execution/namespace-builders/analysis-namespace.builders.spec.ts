@@ -345,10 +345,7 @@ describe('buildDependencyNamespace', () => {
   it('buildGraph returns a zeroed envelope with error on failure', async () => {
     const deps = makeMocks();
     deps._dependencyGraph.buildGraph.mockRejectedValue(new Error('bad graph'));
-    const out = (await buildDependencyNamespace(deps).buildGraph(
-      [],
-      'D:/ws',
-    )) as { nodeCount: number; error?: string };
+    const out = await buildDependencyNamespace(deps).buildGraph([], 'D:/ws');
     expect(out.nodeCount).toBe(0);
     expect(out.error).toMatch(/bad graph/);
   });
