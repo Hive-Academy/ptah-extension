@@ -5,8 +5,11 @@ import {
   type ServerResponse,
 } from 'node:http';
 import { createReadStream, statSync, existsSync } from 'node:fs';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { AddressInfo } from 'node:net';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 export interface FixtureServerOptions {
   /**
@@ -76,7 +79,7 @@ function resolveRoot(explicit?: string): string | null {
   // Walk up from this file's compiled location to find a repo root that
   // contains `dist/apps/ptah-extension-webview`. The harness lives at
   // `libs/frontend/webview-e2e-harness/src/lib/`.
-  const here = resolve(__dirname);
+  const here = resolve(HERE);
   let cursor = here;
   for (let i = 0; i < 8; i++) {
     const candidateA = join(
