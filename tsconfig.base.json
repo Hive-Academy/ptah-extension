@@ -54,6 +54,7 @@
       "@ptah-extension/harness-builder": [
         "libs/frontend/harness-builder/src/index.ts"
       ],
+      "@ptah-extension/markdown": ["libs/frontend/markdown/src/index.ts"],
       "@ptah-extension/setup-wizard": [
         "libs/frontend/setup-wizard/src/index.ts"
       ],

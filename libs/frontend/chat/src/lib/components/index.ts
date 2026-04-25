@@ -17,7 +17,11 @@
 // ============================================================================
 // ATOMS - Basic building blocks
 // ============================================================================
-export * from './atoms/markdown-block.component';
+/**
+ * @deprecated Re-exported from @ptah-extension/markdown for backward
+ * compatibility. Import directly from @ptah-extension/markdown in new code.
+ */
+export { MarkdownBlockComponent } from '@ptah-extension/markdown';
 export * from './atoms/status-badge.component';
 export * from './atoms/token-badge.component';
 export * from './atoms/cost-badge.component';

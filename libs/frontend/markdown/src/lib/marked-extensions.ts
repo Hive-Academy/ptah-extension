@@ -63,12 +63,12 @@ function createCalloutExtension(): MarkedExtension {
         if (first.type === 'text' && 'text' in first) {
           (first as Tokens.Text).text = (first as Tokens.Text).text.replace(
             prefix,
-            ''
+            '',
           );
           if ('raw' in first) {
             (first as Tokens.Text).raw = (first as Tokens.Text).raw.replace(
               prefix,
-              ''
+              '',
             );
           }
         }
@@ -202,7 +202,7 @@ function createCodeBlockHeaderExtension(): MarkedExtension {
 
         const header = `<div class="code-block-header">${langBadge}${lineCountLabel}</div>`;
         const codeBlock = `<pre><code class="language-${escapeHtml(
-          lang
+          lang,
         )}">${escapedCode}</code></pre>`;
 
         if (lineCount >= COLLAPSE_LINE_THRESHOLD) {
