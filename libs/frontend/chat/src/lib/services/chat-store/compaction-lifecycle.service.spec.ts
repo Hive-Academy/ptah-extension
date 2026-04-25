@@ -1,0 +1,250 @@
+/**
+ * CompactionLifecycleService specs — SDK session-compaction state machine.
+ *
+ * Coverage:
+ *   - handleCompactionStart sets isCompacting, schedules safety timeout
+ *   - handleCompactionStart early-returns + warns when no tab matches sessionId
+ *   - handleCompactionStart clears prior timeout before scheduling new one
+ *   - Safety timeout fires: resets tab, marks idle, sets sessionManager loaded
+ *   - handleCompactionComplete clears tree-builder cache, snapshots preloadedStats
+ *   - handleCompactionComplete early-returns when tab no longer exists
+ *   - clearCompactionStateForTab single-tab updateTab call
+ *   - clearCompactionState(tabId) clears specified tab + timeout
+ *   - clearCompactionState(undefined) sweeps all isCompacting tabs
+ */
+
+import { TestBed } from '@angular/core/testing';
+import { CompactionLifecycleService } from './compaction-lifecycle.service';
+import { TabManagerService } from '../tab-manager.service';
+import { SessionManager } from '../session-manager.service';
+import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
+import { SessionLoaderService } from './session-loader.service';
+import type { TabState } from '../chat.types';
+
+function makeTab(overrides: Partial<TabState> = {}): TabState {
+  return {
+    id: 'tab-1',
+    title: 'Tab 1',
+    status: 'streaming',
+    messages: [],
+    streamingState: null,
+    currentMessageId: null,
+    claudeSessionId: 'sess-1',
+    isCompacting: false,
+    compactionCount: 0,
+    queuedContent: null,
+    queuedOptions: null,
+    preloadedStats: null,
+    liveModelStats: null,
+    modelUsageList: null,
+    ...overrides,
+  } as unknown as TabState;
+}
+
+describe('CompactionLifecycleService', () => {
+  let service: CompactionLifecycleService;
+  let tabs: TabState[];
+  let updateTabMock: jest.Mock;
+  let findTabBySessionIdMock: jest.Mock;
+  let markTabIdleMock: jest.Mock;
+  let setStatusMock: jest.Mock;
+  let clearCacheMock: jest.Mock;
+  let switchSessionMock: jest.Mock;
+  let warn: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    tabs = [makeTab()];
+    updateTabMock = jest.fn((id: string, patch: Partial<TabState>) => {
+      tabs = tabs.map((t) => (t.id === id ? { ...t, ...patch } : t));
+    });
+    findTabBySessionIdMock = jest.fn(
+      (sessionId: string) =>
+        tabs.find((t) => t.claudeSessionId === sessionId) ?? null,
+    );
+    markTabIdleMock = jest.fn();
+    setStatusMock = jest.fn();
+    clearCacheMock = jest.fn();
+    switchSessionMock = jest.fn().mockResolvedValue(undefined);
+
+    const tabManagerMock = {
+      updateTab: updateTabMock,
+      findTabBySessionId: findTabBySessionIdMock,
+      markTabIdle: markTabIdleMock,
+      tabs: () => tabs,
+    } as unknown as TabManagerService;
+
+    const sessionManagerMock = {
+      setStatus: setStatusMock,
+    } as unknown as SessionManager;
+
+    const treeBuilderMock = {
+      clearCache: clearCacheMock,
+    } as unknown as ExecutionTreeBuilderService;
+
+    const sessionLoaderMock = {
+      switchSession: switchSessionMock,
+    } as unknown as SessionLoaderService;
+
+    warn = jest.spyOn(console, 'warn').mockImplementation();
+
+    TestBed.configureTestingModule({
+      providers: [
+        CompactionLifecycleService,
+        { provide: TabManagerService, useValue: tabManagerMock },
+        { provide: SessionManager, useValue: sessionManagerMock },
+        { provide: ExecutionTreeBuilderService, useValue: treeBuilderMock },
+        { provide: SessionLoaderService, useValue: sessionLoaderMock },
+      ],
+    });
+    service = TestBed.inject(CompactionLifecycleService);
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+    jest.useRealTimers();
+    TestBed.resetTestingModule();
+  });
+
+  describe('handleCompactionStart', () => {
+    it('sets isCompacting=true and schedules safety timeout', () => {
+      service.handleCompactionStart('sess-1');
+      expect(updateTabMock).toHaveBeenCalledWith('tab-1', {
+        isCompacting: true,
+      });
+    });
+
+    it('warns and does nothing when no tab matches sessionId', () => {
+      service.handleCompactionStart('unknown-session');
+      expect(updateTabMock).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        '[ChatStore] handleCompactionStart: no tab found for sessionId',
+        { sessionId: 'unknown-session' },
+      );
+    });
+
+    it('clears prior timeout before scheduling new one', () => {
+      service.handleCompactionStart('sess-1');
+      service.handleCompactionStart('sess-1');
+      // Advance time to verify only ONE timeout fires (the second one)
+      jest.advanceTimersByTime(120000);
+      // Reset on safety-timeout fires once -> 5-field reset payload
+      const resetCalls = updateTabMock.mock.calls.filter((c) => {
+        const patch = c[1] as Partial<TabState>;
+        return patch.isCompacting === false && patch.status === 'loaded';
+      });
+      expect(resetCalls).toHaveLength(1);
+    });
+
+    it('safety timeout resets tab fields, marks idle, sets sessionManager loaded', () => {
+      service.handleCompactionStart('sess-1');
+      jest.advanceTimersByTime(120000);
+      expect(updateTabMock).toHaveBeenCalledWith('tab-1', {
+        isCompacting: false,
+        status: 'loaded',
+        streamingState: null,
+        currentMessageId: null,
+      });
+      expect(markTabIdleMock).toHaveBeenCalledWith('tab-1');
+      expect(setStatusMock).toHaveBeenCalledWith('loaded');
+      expect(warn).toHaveBeenCalledWith(
+        '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
+      );
+    });
+  });
+
+  describe('handleCompactionComplete', () => {
+    it('clears tree-builder cache, resets tab, increments compactionCount, switches session', () => {
+      tabs = [
+        makeTab({
+          messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
+          compactionCount: 2,
+        }),
+      ];
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: 'reload-sess',
+      });
+      expect(clearCacheMock).toHaveBeenCalled();
+      const compactionCall = updateTabMock.mock.calls.find(
+        (c) => (c[1] as Partial<TabState>).compactionCount === 3,
+      );
+      expect(compactionCall).toBeDefined();
+      expect(switchSessionMock).toHaveBeenCalledWith('sess-1');
+    });
+
+    it('snapshots preloadedStats when none exist and messages are present', () => {
+      tabs = [
+        makeTab({
+          messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
+          preloadedStats: null,
+        }),
+      ];
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: 'reload-sess',
+      });
+      const call = updateTabMock.mock.calls.find(
+        (c) => (c[1] as Partial<TabState>).compactionCount === 1,
+      );
+      expect(call).toBeDefined();
+      const patch = call![1] as Partial<TabState>;
+      expect(patch.preloadedStats).toBeDefined();
+    });
+
+    it('does nothing when tab no longer exists', () => {
+      service.handleCompactionComplete({
+        tabId: 'nonexistent',
+        compactionSessionId: 'sess-x',
+      });
+      // tree builder cache still cleared from clearCompactionState path
+      expect(switchSessionMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('clearCompactionStateForTab', () => {
+    it('clears isCompacting on the specified tab', () => {
+      service.clearCompactionStateForTab('tab-1');
+      expect(updateTabMock).toHaveBeenCalledWith('tab-1', {
+        isCompacting: false,
+      });
+    });
+  });
+
+  describe('clearCompactionState', () => {
+    it('clears specified tab and the timeout', () => {
+      service.handleCompactionStart('sess-1');
+      service.clearCompactionState('tab-1');
+      jest.advanceTimersByTime(120000);
+      // No safety-timeout reset call should appear
+      const resetCalls = updateTabMock.mock.calls.filter((c) => {
+        const patch = c[1] as Partial<TabState>;
+        return patch.isCompacting === false && patch.status === 'loaded';
+      });
+      expect(resetCalls).toHaveLength(0);
+    });
+
+    it('without tabId, sweeps all isCompacting tabs', () => {
+      tabs = [
+        makeTab({ id: 'tab-1', isCompacting: true }),
+        makeTab({ id: 'tab-2', isCompacting: true, claudeSessionId: 'sess-2' }),
+        makeTab({
+          id: 'tab-3',
+          isCompacting: false,
+          claudeSessionId: 'sess-3',
+        }),
+      ];
+      service.clearCompactionState();
+      expect(updateTabMock).toHaveBeenCalledWith('tab-1', {
+        isCompacting: false,
+      });
+      expect(updateTabMock).toHaveBeenCalledWith('tab-2', {
+        isCompacting: false,
+      });
+      expect(updateTabMock).not.toHaveBeenCalledWith(
+        'tab-3',
+        expect.anything(),
+      );
+    });
+  });
+});
