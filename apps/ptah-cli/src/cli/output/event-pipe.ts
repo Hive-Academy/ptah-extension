@@ -41,11 +41,18 @@ export const EVENT_MAP: Readonly<Record<string, PtahNotification>> = {
   'task:start': 'task.start',
   'task:complete': 'task.complete',
   'task:error': 'task.error',
+  // Diagnostics — only forwarded when `globals.verbose === true`. The CLI
+  // DI container emits `debug.di.phase` events at the start/end of each
+  // numbered bootstrap phase (see `apps/ptah-cli/src/di/container.ts`).
+  // TASK_2026_104 Batch 4 (task-description.md § 4.1.9).
+  'debug.di.phase': 'debug.di.phase',
 };
 
 /** Backend event types that must be transformed into per-turn deltas. */
 const COST_EVENTS = new Set(['session:cost', 'session:cost-delta']);
 const TOKEN_EVENTS = new Set(['session:tokens', 'session:token-delta']);
+/** Backend event types gated behind `--verbose`. */
+const VERBOSE_ONLY_EVENTS = new Set(['debug.di.phase']);
 
 interface RunningCost {
   totalUsd: number;
@@ -58,6 +65,12 @@ interface RunningTokens {
   cacheCreationTokens: number;
 }
 
+/** Subset of resolved global flags the pipe cares about. */
+export interface EventPipeGlobals {
+  /** When true, `debug.*` events are forwarded; otherwise dropped. */
+  verbose?: boolean;
+}
+
 /** Subscribes to a `pushAdapter` and forwards events as JSON-RPC notifications. */
 export class EventPipe {
   private adapter: EventEmitter | null = null;
@@ -67,8 +80,15 @@ export class EventPipe {
   private readonly costBySession = new Map<string, RunningCost>();
   /** Running token totals keyed by session_id. */
   private readonly tokensBySession = new Map<string, RunningTokens>();
+  /** Resolved verbose flag — gates VERBOSE_ONLY_EVENTS. */
+  private readonly verbose: boolean;
 
-  constructor(private readonly formatter: Formatter) {}
+  constructor(
+    private readonly formatter: Formatter,
+    globals: EventPipeGlobals = {},
+  ) {
+    this.verbose = globals.verbose === true;
+  }
 
   /** Subscribe to the adapter. Idempotent — second call rebinds to the new adapter. */
   attach(adapter: EventEmitter): void {
@@ -109,6 +129,11 @@ export class EventPipe {
   ): Promise<void> {
     const method = EVENT_MAP[eventType];
     if (!method) return;
+
+    // Verbose-only events are dropped silently when --verbose is off.
+    if (VERBOSE_ONLY_EVENTS.has(eventType) && !this.verbose) {
+      return;
+    }
 
     if (COST_EVENTS.has(eventType)) {
       await this.handleCost(method, payload);

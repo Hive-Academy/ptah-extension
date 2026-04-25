@@ -116,7 +116,7 @@ import { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapt
 import { CliFireAndForgetHandler } from '../transport/cli-fire-and-forget-handler';
 
 /**
- * Options for bootstrapping the TUI DI container.
+ * Options for bootstrapping the CLI DI container.
  */
 export interface CliBootstrapOptions {
   /** Application entry point path. Defaults to __dirname. */
@@ -127,6 +127,23 @@ export interface CliBootstrapOptions {
   workspacePath?: string;
   /** Log file directory. Defaults to ~/.ptah/logs/ */
   logsPath?: string;
+  /**
+   * Bootstrap depth — `'minimal'` skips Phase 4.x RPC handler registration
+   * (used by read-only commands that only need platform + storage adapters).
+   * `'full'` mirrors Electron's phase-4-handlers.ts and registers every
+   * shared RPC handler. Defaults to `'full'`.
+   *
+   * TASK_2026_104 Batch 4 — Discovery D12.
+   */
+  bootstrapMode?: 'minimal' | 'full';
+  /**
+   * When true, emit `debug.di.phase` notifications via `pushAdapter` at the
+   * start AND end of every numbered DI phase. Consumed by the JSON-RPC
+   * event-pipe under the global `--verbose` flag.
+   *
+   * TASK_2026_104 Batch 4 — task-description.md § 4.1.9.
+   */
+  verbose?: boolean;
 }
 
 /**
@@ -171,12 +188,54 @@ export class CliDIContainer {
       logsPath,
     };
 
+    // Resolve mode flags. Defaults preserve backward-compatible behavior
+    // (full bootstrap, no verbose diagnostics).
+    const bootstrapMode: 'minimal' | 'full' = options.bootstrapMode ?? 'full';
+    const verbose: boolean = options.verbose === true;
+
+    // ========================================
+    // PHASE 0a: pushAdapter (early — needed for `debug.di.phase` events)
+    // ========================================
+    // The adapter is registered into the container as TOKENS.WEBVIEW_MANAGER
+    // later in Phase 4.0; we instantiate it now so verbose phase boundaries
+    // can stream out from the very first phase. Subscribers attach via the
+    // `CliBootstrapResult.pushAdapter` reference returned at the end.
+    const pushAdapter = new CliWebviewManagerAdapter();
+
+    /**
+     * Phase boundary helpers — emit `debug.di.phase` notifications when
+     * `verbose === true`. Each `phaseStart` returns the start timestamp so
+     * `phaseEnd` can compute `durationMs`.
+     */
+    const phaseStart = (n: string): number => {
+      if (verbose) {
+        pushAdapter.emit('debug.di.phase', { phase: n, state: 'start' });
+      }
+      return Date.now();
+    };
+    const phaseEnd = (n: string, startMs: number): void => {
+      if (verbose) {
+        pushAdapter.emit('debug.di.phase', {
+          phase: n,
+          state: 'end',
+          durationMs: Date.now() - startMs,
+        });
+      }
+    };
+
     // ========================================
     // PHASE 0: Platform Abstraction Layer
     // ========================================
     // Register all 13 platform tokens (IPlatformInfo + providers + WORKSPACE_STATE_STORAGE)
     // MUST be before any library services (they inject PLATFORM_TOKENS)
+    const phase0Start = phaseStart('0');
     registerPlatformCliServices(container, platformOptions);
+    phaseEnd('0', phase0Start);
+
+    // ========================================
+    // PHASE 1: Logger + Sentry + License + shims
+    // ========================================
+    const phase1Start = phaseStart('1');
 
     // ========================================
     // PHASE 1.0: OutputManager adapter + Logger adapter
@@ -414,9 +473,12 @@ export class CliDIContainer {
       );
     }
 
+    phaseEnd('1', phase1Start);
+
     // ========================================
     // PHASE 2: Library Services
     // ========================================
+    const phase2Start = phaseStart('2');
 
     // Phase 2.1: Workspace Intelligence
     registerWorkspaceIntelligenceServices(container, logger);
@@ -469,9 +531,12 @@ export class CliDIContainer {
     // registerSdkServices (earlier in Phase 2). The llm-abstraction
     // library has been deleted.
 
+    phaseEnd('2', phase2Start);
+
     // ========================================
     // PHASE 3: Storage Adapters
     // ========================================
+    const phase3Start = phaseStart('3');
     const workspaceStateStorage = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
     );
@@ -492,10 +557,13 @@ export class CliDIContainer {
     );
     container.register(TOKENS.GLOBAL_STATE, { useValue: globalStateStorage });
 
+    phaseEnd('3', phase3Start);
+
     // ========================================
     // PHASE 3.5: Platform Abstraction Implementations
     // ========================================
     // Must be registered BEFORE shared handler classes that depend on these tokens.
+    const phase3_5Start = phaseStart('3.5');
     container.register(TOKENS.PLATFORM_COMMANDS, {
       useValue: new CliPlatformCommands(),
     });
@@ -511,185 +579,202 @@ export class CliDIContainer {
 
     logger.info('[CLI DI] Platform abstraction implementations registered');
 
-    // ========================================
-    // PHASE 4.0: WebviewManager (CliWebviewManagerAdapter)
-    // ========================================
-    // Must be registered BEFORE RPC handlers (they resolve TOKENS.WEBVIEW_MANAGER
-    // during .register() for push event wiring).
-    const pushAdapter = new CliWebviewManagerAdapter();
-    container.register(TOKENS.WEBVIEW_MANAGER, { useValue: pushAdapter });
-
-    logger.info(
-      '[CLI DI] CliWebviewManagerAdapter registered as WEBVIEW_MANAGER',
-    );
+    phaseEnd('3.5', phase3_5Start);
 
     // ========================================
-    // PHASE 4.0.5: vscode-lm-tools services
+    // PHASE 4: WebviewManager + LM tools + Shared RPC handlers + wiring
     // ========================================
-    registerVsCodeLmToolsServices(container, logger);
+    // Skipped entirely under `bootstrapMode === 'minimal'`. Read-only commands
+    // (config, status, etc.) need only Phases 0-3.5 and can avoid the cost of
+    // resolving every RPC handler class. Discovery D12.
+    if (bootstrapMode === 'full') {
+      const phase4Start = phaseStart('4');
 
-    // ========================================
-    // PHASE 4.0.6: Browser capabilities stub (no CDP browser in CLI v1)
-    // ========================================
-    container.register(BROWSER_CAPABILITIES_TOKEN, {
-      useValue: {
-        launch: async () => {
-          throw new Error('Browser automation not available in CLI');
+      // ========================================
+      // PHASE 4.0: WebviewManager registration
+      // ========================================
+      // Adapter is instantiated in Phase 0a (so verbose phase events can flow);
+      // Phase 4.0 only registers the token binding so RPC handlers find it.
+      container.register(TOKENS.WEBVIEW_MANAGER, { useValue: pushAdapter });
+
+      logger.info(
+        '[CLI DI] CliWebviewManagerAdapter registered as WEBVIEW_MANAGER',
+      );
+
+      // ========================================
+      // PHASE 4.0.5: vscode-lm-tools services
+      // ========================================
+      registerVsCodeLmToolsServices(container, logger);
+
+      // ========================================
+      // PHASE 4.0.6: Browser capabilities stub (no CDP browser in CLI v1)
+      // ========================================
+      container.register(BROWSER_CAPABILITIES_TOKEN, {
+        useValue: {
+          launch: async () => {
+            throw new Error('Browser automation not available in CLI');
+          },
+          close: async () => {
+            /* no-op: no browser to close */
+          },
+          getStatus: () => ({ launched: false }),
         },
-        close: async () => {
-          /* no-op: no browser to close */
-        },
-        getStatus: () => ({ launched: false }),
-      },
-    });
+      });
 
-    // ========================================
-    // PHASE 4.1: Shared RPC Handler Classes (all 17)
-    // ========================================
-    container.registerSingleton(SessionRpcHandlers);
-    container.registerSingleton(ChatRpcHandlers);
-    container.registerSingleton(ConfigRpcHandlers);
-    container.registerSingleton(AuthRpcHandlers);
-    container.registerSingleton(ContextRpcHandlers);
+      // ========================================
+      // PHASE 4.1: Shared RPC Handler Classes (all 17)
+      // ========================================
+      container.registerSingleton(SessionRpcHandlers);
+      container.registerSingleton(ChatRpcHandlers);
+      container.registerSingleton(ConfigRpcHandlers);
+      container.registerSingleton(AuthRpcHandlers);
+      container.registerSingleton(ContextRpcHandlers);
 
-    // SetupRpcHandlers requires container instance for lazy resolution.
-    container.register(SetupRpcHandlers, {
-      useFactory: (c) =>
-        new SetupRpcHandlers(
-          c.resolve(TOKENS.LOGGER),
-          c.resolve(TOKENS.RPC_HANDLER),
-          c.resolve(TOKENS.CONFIG_MANAGER),
-          c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-          c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-          c,
-          c.resolve(TOKENS.SENTRY_SERVICE),
-        ),
-    });
+      // SetupRpcHandlers requires container instance for lazy resolution.
+      container.register(SetupRpcHandlers, {
+        useFactory: (c) =>
+          new SetupRpcHandlers(
+            c.resolve(TOKENS.LOGGER),
+            c.resolve(TOKENS.RPC_HANDLER),
+            c.resolve(TOKENS.CONFIG_MANAGER),
+            c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+            c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+            c,
+            c.resolve(TOKENS.SENTRY_SERVICE),
+          ),
+      });
 
-    container.registerSingleton(LicenseRpcHandlers);
+      container.registerSingleton(LicenseRpcHandlers);
 
-    // WizardGenerationRpcHandlers requires container instance for lazy resolution.
-    container.register(WizardGenerationRpcHandlers, {
-      useFactory: (c) =>
-        new WizardGenerationRpcHandlers(
-          c.resolve(TOKENS.LOGGER),
-          c.resolve(TOKENS.RPC_HANDLER),
-          c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-          c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-          c,
-          c.resolve(TOKENS.SENTRY_SERVICE),
-        ),
-    });
+      // WizardGenerationRpcHandlers requires container instance for lazy resolution.
+      container.register(WizardGenerationRpcHandlers, {
+        useFactory: (c) =>
+          new WizardGenerationRpcHandlers(
+            c.resolve(TOKENS.LOGGER),
+            c.resolve(TOKENS.RPC_HANDLER),
+            c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+            c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+            c,
+            c.resolve(TOKENS.SENTRY_SERVICE),
+          ),
+      });
 
-    container.registerSingleton(AutocompleteRpcHandlers);
-    container.registerSingleton(SubagentRpcHandlers);
-    container.registerSingleton(PluginRpcHandlers);
-    container.registerSingleton(PtahCliRpcHandlers);
+      container.registerSingleton(AutocompleteRpcHandlers);
+      container.registerSingleton(SubagentRpcHandlers);
+      container.registerSingleton(PluginRpcHandlers);
+      container.registerSingleton(PtahCliRpcHandlers);
 
-    // EnhancedPromptsRpcHandlers requires container instance for lazy resolution.
-    container.register(EnhancedPromptsRpcHandlers, {
-      useFactory: (c) =>
-        new EnhancedPromptsRpcHandlers(
-          c.resolve(TOKENS.LOGGER),
-          c.resolve(TOKENS.RPC_HANDLER),
-          c.resolve(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE),
-          c.resolve(TOKENS.LICENSE_SERVICE),
-          c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
-          c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-          c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
-          c,
-          c.resolve(TOKENS.SENTRY_SERVICE),
-        ),
-    });
+      // EnhancedPromptsRpcHandlers requires container instance for lazy resolution.
+      container.register(EnhancedPromptsRpcHandlers, {
+        useFactory: (c) =>
+          new EnhancedPromptsRpcHandlers(
+            c.resolve(TOKENS.LOGGER),
+            c.resolve(TOKENS.RPC_HANDLER),
+            c.resolve(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE),
+            c.resolve(TOKENS.LICENSE_SERVICE),
+            c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+            c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+            c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
+            c,
+            c.resolve(TOKENS.SENTRY_SERVICE),
+          ),
+      });
 
-    container.registerSingleton(QualityRpcHandlers);
-    container.registerSingleton(ProviderRpcHandlers);
+      container.registerSingleton(QualityRpcHandlers);
+      container.registerSingleton(ProviderRpcHandlers);
 
-    // LlmRpcHandlers uses DependencyContainer for lazy resolution
-    container.register(LlmRpcHandlers, {
-      useFactory: (c) =>
-        new LlmRpcHandlers(
-          c.resolve(TOKENS.LOGGER),
-          c.resolve(TOKENS.RPC_HANDLER),
-          c,
-          c.resolve(TOKENS.SENTRY_SERVICE),
-        ),
-    });
+      // LlmRpcHandlers uses DependencyContainer for lazy resolution
+      container.register(LlmRpcHandlers, {
+        useFactory: (c) =>
+          new LlmRpcHandlers(
+            c.resolve(TOKENS.LOGGER),
+            c.resolve(TOKENS.RPC_HANDLER),
+            c,
+            c.resolve(TOKENS.SENTRY_SERVICE),
+          ),
+      });
 
-    container.registerSingleton(WebSearchRpcHandlers);
+      container.registerSingleton(WebSearchRpcHandlers);
 
-    logger.info('[CLI DI] Shared RPC handler classes registered (17)');
+      logger.info('[CLI DI] Shared RPC handler classes registered (17)');
 
-    // ========================================
-    // PHASE 4.5: Wire EnhancedPrompts + analysis reader
-    // ========================================
-    try {
-      const enhancedPrompts = container.resolve<EnhancedPromptsService>(
-        SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
-      );
-      const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
-        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
-      );
-      enhancedPrompts.setAnalysisReader(analysisStorage);
-      logger.info('[CLI DI] EnhancedPrompts analysis reader wired');
-    } catch {
-      // Non-fatal: enhanced prompts may not be needed in all configurations
-    }
+      // ========================================
+      // PHASE 4.5: Wire EnhancedPrompts + analysis reader
+      // ========================================
+      try {
+        const enhancedPrompts = container.resolve<EnhancedPromptsService>(
+          SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
+        );
+        const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
+          AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+        );
+        enhancedPrompts.setAnalysisReader(analysisStorage);
+        logger.info('[CLI DI] EnhancedPrompts analysis reader wired');
+      } catch {
+        // Non-fatal: enhanced prompts may not be needed in all configurations
+      }
 
-    // ========================================
-    // PHASE 4.6: Content download + plugin initialization
-    // ========================================
-    // Plugins and templates are downloaded from GitHub to ~/.ptah/ on first launch.
-    // Fire-and-forget: activation continues immediately.
-    try {
-      const contentDownload = container.resolve<ContentDownloadService>(
-        PLATFORM_TOKENS.CONTENT_DOWNLOAD,
-      );
-      contentDownload.ensureContent().then(
-        (result) => {
-          if (!result.success) {
-            logger.warn('[CLI DI] Content download incomplete', {
-              error: result.error,
+      // ========================================
+      // PHASE 4.6: Content download + plugin initialization
+      // ========================================
+      // Plugins and templates are downloaded from GitHub to ~/.ptah/ on first launch.
+      // Fire-and-forget: activation continues immediately.
+      try {
+        const contentDownload = container.resolve<ContentDownloadService>(
+          PLATFORM_TOKENS.CONTENT_DOWNLOAD,
+        );
+        contentDownload.ensureContent().then(
+          (result) => {
+            if (!result.success) {
+              logger.warn('[CLI DI] Content download incomplete', {
+                error: result.error,
+              } as unknown as Error);
+            } else {
+              logger.info('[CLI DI] Content download complete');
+            }
+
+            // Initialize PluginLoaderService after content download
+            try {
+              const pluginLoader = container.resolve<PluginLoaderService>(
+                SDK_TOKENS.SDK_PLUGIN_LOADER,
+              );
+              const wsStorage = container.resolve<IStateStorage>(
+                PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
+              );
+              pluginLoader.initialize(
+                contentDownload.getPluginsPath(),
+                wsStorage,
+              );
+              logger.info('[CLI DI] PluginLoaderService initialized');
+            } catch (pluginError) {
+              logger.warn(
+                '[CLI DI] Failed to initialize PluginLoaderService (non-fatal)',
+                {
+                  error:
+                    pluginError instanceof Error
+                      ? pluginError.message
+                      : String(pluginError),
+                } as unknown as Error,
+              );
+            }
+          },
+          (error) => {
+            logger.warn('[CLI DI] Content download failed (non-fatal)', {
+              error: error instanceof Error ? error.message : String(error),
             } as unknown as Error);
-          } else {
-            logger.info('[CLI DI] Content download complete');
-          }
+          },
+        );
+      } catch (error) {
+        logger.warn('[CLI DI] Failed to start content download (non-fatal)', {
+          error: error instanceof Error ? error.message : String(error),
+        } as unknown as Error);
+      }
 
-          // Initialize PluginLoaderService after content download
-          try {
-            const pluginLoader = container.resolve<PluginLoaderService>(
-              SDK_TOKENS.SDK_PLUGIN_LOADER,
-            );
-            const wsStorage = container.resolve<IStateStorage>(
-              PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
-            );
-            pluginLoader.initialize(
-              contentDownload.getPluginsPath(),
-              wsStorage,
-            );
-            logger.info('[CLI DI] PluginLoaderService initialized');
-          } catch (pluginError) {
-            logger.warn(
-              '[CLI DI] Failed to initialize PluginLoaderService (non-fatal)',
-              {
-                error:
-                  pluginError instanceof Error
-                    ? pluginError.message
-                    : String(pluginError),
-              } as unknown as Error,
-            );
-          }
-        },
-        (error) => {
-          logger.warn('[CLI DI] Content download failed (non-fatal)', {
-            error: error instanceof Error ? error.message : String(error),
-          } as unknown as Error);
-        },
+      phaseEnd('4', phase4Start);
+    } else {
+      logger.info(
+        '[CLI DI] bootstrapMode=minimal — Phase 4 (RPC handlers) skipped',
       );
-    } catch (error) {
-      logger.warn('[CLI DI] Failed to start content download (non-fatal)', {
-        error: error instanceof Error ? error.message : String(error),
-      } as unknown as Error);
     }
 
     logger.info('[CLI DI] All services registered successfully');

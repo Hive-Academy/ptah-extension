@@ -1,10 +1,13 @@
 /**
- * TUI RPC Method Registration Service
+ * CLI RPC Method Registration Service
  *
  * TASK_2025_263 Batch 3: original CLI orchestrator.
  * TASK_2025_291 Wave C4b: shared-handler fan-out + SDK / agent-event wiring
  * moved to platform-agnostic helpers; CLI now opts out of worktree,
  * wizard broadcast, Copilot permission, and CLI session persistence.
+ * TASK_2026_104 Batch 4: shrink CLI exclusion list to ~22 entries (webview-only
+ * surfaces) and unblock HarnessRpcHandlers so the CLI exposes Electron parity
+ * for every backend capability documented in task-description.md § 0.
  */
 
 import { container } from 'tsyringe';
@@ -20,14 +23,20 @@ import {
   wireSdkCallbacks,
   wireAgentEventListeners,
 } from '@ptah-extension/agent-sdk';
-import { HarnessRpcHandlers } from '@ptah-extension/rpc-handlers';
 
 /**
- * RPC methods not applicable in TUI — platform-specific (VS Code/Electron only).
- * Excluded from RPC verification to prevent false CRITICAL errors.
+ * RPC methods that have NO sensible CLI implementation — they all sit on top
+ * of webview-only UI surfaces (file pickers, command palette, embedded editor
+ * panes, persisted layout, embedded PTY) that do not exist in a headless
+ * stdio process. Anything not in this list is either implemented today or
+ * scheduled for first-class CLI commands per task-description.md § 3.
+ *
+ * Final shape per TASK_2026_104 Batch 4 (~22 entries) — task-description.md § 0.8.
  */
 const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
-  // File operations (VS Code/Electron file pickers & dialogs)
+  // File operations — VS Code / Electron file pickers and save dialogs are
+  // GUI-only. The CLI exposes equivalent functionality via direct path args
+  // and `--out`/`--in` flags on the parent commands.
   'file:open',
   'file:pick',
   'file:pick-images',
@@ -35,89 +44,36 @@ const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   'file:exists',
   'file:save-dialog',
 
-  // Command execution (VS Code command palette)
+  // Command execution — VS Code command palette dispatch. CLI has no
+  // command palette; commands are invoked directly via the commander router.
   'command:execute',
 
-  // Agent orchestration (registered by platform-specific handlers)
-  'agent:getConfig',
-  'agent:setConfig',
-  'agent:detectClis',
-  'agent:listCliModels',
-  'agent:permissionResponse',
-  'agent:stop',
-  'agent:resumeCliSession',
-
-  // Skills.sh marketplace (not available in CLI v1)
-  'skillsSh:search',
-  'skillsSh:listInstalled',
-  'skillsSh:install',
-  'skillsSh:uninstall',
-  'skillsSh:getPopular',
-  'skillsSh:detectRecommended',
-
-  // Workspace management (Electron desktop only)
-  'workspace:getInfo',
-  'workspace:addFolder',
-  'workspace:removeFolder',
-  'workspace:switch',
-
-  // Layout persistence (Electron desktop only)
-  'layout:persist',
-  'layout:restore',
-
-  // Editor operations (Electron desktop only)
+  // Editor operations — Angular editor pane inside the webview. The CLI has
+  // no embedded editor surface; consumers shell out to their own editor.
+  // Verified against `libs/shared/src/lib/types/rpc.types.ts` — these are
+  // every `editor:*` method declared in the RPC registry.
   'editor:openFile',
   'editor:saveFile',
   'editor:getFileTree',
   'editor:getDirectoryChildren',
+  'editor:createFile',
+  'editor:createFolder',
+  'editor:renameItem',
+  'editor:deleteItem',
+  'editor:getSetting',
+  'editor:updateSetting',
+  'editor:searchInFiles',
+  'editor:listAllFiles',
 
-  // Extended config/auth (Electron desktop only)
-  'config:model-set',
-  'auth:setApiKey',
-  'auth:getStatus',
-  'auth:getApiKeyStatus',
+  // Layout persistence — Electron / VS Code webview panel layout state.
+  // No webview means no layout to persist.
+  'layout:persist',
+  'layout:restore',
 
-  // Settings import/export (Electron desktop only)
-  'settings:export',
-  'settings:import',
-
-  // Git operations (Electron desktop only)
-  'git:info',
-  'git:worktrees',
-  'git:addWorktree',
-  'git:removeWorktree',
-
-  // Terminal operations (Electron desktop only)
+  // Terminal operations — Electron embedded PTY (`node-pty`). The CLI runs
+  // inside the user's own terminal; spawning child PTYs is out of scope.
   'terminal:create',
   'terminal:kill',
-
-  // MCP Directory (VS Code marketplace directory — not applicable in CLI)
-  'mcpDirectory:search',
-  'mcpDirectory:getDetails',
-  'mcpDirectory:install',
-  'mcpDirectory:uninstall',
-  'mcpDirectory:listInstalled',
-  'mcpDirectory:getPopular',
-
-  // Harness setup builder (excluded from CLI registration via
-  // `registerAllRpcHandlers({ exclude: [HarnessRpcHandlers] })` — these
-  // methods would otherwise show as missing in verifyRpcRegistration).
-  'harness:initialize',
-  'harness:suggest-config',
-  'harness:search-skills',
-  'harness:create-skill',
-  'harness:discover-mcp',
-  'harness:generate-prompt',
-  'harness:generate-claude-md',
-  'harness:apply',
-  'harness:save-preset',
-  'harness:load-presets',
-  'harness:chat',
-  'harness:design-agents',
-  'harness:generate-skills',
-  'harness:generate-document',
-  'harness:analyze-intent',
-  'harness:converse',
 ];
 
 /**
@@ -137,14 +93,16 @@ export class CliRpcMethodRegistrationService {
   }
 
   /**
-   * Register all RPC methods. CLI excludes Harness (VS Code only), worktree
-   * resolution, wizard broadcasts, Copilot permission UI, and CLI session
-   * persistence.
+   * Register all RPC methods. CLI now registers the full shared handler set
+   * (including HarnessRpcHandlers) for Electron parity. Webview-only
+   * surfaces stay excluded via `CLI_EXCLUDED_RPC_METHODS`.
    */
   registerAll(): void {
     registerChatServices(container);
 
-    registerAllRpcHandlers(container, { exclude: [HarnessRpcHandlers] });
+    // TASK_2026_104 Batch 4: drop `exclude: [HarnessRpcHandlers]` so the
+    // harness handler joins the shared set. Parity with Electron.
+    registerAllRpcHandlers(container);
 
     wireSdkCallbacks(container, {
       logger: this.logger,
@@ -182,3 +140,9 @@ export class CliRpcMethodRegistrationService {
     });
   }
 }
+
+/**
+ * Exported so tests can audit the exclusion shape without re-importing private
+ * module state.
+ */
+export const __CLI_EXCLUDED_RPC_METHODS_FOR_TEST = CLI_EXCLUDED_RPC_METHODS;

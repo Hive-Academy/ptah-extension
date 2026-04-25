@@ -196,6 +196,79 @@ describe('EventPipe', () => {
     });
   });
 
+  describe('debug.di.phase verbose gating', () => {
+    it('forwards debug.di.phase when verbose=true', async () => {
+      const fmt = new RecordingFormatter();
+      const pipe = new EventPipe(fmt, { verbose: true });
+      const adapter = new EventEmitter();
+      pipe.attach(adapter);
+
+      adapter.emit('debug.di.phase', {
+        phase: '0',
+        state: 'start',
+      });
+      adapter.emit('debug.di.phase', {
+        phase: '0',
+        state: 'end',
+        durationMs: 12,
+      });
+      await tick();
+
+      expect(fmt.notifications).toHaveLength(2);
+      expect(fmt.notifications[0]).toEqual({
+        method: 'debug.di.phase',
+        params: { phase: '0', state: 'start' },
+      });
+      expect(fmt.notifications[1]).toEqual({
+        method: 'debug.di.phase',
+        params: { phase: '0', state: 'end', durationMs: 12 },
+      });
+      pipe.detach();
+    });
+
+    it('drops debug.di.phase when verbose=false (default)', async () => {
+      const fmt = new RecordingFormatter();
+      const pipe = new EventPipe(fmt);
+      const adapter = new EventEmitter();
+      pipe.attach(adapter);
+
+      adapter.emit('debug.di.phase', { phase: '0', state: 'start' });
+      adapter.emit('debug.di.phase', { phase: '0', state: 'end' });
+      await tick();
+
+      expect(fmt.notifications).toHaveLength(0);
+      pipe.detach();
+    });
+
+    it('drops debug.di.phase when verbose=false explicitly set', async () => {
+      const fmt = new RecordingFormatter();
+      const pipe = new EventPipe(fmt, { verbose: false });
+      const adapter = new EventEmitter();
+      pipe.attach(adapter);
+
+      adapter.emit('debug.di.phase', { phase: '1', state: 'start' });
+      await tick();
+
+      expect(fmt.notifications).toHaveLength(0);
+      pipe.detach();
+    });
+
+    it('does not gate non-debug events when verbose=false', async () => {
+      const fmt = new RecordingFormatter();
+      const pipe = new EventPipe(fmt, { verbose: false });
+      const adapter = new EventEmitter();
+      pipe.attach(adapter);
+
+      adapter.emit('chat:chunk', { text: 'hello' });
+      await tick();
+
+      expect(fmt.notifications).toEqual([
+        { method: 'agent.message', params: { text: 'hello' } },
+      ]);
+      pipe.detach();
+    });
+  });
+
   describe('lifecycle', () => {
     it('detach() stops emitting notifications', async () => {
       const fmt = new RecordingFormatter();

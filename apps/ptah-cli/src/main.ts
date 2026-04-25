@@ -4,8 +4,15 @@
  *
  * TASK_2026_104 Batch 2 — scaffold only. This file intentionally does NOT
  * bootstrap the DI container at module load. Each subcommand decides whether
- * (and when) to call `CliDIContainer.setup()`; that wiring lands in Batches
- * 4-6.
+ * (and when) to call `CliDIContainer.setup()` (typically via the `withEngine`
+ * helper added in Batch 4 at `src/cli/bootstrap/with-engine.ts`); that wiring
+ * lands in Batches 5-6.
+ *
+ * The router (`src/cli/router.ts`) parses `--verbose` as part of
+ * `GlobalOptions`. Each command receives the resolved globals object and is
+ * expected to forward `globals.verbose` into `withEngine(globals, ...)` so
+ * the DI container emits `debug.di.phase` notifications. No call sites exist
+ * yet — Batch 4 only prepares the propagation surface.
  *
  * Responsibilities for this batch:
  *   1. Install SIGINT/SIGTERM handler stubs that exit with the conventional
