@@ -69,9 +69,9 @@
     "electron:build:dev": "nx build-dev ptah-electron",
     "electron:package": "nx package ptah-electron",
     "electron:rebuild": "electron-rebuild -f -w node-pty",
-    "tui:build": "nx build ptah-tui",
-    "tui:dev": "nx dev ptah-tui",
-    "tui:serve": "nx build ptah-tui && node dist/apps/ptah-tui/main.mjs"
+    "cli:build": "nx build ptah-cli",
+    "cli:dev": "nx dev ptah-cli",
+    "cli:serve": "nx build ptah-cli && node dist/apps/ptah-cli/main.mjs"
   },
   "private": true,
   "dependencies": {

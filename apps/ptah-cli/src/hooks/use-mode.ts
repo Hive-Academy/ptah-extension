@@ -15,7 +15,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 
-import { useTuiContext } from '../context/TuiContext.js';
+import { useCliContext } from '../context/CliContext.js';
 
 export type AppMode = 'plan' | 'build';
 
@@ -41,7 +41,7 @@ interface AutopilotToggleParams {
  * Hook providing Plan/Build mode management via autopilot RPC methods.
  */
 export function useMode(): UseModeResult {
-  const { transport } = useTuiContext();
+  const { transport } = useCliContext();
 
   const [mode, setModeState] = useState<AppMode>('build');
   const [loading, setLoading] = useState(false);

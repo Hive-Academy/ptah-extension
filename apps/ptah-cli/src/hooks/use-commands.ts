@@ -14,7 +14,7 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 
-import { useTuiContext } from '../context/TuiContext.js';
+import { useCliContext } from '../context/CliContext.js';
 import { useThemeContext } from '../context/ThemeContext.js';
 import { useModeContext } from '../context/ModeContext.js';
 import { useSessionContext } from '../context/SessionContext.js';
@@ -64,7 +64,7 @@ interface AutocompleteCommandsResult {
  * Fetches remote commands on mount and merges with local TUI commands.
  */
 export function useCommands(callbacks: CommandCallbacks): UseCommandsResult {
-  const { transport } = useTuiContext();
+  const { transport } = useCliContext();
   const themeContext = useThemeContext();
   const modeContext = useModeContext();
   const sessionContext = useSessionContext();
@@ -173,7 +173,7 @@ export function useCommands(callbacks: CommandCallbacks): UseCommandsResult {
       },
       {
         name: 'quit',
-        description: 'Exit the TUI application',
+        description: 'Exit the CLI application',
         scope: 'tui-local',
         handler: () => {
           callbacks.onQuit();

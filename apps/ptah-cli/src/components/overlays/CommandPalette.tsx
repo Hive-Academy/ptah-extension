@@ -10,7 +10,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
 
-import { useTuiContext } from '../../context/TuiContext.js';
+import { useCliContext } from '../../context/CliContext.js';
 import { useTheme } from '../../hooks/use-theme.js';
 import { usePushFocus } from '../../hooks/use-focus-manager.js';
 import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
@@ -114,7 +114,7 @@ const LOCAL_TUI_COMMANDS: PaletteCommand[] = [
     description: 'List all available commands',
     scope: 'tui-local',
   },
-  { name: 'quit', description: 'Exit the TUI application', scope: 'tui-local' },
+  { name: 'quit', description: 'Exit the CLI application', scope: 'tui-local' },
 ];
 
 interface CommandPaletteProps {
@@ -127,7 +127,7 @@ export function CommandPalette({
   onDismiss,
 }: CommandPaletteProps): React.JSX.Element {
   const theme = useTheme();
-  const { transport } = useTuiContext();
+  const { transport } = useCliContext();
   const isActive = usePushFocus('command-palette');
 
   const [searchQuery, setSearchQuery] = useState('');

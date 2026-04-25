@@ -22,7 +22,7 @@ interface SentryServiceLike {
   ): void;
 }
 
-export type RpcRegistrationPlatform = 'vscode' | 'electron' | 'tui';
+export type RpcRegistrationPlatform = 'vscode' | 'electron' | 'cli';
 
 export interface VerifyAndReportRpcRegistrationOptions {
   /** The `RpcHandler` that owns the registered methods. */

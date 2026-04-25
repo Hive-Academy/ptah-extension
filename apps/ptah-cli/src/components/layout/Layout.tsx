@@ -1,5 +1,5 @@
 /**
- * Layout -- Top-level layout shell for the TUI application.
+ * Layout -- Top-level layout shell for the CLI application.
  *
  * Arranges: Header > (Sessions Sidebar? | Main Content | Agent Panel?) > StatusBar
  *

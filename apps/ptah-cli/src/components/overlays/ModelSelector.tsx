@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
 
-import { useTuiContext } from '../../context/TuiContext.js';
+import { useCliContext } from '../../context/CliContext.js';
 import { useTheme } from '../../hooks/use-theme.js';
 import { usePushFocus } from '../../hooks/use-focus-manager.js';
 import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
@@ -61,7 +61,7 @@ export function ModelSelector({
   onDismiss,
 }: ModelSelectorProps): React.JSX.Element {
   const theme = useTheme();
-  const { transport } = useTuiContext();
+  const { transport } = useCliContext();
   const isActive = usePushFocus('model-selector');
 
   const [providers, setProviders] = useState<ProviderStatus[]>([]);

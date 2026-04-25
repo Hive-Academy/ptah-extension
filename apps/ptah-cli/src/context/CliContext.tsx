@@ -5,7 +5,7 @@
  * TASK_2025_263 Batch 3
  *
  * The DI container bootstraps these three objects in main.tsx, then passes
- * them into the TuiProvider. Any component can access them via useTuiContext().
+ * them into the TuiProvider. Any component can access them via useCliContext().
  */
 
 import React, { createContext, useContext } from 'react';
@@ -14,13 +14,13 @@ import type { CliMessageTransport } from '../transport/cli-message-transport';
 import type { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter';
 import type { CliFireAndForgetHandler } from '../transport/cli-fire-and-forget-handler';
 
-export interface TuiContextValue {
+export interface CliContextValue {
   transport: CliMessageTransport;
   pushAdapter: CliWebviewManagerAdapter;
   fireAndForget: CliFireAndForgetHandler;
 }
 
-const TuiContext = createContext<TuiContextValue | null>(null);
+const CliContext = createContext<CliContextValue | null>(null);
 
 export interface TuiProviderProps {
   transport: CliMessageTransport;
@@ -44,18 +44,18 @@ export function TuiProvider({
     [transport, pushAdapter, fireAndForget],
   );
 
-  return <TuiContext.Provider value={value}>{children}</TuiContext.Provider>;
+  return <CliContext.Provider value={value}>{children}</CliContext.Provider>;
 }
 
 /**
  * Access the TUI context (transport, pushAdapter, fireAndForget).
  * Throws if called outside of TuiProvider.
  */
-export function useTuiContext(): TuiContextValue {
-  const ctx = useContext(TuiContext);
+export function useCliContext(): CliContextValue {
+  const ctx = useContext(CliContext);
   if (!ctx) {
     throw new Error(
-      'useTuiContext must be used within a TuiProvider. ' +
+      'useCliContext must be used within a TuiProvider. ' +
         'Ensure the App component wraps its children with <TuiProvider>.',
     );
   }

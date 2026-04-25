@@ -16,7 +16,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 
-import { useTuiContext } from '../context/TuiContext.js';
+import { useCliContext } from '../context/CliContext.js';
 
 export interface Session {
   id: string;
@@ -88,7 +88,7 @@ interface SessionCreateResult {
  * Hook providing session lifecycle management via RPC and real-time stats via push events.
  */
 export function useSessions(): UseSessionsResult {
-  const { transport, pushAdapter } = useTuiContext();
+  const { transport, pushAdapter } = useCliContext();
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);

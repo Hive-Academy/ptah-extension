@@ -26,7 +26,7 @@ import { HarnessRpcHandlers } from '@ptah-extension/rpc-handlers';
  * RPC methods not applicable in TUI — platform-specific (VS Code/Electron only).
  * Excluded from RPC verification to prevent false CRITICAL errors.
  */
-const TUI_EXCLUDED_RPC_METHODS: readonly string[] = [
+const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   // File operations (VS Code/Electron file pickers & dialogs)
   'file:open',
   'file:pick',
@@ -121,13 +121,13 @@ const TUI_EXCLUDED_RPC_METHODS: readonly string[] = [
 ];
 
 /**
- * Orchestrates RPC method registration for the TUI CLI app.
+ * Orchestrates RPC method registration for the CLI app.
  *
  * Unlike the VS Code / Electron services, this is NOT `@injectable()` because
  * it is only instantiated once during bootstrap. It resolves its two core
  * dependencies from the global container directly.
  */
-export class TuiRpcMethodRegistrationService {
+export class CliRpcMethodRegistrationService {
   private readonly logger: Logger;
   private readonly rpcHandler: RpcHandler;
 
@@ -148,13 +148,13 @@ export class TuiRpcMethodRegistrationService {
 
     wireSdkCallbacks(container, {
       logger: this.logger,
-      platform: 'tui',
+      platform: 'cli',
       options: { worktree: false },
     });
 
     wireAgentEventListeners(container, {
       logger: this.logger,
-      platform: 'tui',
+      platform: 'cli',
       options: {
         wizardBroadcast: false,
         copilotPermission: false,
@@ -168,8 +168,8 @@ export class TuiRpcMethodRegistrationService {
       logger: this.logger,
       container,
       sentryToken: TOKENS.SENTRY_SERVICE,
-      platform: 'tui',
-      excluded: TUI_EXCLUDED_RPC_METHODS,
+      platform: 'cli',
+      excluded: CLI_EXCLUDED_RPC_METHODS,
       assertInDevelopment: false,
     });
 
@@ -177,7 +177,7 @@ export class TuiRpcMethodRegistrationService {
       __debugAssertSharedHandlersDisjoint();
     }
 
-    this.logger.info('[TUI RPC] All RPC methods registered', {
+    this.logger.info('[CLI RPC] All RPC methods registered', {
       methods: this.rpcHandler.getRegisteredMethods(),
     });
   }

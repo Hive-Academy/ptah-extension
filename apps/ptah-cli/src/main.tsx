@@ -2,15 +2,15 @@ import 'reflect-metadata';
 
 import React from 'react';
 import { render } from 'ink';
-import { TuiDIContainer, type TuiBootstrapResult } from './di/container';
-import { TuiRpcMethodRegistrationService } from './services/tui-rpc-method-registration.service';
+import { CliDIContainer, type CliBootstrapResult } from './di/container';
+import { CliRpcMethodRegistrationService } from './services/cli-rpc-method-registration.service';
 import { App } from './components/App.js';
 import { TOKENS } from '@ptah-extension/vscode-core';
 
 /**
  * Check if stdin supports raw mode (required by Ink for keyboard input).
  * nx run-commands pipes stdin instead of providing a real TTY, so
- * `nx serve ptah-tui` won't work — the user must run the binary directly.
+ * `nx serve ptah-cli` won't work — the user must run the binary directly.
  */
 function ensureRawModeSupport(): void {
   if (process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
@@ -21,13 +21,13 @@ function ensureRawModeSupport(): void {
     '\n  Ptah TUI requires an interactive terminal (TTY with raw mode).\n' +
       '  nx pipes stdin, so `nx serve` cannot provide this.\n\n' +
       '  Build + run directly instead:\n\n' +
-      '    nx build ptah-tui && node dist/apps/ptah-tui/main.mjs\n',
+      '    nx build ptah-cli && node dist/apps/ptah-cli/main.mjs\n',
   );
   process.exit(1);
 }
 
 /**
- * Bootstrap the TUI application.
+ * Bootstrap the CLI application.
  *
  * 1. Setup DI container (all backend services)
  * 2. Register RPC methods
@@ -35,14 +35,14 @@ function ensureRawModeSupport(): void {
  * 4. Setup graceful shutdown
  */
 async function main(): Promise<void> {
-  let bootstrapResult: TuiBootstrapResult | undefined;
+  let bootstrapResult: CliBootstrapResult | undefined;
 
   // Phase 0: Ensure terminal supports raw mode for Ink
   ensureRawModeSupport();
 
   try {
     // Phase 1: Bootstrap DI container
-    bootstrapResult = TuiDIContainer.setup({
+    bootstrapResult = CliDIContainer.setup({
       workspacePath: process.cwd(),
     });
 
@@ -50,10 +50,10 @@ async function main(): Promise<void> {
       bootstrapResult;
 
     // Phase 2: Register all RPC methods
-    const rpcService = new TuiRpcMethodRegistrationService();
+    const rpcService = new CliRpcMethodRegistrationService();
     rpcService.registerAll();
 
-    logger.info('[TUI Main] DI container and RPC methods initialized');
+    logger.info('[CLI Main] DI container and RPC methods initialized');
 
     // Phase 3: Render Ink App
     const app = render(
@@ -66,7 +66,7 @@ async function main(): Promise<void> {
 
     // Phase 4: Graceful shutdown
     const cleanup = () => {
-      logger.info('[TUI Main] Shutting down...');
+      logger.info('[CLI Main] Shutting down...');
       app.unmount();
       process.exit(0);
     };
@@ -81,7 +81,7 @@ async function main(): Promise<void> {
     const stack = error instanceof Error ? error.stack : undefined;
 
     // Log to stderr since the TUI may not be initialized
-    console.error(`[TUI Main] Fatal error during bootstrap: ${message}`);
+    console.error(`[CLI Main] Fatal error during bootstrap: ${message}`);
     if (stack) {
       console.error(stack);
     }
@@ -89,7 +89,7 @@ async function main(): Promise<void> {
     // Also log via the logger if available
     if (bootstrapResult?.logger) {
       bootstrapResult.logger.error(
-        `[TUI Main] Fatal error during bootstrap: ${message}`,
+        `[CLI Main] Fatal error during bootstrap: ${message}`,
         error instanceof Error ? error : new Error(message),
       );
     }

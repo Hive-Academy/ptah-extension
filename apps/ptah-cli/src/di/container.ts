@@ -99,8 +99,8 @@ import {
   WebSearchRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
-// TUI adapters
-import { TuiOutputManagerAdapter, TuiLoggerAdapter } from './tui-adapters';
+// CLI adapters
+import { CliOutputManagerAdapter, CliLoggerAdapter } from './cli-adapters';
 
 // CLI platform abstraction implementations
 import {
@@ -118,7 +118,7 @@ import { CliFireAndForgetHandler } from '../transport/cli-fire-and-forget-handle
 /**
  * Options for bootstrapping the TUI DI container.
  */
-export interface TuiBootstrapOptions {
+export interface CliBootstrapOptions {
   /** Application entry point path. Defaults to __dirname. */
   appPath?: string;
   /** User data directory. Defaults to ~/.ptah/ */
@@ -130,10 +130,10 @@ export interface TuiBootstrapOptions {
 }
 
 /**
- * Result of TuiDIContainer.setup() -- all services needed by main.tsx and
+ * Result of CliDIContainer.setup() -- all services needed by main.tsx and
  * React components to interact with the backend.
  */
-export interface TuiBootstrapResult {
+export interface CliBootstrapResult {
   container: DependencyContainer;
   transport: CliMessageTransport;
   pushAdapter: CliWebviewManagerAdapter;
@@ -147,14 +147,14 @@ export interface TuiBootstrapResult {
  * Mirrors the Electron ElectronDIContainer but registers only platform-agnostic
  * services and uses CLI-compatible replacements for VS Code/Electron-specific ones.
  */
-export class TuiDIContainer {
+export class CliDIContainer {
   /**
    * Setup and orchestrate all service registrations for the TUI.
    *
    * @param options - Bootstrap options (paths)
    * @returns Configured container, transport, push adapter, and fire-and-forget handler
    */
-  static setup(options: TuiBootstrapOptions = {}): TuiBootstrapResult {
+  static setup(options: CliBootstrapOptions = {}): CliBootstrapResult {
     const container = globalContainer;
 
     // Resolve default paths
@@ -184,16 +184,16 @@ export class TuiDIContainer {
     const outputChannel = container.resolve<IOutputChannel>(
       PLATFORM_TOKENS.OUTPUT_CHANNEL,
     );
-    const outputManager = new TuiOutputManagerAdapter(outputChannel);
+    const outputManager = new CliOutputManagerAdapter(outputChannel);
     container.register(TOKENS.OUTPUT_MANAGER, { useValue: outputManager });
 
-    // Logger adapter: uses TuiOutputManagerAdapter instead of VS Code OutputManager.
+    // Logger adapter: uses CliOutputManagerAdapter instead of VS Code OutputManager.
     // Cast to Logger type so library registration functions accept it.
-    const loggerAdapter = new TuiLoggerAdapter(outputManager);
+    const loggerAdapter = new CliLoggerAdapter(outputManager);
     const logger = loggerAdapter as unknown as Logger;
     container.register(TOKENS.LOGGER, { useValue: logger });
 
-    logger.info('[TUI DI] Starting service registration...');
+    logger.info('[CLI DI] Starting service registration...');
 
     // ========================================
     // PHASE 1.0b: SentryService (opt-in; uninitialized until SENTRY_DSN is set)
@@ -233,7 +233,7 @@ export class TuiDIContainer {
       FeatureGateService,
     );
 
-    logger.info('[TUI DI] Platform-agnostic vscode-core services registered');
+    logger.info('[CLI DI] Platform-agnostic vscode-core services registered');
 
     // ========================================
     // PHASE 1.3: FILE_SYSTEM_MANAGER shim (required by workspace-intelligence)
@@ -246,11 +246,11 @@ export class TuiDIContainer {
         useValue: fileSystemProvider,
       });
       logger.info(
-        '[TUI DI] FILE_SYSTEM_MANAGER shim registered (delegates to IFileSystemProvider)',
+        '[CLI DI] FILE_SYSTEM_MANAGER shim registered (delegates to IFileSystemProvider)',
       );
     } catch (error) {
       logger.error(
-        '[TUI DI] Failed to register FILE_SYSTEM_MANAGER shim',
+        '[CLI DI] Failed to register FILE_SYSTEM_MANAGER shim',
         error instanceof Error ? error : new Error(String(error)),
       );
     }
@@ -335,11 +335,11 @@ export class TuiDIContainer {
         useValue: configManagerShim,
       });
       logger.info(
-        '[TUI DI] CONFIG_MANAGER shim registered (delegates to workspace state storage + file-based settings)',
+        '[CLI DI] CONFIG_MANAGER shim registered (delegates to workspace state storage + file-based settings)',
       );
     } catch (error) {
       logger.error(
-        '[TUI DI] Failed to register CONFIG_MANAGER shim',
+        '[CLI DI] Failed to register CONFIG_MANAGER shim',
         error instanceof Error ? error : new Error(String(error)),
       );
     }
@@ -389,11 +389,11 @@ export class TuiDIContainer {
         useValue: extensionContextShim,
       });
       logger.info(
-        '[TUI DI] EXTENSION_CONTEXT shim registered (delegates to platform storage)',
+        '[CLI DI] EXTENSION_CONTEXT shim registered (delegates to platform storage)',
       );
     } catch (error) {
       logger.error(
-        '[TUI DI] Failed to register EXTENSION_CONTEXT shim',
+        '[CLI DI] Failed to register EXTENSION_CONTEXT shim',
         error instanceof Error ? error : new Error(String(error)),
       );
     }
@@ -409,7 +409,7 @@ export class TuiDIContainer {
       licenseService.seedCommunityStatus();
     } catch (error) {
       logger.warn(
-        '[TUI DI] Failed to seed community license (non-fatal)',
+        '[CLI DI] Failed to seed community license (non-fatal)',
         error instanceof Error ? error : new Error(String(error)),
       );
     }
@@ -440,11 +440,11 @@ export class TuiDIContainer {
       container.register(TOKENS.WEBVIEW_MESSAGE_HANDLER, { useValue: {} });
       container.register(TOKENS.WEBVIEW_HTML_GENERATOR, { useValue: {} });
       logger.info(
-        '[TUI DI] WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs registered',
+        '[CLI DI] WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs registered',
       );
     } catch (error) {
       logger.error(
-        '[TUI DI] Failed to register webview stubs for WizardWebviewLifecycleService',
+        '[CLI DI] Failed to register webview stubs for WizardWebviewLifecycleService',
         error instanceof Error ? error : new Error(String(error)),
       );
     }
@@ -462,7 +462,7 @@ export class TuiDIContainer {
       },
     });
     logger.info(
-      '[TUI DI] SETUP_WIZARD_SERVICE stub registered (no setup wizard in CLI)',
+      '[CLI DI] SETUP_WIZARD_SERVICE stub registered (no setup wizard in CLI)',
     );
 
     // TASK_2025_291 Wave C5: CLI agent services now registered by
@@ -509,7 +509,7 @@ export class TuiDIContainer {
       useValue: new CliModelDiscovery(),
     });
 
-    logger.info('[TUI DI] Platform abstraction implementations registered');
+    logger.info('[CLI DI] Platform abstraction implementations registered');
 
     // ========================================
     // PHASE 4.0: WebviewManager (CliWebviewManagerAdapter)
@@ -520,7 +520,7 @@ export class TuiDIContainer {
     container.register(TOKENS.WEBVIEW_MANAGER, { useValue: pushAdapter });
 
     logger.info(
-      '[TUI DI] CliWebviewManagerAdapter registered as WEBVIEW_MANAGER',
+      '[CLI DI] CliWebviewManagerAdapter registered as WEBVIEW_MANAGER',
     );
 
     // ========================================
@@ -618,7 +618,7 @@ export class TuiDIContainer {
 
     container.registerSingleton(WebSearchRpcHandlers);
 
-    logger.info('[TUI DI] Shared RPC handler classes registered (17)');
+    logger.info('[CLI DI] Shared RPC handler classes registered (17)');
 
     // ========================================
     // PHASE 4.5: Wire EnhancedPrompts + analysis reader
@@ -631,7 +631,7 @@ export class TuiDIContainer {
         AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
       );
       enhancedPrompts.setAnalysisReader(analysisStorage);
-      logger.info('[TUI DI] EnhancedPrompts analysis reader wired');
+      logger.info('[CLI DI] EnhancedPrompts analysis reader wired');
     } catch {
       // Non-fatal: enhanced prompts may not be needed in all configurations
     }
@@ -648,11 +648,11 @@ export class TuiDIContainer {
       contentDownload.ensureContent().then(
         (result) => {
           if (!result.success) {
-            logger.warn('[TUI DI] Content download incomplete', {
+            logger.warn('[CLI DI] Content download incomplete', {
               error: result.error,
             } as unknown as Error);
           } else {
-            logger.info('[TUI DI] Content download complete');
+            logger.info('[CLI DI] Content download complete');
           }
 
           // Initialize PluginLoaderService after content download
@@ -667,10 +667,10 @@ export class TuiDIContainer {
               contentDownload.getPluginsPath(),
               wsStorage,
             );
-            logger.info('[TUI DI] PluginLoaderService initialized');
+            logger.info('[CLI DI] PluginLoaderService initialized');
           } catch (pluginError) {
             logger.warn(
-              '[TUI DI] Failed to initialize PluginLoaderService (non-fatal)',
+              '[CLI DI] Failed to initialize PluginLoaderService (non-fatal)',
               {
                 error:
                   pluginError instanceof Error
@@ -681,18 +681,18 @@ export class TuiDIContainer {
           }
         },
         (error) => {
-          logger.warn('[TUI DI] Content download failed (non-fatal)', {
+          logger.warn('[CLI DI] Content download failed (non-fatal)', {
             error: error instanceof Error ? error.message : String(error),
           } as unknown as Error);
         },
       );
     } catch (error) {
-      logger.warn('[TUI DI] Failed to start content download (non-fatal)', {
+      logger.warn('[CLI DI] Failed to start content download (non-fatal)', {
         error: error instanceof Error ? error.message : String(error),
       } as unknown as Error);
     }
 
-    logger.info('[TUI DI] All services registered successfully');
+    logger.info('[CLI DI] All services registered successfully');
 
     // ========================================
     // Build transport objects

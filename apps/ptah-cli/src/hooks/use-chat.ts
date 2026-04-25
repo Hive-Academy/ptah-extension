@@ -18,7 +18,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { randomUUID } from 'crypto';
 
-import { useTuiContext } from '../context/TuiContext.js';
+import { useCliContext } from '../context/CliContext.js';
 
 export interface ChatMessage {
   id: string;
@@ -49,7 +49,7 @@ const STREAMING_TIMEOUT_MS = 60_000;
  * to push events for real-time streaming updates.
  */
 export function useChat(): UseChatResult {
-  const { transport, pushAdapter } = useTuiContext();
+  const { transport, pushAdapter } = useCliContext();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);

@@ -27,7 +27,7 @@ import {
   type WebviewManagerLike,
 } from './agent-events';
 
-export type SdkCallbackPlatform = 'vscode' | 'electron' | 'tui';
+export type SdkCallbackPlatform = 'vscode' | 'electron' | 'cli';
 
 export interface WorktreeCreatedData {
   readonly sessionId: string;

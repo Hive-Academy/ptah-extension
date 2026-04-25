@@ -5,7 +5,7 @@ Atomic-design component library for the Ptah terminal UI. Mirrors the Angular ch
 ## Structure
 
 ```
-apps/ptah-tui/src/components/
+apps/ptah-cli/src/components/
 ├── atoms/          — leaf primitives (Box/Text wrappers with theme)
 ├── molecules/      — feature-grouped compositions of atoms
 ├── organisms/      — complex sections (message bubbles, panels)
@@ -137,7 +137,7 @@ Ported from Angular services. All are signal-friendly (React state/context).
 
 ## Design Tokens
 
-Theme tokens live in `apps/ptah-tui/src/lib/themes.ts`. The existing 6 themes (anubis/dark, anubis-light, etc.) map to Angular's DaisyUI `anubis`/`anubis-light` themes. Color roles stay the same:
+Theme tokens live in `apps/ptah-cli/src/lib/themes.ts`. The existing 6 themes (anubis/dark, anubis-light, etc.) map to Angular's DaisyUI `anubis`/`anubis-light` themes. Color roles stay the same:
 
 | Role             | Angular (DaisyUI)             | TUI (theme.ts)                                   |
 | ---------------- | ----------------------------- | ------------------------------------------------ |
@@ -186,4 +186,4 @@ All are small, mature, Ink-ecosystem packages.
 
 - Angular source: `libs/frontend/chat/src/lib/components/`
 - Angular theme tokens: `apps/ptah-extension-webview/tailwind.config.js`
-- Existing TUI theme: `apps/ptah-tui/src/lib/themes.ts`
+- Existing TUI theme: `apps/ptah-cli/src/lib/themes.ts`

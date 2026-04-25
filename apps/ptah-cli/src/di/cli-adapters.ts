@@ -21,7 +21,7 @@ import type { IOutputChannel } from '@ptah-extension/platform-core';
  * Logger only calls: createOutputChannel(), write(), show()
  * We implement only what's needed.
  */
-export class TuiOutputManagerAdapter {
+export class CliOutputManagerAdapter {
   private readonly channels = new Map<string, IOutputChannel>();
 
   constructor(private readonly defaultChannel: IOutputChannel) {
@@ -93,12 +93,12 @@ interface LogContext {
  * we cannot use the original Logger class.
  *
  * This adapter provides the same public API (debug/info/warn/error/show)
- * using TuiOutputManagerAdapter instead.
+ * using CliOutputManagerAdapter instead.
  *
  * This class is registered as a plain value (useValue), not via @injectable(),
  * so it does not need tsyringe decorators.
  */
-export class TuiLoggerAdapter {
+export class CliLoggerAdapter {
   private static readonly CHANNEL_NAME = 'Ptah';
 
   private static readonly LEVEL_ORDER: Record<LogLevel, number> = {
@@ -111,17 +111,17 @@ export class TuiLoggerAdapter {
   private readonly minLevel: LogLevel;
   private readonly logToConsole: boolean;
 
-  constructor(private readonly outputManager: TuiOutputManagerAdapter) {
+  constructor(private readonly outputManager: CliOutputManagerAdapter) {
     // Ensure output channel is created
     this.outputManager.createOutputChannel({
-      name: TuiLoggerAdapter.CHANNEL_NAME,
+      name: CliLoggerAdapter.CHANNEL_NAME,
     });
 
     // Determine log level from environment
     const explicitLevel = process.env['PTAH_LOG_LEVEL'] as LogLevel | undefined;
     if (
       explicitLevel &&
-      TuiLoggerAdapter.LEVEL_ORDER[explicitLevel] !== undefined
+      CliLoggerAdapter.LEVEL_ORDER[explicitLevel] !== undefined
     ) {
       this.minLevel = explicitLevel;
     } else {
@@ -141,8 +141,8 @@ export class TuiLoggerAdapter {
 
   private shouldLog(level: LogLevel): boolean {
     return (
-      TuiLoggerAdapter.LEVEL_ORDER[level] >=
-      TuiLoggerAdapter.LEVEL_ORDER[this.minLevel]
+      CliLoggerAdapter.LEVEL_ORDER[level] >=
+      CliLoggerAdapter.LEVEL_ORDER[this.minLevel]
     );
   }
 
@@ -196,34 +196,34 @@ export class TuiLoggerAdapter {
     const timestamp = new Date().toISOString();
     const formatted = `[${levelPrefix}] ${timestamp} - ${message}`;
 
-    this.outputManager.write(TuiLoggerAdapter.CHANNEL_NAME, formatted);
+    this.outputManager.write(CliLoggerAdapter.CHANNEL_NAME, formatted);
 
     if (context.service) {
       this.outputManager.write(
-        TuiLoggerAdapter.CHANNEL_NAME,
+        CliLoggerAdapter.CHANNEL_NAME,
         `  Service: ${context.service}`,
       );
     }
 
     if (context.operation) {
       this.outputManager.write(
-        TuiLoggerAdapter.CHANNEL_NAME,
+        CliLoggerAdapter.CHANNEL_NAME,
         `  Operation: ${context.operation}`,
       );
     }
 
     if (context.error) {
       this.outputManager.write(
-        TuiLoggerAdapter.CHANNEL_NAME,
+        CliLoggerAdapter.CHANNEL_NAME,
         `  Error: ${context.error.message}`,
       );
       if (context.error.stack) {
         this.outputManager.write(
-          TuiLoggerAdapter.CHANNEL_NAME,
+          CliLoggerAdapter.CHANNEL_NAME,
           `  Stack trace:`,
         );
         this.outputManager.write(
-          TuiLoggerAdapter.CHANNEL_NAME,
+          CliLoggerAdapter.CHANNEL_NAME,
           context.error.stack,
         );
       }
@@ -249,7 +249,7 @@ export class TuiLoggerAdapter {
   }
 
   show(): void {
-    this.outputManager.show(TuiLoggerAdapter.CHANNEL_NAME);
+    this.outputManager.show(CliLoggerAdapter.CHANNEL_NAME);
   }
 
   dispose(): void {

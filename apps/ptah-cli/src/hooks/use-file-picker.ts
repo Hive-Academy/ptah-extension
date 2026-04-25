@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-import { useTuiContext } from '../context/TuiContext.js';
+import { useCliContext } from '../context/CliContext.js';
 
 export interface FileEntry {
   relativePath: string;
@@ -75,7 +75,7 @@ function toFileEntry(file: ContextFileInfo): FileEntry {
  * Hook providing workspace file discovery for the @ file picker.
  */
 export function useFilePicker(): UseFilePickerResult {
-  const { transport } = useTuiContext();
+  const { transport } = useCliContext();
 
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);

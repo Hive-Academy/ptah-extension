@@ -1,5 +1,5 @@
 /**
- * App -- Root Ink component for the TUI application.
+ * App -- Root Ink component for the CLI application.
  *
  * TASK_2025_263 Batch 3 + Batch 4 + TASK_2025_266 Batch 5
  *
@@ -16,7 +16,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useInput, useApp } from 'ink';
 
-import { TuiProvider } from '../context/TuiContext.js';
+import { TuiProvider } from '../context/CliContext.js';
 import { ThemeProvider } from '../context/ThemeContext.js';
 import { SessionProvider } from '../context/SessionContext.js';
 import { ModeProvider } from '../context/ModeContext.js';

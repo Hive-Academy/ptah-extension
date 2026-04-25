@@ -70,7 +70,7 @@ interface CliDetectionServiceLike {
     | undefined;
 }
 
-export type AgentEventPlatform = 'vscode' | 'electron' | 'tui';
+export type AgentEventPlatform = 'vscode' | 'electron' | 'cli';
 
 export interface WireAgentEventListenersOptions {
   /**

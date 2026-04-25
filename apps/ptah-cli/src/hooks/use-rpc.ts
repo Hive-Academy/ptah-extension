@@ -1,5 +1,5 @@
 /**
- * useRpc -- Generic RPC call hook for TUI components.
+ * useRpc -- Generic RPC call hook for CLI components.
  *
  * TASK_2025_263 Batch 3
  *
@@ -13,7 +13,7 @@
 
 import { useState, useCallback } from 'react';
 
-import { useTuiContext } from '../context/TuiContext';
+import { useCliContext } from '../context/CliContext';
 
 export interface UseRpcResult {
   /**
@@ -36,7 +36,7 @@ export interface UseRpcResult {
  * Hook providing a generic RPC caller with loading/error state.
  */
 export function useRpc(): UseRpcResult {
-  const { transport } = useTuiContext();
+  const { transport } = useCliContext();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

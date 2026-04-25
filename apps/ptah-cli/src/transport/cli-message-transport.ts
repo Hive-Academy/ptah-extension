@@ -1,5 +1,5 @@
 /**
- * CLI Message Transport -- In-process RPC for the TUI application.
+ * CLI Message Transport -- In-process RPC for the CLI application.
  *
  * TASK_2025_263 Batch 3
  *

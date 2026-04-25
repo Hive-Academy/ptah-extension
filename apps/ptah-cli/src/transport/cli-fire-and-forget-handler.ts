@@ -7,7 +7,7 @@
  * Replaces IpcBridge.handleFireAndForgetMessage() (ipc-bridge.ts:215-301).
  *
  * In Electron, these flow through IPC channels. In CLI, they are direct
- * function calls from TUI components (PermissionPrompt, UserQuestionPrompt).
+ * function calls from CLI components (PermissionPrompt, UserQuestionPrompt).
  */
 
 import type { DependencyContainer } from 'tsyringe';

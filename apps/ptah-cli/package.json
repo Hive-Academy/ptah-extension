@@ -1,7 +1,7 @@
 {
-  "name": "@ptah-extension/ptah-tui",
+  "name": "@ptah-extension/ptah-cli",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "bin": {
     "ptah": "./main.mjs"

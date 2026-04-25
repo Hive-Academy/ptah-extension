@@ -10,7 +10,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Text } from 'ink';
 
-import { useTuiContext } from '../../context/TuiContext.js';
+import { useCliContext } from '../../context/CliContext.js';
 import { StatusBadge } from '../atoms/index.js';
 import type { ExecutionStatus } from '../atoms/index.js';
 
@@ -62,7 +62,7 @@ function mapStatus(status: AgentProcess['status']): ExecutionStatus {
 }
 
 export function AgentMonitor(): React.JSX.Element {
-  const { pushAdapter } = useTuiContext();
+  const { pushAdapter } = useCliContext();
   const [agents, setAgents] = useState<AgentProcess[]>([]);
 
   const handleSpawned = useCallback((payload: unknown): void => {

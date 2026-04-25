@@ -14,14 +14,14 @@
 
 import { useState, useEffect } from 'react';
 
-import { useTuiContext } from '../context/TuiContext.js';
+import { useCliContext } from '../context/CliContext.js';
 
 /**
  * Subscribe to push events from the backend via CliWebviewManagerAdapter.
  * Returns the latest event data, or null if no event received yet.
  */
 export function usePushEvents<T>(eventType: string): T | null {
-  const { pushAdapter } = useTuiContext();
+  const { pushAdapter } = useCliContext();
   const [data, setData] = useState<T | null>(null);
 
   useEffect(() => {
