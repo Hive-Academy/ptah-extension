@@ -68,8 +68,7 @@ export { VimModeService } from './lib/services/vim-mode.service';
 export { SourceControlService } from './lib/services/source-control.service';
 
 // Utilities
-export { rpcCall, getRpcClient } from './lib/services/rpc-call.util';
-export type { RpcCallResult } from './lib/services/rpc-call.util';
+export { getRpcClient } from './lib/services/rpc-call.util';
 
 // Types
 export type { TerminalTab, PtahTerminalApi } from './lib/types/terminal.types';
