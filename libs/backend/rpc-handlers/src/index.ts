@@ -32,6 +32,8 @@ export {
   WebSearchRpcHandlers,
   // Harness Setup Builder handlers
   HarnessRpcHandlers,
+  // MCP Server Directory handlers (TASK_2026_104 Batch 6a)
+  McpDirectoryRpcHandlers,
 } from './lib/handlers';
 
 // Platform abstraction interfaces (TASK_2025_203 Batch 2)

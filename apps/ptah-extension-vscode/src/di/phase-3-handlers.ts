@@ -184,7 +184,6 @@ export function registerPhase3Handlers(
         c.resolve(CommandRpcHandlers),
         c.resolve(AgentRpcHandlers),
         c.resolve(SkillsShRpcHandlers),
-        c.resolve(McpDirectoryRpcHandlers),
         c, // Pass container instance
       ),
   });

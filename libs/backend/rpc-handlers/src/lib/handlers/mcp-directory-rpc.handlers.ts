@@ -8,12 +8,19 @@
  * - mcpDirectory:uninstall - Remove server from targets
  * - mcpDirectory:listInstalled - List all installed MCP servers
  * - mcpDirectory:getPopular - Get popular/trending servers (cached)
+ *
+ * TASK_2026_104 Batch 6a: Lifted from
+ * `apps/ptah-extension-vscode/src/services/rpc/handlers/` so all three apps
+ * (VS Code, Electron, CLI) consume it via `registerAllRpcHandlers()`.
+ * Replaced `vscode.workspace.workspaceFolders` with `IWorkspaceProvider`
+ * (PLATFORM_TOKENS.WORKSPACE_PROVIDER) for platform parity.
  */
 
 import { injectable, inject } from 'tsyringe';
-import * as vscode from 'vscode';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   McpRegistryProvider,
   McpInstallService,
@@ -31,16 +38,28 @@ import type {
   McpDirectoryListInstalledResult,
   McpDirectoryGetPopularParams,
   McpDirectoryGetPopularResult,
+  RpcMethodName,
 } from '@ptah-extension/shared';
 
 @injectable()
 export class McpDirectoryRpcHandlers {
+  static readonly METHODS = [
+    'mcpDirectory:search',
+    'mcpDirectory:getDetails',
+    'mcpDirectory:install',
+    'mcpDirectory:uninstall',
+    'mcpDirectory:listInstalled',
+    'mcpDirectory:getPopular',
+  ] as const satisfies readonly RpcMethodName[];
+
   private readonly registryProvider = new McpRegistryProvider();
   private readonly installService = new McpInstallService();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {}
@@ -291,6 +310,6 @@ export class McpDirectoryRpcHandlers {
   // ─── Helpers ───
 
   private getWorkspaceRoot(): string | undefined {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return this.workspaceProvider.getWorkspaceRoot();
   }
 }

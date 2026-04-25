@@ -11,6 +11,9 @@
  * TASK_2025_209: unified Chat / LLM handlers.
  * TASK_2025_291 Wave C6: dropped redundant Electron prefix.
  * TASK_2025_291 Wave C4b: shared fan-out + wiring moved to shared helpers.
+ * TASK_2026_104 Batch 6a: `mcpDirectory:*` lifted to shared rpc-handlers;
+ * `ELECTRON_EXCLUDED_METHODS` is now empty (Electron exposes the full RPC
+ * surface from the shared registry).
  */
 
 import { injectable, inject, container } from 'tsyringe';
@@ -47,15 +50,15 @@ import {
 import { ELECTRON_TOKENS } from '../../di/electron-tokens';
 import type { GitInfoService } from '../git-info.service';
 
-/** mcpDirectory:* methods are VS Code-only. Electron provides its own MCP server. */
-const ELECTRON_EXCLUDED_METHODS: readonly string[] = [
-  'mcpDirectory:search',
-  'mcpDirectory:getDetails',
-  'mcpDirectory:install',
-  'mcpDirectory:uninstall',
-  'mcpDirectory:listInstalled',
-  'mcpDirectory:getPopular',
-];
+/**
+ * Methods omitted from Electron's RPC verification.
+ *
+ * TASK_2026_104 Batch 6a: `mcpDirectory:*` was previously excluded because
+ * the handler lived in the VS Code app. The handler is now in the shared
+ * `rpc-handlers` library and Electron registers it via Phase 4 — exclusion
+ * removed.
+ */
+const ELECTRON_EXCLUDED_METHODS: readonly string[] = [];
 
 /**
  * Orchestrates RPC method registration for the Electron desktop app.

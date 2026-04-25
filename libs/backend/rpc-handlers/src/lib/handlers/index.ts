@@ -36,3 +36,6 @@ export { WebSearchRpcHandlers } from './web-search-rpc.handlers';
 
 // Harness Setup Builder handlers
 export { HarnessRpcHandlers } from './harness-rpc.handlers';
+
+// MCP Server Directory handlers (TASK_2026_104 Batch 6a — lifted from VS Code app)
+export { McpDirectoryRpcHandlers } from './mcp-directory-rpc.handlers';

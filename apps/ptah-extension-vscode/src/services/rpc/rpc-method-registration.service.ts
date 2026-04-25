@@ -38,13 +38,14 @@ import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import * as vscode from 'vscode';
 
 // Tier 3 handlers (VS Code-specific, local to this app).
+// `McpDirectoryRpcHandlers` was lifted to shared in TASK_2026_104 Batch 6a and
+// is now registered via `registerAllRpcHandlers()` — no manual register() call.
 import {
   ChatRpcHandlers,
   FileRpcHandlers,
   CommandRpcHandlers,
   AgentRpcHandlers,
   SkillsShRpcHandlers,
-  McpDirectoryRpcHandlers,
 } from './handlers';
 
 /**
@@ -102,8 +103,6 @@ export class RpcMethodRegistrationService {
     @inject(AgentRpcHandlers) private readonly agentHandlers: AgentRpcHandlers,
     @inject(SkillsShRpcHandlers)
     private readonly skillsShHandlers: SkillsShRpcHandlers,
-    @inject(McpDirectoryRpcHandlers)
-    private readonly mcpDirectoryHandlers: McpDirectoryRpcHandlers,
     @inject('DependencyContainer')
     private readonly container: DependencyContainer,
   ) {
@@ -128,7 +127,8 @@ export class RpcMethodRegistrationService {
     this.commandHandlers.register();
     this.agentHandlers.register();
     this.skillsShHandlers.register();
-    this.mcpDirectoryHandlers.register();
+    // McpDirectoryRpcHandlers is registered via `registerAllRpcHandlers` above
+    // (TASK_2026_104 Batch 6a — lifted to shared `rpc-handlers` library).
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),

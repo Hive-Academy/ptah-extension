@@ -39,6 +39,7 @@ import {
   LlmRpcHandlers,
   WebSearchRpcHandlers,
   HarnessRpcHandlers,
+  McpDirectoryRpcHandlers,
   registerHarnessServices,
   registerChatServices,
 } from '@ptah-extension/rpc-handlers';
@@ -171,6 +172,10 @@ export function registerPhase4Handlers(
   // Harness Setup Builder RPC handlers.
   container.registerSingleton(HarnessRpcHandlers);
 
+  // TASK_2026_104 Batch 6a: MCP Directory handlers lifted to shared library.
+  // Electron now exposes mcpDirectory:* (parity with VS Code).
+  container.registerSingleton(McpDirectoryRpcHandlers);
+
   logger.info(
     '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
     {
@@ -193,6 +198,7 @@ export function registerPhase4Handlers(
         'LlmRpcHandlers',
         'WebSearchRpcHandlers',
         'HarnessRpcHandlers',
+        'McpDirectoryRpcHandlers',
       ],
     },
   );
