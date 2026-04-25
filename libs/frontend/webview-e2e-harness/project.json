@@ -3,7 +3,7 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/frontend/webview-e2e-harness/src",
   "projectType": "library",
-  "tags": ["scope:webview", "type:util"],
+  "tags": ["scope:webview", "type:test-harness"],
   "targets": {
     "lint": {
       "executor": "@nx/eslint:lint"
