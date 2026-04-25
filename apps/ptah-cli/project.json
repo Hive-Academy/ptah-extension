@@ -11,7 +11,7 @@
       "defaultConfiguration": "production",
       "options": {
         "outputPath": "dist/apps/ptah-cli",
-        "main": "apps/ptah-cli/src/main.tsx",
+        "main": "apps/ptah-cli/src/main.ts",
         "outputFileName": "main.mjs",
         "tsConfig": "apps/ptah-cli/tsconfig.build.json",
         "format": ["esm"],
@@ -65,7 +65,8 @@
           "ink-spinner",
           "marked",
           "marked-terminal",
-          "cli-highlight"
+          "cli-highlight",
+          "commander"
         ],
         "assets": [
           {
@@ -89,7 +90,7 @@
     "dev": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "npx tsx apps/ptah-cli/src/main.tsx"
+        "command": "npx tsx apps/ptah-cli/src/main.ts"
       }
     },
     "serve": {
