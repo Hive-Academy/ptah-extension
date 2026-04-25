@@ -59,6 +59,9 @@
       "@ptah-extension/shared": ["libs/shared/src/index.ts"],
       "@ptah-extension/shared/testing": ["libs/shared/src/testing/index.ts"],
       "@ptah-extension/ui": ["libs/frontend/ui/src/index.ts"],
+      "@ptah-extension/webview-e2e-harness": [
+        "libs/frontend/webview-e2e-harness/src/index.ts"
+      ],
       "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
       "@ptah-extension/vscode-core/testing": [
         "libs/backend/vscode-core/src/testing/index.ts"

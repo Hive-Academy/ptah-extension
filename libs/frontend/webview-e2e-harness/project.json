@@ -1,0 +1,30 @@
+{
+  "name": "@ptah-extension/webview-e2e-harness",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/frontend/webview-e2e-harness/src",
+  "projectType": "library",
+  "tags": ["scope:webview", "type:util"],
+  "targets": {
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx tsc --noEmit --project libs/frontend/webview-e2e-harness/tsconfig.lib.json"
+      }
+    },
+    "e2e": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/frontend/webview-e2e-harness",
+        "command": "npx playwright test --config=playwright.config.ts"
+      },
+      "configurations": {
+        "ci": {
+          "command": "npx playwright test --config=playwright.config.ts --reporter=list"
+        }
+      }
+    }
+  }
+}
