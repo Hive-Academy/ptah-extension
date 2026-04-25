@@ -1,4 +1,4 @@
-import type { WritableSignal } from '@angular/core';
+import { InjectionToken, type WritableSignal } from '@angular/core';
 import type { StreamingState } from '@ptah-extension/chat-types';
 import type {
   AgentPackInfoDto,
@@ -128,3 +128,20 @@ export type {
   QuestionGroup,
   SavedAnalysisMetadata,
 };
+
+/**
+ * DI token for {@link WizardInternalState}.
+ *
+ * TASK_2026_103 Wave F1: Mirrors B1's `STREAMING_CONTROL` pattern — the
+ * coordinator (`SetupWizardStateService`) constructs the writable-signal
+ * map and exposes it through this token via `provideWizardInternalState()`.
+ *
+ * Helpers that live inside this library are still constructed by the
+ * coordinator via plain `new` and receive the state through their
+ * constructor — so they do NOT inject this token. The token exists for
+ * external consumers (and future Angular-service helpers) that need to
+ * read/write wizard signals without depending on the coordinator class.
+ */
+export const WIZARD_INTERNAL_STATE = new InjectionToken<WizardInternalState>(
+  'WIZARD_INTERNAL_STATE',
+);

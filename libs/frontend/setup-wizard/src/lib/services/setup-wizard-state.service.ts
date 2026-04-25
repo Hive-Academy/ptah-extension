@@ -261,6 +261,15 @@ export class SetupWizardStateService {
   private readonly phaseGeneration: WizardPhaseGeneration;
   private readonly messageDispatcher: WizardMessageDispatcher;
 
+  /**
+   * Wave F1 (TASK_2026_103): the {@link WizardInternalState} handle the
+   * coordinator constructs for its in-process helpers. Exposed so
+   * `provideWizardInternalState()` can bind it to the
+   * `WIZARD_INTERNAL_STATE` DI token for external consumers without
+   * re-importing the coordinator class (which would re-form a cycle).
+   */
+  private internalState!: WizardInternalState;
+
   // C7h helpers — state-mutation surface
   private readonly flowState: WizardFlowState;
   private readonly scanState: WizardScanState;
@@ -293,7 +302,7 @@ export class SetupWizardStateService {
   public readonly failedGenerationItems: WizardComputeds['failedGenerationItems'];
 
   public constructor() {
-    const internalState: WizardInternalState = {
+    this.internalState = {
       // C7b core flow
       projectContext: this.projectContextSignal,
       availableAgents: this.availableAgentsSignal,
@@ -353,11 +362,11 @@ export class SetupWizardStateService {
       this.phaseStreamingStatesSignal,
     );
     this.phaseAnalysis = new WizardPhaseAnalysis(
-      internalState,
+      this.internalState,
       this.streamAccumulator,
     );
     this.phaseGeneration = new WizardPhaseGeneration(
-      internalState,
+      this.internalState,
       this.streamAccumulator,
     );
 
@@ -385,14 +394,16 @@ export class SetupWizardStateService {
     );
 
     // C7h helpers — state-mutation surface
-    this.flowState = new WizardFlowState(internalState);
-    this.scanState = new WizardScanState(internalState);
-    this.analysisState = new WizardAnalysisState(internalState);
-    this.generationState = new WizardGenerationState(internalState);
-    this.communityPacksState = new WizardCommunityPacksState(internalState);
+    this.flowState = new WizardFlowState(this.internalState);
+    this.scanState = new WizardScanState(this.internalState);
+    this.analysisState = new WizardAnalysisState(this.internalState);
+    this.generationState = new WizardGenerationState(this.internalState);
+    this.communityPacksState = new WizardCommunityPacksState(
+      this.internalState,
+    );
 
     // C7h: derived signals — delegated 1:1 (same Signal instance)
-    this.computeds = new WizardComputeds(internalState);
+    this.computeds = new WizardComputeds(this.internalState);
     this.installedCommunityAgentCount =
       this.computeds.installedCommunityAgentCount;
     this.isMultiPhaseAnalysis = this.computeds.isMultiPhaseAnalysis;
@@ -413,6 +424,15 @@ export class SetupWizardStateService {
     this.failedGenerationItems = this.computeds.failedGenerationItems;
 
     this.ensureMessageListenerRegistered();
+  }
+
+  /**
+   * Wave F1 (TASK_2026_103): expose the internal-state handle for the
+   * `WIZARD_INTERNAL_STATE` provider. Caller MUST be `provideWizardInternalState`
+   * — components and other services should use the dedicated public surface.
+   */
+  public getInternalState(): WizardInternalState {
+    return this.internalState;
   }
 
   /**

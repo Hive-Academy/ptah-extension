@@ -29,7 +29,10 @@ import {
   WorkspaceCoordinatorService,
   provideStreamingControl,
 } from '@ptah-extension/chat';
-import { WizardViewComponent } from '@ptah-extension/setup-wizard';
+import {
+  WizardViewComponent,
+  provideWizardInternalState,
+} from '@ptah-extension/setup-wizard';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import {
   HarnessBuilderViewComponent,
@@ -180,6 +183,12 @@ export const appConfig: ApplicationConfig = {
     //   tab-manager ↔ streaming-handler ↔ {batched,finalization,permission}
     // and tab-manager ↔ agent-monitor.store cycles.
     ...provideStreamingControl(),
+    // WizardInternalState: inverted-dependency contract that lets external
+    // consumers read/write wizard signals without statically importing
+    // SetupWizardStateService (which would re-form a cycle with the
+    // in-process wizard helpers).
+    // TASK_2026_103 Wave F1.
+    ...provideWizardInternalState(),
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',

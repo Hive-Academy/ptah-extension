@@ -7,7 +7,7 @@ import type {
 import type {
   AgentSelection,
   AnalysisResults,
-} from '../setup-wizard-state.service';
+} from '../setup-wizard-state.types';
 import type { WizardInternalState } from './wizard-internal-state';
 import type { WizardStreamAccumulator } from './wizard-stream-accumulator';
 
