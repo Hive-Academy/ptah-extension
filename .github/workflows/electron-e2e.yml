@@ -53,9 +53,14 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-modules.outputs.cache-hit != 'true'
-        run: |
-          npm ci
-          npm install @rollup/rollup-linux-x64-gnu --no-save --force
+        run: npm ci
+
+      # Always run — cached node_modules may be missing Linux platform
+      # binaries (npm/cli#4828: package-lock.json generated on Windows omits
+      # them). Without unrs-resolver, Angular's build emits incomplete
+      # output (missing index.html in browser/), breaking copy-renderer.
+      - name: Install Linux platform binaries
+        run: npm install @rollup/rollup-linux-x64-gnu @unrs/resolver-binding-linux-x64-gnu --no-save --force
 
       - name: Cache Playwright browsers
         id: cache-playwright
