@@ -1,0 +1,109 @@
+name: Electron E2E
+
+on:
+  pull_request:
+    paths:
+      - 'apps/ptah-electron/**'
+      - 'apps/ptah-electron-e2e/**'
+      - 'libs/backend/platform-electron/**'
+      - 'libs/frontend/webview-e2e-harness/**'
+      - '.github/workflows/electron-e2e.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  schedule:
+    # Staggered 1h after webview-e2e (06:00 UTC) to avoid concurrent runner pressure.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: electron-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  NODE_VERSION: 22
+  NX_TUI: false
+
+jobs:
+  electron-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: |
+      (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') &&
+      !contains(github.event.head_commit.message, 'chore(release)')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          filter: tree:0
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: |
+          npm ci
+          npm install @rollup/rollup-linux-x64-gnu --no-save --force
+
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # `_electron.launch()` does not need a Playwright browser, but
+      # `--with-deps` installs the system libs Electron needs (libnss3,
+      # libgbm, libasound2, ...). Cheaper than a separate apt step.
+      - name: Install Playwright system deps
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install xvfb (headless Electron needs an X server)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Set NX SHAs
+        uses: nrwl/nx-set-shas@v4
+        with:
+          main-branch-name: main
+
+      # Build the Electron app + renderer ahead of time. The e2e Nx target
+      # also depends on these via `dependsOn`, but running them explicitly
+      # here gives clearer log sections in CI and lets the e2e step focus
+      # purely on Playwright execution.
+      - name: Build Electron main + preload (development)
+        run: npx nx run ptah-electron:build-dev
+
+      - name: Copy renderer assets into Electron dist
+        run: npx nx run ptah-electron:copy-renderer
+
+      - name: Run Electron E2E specs under xvfb
+        run: xvfb-run --auto-servernum npx nx run ptah-electron-e2e:e2e --skip-nx-cache
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-playwright-report
+          path: dist/apps/ptah-electron-e2e/playwright-report/
+          retention-days: 7
+
+      - name: Upload test-results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-test-results
+          path: dist/apps/ptah-electron-e2e/test-results/
+          retention-days: 7
