@@ -10,13 +10,12 @@ export default [
   {
     files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
     rules: {
-      // Severity is 'warn' (TASK_2026_103 W5). All scope:* constraints
-      // currently pass cleanly, but the newly-added type:* constraints
-      // surface 61 pre-existing violations in @ptah-extension/rpc-handlers
-      // (tagged type:util but importing type:feature libs). Once that
-      // tag mislabel is resolved, flip back to 'error'.
+      // Strict 'error' severity (TASK_2026_103 W5 + F4). Both scope:*
+      // and type:* constraints are clean after retagging
+      // @ptah-extension/rpc-handlers from type:util to type:feature
+      // (matches its actual role as an RPC orchestration feature).
       '@nx/enforce-module-boundaries': [
-        'warn',
+        'error',
         {
           enforceBuildableLibDependency: true,
           allow: ['^.*/eslint(\\.base)?\\.config\\.[cm]?[jt]s$'],
@@ -62,10 +61,9 @@ export default [
                 'type:util',
               ],
             },
-            // type:* import direction (TASK_2026_103 W5).
-            // Currently advisory (warn) — see commit body for the
-            // pre-existing violation punch list. Flip to 'error' once
-            // the listed migrations land.
+            // type:* import direction (TASK_2026_103 W5 + F4).
+            // Enforced as 'error' after rpc-handlers was retagged
+            // type:feature (F4) — no remaining violations.
             {
               sourceTag: 'type:app',
               onlyDependOnLibsWithTags: [
