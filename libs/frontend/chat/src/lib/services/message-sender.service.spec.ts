@@ -60,6 +60,8 @@ describe('MessageSenderService', () => {
     switchTab: jest.Mock;
     markTabStreaming: jest.Mock;
     markTabIdle: jest.Mock;
+    // TASK_2026_103 Wave E2: AbortController plumbing for tab-close → stream-cancel.
+    createAbortController: jest.Mock;
   };
   let sessionManager: jest.Mocked<
     Pick<
@@ -96,6 +98,9 @@ describe('MessageSenderService', () => {
       switchTab: jest.fn(),
       markTabStreaming: jest.fn(),
       markTabIdle: jest.fn(),
+      // TASK_2026_103 Wave E2: stub returns a real AbortSignal so the
+      // wireAbortDispatch listener can attach without throwing.
+      createAbortController: jest.fn(() => new AbortController().signal),
     };
 
     sessionManager = {
@@ -173,6 +178,8 @@ describe('MessageSenderService', () => {
       expect(rpcCall).toHaveBeenCalledWith(
         'chat:start',
         expect.objectContaining({ prompt: 'hello' }),
+        // TASK_2026_103 Wave E2: third arg is RpcCallOptions with abort signal.
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
 
@@ -234,6 +241,8 @@ describe('MessageSenderService', () => {
       expect(rpcCall).toHaveBeenCalledWith(
         'chat:start',
         expect.objectContaining({ prompt: 'x' }),
+        // TASK_2026_103 Wave E2: third arg is RpcCallOptions with abort signal.
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
   });
@@ -260,6 +269,8 @@ describe('MessageSenderService', () => {
             effort: 'high',
           }),
         }),
+        // TASK_2026_103 Wave E2: third arg is RpcCallOptions with abort signal.
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
 

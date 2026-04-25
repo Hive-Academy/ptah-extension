@@ -108,6 +108,50 @@ export class MessageSenderService {
   }
 
   /**
+   * Wire an AbortSignal for a streaming tab so that aborting the signal
+   * triggers a backend `chat:abort` RPC. The signal itself comes from
+   * `TabManagerService.createAbortController(tabId)` and is fired by
+   * `TabManagerService.closeTab(tabId)` when the user closes the tab while
+   * streaming.
+   *
+   * TASK_2026_103 Wave E2: this is the ONE place that knows BOTH the tabId
+   * (to look up the AbortController) AND the SessionId (required by the
+   * chat:abort RPC), so registering the listener here keeps TabManager
+   * free of any session-resolution logic.
+   *
+   * Returns the signal so it can be threaded through to the streaming RPC.
+   */
+  private wireAbortDispatch(tabId: string): AbortSignal {
+    const signal = this.tabManager.createAbortController(tabId);
+    signal.addEventListener(
+      'abort',
+      () => {
+        // Re-resolve the session id at abort time — when the stream first
+        // started, claudeSessionId may not have been assigned yet.
+        const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+        const sessionId = tab?.claudeSessionId;
+        if (!sessionId) {
+          // No backend session was established before abort — nothing to
+          // cancel on the host side. The frontend RPC promise still
+          // resolves with an aborted error via the signal.
+          return;
+        }
+        // Fire-and-forget: the abort dispatch must not block tab close.
+        this.claudeRpcService
+          .call('chat:abort', { sessionId: sessionId as SessionId })
+          .catch((error) => {
+            console.warn(
+              '[MessageSender] chat:abort dispatch failed on tab close',
+              { tabId, sessionId, error },
+            );
+          });
+      },
+      { once: true },
+    );
+    return signal;
+  }
+
+  /**
    * Validate that a session file exists on disk
    *
    * Prevents "process exited with code 1" errors by checking
@@ -344,19 +388,26 @@ export class MessageSenderService {
         effort,
         activeTab?.overrideEffort,
       );
-      const result = await this.claudeRpcService.call('chat:start', {
-        prompt: content,
-        tabId: activeTabId, // Frontend correlation ID
-        name: autoName, // Send message-derived name to backend (not stale activeTab reference)
-        workspacePath,
-        ptahCliId, // TASK_2025_170: Route to Ptah CLI agent adapter
-        options: {
-          model: effectiveModel,
-          ...(files ? { files } : {}),
-          ...(images && images.length > 0 ? { images } : {}),
-          ...(effectiveEffort ? { effort: effectiveEffort } : {}),
+      // TASK_2026_103 Wave E2: register abort dispatch so closing the tab
+      // mid-stream cancels the backend work via chat:abort.
+      const abortSignal = this.wireAbortDispatch(activeTabId);
+      const result = await this.claudeRpcService.call(
+        'chat:start',
+        {
+          prompt: content,
+          tabId: activeTabId, // Frontend correlation ID
+          name: autoName, // Send message-derived name to backend (not stale activeTab reference)
+          workspacePath,
+          ptahCliId, // TASK_2025_170: Route to Ptah CLI agent adapter
+          options: {
+            model: effectiveModel,
+            ...(files ? { files } : {}),
+            ...(images && images.length > 0 ? { images } : {}),
+            ...(effectiveEffort ? { effort: effectiveEffort } : {}),
+          },
         },
-      });
+        { signal: abortSignal },
+      );
 
       if (!result.success) {
         console.error('[MessageSender] Failed to start chat:', result.error);
@@ -485,17 +536,24 @@ export class MessageSenderService {
         effort,
         activeTab?.overrideEffort,
       );
-      const result = await this.claudeRpcService.call('chat:continue', {
-        prompt: content,
-        sessionId,
-        tabId: activeTabId, // For event routing
-        name: activeTab?.name, // Send session name (support late naming)
-        workspacePath,
-        model: effectiveModel,
-        files: files ?? [],
-        ...(images && images.length > 0 ? { images } : {}),
-        ...(effectiveEffort ? { effort: effectiveEffort } : {}),
-      });
+      // TASK_2026_103 Wave E2: register abort dispatch so closing the tab
+      // mid-stream cancels the backend work via chat:abort.
+      const abortSignal = this.wireAbortDispatch(activeTabId);
+      const result = await this.claudeRpcService.call(
+        'chat:continue',
+        {
+          prompt: content,
+          sessionId,
+          tabId: activeTabId, // For event routing
+          name: activeTab?.name, // Send session name (support late naming)
+          workspacePath,
+          model: effectiveModel,
+          files: files ?? [],
+          ...(images && images.length > 0 ? { images } : {}),
+          ...(effectiveEffort ? { effort: effectiveEffort } : {}),
+        },
+        { signal: abortSignal },
+      );
 
       if (!result.success) {
         console.error('[MessageSender] Failed to continue chat:', result.error);

@@ -72,6 +72,20 @@ export class TabManagerService {
   private readonly SAVE_DEBOUNCE_MS = 500;
 
   /**
+   * Per-tab AbortControllers for in-flight streaming RPCs.
+   * TASK_2026_103 Wave E2: keyed by tabId so closing a tab while its stream
+   * is still being generated can fire `abort()` and trigger backend stop
+   * via the `chat:abort` RPC (registered as an `abort` listener by the
+   * service that started the stream — typically `MessageSenderService`).
+   *
+   * Lifecycle:
+   * - created on streaming entry point via `createAbortController(tabId)`
+   * - cleared (without aborting) on `markTabIdle(tabId)` (clean stream end)
+   * - aborted+cleared on `closeTab(tabId)` while a stream is in-flight
+   */
+  private readonly abortControllers = new Map<string, AbortController>();
+
+  /**
    * Panel-aware localStorage key prefix for tab state persistence.
    * Sidebar uses empty panelId (workspace-only key).
    * Editor panels use 'ptah.panel.{uuid}' panelId (namespaced key).
@@ -479,6 +493,12 @@ export class TabManagerService {
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
+    // TASK_2026_103 Wave E2: forceCloseTab is used by the pop-out flow which
+    // TRANSFERS the session to another panel — do NOT abort the stream here,
+    // it must keep running so the target panel can re-attach. Just drop the
+    // controller so the source panel stops tracking it.
+    this.clearAbortController(tabId);
+
     const tabIndex = tabs.findIndex((t) => t.id === tabId);
 
     // Skip agent cleanup -- agents will be restored in the target panel
@@ -536,6 +556,13 @@ export class TabManagerService {
         return;
       }
     }
+
+    // TASK_2026_103 Wave E2: abort any in-flight streaming RPC BEFORE tab
+    // state cleanup so the registered abort listener (in MessageSender) can
+    // still read tab.claudeSessionId and dispatch chat:abort to the backend.
+    // Otherwise the backend keeps generating tokens after the user closes
+    // the tab — burning LLM cost.
+    this.abortStreamingForTab(tabId);
 
     // TASK_2025_090: Clean up deduplication state to prevent memory leaks.
     // TASK_2026_103 Wave B1: use STREAMING_CONTROL contract — replaces the
@@ -895,6 +922,10 @@ export class TabManagerService {
   /**
    * Mark a tab as idle (hides spinner in tab bar).
    * This is VISUAL ONLY - does not block any actions or affect state.
+   *
+   * TASK_2026_103 Wave E2: also drops the AbortController for this tab
+   * (without aborting it — the stream finished naturally) so the Map does
+   * not grow unbounded across the lifetime of a tab.
    */
   markTabIdle(tabId: string): void {
     this._streamingTabIds.update((set) => {
@@ -902,6 +933,72 @@ export class TabManagerService {
       newSet.delete(tabId);
       return newSet;
     });
+    this.clearAbortController(tabId);
+  }
+
+  // ============================================================================
+  // ABORT CONTROLLER LIFECYCLE (TASK_2026_103 Wave E2)
+  // ============================================================================
+  //
+  // Streaming RPCs (chat:start, chat:continue) accept an AbortSignal so that
+  // closing a tab while a stream is in-flight cancels the work end-to-end:
+  //
+  //   1. closeTab(tabId) calls abortStreamingForTab(tabId)
+  //   2. controller.abort() fires
+  //   3. (a) the in-flight RPC promise resolves with `RPC aborted`
+  //      (b) the listener registered by MessageSenderService dispatches
+  //          `chat:abort` to the backend with the session id
+  //   4. backend stops generating tokens; tab state cleanup proceeds
+  //
+  // The controller is OWNED by TabManager (single source of truth, easy to
+  // wire from closeTab/forceCloseTab). The abort LISTENER is registered by
+  // the streaming entry point (MessageSenderService) because only it knows
+  // the SessionId required for the chat:abort RPC.
+  // ============================================================================
+
+  /**
+   * Create a fresh AbortController for the given tab and return its signal.
+   * Replaces any existing controller for the tab (the previous controller
+   * is aborted defensively to release any stale listeners).
+   */
+  createAbortController(tabId: string): AbortSignal {
+    const existing = this.abortControllers.get(tabId);
+    if (existing && !existing.signal.aborted) {
+      existing.abort();
+    }
+    const controller = new AbortController();
+    this.abortControllers.set(tabId, controller);
+    return controller.signal;
+  }
+
+  /**
+   * Get the current AbortSignal for a tab, or undefined if none is active.
+   */
+  getAbortSignal(tabId: string): AbortSignal | undefined {
+    return this.abortControllers.get(tabId)?.signal;
+  }
+
+  /**
+   * Drop the AbortController for a tab WITHOUT aborting it.
+   * Used when a stream completes naturally (markTabIdle) or when the tab
+   * is force-closed for transfer (pop-out) — in both cases we want the
+   * downstream work to keep running, we just stop tracking it.
+   */
+  clearAbortController(tabId: string): void {
+    this.abortControllers.delete(tabId);
+  }
+
+  /**
+   * Abort the in-flight streaming RPC for a tab and drop the controller.
+   * Safe to call when no stream is active (no-op).
+   */
+  abortStreamingForTab(tabId: string): void {
+    const controller = this.abortControllers.get(tabId);
+    if (!controller) return;
+    this.abortControllers.delete(tabId);
+    if (!controller.signal.aborted) {
+      controller.abort();
+    }
   }
 
   /**
