@@ -1,0 +1,241 @@
+/**
+ * JSON-RPC 2.0 protocol types + Ptah-specific notification / error / exit
+ * code enums.
+ *
+ * TASK_2026_104 Batch 3.
+ *
+ * Strict conformance with https://www.jsonrpc.org/specification — `jsonrpc`
+ * is always `'2.0'`, notifications omit `id`, requests carry a string or
+ * number `id`, responses match by `id` and contain exactly one of `result`
+ * or `error`.
+ *
+ * No DI, no IO. Pure types only — safe to import from any layer.
+ */
+
+/** JSON-RPC version literal. */
+export const JSON_RPC_VERSION = '2.0' as const;
+
+/** A JSON value that can appear inside `params`, `result`, or `error.data`. */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+/** Request id — JSON-RPC 2.0 allows string, number, or null. */
+export type RequestId = string | number;
+
+/** A JSON-RPC 2.0 notification (no `id`, no response expected). */
+export interface JsonRpcNotification<TParams = unknown> {
+  jsonrpc: typeof JSON_RPC_VERSION;
+  method: string;
+  params?: TParams;
+}
+
+/** A JSON-RPC 2.0 request (carries `id`, response REQUIRED). */
+export interface JsonRpcRequest<TParams = unknown> {
+  jsonrpc: typeof JSON_RPC_VERSION;
+  id: RequestId;
+  method: string;
+  params?: TParams;
+}
+
+/** A JSON-RPC 2.0 success response. */
+export interface JsonRpcSuccessResponse<TResult = unknown> {
+  jsonrpc: typeof JSON_RPC_VERSION;
+  id: RequestId | null;
+  result: TResult;
+}
+
+/** A JSON-RPC 2.0 error object embedded inside an error response. */
+export interface JsonRpcError<TData = unknown> {
+  code: number;
+  message: string;
+  data?: TData;
+}
+
+/** A JSON-RPC 2.0 error response. */
+export interface JsonRpcErrorResponse<TData = unknown> {
+  jsonrpc: typeof JSON_RPC_VERSION;
+  id: RequestId | null;
+  error: JsonRpcError<TData>;
+}
+
+/** Either flavor of response. */
+export type JsonRpcResponse<TResult = unknown, TData = unknown> =
+  | JsonRpcSuccessResponse<TResult>
+  | JsonRpcErrorResponse<TData>;
+
+/** Discriminated union of every inbound message kind. */
+export type JsonRpcMessage<
+  TParams = unknown,
+  TResult = unknown,
+  TData = unknown,
+> =
+  | JsonRpcNotification<TParams>
+  | JsonRpcRequest<TParams>
+  | JsonRpcResponse<TResult, TData>;
+
+// ---------------------------------------------------------------------------
+// Standard JSON-RPC 2.0 error codes (per spec §5.1)
+// ---------------------------------------------------------------------------
+
+/** Standard JSON-RPC 2.0 error codes. */
+export const JsonRpcErrorCode = {
+  /** Malformed JSON received. */
+  ParseError: -32700,
+  /** The JSON sent is not a valid Request object. */
+  InvalidRequest: -32600,
+  /** The method does not exist or is not available. */
+  MethodNotFound: -32601,
+  /** Invalid method parameter(s). */
+  InvalidParams: -32602,
+  /** Internal JSON-RPC error. */
+  InternalError: -32603,
+} as const;
+
+export type JsonRpcErrorCodeValue =
+  (typeof JsonRpcErrorCode)[keyof typeof JsonRpcErrorCode];
+
+// ---------------------------------------------------------------------------
+// Ptah notification method names — task-description.md §4.1
+// ---------------------------------------------------------------------------
+
+/**
+ * String-literal union of every Ptah notification method emitted on stdout.
+ * Schema for the `params` of each method lives in task-description.md §4.1.
+ */
+export type PtahNotification =
+  // Session lifecycle
+  | 'session.ready'
+  // Agent stream
+  | 'agent.thought'
+  | 'agent.message'
+  | 'agent.tool_use'
+  | 'agent.tool_result'
+  // Session metering
+  | 'session.cost'
+  | 'session.token_usage'
+  // Task lifecycle
+  | 'task.start'
+  | 'task.complete'
+  | 'task.error'
+  // Config commands
+  | 'config.value'
+  | 'config.updated'
+  | 'config.list'
+  // Harness commands
+  | 'harness.initialized'
+  | 'skill.installed'
+  | 'skill.list'
+  // Profile commands
+  | 'profile.applied'
+  | 'profile.list'
+  // Diagnostics (verbose)
+  | 'debug.di.phase';
+
+/**
+ * Outbound CLI → client requests (require a response on stdin).
+ * task-description.md §4.2.
+ */
+export type PtahOutboundRequest = 'permission.request' | 'question.ask';
+
+/**
+ * Inbound client → CLI requests (handled in `interact` mode).
+ * task-description.md §4.3.
+ */
+export type PtahInboundRequest =
+  | 'task.submit'
+  | 'task.cancel'
+  | 'session.shutdown'
+  | 'session.history';
+
+// ---------------------------------------------------------------------------
+// Ptah-specific error codes — task-description.md §4.4
+// ---------------------------------------------------------------------------
+
+/** Ptah-specific error codes (carried in `error.data.ptah_code`). */
+export type PtahErrorCode =
+  | 'db_lock'
+  | 'provider_unavailable'
+  | 'auth_required'
+  | 'rate_limited'
+  | 'license_required'
+  | 'unknown'
+  | 'internal_failure';
+
+// ---------------------------------------------------------------------------
+// Process exit codes — task-description.md §6
+// ---------------------------------------------------------------------------
+
+/** Process exit codes. */
+export const ExitCode = {
+  Success: 0,
+  GeneralError: 1,
+  UsageError: 2,
+  AuthRequired: 3,
+  LicenseRequired: 4,
+  InternalFailure: 5,
+} as const;
+
+export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode];
+
+// ---------------------------------------------------------------------------
+// Type guards (used by the server dispatcher and tests)
+// ---------------------------------------------------------------------------
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Guard: value matches the JSON-RPC 2.0 envelope shape. */
+export function isJsonRpcEnvelope(value: unknown): value is { jsonrpc: '2.0' } {
+  return isPlainObject(value) && value['jsonrpc'] === JSON_RPC_VERSION;
+}
+
+/** Guard: a notification (envelope + method, no id). */
+export function isJsonRpcNotification(
+  value: unknown,
+): value is JsonRpcNotification {
+  return (
+    isJsonRpcEnvelope(value) &&
+    typeof (value as Record<string, unknown>)['method'] === 'string' &&
+    !('id' in value)
+  );
+}
+
+/** Guard: a request (envelope + method + id). */
+export function isJsonRpcRequest(value: unknown): value is JsonRpcRequest {
+  if (!isJsonRpcEnvelope(value)) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v['method'] === 'string' &&
+    'id' in v &&
+    (typeof v['id'] === 'string' || typeof v['id'] === 'number')
+  );
+}
+
+/** Guard: a successful response (envelope + id + result). */
+export function isJsonRpcSuccessResponse(
+  value: unknown,
+): value is JsonRpcSuccessResponse {
+  if (!isJsonRpcEnvelope(value)) return false;
+  const v = value as Record<string, unknown>;
+  return 'id' in v && 'result' in v && !('error' in v);
+}
+
+/** Guard: an error response (envelope + id + error). */
+export function isJsonRpcErrorResponse(
+  value: unknown,
+): value is JsonRpcErrorResponse {
+  if (!isJsonRpcEnvelope(value)) return false;
+  const v = value as Record<string, unknown>;
+  return 'id' in v && 'error' in v && isPlainObject(v['error']);
+}
+
+/** Guard: any response (success or error). */
+export function isJsonRpcResponse(value: unknown): value is JsonRpcResponse {
+  return isJsonRpcSuccessResponse(value) || isJsonRpcErrorResponse(value);
+}
