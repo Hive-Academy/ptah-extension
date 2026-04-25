@@ -29,7 +29,6 @@ interface MockSpawnCall {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __mockSpawnCalls: MockSpawnCall[];
 }
 
@@ -182,5 +181,37 @@ describe('CliUserInteraction — CLI-specific behaviour', () => {
   it('writeToClipboard spawns a platform-specific clipboard helper and resolves', async () => {
     await expect(provider.writeToClipboard('payload')).resolves.toBeUndefined();
     expect(globalThis.__mockSpawnCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('openOAuthUrl with no opener returns { opened: false } and never spawns a browser', async () => {
+    const bare = new CliUserInteraction(null);
+    const result = await bare.openOAuthUrl({
+      provider: 'copilot',
+      verificationUri: 'https://github.com/login/device',
+      userCode: 'ABCD-1234',
+    });
+    expect(result).toEqual({ opened: false });
+    // Critical: CLI must never spawn a local browser for OAuth.
+    expect(globalThis.__mockSpawnCalls).toEqual([]);
+  });
+
+  it('openOAuthUrl delegates to the injected opener and returns its response', async () => {
+    const opener = {
+      openOAuthUrl: jest.fn().mockResolvedValue({
+        opened: true,
+        code: 'echoed-code',
+      }),
+    };
+    const wired = new CliUserInteraction(opener);
+    const params = {
+      provider: 'copilot',
+      verificationUri: 'https://github.com/login/device',
+      userCode: 'ABCD-1234',
+    };
+    const result = await wired.openOAuthUrl(params);
+    expect(opener.openOAuthUrl).toHaveBeenCalledWith(params);
+    expect(result).toEqual({ opened: true, code: 'echoed-code' });
+    // Still no spawn — delegation only.
+    expect(globalThis.__mockSpawnCalls).toEqual([]);
   });
 });

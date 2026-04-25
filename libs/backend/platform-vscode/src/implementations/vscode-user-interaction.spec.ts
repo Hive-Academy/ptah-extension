@@ -66,4 +66,30 @@ describe('VscodeUserInteraction — VS Code-specific behaviour', () => {
     ]);
     expect(result?.label).toBe('two');
   });
+
+  it('openOAuthUrl opens the verification URI and returns { opened: true }', async () => {
+    const provider = new VscodeUserInteraction();
+    const result = await provider.openOAuthUrl({
+      provider: 'copilot',
+      verificationUri: 'https://github.com/login/device',
+    });
+    expect(result.opened).toBe(true);
+    expect(result.code).toBeUndefined();
+  });
+
+  it('openOAuthUrl with userCode writes to clipboard and shows toast', async () => {
+    // Re-import the mocked vscode env to inspect spies
+    const vscodeMock = require('../../__mocks__/vscode');
+    const provider = new VscodeUserInteraction();
+    const result = await provider.openOAuthUrl({
+      provider: 'copilot',
+      verificationUri: 'https://github.com/login/device',
+      userCode: 'WXYZ-9999',
+    });
+    expect(result.opened).toBe(true);
+    expect(vscodeMock.env.clipboard.writeText).toHaveBeenCalledWith(
+      'WXYZ-9999',
+    );
+    expect(vscodeMock.window.showInformationMessage).toHaveBeenCalled();
+  });
 });

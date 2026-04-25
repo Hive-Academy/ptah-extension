@@ -60,6 +60,16 @@ export function createMockUserInteraction(
     writeToClipboard: jest.fn(async (_text: string): Promise<void> => {
       /* noop */
     }),
+    openOAuthUrl: jest.fn(
+      async (_params: {
+        provider: string;
+        verificationUri: string;
+        userCode?: string;
+      }): Promise<{ opened: boolean; code?: string }> => ({
+        opened: true,
+        code: undefined,
+      }),
+    ),
   } as unknown as MockUserInteraction;
 
   if (overrides) {
