@@ -263,7 +263,7 @@ void (0 as unknown as LicenseService | undefined);
 
 describe('AuthRpcHandlers', () => {
   describe('register()', () => {
-    it('registers all eight auth RPC methods', () => {
+    it('registers all nine auth RPC methods', () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -273,6 +273,7 @@ describe('AuthRpcHandlers', () => {
           'auth:copilotLogin',
           'auth:copilotLogout',
           'auth:copilotStatus',
+          'auth:getApiKeyStatus',
           'auth:getAuthStatus',
           'auth:getHealth',
           'auth:saveSettings',
@@ -675,6 +676,74 @@ describe('AuthRpcHandlers', () => {
         'Codex Login',
         'codex login --device-auth',
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // auth:getApiKeyStatus (TASK_2026_104 Batch B8b)
+  // Lifted from Electron's config-extended-rpc.handlers.ts so all platforms
+  // (VS Code, Electron, CLI) share a single registration path.
+  // -------------------------------------------------------------------------
+
+  describe('auth:getApiKeyStatus', () => {
+    it('returns one entry per registered provider with hasApiKey=false when no keys are seeded', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{
+        providers: Array<{
+          provider: string;
+          displayName: string;
+          hasApiKey: boolean;
+          isDefault: boolean;
+        }>;
+      }>(h, 'auth:getApiKeyStatus');
+
+      // One entry per ANTHROPIC_PROVIDERS registry entry — none have keys
+      expect(result.providers.length).toBeGreaterThan(0);
+      expect(result.providers.every((p) => p.hasApiKey === false)).toBe(true);
+      // Each entry exposes the contract shape
+      expect(result.providers[0]).toEqual(
+        expect.objectContaining({
+          provider: expect.any(String),
+          displayName: expect.any(String),
+          hasApiKey: false,
+          isDefault: expect.any(Boolean),
+        }),
+      );
+      // Exactly one provider is marked default (matches active provider id)
+      expect(result.providers.filter((p) => p.isDefault).length).toBe(1);
+    });
+
+    it('flags providers with seeded keys as hasApiKey=true and the active provider as isDefault=true', async () => {
+      const h = makeHarness({
+        configSeed: { anthropicProviderId: 'openrouter' },
+        providerKeysSeed: { openrouter: 'sk-or-test-key' },
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        providers: Array<{
+          provider: string;
+          displayName: string;
+          hasApiKey: boolean;
+          isDefault: boolean;
+        }>;
+      }>(h, 'auth:getApiKeyStatus');
+
+      const openrouterEntry = result.providers.find(
+        (p) => p.provider === 'openrouter',
+      );
+      expect(openrouterEntry).toBeDefined();
+      expect(openrouterEntry?.hasApiKey).toBe(true);
+      expect(openrouterEntry?.isDefault).toBe(true);
+
+      // Other providers remain hasApiKey=false and isDefault=false
+      const otherEntries = result.providers.filter(
+        (p) => p.provider !== 'openrouter',
+      );
+      expect(otherEntries.every((p) => p.hasApiKey === false)).toBe(true);
+      expect(otherEntries.every((p) => p.isDefault === false)).toBe(true);
     });
   });
 });
