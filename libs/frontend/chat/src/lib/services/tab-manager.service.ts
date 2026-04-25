@@ -1,9 +1,8 @@
-import { Injectable, signal, computed, inject, Injector } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
 import { ModelStateService } from '@ptah-extension/core';
 import { TabState, TabViewMode } from '@ptah-extension/chat-types';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
-import { StreamingHandlerService } from './chat-store/streaming-handler.service';
-import { AgentMonitorStore } from './agent-monitor.store';
+import { STREAMING_CONTROL } from './streaming-control';
 import {
   TabWorkspacePartitionService,
   TabLookupResult,
@@ -33,9 +32,18 @@ export class TabManagerService {
   // ============================================================================
 
   private readonly confirmationDialog = inject(ConfirmationDialogService);
-  private readonly injector = inject(Injector);
   private readonly workspacePartition = inject(TabWorkspacePartitionService);
   private readonly modelState = inject(ModelStateService);
+  /**
+   * StreamingControl — inverted-dependency contract for coordinating
+   * per-session cleanup with the streaming/agent worker services.
+   * TASK_2026_103 Wave B1: replaces direct `Injector.get(StreamingHandlerService)`
+   * and `Injector.get(AgentMonitorStore)` calls so that this file only
+   * statically imports a neutral interface module — breaking the
+   * tab-manager ↔ streaming-handler ↔ {batched,finalization,permission}
+   * and tab-manager ↔ agent-monitor.store cycles.
+   */
+  private readonly streamingControl = inject(STREAMING_CONTROL);
 
   // ============================================================================
   // PRIVATE STATE SIGNALS
@@ -476,8 +484,9 @@ export class TabManagerService {
     // Skip agent cleanup -- agents will be restored in the target panel
     // Only clean up deduplication state
     if (tab.claudeSessionId) {
-      const streamingHandler = this.injector.get(StreamingHandlerService);
-      streamingHandler.cleanupSessionDeduplication(tab.claudeSessionId);
+      // Inverted dependency (TASK_2026_103 Wave B1): use STREAMING_CONTROL
+      // contract instead of importing StreamingHandlerService directly.
+      this.streamingControl.cleanupSessionDeduplication(tab.claudeSessionId);
 
       // TASK_2025_208 Fix 4: Clean up reverse index
       this.workspacePartition.unregisterSession(tab.claudeSessionId);
@@ -528,15 +537,15 @@ export class TabManagerService {
       }
     }
 
-    // TASK_2025_090: Clean up deduplication state to prevent memory leaks
-    // Use lazy injection to avoid circular dependency (StreamingHandler depends on TabManager)
+    // TASK_2025_090: Clean up deduplication state to prevent memory leaks.
+    // TASK_2026_103 Wave B1: use STREAMING_CONTROL contract — replaces the
+    // previous lazy `Injector.get(StreamingHandlerService/AgentMonitorStore)`
+    // pattern with a static-import-safe interface to break service cycles.
     if (tab.claudeSessionId) {
-      const streamingHandler = this.injector.get(StreamingHandlerService);
-      streamingHandler.cleanupSessionDeduplication(tab.claudeSessionId);
+      this.streamingControl.cleanupSessionDeduplication(tab.claudeSessionId);
 
       // Clean up agent monitor cards for this session
-      const agentMonitorStore = this.injector.get(AgentMonitorStore);
-      agentMonitorStore.clearSessionAgents(tab.claudeSessionId);
+      this.streamingControl.clearSessionAgents(tab.claudeSessionId);
 
       // TASK_2025_208 Fix 4: Clean up reverse index
       this.workspacePartition.unregisterSession(tab.claudeSessionId);

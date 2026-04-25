@@ -27,6 +27,7 @@ import {
   AgentMonitorMessageHandler,
   ChatStore,
   WorkspaceCoordinatorService,
+  provideStreamingControl,
 } from '@ptah-extension/chat';
 import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
@@ -172,6 +173,13 @@ export const appConfig: ApplicationConfig = {
     },
     // Setup hub component: breaks circular dependency between chat and harness-builder.
     { provide: SETUP_HUB_COMPONENT, useValue: SetupHubComponent },
+    // StreamingControl: inverted-dependency contract that lets TabManagerService
+    // coordinate per-session cleanup with StreamingHandlerService and
+    // AgentMonitorStore without statically importing them.
+    // TASK_2026_103 Wave B1: breaks the
+    //   tab-manager ↔ streaming-handler ↔ {batched,finalization,permission}
+    // and tab-manager ↔ agent-monitor.store cycles.
+    ...provideStreamingControl(),
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',

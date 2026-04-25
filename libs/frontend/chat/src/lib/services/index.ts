@@ -82,3 +82,12 @@ export { SessionDisplayUtils } from './session-display-utils.service';
 
 // SESSION_CONTEXT — optional per-tile session override for canvas tiles (TASK_2025_265)
 export { SESSION_CONTEXT } from '../tokens/session-context.token';
+
+// StreamingControl — inverted-dependency contract used by TabManagerService
+// to coordinate per-session cleanup with the streaming/agent worker services.
+// TASK_2026_103 Wave B1: introduced to break the
+// tab-manager ↔ streaming-handler ↔ {batched,finalization,permission}
+// and tab-manager ↔ agent-monitor.store cycles.
+export { STREAMING_CONTROL, type StreamingControl } from './streaming-control';
+export { StreamingControlImpl } from './chat-store/streaming-control-impl.service';
+export { provideStreamingControl } from './chat-store/streaming-control.provider';
