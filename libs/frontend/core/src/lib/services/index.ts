@@ -4,7 +4,6 @@ export * from './logging.service';
 export {
   VSCodeService,
   provideVSCodeService,
-  initializeVSCodeService,
   type WebviewConfig,
 } from './vscode.service';
 // DELETED: MessageHandlerService - redundant, components subscribe directly to VSCodeService

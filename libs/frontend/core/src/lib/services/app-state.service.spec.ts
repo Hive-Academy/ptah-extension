@@ -179,15 +179,9 @@ describe('AppStateManager', () => {
       );
     });
 
-    it('openView is equivalent to setCurrentView (opens + switches)', () => {
-      const service = createService();
-      service.openView('analytics');
-      expect(service.currentView()).toBe('analytics');
-    });
-
     it('closeView removes the view tab and falls back to chat when closing the active view', () => {
       const service = createService();
-      service.openView('analytics');
+      service.setCurrentView('analytics');
       expect(service.currentView()).toBe('analytics');
 
       service.closeView('analytics');
