@@ -49,6 +49,7 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
         flex-direction: column;
         height: 100%;
         width: 100%;
+        position: relative;
       }
     `,
   ],
@@ -113,7 +114,7 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
           </button>
           <button
             class="btn btn-ghost btn-sm btn-circle"
-            (click)="close()"
+            (click)="requestClose()"
             aria-label="Close harness builder"
           >
             <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true" />
@@ -295,6 +296,46 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
           </aside>
         }
       </div>
+
+      @if (showCloseConfirmation()) {
+        <div
+          class="absolute inset-0 z-50 flex items-center justify-center bg-base-300/60"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="harness-close-title"
+        >
+          <div
+            class="bg-base-100 border border-base-300 rounded-lg shadow-xl p-5 max-w-sm w-[90%]"
+          >
+            <h2
+              id="harness-close-title"
+              class="text-base font-semibold text-base-content mb-2"
+            >
+              Discard unsaved changes?
+            </h2>
+            <p class="text-sm text-base-content/70 mb-4">
+              You have an in-progress harness configuration. Closing now will
+              reset it.
+            </p>
+            <div class="flex justify-end gap-2">
+              <button
+                class="btn btn-ghost btn-sm"
+                (click)="cancelClose()"
+                type="button"
+              >
+                Keep editing
+              </button>
+              <button
+                class="btn btn-error btn-sm"
+                (click)="confirmClose()"
+                type="button"
+              >
+                Discard and close
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     }
   `,
 })
@@ -321,6 +362,7 @@ export class HarnessBuilderViewComponent implements OnInit {
   readonly isProcessing = signal(false);
   readonly isApplying = signal(false);
   readonly showSidePanel = signal(true);
+  readonly showCloseConfirmation = signal(false);
 
   protected messageText = '';
 
@@ -379,17 +421,24 @@ export class HarnessBuilderViewComponent implements OnInit {
     }
   }
 
-  public close(): void {
-    const cfg = this.state.config();
-    const hasConfig =
-      cfg.persona || cfg.agents || cfg.skills || cfg.prompt || cfg.mcp;
-    if (hasConfig) {
-      if (
-        !confirm('You have unsaved changes. Are you sure you want to close?')
-      ) {
-        return;
-      }
+  public requestClose(): void {
+    if (this.hasAnyConfig()) {
+      this.showCloseConfirmation.set(true);
+      return;
     }
+    this.performClose();
+  }
+
+  protected cancelClose(): void {
+    this.showCloseConfirmation.set(false);
+  }
+
+  protected confirmClose(): void {
+    this.showCloseConfirmation.set(false);
+    this.performClose();
+  }
+
+  private performClose(): void {
     this.state.reset();
     this.navigation.navigateToView('chat');
   }
