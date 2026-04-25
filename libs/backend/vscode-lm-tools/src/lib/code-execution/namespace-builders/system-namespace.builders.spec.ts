@@ -275,7 +275,7 @@ describe('buildFilesNamespace — list', () => {
     );
   });
 
-  it('throws "Directory not found" when stat rejects', async () => {
+  it('throws "Directory not found" when stat rejects with a missing-path error', async () => {
     const fs = createFsMock();
     fs.stat.mockRejectedValue(new Error('ENOENT'));
     const ns = buildFilesNamespace(
@@ -283,20 +283,33 @@ describe('buildFilesNamespace — list', () => {
     );
 
     await expect(ns.list('missing-dir')).rejects.toThrow(/Directory not found/);
+    await expect(ns.list('missing-dir')).rejects.not.toThrow(/Not a directory/);
     expect(fs.readDirectory).not.toHaveBeenCalled();
   });
 
-  it('throws "Directory not found" when target is a file (the catch block rewrites the type mismatch)', async () => {
-    // Implementation note: the try/catch in list() catches the
-    // "Path is not a directory" error and rethrows it as
-    // "Directory not found". The spec pins the observable behaviour.
+  it('throws "Not a directory" when target exists but is a file', async () => {
     const fs = createFsMock();
     fs.stat.mockResolvedValue({ ...dirStat, type: FileType.File });
     const ns = buildFilesNamespace(
       createDeps(fs, createWorkspaceProviderMock()),
     );
 
-    await expect(ns.list('a-file')).rejects.toThrow(/Directory not found/);
+    await expect(ns.list('a-file')).rejects.toThrow(/^Not a directory:/);
+    expect(fs.readDirectory).not.toHaveBeenCalled();
+  });
+
+  it('throws "Not a directory" when stat rejects with ENOTDIR (intermediate path is a file)', async () => {
+    const fs = createFsMock();
+    const err: NodeJS.ErrnoException = Object.assign(
+      new Error('ENOTDIR: not a directory'),
+      { code: 'ENOTDIR' },
+    );
+    fs.stat.mockRejectedValue(err);
+    const ns = buildFilesNamespace(
+      createDeps(fs, createWorkspaceProviderMock()),
+    );
+
+    await expect(ns.list('a-file/inside')).rejects.toThrow(/^Not a directory:/);
     expect(fs.readDirectory).not.toHaveBeenCalled();
   });
 });

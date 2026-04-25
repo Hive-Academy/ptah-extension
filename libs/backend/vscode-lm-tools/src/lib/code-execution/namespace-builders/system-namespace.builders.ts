@@ -418,14 +418,21 @@ export function buildFilesNamespace(
     },
     list: async (directory: string) => {
       const resolvedPath = resolveWorkspacePath(directory, workspaceProvider);
-      // Check if directory exists before listing
+      // Stat the path so we can distinguish "missing" from "wrong type".
+      let stat;
       try {
-        const stat = await fileSystemProvider.stat(resolvedPath);
-        if (stat.type !== FileType.Directory) {
-          throw new Error(`Path is not a directory: ${resolvedPath}`);
+        stat = await fileSystemProvider.stat(resolvedPath);
+      } catch (error) {
+        // ENOTDIR can surface from stat() on some platforms when an
+        // intermediate path component is a file. Treat it as wrong-type.
+        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        if (code === 'ENOTDIR') {
+          throw new Error(`Not a directory: ${resolvedPath}`);
         }
-      } catch {
         throw new Error(`Directory not found: ${resolvedPath}`);
+      }
+      if (stat.type !== FileType.Directory) {
+        throw new Error(`Not a directory: ${resolvedPath}`);
       }
       const entries = await fileSystemProvider.readDirectory(resolvedPath);
       return entries.map((entry) => ({

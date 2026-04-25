@@ -215,11 +215,6 @@ describe('ChromeLauncherBrowserCapabilities', () => {
     });
 
     it('launches with default viewport/visibility when no configureSession() was called', async () => {
-      // NOTE: there is a latent bug in createSession() — it calls cleanup()
-      // as the first step, which clears _pendingOptions before they can be
-      // consumed, so configureSession() settings are effectively dropped on
-      // the very first session creation. This test asserts the observed
-      // default-path behaviour; see spec B7 bug report.
       await caps.navigate('https://example.com/');
 
       const launchArgs = chromeLauncherMock.launch.mock.calls[0][0] as {
@@ -230,6 +225,46 @@ describe('ChromeLauncherBrowserCapabilities', () => {
       expect(cdp.Emulation.setDeviceMetricsOverride).toHaveBeenCalledWith(
         expect.objectContaining({ width: 1920, height: 1080 }),
       );
+    });
+
+    it('honours configureSession() options on the first session (headless + viewport)', async () => {
+      caps.configureSession({
+        headless: true,
+        viewport: { width: 1280, height: 720 },
+      });
+
+      await caps.navigate('https://example.com/');
+
+      const launchArgs = chromeLauncherMock.launch.mock.calls[0][0] as {
+        chromeFlags: string[];
+      };
+      expect(launchArgs.chromeFlags).toContain('--headless');
+      expect(launchArgs.chromeFlags).toContain('--window-size=1280,720');
+      expect(cdp.Emulation.setDeviceMetricsOverride).toHaveBeenCalledWith(
+        expect.objectContaining({ width: 1280, height: 720 }),
+      );
+
+      const status = await caps.status();
+      expect(status.headless).toBe(true);
+      expect(status.viewport).toEqual({ width: 1280, height: 720 });
+    });
+
+    it('resets to defaults on a subsequent session after close() (cleanup clears _pendingOptions)', async () => {
+      caps.configureSession({
+        headless: true,
+        viewport: { width: 800, height: 600 },
+      });
+      await caps.navigate('https://example.com/');
+      await caps.close();
+
+      // No new configureSession() before second session — should fall back to defaults.
+      await caps.navigate('https://example.com/page2');
+
+      const secondLaunchArgs = chromeLauncherMock.launch.mock.calls[1][0] as {
+        chromeFlags: string[];
+      };
+      expect(secondLaunchArgs.chromeFlags).not.toContain('--headless');
+      expect(secondLaunchArgs.chromeFlags).toContain('--window-size=1920,1080');
     });
   });
 
