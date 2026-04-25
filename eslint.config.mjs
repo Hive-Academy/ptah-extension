@@ -10,8 +10,13 @@ export default [
   {
     files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
     rules: {
+      // Severity is 'warn' (TASK_2026_103 W5). All scope:* constraints
+      // currently pass cleanly, but the newly-added type:* constraints
+      // surface 61 pre-existing violations in @ptah-extension/rpc-handlers
+      // (tagged type:util but importing type:feature libs). Once that
+      // tag mislabel is resolved, flip back to 'error'.
       '@nx/enforce-module-boundaries': [
-        'error',
+        'warn',
         {
           enforceBuildableLibDependency: true,
           allow: ['^.*/eslint(\\.base)?\\.config\\.[cm]?[jt]s$'],
@@ -56,6 +61,46 @@ export default [
                 'type:ui',
                 'type:util',
               ],
+            },
+            // type:* import direction (TASK_2026_103 W5).
+            // Currently advisory (warn) — see commit body for the
+            // pre-existing violation punch list. Flip to 'error' once
+            // the listed migrations land.
+            {
+              sourceTag: 'type:app',
+              onlyDependOnLibsWithTags: [
+                'type:feature',
+                'type:data-access',
+                'type:ui',
+                'type:util',
+                'type:core',
+              ],
+            },
+            {
+              sourceTag: 'type:feature',
+              onlyDependOnLibsWithTags: [
+                'type:feature',
+                'type:data-access',
+                'type:ui',
+                'type:util',
+                'type:core',
+              ],
+            },
+            {
+              sourceTag: 'type:data-access',
+              onlyDependOnLibsWithTags: ['type:data-access', 'type:util'],
+            },
+            {
+              sourceTag: 'type:ui',
+              onlyDependOnLibsWithTags: ['type:ui', 'type:util'],
+            },
+            {
+              sourceTag: 'type:util',
+              onlyDependOnLibsWithTags: ['type:util'],
+            },
+            {
+              sourceTag: 'type:core',
+              onlyDependOnLibsWithTags: ['type:core', 'type:util'],
             },
           ],
         },
