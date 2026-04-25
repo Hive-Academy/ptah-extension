@@ -5,6 +5,7 @@ import {
   Param,
   HttpCode,
   HttpStatus,
+  Inject,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { UnsubscribeTokenService } from '../services/unsubscribe-token.service';
@@ -15,9 +16,10 @@ import { getUnsubscribePage } from '../html/unsubscribe-confirmation.html';
 @Controller()
 export class PublicMarketingController {
   constructor(
+    @Inject(UnsubscribeTokenService)
     private readonly tokenService: UnsubscribeTokenService,
-    private readonly prisma: PrismaService,
-    private readonly auditLog: AuditLogService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(AuditLogService) private readonly auditLog: AuditLogService,
   ) {}
 
   /**

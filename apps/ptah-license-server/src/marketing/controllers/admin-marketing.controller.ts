@@ -8,6 +8,7 @@ import {
   ConflictException,
   HttpStatus,
   HttpCode,
+  Inject,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../app/auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../../admin/admin.guard';
@@ -22,9 +23,11 @@ import { SendCampaignDto } from '../dto/send-campaign.dto';
 @UseGuards(JwtAuthGuard, AdminGuard, AdminThrottlerGuard)
 export class AdminMarketingController {
   constructor(
+    @Inject(SegmentResolverService)
     private readonly segmentResolver: SegmentResolverService,
+    @Inject(TemplateRenderService)
     private readonly templateRender: TemplateRenderService,
-    private readonly prisma: PrismaService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
   ) {}
 
   @Get('segments')

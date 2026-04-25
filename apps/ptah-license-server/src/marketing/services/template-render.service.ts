@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import sanitizeHtml = require('sanitize-html');
 import { injectCampaignFooter } from '../utils/footer-injector';
@@ -65,7 +65,9 @@ export class TemplateRenderService {
     },
   };
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    @Inject(ConfigService) private readonly configService: ConfigService,
+  ) {
     this.postalAddress =
       this.configService.get<string>('MARKETING_POSTAL_ADDRESS') || '';
   }
