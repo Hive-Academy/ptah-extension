@@ -17,7 +17,5 @@ export type { EditorTab } from './lib/services/editor.service';
 export { GitStatusService } from './lib/services/git-status.service';
 export { TerminalService } from './lib/services/terminal.service';
 export { WorktreeService } from './lib/services/worktree.service';
-export { rpcCall } from './lib/services/rpc-call.util';
-export type { RpcCallResult } from './lib/services/rpc-call.util';
 export type { TerminalTab, PtahTerminalApi } from './lib/types/terminal.types';
 export type { FileTreeNode } from './lib/models/file-tree.model';

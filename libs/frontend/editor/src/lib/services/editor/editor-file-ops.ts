@@ -1,4 +1,4 @@
-import { rpcCall } from '../rpc-call.util';
+import { rpcCall } from '@ptah-extension/core';
 import type { EditorTab } from '../editor.service';
 import type { EditorInternalState } from './editor-internal-state';
 import { extractFileName, IMAGE_EXTENSIONS } from './editor-internal-state';

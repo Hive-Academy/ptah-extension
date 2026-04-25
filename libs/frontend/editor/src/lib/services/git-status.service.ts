@@ -5,13 +5,12 @@ import {
   computed,
   DestroyRef,
 } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
+import { VSCodeService, rpcCall } from '@ptah-extension/core';
 import type {
   GitInfoResult,
   GitBranchInfo,
   GitFileStatus,
 } from '@ptah-extension/shared';
-import { rpcCall } from './rpc-call.util';
 
 /**
  * Per-workspace git state snapshot.
