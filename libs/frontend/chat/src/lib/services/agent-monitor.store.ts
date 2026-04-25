@@ -3,6 +3,14 @@
  *
  * Signal-based store for real-time agent process monitoring.
  * Tracks spawned agents, streams output, and manages the sidebar panel state.
+ *
+ * State shape (TASK_2026_103 wave E3):
+ * Backing store is `signal<readonly MonitoredAgent[]>([])` plus a derived
+ * `_byId` computed for O(1) lookups. Previously this was `signal<Map<...>>`
+ * which forced every writer to clone the Map — and silently broke `computed()`
+ * propagation when a writer forgot to clone, since reference equality held.
+ * Array + computed byId is the idiomatic Angular pattern: writes are clearly
+ * immutable (`[...list, x]` / `list.filter(...)`), reads stay O(1) via byId.
  */
 
 import { Injectable, signal, computed, inject, OnDestroy } from '@angular/core';
@@ -78,8 +86,23 @@ export class AgentMonitorStore implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
   private readonly vscodeService = inject(VSCodeService);
 
-  // Private mutable state
-  private readonly _agents = signal<Map<string, MonitoredAgent>>(new Map());
+  // Private mutable state — readonly array of agents.
+  // All writers MUST produce a new array (immutable update); reads go through
+  // the public `agents` computed or the internal `_byId` computed.
+  private readonly _agents = signal<readonly MonitoredAgent[]>([]);
+
+  /**
+   * Internal O(1) lookup index. Recomputed whenever `_agents` changes.
+   * Used by every writer that needs to find an agent by id without scanning.
+   */
+  private readonly _byId = computed(() => {
+    const map = new Map<string, MonitoredAgent>();
+    for (const a of this._agents()) {
+      map.set(a.agentId, a);
+    }
+    return map;
+  });
+
   private readonly _panelOpen = signal(false);
   /** Tracks whether the user explicitly closed the panel (prevents auto-reopen) */
   private _userExplicitlyClosed = false;
@@ -125,7 +148,7 @@ export class AgentMonitorStore implements OnDestroy {
   readonly shouldSuggestEditorPanel = computed(
     () => {
       if (!this.isSidebar) return false;
-      for (const a of this._agents().values()) {
+      for (const a of this._agents()) {
         if (a.status === 'running') return true;
       }
       return false;
@@ -142,9 +165,15 @@ export class AgentMonitorStore implements OnDestroy {
 
   // Public computed signals — ALL agents (used for global indicators like header badges)
   readonly agents = computed(() => {
-    const map = this._agents();
-    return Array.from(map.values()).sort((a, b) => b.startedAt - a.startedAt);
+    // Copy then sort — never mutate the underlying readonly array.
+    return [...this._agents()].sort((a, b) => b.startedAt - a.startedAt);
   });
+
+  /**
+   * Public byId index — exposed alongside `agents` for callers that need O(1)
+   * lookup. Readers prefer this to `agents().find(...)` when scanning is hot.
+   */
+  readonly agentsById = computed(() => this._byId());
 
   /**
    * Agents filtered to the active tab's session.
@@ -174,7 +203,7 @@ export class AgentMonitorStore implements OnDestroy {
    * to avoid re-evaluation cascade through the sorted agents() array. */
   readonly hasRunningAgents = computed(
     () => {
-      for (const a of this._agents().values()) {
+      for (const a of this._agents()) {
         if (a.status === 'running') return true;
       }
       return false;
@@ -182,7 +211,7 @@ export class AgentMonitorStore implements OnDestroy {
     { equal: (a, b) => a === b },
   );
 
-  readonly agentCount = computed(() => this._agents().size, {
+  readonly agentCount = computed(() => this._agents().length, {
     equal: (a, b) => a === b,
   });
 
@@ -234,7 +263,7 @@ export class AgentMonitorStore implements OnDestroy {
   /** Start or stop tick based on whether any agents are running */
   private syncTick(): void {
     let hasRunning = false;
-    for (const a of this._agents().values()) {
+    for (const a of this._agents()) {
       if (a.status === 'running') {
         hasRunning = true;
         break;
@@ -306,19 +335,15 @@ export class AgentMonitorStore implements OnDestroy {
   // Agent lifecycle
   onAgentSpawned(info: AgentProcessInfo): void {
     // Check before adding — auto-open on 0→1 transition only
-    const hadAgents = this._agents().size > 0;
+    const hadAgents = this._agents().length > 0;
 
-    this._agents.update((map) => {
-      const next = new Map(map);
-
+    this._agents.update((list) => {
       // Strategy 1: Replace by resumedFromAgentId (explicit resume from sidebar button)
       // Strategy 2: Replace by cliSessionId (MCP-triggered respawn during session resume —
       //   resumedFromAgentId is unavailable because the MCP spawn path doesn't know the old card ID)
-      const oldCardEntry = this.findReplacementCard(next, info);
+      const oldCard = this.findReplacementCard(list, info);
 
-      if (oldCardEntry) {
-        const [oldId, oldCard] = oldCardEntry;
-
+      if (oldCard) {
         // TASK_2025_211: Track this agent as resumed so inline bubbles can
         // show 'Resumed' badge instead of 'Interrupted'.
         if (oldCard.parentSessionId && oldCard.task) {
@@ -328,8 +353,8 @@ export class AgentMonitorStore implements OnDestroy {
             return next;
           });
         }
-        next.delete(oldId);
-        next.set(info.agentId, {
+        // Replace old card with new agent — drop oldCard entry, append new entry
+        const replacement: MonitoredAgent = {
           agentId: info.agentId,
           cli: info.cli,
           task: info.task,
@@ -347,32 +372,34 @@ export class AgentMonitorStore implements OnDestroy {
           permissionQueue: [],
           displayName: info.displayName || info.ptahCliName,
           model: info.model,
-        });
-      } else {
-        const order = this._expandOrder++;
-        next.set(info.agentId, {
-          agentId: info.agentId,
-          cli: info.cli,
-          task: info.task,
-          status: info.status,
-          startedAt: new Date(info.startedAt).getTime(),
-          stdout: '',
-          stderr: '',
-          expanded: true,
-          expandedAt: order,
-          segments: [],
-          streamEvents: [],
-          parentSessionId: info.parentSessionId,
-          cliSessionId: info.cliSessionId,
-          ptahCliId: info.ptahCliId,
-          permissionQueue: [],
-          displayName: info.displayName || info.ptahCliName,
-          model: info.model,
-        });
-        this.enforceMaxExpanded(next);
+        };
+        return [
+          ...list.filter((a) => a.agentId !== oldCard.agentId),
+          replacement,
+        ];
       }
 
-      return next;
+      const order = this._expandOrder++;
+      const fresh: MonitoredAgent = {
+        agentId: info.agentId,
+        cli: info.cli,
+        task: info.task,
+        status: info.status,
+        startedAt: new Date(info.startedAt).getTime(),
+        stdout: '',
+        stderr: '',
+        expanded: true,
+        expandedAt: order,
+        segments: [],
+        streamEvents: [],
+        parentSessionId: info.parentSessionId,
+        cliSessionId: info.cliSessionId,
+        ptahCliId: info.ptahCliId,
+        permissionQueue: [],
+        displayName: info.displayName || info.ptahCliName,
+        model: info.model,
+      };
+      return this.enforceMaxExpanded([...list, fresh]);
     });
 
     // TASK_2025_255: Replay any buffered permission requests that arrived before spawn.
@@ -398,12 +425,18 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   onAgentOutput(delta: AgentOutputDelta): void {
-    this._agents.update((map) => {
-      const agent = map.get(delta.agentId);
-      if (!agent) return map;
+    this._agents.update((list) => {
+      let foundIndex = -1;
+      for (let i = 0; i < list.length; i++) {
+        if (list[i].agentId === delta.agentId) {
+          foundIndex = i;
+          break;
+        }
+      }
+      if (foundIndex === -1) return list;
 
-      const next = new Map(map);
-      const updated = { ...agent };
+      const agent = list[foundIndex];
+      const updated: MonitoredAgent = { ...agent };
 
       if (delta.stdoutDelta) {
         updated.stdout = capBuffer(
@@ -454,35 +487,41 @@ export class AgentMonitorStore implements OnDestroy {
         }
       }
 
-      next.set(delta.agentId, updated);
+      const next = [...list];
+      next[foundIndex] = updated;
       return next;
     });
   }
 
   onAgentExited(info: AgentProcessInfo): void {
-    this._agents.update((map) => {
-      const agent = map.get(info.agentId);
-      if (!agent) return map;
+    this._agents.update((list) => {
+      let foundIndex = -1;
+      for (let i = 0; i < list.length; i++) {
+        if (list[i].agentId === info.agentId) {
+          foundIndex = i;
+          break;
+        }
+      }
+      if (foundIndex === -1) return list;
 
+      const agent = list[foundIndex];
       const completedAt = info.completedAt
         ? new Date(info.completedAt).getTime()
         : Date.now();
 
-      const next = new Map(map);
-      next.set(info.agentId, {
+      const next = [...list];
+      next[foundIndex] = {
         ...agent,
         status: info.status,
         exitCode: info.exitCode,
         cliSessionId: info.cliSessionId || agent.cliSessionId,
         completedAt,
         permissionQueue: [],
-      });
+      };
 
       // TASK_2025_264 P6: Evict oldest completed/failed agents beyond the limit.
       // NEVER evict 'running' or 'interrupted' agents.
-      this.evictOldCompletedAgents(next);
-
-      return next;
+      return this.evictOldCompletedAgents(next);
     });
 
     this.syncTick();
@@ -491,30 +530,43 @@ export class AgentMonitorStore implements OnDestroy {
   /**
    * TASK_2025_264 P6: Evict the oldest completed/failed agents when count exceeds
    * MAX_COMPLETED_AGENTS. Preserves 'running' and 'interrupted' agents.
-   * Mutates the provided map in place (caller creates the new Map).
+   * Returns a new array (does not mutate the input).
    */
-  private evictOldCompletedAgents(map: Map<string, MonitoredAgent>): void {
-    const completedAgents = Array.from(map.values()).filter(
+  private evictOldCompletedAgents(
+    list: readonly MonitoredAgent[],
+  ): MonitoredAgent[] {
+    const completedAgents = list.filter(
       (a) => a.status === 'completed' || a.status === 'failed',
     );
 
-    if (completedAgents.length <= MAX_COMPLETED_AGENTS) return;
+    if (completedAgents.length <= MAX_COMPLETED_AGENTS) return [...list];
 
     // Sort by completedAt ascending — oldest first
-    completedAgents.sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));
+    const sortedCompleted = [...completedAgents].sort(
+      (a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0),
+    );
 
-    // Evict oldest until at the limit
-    const toEvict = completedAgents.length - MAX_COMPLETED_AGENTS;
-    for (let i = 0; i < toEvict; i++) {
-      map.delete(completedAgents[i].agentId);
+    // Identify oldest IDs to evict
+    const toEvictCount = sortedCompleted.length - MAX_COMPLETED_AGENTS;
+    const evictedIds = new Set<string>();
+    for (let i = 0; i < toEvictCount; i++) {
+      evictedIds.add(sortedCompleted[i].agentId);
     }
+
+    return list.filter((a) => !evictedIds.has(a.agentId));
   }
 
   /** Handle incoming permission request from CLI agent (Copilot SDK or Ptah CLI) */
   onPermissionRequest(request: AgentPermissionRequest): void {
-    this._agents.update((map) => {
-      const agent = map.get(request.agentId);
-      if (!agent) {
+    this._agents.update((list) => {
+      let foundIndex = -1;
+      for (let i = 0; i < list.length; i++) {
+        if (list[i].agentId === request.agentId) {
+          foundIndex = i;
+          break;
+        }
+      }
+      if (foundIndex === -1) {
         // Agent not yet in store (spawn event hasn't arrived yet).
         // Buffer the request — it will be replayed in onAgentSpawned().
         // TASK_2025_255: Prevents silent permission loss from message ordering.
@@ -525,26 +577,27 @@ export class AgentMonitorStore implements OnDestroy {
         const buf = this._pendingPermissionBuffer.get(request.agentId) ?? [];
         buf.push(request);
         this._pendingPermissionBuffer.set(request.agentId, buf);
-        return map;
+        return list;
       }
-      const next = new Map(map);
+
+      const agent = list[foundIndex];
 
       // Auto-expand the card so the user can see and respond to the permission
       const needsExpand = !agent.expanded;
       const order = needsExpand ? this._expandOrder++ : agent.expandedAt;
 
-      next.set(request.agentId, {
+      const next = [...list];
+      next[foundIndex] = {
         ...agent,
         permissionQueue: [...agent.permissionQueue, request],
         expanded: true,
         expandedAt: order,
-      });
+      };
 
-      if (needsExpand) {
-        this.enforceMaxExpanded(next);
-      }
+      const result = needsExpand ? this.enforceMaxExpanded(next) : next;
 
-      return next;
+      // Side-effect: panel open scheduled below
+      return result;
     });
 
     // Also ensure the panel is open so the user sees the permission
@@ -553,38 +606,52 @@ export class AgentMonitorStore implements OnDestroy {
 
   /** Remove a specific permission from the queue by requestId (after user responds). */
   clearPermission(agentId: string, requestId?: string): void {
-    this._agents.update((map) => {
-      const agent = map.get(agentId);
-      if (!agent) return map;
-      const next = new Map(map);
-      next.set(agentId, {
+    this._agents.update((list) => {
+      let foundIndex = -1;
+      for (let i = 0; i < list.length; i++) {
+        if (list[i].agentId === agentId) {
+          foundIndex = i;
+          break;
+        }
+      }
+      if (foundIndex === -1) return list;
+
+      const agent = list[foundIndex];
+      const next = [...list];
+      next[foundIndex] = {
         ...agent,
         permissionQueue: requestId
           ? agent.permissionQueue.filter((p) => p.requestId !== requestId)
           : agent.permissionQueue.slice(1),
-      });
+      };
       return next;
     });
   }
 
   toggleAgentExpanded(agentId: string): void {
-    this._agents.update((map) => {
-      const agent = map.get(agentId);
-      if (!agent) return map;
+    this._agents.update((list) => {
+      let foundIndex = -1;
+      for (let i = 0; i < list.length; i++) {
+        if (list[i].agentId === agentId) {
+          foundIndex = i;
+          break;
+        }
+      }
+      if (foundIndex === -1) return list;
 
-      const next = new Map(map);
+      const agent = list[foundIndex];
+      const next = [...list];
 
       if (agent.expanded) {
         // Collapsing — just toggle off
-        next.set(agentId, { ...agent, expanded: false, expandedAt: undefined });
-      } else {
-        // Expanding — assign order and enforce max-2 rule
-        const order = this._expandOrder++;
-        next.set(agentId, { ...agent, expanded: true, expandedAt: order });
-        this.enforceMaxExpanded(next);
+        next[foundIndex] = { ...agent, expanded: false, expandedAt: undefined };
+        return next;
       }
 
-      return next;
+      // Expanding — assign order and enforce max-2 rule
+      const order = this._expandOrder++;
+      next[foundIndex] = { ...agent, expanded: true, expandedAt: order };
+      return this.enforceMaxExpanded(next);
     });
   }
 
@@ -597,24 +664,25 @@ export class AgentMonitorStore implements OnDestroy {
    *   ID is reused). Only matches non-running agents in the same parent session.
    */
   private findReplacementCard(
-    map: Map<string, MonitoredAgent>,
+    list: readonly MonitoredAgent[],
     info: AgentProcessInfo,
-  ): [string, MonitoredAgent] | null {
+  ): MonitoredAgent | null {
     // Strategy 1: explicit resumedFromAgentId
-    if (info.resumedFromAgentId && map.has(info.resumedFromAgentId)) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      return [info.resumedFromAgentId, map.get(info.resumedFromAgentId)!];
+    if (info.resumedFromAgentId) {
+      for (const a of list) {
+        if (a.agentId === info.resumedFromAgentId) return a;
+      }
     }
 
     // Strategy 2: match by cliSessionId within the same parent session
     if (info.cliSessionId) {
-      for (const [id, agent] of map) {
+      for (const a of list) {
         if (
-          agent.cliSessionId === info.cliSessionId &&
-          agent.parentSessionId === info.parentSessionId &&
-          agent.status !== 'running'
+          a.cliSessionId === info.cliSessionId &&
+          a.parentSessionId === info.parentSessionId &&
+          a.status !== 'running'
         ) {
-          return [id, agent];
+          return a;
         }
       }
     }
@@ -625,25 +693,31 @@ export class AgentMonitorStore implements OnDestroy {
   /**
    * Enforce that at most MAX_EXPANDED_AGENTS are expanded at once.
    * Collapses the oldest expanded card(s) when the limit is exceeded.
-   * Mutates the provided map in place (caller creates the new Map).
+   * Returns a new array (does not mutate the input).
    */
-  private enforceMaxExpanded(map: Map<string, MonitoredAgent>): void {
-    const expanded = Array.from(map.values()).filter((a) => a.expanded);
-    if (expanded.length <= MAX_EXPANDED_AGENTS) return;
+  private enforceMaxExpanded(
+    list: readonly MonitoredAgent[],
+  ): MonitoredAgent[] {
+    const expanded = list.filter((a) => a.expanded);
+    if (expanded.length <= MAX_EXPANDED_AGENTS) return [...list];
 
     // Sort by expandedAt ascending — oldest first
-    expanded.sort((a, b) => (a.expandedAt ?? 0) - (b.expandedAt ?? 0));
+    const sortedExpanded = [...expanded].sort(
+      (a, b) => (a.expandedAt ?? 0) - (b.expandedAt ?? 0),
+    );
 
-    // Collapse the oldest until we're at the limit
-    const toCollapse = expanded.length - MAX_EXPANDED_AGENTS;
+    // Identify oldest agentIds to collapse
+    const toCollapse = sortedExpanded.length - MAX_EXPANDED_AGENTS;
+    const collapseIds = new Set<string>();
     for (let i = 0; i < toCollapse; i++) {
-      const agent = expanded[i];
-      map.set(agent.agentId, {
-        ...agent,
-        expanded: false,
-        expandedAt: undefined,
-      });
+      collapseIds.add(sortedExpanded[i].agentId);
     }
+
+    return list.map((a) =>
+      collapseIds.has(a.agentId)
+        ? { ...a, expanded: false, expandedAt: undefined }
+        : a,
+    );
   }
 
   /**
@@ -659,26 +733,25 @@ export class AgentMonitorStore implements OnDestroy {
   ): void {
     if (cliSessions.length === 0) return;
 
-    this._agents.update((map) => {
+    this._agents.update((list) => {
       // Preserve all existing agents — tab-scoped filtering handles display.
       // Only clear stale non-running agents for THIS session to allow fresh reload.
-      const next = new Map(map);
-      if (parentSessionId) {
-        for (const [id, agent] of next) {
-          if (
-            agent.parentSessionId === parentSessionId &&
-            agent.status !== 'running'
-          ) {
-            next.delete(id);
-          }
-        }
-      }
+      let next: MonitoredAgent[] = list.filter((a) => {
+        if (parentSessionId === undefined) return true;
+        if (a.parentSessionId !== parentSessionId) return true;
+        return a.status === 'running';
+      });
+
+      const existingIds = new Set(next.map((a) => a.agentId));
 
       for (const ref of cliSessions) {
         // Skip if a live agent with same ID is already running
-        if (!next.has(ref.agentId)) {
-          const ts = new Date(ref.startedAt).getTime();
-          next.set(ref.agentId, {
+        if (existingIds.has(ref.agentId)) continue;
+
+        const ts = new Date(ref.startedAt).getTime();
+        next = [
+          ...next,
+          {
             agentId: ref.agentId,
             cli: ref.cli,
             task: ref.task,
@@ -693,8 +766,9 @@ export class AgentMonitorStore implements OnDestroy {
             parentSessionId,
             ptahCliId: ref.ptahCliId,
             permissionQueue: [],
-          });
-        }
+          },
+        ];
+        existingIds.add(ref.agentId);
       }
       return next;
     });
@@ -711,25 +785,19 @@ export class AgentMonitorStore implements OnDestroy {
    * Running agents are preserved (they'll complete in the background).
    */
   clearSessionAgents(sessionId: string): void {
-    this._agents.update((map) => {
-      let changed = false;
-      const next = new Map(map);
-      for (const [id, agent] of next) {
-        if (agent.parentSessionId === sessionId && agent.status !== 'running') {
-          next.delete(id);
-          changed = true;
-        }
-      }
-      return changed ? next : map;
+    this._agents.update((list) => {
+      const next = list.filter(
+        (a) => !(a.parentSessionId === sessionId && a.status !== 'running'),
+      );
+      // Reference equality optimisation: only emit a new array when something changed.
+      return next.length === list.length ? list : next;
     });
   }
 
   removeAgent(agentId: string): void {
-    this._agents.update((map) => {
-      if (!map.has(agentId)) return map;
-      const next = new Map(map);
-      next.delete(agentId);
-      return next;
+    this._agents.update((list) => {
+      const next = list.filter((a) => a.agentId !== agentId);
+      return next.length === list.length ? list : next;
     });
   }
 
@@ -740,32 +808,24 @@ export class AgentMonitorStore implements OnDestroy {
    * AgentProcessManager.resolveParentSessionId().
    */
   resolveParentSessionId(tabId: string, realSessionId: string): void {
-    this._agents.update((map) => {
+    this._agents.update((list) => {
       let changed = false;
-      const next = new Map(map);
-      for (const [id, agent] of next) {
-        if (agent.parentSessionId === tabId) {
-          next.set(id, { ...agent, parentSessionId: realSessionId });
+      const next = list.map((a) => {
+        if (a.parentSessionId === tabId) {
           changed = true;
+          return { ...a, parentSessionId: realSessionId };
         }
-      }
-      return changed ? next : map;
+        return a;
+      });
+      return changed ? next : list;
     });
   }
 
   clearCompleted(): void {
-    this._agents.update((map) => {
-      const next = new Map(map);
-      for (const [id, agent] of next) {
-        if (agent.status !== 'running') {
-          next.delete(id);
-        }
-      }
-      return next;
-    });
+    this._agents.update((list) => list.filter((a) => a.status === 'running'));
 
     // Reset explicit-close flag when all agents cleared — next spawn will auto-open
-    if (this._agents().size === 0) {
+    if (this._agents().length === 0) {
       this._userExplicitlyClosed = false;
     }
 
@@ -775,22 +835,17 @@ export class AgentMonitorStore implements OnDestroy {
   /**
    * Clear completed/failed agents belonging to a specific session.
    * Used by embedded agent panels to scope clear operations per session.
-   * Uses `changed` flag to avoid unnecessary signal notifications (matches clearSessionAgents pattern).
+   * Reference-equality optimisation avoids unnecessary signal notifications.
    */
   clearCompletedInSession(sessionId: string): void {
-    this._agents.update((map) => {
-      let changed = false;
-      const next = new Map(map);
-      for (const [id, agent] of next) {
-        if (agent.parentSessionId === sessionId && agent.status !== 'running') {
-          next.delete(id);
-          changed = true;
-        }
-      }
-      return changed ? next : map;
+    this._agents.update((list) => {
+      const next = list.filter(
+        (a) => !(a.parentSessionId === sessionId && a.status !== 'running'),
+      );
+      return next.length === list.length ? list : next;
     });
 
-    if (this._agents().size === 0) {
+    if (this._agents().length === 0) {
       this._userExplicitlyClosed = false;
     }
 
