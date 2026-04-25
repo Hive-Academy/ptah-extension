@@ -1,5 +1,4 @@
 import { InjectionToken, type WritableSignal } from '@angular/core';
-import type { StreamingState } from '@ptah-extension/chat-types';
 import type {
   AgentPackInfoDto,
   AgentRecommendation,
@@ -22,6 +21,7 @@ import type {
   EnhancedPromptsWizardStatus,
   ErrorState,
   GenerationProgress,
+  PhaseStreamingEntry,
   ProjectContext,
   ScanProgress,
   SkillGenerationProgressItem,
@@ -55,7 +55,7 @@ export interface WizardInternalState {
   readonly analysisStream: WritableSignal<AnalysisStreamPayload[]>;
   readonly generationStream: WritableSignal<GenerationStreamPayload[]>;
   readonly enhanceStream: WritableSignal<AnalysisStreamPayload[]>;
-  readonly phaseStreamingStates: WritableSignal<Map<string, StreamingState>>;
+  readonly phaseStreamingStates: WritableSignal<readonly PhaseStreamingEntry[]>;
 
   // === Multi-phase progress (C7b — TASK_2025_154) ===
   readonly currentPhaseNumber: WritableSignal<number | null>;

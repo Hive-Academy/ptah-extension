@@ -5,20 +5,26 @@ import {
 } from '@ptah-extension/chat-types';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 import type { WritableSignal } from '@angular/core';
+import type { PhaseStreamingEntry } from '../setup-wizard-state.types';
 
 /**
  * WizardStreamAccumulator — accumulates FlatStreamEventUnion events into
- * per-phase {@link StreamingState} maps so ExecutionNode tree rendering
+ * per-phase {@link StreamingState} entries so ExecutionNode tree rendering
  * can operate off a stable structure.
  *
  * Mirrors the accumulation logic in ChatStore's streaming handler but is
  * kept here so the wizard can evolve its own accumulation rules without
  * being coupled to chat. TASK_2025_229.
+ *
+ * Wave F2 (TASK_2026_103): storage shape is now `readonly PhaseStreamingEntry[]`
+ * (was `Map<string, StreamingState>`). Updates always replace the full list
+ * — every consumer gets a fresh array reference, ruling out the
+ * Map-clone-or-skip class of bug.
  */
 export class WizardStreamAccumulator {
   public constructor(
     private readonly phaseStreamingStates: WritableSignal<
-      Map<string, StreamingState>
+      readonly PhaseStreamingEntry[]
     >,
   ) {}
 
@@ -30,9 +36,9 @@ export class WizardStreamAccumulator {
   public accumulate(event: FlatStreamEventUnion): void {
     const phaseKey = event.messageId;
 
-    this.phaseStreamingStates.update((statesMap) => {
-      const newMap = new Map(statesMap);
-      const prev = newMap.get(phaseKey);
+    this.phaseStreamingStates.update((entries) => {
+      const idx = entries.findIndex((e) => e.phaseKey === phaseKey);
+      const prev = idx >= 0 ? entries[idx].state : undefined;
 
       // Clone or create StreamingState — never mutate the previous reference.
       // This ensures Angular signal consumers detect changes correctly.
@@ -142,13 +148,18 @@ export class WizardStreamAccumulator {
           break;
       }
 
-      newMap.set(phaseKey, state);
-      return newMap;
+      const updated: PhaseStreamingEntry = { phaseKey, state };
+      if (idx >= 0) {
+        const next = [...entries];
+        next[idx] = updated;
+        return next;
+      }
+      return [...entries, updated];
     });
   }
 
   /** Reset all accumulated per-phase streaming states (used on generation start). */
   public reset(): void {
-    this.phaseStreamingStates.set(new Map());
+    this.phaseStreamingStates.set([]);
   }
 }

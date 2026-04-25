@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import { type StreamingState } from '@ptah-extension/chat-types';
 import type {
@@ -34,6 +34,7 @@ import type {
   EnhancedPromptsWizardStatus,
   ErrorState,
   GenerationProgress,
+  PhaseStreamingEntry,
   ProjectContext,
   ScanProgress,
   SkillGenerationProgressItem,
@@ -115,10 +116,20 @@ export class SetupWizardStateService {
   );
   private readonly scanProgressSignal = signal<ScanProgress | null>(null);
   private readonly analysisStreamSignal = signal<AnalysisStreamPayload[]>([]);
-  // TASK_2025_229: per-phase StreamingState maps keyed by phase messageId.
+  // TASK_2025_229 / Wave F2: per-phase StreamingState entries keyed by phase
+  // messageId. Stored as an immutable list so Angular's reference-equality
+  // change detection always sees a new array on update; the byId computed
+  // below provides O(1) lookup for the rare consumer that needs it.
   private readonly phaseStreamingStatesSignal = signal<
-    Map<string, StreamingState>
-  >(new Map());
+    readonly PhaseStreamingEntry[]
+  >([]);
+  private readonly phaseStreamingStatesByIdSignal = computed(() => {
+    const m = new Map<string, StreamingState>();
+    for (const entry of this.phaseStreamingStatesSignal()) {
+      m.set(entry.phaseKey, entry.state);
+    }
+    return m;
+  });
   private readonly generationStreamSignal = signal<GenerationStreamPayload[]>(
     [],
   );
@@ -197,6 +208,9 @@ export class SetupWizardStateService {
   public readonly analysisStream = this.analysisStreamSignal.asReadonly();
   public readonly phaseStreamingStates =
     this.phaseStreamingStatesSignal.asReadonly();
+  /** O(1) lookup by phaseKey. Derived from {@link phaseStreamingStates}. */
+  public readonly phaseStreamingStatesById =
+    this.phaseStreamingStatesByIdSignal;
   public readonly generationStream = this.generationStreamSignal.asReadonly();
   public readonly enhanceStream = this.enhanceStreamSignal.asReadonly();
   public readonly analysisResults = this.analysisResultsSignal.asReadonly();
@@ -526,7 +540,7 @@ export class SetupWizardStateService {
     // Direct-set: signals owned by C7b helpers without reset() methods.
     this.scanProgressSignal.set(null);
     this.analysisStreamSignal.set([]);
-    this.phaseStreamingStatesSignal.set(new Map()); // TASK_2025_229
+    this.phaseStreamingStatesSignal.set([]); // TASK_2025_229 / Wave F2
     this.generationStreamSignal.set([]);
     this.enhanceStreamSignal.set([]);
   }

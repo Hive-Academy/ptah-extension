@@ -135,7 +135,7 @@ export class AnalysisTranscriptComponent {
    * Each phase gets its own tree so users can see the full analysis history.
    */
   protected readonly allPhaseTrees = computed(() => {
-    const statesMap = this.wizardState.phaseStreamingStates();
+    const entries = this.wizardState.phaseStreamingStates();
     const scanProgress = this.wizardState.scanProgress();
     const currentPhase = scanProgress?.currentPhase;
     const currentPhaseKey = currentPhase
@@ -148,7 +148,7 @@ export class AnalysisTranscriptComponent {
       isActive: boolean;
     }> = [];
 
-    for (const [phaseKey, state] of statesMap) {
+    for (const { phaseKey, state } of entries) {
       if (state.events.size === 0) continue;
       result.push({
         phaseKey,
