@@ -30,7 +30,7 @@ import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
 import { BatchedUpdateService } from './batched-update.service';
-import type { StreamingState, TabState } from '../chat.types';
+import type { StreamingState, TabState } from '@ptah-extension/chat-types';
 
 function makeStreamingState(
   overrides: Partial<StreamingState> = {},

@@ -22,7 +22,7 @@ import { TabManagerService } from '../tab-manager.service';
 import { MessageSenderService } from '../message-sender.service';
 import { ConversationService } from './conversation.service';
 import { PermissionHandlerService } from './permission-handler.service';
-import type { TabState } from '../chat.types';
+import type { TabState } from '@ptah-extension/chat-types';
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
   return {

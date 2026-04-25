@@ -17,7 +17,7 @@ import {
   PtahCliStateService,
 } from '@ptah-extension/core';
 import { createExecutionChatMessage, SessionId } from '@ptah-extension/shared';
-import type { SendMessageOptions } from '../chat.types';
+import type { SendMessageOptions } from '@ptah-extension/chat-types';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { StreamingHandlerService } from './streaming-handler.service';

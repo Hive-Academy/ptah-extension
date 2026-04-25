@@ -27,7 +27,7 @@ import {
   createEmptyStreamingState,
   StreamingState,
   AccumulatorKeys,
-} from '../chat.types';
+} from '@ptah-extension/chat-types';
 
 // Child services
 import { EventDeduplicationService } from './event-deduplication.service';

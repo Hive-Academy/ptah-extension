@@ -2,7 +2,7 @@ import { computed, Injectable, signal } from '@angular/core';
 import {
   createEmptyStreamingState,
   type StreamingState,
-} from '@ptah-extension/chat';
+} from '@ptah-extension/chat-types';
 import type {
   AvailableAgent,
   FlatStreamEventUnion,

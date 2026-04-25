@@ -34,7 +34,7 @@ import {
 import { TabManagerService } from './tab-manager.service';
 import { SessionManager } from './session-manager.service';
 import { MessageValidationService } from './message-validation.service';
-import type { SendMessageOptions } from './chat.types';
+import type { SendMessageOptions } from '@ptah-extension/chat-types';
 
 /**
  * Centralized service for sending messages

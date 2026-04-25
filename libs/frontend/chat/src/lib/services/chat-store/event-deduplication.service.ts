@@ -15,7 +15,7 @@ import {
   EventSource,
   MessageStartEvent,
 } from '@ptah-extension/shared';
-import type { StreamingState } from '../chat.types';
+import type { StreamingState } from '@ptah-extension/chat-types';
 
 @Injectable({ providedIn: 'root' })
 export class EventDeduplicationService {

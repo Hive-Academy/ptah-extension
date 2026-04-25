@@ -22,7 +22,7 @@ import { StreamingHandlerService } from './streaming-handler.service';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';
-import type { TabState } from '../chat.types';
+import type { TabState } from '@ptah-extension/chat-types';
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
   return {

@@ -19,7 +19,7 @@ import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
 import { SessionLoaderService } from './session-loader.service';
-import type { TabState } from '../chat.types';
+import type { TabState } from '@ptah-extension/chat-types';
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
   return {

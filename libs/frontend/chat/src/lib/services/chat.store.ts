@@ -24,7 +24,7 @@ import { SessionStatsAggregatorService } from './chat-store/session-stats-aggreg
 import { ChatLifecycleService } from './chat-store/chat-lifecycle.service';
 import { MessageSenderService } from './message-sender.service';
 import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
-import { TabState, SendMessageOptions } from './chat.types';
+import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
 
 /**
  * ChatStore - Facade for chat state management.

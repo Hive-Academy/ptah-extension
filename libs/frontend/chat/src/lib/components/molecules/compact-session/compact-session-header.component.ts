@@ -5,7 +5,7 @@ import {
   computed,
 } from '@angular/core';
 import { LucideAngularModule, Zap, CheckCircle, Circle } from 'lucide-angular';
-import type { SessionStatus } from '../../../services/chat.types';
+import type { SessionStatus } from '@ptah-extension/chat-types';
 
 /**
  * CompactSessionHeaderComponent - Title bar for the compact session card.

@@ -28,7 +28,7 @@ import { SessionManager } from '../session-manager.service';
 import { TabManagerService } from '../tab-manager.service';
 import { StreamingHandlerService } from './streaming-handler.service';
 import { AgentMonitorStore } from '../agent-monitor.store';
-import { createEmptyStreamingState } from '../chat.types';
+import { createEmptyStreamingState } from '@ptah-extension/chat-types';
 
 /**
  * Cached session list state for a single workspace.

@@ -4,7 +4,7 @@ import {
   input,
   computed,
 } from '@angular/core';
-import type { StreamingState } from '../../../services/chat.types';
+import type { StreamingState } from '@ptah-extension/chat-types';
 
 /**
  * CompactSessionTextComponent - Shows the latest assistant text output (truncated).

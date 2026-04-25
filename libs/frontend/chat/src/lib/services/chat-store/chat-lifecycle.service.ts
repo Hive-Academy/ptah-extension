@@ -6,7 +6,7 @@ import { SessionManager } from '../session-manager.service';
 import { SessionLoaderService } from './session-loader.service';
 import { StreamingHandlerService } from './streaming-handler.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
-import { TabState } from '../chat.types';
+import { TabState } from '@ptah-extension/chat-types';
 
 /**
  * ChatLifecycleService - Cross-cutting reactive lifecycle work.

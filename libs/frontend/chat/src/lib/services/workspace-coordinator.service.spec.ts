@@ -17,7 +17,7 @@ import { WorkspaceCoordinatorService } from './workspace-coordinator.service';
 import { TabManagerService } from './tab-manager.service';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { SessionLoaderService } from './chat-store/session-loader.service';
-import type { TabState } from './chat.types';
+import type { TabState } from '@ptah-extension/chat-types';
 
 type TabManagerSlice = Pick<
   TabManagerService,

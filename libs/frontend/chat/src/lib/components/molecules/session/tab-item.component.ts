@@ -6,7 +6,7 @@ import {
   computed,
 } from '@angular/core';
 import { LucideAngularModule, X, Minimize2, Maximize2 } from 'lucide-angular';
-import { TabState } from '../../../services/chat.types';
+import { TabState } from '@ptah-extension/chat-types';
 
 /**
  * TabItemComponent - Chrome-style individual tab

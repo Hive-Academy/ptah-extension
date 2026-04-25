@@ -33,7 +33,7 @@ import {
   PtahCliStateService,
   VSCodeService,
 } from '@ptah-extension/core';
-import type { TabState } from '../chat.types';
+import type { TabState } from '@ptah-extension/chat-types';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {

@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { TabState } from './chat.types';
+import { TabState } from '@ptah-extension/chat-types';
 
 /**
  * Internal type for a workspace's tab set stored in the workspace tab map.
@@ -153,7 +153,7 @@ export class TabWorkspacePartitionService {
   switchWorkspace(
     workspacePath: string,
     currentTabs: TabState[],
-    currentActiveTabId: string | null
+    currentActiveTabId: string | null,
   ): { tabs: TabState[]; activeTabId: string | null } | null {
     // No-op if switching to already-active workspace
     if (this._activeWorkspacePath === workspacePath) return null;
@@ -238,7 +238,7 @@ export class TabWorkspacePartitionService {
    */
   findTabBySessionIdAcrossWorkspaces(
     sessionId: string,
-    activeTabs?: TabState[]
+    activeTabs?: TabState[],
   ): TabLookupResult | null {
     // O(1) fast path: check reverse index first
     const indexedWsPath = this._sessionToWorkspace.get(sessionId);
@@ -481,7 +481,7 @@ export class TabWorkspacePartitionService {
    * Returns null if no persisted state exists.
    */
   private _loadWorkspaceTabsFromStorage(
-    workspacePath: string
+    workspacePath: string,
   ): WorkspaceTabSet | null {
     try {
       const key = this._getWorkspaceStorageKey(workspacePath);
@@ -515,7 +515,7 @@ export class TabWorkspacePartitionService {
    */
   private _saveWorkspaceTabsToStorage(
     workspacePath: string,
-    tabSet: WorkspaceTabSet
+    tabSet: WorkspaceTabSet,
   ): void {
     try {
       const key = this._getWorkspaceStorageKey(workspacePath);
@@ -528,7 +528,7 @@ export class TabWorkspacePartitionService {
     } catch (error) {
       console.warn(
         `[TabWorkspacePartition] Failed to save background workspace tab state:`,
-        error
+        error,
       );
     }
   }
@@ -540,7 +540,7 @@ export class TabWorkspacePartitionService {
    */
   private _debouncedBackgroundSave(
     workspacePath: string,
-    tabSet: WorkspaceTabSet
+    tabSet: WorkspaceTabSet,
   ): void {
     // Cancel any pending save for this workspace
     const existingTimer = this._backgroundSaveTimers.get(workspacePath);
@@ -602,12 +602,12 @@ export class TabWorkspacePartitionService {
       localStorage.removeItem(this._legacyStorageKey);
 
       console.log(
-        `[TabWorkspacePartition] Migrated global tab state to workspace: ${firstWorkspacePath}`
+        `[TabWorkspacePartition] Migrated global tab state to workspace: ${firstWorkspacePath}`,
       );
     } catch (error) {
       console.warn(
         '[TabWorkspacePartition] Failed to migrate global tab state:',
-        error
+        error,
       );
     }
   }

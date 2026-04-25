@@ -14,7 +14,7 @@ import type {
   FlatStreamEventUnion,
   MessageStartEvent,
 } from '@ptah-extension/shared';
-import type { StreamingState } from '../chat.types';
+import type { StreamingState } from '@ptah-extension/chat-types';
 
 function makeState(): StreamingState {
   return {

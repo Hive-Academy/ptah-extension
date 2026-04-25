@@ -11,7 +11,7 @@ import { TestBed } from '@angular/core/testing';
 import { CompletionHandlerService } from './completion-handler.service';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
-import type { TabState } from '../chat.types';
+import type { TabState } from '@ptah-extension/chat-types';
 
 type TabManagerSlice = Pick<
   TabManagerService,

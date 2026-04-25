@@ -24,7 +24,7 @@ import {
 import { VSCodeService } from '@ptah-extension/core';
 import { PermissionHandlerService } from './permission-handler.service';
 import { TabManagerService } from '../tab-manager.service';
-import type { StreamingState } from '../chat.types';
+import type { StreamingState } from '@ptah-extension/chat-types';
 
 interface TabManagerSignalsMock {
   activeTabId: ReturnType<typeof signal<string | null>>;

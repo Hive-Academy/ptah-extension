@@ -10,7 +10,7 @@
 import { TestBed } from '@angular/core/testing';
 import { BatchedUpdateService } from './batched-update.service';
 import { TabManagerService } from '../tab-manager.service';
-import type { StreamingState } from '../chat.types';
+import type { StreamingState } from '@ptah-extension/chat-types';
 
 type TabManagerSlice = Pick<TabManagerService, 'updateTab'>;
 

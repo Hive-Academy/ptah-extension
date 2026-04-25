@@ -1,5 +1,5 @@
 import type { WritableSignal } from '@angular/core';
-import type { StreamingState } from '@ptah-extension/chat';
+import type { StreamingState } from '@ptah-extension/chat-types';
 import type {
   AgentPackInfoDto,
   AgentRecommendation,

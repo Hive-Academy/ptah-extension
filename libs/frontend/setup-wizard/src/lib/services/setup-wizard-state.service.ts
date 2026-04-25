@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
-import { type StreamingState } from '@ptah-extension/chat';
+import { type StreamingState } from '@ptah-extension/chat-types';
 import type {
   AgentPackInfoDto,
   AgentRecommendation,

@@ -17,7 +17,7 @@
 import { Injectable, inject } from '@angular/core';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
-import { TabState } from '../chat.types';
+import { TabState } from '@ptah-extension/chat-types';
 
 @Injectable({ providedIn: 'root' })
 export class CompletionHandlerService {

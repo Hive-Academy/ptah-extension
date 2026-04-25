@@ -1,6 +1,6 @@
 import { Injectable, signal, computed, inject, Injector } from '@angular/core';
 import { ModelStateService } from '@ptah-extension/core';
-import { TabState, TabViewMode } from './chat.types';
+import { TabState, TabViewMode } from '@ptah-extension/chat-types';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { StreamingHandlerService } from './chat-store/streaming-handler.service';
 import { AgentMonitorStore } from './agent-monitor.store';

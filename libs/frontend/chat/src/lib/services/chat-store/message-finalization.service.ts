@@ -23,7 +23,7 @@ import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
 import { BatchedUpdateService } from './batched-update.service';
-import type { StreamingState } from '../chat.types';
+import type { StreamingState } from '@ptah-extension/chat-types';
 
 @Injectable({ providedIn: 'root' })
 export class MessageFinalizationService {

@@ -32,7 +32,7 @@ import { SessionManager } from '../session-manager.service';
 import { SessionLoaderService } from './session-loader.service';
 import { StreamingHandlerService } from './streaming-handler.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
-import type { TabState, StreamingState } from '../chat.types';
+import type { TabState, StreamingState } from '@ptah-extension/chat-types';
 
 function makeStreamingState(
   overrides: Partial<StreamingState> = {},

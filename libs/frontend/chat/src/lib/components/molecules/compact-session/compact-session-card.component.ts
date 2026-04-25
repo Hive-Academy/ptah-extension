@@ -17,7 +17,7 @@ import { CompactSessionHeaderComponent } from './compact-session-header.componen
 import { CompactSessionStatsComponent } from './compact-session-stats.component';
 import { CompactSessionActivityComponent } from './compact-session-activity.component';
 import { CompactSessionInputComponent } from './compact-session-input.component';
-import type { TabState } from '../../../services/chat.types';
+import type { TabState } from '@ptah-extension/chat-types';
 import { ChatStore } from '../../../services/chat.store';
 import { TabManagerService } from '../../../services/tab-manager.service';
 import type {

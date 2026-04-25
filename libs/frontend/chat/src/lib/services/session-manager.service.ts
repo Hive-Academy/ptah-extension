@@ -4,7 +4,7 @@ import {
   NodeMaps,
   SessionState as SessionStateInterface,
   SessionStatus,
-} from './chat.types';
+} from '@ptah-extension/chat-types';
 
 /**
  * Session state machine values

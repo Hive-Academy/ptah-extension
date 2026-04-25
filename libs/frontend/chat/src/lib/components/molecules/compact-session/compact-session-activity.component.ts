@@ -28,7 +28,7 @@ import { generateAgentColor } from '../../../utils/agent-color.utils';
 import type {
   StreamingState,
   AgentContentBlock,
-} from '../../../services/chat.types';
+} from '@ptah-extension/chat-types';
 import type {
   ExecutionChatMessage,
   ExecutionNode,

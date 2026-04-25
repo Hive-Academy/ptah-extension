@@ -1,7 +1,7 @@
 import {
   createEmptyStreamingState,
   type StreamingState,
-} from '@ptah-extension/chat';
+} from '@ptah-extension/chat-types';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 import type { WritableSignal } from '@angular/core';
 

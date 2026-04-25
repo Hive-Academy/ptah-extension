@@ -15,7 +15,9 @@ export { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 // SessionManager - Session lifecycle and node map management (TASK_2025_023 Phase 4)
 export { SessionManager } from './session-manager.service';
 
-// Chat types - Shared interfaces for ChatStore refactoring
+// Chat types - Shared interfaces moved to @ptah-extension/chat-types lib (TASK_2026_103 Wave B3).
+// Re-exported here for backwards compatibility with existing barrel imports; new code should
+// import directly from '@ptah-extension/chat-types'.
 export {
   createEmptyStreamingState,
   type StreamingState,
@@ -24,7 +26,7 @@ export {
   type SessionState,
   type SessionLoadResult,
   type TabViewMode,
-} from './chat.types';
+} from '@ptah-extension/chat-types';
 
 // ConfirmationDialogService - Custom confirmation dialog for VS Code webview
 export {

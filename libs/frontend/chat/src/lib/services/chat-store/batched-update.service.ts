@@ -11,7 +11,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { TabManagerService } from '../tab-manager.service';
-import type { StreamingState } from '../chat.types';
+import type { StreamingState } from '@ptah-extension/chat-types';
 
 @Injectable({ providedIn: 'root' })
 export class BatchedUpdateService {
