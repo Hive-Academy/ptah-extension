@@ -49,14 +49,19 @@ export async function launchPtah(
     );
   }
 
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    NODE_ENV: 'test',
+    PTAH_E2E: '1',
+    ...(opts.env ?? {}),
+  };
+  // Strip ELECTRON_RUN_AS_NODE: when set, electron.exe impersonates Node and
+  // `import { app } from 'electron'` returns nothing usable, breaking the launcher.
+  delete env.ELECTRON_RUN_AS_NODE;
+
   return _electron.launch({
     args: [entry, ...(opts.args ?? [])],
-    env: {
-      ...process.env,
-      NODE_ENV: 'test',
-      PTAH_E2E: '1',
-      ...(opts.env ?? {}),
-    },
+    env: env as Record<string, string>,
     timeout: opts.timeout ?? 30_000,
   });
 }
