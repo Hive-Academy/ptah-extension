@@ -1,4 +1,9 @@
-import { Component, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  input,
+  output,
+} from '@angular/core';
 import { OverlayModule, ConnectedPosition } from '@angular/cdk/overlay';
 import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
 
@@ -36,6 +41,7 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
 @Component({
   selector: 'ptah-dropdown',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [OverlayModule],
   template: `
     <div cdkOverlayOrigin #trigger="cdkOverlayOrigin">

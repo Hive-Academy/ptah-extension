@@ -1,4 +1,5 @@
 import {
+  ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
   ElementRef,
@@ -34,6 +35,7 @@ import { Highlightable } from '@angular/cdk/a11y';
 @Component({
   selector: 'ptah-option',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[id]': 'optionId()',
     class: 'block px-3 py-2 rounded-md cursor-pointer transition-colors',

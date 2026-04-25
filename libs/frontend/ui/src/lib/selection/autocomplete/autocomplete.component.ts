@@ -1,4 +1,5 @@
 import {
+  ChangeDetectionStrategy,
   Component,
   input,
   output,
@@ -53,6 +54,7 @@ import { AUTOCOMPLETE_POSITIONS } from '../../overlays/shared/overlay-positions'
 @Component({
   selector: 'ptah-autocomplete',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [OverlayModule, OptionComponent, NgTemplateOutlet],
   template: `
     <div cdkOverlayOrigin #inputOrigin="cdkOverlayOrigin">
