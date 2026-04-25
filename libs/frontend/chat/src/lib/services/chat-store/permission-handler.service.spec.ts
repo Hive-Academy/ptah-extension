@@ -197,6 +197,94 @@ describe('PermissionHandlerService', () => {
       } as never);
       expect(service.consumeHardDenyToolUseIds().size).toBe(0);
     });
+
+    it('forwards deny_with_message + reason payload (auto-deny mid-stream path)', () => {
+      // message-dispatch.service.ts:73-82 — when a new user message arrives
+      // mid-stream, all in-flight permissions are auto-resolved with
+      // `decision: 'deny_with_message'` and `reason: <user content>` so the
+      // SDK keeps running rather than being killed.
+      service.handlePermissionRequest(makePermissionRequest({ id: 'req-mid' }));
+      service.handlePermissionResponse({
+        id: 'req-mid',
+        decision: 'deny_with_message',
+        reason: 'do this instead',
+      } as never);
+
+      expect(service.permissionRequests()).toEqual([]);
+      expect(vscodePostMessage).toHaveBeenCalledWith({
+        type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE,
+        response: {
+          id: 'req-mid',
+          decision: 'deny_with_message',
+          reason: 'do this instead',
+        },
+      });
+      // deny_with_message is NOT a hard deny — must not mark for interruption.
+      expect(service.consumeHardDenyToolUseIds().size).toBe(0);
+    });
+
+    it('resolves multiple in-flight requests independently (no cross-leak)', () => {
+      const reqA = makePermissionRequest({
+        id: 'req-A',
+        toolUseId: 'tool-A',
+        sessionId: 'sess-1',
+      });
+      const reqB = makePermissionRequest({
+        id: 'req-B',
+        toolUseId: 'tool-B',
+        sessionId: 'sess-1',
+      });
+      const reqC = makePermissionRequest({
+        id: 'req-C',
+        toolUseId: 'tool-C',
+        sessionId: 'sess-2',
+      });
+
+      service.handlePermissionRequest(reqA);
+      service.handlePermissionRequest(reqB);
+      service.handlePermissionRequest(reqC);
+      expect(service.permissionRequests()).toHaveLength(3);
+
+      // Resolve B with allow — A and C must remain.
+      service.handlePermissionResponse({
+        id: 'req-B',
+        decision: 'allow',
+      } as never);
+      expect(service.permissionRequests().map((r) => r.id)).toEqual([
+        'req-A',
+        'req-C',
+      ]);
+
+      // Resolve A with deny_with_message — only C remains.
+      service.handlePermissionResponse({
+        id: 'req-A',
+        decision: 'deny_with_message',
+        reason: 'changed my mind',
+      } as never);
+      expect(service.permissionRequests().map((r) => r.id)).toEqual(['req-C']);
+
+      // Resolve C with hard deny — list now empty, only C marks hardDeny.
+      service.handlePermissionResponse({
+        id: 'req-C',
+        decision: 'deny',
+      } as never);
+      expect(service.permissionRequests()).toEqual([]);
+
+      // The two RPCs that were sent must each carry their own id/decision —
+      // verify no payload mixing across resolutions.
+      const responses = vscodePostMessage.mock.calls.map(
+        (c) => (c[0] as { response: unknown }).response,
+      );
+      expect(responses).toEqual([
+        { id: 'req-B', decision: 'allow' },
+        {
+          id: 'req-A',
+          decision: 'deny_with_message',
+          reason: 'changed my mind',
+        },
+        { id: 'req-C', decision: 'deny' },
+      ]);
+    });
   });
 
   describe('handlePermissionAutoResolved', () => {
