@@ -140,7 +140,6 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 
 import type { DependencyContainer } from 'tsyringe';
 import type {
-  LicenseService,
   Logger,
   RpcHandler,
   SentryService,

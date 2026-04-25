@@ -99,18 +99,18 @@ test.describe('GitWatcherService workspace events', () => {
     const setupOk = await electronApp.evaluate(async (_app, dir) => {
       try {
         const fsMod = await import('node:fs');
-        (globalThis as any).__gwBroadcasts = [] as Array<{
-          type: string;
-          payload: unknown;
-          ts: number;
-        }>;
+        const g = globalThis as unknown as {
+          __gwBroadcasts: BroadcastEntry[];
+          __gwWatcher: import('node:fs').FSWatcher | null;
+        };
+        g.__gwBroadcasts = [];
         // Minimal raw fs.watch that mirrors GitWatcherService's recursive
         // workspace watcher. This avoids reaching into bundled ESM internals.
         const watcher = fsMod.watch(
           dir,
           { recursive: true },
-          (eventType: string, filename: string | null) => {
-            (globalThis as any).__gwBroadcasts.push({
+          (eventType, filename) => {
+            g.__gwBroadcasts.push({
               type:
                 eventType === 'rename'
                   ? 'file:tree-changed'
@@ -120,7 +120,7 @@ test.describe('GitWatcherService workspace events', () => {
             });
           },
         );
-        (globalThis as any).__gwWatcher = watcher;
+        g.__gwWatcher = watcher;
         return true;
       } catch (err) {
         return String(err);
@@ -134,14 +134,19 @@ test.describe('GitWatcherService workspace events', () => {
     await mainWindow.waitForTimeout(500);
 
     const events = (await electronApp.evaluate(
-      () => (globalThis as any).__gwBroadcasts as BroadcastEntry[],
+      () =>
+        (globalThis as unknown as { __gwBroadcasts: BroadcastEntry[] })
+          .__gwBroadcasts,
     )) as BroadcastEntry[];
     expect(events.length).toBeGreaterThan(0);
     expect(events.some((e) => e.type === 'file:tree-changed')).toBe(true);
 
     await electronApp.evaluate(() => {
-      (globalThis as any).__gwWatcher?.close?.();
-      (globalThis as any).__gwWatcher = null;
+      const g = globalThis as unknown as {
+        __gwWatcher: { close?: () => void } | null;
+      };
+      g.__gwWatcher?.close?.();
+      g.__gwWatcher = null;
     });
   });
 
@@ -156,24 +161,21 @@ test.describe('GitWatcherService workspace events', () => {
 
     await electronApp.evaluate(async (_app, dir) => {
       const fsMod = await import('node:fs');
-      (globalThis as any).__gwBroadcasts2 = [] as Array<{
-        type: string;
-        payload: unknown;
-      }>;
-      const w = fsMod.watch(
-        dir,
-        { recursive: true },
-        (eventType: string, filename: string | null) => {
-          (globalThis as any).__gwBroadcasts2.push({
-            type:
-              eventType === 'change'
-                ? 'file:content-changed'
-                : 'file:tree-changed',
-            payload: { filename, eventType },
-          });
-        },
-      );
-      (globalThis as any).__gwWatcher2 = w;
+      const g = globalThis as unknown as {
+        __gwBroadcasts2: Array<{ type: string; payload: unknown }>;
+        __gwWatcher2: import('node:fs').FSWatcher | null;
+      };
+      g.__gwBroadcasts2 = [];
+      const w = fsMod.watch(dir, { recursive: true }, (eventType, filename) => {
+        g.__gwBroadcasts2.push({
+          type:
+            eventType === 'change'
+              ? 'file:content-changed'
+              : 'file:tree-changed',
+          payload: { filename, eventType },
+        });
+      });
+      g.__gwWatcher2 = w;
     }, tmpDir);
 
     // Allow watcher to settle.
@@ -182,13 +184,18 @@ test.describe('GitWatcherService workspace events', () => {
     await mainWindow.waitForTimeout(500);
 
     const events = (await electronApp.evaluate(
-      () => (globalThis as any).__gwBroadcasts2 as BroadcastEntry[],
+      () =>
+        (globalThis as unknown as { __gwBroadcasts2: BroadcastEntry[] })
+          .__gwBroadcasts2,
     )) as BroadcastEntry[];
     expect(events.length).toBeGreaterThan(0);
 
     await electronApp.evaluate(() => {
-      (globalThis as any).__gwWatcher2?.close?.();
-      (globalThis as any).__gwWatcher2 = null;
+      const g = globalThis as unknown as {
+        __gwWatcher2: { close?: () => void } | null;
+      };
+      g.__gwWatcher2?.close?.();
+      g.__gwWatcher2 = null;
     });
   });
 
@@ -203,19 +210,23 @@ test.describe('GitWatcherService workspace events', () => {
 
     await electronApp.evaluate(async (_app, dir) => {
       const fsMod = await import('node:fs');
-      (globalThis as any).__gwBroadcasts3 = [] as Array<{ type: string }>;
+      const g = globalThis as unknown as {
+        __gwBroadcasts3: Array<{ type: string }>;
+        __gwWatcher3: import('node:fs').FSWatcher | null;
+      };
+      g.__gwBroadcasts3 = [];
       const w = fsMod.watch(
         dir,
         { recursive: true },
-        (eventType: string, filename: string | null) => {
+        (eventType, _filename) => {
           if (eventType === 'rename') {
-            (globalThis as any).__gwBroadcasts3.push({
+            g.__gwBroadcasts3.push({
               type: 'file:tree-changed',
             });
           }
         },
       );
-      (globalThis as any).__gwWatcher3 = w;
+      g.__gwWatcher3 = w;
     }, tmpDir);
 
     await mainWindow.waitForTimeout(150);
@@ -223,13 +234,18 @@ test.describe('GitWatcherService workspace events', () => {
     await mainWindow.waitForTimeout(500);
 
     const events = (await electronApp.evaluate(
-      () => (globalThis as any).__gwBroadcasts3 as Array<{ type: string }>,
+      () =>
+        (globalThis as unknown as { __gwBroadcasts3: Array<{ type: string }> })
+          .__gwBroadcasts3,
     )) as Array<{ type: string }>;
     expect(events.some((e) => e.type === 'file:tree-changed')).toBe(true);
 
     await electronApp.evaluate(() => {
-      (globalThis as any).__gwWatcher3?.close?.();
-      (globalThis as any).__gwWatcher3 = null;
+      const g = globalThis as unknown as {
+        __gwWatcher3: { close?: () => void } | null;
+      };
+      g.__gwWatcher3?.close?.();
+      g.__gwWatcher3 = null;
     });
   });
 
@@ -247,18 +263,22 @@ test.describe('GitWatcherService workspace events', () => {
     // within 100ms to coalesce into a single content-change push.
     await electronApp.evaluate(async (_app, dir) => {
       const fsMod = await import('node:fs');
-      (globalThis as any).__gwPushes = 0;
+      const g = globalThis as unknown as {
+        __gwPushes: number;
+        __gwWatcher4: import('node:fs').FSWatcher | null;
+      };
+      g.__gwPushes = 0;
       let pending: NodeJS.Timeout | null = null;
       const DEBOUNCE = 500;
-      const w = fsMod.watch(dir, { recursive: true }, (eventType: string) => {
+      const w = fsMod.watch(dir, { recursive: true }, (eventType) => {
         if (eventType !== 'change') return;
         if (pending) clearTimeout(pending);
         pending = setTimeout(() => {
-          (globalThis as any).__gwPushes += 1;
+          g.__gwPushes += 1;
           pending = null;
         }, DEBOUNCE);
       });
-      (globalThis as any).__gwWatcher4 = w;
+      g.__gwWatcher4 = w;
     }, tmpDir);
 
     await mainWindow.waitForTimeout(150);
@@ -273,15 +293,18 @@ test.describe('GitWatcherService workspace events', () => {
     await mainWindow.waitForTimeout(900);
 
     const pushes = (await electronApp.evaluate(
-      () => (globalThis as any).__gwPushes as number,
+      () => (globalThis as unknown as { __gwPushes: number }).__gwPushes,
     )) as number;
 
     // Burst should coalesce — exactly one push expected.
     expect(pushes).toBe(1);
 
     await electronApp.evaluate(() => {
-      (globalThis as any).__gwWatcher4?.close?.();
-      (globalThis as any).__gwWatcher4 = null;
+      const g = globalThis as unknown as {
+        __gwWatcher4: { close?: () => void } | null;
+      };
+      g.__gwWatcher4?.close?.();
+      g.__gwWatcher4 = null;
     });
   });
 });

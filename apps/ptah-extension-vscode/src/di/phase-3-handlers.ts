@@ -19,7 +19,7 @@
 
 import type { DependencyContainer } from 'tsyringe';
 
-import { TOKENS } from '@ptah-extension/vscode-core';
+import { TOKENS, GitInfoService } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -47,7 +47,6 @@ import {
   PtahCliRpcHandlers, // TASK_2025_167
   SkillsShRpcHandlers, // TASK_2025_204
   McpDirectoryRpcHandlers, // MCP Server Directory
-  WebSearchRpcHandlers, // TASK_2025_235
   HarnessRpcHandlers,
 } from '../services/rpc';
 
@@ -63,6 +62,15 @@ export function registerPhase3Handlers(
   // ========================================
   // PHASE 1.6: RPC Domain Handlers (TASK_2025_074)
   // ========================================
+
+  // TASK_2026_104 Sub-batch B5b: GitInfoService is required by the lifted
+  // shared GitRpcHandlers (registered via SHARED_HANDLERS in
+  // `@ptah-extension/rpc-handlers`). Registered here in Phase 3 so it is
+  // available before the shared handler fan-out resolves it.
+  container.register(TOKENS.GIT_INFO_SERVICE, {
+    useFactory: (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),
+  });
+
   // Register all domain-specific RPC handler classes. These are consumed by
   // `RpcMethodRegistrationService` to delegate per-domain RPC registration.
   container.registerSingleton(ChatRpcHandlers);

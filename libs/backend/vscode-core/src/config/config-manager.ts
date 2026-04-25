@@ -99,7 +99,12 @@ export class ConfigManager {
    */
   get<T>(key: string): T | undefined {
     if (this.isFileBased(key)) {
-      return this.fileStore!.get<T>(key);
+      if (!this.fileStore) {
+        throw new Error(
+          `ConfigManager.get: file-based key "${key}" requested but fileStore is not configured`,
+        );
+      }
+      return this.fileStore.get<T>(key);
     }
     const config = vscode.workspace.getConfiguration(this.configNamespace);
     return config.get<T>(key);
@@ -115,7 +120,12 @@ export class ConfigManager {
    */
   getWithDefault<T>(key: string, defaultValue: T): T {
     if (this.isFileBased(key)) {
-      return this.fileStore!.get<T>(key, defaultValue) ?? defaultValue;
+      if (!this.fileStore) {
+        throw new Error(
+          `ConfigManager.getWithDefault: file-based key "${key}" requested but fileStore is not configured`,
+        );
+      }
+      return this.fileStore.get<T>(key, defaultValue) ?? defaultValue;
     }
     const config = vscode.workspace.getConfiguration(this.configNamespace);
     return config.get<T>(key, defaultValue);
@@ -133,7 +143,12 @@ export class ConfigManager {
   getTyped<T>(key: string, schema: z.ZodSchema<T>): T {
     // Route file-based settings to PtahFileSettingsManager (~/.ptah/settings.json)
     if (this.isFileBased(key)) {
-      const value = this.fileStore!.get(key);
+      if (!this.fileStore) {
+        throw new Error(
+          `ConfigManager.getTyped: file-based key "${key}" requested but fileStore is not configured`,
+        );
+      }
+      const value = this.fileStore.get(key);
       try {
         return schema.parse(value);
       } catch (error) {
@@ -195,7 +210,12 @@ export class ConfigManager {
   ): Promise<void> {
     // Route file-based settings to PtahFileSettingsManager (~/.ptah/settings.json)
     if (this.isFileBased(key)) {
-      await this.fileStore!.set(key, value);
+      if (!this.fileStore) {
+        throw new Error(
+          `ConfigManager.set: file-based key "${key}" requested but fileStore is not configured`,
+        );
+      }
+      await this.fileStore.set(key, value);
       // Manually notify watchers since VS Code won't fire a change event
       const watcher = this.watchers.get(key);
       if (watcher) {

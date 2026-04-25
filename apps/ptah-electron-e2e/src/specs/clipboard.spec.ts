@@ -1,3 +1,4 @@
+import type { ElectronApplication } from '@playwright/test';
 import { test, expect } from '../support/fixtures';
 
 /**
@@ -12,8 +13,11 @@ import { test, expect } from '../support/fixtures';
  * round-trip text reliably (navigator.clipboard.readText() can flake).
  */
 
-async function writeViaIpc(electronApp: any, text: string): Promise<void> {
-  await electronApp.evaluate(({ ipcMain, BrowserWindow }: any, t: string) => {
+async function writeViaIpc(
+  electronApp: ElectronApplication,
+  text: string,
+): Promise<void> {
+  await electronApp.evaluate(({ ipcMain, BrowserWindow }, t) => {
     const win = BrowserWindow.getAllWindows()[0];
     ipcMain.emit(
       'clipboard:write-text',
@@ -23,11 +27,15 @@ async function writeViaIpc(electronApp: any, text: string): Promise<void> {
   }, text);
 }
 
-async function readMainClipboard(electronApp: any): Promise<string> {
-  return electronApp.evaluate(({ clipboard }: any) => clipboard.readText());
+async function readMainClipboard(
+  electronApp: ElectronApplication,
+): Promise<string> {
+  return electronApp.evaluate(({ clipboard }) => clipboard.readText());
 }
 
-async function invokeReadHandler(electronApp: any): Promise<string> {
+async function invokeReadHandler(
+  electronApp: ElectronApplication,
+): Promise<string> {
   // ipcMain.handle wires both the public invoke channel and an internal
   // synchronous fallback. Easiest cross-version path: read main's clipboard
   // directly (which is what the handler returns).
@@ -53,7 +61,7 @@ test.describe('clipboard IPC channels', () => {
     await mainWindow.waitForLoadState('domcontentloaded');
     const seed = `seed-${Math.random().toString(36).slice(2)}`;
     // Seed main's clipboard directly, then verify the read path mirrors it.
-    await electronApp.evaluate(({ clipboard }: any, t: string) => {
+    await electronApp.evaluate(({ clipboard }, t) => {
       clipboard.writeText(t);
     }, seed);
     const observed = await invokeReadHandler(electronApp);

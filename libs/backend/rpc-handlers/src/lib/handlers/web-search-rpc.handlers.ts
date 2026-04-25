@@ -203,7 +203,7 @@ export class WebSearchRpcHandlers {
 
         // Use Promise.race for a 10-second timeout, clearing the timer afterward
         const searchPromise = adapter.search('test', 1);
-        let timeoutId: ReturnType<typeof setTimeout>;
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
         const timeoutPromise = new Promise<never>((_, reject) => {
           timeoutId = setTimeout(
             () => reject(new Error('Search test timed out after 10 seconds')),
@@ -214,7 +214,9 @@ export class WebSearchRpcHandlers {
         try {
           await Promise.race([searchPromise, timeoutPromise]);
         } finally {
-          clearTimeout(timeoutId!);
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+          }
         }
 
         this.logger.info('Web search test succeeded', { provider });

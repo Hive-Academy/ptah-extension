@@ -110,7 +110,8 @@ test.describe('rpc channel envelope', () => {
     expect(res.type).toBe('rpc:response');
     expect(res.success).toBe(false);
     expect(typeof res.error).toBe('string');
-    expect(res.error!.length).toBeGreaterThan(0);
+    if (!res.error) throw new Error('expected res.error to be a string');
+    expect(res.error.length).toBeGreaterThan(0);
   });
 
   test('invalid method (empty string) is treated as fire-and-forget (no rpc:response)', async ({

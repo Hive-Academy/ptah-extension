@@ -107,7 +107,10 @@ test.describe('webview state IPC', () => {
       try {
         // A function on the state object isn't structured-cloneable; the
         // storage adapter typically JSON-stringifies, dropping or erroring.
-        const naughty: any = { ok: 'value', fn: () => 42 };
+        const naughty: Record<string, unknown> = {
+          ok: 'value',
+          fn: () => 42,
+        };
         ipcMain.emit(
           'set-state',
           { sender: win?.webContents } as Electron.IpcMainEvent,

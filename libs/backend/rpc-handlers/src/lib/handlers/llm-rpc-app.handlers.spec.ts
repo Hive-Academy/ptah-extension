@@ -51,11 +51,7 @@
 import 'reflect-metadata';
 
 import type { DependencyContainer } from 'tsyringe';
-import type {
-  ConfigManager,
-  Logger,
-  SentryService,
-} from '@ptah-extension/vscode-core';
+import type { Logger, SentryService } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import {
   createMockConfigManager,
@@ -68,7 +64,6 @@ import {
 import {
   PLATFORM_TOKENS,
   type IModelDiscovery,
-  type ISecretStorage,
 } from '@ptah-extension/platform-core';
 import {
   createMockSecretStorage,

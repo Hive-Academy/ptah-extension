@@ -151,7 +151,12 @@ export const appConfig: ApplicationConfig = {
         // and explicit { type: 'classic' } to ensure importScripts() works.
         const monacoVsUrl = new URL('./assets/monaco/vs', window.location.href)
           .href;
-        (self as any).MonacoEnvironment = {
+        const monacoSelf = self as typeof self & {
+          MonacoEnvironment?: {
+            getWorker: (moduleId: string, label: string) => Worker;
+          };
+        };
+        monacoSelf.MonacoEnvironment = {
           getWorker: (_moduleId: string, _label: string) => {
             const workerUrl = `${monacoVsUrl}/base/worker/workerMain.js`;
             const js = `self.MonacoEnvironment = { baseUrl: '${monacoVsUrl}/' };\nimportScripts('${workerUrl}');`;

@@ -55,7 +55,6 @@ function asLogger(mock: MockLogger): Logger {
 const WORKSPACE = '/workspace/my-project';
 // escapePath: replace [:\\/] with '-'
 const ESCAPED = '-workspace-my-project';
-const SESSIONS_DIR = `/home/testuser/.claude/projects/${ESCAPED}`;
 
 // Access the mocked fs.promises surface — cast once to typed handles so the
 // tests stay `as any`-free.

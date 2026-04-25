@@ -61,7 +61,7 @@ function copyRecursive(src, dst) {
       let stat;
       try {
         stat = fs.statSync(srcPath);
-      } catch (err) {
+      } catch {
         console.warn(`[copy-renderer] Skipping broken symlink: ${srcPath}`);
         continue;
       }

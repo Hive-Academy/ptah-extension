@@ -19,16 +19,8 @@ import type {
   RpcHandler,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
-import {
-  SDK_TOKENS,
-  ANTHROPIC_PROVIDERS,
-  DEFAULT_PROVIDER_ID,
-} from '@ptah-extension/agent-sdk';
+import { SDK_TOKENS, DEFAULT_PROVIDER_ID } from '@ptah-extension/agent-sdk';
 import type { ConfigManager } from '@ptah-extension/vscode-core';
-
-/** Last-resort fallback when no user preference is stored and SDK init hasn't run.
- *  'default' lets the SDK resolve to its current default model dynamically. */
-const DEFAULT_MODEL = 'default';
 
 @injectable()
 export class ConfigExtendedRpcHandlers {
@@ -43,7 +35,6 @@ export class ConfigExtendedRpcHandlers {
     this.initializePermissionHandler();
     this.registerSetApiKey();
     this.registerGetStatus();
-    this.registerGetApiKeyStatus();
   }
 
   /**
@@ -129,48 +120,6 @@ export class ConfigExtendedRpcHandlers {
           provider: DEFAULT_PROVIDER_ID,
           hasApiKey: false,
         };
-      }
-    });
-  }
-
-  /** auth:getApiKeyStatus — list all providers with their key presence */
-  private registerGetApiKeyStatus(): void {
-    this.rpcHandler.registerMethod<
-      Record<string, never>,
-      {
-        providers: Array<{
-          provider: string;
-          displayName: string;
-          hasApiKey: boolean;
-          isDefault: boolean;
-        }>;
-      }
-    >('auth:getApiKeyStatus', async () => {
-      try {
-        const authSecrets = this.container.resolve<IAuthSecretsService>(
-          TOKENS.AUTH_SECRETS_SERVICE,
-        );
-        const configManager = this.container.resolve<ConfigManager>(
-          TOKENS.CONFIG_MANAGER,
-        );
-        const activeProvider = configManager.getWithDefault<string>(
-          'anthropicProviderId',
-          DEFAULT_PROVIDER_ID,
-        );
-        const providers = await Promise.all(
-          ANTHROPIC_PROVIDERS.map(async (p) => ({
-            provider: p.id,
-            displayName: p.name,
-            hasApiKey: await authSecrets.hasProviderKey(p.id),
-            isDefault: p.id === activeProvider,
-          })),
-        );
-        return { providers };
-      } catch (error) {
-        this.logger.error('[Electron RPC] auth:getApiKeyStatus failed', {
-          error: error instanceof Error ? error.message : String(error),
-        } as unknown as Error);
-        return { providers: [] };
       }
     });
   }

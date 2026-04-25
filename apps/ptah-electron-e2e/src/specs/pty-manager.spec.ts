@@ -51,15 +51,19 @@ test.describe('PTY Manager terminal IPC', () => {
     // do not miss the shell prompt banner. We capture into a main-process
     // collector that the test reads after a short wait.
     await electronApp.evaluate(({ BrowserWindow }) => {
-      const win = BrowserWindow.getAllWindows()[0]!;
-      (globalThis as any).__ptyDataOut = [] as Array<{
-        id: string;
-        data: string;
-      }>;
-      const orig = win.webContents.send.bind(win.webContents);
-      (win.webContents as any).send = (channel: string, ...args: unknown[]) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) throw new Error('No BrowserWindow available');
+      const g = globalThis as unknown as {
+        __ptyDataOut: Array<{ id: string; data: string }>;
+      };
+      g.__ptyDataOut = [];
+      const patchable = win.webContents as unknown as {
+        send: (channel: string, ...args: unknown[]) => void;
+      };
+      const orig = patchable.send.bind(win.webContents);
+      patchable.send = (channel: string, ...args: unknown[]) => {
         if (channel === 'terminal:data-out') {
-          (globalThis as any).__ptyDataOut.push({
+          g.__ptyDataOut.push({
             id: args[0] as string,
             data: args[1] as string,
           });
@@ -75,14 +79,19 @@ test.describe('PTY Manager terminal IPC', () => {
 
     expect(created?.data?.id).toBeTruthy();
     expect(created?.data?.pid).toBeGreaterThan(0);
-    const sessionId = created.data!.id;
+    if (!created.data) throw new Error('terminal:create returned no data');
+    const sessionId = created.data.id;
 
     // Wait briefly for shell banner / prompt.
     await mainWindow.waitForTimeout(800);
 
     const out = await electronApp.evaluate(
       () =>
-        (globalThis as any).__ptyDataOut as Array<{ id: string; data: string }>,
+        (
+          globalThis as unknown as {
+            __ptyDataOut: Array<{ id: string; data: string }>;
+          }
+        ).__ptyDataOut,
     );
     const matched = out.filter((e) => e.id === sessionId);
     expect(matched.length).toBeGreaterThan(0);
@@ -101,12 +110,17 @@ test.describe('PTY Manager terminal IPC', () => {
     await mainWindow.waitForLoadState('domcontentloaded');
 
     await electronApp.evaluate(({ BrowserWindow }) => {
-      const win = BrowserWindow.getAllWindows()[0]!;
-      (globalThis as any).__ptyDataOut2 = '' as string;
-      const orig = win.webContents.send.bind(win.webContents);
-      (win.webContents as any).send = (channel: string, ...args: unknown[]) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) throw new Error('No BrowserWindow available');
+      const g = globalThis as unknown as { __ptyDataOut2: string };
+      g.__ptyDataOut2 = '';
+      const patchable = win.webContents as unknown as {
+        send: (channel: string, ...args: unknown[]) => void;
+      };
+      const orig = patchable.send.bind(win.webContents);
+      patchable.send = (channel: string, ...args: unknown[]) => {
         if (channel === 'terminal:data-out') {
-          (globalThis as any).__ptyDataOut2 += args[1] as string;
+          g.__ptyDataOut2 += args[1] as string;
         }
         orig(channel, ...args);
       };
@@ -128,7 +142,7 @@ test.describe('PTY Manager terminal IPC', () => {
     await mainWindow.waitForTimeout(1500);
 
     const buf = await electronApp.evaluate(
-      () => (globalThis as any).__ptyDataOut2 as string,
+      () => (globalThis as unknown as { __ptyDataOut2: string }).__ptyDataOut2,
     );
     expect(buf).toContain('ptahE2EHello');
 
@@ -178,15 +192,19 @@ test.describe('PTY Manager terminal IPC', () => {
     await mainWindow.waitForLoadState('domcontentloaded');
 
     await electronApp.evaluate(({ BrowserWindow }) => {
-      const win = BrowserWindow.getAllWindows()[0]!;
-      (globalThis as any).__ptyExits = [] as Array<{
-        id: string;
-        code: number;
-      }>;
-      const orig = win.webContents.send.bind(win.webContents);
-      (win.webContents as any).send = (channel: string, ...args: unknown[]) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) throw new Error('No BrowserWindow available');
+      const g = globalThis as unknown as {
+        __ptyExits: Array<{ id: string; code: number }>;
+      };
+      g.__ptyExits = [];
+      const patchable = win.webContents as unknown as {
+        send: (channel: string, ...args: unknown[]) => void;
+      };
+      const orig = patchable.send.bind(win.webContents);
+      patchable.send = (channel: string, ...args: unknown[]) => {
         if (channel === 'terminal:exit') {
-          (globalThis as any).__ptyExits.push({
+          g.__ptyExits.push({
             id: args[0] as string,
             code: args[1] as number,
           });
@@ -211,7 +229,11 @@ test.describe('PTY Manager terminal IPC', () => {
 
     const exits = await electronApp.evaluate(
       () =>
-        (globalThis as any).__ptyExits as Array<{ id: string; code: number }>,
+        (
+          globalThis as unknown as {
+            __ptyExits: Array<{ id: string; code: number }>;
+          }
+        ).__ptyExits,
     );
     expect(exits.some((e) => e.id === sessionId)).toBe(true);
   });
@@ -254,12 +276,17 @@ test.describe('PTY Manager terminal IPC', () => {
     await mainWindow.waitForLoadState('domcontentloaded');
 
     await electronApp.evaluate(({ BrowserWindow }) => {
-      const win = BrowserWindow.getAllWindows()[0]!;
-      (globalThis as any).__ptyUtf = '' as string;
-      const orig = win.webContents.send.bind(win.webContents);
-      (win.webContents as any).send = (channel: string, ...args: unknown[]) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) throw new Error('No BrowserWindow available');
+      const g = globalThis as unknown as { __ptyUtf: string };
+      g.__ptyUtf = '';
+      const patchable = win.webContents as unknown as {
+        send: (channel: string, ...args: unknown[]) => void;
+      };
+      const orig = patchable.send.bind(win.webContents);
+      patchable.send = (channel: string, ...args: unknown[]) => {
         if (channel === 'terminal:data-out') {
-          (globalThis as any).__ptyUtf += args[1] as string;
+          g.__ptyUtf += args[1] as string;
         }
         orig(channel, ...args);
       };
@@ -280,7 +307,7 @@ test.describe('PTY Manager terminal IPC', () => {
     await mainWindow.waitForTimeout(1200);
 
     const buf = await electronApp.evaluate(
-      () => (globalThis as any).__ptyUtf as string,
+      () => (globalThis as unknown as { __ptyUtf: string }).__ptyUtf,
     );
     // The shell may echo the literal command; either echo of input or output
     // should contain our non-ASCII char.
@@ -300,15 +327,19 @@ test.describe('PTY Manager terminal IPC', () => {
     await mainWindow.waitForLoadState('domcontentloaded');
 
     await electronApp.evaluate(({ BrowserWindow }) => {
-      const win = BrowserWindow.getAllWindows()[0]!;
-      (globalThis as any).__ptyExits2 = [] as Array<{
-        id: string;
-        code: number;
-      }>;
-      const orig = win.webContents.send.bind(win.webContents);
-      (win.webContents as any).send = (channel: string, ...args: unknown[]) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) throw new Error('No BrowserWindow available');
+      const g = globalThis as unknown as {
+        __ptyExits2: Array<{ id: string; code: number }>;
+      };
+      g.__ptyExits2 = [];
+      const patchable = win.webContents as unknown as {
+        send: (channel: string, ...args: unknown[]) => void;
+      };
+      const orig = patchable.send.bind(win.webContents);
+      patchable.send = (channel: string, ...args: unknown[]) => {
         if (channel === 'terminal:exit') {
-          (globalThis as any).__ptyExits2.push({
+          g.__ptyExits2.push({
             id: args[0] as string,
             code: args[1] as number,
           });
@@ -334,7 +365,11 @@ test.describe('PTY Manager terminal IPC', () => {
 
     const exits = await electronApp.evaluate(
       () =>
-        (globalThis as any).__ptyExits2 as Array<{ id: string; code: number }>,
+        (
+          globalThis as unknown as {
+            __ptyExits2: Array<{ id: string; code: number }>;
+          }
+        ).__ptyExits2,
     );
     expect(exits.some((e) => e.id === sessionId)).toBe(true);
   });

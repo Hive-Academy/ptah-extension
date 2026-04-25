@@ -1,6 +1,21 @@
 import type { ElectronApplication } from '@playwright/test';
 
 /**
+ * Shape of an RPC request payload sent on the 'rpc' channel.
+ * The test harness allows a generic envelope so callers can pass
+ * fire-and-forget bodies (no `payload`) as well as standard `rpc:call`s.
+ */
+export interface RpcCallEnvelope {
+  type?: string;
+  payload?: {
+    method?: string;
+    params?: unknown;
+    correlationId?: string;
+  };
+  correlationId?: string;
+}
+
+/**
  * Test helper that bridges Playwright tests with the Electron main process
  * IPC layer. All operations use `electronApp.evaluate()` to run code inside
  * the Electron main process, where `ipcMain` and `BrowserWindow` are
@@ -33,12 +48,12 @@ export class RpcBridge {
    */
   async sendRpc(
     channel: string,
-    payload: any,
+    payload: RpcCallEnvelope,
     timeoutMs = 10_000,
   ): Promise<unknown> {
     const correlationId =
-      (payload?.payload?.correlationId as string | undefined) ??
-      (payload?.correlationId as string | undefined) ??
+      payload?.payload?.correlationId ??
+      payload?.correlationId ??
       `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     // Ensure the correlationId we wait for is on the payload.
@@ -64,18 +79,18 @@ export class RpcBridge {
 
           // Intercept the next 'to-renderer' send by monkey-patching webContents.send.
           // We restore the original after capturing the matching response.
-          const originalSend = win.webContents.send.bind(win.webContents);
-          (win.webContents as any).send = (
-            sendChannel: string,
-            ...sendArgs: unknown[]
-          ) => {
+          const patchable = win.webContents as unknown as {
+            send: (channel: string, ...args: unknown[]) => void;
+          };
+          const originalSend = patchable.send.bind(win.webContents);
+          patchable.send = (sendChannel: string, ...sendArgs: unknown[]) => {
             if (sendChannel === 'to-renderer') {
               const message = sendArgs[0] as
                 | { correlationId?: string }
                 | undefined;
               if (message?.correlationId === args.correlationId) {
                 clearTimeout(timer);
-                (win.webContents as any).send = originalSend;
+                patchable.send = originalSend;
                 resolve(message);
                 return;
               }
@@ -140,8 +155,12 @@ export class RpcBridge {
         ) as (msg: unknown) => boolean;
 
         return await new Promise<unknown>((resolve, reject) => {
+          const patchable = win.webContents as unknown as {
+            send: (channel: string, ...args: unknown[]) => void;
+          };
+          const originalSend = patchable.send.bind(win.webContents);
           const timer = setTimeout(() => {
-            (win.webContents as any).send = originalSend;
+            patchable.send = originalSend;
             reject(
               new Error(
                 `[RpcBridge] waitForRendererMessage timed out after ${args.timeoutMs}ms`,
@@ -149,17 +168,13 @@ export class RpcBridge {
             );
           }, args.timeoutMs);
 
-          const originalSend = win.webContents.send.bind(win.webContents);
-          (win.webContents as any).send = (
-            sendChannel: string,
-            ...sendArgs: unknown[]
-          ) => {
+          patchable.send = (sendChannel: string, ...sendArgs: unknown[]) => {
             if (sendChannel === 'to-renderer') {
               const message = sendArgs[0];
               try {
                 if (predicate(message)) {
                   clearTimeout(timer);
-                  (win.webContents as any).send = originalSend;
+                  patchable.send = originalSend;
                   resolve(message);
                   return;
                 }

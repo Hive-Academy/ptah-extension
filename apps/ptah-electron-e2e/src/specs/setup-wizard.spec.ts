@@ -1,3 +1,4 @@
+import type { ElectronApplication } from '@playwright/test';
 import { test, expect } from '../support/fixtures';
 
 /**
@@ -24,17 +25,23 @@ interface CapturedMsg {
   message: { type?: string; payload?: { view?: string } };
 }
 
-async function installRendererSpy(electronApp: any): Promise<void> {
-  await electronApp.evaluate(({ BrowserWindow }: any) => {
-    const win = BrowserWindow.getAllWindows()[0]!;
-    (globalThis as any).__rendererCapture = [] as Array<{
-      channel: string;
-      message: unknown;
-    }>;
-    const orig = win.webContents.send.bind(win.webContents);
-    (win.webContents as any).send = (channel: string, ...args: unknown[]) => {
+async function installRendererSpy(
+  electronApp: ElectronApplication,
+): Promise<void> {
+  await electronApp.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (!win) throw new Error('No BrowserWindow available');
+    const g = globalThis as unknown as {
+      __rendererCapture: Array<{ channel: string; message: unknown }>;
+    };
+    g.__rendererCapture = [];
+    const patchable = win.webContents as unknown as {
+      send: (channel: string, ...args: unknown[]) => void;
+    };
+    const orig = patchable.send.bind(win.webContents);
+    patchable.send = (channel: string, ...args: unknown[]) => {
       if (channel === 'to-renderer') {
-        (globalThis as any).__rendererCapture.push({
+        g.__rendererCapture.push({
           channel,
           message: args[0],
         });
@@ -44,9 +51,13 @@ async function installRendererSpy(electronApp: any): Promise<void> {
   });
 }
 
-async function readCaptured(electronApp: any): Promise<CapturedMsg[]> {
+async function readCaptured(
+  electronApp: ElectronApplication,
+): Promise<CapturedMsg[]> {
   return (await electronApp.evaluate(
-    () => (globalThis as any).__rendererCapture as CapturedMsg[],
+    () =>
+      (globalThis as unknown as { __rendererCapture: CapturedMsg[] })
+        .__rendererCapture,
   )) as CapturedMsg[];
 }
 
@@ -68,7 +79,8 @@ test.describe('ElectronSetupWizardService', () => {
     // does internally via WebviewManager.broadcastMessage. We simulate the
     // broadcast call by invoking webContents.send (which the spy captures).
     await electronApp.evaluate(({ BrowserWindow }) => {
-      const win = BrowserWindow.getAllWindows()[0]!;
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) throw new Error('No BrowserWindow available');
       win.webContents.send('to-renderer', {
         type: 'switch-view',
         payload: { view: 'setup-wizard' },
@@ -97,7 +109,14 @@ test.describe('ElectronSetupWizardService', () => {
         : '/tmp/fake-wizard-ws';
 
     await electronApp.evaluate(({ dialog }, p) => {
-      (dialog as any).showOpenDialog = async () => ({
+      (
+        dialog as unknown as {
+          showOpenDialog: () => Promise<{
+            canceled: boolean;
+            filePaths: string[];
+          }>;
+        }
+      ).showOpenDialog = async () => ({
         canceled: false,
         filePaths: [p],
       });
@@ -127,7 +146,8 @@ test.describe('ElectronSetupWizardService', () => {
 
     // Simulate the cancelWizard() broadcast.
     await electronApp.evaluate(({ BrowserWindow }) => {
-      const win = BrowserWindow.getAllWindows()[0]!;
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) throw new Error('No BrowserWindow available');
       win.webContents.send('to-renderer', {
         type: 'switch-view',
         payload: { view: 'orchestra-canvas' },

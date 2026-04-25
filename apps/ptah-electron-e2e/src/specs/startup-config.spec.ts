@@ -1,3 +1,4 @@
+import type { ElectronApplication } from '@playwright/test';
 import { test, expect } from '../support/fixtures';
 
 /**
@@ -26,8 +27,10 @@ interface StartupConfig {
   workspaceName: string;
 }
 
-async function readStartupConfig(electronApp: any): Promise<StartupConfig> {
-  return electronApp.evaluate(({ ipcMain, BrowserWindow }: any) => {
+async function readStartupConfig(
+  electronApp: ElectronApplication,
+): Promise<StartupConfig> {
+  return electronApp.evaluate(({ ipcMain, BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows()[0];
     let captured: unknown = undefined;
     const fakeEvent = {

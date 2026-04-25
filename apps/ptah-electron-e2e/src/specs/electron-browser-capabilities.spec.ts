@@ -30,7 +30,14 @@ test.describe('Electron native browser capabilities', () => {
         : '/tmp/fake-workspace';
 
     await electronApp.evaluate(({ dialog }, p) => {
-      (dialog as any).showOpenDialog = async () => ({
+      (
+        dialog as unknown as {
+          showOpenDialog: () => Promise<{
+            canceled: boolean;
+            filePaths: string[];
+          }>;
+        }
+      ).showOpenDialog = async () => ({
         canceled: false,
         filePaths: [p],
       });
@@ -62,7 +69,14 @@ test.describe('Electron native browser capabilities', () => {
     await mainWindow.waitForLoadState('domcontentloaded');
 
     await electronApp.evaluate(({ dialog }) => {
-      (dialog as any).showOpenDialog = async () => ({
+      (
+        dialog as unknown as {
+          showOpenDialog: () => Promise<{
+            canceled: boolean;
+            filePaths: string[];
+          }>;
+        }
+      ).showOpenDialog = async () => ({
         canceled: true,
         filePaths: [],
       });
@@ -92,11 +106,17 @@ test.describe('Electron native browser capabilities', () => {
     // and returns the expected shape — proving the mocking strategy works
     // for any handler that uses it.
     const result = await electronApp.evaluate(async ({ dialog }, p) => {
-      (dialog as any).showSaveDialog = async () => ({
+      const dialogStub = dialog as unknown as {
+        showSaveDialog: (opts: unknown) => Promise<{
+          canceled: boolean;
+          filePath: string;
+        }>;
+      };
+      dialogStub.showSaveDialog = async () => ({
         canceled: false,
         filePath: p,
       });
-      return await (dialog as any).showSaveDialog({});
+      return await dialogStub.showSaveDialog({});
     }, fakeSavePath);
 
     expect((result as { canceled: boolean; filePath: string }).filePath).toBe(
@@ -119,7 +139,13 @@ test.describe('Electron native browser capabilities', () => {
         : '/does-not-exist-ptah/out.json';
 
     const surfaced = await electronApp.evaluate(async ({ dialog }, p) => {
-      (dialog as any).showSaveDialog = async () => ({
+      const dialogStub = dialog as unknown as {
+        showSaveDialog: (opts: unknown) => Promise<{
+          canceled: boolean;
+          filePath: string;
+        }>;
+      };
+      dialogStub.showSaveDialog = async () => ({
         canceled: false,
         filePath: p,
       });
@@ -130,7 +156,7 @@ test.describe('Electron native browser capabilities', () => {
       // directory, and any service that tried to fs.writeFile() to it
       // would surface ENOENT. We assert that the dialog mock returned
       // the bogus path the service would consume.
-      const r = await (dialog as any).showSaveDialog({});
+      const r = await dialogStub.showSaveDialog({});
       return {
         wrote: false,
         code: 'ENOENT',
@@ -152,7 +178,11 @@ test.describe('Electron native browser capabilities', () => {
 
     const ok = await electronApp.evaluate(({ Notification }) => {
       try {
-        if (!(Notification as any).isSupported?.()) {
+        if (
+          !(
+            Notification as unknown as { isSupported?: () => boolean }
+          ).isSupported?.()
+        ) {
           // Treat unsupported environments as a pass — we only verify no-throw.
           return { skipped: true };
         }
