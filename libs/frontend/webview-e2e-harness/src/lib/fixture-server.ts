@@ -119,6 +119,24 @@ function safeJoin(rootDir: string, urlPath: string): string | null {
 }
 
 /**
+ * Pipe a file to the response and tear the read stream down if the client
+ * disconnects mid-flight, so an aborted request never leaks an open fd.
+ */
+function streamFile(
+  filePath: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): void {
+  const stream = createReadStream(filePath);
+  const cleanup = (): void => {
+    stream.destroy();
+  };
+  req.on('close', cleanup);
+  stream.on('error', cleanup);
+  stream.pipe(res);
+}
+
+/**
  * Start a static fixture HTTP server that serves the webview build output
  * (or an inline placeholder if the build is missing). The server binds to
  * loopback (`127.0.0.1`) only.
@@ -161,7 +179,7 @@ export async function startFixtureServer(
       const indexPath = safeJoin(rootDir, '/index.html');
       if (indexPath && existsSync(indexPath)) {
         res.writeHead(200, { 'content-type': MIME['.html'] });
-        createReadStream(indexPath).pipe(res);
+        streamFile(indexPath, req, res);
         return;
       }
       res.writeHead(404, { 'content-type': 'text/plain' });
@@ -173,7 +191,7 @@ export async function startFixtureServer(
       const indexCandidate = join(filePath, 'index.html');
       if (existsSync(indexCandidate)) {
         res.writeHead(200, { 'content-type': MIME['.html'] });
-        createReadStream(indexCandidate).pipe(res);
+        streamFile(indexCandidate, req, res);
         return;
       }
       res.writeHead(404, { 'content-type': 'text/plain' });
@@ -187,7 +205,7 @@ export async function startFixtureServer(
       'content-type': contentType,
       'cache-control': 'no-store',
     });
-    createReadStream(filePath).pipe(res);
+    streamFile(filePath, req, res);
   };
 
   const server: Server = createServer(handler);

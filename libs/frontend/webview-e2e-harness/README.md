@@ -2,9 +2,9 @@
 
 Playwright-based end-to-end test harness for the Ptah Angular webview SPA.
 
-This library provides **infrastructure only** — no specs. Spec files are
-authored in P3.B2 (chat-flow) and P3.B3 (session/monitor/settings) and
-land under `src/**/*.e2e.spec.ts`.
+This library provides both the harness infrastructure and the spec
+files. Specs live under `src/lib/scenarios/**/*.e2e.spec.ts` (chat,
+sessions, monitor, settings, command palette).
 
 ## Why this exists
 
@@ -63,9 +63,10 @@ npx nx run webview-e2e-harness:e2e
 
 ## Module-boundary tags
 
-`scope:webview`, `type:util`. Per Nx ESLint rules this library may import
-only from `scope:shared` and other `scope:webview` libs. It must never
-depend on backend or extension-host code.
+`scope:webview`, `type:test-harness`. Per Nx ESLint rules this library
+may import only from `scope:shared` and other `scope:webview` libs, and
+production libs may not import back into it. It must never depend on
+backend or extension-host code.
 
 ## Layout
 
@@ -79,7 +80,11 @@ libs/frontend/webview-e2e-harness/
 │       ├── fixture-server.ts
 │       ├── test-fixtures.ts
 │       └── scenarios/
-│           └── index.ts
+│           ├── chat/*.e2e.spec.ts
+│           ├── command-palette/*.e2e.spec.ts
+│           ├── monitor/*.e2e.spec.ts
+│           ├── sessions/*.e2e.spec.ts
+│           └── settings/*.e2e.spec.ts
 ├── playwright.config.ts
 ├── project.json
 ├── package.json

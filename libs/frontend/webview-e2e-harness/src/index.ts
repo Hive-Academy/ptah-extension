@@ -23,4 +23,3 @@ export {
   type WebviewFixtures,
   type WebviewWorkerFixtures,
 } from './lib/test-fixtures';
-export * from './lib/scenarios';
