@@ -12,6 +12,7 @@ import {
   inject,
   Injector,
   DestroyRef,
+  TemplateRef,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -21,7 +22,10 @@ import {
   StopCircle,
   // TASK_2025_109: PlayCircle removed - Resume button no longer needed
 } from 'lucide-angular';
-import { ExecutionNodeComponent } from './execution-node.component';
+// TASK_2026_103 wave B2: ExecutionNodeComponent import removed to break the
+// execution-node ↔ inline-agent-bubble file-import cycle. Recursive rendering
+// of children is now delegated to a TemplateRef supplied by the parent
+// (ExecutionNodeComponent) via `nodeTemplate` input + ngTemplateOutlet.
 import { TypingCursorComponent } from '../../atoms/typing-cursor.component';
 import { CostBadgeComponent } from '../../atoms/cost-badge.component';
 import { AgentMonitorStore } from '../../../services/agent-monitor.store';
@@ -30,7 +34,7 @@ import type {
   PermissionRequest,
   PermissionResponse,
 } from '@ptah-extension/shared';
-import { NgClass } from '@angular/common';
+import { NgClass, NgTemplateOutlet } from '@angular/common';
 import { formatModelDisplayName } from '@ptah-extension/shared';
 import { TokenBadgeComponent } from '../../atoms/token-badge.component';
 import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
@@ -55,12 +59,12 @@ import { generateAgentColor } from '../../../utils/agent-color.utils';
   selector: 'ptah-inline-agent-bubble',
   imports: [
     LucideAngularModule,
-    ExecutionNodeComponent,
     TypingCursorComponent,
     CostBadgeComponent,
     TokenBadgeComponent,
     DurationBadgeComponent,
     NgClass,
+    NgTemplateOutlet,
   ],
   template: `
     <!-- TASK_2025_109: Enhanced styling for interrupted agents -->
@@ -197,13 +201,17 @@ import { generateAgentColor } from '../../../utils/agent-color.utils';
              instead of a separate block. This ensures agent text is properly
              interleaved with tool calls in chronological order. -->
           @if (hasChildren()) {
-            <!-- Render all children in chronological order (text + tools interleaved) -->
+            <!--
+              TASK_2026_103 wave B2: recursive child rendering is delegated to
+              a parent-supplied TemplateRef to break the file-import cycle
+              between this component and ExecutionNodeComponent. The parent
+              (ExecutionNodeComponent itself) provides the template via the
+              nodeTemplate input; we just stamp it once per child.
+            -->
             @for (child of node().children; track child.id) {
-              <ptah-execution-node
-                [node]="child"
-                [isStreaming]="isStreaming()"
-                [getPermissionForTool]="getPermissionForTool()"
-                (permissionResponded)="permissionResponded.emit($event)"
+              <ng-container
+                [ngTemplateOutlet]="nodeTemplate() ?? null"
+                [ngTemplateOutletContext]="{ $implicit: child }"
               />
             }
             @if (isStreaming()) {
@@ -322,6 +330,17 @@ export class InlineAgentBubbleComponent {
   readonly getPermissionForTool = input<
     ((toolCallId: string) => PermissionRequest | null) | undefined
   >();
+
+  /**
+   * TASK_2026_103 wave B2: parent-supplied template used to recursively render
+   * child execution nodes. Decoupling this template from a static import of
+   * ExecutionNodeComponent breaks the inline-agent-bubble ↔ execution-node
+   * file-import cycle. The parent (ExecutionNodeComponent) passes an
+   * `<ng-template let-child>` whose body invokes `<ptah-execution-node>`.
+   */
+  readonly nodeTemplate = input<TemplateRef<{
+    $implicit: ExecutionNode;
+  }> | null>(null);
 
   /**
    * Emits when user responds to permission request
