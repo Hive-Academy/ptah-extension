@@ -3,8 +3,10 @@
  *
  * Extracted from ExecutionTreeBuilderService (Wave C7f) — owns
  * `buildAgentNode` and `buildInterleavedChildren`. Mutual recursion with
- * MessageNodeBuilderService is resolved via Angular's `inject()` (use-time
- * resolution, not constructor-time).
+ * MessageNodeBuilderService is resolved via lazy `Injector.get()` lookup
+ * inside the method body — class-field `inject()` runs at construction
+ * time and would create a circular DI (NG0200) since MessageNodeBuilder →
+ * ToolNodeBuilder → AgentNodeBuilder.
  *
  * Critical preservation:
  * - MAX_DEPTH early exit + console.warn string byte-identical.
@@ -13,7 +15,7 @@
  * - Field-spread order: ...stats then explicit `model: stats.agentModel`.
  */
 
-import { Injectable, inject } from '@angular/core';
+import { Injectable, Injector, inject } from '@angular/core';
 import type {
   AgentStartEvent,
   ExecutionNode,
@@ -30,8 +32,14 @@ import { MAX_DEPTH } from './execution-tree.constants';
 @Injectable({ providedIn: 'root' })
 export class AgentNodeBuilderService {
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
-  private readonly messageBuilder = inject(MessageNodeBuilderService);
   private readonly agentStats = inject(AgentStatsService);
+  private readonly injector = inject(Injector);
+  private _messageBuilder?: MessageNodeBuilderService;
+  private get messageBuilder(): MessageNodeBuilderService {
+    return (this._messageBuilder ??= this.injector.get(
+      MessageNodeBuilderService,
+    ));
+  }
 
   /**
    * Build an agent node directly (for Task tools that spawn agents)
