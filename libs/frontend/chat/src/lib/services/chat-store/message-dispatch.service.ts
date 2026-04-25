@@ -2,10 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
 import { createExecutionChatMessage } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
-import {
-  MessageSenderService,
-  SendMessageOptions,
-} from '../message-sender.service';
+import { MessageSenderService } from '../message-sender.service';
+import type { SendMessageOptions } from '../chat.types';
 import { ConversationService } from './conversation.service';
 import { PermissionHandlerService } from './permission-handler.service';
 

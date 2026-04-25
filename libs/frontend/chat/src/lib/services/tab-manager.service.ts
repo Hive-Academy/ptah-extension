@@ -9,9 +9,6 @@ import {
   TabLookupResult,
 } from './tab-workspace-partition.service';
 
-// Re-export for backward compatibility (type was previously defined here)
-export type { TabLookupResult } from './tab-workspace-partition.service';
-
 /**
  * TabManagerService - Manages multi-session tab state with workspace partitioning
  *

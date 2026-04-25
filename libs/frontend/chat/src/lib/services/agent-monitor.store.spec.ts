@@ -205,12 +205,15 @@ describe('AgentMonitorStore', () => {
 
       // Add permission to agent in session-b
       store.onPermissionRequest({
-        id: 'perm-1',
+        requestId: 'perm-1',
         agentId: 'agent-2',
-        type: 'tool',
+        kind: 'write',
+        toolName: 'edit',
+        toolArgs: '{}',
         description: 'Allow file write',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
+        timestamp: Date.now(),
+        timeoutAt: 0,
+      });
 
       mockActiveTab.set({ claudeSessionId: 'session-a' });
       expect(store.activeTabPendingPermissions().length).toBe(0);
