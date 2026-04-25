@@ -27,6 +27,7 @@ import {
   createEmptyStreamingState,
   StreamingState,
   AccumulatorKeys,
+  setStreamingEventCapped,
 } from '@ptah-extension/chat-types';
 
 // Child services
@@ -222,7 +223,7 @@ export class StreamingHandlerService {
             this.pendingThinkingClear.add(event.messageId);
           }
 
-          state.events.set(event.id, event);
+          setStreamingEventCapped(state, event);
           this.indexEventByMessage(state, event);
           state.currentMessageId = event.messageId;
 
@@ -253,7 +254,7 @@ export class StreamingHandlerService {
             return null;
           }
 
-          state.events.set(event.id, event);
+          setStreamingEventCapped(state, event);
           this.indexEventByMessage(state, event);
 
           const blockIndex = event.blockIndex ?? 0;
@@ -280,7 +281,7 @@ export class StreamingHandlerService {
         }
 
         case 'thinking_start': {
-          state.events.set(event.id, event);
+          setStreamingEventCapped(state, event);
           this.indexEventByMessage(state, event);
           break;
         }
@@ -296,7 +297,7 @@ export class StreamingHandlerService {
             return null;
           }
 
-          state.events.set(event.id, event);
+          setStreamingEventCapped(state, event);
           this.indexEventByMessage(state, event);
 
           const blockIndex = event.blockIndex ?? 0;
@@ -333,7 +334,7 @@ export class StreamingHandlerService {
             return null;
           }
 
-          state.events.set(event.id, event);
+          setStreamingEventCapped(state, event);
           this.indexEventByMessage(state, event);
 
           this.deduplication
@@ -358,7 +359,7 @@ export class StreamingHandlerService {
             return null;
           }
 
-          state.events.set(event.id, event);
+          setStreamingEventCapped(state, event);
           this.indexEventByMessage(state, event);
 
           const inputKey = AccumulatorKeys.toolInput(event.toolCallId);
@@ -383,7 +384,7 @@ export class StreamingHandlerService {
             return null;
           }
 
-          state.events.set(event.id, event);
+          setStreamingEventCapped(state, event);
           this.indexEventByMessage(state, event);
           break;
         }
@@ -416,7 +417,7 @@ export class StreamingHandlerService {
             return null;
           }
 
-          state.events.set(event.id, event);
+          setStreamingEventCapped(state, event);
           this.indexEventByMessage(state, event);
 
           // Register agent with SessionManager
@@ -457,7 +458,7 @@ export class StreamingHandlerService {
         }
 
         case 'message_complete': {
-          state.events.set(event.id, event);
+          setStreamingEventCapped(state, event);
           this.indexEventByMessage(state, event);
 
           state.currentTokenUsage = event.tokenUsage || null;
@@ -478,14 +479,14 @@ export class StreamingHandlerService {
         }
 
         case 'message_delta': {
-          state.events.set(event.id, event);
+          setStreamingEventCapped(state, event);
           this.indexEventByMessage(state, event);
           state.currentTokenUsage = event.tokenUsage;
           break;
         }
 
         case 'signature_delta': {
-          state.events.set(event.id, event);
+          setStreamingEventCapped(state, event);
           this.indexEventByMessage(state, event);
           break;
         }

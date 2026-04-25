@@ -1,5 +1,6 @@
 import {
   createEmptyStreamingState,
+  setStreamingEventCapped,
   type StreamingState,
 } from '@ptah-extension/chat-types';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
@@ -51,8 +52,8 @@ export class WizardStreamAccumulator {
           }
         : createEmptyStreamingState();
 
-      // Store event by ID
-      state.events.set(event.id, event);
+      // Store event by ID (FIFO-capped to prevent unbounded growth)
+      setStreamingEventCapped(state, event);
 
       // Index by messageId
       const messageEvents = [

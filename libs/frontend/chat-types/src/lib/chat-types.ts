@@ -125,6 +125,59 @@ export function createEmptyStreamingState(): StreamingState {
 }
 
 /**
+ * Maximum number of streaming events retained in `StreamingState.events`.
+ * A long-running session can accumulate thousands of events; without a cap,
+ * signal-driven re-renders explode in cost. When the cap is hit, the oldest
+ * entry (Map preserves insertion order) is evicted FIFO before inserting.
+ *
+ * Tunable in one place — adjust here if profiling shows a different sweet spot.
+ */
+export const STREAMING_EVENT_CAP = 5000;
+
+let __streamingCapWarned = false;
+
+/**
+ * FIFO-bounded write into `StreamingState.events`. Replaces direct
+ * `state.events.set(id, event)` calls so every writer enforces the cap.
+ *
+ * Behavior:
+ * - If `id` already exists, the entry is updated in place (size unchanged).
+ *   This preserves the backfill path in StreamingHandlerService where an
+ *   existing event is replaced with an updated copy (same id).
+ * - If `id` is new and size is at the cap, the oldest entry (first iterated
+ *   key in the Map's insertion order) is deleted before insert.
+ * - First eviction emits a one-shot console.warn so we know the cap was hit
+ *   in production; subsequent evictions are silent to avoid log spam.
+ *
+ * Note: This intentionally does NOT cascade-clean dependent collections
+ * (eventsByMessage, toolCallMap, textAccumulators). Those are bounded by
+ * the cap transitively (their entries reference event ids that get evicted)
+ * and finalize/compaction flows already reset them.
+ */
+export function setStreamingEventCapped(
+  state: StreamingState,
+  event: FlatStreamEventUnion,
+): void {
+  if (state.events.has(event.id)) {
+    state.events.set(event.id, event);
+    return;
+  }
+  if (state.events.size >= STREAMING_EVENT_CAP) {
+    const oldestKey = state.events.keys().next().value;
+    if (oldestKey !== undefined) {
+      state.events.delete(oldestKey);
+      if (!__streamingCapWarned) {
+        __streamingCapWarned = true;
+        console.warn(
+          `[chat-types] StreamingState.events reached cap of ${STREAMING_EVENT_CAP}; evicting oldest events FIFO.`,
+        );
+      }
+    }
+  }
+  state.events.set(event.id, event);
+}
+
+/**
  * View mode for a tab - controls how the session is rendered.
  * 'full' = standard chat view with full message list and input
  * 'compact' = condensed card view with activity feed and mini input

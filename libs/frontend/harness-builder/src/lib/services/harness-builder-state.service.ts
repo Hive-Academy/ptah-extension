@@ -1,6 +1,7 @@
 import { computed, Injectable, signal } from '@angular/core';
 import {
   createEmptyStreamingState,
+  setStreamingEventCapped,
   type StreamingState,
 } from '@ptah-extension/chat-types';
 import type {
@@ -322,8 +323,8 @@ export class HarnessBuilderStateService {
         pendingStats: prev.pendingStats,
       };
 
-      // Store event by ID
-      state.events.set(event.id, event);
+      // Store event by ID (FIFO-capped to prevent unbounded growth)
+      setStreamingEventCapped(state, event);
 
       // Index by messageId
       const messageEvents = [
