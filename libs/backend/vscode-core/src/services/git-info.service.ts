@@ -9,7 +9,7 @@
 
 import crossSpawn from 'cross-spawn';
 import * as path from 'path';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type { Logger } from '../logging';
 import {
   parseWorktreeList,
   type GitBranchInfo,

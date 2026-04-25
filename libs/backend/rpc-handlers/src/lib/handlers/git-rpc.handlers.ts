@@ -1,18 +1,33 @@
 /**
- * Electron Git RPC Handlers
+ * Git RPC Handlers
  *
- * Handles Git-related RPC methods for the Electron desktop app:
- * - git:info       - Get branch info + file status for active workspace
- * - git:worktrees  - List all worktrees for active workspace
- * - git:addWorktree    - Create a new worktree
- * - git:removeWorktree - Remove an existing worktree
+ * Handles Git-related RPC methods for all hosts that have a real workspace:
+ * - git:info             - Get branch info + file status for active workspace
+ * - git:worktrees        - List all worktrees for active workspace
+ * - git:addWorktree      - Create a new worktree
+ * - git:removeWorktree   - Remove an existing worktree
+ * - git:stage            - Stage files in the git index
+ * - git:unstage          - Unstage files from the git index
+ * - git:discard          - Discard working tree changes (destructive)
+ * - git:commit           - Create a commit with the provided message
+ * - git:showFile         - Show file content from HEAD revision
  *
- * TASK_2025_227 Batch 2: Git info bar + worktree management
+ * TASK_2025_227 Batch 2: Git info bar + worktree management.
+ * TASK_2026_104 Sub-batch B5b: Lifted from `apps/ptah-electron/...` into the
+ * shared `rpc-handlers` library so all hosts (Electron, CLI, and the VS Code
+ * extension if it registers `TOKENS.GIT_INFO_SERVICE`) can serve `git:*`
+ * uniformly. The handler now reads `GitInfoService` from the shared
+ * `vscode-core` library and resolves it via `TOKENS.GIT_INFO_SERVICE`
+ * (no more `ELECTRON_TOKENS` dependency).
  */
 
 import { injectable, inject } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import type {
+  GitInfoService,
+  Logger,
+  RpcHandler,
+} from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
@@ -32,18 +47,33 @@ import type {
   GitCommitResult,
   GitShowFileParams,
   GitShowFileResult,
+  RpcMethodName,
 } from '@ptah-extension/shared';
-import type { GitInfoService } from '../../git-info.service';
-import { ELECTRON_TOKENS } from '../../../di/electron-tokens';
 
 @injectable()
 export class GitRpcHandlers {
+  /**
+   * RPC methods owned by this handler. Used by the SHARED_HANDLERS coverage
+   * invariant in `register-all.ts`.
+   */
+  static readonly METHODS = [
+    'git:info',
+    'git:worktrees',
+    'git:addWorktree',
+    'git:removeWorktree',
+    'git:stage',
+    'git:unstage',
+    'git:discard',
+    'git:commit',
+    'git:showFile',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
-    @inject(ELECTRON_TOKENS.GIT_INFO_SERVICE)
+    @inject(TOKENS.GIT_INFO_SERVICE)
     private readonly gitInfo: GitInfoService,
   ) {}
 
@@ -70,9 +100,7 @@ export class GitRpcHandlers {
       async () => {
         const wsRoot = this.workspace.getWorkspaceRoot();
         if (!wsRoot) {
-          this.logger.debug(
-            '[GitRpc] git:info called with no workspace open',
-          );
+          this.logger.debug('[GitRpc] git:info called with no workspace open');
           return {
             isGitRepo: false,
             branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
