@@ -43,7 +43,7 @@ function encodeWorkspacePath(folderPath: string): string {
 export class WorkspaceContextManager {
   constructor(
     private readonly userDataPath: string,
-    private readonly workspaceAwareStorage: WorkspaceAwareStateStorage
+    private readonly workspaceAwareStorage: WorkspaceAwareStateStorage,
   ) {}
 
   /**
@@ -54,7 +54,7 @@ export class WorkspaceContextManager {
    * the folder does not exist on disk.
    */
   async createWorkspace(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<
     { success: true; encodedPath: string } | { success: false; error: string }
   > {
@@ -82,7 +82,7 @@ export class WorkspaceContextManager {
     const storageDirPath = path.join(
       this.userDataPath,
       'workspace-storage',
-      encodedPath
+      encodedPath,
     );
 
     this.workspaceAwareStorage.addWorkspace(normalizedPath, storageDirPath);

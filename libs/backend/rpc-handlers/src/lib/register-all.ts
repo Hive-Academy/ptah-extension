@@ -19,6 +19,7 @@ import {
   ConfigRpcHandlers,
   ContextRpcHandlers,
   EnhancedPromptsRpcHandlers,
+  GitRpcHandlers,
   HarnessRpcHandlers,
   LicenseRpcHandlers,
   LlmRpcHandlers,
@@ -32,6 +33,7 @@ import {
   SubagentRpcHandlers,
   WebSearchRpcHandlers,
   WizardGenerationRpcHandlers,
+  WorkspaceRpcHandlers,
 } from './handlers';
 
 /**
@@ -48,6 +50,7 @@ export const SHARED_HANDLERS = [
   ConfigRpcHandlers,
   ContextRpcHandlers,
   EnhancedPromptsRpcHandlers,
+  GitRpcHandlers,
   HarnessRpcHandlers,
   LicenseRpcHandlers,
   LlmRpcHandlers,
@@ -61,6 +64,7 @@ export const SHARED_HANDLERS = [
   SubagentRpcHandlers,
   WebSearchRpcHandlers,
   WizardGenerationRpcHandlers,
+  WorkspaceRpcHandlers,
 ] as const;
 
 export interface RegisterAllRpcHandlersOptions {

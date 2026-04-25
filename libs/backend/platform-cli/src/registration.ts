@@ -86,9 +86,19 @@ export function registerPlatformCliServices(
     useValue: new CliSecretStorage(userDataPath),
   });
 
-  // 6. Workspace Provider
+  // 6. Workspace Provider — same instance dual-registered under both
+  // WORKSPACE_PROVIDER (read-only) and WORKSPACE_LIFECYCLE_PROVIDER (mutations)
+  // so the lifted WorkspaceRpcHandlers can request lifecycle methods via a
+  // typed second injection rather than casting to a concrete class.
+  const cliWorkspaceProvider = new CliWorkspaceProvider(
+    userDataPath,
+    workspacePath,
+  );
   container.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
-    useValue: new CliWorkspaceProvider(userDataPath, workspacePath),
+    useValue: cliWorkspaceProvider,
+  });
+  container.register(PLATFORM_TOKENS.WORKSPACE_LIFECYCLE_PROVIDER, {
+    useValue: cliWorkspaceProvider,
   });
 
   // 7. User Interaction

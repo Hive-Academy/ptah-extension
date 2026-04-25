@@ -26,6 +26,7 @@ import {
   registerHarnessServices,
   registerChatServices,
   verifyAndReportRpcRegistration,
+  WorkspaceRpcHandlers,
   __debugAssertSharedHandlersDisjoint,
 } from '@ptah-extension/rpc-handlers';
 import {
@@ -55,6 +56,7 @@ import {
 const ELECTRON_ONLY_METHODS: readonly string[] = [
   'workspace:getInfo',
   'workspace:addFolder',
+  'workspace:registerFolder',
   'workspace:removeFolder',
   'workspace:switch',
   'layout:persist',
@@ -69,7 +71,6 @@ const ELECTRON_ONLY_METHODS: readonly string[] = [
   'config:model-set',
   'auth:setApiKey',
   'auth:getStatus',
-  'auth:getApiKeyStatus',
   'settings:export',
   'settings:import',
   'git:info',
@@ -121,7 +122,11 @@ export class RpcMethodRegistrationService {
     // `registerAllRpcHandlers` resolves `ChatRpcHandlers`.
     registerChatServices(this.container);
 
-    registerAllRpcHandlers(this.container);
+    // VS Code excludes WorkspaceRpcHandlers: VsCodeWorkspaceProvider has no
+    // lifecycle methods, so IWorkspaceLifecycleProvider is not registered in
+    // this host. The workspace:* methods are listed in ELECTRON_ONLY_METHODS
+    // so the verifier accepts the gap.
+    registerAllRpcHandlers(this.container, { exclude: [WorkspaceRpcHandlers] });
 
     this.fileHandlers.register();
     this.commandHandlers.register();

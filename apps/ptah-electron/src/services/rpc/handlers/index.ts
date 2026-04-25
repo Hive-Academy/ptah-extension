@@ -15,7 +15,8 @@
  *   app's handlers and from the shared library.
  */
 
-export { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
+// TASK_2026_104 Sub-batch B5a: WorkspaceRpcHandlers lifted to
+// `@ptah-extension/rpc-handlers` SHARED_HANDLERS. No longer Electron-local.
 export { EditorRpcHandlers } from './editor-rpc.handlers';
 export { FileRpcHandlers } from './file-rpc.handlers';
 export { ConfigExtendedRpcHandlers } from './config-extended-rpc.handlers';
@@ -24,5 +25,6 @@ export { SettingsRpcHandlers } from './settings-rpc.handlers';
 export { AgentRpcHandlers } from './agent-rpc.handlers';
 export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
 export { LayoutRpcHandlers } from './layout-rpc.handlers';
-export { GitRpcHandlers } from './git-rpc.handlers';
+// TASK_2026_104 Sub-batch B5b: GitRpcHandlers lifted to
+// `@ptah-extension/rpc-handlers` SHARED_HANDLERS. No longer Electron-local.
 export { TerminalRpcHandlers } from './terminal-rpc.handlers';

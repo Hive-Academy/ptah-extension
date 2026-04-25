@@ -30,6 +30,7 @@ import {
 
 import {
   registerPlatformCliServices,
+  CliStateStorage,
   type CliPlatformOptions,
 } from '@ptah-extension/platform-cli';
 import {
@@ -59,6 +60,11 @@ import { FeatureGateService } from '@ptah-extension/vscode-core';
 import { LicenseService } from '@ptah-extension/vscode-core';
 import { AuthSecretsService } from '@ptah-extension/vscode-core';
 import { SentryService } from '@ptah-extension/vscode-core';
+import { GitInfoService } from '@ptah-extension/vscode-core';
+import {
+  WorkspaceAwareStateStorage,
+  WorkspaceContextManager,
+} from '@ptah-extension/vscode-core';
 
 // Library registration functions (all accept container + logger, no vscode)
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
@@ -97,6 +103,7 @@ import {
   ProviderRpcHandlers,
   LlmRpcHandlers,
   WebSearchRpcHandlers,
+  WorkspaceRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 // CLI adapters
@@ -290,6 +297,68 @@ export class CliDIContainer {
     container.registerSingleton(
       TOKENS.FEATURE_GATE_SERVICE,
       FeatureGateService,
+    );
+
+    // TASK_2026_104 Sub-batch B5b: GitInfoService is shared (cross-spawn around
+    // git CLI — no platform coupling). Required by the lifted GitRpcHandlers.
+    container.register(TOKENS.GIT_INFO_SERVICE, {
+      useFactory: (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),
+    });
+
+    // TASK_2026_104 Sub-batch B5a: WorkspaceContextManager + WorkspaceAwareStateStorage.
+    // Required by the lifted shared WorkspaceRpcHandlers so the CLI can serve
+    // workspace:* (getInfo / addFolder / registerFolder / removeFolder / switch).
+    //
+    // We override Phase 0's WORKSPACE_STATE_STORAGE with the workspace-aware
+    // proxy so any handler that injects WORKSPACE_STATE_STORAGE later gets
+    // routing-by-active-workspace at call time. The factory passed in produces
+    // CliStateStorage instances (file-backed JSON, identical layout to the
+    // per-workspace storage on Electron).
+    const defaultWorkspaceStoragePath = path.join(
+      userDataPath,
+      'workspace-storage',
+      'default',
+    );
+    const workspaceAwareStorage = new WorkspaceAwareStateStorage(
+      defaultWorkspaceStoragePath,
+      (storageDirPath) =>
+        new CliStateStorage(storageDirPath, 'workspace-state.json'),
+    );
+    container.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
+      useValue: workspaceAwareStorage,
+    });
+
+    const workspaceContextManager = new WorkspaceContextManager(
+      userDataPath,
+      workspaceAwareStorage,
+    );
+    container.register(TOKENS.WORKSPACE_CONTEXT_MANAGER, {
+      useValue: workspaceContextManager,
+    });
+
+    // Eagerly create + activate the startup workspace (mirrors Electron Phase 1).
+    // Synchronous container setup can't await; fire-and-forget with logging is
+    // safe because the JSON-RPC stdio loop / commander handler doesn't dispatch
+    // workspace:* calls until well after this resolves.
+    workspaceContextManager.createWorkspace(workspacePath).then(
+      (result) => {
+        if (result.success) {
+          workspaceAwareStorage.setActiveWorkspace(path.resolve(workspacePath));
+        } else {
+          logger.warn(
+            '[CLI DI] Failed to create initial workspace context (non-fatal)',
+            { error: result.error } as unknown as Error,
+          );
+        }
+      },
+      (error) => {
+        logger.warn(
+          '[CLI DI] Failed to create initial workspace context (non-fatal)',
+          {
+            error: error instanceof Error ? error.message : String(error),
+          } as unknown as Error,
+        );
+      },
     );
 
     logger.info('[CLI DI] Platform-agnostic vscode-core services registered');
@@ -696,7 +765,10 @@ export class CliDIContainer {
 
       container.registerSingleton(WebSearchRpcHandlers);
 
-      logger.info('[CLI DI] Shared RPC handler classes registered (17)');
+      // TASK_2026_104 Sub-batch B5a: WorkspaceRpcHandlers (lifted from Electron).
+      container.registerSingleton(WorkspaceRpcHandlers);
+
+      logger.info('[CLI DI] Shared RPC handler classes registered (18)');
 
       // ========================================
       // PHASE 4.5: Wire EnhancedPrompts + analysis reader

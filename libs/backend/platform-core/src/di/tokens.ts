@@ -24,6 +24,11 @@ export const PLATFORM_TOKENS = {
   /** IWorkspaceProvider — workspace folders and configuration */
   WORKSPACE_PROVIDER: Symbol.for('PlatformWorkspaceProvider'),
 
+  /** IWorkspaceLifecycleProvider — workspace mutation methods (add/remove/setActive) */
+  WORKSPACE_LIFECYCLE_PROVIDER: Symbol.for(
+    'PlatformWorkspaceLifecycleProvider',
+  ),
+
   /** IUserInteraction — error/warning/info messages, quick pick, input box */
   USER_INTERACTION: Symbol.for('PlatformUserInteraction'),
 

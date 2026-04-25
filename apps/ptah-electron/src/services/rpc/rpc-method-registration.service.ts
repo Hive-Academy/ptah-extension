@@ -18,7 +18,11 @@
 
 import { injectable, inject, container } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import type {
+  GitInfoService,
+  Logger,
+  RpcHandler,
+} from '@ptah-extension/vscode-core';
 import {
   registerAllRpcHandlers,
   registerHarnessServices,
@@ -34,8 +38,10 @@ import {
 import { ChatRpcHandlers } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific handler classes (TASK_2025_291 Wave C6: Electron prefix dropped).
+// TASK_2026_104 Sub-batch B5b: GitRpcHandlers lifted to shared rpc-handlers.
+// TASK_2026_104 Sub-batch B5a: WorkspaceRpcHandlers lifted to shared
+// rpc-handlers (registered + dispatched via SHARED_HANDLERS).
 import {
-  WorkspaceRpcHandlers,
   EditorRpcHandlers,
   FileRpcHandlers,
   ConfigExtendedRpcHandlers,
@@ -44,11 +50,8 @@ import {
   AgentRpcHandlers,
   SkillsShRpcHandlers,
   LayoutRpcHandlers,
-  GitRpcHandlers,
   TerminalRpcHandlers,
 } from './handlers';
-import { ELECTRON_TOKENS } from '../../di/electron-tokens';
-import type { GitInfoService } from '../git-info.service';
 
 /**
  * Methods omitted from Electron's RPC verification.
@@ -69,8 +72,6 @@ export class ElectronRpcMethodRegistrationService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(ChatRpcHandlers) private readonly chatHandlers: ChatRpcHandlers,
-    @inject(WorkspaceRpcHandlers)
-    private readonly workspaceHandlers: WorkspaceRpcHandlers,
     @inject(EditorRpcHandlers)
     private readonly editorHandlers: EditorRpcHandlers,
     @inject(FileRpcHandlers)
@@ -87,8 +88,6 @@ export class ElectronRpcMethodRegistrationService {
     private readonly skillsShHandlers: SkillsShRpcHandlers,
     @inject(LayoutRpcHandlers)
     private readonly layoutHandlers: LayoutRpcHandlers,
-    @inject(GitRpcHandlers)
-    private readonly gitHandlers: GitRpcHandlers,
     @inject(TerminalRpcHandlers)
     private readonly terminalHandlers: TerminalRpcHandlers,
   ) {}
@@ -118,11 +117,11 @@ export class ElectronRpcMethodRegistrationService {
         worktree: true,
         resolveWorktreePath: async (data: WorktreeCreatedData) => {
           try {
-            if (!container.isRegistered(ELECTRON_TOKENS.GIT_INFO_SERVICE)) {
+            if (!container.isRegistered(TOKENS.GIT_INFO_SERVICE)) {
               return undefined;
             }
             const gitInfo = container.resolve<GitInfoService>(
-              ELECTRON_TOKENS.GIT_INFO_SERVICE,
+              TOKENS.GIT_INFO_SERVICE,
             );
             const worktrees = await gitInfo.getWorktrees(data.cwd);
             const match = worktrees.find((w) => w.branch === data.name);
@@ -175,7 +174,6 @@ export class ElectronRpcMethodRegistrationService {
       name: string;
       handler: { register(): void };
     }> = [
-      { name: 'WorkspaceRpcHandlers', handler: this.workspaceHandlers },
       { name: 'EditorRpcHandlers', handler: this.editorHandlers },
       { name: 'FileRpcHandlers', handler: this.fileHandlers },
       {
@@ -187,7 +185,6 @@ export class ElectronRpcMethodRegistrationService {
       { name: 'AgentRpcHandlers', handler: this.agentHandlers },
       { name: 'SkillsShRpcHandlers', handler: this.skillsShHandlers },
       { name: 'LayoutRpcHandlers', handler: this.layoutHandlers },
-      { name: 'GitRpcHandlers', handler: this.gitHandlers },
       { name: 'TerminalRpcHandlers', handler: this.terminalHandlers },
     ];
 

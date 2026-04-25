@@ -1,6 +1,6 @@
 /**
  * WorkspaceAwareStateStorage — IStateStorage proxy that delegates to
- * per-workspace ElectronStateStorage instances based on the active workspace.
+ * per-workspace IStateStorage instances based on the active workspace.
  *
  * TASK_2025_208: Replaces child container approach. This proxy is registered
  * as PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, so all services that inject
@@ -11,35 +11,45 @@
  * construction time. With child containers, they'd get the root container's
  * instance and never see workspace-specific data. This proxy solves that
  * by delegating at call-time to the active workspace's storage.
+ *
+ * TASK_2026_104 Sub-batch B5a: Lifted from `apps/ptah-electron`. The class
+ * was decoupled from `ElectronStateStorage` via the `StateStorageFactory`
+ * type so this layer-1 library has no dependency on `platform-electron`
+ * (a layer 0.5 implementation). Apps must inject a factory that produces
+ * `IStateStorage` instances for a given storage directory.
  */
 
 import type { IStateStorage } from '@ptah-extension/platform-core';
-import { ElectronStateStorage } from '@ptah-extension/platform-electron';
+
+/**
+ * Factory that produces an `IStateStorage` instance for a given storage
+ * directory path. Implementations decide the on-disk format (e.g. Electron
+ * uses `ElectronStateStorage` with `workspace-state.json`; CLI uses
+ * `CliStateStorage`).
+ */
+export type StateStorageFactory = (storageDirPath: string) => IStateStorage;
 
 export class WorkspaceAwareStateStorage implements IStateStorage {
-  private readonly workspaces = new Map<string, ElectronStateStorage>();
+  private readonly workspaces = new Map<string, IStateStorage>();
   private activeWorkspacePath: string | null = null;
-  private readonly defaultStorage: ElectronStateStorage;
+  private readonly defaultStorage: IStateStorage;
 
-  constructor(defaultStoragePath: string) {
-    this.defaultStorage = new ElectronStateStorage(
-      defaultStoragePath,
-      'workspace-state.json'
-    );
+  constructor(
+    defaultStoragePath: string,
+    private readonly storageFactory: StateStorageFactory,
+  ) {
+    this.defaultStorage = storageFactory(defaultStoragePath);
   }
 
   /**
-   * Add a workspace with its own ElectronStateStorage instance.
+   * Add a workspace with its own IStateStorage instance.
    * If the workspace already exists, this is a no-op.
    */
   addWorkspace(workspacePath: string, storageDirPath: string): void {
     if (this.workspaces.has(workspacePath)) {
       return;
     }
-    this.workspaces.set(
-      workspacePath,
-      new ElectronStateStorage(storageDirPath, 'workspace-state.json')
-    );
+    this.workspaces.set(workspacePath, this.storageFactory(storageDirPath));
   }
 
   /**
@@ -60,7 +70,7 @@ export class WorkspaceAwareStateStorage implements IStateStorage {
   setActiveWorkspace(workspacePath: string): void {
     if (!this.workspaces.has(workspacePath)) {
       throw new Error(
-        `Cannot set active workspace: no storage registered for "${workspacePath}". Call addWorkspace() first.`
+        `Cannot set active workspace: no storage registered for "${workspacePath}". Call addWorkspace() first.`,
       );
     }
     this.activeWorkspacePath = workspacePath;
@@ -108,9 +118,7 @@ export class WorkspaceAwareStateStorage implements IStateStorage {
    * Get the storage instance for a specific workspace path.
    * Returns undefined if no storage is registered for that path.
    */
-  getStorageForWorkspace(
-    workspacePath: string
-  ): ElectronStateStorage | undefined {
+  getStorageForWorkspace(workspacePath: string): IStateStorage | undefined {
     return this.workspaces.get(workspacePath);
   }
 
@@ -127,7 +135,7 @@ export class WorkspaceAwareStateStorage implements IStateStorage {
       // Active workspace path is set but no storage found — indicates a bug
       // in workspace lifecycle (removal without resetting active path).
       console.warn(
-        `[WorkspaceAwareStateStorage] Active workspace "${this.activeWorkspacePath}" has no registered storage — falling back to default`
+        `[WorkspaceAwareStateStorage] Active workspace "${this.activeWorkspacePath}" has no registered storage — falling back to default`,
       );
     }
     return this.defaultStorage;

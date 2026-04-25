@@ -1,52 +1,78 @@
 /**
- * Electron Workspace RPC Handlers
+ * Workspace RPC Handlers (TASK_2026_104 Sub-batch B5a)
  *
- * Handles workspace management methods specific to Electron:
- * - workspace:getInfo - Get workspace folder information
- * - workspace:addFolder - Open native folder picker
- * - workspace:removeFolder - Remove a workspace folder
- * - workspace:switch - Switch active workspace folder
+ * Lifted from `apps/ptah-electron/src/services/rpc/handlers/workspace-rpc.handlers.ts`
+ * into the shared `rpc-handlers` library so all hosts (Electron, CLI, and
+ * any future desktop host) can serve the `workspace:*` surface uniformly.
  *
- * TASK_2025_203 Batch 5: Extracted from inline registrations
- * TASK_2025_208 Batch 2, Task 2.1: Wire WorkspaceContextManager for
- *   proper workspace lifecycle management. Removed duck-typing casts
- *   in favor of real typed method calls on ElectronWorkspaceProvider.
+ * The previous Electron-specific implementation cast `IWorkspaceProvider`
+ * to `ElectronWorkspaceProvider` for lifecycle methods and called
+ * `await import('electron').dialog.showOpenDialog(...)` directly. Both have
+ * been replaced with platform-agnostic abstractions:
+ *
+ * - **Lifecycle mutations** (`addFolder`, `removeFolder`, `setActiveFolder`,
+ *   `getActiveFolder`) flow through `IWorkspaceLifecycleProvider`. Each
+ *   platform's workspace provider must register the same instance under both
+ *   `WORKSPACE_PROVIDER` and `WORKSPACE_LIFECYCLE_PROVIDER`.
+ * - **Folder picker** flows through `IUserInteraction.showOpenDialog?`. The
+ *   method is optional: CLI / headless hosts leave it undefined, in which case
+ *   `workspace:addFolder` returns an error explaining no UI is available.
+ *
+ * Methods served:
+ * - `workspace:getInfo`         — Read folders + active folder
+ * - `workspace:addFolder`       — Open native picker, register the chosen folder
+ * - `workspace:registerFolder`  — Register a known path (used by frontend tests + CLI)
+ * - `workspace:removeFolder`    — Remove a folder + dispose its storage
+ * - `workspace:switch`          — Switch active workspace + import sessions
+ *
+ * VS Code Note: VS Code's `VsCodeWorkspaceProvider` does not implement
+ * `IWorkspaceLifecycleProvider`; the VS Code app excludes this handler via
+ * `registerAllRpcHandlers(container, { exclude: [WorkspaceRpcHandlers] })`
+ * and lists the `workspace:*` methods in its `ELECTRON_ONLY_METHODS` array
+ * so verifier output stays clean.
  */
 
 import { injectable, inject } from 'tsyringe';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import { TOKENS, WorkspaceContextManager } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { SessionImporterService } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
-import type { WorkspaceContextManager } from '../../workspace-context-manager';
+import type {
+  IWorkspaceProvider,
+  IWorkspaceLifecycleProvider,
+  IUserInteraction,
+} from '@ptah-extension/platform-core';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 @injectable()
 export class WorkspaceRpcHandlers {
-  private readonly workspaceContextManager: WorkspaceContextManager;
+  /**
+   * RPC methods owned by this handler. Used by the SHARED_HANDLERS coverage
+   * invariant in `register-all.ts`.
+   */
+  static readonly METHODS = [
+    'workspace:getInfo',
+    'workspace:addFolder',
+    'workspace:registerFolder',
+    'workspace:removeFolder',
+    'workspace:switch',
+  ] as const satisfies readonly RpcMethodName[];
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(PLATFORM_TOKENS.WORKSPACE_LIFECYCLE_PROVIDER)
+    private readonly workspaceLifecycle: IWorkspaceLifecycleProvider,
+    @inject(PLATFORM_TOKENS.USER_INTERACTION)
+    private readonly userInteraction: IUserInteraction,
     @inject(TOKENS.WORKSPACE_CONTEXT_MANAGER)
-    workspaceContextManager: WorkspaceContextManager,
+    private readonly workspaceContextManager: WorkspaceContextManager,
     @inject(SDK_TOKENS.SDK_SESSION_IMPORTER)
     private readonly sessionImporter: SessionImporterService,
-  ) {
-    this.workspaceContextManager = workspaceContextManager;
-  }
-
-  /**
-   * Cast IWorkspaceProvider to ElectronWorkspaceProvider for lifecycle methods.
-   * In the Electron app, the workspace provider is always an ElectronWorkspaceProvider.
-   */
-  private get electronProvider(): ElectronWorkspaceProvider {
-    return this.workspaceProvider as unknown as ElectronWorkspaceProvider;
-  }
+  ) {}
 
   register(): void {
     this.registerGetInfo();
@@ -61,7 +87,7 @@ export class WorkspaceRpcHandlers {
       try {
         const folders = this.workspaceProvider.getWorkspaceFolders();
         const root = this.workspaceProvider.getWorkspaceRoot();
-        const activeFolder = this.electronProvider.getActiveFolder();
+        const activeFolder = this.workspaceLifecycle.getActiveFolder();
 
         return {
           folders,
@@ -85,17 +111,28 @@ export class WorkspaceRpcHandlers {
   private registerAddFolder(): void {
     this.rpcHandler.registerMethod('workspace:addFolder', async () => {
       try {
-        const { dialog } = await import('electron');
-        const result = await dialog.showOpenDialog({
+        // CLI / headless hosts intentionally leave `showOpenDialog` undefined.
+        // Surface a structured error rather than throwing so the renderer can
+        // fall back to `workspace:registerFolder` with an explicit path.
+        if (!this.userInteraction.showOpenDialog) {
+          return {
+            path: null,
+            name: null,
+            error:
+              'No native folder picker is available on this host. Use workspace:registerFolder with an explicit path.',
+          };
+        }
+
+        const filePaths = await this.userInteraction.showOpenDialog({
           properties: ['openDirectory'],
           title: 'Add Workspace Folder',
         });
 
-        if (result.canceled || result.filePaths.length === 0) {
+        if (filePaths.length === 0) {
           return { path: null, name: null };
         }
 
-        const folderPath = result.filePaths[0];
+        const folderPath = filePaths[0];
         const folderName = folderPath.split(/[/\\]/).pop() ?? folderPath;
 
         // CRITICAL ORDER: Create workspace context FIRST, then add to provider.
@@ -104,7 +141,7 @@ export class WorkspaceRpcHandlers {
           await this.workspaceContextManager.createWorkspace(folderPath);
         if (!createResult.success) {
           this.logger.error(
-            '[Electron RPC] workspace:addFolder - failed to create workspace context',
+            '[RPC] workspace:addFolder - failed to create workspace context',
             { folderPath, error: createResult.error },
           );
           return {
@@ -114,17 +151,18 @@ export class WorkspaceRpcHandlers {
           };
         }
 
-        this.electronProvider.addFolder(folderPath);
+        this.workspaceLifecycle.addFolder(folderPath);
 
-        // Session import is handled by workspace:switch (called by frontend auto-switch).
-        // No fire-and-forget import here — it would write to the wrong workspace storage
-        // since addFolder creates but does not activate the workspace context.
+        // Session import is handled by workspace:switch (called by frontend
+        // auto-switch). No fire-and-forget import here — it would write to
+        // the wrong workspace storage since addFolder creates but does not
+        // activate the workspace context.
 
-        this.logger.info('[Electron RPC] workspace:addFolder', { folderPath });
+        this.logger.info('[RPC] workspace:addFolder', { folderPath });
         return { path: folderPath, name: folderName };
       } catch (error) {
         this.logger.error(
-          '[Electron RPC] workspace:addFolder failed',
+          '[RPC] workspace:addFolder failed',
           error instanceof Error ? error : new Error(String(error)),
         );
         return { path: null, name: null, error: String(error) };
@@ -160,15 +198,13 @@ export class WorkspaceRpcHandlers {
             };
           }
 
-          this.electronProvider.addFolder(folderPath);
+          this.workspaceLifecycle.addFolder(folderPath);
 
-          this.logger.info('[Electron RPC] workspace:registerFolder', {
-            folderPath,
-          });
+          this.logger.info('[RPC] workspace:registerFolder', { folderPath });
           return { success: true, path: folderPath, name: folderName };
         } catch (error) {
           this.logger.error(
-            '[Electron RPC] workspace:registerFolder failed',
+            '[RPC] workspace:registerFolder failed',
             error instanceof Error ? error : new Error(String(error)),
           );
           return {
@@ -193,15 +229,15 @@ export class WorkspaceRpcHandlers {
         try {
           // Remove workspace storage first, then remove from the provider's folder list.
           this.workspaceContextManager.removeWorkspace(params.path);
-          this.electronProvider.removeFolder(params.path);
+          this.workspaceLifecycle.removeFolder(params.path);
 
-          this.logger.info('[Electron RPC] workspace:removeFolder', {
+          this.logger.info('[RPC] workspace:removeFolder', {
             path: params.path,
           });
           return { success: true };
         } catch (error) {
           this.logger.error(
-            '[Electron RPC] workspace:removeFolder failed',
+            '[RPC] workspace:removeFolder failed',
             error instanceof Error ? error : new Error(String(error)),
           );
           return { success: false, error: String(error) };
@@ -230,7 +266,7 @@ export class WorkspaceRpcHandlers {
             };
           }
 
-          this.electronProvider.setActiveFolder(params.path);
+          this.workspaceLifecycle.setActiveFolder(params.path);
 
           // Import existing Claude sessions for the switched workspace.
           // Awaited so sessions are available when the frontend reloads the session list.
@@ -241,20 +277,20 @@ export class WorkspaceRpcHandlers {
             );
             if (importCount > 0) {
               this.logger.info(
-                `[Electron RPC] workspace:switch imported ${importCount} session(s)`,
+                `[RPC] workspace:switch imported ${importCount} session(s)`,
                 { path: params.path },
               );
             }
           } catch (err: unknown) {
             this.logger.warn(
-              '[Electron RPC] workspace:switch session import failed (non-fatal)',
+              '[RPC] workspace:switch session import failed (non-fatal)',
               { error: err instanceof Error ? err.message : String(err) },
             );
           }
 
           const folderName = params.path.split(/[/\\]/).pop() ?? 'Workspace';
 
-          this.logger.info('[Electron RPC] workspace:switch', {
+          this.logger.info('[RPC] workspace:switch', {
             path: params.path,
             encodedPath,
           });
@@ -266,7 +302,7 @@ export class WorkspaceRpcHandlers {
           };
         } catch (error) {
           this.logger.error(
-            '[Electron RPC] workspace:switch failed',
+            '[RPC] workspace:switch failed',
             error instanceof Error ? error : new Error(String(error)),
           );
           return { success: false, error: String(error) };

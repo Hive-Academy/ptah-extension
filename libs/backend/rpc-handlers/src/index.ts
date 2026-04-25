@@ -34,6 +34,10 @@ export {
   HarnessRpcHandlers,
   // MCP Server Directory handlers (TASK_2026_104 Batch 6a)
   McpDirectoryRpcHandlers,
+  // Git handlers (TASK_2026_104 Sub-batch B5b)
+  GitRpcHandlers,
+  // Workspace handlers (TASK_2026_104 Sub-batch B5a)
+  WorkspaceRpcHandlers,
 } from './lib/handlers';
 
 // Platform abstraction interfaces (TASK_2025_203 Batch 2)

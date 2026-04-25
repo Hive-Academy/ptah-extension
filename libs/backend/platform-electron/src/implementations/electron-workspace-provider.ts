@@ -21,7 +21,10 @@
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IWorkspaceLifecycleProvider,
+} from '@ptah-extension/platform-core';
 import type {
   IEvent,
   ConfigurationChangeEvent,
@@ -33,7 +36,9 @@ import {
   FILE_BASED_SETTINGS_DEFAULTS,
 } from '@ptah-extension/platform-core';
 
-export class ElectronWorkspaceProvider implements IWorkspaceProvider {
+export class ElectronWorkspaceProvider
+  implements IWorkspaceProvider, IWorkspaceLifecycleProvider
+{
   public readonly onDidChangeConfiguration: IEvent<ConfigurationChangeEvent>;
   public readonly onDidChangeWorkspaceFolders: IEvent<void>;
 

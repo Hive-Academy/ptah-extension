@@ -14,7 +14,7 @@ import {
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type { WorkspaceContextManager } from '../services/workspace-context-manager';
+import type { WorkspaceContextManager } from '@ptah-extension/vscode-core';
 
 export interface WorkspaceRestoreResult {
   startupWorkspaceRoot: string | undefined;
