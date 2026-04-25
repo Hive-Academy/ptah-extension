@@ -39,6 +39,8 @@ import {
   LlmRpcHandlers,
   WebSearchRpcHandlers,
   HarnessRpcHandlers,
+  registerHarnessServices,
+  registerChatServices,
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific RPC handler classes (TASK_2025_203 Batch 5).
@@ -82,6 +84,21 @@ export function registerPhase4Handlers(
   container: DependencyContainer,
   logger: Logger,
 ): void {
+  // ========================================
+  // PHASE 4.0: Pre-handler service tokens (Wave C7d/C7e sub-services).
+  // ========================================
+  // ChatRpcHandlers (4.1) and HarnessRpcHandlers (4.1) declare constructor
+  // injections against CHAT_TOKENS.* and HARNESS_TOKENS.* respectively.
+  // tsyringe walks those decorators when the orchestrator service
+  // (ElectronRpcMethodRegistrationService) is resolved later in
+  // wireRuntime — at that point every chat/harness token MUST already
+  // be registered, otherwise resolution throws
+  //   "Attempted to resolve unregistered dependency token: ChatPtahCliService".
+  // Registering both groups here (before the handler classes themselves)
+  // keeps tsyringe's lazy resolution chain valid without re-ordering main.ts.
+  registerHarnessServices(container);
+  registerChatServices(container);
+
   // ========================================
   // PHASE 4.1: Shared RPC Handler Classes (TASK_2025_203 Batch 5, TASK_2025_209, TASK_2025_241)
   // ========================================
