@@ -60,7 +60,16 @@ export { QuickOpenComponent } from './lib/quick-open/quick-open.component';
 
 // Services
 export { EditorService } from './lib/services/editor.service';
-export type { EditorTab } from './lib/services/editor.service';
+export type { EditorTab } from './lib/services/editor/editor-tab.types';
+
+// Wave F3 (TASK_2026_103): inverted-dependency contract for the editor
+// internal-state map. Composition root binds the token via
+// `provideEditorInternalState()` (mirrors B1's STREAMING_CONTROL pattern).
+export {
+  EDITOR_INTERNAL_STATE,
+  type EditorInternalState,
+} from './lib/services/editor/editor-internal-state';
+export { provideEditorInternalState } from './lib/services/editor-internal-state.provider';
 export { GitStatusService } from './lib/services/git-status.service';
 export { TerminalService } from './lib/services/terminal.service';
 export { WorktreeService } from './lib/services/worktree.service';

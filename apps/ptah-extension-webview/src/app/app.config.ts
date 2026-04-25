@@ -33,6 +33,7 @@ import {
   WizardViewComponent,
   provideWizardInternalState,
 } from '@ptah-extension/setup-wizard';
+import { provideEditorInternalState } from '@ptah-extension/editor';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import {
   HarnessBuilderViewComponent,
@@ -189,6 +190,9 @@ export const appConfig: ApplicationConfig = {
     // in-process wizard helpers).
     // TASK_2026_103 Wave F1.
     ...provideWizardInternalState(),
+    // EditorInternalState: same pattern, applied to EditorService.
+    // TASK_2026_103 Wave F3.
+    ...provideEditorInternalState(),
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',
