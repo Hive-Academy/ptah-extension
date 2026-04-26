@@ -21,6 +21,10 @@
  *   3. Catch any uncaught error, print it to stderr, and exit 1.
  */
 
+// MUST be the first import. tsyringe requires the reflect polyfill loaded
+// before any decorated class is touched, and esbuild preserves import order.
+import 'reflect-metadata';
+
 import { buildRouter } from './cli/router.js';
 
 let shuttingDown = false;

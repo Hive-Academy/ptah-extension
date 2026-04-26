@@ -13,12 +13,20 @@
 
 import { Command, Option } from 'commander';
 
+import * as analyzeCmd from './commands/analyze.js';
+import * as authCmd from './commands/auth.js';
 import * as configCmd from './commands/config.js';
 import * as executeSpecCmd from './commands/execute-spec.js';
+import * as gitCmd from './commands/git.js';
 import * as harnessCmd from './commands/harness.js';
 import * as interactCmd from './commands/interact.js';
+import * as licenseCmd from './commands/license.js';
 import * as profileCmd from './commands/profile.js';
+import * as providerCmd from './commands/provider.js';
 import * as runCmd from './commands/run.js';
+import * as settingsCmd from './commands/settings.js';
+import * as websearchCmd from './commands/websearch.js';
+import * as workspaceCmd from './commands/workspace.js';
 
 /**
  * Cross-cutting flags resolved on the root program. Every command receives
@@ -114,6 +122,18 @@ function createRequireSafely(): NodeRequire | null {
 }
 
 /**
+ * Commander value coercer: split a comma-separated string into a non-empty
+ * array. Trims each segment and drops empties. Used by `git stage|unstage|
+ * discard --paths a,b,c`.
+ */
+function collectCsv(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+}
+
+/**
  * Build the root commander program with every subcommand wired to its stub
  * handler. The caller is responsible for invoking `parseAsync(argv)`.
  */
@@ -197,6 +217,110 @@ export function buildRouter(): Command {
     .action(async () => {
       const exit = await configCmd.execute(
         { subcommand: 'list' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  config
+    .command('reset <key>')
+    .description('reset <key> to its file-backed default value')
+    .action(async (key: string) => {
+      const exit = await configCmd.execute(
+        { subcommand: 'reset', key },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  config
+    .command('model-switch <model>')
+    .description('switch the active agent model via config:model-switch')
+    .action(async (model: string) => {
+      const exit = await configCmd.execute(
+        { subcommand: 'model-switch', value: model },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  config
+    .command('model-get')
+    .description('emit the active agent model via config:model-get')
+    .action(async () => {
+      const exit = await configCmd.execute(
+        { subcommand: 'model-get' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  const configModels = config
+    .command('models')
+    .description('inspect available agent models');
+
+  configModels
+    .command('list')
+    .description('emit the available agent model list via config:models-list')
+    .action(async () => {
+      const exit = await configCmd.execute(
+        { subcommand: 'models-list' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  const configAutopilot = config
+    .command('autopilot')
+    .description(
+      'read or toggle autopilot (auto-approve all permission requests)',
+    );
+
+  configAutopilot
+    .command('get')
+    .description('emit the current autopilot state via config:autopilot-get')
+    .action(async () => {
+      const exit = await configCmd.execute(
+        { subcommand: 'autopilot-get' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  configAutopilot
+    .command('set <enabled>')
+    .description('toggle autopilot via config:autopilot-toggle (true|false)')
+    .action(async (enabled: string) => {
+      const exit = await configCmd.execute(
+        { subcommand: 'autopilot-set', value: enabled },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  const configEffort = config
+    .command('effort')
+    .description('read or set the agent reasoning-effort tier');
+
+  configEffort
+    .command('get')
+    .description('emit the current effort tier via config:effort-get')
+    .action(async () => {
+      const exit = await configCmd.execute(
+        { subcommand: 'effort-get' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  configEffort
+    .command('set <effort>')
+    .description(
+      'set the effort tier via config:effort-set (minimal|low|medium|high)',
+    )
+    .action(async (effort: string) => {
+      const exit = await configCmd.execute(
+        { subcommand: 'effort-set', value: effort },
         resolveGlobals(program),
       );
       process.exitCode = exit;
@@ -290,6 +414,583 @@ export function buildRouter(): Command {
     .action(async (opts: { id: string }) => {
       const exit = await executeSpecCmd.execute(
         { id: opts.id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah auth -------------------------------------------------------------
+  // TASK_2026_104 Batch 8d. Sub-dispatcher: status / login / logout / test.
+  const auth = program
+    .command('auth')
+    .description('inspect and manage agent provider authentication');
+
+  auth
+    .command('status')
+    .description(
+      'emit auth.status / auth.health / auth.api_key.status notifications',
+    )
+    .action(async () => {
+      const exit = await authCmd.execute(
+        { subcommand: 'status' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  auth
+    .command('login <provider>')
+    .description(
+      'start an OAuth or out-of-band login flow for the named provider',
+    )
+    .action(async (provider: string) => {
+      const exit = await authCmd.execute(
+        { subcommand: 'login', provider },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  auth
+    .command('logout <provider>')
+    .description('log out of the named provider (codex requires --force)')
+    .option(
+      '--force',
+      'required for `logout codex` (deletes ~/.codex/auth.json)',
+      false,
+    )
+    .action(async (provider: string, opts: { force?: boolean }) => {
+      const exit = await authCmd.execute(
+        { subcommand: 'logout', provider, force: opts.force === true },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  auth
+    .command('test <provider>')
+    .description('issue a connection test against the named provider')
+    .action(async (provider: string) => {
+      const exit = await authCmd.execute(
+        { subcommand: 'test', provider },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah provider ---------------------------------------------------------
+  // TASK_2026_104 Batch 8d. Sub-dispatcher with nested actions for default,
+  // models, and tier (each spec'd in task-description.md §3.1 lines 459-469).
+  const provider = program
+    .command('provider')
+    .description(
+      'manage LLM providers (api keys, default, models, tier mapping)',
+    );
+
+  provider
+    .command('status')
+    .description('emit provider.status (api keys redacted unless --reveal)')
+    .action(async () => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'status' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  provider
+    .command('set-key')
+    .description('store an API key for a provider in secret storage')
+    .requiredOption(
+      '--provider <id>',
+      'provider id (e.g. anthropic, openrouter)',
+    )
+    .requiredOption('--key <value>', 'API key (never echoed back)')
+    .action(async (opts: { provider: string; key: string }) => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'set-key', provider: opts.provider, key: opts.key },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  provider
+    .command('remove-key')
+    .description('delete the stored API key for a provider')
+    .requiredOption('--provider <id>', 'provider id')
+    .action(async (opts: { provider: string }) => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'remove-key', provider: opts.provider },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  const providerDefault = provider
+    .command('default')
+    .description('read or write the default provider id');
+
+  providerDefault
+    .command('get')
+    .description('emit provider.default with the configured default provider')
+    .action(async () => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'default', action: 'get' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  providerDefault
+    .command('set <provider>')
+    .description(
+      'set the default provider id and emit provider.default.updated',
+    )
+    .action(async (providerId: string) => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'default', action: 'set', provider: providerId },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  const providerModels = provider
+    .command('models')
+    .description('inspect available models for a provider');
+
+  providerModels
+    .command('list')
+    .description('emit provider.models for the named provider')
+    .requiredOption(
+      '--provider <id>',
+      'provider id (e.g. anthropic, openrouter, copilot, codex)',
+    )
+    .action(async (opts: { provider: string }) => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'models', action: 'list', provider: opts.provider },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  const providerTier = provider
+    .command('tier')
+    .description('manage the sonnet/opus/haiku model tier mapping');
+
+  providerTier
+    .command('set')
+    .description('map a tier slot to a model id and emit provider.tier.updated')
+    .requiredOption('--tier <tier>', 'tier slot (sonnet|opus|haiku)')
+    .requiredOption('--model <id>', 'model id to map to the tier')
+    .action(async (opts: { tier: string; model: string }) => {
+      const exit = await providerCmd.execute(
+        {
+          subcommand: 'tier',
+          action: 'set',
+          tier: opts.tier,
+          model: opts.model,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  providerTier
+    .command('get')
+    .description('emit provider.tiers with the current tier mapping')
+    .action(async () => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'tier', action: 'get' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  providerTier
+    .command('clear')
+    .description('clear a tier override and emit provider.tier.cleared')
+    .requiredOption('--tier <tier>', 'tier slot (sonnet|opus|haiku)')
+    .action(async (opts: { tier: string }) => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'tier', action: 'clear', tier: opts.tier },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah workspace --------------------------------------------------------
+  // TASK_2026_104 Sub-batch B5d. Backed by shared WorkspaceRpcHandlers (B5a).
+  const workspace = program
+    .command('workspace')
+    .description('manage workspace folders (info / add / remove / switch)');
+
+  workspace
+    .command('info')
+    .description('emit workspace.info via workspace:getInfo')
+    .action(async () => {
+      const exit = await workspaceCmd.execute(
+        { subcommand: 'info' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  workspace
+    .command('add')
+    .description('register a workspace folder via workspace:registerFolder')
+    .requiredOption(
+      '--path <dir>',
+      'folder path (no native picker in headless mode)',
+    )
+    .action(async (opts: { path: string }) => {
+      const exit = await workspaceCmd.execute(
+        { subcommand: 'add', path: opts.path },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  workspace
+    .command('remove')
+    .description('remove a workspace folder via workspace:removeFolder')
+    .requiredOption('--path <dir>', 'folder path')
+    .action(async (opts: { path: string }) => {
+      const exit = await workspaceCmd.execute(
+        { subcommand: 'remove', path: opts.path },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  workspace
+    .command('switch')
+    .description('switch the active workspace via workspace:switch')
+    .requiredOption('--path <dir>', 'folder path to switch to')
+    .action(async (opts: { path: string }) => {
+      const exit = await workspaceCmd.execute(
+        { subcommand: 'switch', path: opts.path },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah git --------------------------------------------------------------
+  // TASK_2026_104 Sub-batch B5d. Backed by shared GitRpcHandlers (B5b).
+  const git = program
+    .command('git')
+    .description('git introspection + worktrees + source control');
+
+  git
+    .command('info')
+    .description('emit git.info via git:info')
+    .action(async () => {
+      const exit = await gitCmd.execute(
+        { subcommand: 'info' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  git
+    .command('worktrees')
+    .description('emit git.worktrees via git:worktrees')
+    .action(async () => {
+      const exit = await gitCmd.execute(
+        { subcommand: 'worktrees' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  git
+    .command('add-worktree')
+    .description('add a worktree via git:addWorktree')
+    .requiredOption('--branch <name>', 'branch name')
+    .option('--path <dir>', 'worktree directory')
+    .option('--create', 'create the branch if it does not exist', false)
+    .action(
+      async (opts: { branch: string; path?: string; create?: boolean }) => {
+        const exit = await gitCmd.execute(
+          {
+            subcommand: 'add-worktree',
+            branch: opts.branch,
+            path: opts.path,
+            createBranch: opts.create === true,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  git
+    .command('remove-worktree')
+    .description('remove a worktree via git:removeWorktree')
+    .requiredOption('--path <dir>', 'worktree directory')
+    .option('--force', 'force-remove even with uncommitted changes', false)
+    .action(async (opts: { path: string; force?: boolean }) => {
+      const exit = await gitCmd.execute(
+        {
+          subcommand: 'remove-worktree',
+          path: opts.path,
+          force: opts.force === true,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  git
+    .command('stage')
+    .description('stage paths via git:stage')
+    .requiredOption('--paths <list>', 'comma-separated paths', collectCsv)
+    .action(async (opts: { paths: string[] }) => {
+      const exit = await gitCmd.execute(
+        { subcommand: 'stage', paths: opts.paths },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  git
+    .command('unstage')
+    .description('unstage paths via git:unstage')
+    .requiredOption('--paths <list>', 'comma-separated paths', collectCsv)
+    .action(async (opts: { paths: string[] }) => {
+      const exit = await gitCmd.execute(
+        { subcommand: 'unstage', paths: opts.paths },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  git
+    .command('discard')
+    .description(
+      'discard local changes via git:discard (DESTRUCTIVE — requires --confirm)',
+    )
+    .requiredOption('--paths <list>', 'comma-separated paths', collectCsv)
+    .option('--confirm', 'required for git discard (destructive)', false)
+    .action(async (opts: { paths: string[]; confirm?: boolean }) => {
+      const exit = await gitCmd.execute(
+        {
+          subcommand: 'discard',
+          paths: opts.paths,
+          confirm: opts.confirm === true,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  git
+    .command('commit')
+    .description('commit staged changes via git:commit')
+    .requiredOption('--message <msg>', 'commit message')
+    .action(async (opts: { message: string }) => {
+      const exit = await gitCmd.execute(
+        { subcommand: 'commit', message: opts.message },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  git
+    .command('show-file')
+    .description('emit the HEAD content of <path> via git:showFile')
+    .requiredOption('--path <file>', 'file path relative to repo root')
+    .action(async (opts: { path: string }) => {
+      const exit = await gitCmd.execute(
+        { subcommand: 'show-file', path: opts.path },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah license ----------------------------------------------------------
+  // TASK_2026_104 Sub-batch B5d. Backed by shared LicenseRpcHandlers.
+  const license = program
+    .command('license')
+    .description('inspect / set / clear the Ptah license key');
+
+  license
+    .command('status')
+    .description('emit license.status via license:getStatus')
+    .action(async () => {
+      const exit = await licenseCmd.execute(
+        { subcommand: 'status' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  license
+    .command('set')
+    .description('set the license key via license:setKey')
+    .requiredOption('--key <ptah_lic_...>', 'license key (ptah_lic_<64-hex>)')
+    .action(async (opts: { key: string }) => {
+      const exit = await licenseCmd.execute(
+        { subcommand: 'set', key: opts.key },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  license
+    .command('clear')
+    .description('clear the license key via license:clearKey')
+    .action(async () => {
+      const exit = await licenseCmd.execute(
+        { subcommand: 'clear' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah websearch --------------------------------------------------------
+  // TASK_2026_104 Sub-batch B5d. Backed by shared WebSearchRpcHandlers.
+  const websearch = program
+    .command('websearch')
+    .description('web-search provider settings + connectivity test');
+
+  websearch
+    .command('status')
+    .description('emit websearch.status (key redacted unless --reveal)')
+    .option('--provider <id>', 'override the provider id (defaults to active)')
+    .action(async (opts: { provider?: string }) => {
+      const exit = await websearchCmd.execute(
+        { subcommand: 'status', provider: opts.provider },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  websearch
+    .command('set-key')
+    .description('store a web-search API key via webSearch:setApiKey')
+    .requiredOption('--provider <id>', 'provider id (e.g. tavily, serper)')
+    .requiredOption('--key <value>', 'API key (never echoed back)')
+    .action(async (opts: { provider: string; key: string }) => {
+      const exit = await websearchCmd.execute(
+        { subcommand: 'set-key', provider: opts.provider, key: opts.key },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  websearch
+    .command('remove-key')
+    .description(
+      'delete a stored web-search API key via webSearch:deleteApiKey',
+    )
+    .requiredOption('--provider <id>', 'provider id')
+    .action(async (opts: { provider: string }) => {
+      const exit = await websearchCmd.execute(
+        { subcommand: 'remove-key', provider: opts.provider },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  websearch
+    .command('test')
+    .description('issue a connectivity test via webSearch:test')
+    .action(async () => {
+      const exit = await websearchCmd.execute(
+        { subcommand: 'test' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  const websearchConfig = websearch
+    .command('config')
+    .description('read or write the web-search config');
+
+  websearchConfig
+    .command('get')
+    .description('emit websearch.config via webSearch:getConfig')
+    .action(async () => {
+      const exit = await websearchCmd.execute(
+        { subcommand: 'config-get' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  websearchConfig
+    .command('set')
+    .description('update the web-search config via webSearch:setConfig')
+    .option('--provider <id>', 'set the active provider id')
+    .option('--max-results <n>', 'set the max-results cap', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .action(async (opts: { provider?: string; maxResults?: number }) => {
+      const exit = await websearchCmd.execute(
+        {
+          subcommand: 'config-set',
+          provider: opts.provider,
+          maxResults: opts.maxResults,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah settings ---------------------------------------------------------
+  // TASK_2026_104 Sub-batch B5d. Direct DI to SDK SettingsExportService /
+  // SettingsImportService — bypasses the Electron-only RPC dialogs.
+  const settings = program
+    .command('settings')
+    .description('export / import portable settings bundles');
+
+  settings
+    .command('export')
+    .description('export a portable settings bundle (writes 0o600 on --out)')
+    .option('--out <path>', 'output path (defaults to stdout — caller chmods)')
+    .action(async (opts: { out?: string }) => {
+      const exit = await settingsCmd.execute(
+        { subcommand: 'export', out: opts.out },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  settings
+    .command('import')
+    .description(
+      'import a settings bundle (preserves credentials unless --overwrite)',
+    )
+    .option('--in <path>', 'input path (defaults to stdin)')
+    .option('--overwrite', 'overwrite existing credentials', false)
+    .action(async (opts: { in?: string; overwrite?: boolean }) => {
+      const exit = await settingsCmd.execute(
+        {
+          subcommand: 'import',
+          in: opts.in,
+          overwrite: opts.overwrite === true,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah analyze ----------------------------------------------------------
+  // TASK_2026_104 Sub-batch B5d. Top-level command — drives wizard:deep-analyze
+  // and streams analyze.* notifications. Premium licence gated by the backend.
+  program
+    .command('analyze')
+    .description('run a multi-phase workspace analysis via wizard:deep-analyze')
+    .option('--model <id>', 'model id forwarded to the analysis pipeline')
+    .option(
+      '--save',
+      'persist the bundle to ~/.ptah/analyses/<slug>/manifest.json',
+      false,
+    )
+    .option('--out <path>', 'explicit output path (implies --save)')
+    .action(async (opts: { model?: string; save?: boolean; out?: string }) => {
+      const exit = await analyzeCmd.execute(
+        { model: opts.model, save: opts.save === true, out: opts.out },
         resolveGlobals(program),
       );
       process.exitCode = exit;

@@ -122,10 +122,14 @@ export type PtahNotification =
   | 'task.start'
   | 'task.complete'
   | 'task.error'
-  // Config commands
+  // Config commands (file-backed reads/writes + RPC sub-subcommands)
   | 'config.value'
   | 'config.updated'
   | 'config.list'
+  | 'config.model'
+  | 'config.models'
+  | 'config.autopilot'
+  | 'config.effort'
   // Harness commands
   | 'harness.initialized'
   | 'skill.installed'
@@ -133,6 +137,58 @@ export type PtahNotification =
   // Profile commands
   | 'profile.applied'
   | 'profile.list'
+  // Workspace commands (TASK_2026_104 B5d)
+  | 'workspace.info'
+  | 'workspace.added'
+  | 'workspace.removed'
+  | 'workspace.switched'
+  // Git commands (TASK_2026_104 B5d)
+  | 'git.info'
+  | 'git.worktrees'
+  | 'git.worktree.added'
+  | 'git.worktree.removed'
+  | 'git.staged'
+  | 'git.unstaged'
+  | 'git.discarded'
+  | 'git.committed'
+  | 'git.file'
+  // License commands (TASK_2026_104 B5d)
+  | 'license.status'
+  | 'license.updated'
+  | 'license.cleared'
+  // Web search commands (TASK_2026_104 B5d)
+  | 'websearch.status'
+  | 'websearch.config'
+  | 'websearch.test'
+  | 'websearch.updated'
+  // Settings export/import (TASK_2026_104 B5d)
+  | 'settings.exported'
+  | 'settings.imported'
+  // Workspace deep-analysis (TASK_2026_104 B5d)
+  | 'analyze.start'
+  | 'analyze.framework_detected'
+  | 'analyze.dependency_detected'
+  | 'analyze.recommendation'
+  | 'analyze.complete'
+  // Auth commands (TASK_2026_104 B8d) — task-description.md §4.1.6
+  | 'auth.status'
+  | 'auth.health'
+  | 'auth.api_key.status'
+  | 'auth.login.start'
+  | 'auth.login.url'
+  | 'auth.login.complete'
+  | 'auth.logout.complete'
+  | 'auth.test.result'
+  // Provider commands (TASK_2026_104 B8d) — task-description.md §4.1.6
+  | 'provider.status'
+  | 'provider.default'
+  | 'provider.models'
+  | 'provider.tiers'
+  | 'provider.key.set'
+  | 'provider.key.removed'
+  | 'provider.default.updated'
+  | 'provider.tier.updated'
+  | 'provider.tier.cleared'
   // Diagnostics (verbose)
   | 'debug.di.phase';
 
@@ -140,7 +196,23 @@ export type PtahNotification =
  * Outbound CLI → client requests (require a response on stdin).
  * task-description.md §4.2.
  */
-export type PtahOutboundRequest = 'permission.request' | 'question.ask';
+export type PtahOutboundRequest =
+  | 'permission.request'
+  | 'question.ask'
+  // OAuth URL surfacing for headless device-code flows (TASK_2026_104 B8c/B8d).
+  // The CLI sends this to the connected JSON-RPC peer when a Copilot login
+  // begins so the peer can open the verification URL on the user's behalf.
+  | 'oauth.url.open';
+
+/**
+ * String-literal alias for every outbound CLI → client request method, matching
+ * the naming used by `JsonRpcServer.request<T>(method, params)`. Keeps the
+ * type-safety surface symmetrical with `PtahNotification` for callers that
+ * want to constrain the `method` argument at compile time.
+ *
+ * TASK_2026_104 B8d.
+ */
+export type PtahRequestMethod = PtahOutboundRequest;
 
 /**
  * Inbound client → CLI requests (handled in `interact` mode).
