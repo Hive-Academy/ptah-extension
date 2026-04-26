@@ -441,35 +441,35 @@ export function buildRouter(): Command {
     });
 
   // ---------------------------------------------------------------------------
-  // `harness chat` — locked alias contract per TASK_2026_104 architect spec.
+  // `harness chat` — alias for `ptah session start --scope harness-skill`.
   //
-  // Currently a deferred-to-Batch-10 alias for `session start --scope
-  // harness-skill`. The body emits a `task.error` notification synchronously
-  // and exits 1. The flag set below mirrors `session start --scope
-  // harness-skill` so when Batch 10 lands the parser surface stays stable.
-  //
-  // TODO(B10): When session.ts ships, re-verify the harness chat parser
-  // accepts the same flag set as `session start --scope harness-skill` and
-  // delegates the action body to `executeSession({ scope: 'harness-skill' })`.
+  // TASK_2026_104 Sub-batch B10d. The flag set mirrors `session start --scope
+  // harness-skill` for stream-handling parity. Delegation lives in
+  // `commands/harness.ts:runChatAlias` and ultimately calls
+  // `executeSessionStart` from `session.ts`.
   // ---------------------------------------------------------------------------
   harness
     .command('chat')
-    .description(
-      'alias for `ptah session start --scope harness-skill` (deferred to Batch 10 — emits task.error, exit 1)',
-    )
+    .description('alias for `ptah session start --scope harness-skill`')
     .option('--task <string>', 'free-form task prompt')
     .option('--profile <name>', 'sub-agent profile to use')
     .option('--session <id>', 'resume the given session id')
     .option('--auto-approve', 'auto-allow all permission requests', false)
     .action(
-      async (_opts: {
+      async (opts: {
         task?: string;
         profile?: string;
         session?: string;
         autoApprove?: boolean;
       }) => {
         const exit = await harnessCmd.execute(
-          { subcommand: 'chat' },
+          {
+            subcommand: 'chat',
+            task: opts.task,
+            profile: opts.profile,
+            session: opts.session,
+            autoApprove: opts.autoApprove === true,
+          },
           resolveGlobals(program),
         );
         process.exitCode = exit;
@@ -715,13 +715,20 @@ export function buildRouter(): Command {
     });
 
   // -- ptah run --------------------------------------------------------------
+  // TASK_2026_104 Sub-batch B10d: `ptah run` is a thin deprecation alias for
+  // `ptah session start --task <text>` and will be removed in the next
+  // release. The body delegates to `executeSessionStart` and emits a single-
+  // line deprecation notice on stderr.
   program
     .command('run')
-    .description('submit a single one-off task to the agent and stream events')
+    .description(
+      'DEPRECATED — use `ptah session start --task` instead. Submits a single one-off task and streams events.',
+    )
     .requiredOption('--task <string>', 'free-form task prompt')
-    .action(async (opts: { task: string }) => {
+    .option('--profile <name>', 'system prompt preset (claude_code|enhanced)')
+    .action(async (opts: { task: string; profile?: string }) => {
       const exit = await runCmd.execute(
-        { task: opts.task },
+        { task: opts.task, profile: opts.profile },
         resolveGlobals(program),
       );
       process.exitCode = exit;
