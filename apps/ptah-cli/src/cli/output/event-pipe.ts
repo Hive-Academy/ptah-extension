@@ -25,13 +25,7 @@ import type { Formatter } from './formatter.js';
 
 /** Mapping table from backend event type → Ptah notification method. */
 export const EVENT_MAP: Readonly<Record<string, PtahNotification>> = {
-  // Agent stream
-  'chat:chunk': 'agent.message',
-  'chat:thought': 'agent.thought',
-  'chat:tool_use': 'agent.tool_use',
-  'chat:tool_result': 'agent.tool_result',
-  'tool:start': 'agent.tool_use',
-  'tool:end': 'agent.tool_result',
+  // NOTE: chat surface (chat:chunk/chat:complete/chat:error) is handled by ChatBridge in cli/chat/chat-bridge.ts (B10b) — events are demuxed and reshaped per spec § 4.1.2 there, not here.
   // Session metering — handled specially (delta computation below).
   'session:cost': 'session.cost',
   'session:cost-delta': 'session.cost',

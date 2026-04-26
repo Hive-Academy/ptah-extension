@@ -40,12 +40,6 @@ const tick = () => new Promise((r) => setImmediate(r));
 describe('EventPipe', () => {
   describe('attach + mapping', () => {
     it.each([
-      ['chat:chunk', 'agent.message'],
-      ['chat:thought', 'agent.thought'],
-      ['chat:tool_use', 'agent.tool_use'],
-      ['chat:tool_result', 'agent.tool_result'],
-      ['tool:start', 'agent.tool_use'],
-      ['tool:end', 'agent.tool_result'],
       ['task:start', 'task.start'],
       ['task:complete', 'task.complete'],
       ['task:error', 'task.error'],
@@ -264,11 +258,11 @@ describe('EventPipe', () => {
       const adapter = new EventEmitter();
       pipe.attach(adapter);
 
-      adapter.emit('chat:chunk', { text: 'hello' });
+      adapter.emit('task:start', { text: 'hello' });
       await tick();
 
       expect(fmt.notifications).toEqual([
-        { method: 'agent.message', params: { text: 'hello' } },
+        { method: 'task.start', params: { text: 'hello' } },
       ]);
       pipe.detach();
     });
@@ -282,7 +276,7 @@ describe('EventPipe', () => {
       pipe.attach(adapter);
       pipe.detach();
 
-      adapter.emit('chat:chunk', { text: 'should not appear' });
+      adapter.emit('task:start', { text: 'should not appear' });
       await tick();
       expect(fmt.notifications).toHaveLength(0);
     });
@@ -295,12 +289,12 @@ describe('EventPipe', () => {
       pipe.attach(a);
       pipe.attach(b);
 
-      a.emit('chat:chunk', { text: 'a' });
-      b.emit('chat:chunk', { text: 'b' });
+      a.emit('task:start', { text: 'a' });
+      b.emit('task:start', { text: 'b' });
       await tick();
 
       expect(fmt.notifications).toEqual([
-        { method: 'agent.message', params: { text: 'b' } },
+        { method: 'task.start', params: { text: 'b' } },
       ]);
       pipe.detach();
     });
