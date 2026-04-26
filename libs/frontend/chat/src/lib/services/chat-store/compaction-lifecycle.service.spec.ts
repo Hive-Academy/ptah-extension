@@ -16,8 +16,10 @@
 import { TestBed } from '@angular/core/testing';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from '../session-manager.service';
-import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
+import {
+  SessionManager,
+  ExecutionTreeBuilderService,
+} from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import type { TabState } from '@ptah-extension/chat-types';
 

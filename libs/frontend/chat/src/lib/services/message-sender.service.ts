@@ -32,7 +32,7 @@ import {
   EffortLevel,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from './session-manager.service';
+import { SessionManager } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
 import type { SendMessageOptions } from '@ptah-extension/chat-types';
 

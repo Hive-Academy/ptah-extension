@@ -21,7 +21,7 @@ import { MessageDispatchService } from './message-dispatch.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { MessageSenderService } from '../message-sender.service';
 import { ConversationService } from './conversation.service';
-import { PermissionHandlerService } from './permission-handler.service';
+import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {

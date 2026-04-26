@@ -1,6 +1,6 @@
 ﻿import { Injectable, inject } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { StreamingHandlerService } from './streaming-handler.service';
+import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';

@@ -5,7 +5,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import { MessageSenderService } from '../message-sender.service';
 import type { SendMessageOptions } from '@ptah-extension/chat-types';
 import { ConversationService } from './conversation.service';
-import { PermissionHandlerService } from './permission-handler.service';
+import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
 
 /**
  * MessageDispatchService - Send-or-queue routing + slash-command guard.

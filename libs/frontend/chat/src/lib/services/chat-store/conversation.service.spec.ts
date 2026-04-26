@@ -26,7 +26,7 @@ import { TestBed } from '@angular/core/testing';
 import { signal, computed } from '@angular/core';
 import { ConversationService } from './conversation.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from '../session-manager.service';
+import { SessionManager } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from '../message-validation.service';
 import {
   ClaudeRpcService,

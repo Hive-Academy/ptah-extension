@@ -22,8 +22,10 @@ import {
   ConfirmationDialogService,
   TabManagerService,
 } from '@ptah-extension/chat-state';
-import { SessionManager } from '../session-manager.service';
-import { StreamingHandlerService } from './streaming-handler.service';
+import {
+  SessionManager,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from '../message-validation.service';
 
 @Injectable({ providedIn: 'root' })

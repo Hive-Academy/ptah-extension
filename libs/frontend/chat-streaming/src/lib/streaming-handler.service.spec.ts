@@ -39,13 +39,13 @@ import type {
 } from '@ptah-extension/shared';
 import { StreamingHandlerService } from './streaming-handler.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from '../session-manager.service';
+import { SessionManager } from './session-manager.service';
 import { EventDeduplicationService } from './event-deduplication.service';
 import { BatchedUpdateService } from './batched-update.service';
 import { MessageFinalizationService } from './message-finalization.service';
 import { PermissionHandlerService } from './permission-handler.service';
-import { BackgroundAgentStore } from '../background-agent.store';
-import { AgentMonitorStore } from '../agent-monitor.store';
+import { BackgroundAgentStore } from './background-agent.store';
+import { AgentMonitorStore } from './agent-monitor.store';
 
 // ---------- Helpers --------------------------------------------------------
 

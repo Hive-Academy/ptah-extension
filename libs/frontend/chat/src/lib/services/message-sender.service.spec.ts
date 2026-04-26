@@ -29,7 +29,7 @@ import {
 } from '@ptah-extension/core';
 import { MessageSenderService } from './message-sender.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from './session-manager.service';
+import { SessionManager } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
 import type { TabState } from '@ptah-extension/chat-types';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';

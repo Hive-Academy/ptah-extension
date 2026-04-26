@@ -16,8 +16,10 @@ import {
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import { AgentMonitorStore } from '../../../services/agent-monitor.store';
-import type { MonitoredAgent } from '../../../services/agent-monitor.store';
+import {
+  AgentMonitorStore,
+  type MonitoredAgent,
+} from '@ptah-extension/chat-streaming';
 import { AgentCardHeaderComponent } from './agent-card-header.component';
 import { AgentCardOutputComponent } from '@ptah-extension/chat-ui';
 import { PtahCliOutputComponent } from './ptah-cli-output.component';

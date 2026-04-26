@@ -10,7 +10,7 @@
 import { TestBed } from '@angular/core/testing';
 import { CompletionHandlerService } from './completion-handler.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from '../session-manager.service';
+import { SessionManager } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
 
 type TabManagerSlice = Pick<

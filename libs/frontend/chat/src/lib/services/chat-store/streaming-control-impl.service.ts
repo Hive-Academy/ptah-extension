@@ -19,8 +19,10 @@
 import { inject, Injectable } from '@angular/core';
 import { StreamingControl } from '@ptah-extension/chat-state';
 
-import { AgentMonitorStore } from '../agent-monitor.store';
-import { StreamingHandlerService } from './streaming-handler.service';
+import {
+  AgentMonitorStore,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
 
 @Injectable({ providedIn: 'root' })
 export class StreamingControlImpl implements StreamingControl {

@@ -20,8 +20,8 @@ import {
   SubagentRecord,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from '../session-manager.service';
-import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
+import { SessionManager } from './session-manager.service';
+import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 import { BatchedUpdateService } from './batched-update.service';
 import type { StreamingState } from '@ptah-extension/chat-types';
 

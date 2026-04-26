@@ -33,7 +33,7 @@ import {
   DurationBadgeComponent,
   generateAgentColor,
 } from '@ptah-extension/chat-ui';
-import { AgentMonitorStore } from '../../../services/agent-monitor.store';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type {
   ExecutionNode,
   PermissionRequest,

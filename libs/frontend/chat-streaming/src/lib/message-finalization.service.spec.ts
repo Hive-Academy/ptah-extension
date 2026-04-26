@@ -27,8 +27,8 @@ import type {
 } from '@ptah-extension/shared';
 import { MessageFinalizationService } from './message-finalization.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from '../session-manager.service';
-import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
+import { SessionManager } from './session-manager.service';
+import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 import { BatchedUpdateService } from './batched-update.service';
 import type { StreamingState, TabState } from '@ptah-extension/chat-types';
 

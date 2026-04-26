@@ -8,7 +8,7 @@
 import { TestBed } from '@angular/core/testing';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { AgentMonitorMessageHandler } from './agent-monitor-message-handler.service';
-import { AgentMonitorStore } from './agent-monitor.store';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 
 type StoreSlice = Pick<
   AgentMonitorStore,

@@ -22,10 +22,8 @@ import {
 import { FormsModule } from '@angular/forms';
 import { MarkdownModule } from 'ngx-markdown';
 import { WebviewNavigationService } from '@ptah-extension/core';
-import {
-  ExecutionNodeComponent,
-  ExecutionTreeBuilderService,
-} from '@ptah-extension/chat';
+import { ExecutionNodeComponent } from '@ptah-extension/chat';
+import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { HarnessBuilderStateService } from '../services/harness-builder-state.service';
 import { HarnessRpcService } from '../services/harness-rpc.service';
 import { HarnessStreamingService } from '../services/harness-streaming.service';

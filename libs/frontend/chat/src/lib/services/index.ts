@@ -10,7 +10,11 @@ export { ChatStore } from './chat.store';
 
 // ExecutionTreeBuilderService - Builds ExecutionNode tree from flat streaming events
 // TASK_2025_090: Removed dead tree-builder.service.ts (ExecutionTreeBuilder was unused)
-export { ExecutionTreeBuilderService } from './execution-tree-builder.service';
+// TASK_2026_105 Wave G2 Phase 3: moved to @ptah-extension/chat-streaming.
+// Re-exported here for backwards compatibility — new code should import
+// directly from '@ptah-extension/chat-streaming'.
+/** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
+export { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 
 // TASK_2026_105 Wave G1: pure execution-tree helpers moved to
 // `@ptah-extension/chat-execution-tree`. Re-exported here for backwards
@@ -24,7 +28,11 @@ export {
 } from '@ptah-extension/chat-execution-tree';
 
 // SessionManager - Session lifecycle and node map management (TASK_2025_023 Phase 4)
-export { SessionManager } from './session-manager.service';
+// TASK_2026_105 Wave G2 Phase 3: moved to @ptah-extension/chat-streaming.
+// Re-exported here for backwards compatibility — new code should import
+// directly from '@ptah-extension/chat-streaming'.
+/** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
+export { SessionManager } from '@ptah-extension/chat-streaming';
 
 // Chat types - Shared interfaces moved to @ptah-extension/chat-types lib (TASK_2026_103 Wave B3).
 // Re-exported here for backwards compatibility with existing barrel imports; new code should
@@ -62,13 +70,20 @@ export {
 export { ChatMessageHandler } from './chat-message-handler.service';
 
 // AgentMonitorStore - Real-time agent process monitoring state
-export { AgentMonitorStore, type MonitoredAgent } from './agent-monitor.store';
+// TASK_2026_105 Wave G2 Phase 3: moved to @ptah-extension/chat-streaming.
+/** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
+export {
+  AgentMonitorStore,
+  type MonitoredAgent,
+} from '@ptah-extension/chat-streaming';
 
 // BackgroundAgentStore - Background agent monitoring state
+// TASK_2026_105 Wave G2 Phase 3: moved to @ptah-extension/chat-streaming.
+/** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
 export {
   BackgroundAgentStore,
   type BackgroundAgentEntry,
-} from './background-agent.store';
+} from '@ptah-extension/chat-streaming';
 
 // AgentMonitorMessageHandler - Routes agent monitor messages to store
 export { AgentMonitorMessageHandler } from './agent-monitor-message-handler.service';

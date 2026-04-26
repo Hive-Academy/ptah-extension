@@ -40,7 +40,7 @@ import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { SessionAnalyticsDashboardViewComponent } from '@ptah-extension/dashboard';
 import { ChatStore } from '../../services/chat.store';
-import { AgentMonitorStore } from '../../services/agent-monitor.store';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import {
   ConfirmationDialogService,

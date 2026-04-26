@@ -28,6 +28,9 @@
       "@ptah-extension/chat-execution-tree": [
         "libs/frontend/chat-execution-tree/src/index.ts"
       ],
+      "@ptah-extension/chat-streaming": [
+        "libs/frontend/chat-streaming/src/index.ts"
+      ],
       "@ptah-extension/chat-ui": ["libs/frontend/chat-ui/src/index.ts"],
       "@ptah-extension/core": ["libs/frontend/core/src/index.ts"],
       "@ptah-extension/core/testing": [

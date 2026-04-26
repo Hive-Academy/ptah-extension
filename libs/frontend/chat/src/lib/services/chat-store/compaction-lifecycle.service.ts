@@ -1,8 +1,10 @@
 ﻿import { Injectable, inject } from '@angular/core';
 import { calculateSessionCostSummary } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from '../session-manager.service';
-import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
+import {
+  SessionManager,
+  ExecutionTreeBuilderService,
+} from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 
 /**

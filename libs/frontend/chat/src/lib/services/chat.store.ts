@@ -12,18 +12,20 @@ import type {
   AskUserQuestionRequest,
   AskUserQuestionResponse,
 } from '@ptah-extension/shared';
-import { SessionManager } from './session-manager.service';
+import {
+  SessionManager,
+  StreamingHandlerService,
+  PermissionHandlerService,
+  ExecutionTreeBuilderService,
+} from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { StreamingHandlerService } from './chat-store/streaming-handler.service';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import { ConversationService } from './chat-store/conversation.service';
-import { PermissionHandlerService } from './chat-store/permission-handler.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
 import { SessionStatsAggregatorService } from './chat-store/session-stats-aggregator.service';
 import { ChatLifecycleService } from './chat-store/chat-lifecycle.service';
 import { MessageSenderService } from './message-sender.service';
-import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
 
 /**

@@ -16,7 +16,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from '../session-manager.service';
+import { SessionManager } from '@ptah-extension/chat-streaming';
 import { TabState } from '@ptah-extension/chat-types';
 
 @Injectable({ providedIn: 'root' })

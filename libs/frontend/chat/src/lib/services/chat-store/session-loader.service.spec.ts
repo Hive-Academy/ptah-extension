@@ -21,9 +21,11 @@ import { signal, computed } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { SessionLoaderService } from './session-loader.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from '../session-manager.service';
-import { StreamingHandlerService } from './streaming-handler.service';
-import { AgentMonitorStore } from '../agent-monitor.store';
+import {
+  SessionManager,
+  StreamingHandlerService,
+  AgentMonitorStore,
+} from '@ptah-extension/chat-streaming';
 import type {
   ChatSessionSummary,
   SessionId,

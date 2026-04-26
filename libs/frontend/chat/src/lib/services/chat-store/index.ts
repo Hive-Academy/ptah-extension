@@ -19,11 +19,16 @@
  *   session-ID resolution, chat-error handling
  */
 
-export { StreamingHandlerService } from './streaming-handler.service';
+// TASK_2026_105 Wave G2 Phase 3: StreamingHandlerService + PermissionHandlerService
+// moved to @ptah-extension/chat-streaming. Re-exported here for backwards
+// compatibility — new code should import directly from '@ptah-extension/chat-streaming'.
+/** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
+export { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 export { CompletionHandlerService } from './completion-handler.service';
 export { SessionLoaderService } from './session-loader.service';
 export { ConversationService } from './conversation.service';
-export { PermissionHandlerService } from './permission-handler.service';
+/** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
+export { PermissionHandlerService } from '@ptah-extension/chat-streaming';
 // NEW (Wave C7g)
 export { CompactionLifecycleService } from './compaction-lifecycle.service';
 export { MessageDispatchService } from './message-dispatch.service';

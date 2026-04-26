@@ -35,10 +35,12 @@ import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-s
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { ChatStore } from '../../services/chat.store';
-import { AgentMonitorStore } from '../../services/agent-monitor.store';
+import {
+  AgentMonitorStore,
+  ExecutionTreeBuilderService,
+} from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { ExecutionTreeBuilderService } from '../../services/execution-tree-builder.service';
 import { SESSION_CONTEXT } from '../../tokens/session-context.token';
 import { VSCodeService } from '@ptah-extension/core';
 import {

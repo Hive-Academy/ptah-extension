@@ -21,7 +21,7 @@ import { Injectable, inject } from '@angular/core';
 import { type MessageHandler } from '@ptah-extension/core';
 import { FlatStreamEventUnion, MESSAGE_TYPES } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
-import { AgentMonitorStore } from './agent-monitor.store';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 
 @Injectable({ providedIn: 'root' })
 export class ChatMessageHandler implements MessageHandler {

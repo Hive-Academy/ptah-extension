@@ -14,10 +14,8 @@ import {
   LucideAngularModule,
   Terminal,
 } from 'lucide-angular';
-import {
-  ExecutionNodeComponent,
-  ExecutionTreeBuilderService,
-} from '@ptah-extension/chat';
+import { ExecutionNodeComponent } from '@ptah-extension/chat';
+import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 
 /**

@@ -2,9 +2,11 @@
 import { ClaudeRpcService, AuthStateService } from '@ptah-extension/core';
 import { LicenseGetStatusResponse } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SessionManager } from '../session-manager.service';
+import {
+  SessionManager,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
-import { StreamingHandlerService } from './streaming-handler.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { TabState } from '@ptah-extension/chat-types';
 

@@ -24,10 +24,12 @@ import {
   SubagentRecord,
   getModelContextWindow,
 } from '@ptah-extension/shared';
-import { SessionManager } from '../session-manager.service';
+import {
+  SessionManager,
+  StreamingHandlerService,
+  AgentMonitorStore,
+} from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { StreamingHandlerService } from './streaming-handler.service';
-import { AgentMonitorStore } from '../agent-monitor.store';
 import { createEmptyStreamingState } from '@ptah-extension/chat-types';
 
 /**
