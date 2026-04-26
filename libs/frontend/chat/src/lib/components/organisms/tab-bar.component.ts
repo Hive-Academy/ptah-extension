@@ -12,7 +12,7 @@ import {
   NgZone,
 } from '@angular/core';
 import { LucideAngularModule, ChevronLeft, ChevronRight } from 'lucide-angular';
-import { TabItemComponent } from '../molecules/session/tab-item.component';
+import { TabItemComponent } from '@ptah-extension/chat-ui';
 import { TabManagerService } from '../../services/tab-manager.service';
 
 /**

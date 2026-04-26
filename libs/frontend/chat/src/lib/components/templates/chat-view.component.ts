@@ -24,13 +24,15 @@ import {
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
-import { PermissionBadgeComponent } from '../molecules/permissions/permission-badge.component';
-import { QuestionCardComponent } from '../molecules/question-card.component';
+import {
+  PermissionBadgeComponent,
+  QuestionCardComponent,
+  SessionStatsSummaryComponent,
+  CompactionNotificationComponent,
+  SidebarTabComponent,
+} from '@ptah-extension/chat-ui';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
-import { SessionStatsSummaryComponent } from '../molecules/session/session-stats-summary.component';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
-import { CompactionNotificationComponent } from '../molecules/notifications/compaction-notification.component';
-import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';

@@ -8,8 +8,10 @@ import {
 import { MarkdownModule } from 'ngx-markdown';
 import { LucideAngularModule, Info } from 'lucide-angular';
 import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
-import { AgentSummaryComponent } from '../../molecules/agent-summary.component';
-import { ThinkingBlockComponent } from '../../molecules/thinking-block.component';
+import {
+  AgentSummaryComponent,
+  ThinkingBlockComponent,
+} from '@ptah-extension/chat-ui';
 import { ToolCallItemComponent } from '../../molecules/tool-execution/tool-call-item.component';
 import type {
   ExecutionNode,

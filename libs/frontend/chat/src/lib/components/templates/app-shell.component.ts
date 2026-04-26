@@ -29,13 +29,15 @@ import {
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
-import { TrialEndedModalComponent } from '../molecules/trial-billing/trial-ended-modal.component';
+import {
+  TrialEndedModalComponent,
+  SidebarTabComponent,
+  ThemeToggleComponent,
+  NotificationBellComponent,
+} from '@ptah-extension/chat-ui';
 import { SettingsComponent } from '../../settings/settings.component';
 import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
-import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
-import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
 import { SessionAnalyticsDashboardViewComponent } from '@ptah-extension/dashboard';
 import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';

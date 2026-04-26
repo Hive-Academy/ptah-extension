@@ -24,6 +24,7 @@
       "@ptah-extension/canvas": ["libs/frontend/canvas/src/index.ts"],
       "@ptah-extension/chat": ["libs/frontend/chat/src/index.ts"],
       "@ptah-extension/chat-types": ["libs/frontend/chat-types/src/index.ts"],
+      "@ptah-extension/chat-ui": ["libs/frontend/chat-ui/src/index.ts"],
       "@ptah-extension/core": ["libs/frontend/core/src/index.ts"],
       "@ptah-extension/core/testing": [
         "libs/frontend/core/src/testing/index.ts"

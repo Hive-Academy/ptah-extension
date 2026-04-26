@@ -35,7 +35,7 @@ import {
   ClaudeRpcService,
 } from '@ptah-extension/core';
 import { ModelSelectorComponent } from './model-selector.component';
-import { AutopilotPopoverComponent } from './autopilot-popover.component';
+import { AutopilotPopoverComponent } from '@ptah-extension/chat-ui';
 import {
   FilePickerService,
   type FileSuggestion,
@@ -54,7 +54,7 @@ import {
   SlashTriggerDirective,
   type SlashTriggerEvent,
 } from '../../../directives/slash-trigger.directive';
-import { AgentSelectorComponent } from './agent-selector.component';
+import { AgentSelectorComponent } from '@ptah-extension/chat-ui';
 import { EffortSelectorComponent } from './effort-selector.component';
 
 /** Pasted image data for UI display */

@@ -26,8 +26,13 @@ import {
 // execution-node ↔ inline-agent-bubble file-import cycle. Recursive rendering
 // of children is now delegated to a TemplateRef supplied by the parent
 // (ExecutionNodeComponent) via `nodeTemplate` input + ngTemplateOutlet.
-import { TypingCursorComponent } from '../../atoms/typing-cursor.component';
-import { CostBadgeComponent } from '../../atoms/cost-badge.component';
+import {
+  TypingCursorComponent,
+  CostBadgeComponent,
+  TokenBadgeComponent,
+  DurationBadgeComponent,
+  generateAgentColor,
+} from '@ptah-extension/chat-ui';
 import { AgentMonitorStore } from '../../../services/agent-monitor.store';
 import type {
   ExecutionNode,
@@ -36,9 +41,6 @@ import type {
 } from '@ptah-extension/shared';
 import { NgClass, NgTemplateOutlet } from '@angular/common';
 import { formatModelDisplayName } from '@ptah-extension/shared';
-import { TokenBadgeComponent } from '../../atoms/token-badge.component';
-import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
-import { generateAgentColor } from '../../../utils/agent-color.utils';
 
 /**
  * InlineAgentBubbleComponent - Unified agent rendering for both streaming and replay

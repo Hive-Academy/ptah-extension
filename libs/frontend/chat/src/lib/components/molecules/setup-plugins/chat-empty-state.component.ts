@@ -13,10 +13,12 @@ import {
   Puzzle,
   AlertTriangle,
 } from 'lucide-angular';
-import { SetupStatusWidgetComponent } from './setup-status-widget.component';
-import { PluginStatusWidgetComponent } from './plugin-status-widget.component';
-import { PluginBrowserModalComponent } from './plugin-browser-modal.component';
-import { PromptSuggestionsComponent } from './prompt-suggestions.component';
+import {
+  SetupStatusWidgetComponent,
+  PluginStatusWidgetComponent,
+  PluginBrowserModalComponent,
+  PromptSuggestionsComponent,
+} from '@ptah-extension/chat-ui';
 import {
   VSCodeService,
   ClaudeRpcService,

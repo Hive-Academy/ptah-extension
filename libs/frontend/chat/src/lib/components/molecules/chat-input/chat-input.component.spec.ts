@@ -13,6 +13,45 @@
  * to verify the race condition fix without needing full template rendering.
  */
 
+// Stub ngx-markdown BEFORE importing the component under test. The component
+// imports from `@ptah-extension/chat-ui` whose barrel transitively pulls
+// `ngx-markdown` (an ESM-only bundle that Jest cannot parse out of the box).
+import {
+  Component,
+  Input,
+  NgModule,
+  ChangeDetectionStrategy,
+} from '@angular/core';
+jest.mock('ngx-markdown', () => {
+  @Component({
+    // eslint-disable-next-line @angular-eslint/component-selector
+    selector: 'markdown',
+    standalone: true,
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    template: `<div data-test="markdown-stub">{{ data }}</div>`,
+  })
+  class MarkdownStubComponent {
+    @Input() data: string | null | undefined = '';
+  }
+
+  @NgModule({
+    imports: [MarkdownStubComponent],
+    exports: [MarkdownStubComponent],
+  })
+  class MarkdownModule {}
+
+  return {
+    MarkdownModule,
+    MarkdownComponent: MarkdownStubComponent,
+    provideMarkdown: () => [],
+    MARKED_OPTIONS: 'MARKED_OPTIONS',
+    CLIPBOARD_OPTIONS: 'CLIPBOARD_OPTIONS',
+    MARKED_EXTENSIONS: 'MARKED_EXTENSIONS',
+    MERMAID_OPTIONS: 'MERMAID_OPTIONS',
+    SANITIZE: 'SANITIZE',
+  };
+});
+
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { ChatInputComponent } from './chat-input.component';

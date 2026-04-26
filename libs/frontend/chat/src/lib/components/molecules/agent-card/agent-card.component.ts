@@ -19,7 +19,7 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 import { AgentMonitorStore } from '../../../services/agent-monitor.store';
 import type { MonitoredAgent } from '../../../services/agent-monitor.store';
 import { AgentCardHeaderComponent } from './agent-card-header.component';
-import { AgentCardOutputComponent } from './agent-card-output.component';
+import { AgentCardOutputComponent } from '@ptah-extension/chat-ui';
 import { PtahCliOutputComponent } from './ptah-cli-output.component';
 import { CopilotOutputComponent } from './copilot-output.component';
 import { GeminiOutputComponent } from './gemini-output.component';
@@ -30,7 +30,7 @@ import {
   parseStderr,
   mergeConsecutiveTextSegments,
 } from './agent-card.utils';
-import type { RenderSegment } from './agent-card.types';
+import type { RenderSegment } from '@ptah-extension/chat-ui';
 
 @Component({
   selector: 'ptah-agent-card',
@@ -62,78 +62,96 @@ import type { RenderSegment } from './agent-card.types';
       />
 
       @if (agent().expanded) {
-      <!-- Task description (collapsible, default collapsed) -->
-      <details class="border-t border-base-content/10 flex-shrink-0">
-        <summary
-          class="px-2 py-0.5 cursor-pointer select-none hover:bg-base-200/30 transition-colors flex items-center gap-1.5"
-        >
-          <span class="text-[10px] font-medium text-base-content/40">Task</span>
-          @if (agent().parentSessionId) {
-          <span
-            class="text-[9px] text-base-content/30 ml-auto"
-            [title]="'Parent session: ' + agent().parentSessionId!"
-            >Parent:
-            {{ agent().parentSessionId! | slice : 0 : 8 }}&hellip;</span
+        <!-- Task description (collapsible, default collapsed) -->
+        <details class="border-t border-base-content/10 flex-shrink-0">
+          <summary
+            class="px-2 py-0.5 cursor-pointer select-none hover:bg-base-200/30 transition-colors flex items-center gap-1.5"
           >
-          }
-        </summary>
-        <div class="px-2 pb-1">
-          <p class="text-[11px] leading-snug text-base-content/60 line-clamp-3">
-            {{ agent().task }}
-          </p>
-        </div>
-      </details>
+            <span class="text-[10px] font-medium text-base-content/40"
+              >Task</span
+            >
+            @if (agent().parentSessionId) {
+              <span
+                class="text-[9px] text-base-content/30 ml-auto"
+                [title]="'Parent session: ' + agent().parentSessionId!"
+                >Parent:
+                {{ agent().parentSessionId! | slice: 0 : 8 }}&hellip;</span
+              >
+            }
+          </summary>
+          <div class="px-2 pb-1">
+            <p
+              class="text-[11px] leading-snug text-base-content/60 line-clamp-3"
+            >
+              {{ agent().task }}
+            </p>
+          </div>
+        </details>
 
-      <!-- Output: per-CLI rendering pipeline -->
-      @if (agent().stdout || agent().stderr || agent().segments.length > 0 ||
-      agent().streamEvents.length > 0) { @switch (agent().cli) { @case
-      ('ptah-cli') { @if (agent().streamEvents.length > 0) {
-      <ptah-ptah-cli-output
-        class="block flex-1 min-h-0 overflow-hidden"
-        [agentId]="agent().agentId"
-        [streamEvents]="agent().streamEvents"
-        [isStreaming]="agent().status === 'running'"
-        [scrollTrigger]="scrollTrigger()"
-      />
-      } @else {
-      <ptah-agent-card-output
-        class="block flex-1 min-h-0 overflow-hidden"
-        [segments]="parsedOutput()"
-        [stderrSegments]="parsedStderr()"
-        [scrollTrigger]="scrollTrigger()"
-      />
-      } } @case ('copilot') {
-      <ptah-copilot-output
-        class="block flex-1 min-h-0 overflow-hidden"
-        [agentId]="agent().agentId"
-        [segments]="agent().segments"
-        [isStreaming]="agent().status === 'running'"
-        [scrollTrigger]="scrollTrigger()"
-      />
-      } @case ('gemini') {
-      <ptah-gemini-output
-        class="block flex-1 min-h-0 overflow-hidden"
-        [agentId]="agent().agentId"
-        [segments]="agent().segments"
-        [isStreaming]="agent().status === 'running'"
-        [scrollTrigger]="scrollTrigger()"
-      />
-      } @case ('codex') {
-      <ptah-codex-output
-        class="block flex-1 min-h-0 overflow-hidden"
-        [agentId]="agent().agentId"
-        [segments]="agent().segments"
-        [isStreaming]="agent().status === 'running'"
-        [scrollTrigger]="scrollTrigger()"
-      />
-      } @default {
-      <ptah-agent-card-output
-        class="block flex-1 min-h-0 overflow-hidden"
-        [segments]="parsedOutput()"
-        [stderrSegments]="parsedStderr()"
-        [scrollTrigger]="scrollTrigger()"
-      />
-      } } } }
+        <!-- Output: per-CLI rendering pipeline -->
+        @if (
+          agent().stdout ||
+          agent().stderr ||
+          agent().segments.length > 0 ||
+          agent().streamEvents.length > 0
+        ) {
+          @switch (agent().cli) {
+            @case ('ptah-cli') {
+              @if (agent().streamEvents.length > 0) {
+                <ptah-ptah-cli-output
+                  class="block flex-1 min-h-0 overflow-hidden"
+                  [agentId]="agent().agentId"
+                  [streamEvents]="agent().streamEvents"
+                  [isStreaming]="agent().status === 'running'"
+                  [scrollTrigger]="scrollTrigger()"
+                />
+              } @else {
+                <ptah-agent-card-output
+                  class="block flex-1 min-h-0 overflow-hidden"
+                  [segments]="parsedOutput()"
+                  [stderrSegments]="parsedStderr()"
+                  [scrollTrigger]="scrollTrigger()"
+                />
+              }
+            }
+            @case ('copilot') {
+              <ptah-copilot-output
+                class="block flex-1 min-h-0 overflow-hidden"
+                [agentId]="agent().agentId"
+                [segments]="agent().segments"
+                [isStreaming]="agent().status === 'running'"
+                [scrollTrigger]="scrollTrigger()"
+              />
+            }
+            @case ('gemini') {
+              <ptah-gemini-output
+                class="block flex-1 min-h-0 overflow-hidden"
+                [agentId]="agent().agentId"
+                [segments]="agent().segments"
+                [isStreaming]="agent().status === 'running'"
+                [scrollTrigger]="scrollTrigger()"
+              />
+            }
+            @case ('codex') {
+              <ptah-codex-output
+                class="block flex-1 min-h-0 overflow-hidden"
+                [agentId]="agent().agentId"
+                [segments]="agent().segments"
+                [isStreaming]="agent().status === 'running'"
+                [scrollTrigger]="scrollTrigger()"
+              />
+            }
+            @default {
+              <ptah-agent-card-output
+                class="block flex-1 min-h-0 overflow-hidden"
+                [segments]="parsedOutput()"
+                [stderrSegments]="parsedStderr()"
+                [scrollTrigger]="scrollTrigger()"
+              />
+            }
+          }
+        }
+      }
     </div>
   `,
 })

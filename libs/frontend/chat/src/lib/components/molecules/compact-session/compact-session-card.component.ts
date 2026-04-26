@@ -13,10 +13,12 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-angular';
-import { CompactSessionHeaderComponent } from './compact-session-header.component';
-import { CompactSessionStatsComponent } from './compact-session-stats.component';
-import { CompactSessionActivityComponent } from './compact-session-activity.component';
-import { CompactSessionInputComponent } from './compact-session-input.component';
+import {
+  CompactSessionHeaderComponent,
+  CompactSessionStatsComponent,
+  CompactSessionActivityComponent,
+  CompactSessionInputComponent,
+} from '@ptah-extension/chat-ui';
 import type { TabState } from '@ptah-extension/chat-types';
 import { ChatStore } from '../../../services/chat.store';
 import { TabManagerService } from '../../../services/tab-manager.service';
