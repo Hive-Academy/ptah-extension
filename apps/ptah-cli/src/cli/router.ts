@@ -31,6 +31,7 @@ import * as promptsCmd from './commands/prompts.js';
 import * as providerCmd from './commands/provider.js';
 import * as qualityCmd from './commands/quality.js';
 import * as runCmd from './commands/run.js';
+import * as sessionCmd from './commands/session.js';
 import * as settingsCmd from './commands/settings.js';
 import * as setupCmd from './commands/setup.js';
 import * as skillCmd from './commands/skill.js';
@@ -1734,6 +1735,168 @@ export function buildRouter(): Command {
     .action(async (opts: { out?: string }) => {
       const exit = await qualityCmd.execute(
         { subcommand: 'export', out: opts.out },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah session ----------------------------------------------------------
+  // TASK_2026_104 Sub-batch B10c. 10-sub-subcommand dispatcher driving the
+  // chat session surface end-to-end. Streaming sub-subcommands (start/resume/
+  // send) wire B10b's ChatBridge + ApprovalBridge against the engine's
+  // pushAdapter; non-streaming ones run a single RPC and exit. State persisted
+  // under WORKSPACE_STATE_STORAGE namespace `sessions.<tabId>`.
+  const session = program
+    .command('session')
+    .description(
+      'manage chat sessions (start / resume / send / list / stop / delete / rename / load / stats / validate)',
+    );
+
+  session
+    .command('start')
+    .description(
+      'start a new chat session — synthesizes a tabId, persists the entry, and (with --task) streams a turn',
+    )
+    .option('--profile <name>', 'system prompt preset (claude_code|enhanced)')
+    .option('--task <text>', 'initial prompt — when given, streams the turn')
+    .option('--once', 'single-turn mode (informational)', false)
+    .option('--scope <scope>', 'forward-compat scope (e.g. harness-skill)')
+    .action(
+      async (opts: {
+        profile?: string;
+        task?: string;
+        once?: boolean;
+        scope?: string;
+      }) => {
+        const profile =
+          opts.profile === 'claude_code' || opts.profile === 'enhanced'
+            ? opts.profile
+            : undefined;
+        const exit = await sessionCmd.execute(
+          {
+            subcommand: 'start',
+            profile,
+            task: opts.task,
+            once: opts.once === true,
+            scope: opts.scope,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  session
+    .command('resume <id>')
+    .description(
+      'resume an existing session — looks up by tabId or treats <id> as the SDK session id; with --task streams the next turn',
+    )
+    .option('--task <text>', 'follow-up prompt — when given, streams the turn')
+    .action(async (id: string, opts: { task?: string }) => {
+      const exit = await sessionCmd.execute(
+        { subcommand: 'resume', id, task: opts.task },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  session
+    .command('send <id>')
+    .description('send a follow-up turn to an existing session and stream it')
+    .requiredOption('--task <text>', 'turn prompt (required)')
+    .action(async (id: string, opts: { task: string }) => {
+      const exit = await sessionCmd.execute(
+        { subcommand: 'send', id, task: opts.task },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  session
+    .command('list')
+    .description(
+      'list sessions for the active workspace via session:list (best-effort enrichment with running + background agents)',
+    )
+    .action(async () => {
+      const exit = await sessionCmd.execute(
+        { subcommand: 'list' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  session
+    .command('stop <id>')
+    .description('abort an in-flight session via chat:abort')
+    .action(async (id: string) => {
+      const exit = await sessionCmd.execute(
+        { subcommand: 'stop', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  session
+    .command('delete <id>')
+    .description(
+      'delete a session via session:delete and remove the local persisted entry',
+    )
+    .action(async (id: string) => {
+      const exit = await sessionCmd.execute(
+        { subcommand: 'delete', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  session
+    .command('rename <id>')
+    .description('rename a session via session:rename')
+    .requiredOption('--to <name>', 'new session name')
+    .action(async (id: string, opts: { to: string }) => {
+      const exit = await sessionCmd.execute(
+        { subcommand: 'rename', id, to: opts.to },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  session
+    .command('load <id>')
+    .description(
+      'load full session history via session:load and emit session.history (writes JSON to --out when given)',
+    )
+    .option('--out <path>', 'output path for the JSON dump')
+    .action(async (id: string, opts: { out?: string }) => {
+      const exit = await sessionCmd.execute(
+        { subcommand: 'load', id, out: opts.out },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  session
+    .command('stats')
+    .description(
+      'emit per-session stats via session:stats-batch (--ids comma-separated; empty = all)',
+    )
+    .option('--ids <csv>', 'comma-separated session ids')
+    .action(async (opts: { ids?: string }) => {
+      const exit = await sessionCmd.execute(
+        { subcommand: 'stats', ids: opts.ids },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  session
+    .command('validate <id>')
+    .description(
+      'check whether a session id has an on-disk record via session:validate',
+    )
+    .action(async (id: string) => {
+      const exit = await sessionCmd.execute(
+        { subcommand: 'validate', id },
         resolveGlobals(program),
       );
       process.exitCode = exit;

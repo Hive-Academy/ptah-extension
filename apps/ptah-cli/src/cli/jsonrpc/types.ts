@@ -111,6 +111,18 @@ export type PtahNotification =
   // Session lifecycle
   | 'session.ready'
   | 'session.created'
+  // Session command surface (TASK_2026_104 B10c) — task-description.md §3.1
+  // `session *` table. Emitted by `ptah session {list|stop|delete|rename|
+  // load|stats|validate}` for non-streaming sub-subcommands. Streaming
+  // sub-subcommands (`start|resume|send`) emit `agent.*` via `ChatBridge`.
+  | 'session.list'
+  | 'session.history'
+  | 'session.stats'
+  | 'session.valid'
+  | 'session.stopped'
+  | 'session.deleted'
+  | 'session.renamed'
+  | 'session.id_resolved'
   // Agent stream
   | 'agent.thought'
   | 'agent.message'
