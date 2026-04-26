@@ -28,25 +28,24 @@ import type { CliMessageTransport } from '../../transport/cli-message-transport.
 // Stub the agent-sdk static import so ts-jest does not have to compile the
 // entire SDK transitive graph (pre-existing Zod schema TS errors in
 // libs/shared otherwise prevent the import from resolving in jest).
-// jest.mock factories run before module-scope vars, so the tokens are inlined.
+// jest.mock factories run before module-scope vars, so SDK_TOKENS Symbols
+// are inlined and the `ANTHROPIC_PROVIDERS` fixture is loaded via
+// `require()` inside the factory (shared with `auth.spec.ts` —
+// see `test-utils/agent-sdk-mock.ts`).
 jest.mock(
   '@ptah-extension/agent-sdk',
-  () => ({
-    SDK_TOKENS: {
-      SDK_SETTINGS_EXPORT: Symbol.for('SdkSettingsExport'),
-      SDK_SETTINGS_IMPORT: Symbol.for('SdkSettingsImport'),
-    },
-    // `auth-rpc.schema.ts` (loaded transitively via the static
-    // `CliDIContainer` import) reads `ANTHROPIC_PROVIDERS.map(p => p.id)`
-    // at module load to build a Zod enum. Provide a stable stub so module
-    // evaluation succeeds.
-    ANTHROPIC_PROVIDERS: [
-      { id: 'anthropic' },
-      { id: 'openrouter' },
-      { id: 'copilot' },
-      { id: 'codex' },
-    ],
-  }),
+  () => {
+    const {
+      mockAnthropicProviders,
+    } = require('../../test-utils/agent-sdk-mock');
+    return {
+      SDK_TOKENS: {
+        SDK_SETTINGS_EXPORT: Symbol.for('SdkSettingsExport'),
+        SDK_SETTINGS_IMPORT: Symbol.for('SdkSettingsImport'),
+      },
+      ANTHROPIC_PROVIDERS: mockAnthropicProviders(),
+    };
+  },
   { virtual: true },
 );
 

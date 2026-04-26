@@ -547,12 +547,26 @@ export function normalizeAgentOutput(
   // Resolve monorepoType
   const monorepoType = resolveMonorepoType(zodData.monorepoType);
 
-  // codeConventions is guaranteed to have all required fields by Zod defaults,
-  // including trailingComma which uses .default('es5') at the field level.
-  // Cast required because Zod 4 inference under ts-jest treats `.default()`
-  // fields as optional in `_output`, while `tsc --noEmit` narrows them to
-  // required. Runtime values always have these fields populated.
-  const codeConventions = zodData.codeConventions as CodeConventions;
+  // Build CodeConventions explicitly from the Zod-validated output.
+  // Each required field is mapped from `zodData.codeConventions` with the
+  // same default the Zod schema specifies as a fallback. This is
+  // belt-and-braces: if a future schema edit drops a `.default()` at the
+  // field level, the fallback keeps runtime behavior correct, and the
+  // explicit object literal lets TypeScript verify the shape against
+  // `CodeConventions` without an `as` cast that could mask drift.
+  const zc = zodData.codeConventions;
+  const codeConventions: CodeConventions = {
+    indentation: zc.indentation ?? 'spaces',
+    indentSize: zc.indentSize ?? 2,
+    quoteStyle: zc.quoteStyle ?? 'single',
+    semicolons: zc.semicolons ?? true,
+    trailingComma: zc.trailingComma ?? 'es5',
+    namingConventions: zc.namingConventions,
+    maxLineLength: zc.maxLineLength,
+    usePrettier: zc.usePrettier,
+    useEslint: zc.useEslint,
+    additionalTools: zc.additionalTools,
+  };
 
   // Preserve the agent's original rich description (e.g., "React SPA with Supabase Backend")
   // while the enum is a best-effort infrastructure mapping

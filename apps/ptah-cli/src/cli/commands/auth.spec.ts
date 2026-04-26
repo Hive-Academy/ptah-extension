@@ -26,23 +26,26 @@ import type { ICopilotAuthService } from '@ptah-extension/agent-sdk';
 // SDK transitive graph (pre-existing Zod schema TS errors in libs/shared
 // otherwise prevent the import from resolving in jest). The auth command only
 // reads SDK_TOKENS.SDK_COPILOT_AUTH at runtime.
+//
+// `ANTHROPIC_PROVIDERS` is consumed transitively by `auth-rpc.schema.ts`
+// (`ANTHROPIC_PROVIDERS.map(p => p.id)` at module load → Zod enum). The
+// fixture lives in `test-utils/agent-sdk-mock.ts` so it stays in sync with
+// `settings.spec.ts` and is type-anchored against the real registry shape.
+// `require()` is used inside the factory because jest hoists `jest.mock`
+// above module-scope `import` statements.
 jest.mock(
   '@ptah-extension/agent-sdk',
-  () => ({
-    SDK_TOKENS: {
-      SDK_COPILOT_AUTH: Symbol.for('SdkCopilotAuth'),
-    },
-    // `auth-rpc.schema.ts` (loaded transitively via the static
-    // `CliDIContainer` import) reads `ANTHROPIC_PROVIDERS.map(p => p.id)`
-    // at module load to build a Zod enum. Provide a stable stub so module
-    // evaluation succeeds.
-    ANTHROPIC_PROVIDERS: [
-      { id: 'anthropic' },
-      { id: 'openrouter' },
-      { id: 'copilot' },
-      { id: 'codex' },
-    ],
-  }),
+  () => {
+    const {
+      mockAnthropicProviders,
+    } = require('../../test-utils/agent-sdk-mock');
+    return {
+      SDK_TOKENS: {
+        SDK_COPILOT_AUTH: Symbol.for('SdkCopilotAuth'),
+      },
+      ANTHROPIC_PROVIDERS: mockAnthropicProviders(),
+    };
+  },
   { virtual: true },
 );
 

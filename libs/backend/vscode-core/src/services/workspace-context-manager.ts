@@ -40,6 +40,29 @@ function encodeWorkspacePath(folderPath: string): string {
   return Buffer.from(folderPath).toString('base64url');
 }
 
+/**
+ * Result of {@link WorkspaceContextManager.createWorkspace}.
+ *
+ * Named tagged variants (rather than an inline anonymous union) so that
+ * downstream `if (!result.success)` narrowing works under both strict and
+ * non-strict TS configs (notably ts-jest spec configs that don't enable
+ * `strictNullChecks`). With anonymous-union shapes, non-strict narrowing
+ * on a boolean discriminant can collapse, and callers historically had to
+ * fall back to `as { success: false; error: string }` — that's no longer
+ * needed once the variants live behind named exports.
+ */
+export interface CreateWorkspaceSuccess {
+  readonly success: true;
+  readonly encodedPath: string;
+}
+export interface CreateWorkspaceFailure {
+  readonly success: false;
+  readonly error: string;
+}
+export type CreateWorkspaceResult =
+  | CreateWorkspaceSuccess
+  | CreateWorkspaceFailure;
+
 export class WorkspaceContextManager {
   constructor(
     private readonly userDataPath: string,
@@ -53,11 +76,7 @@ export class WorkspaceContextManager {
    * Returns the encoded path (base64url) for the workspace, or null if
    * the folder does not exist on disk.
    */
-  async createWorkspace(
-    workspacePath: string,
-  ): Promise<
-    { success: true; encodedPath: string } | { success: false; error: string }
-  > {
+  async createWorkspace(workspacePath: string): Promise<CreateWorkspaceResult> {
     const normalizedPath = path.resolve(workspacePath);
 
     // Check if already registered

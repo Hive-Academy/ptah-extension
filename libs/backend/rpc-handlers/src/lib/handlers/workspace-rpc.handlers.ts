@@ -139,16 +139,18 @@ export class WorkspaceRpcHandlers {
         // If context creation fails, the provider stays clean (no folder added).
         const createResult =
           await this.workspaceContextManager.createWorkspace(folderPath);
-        if (!createResult.success) {
-          const failure = createResult as { success: false; error: string };
+        // Use `'error' in createResult` rather than `!createResult.success` so
+        // narrowing also works under ts-jest spec configs that run without
+        // `strictNullChecks`. See container.ts for the same pattern.
+        if ('error' in createResult) {
           this.logger.error(
             '[RPC] workspace:addFolder - failed to create workspace context',
-            { folderPath, error: failure.error },
+            { folderPath, error: createResult.error },
           );
           return {
             path: null,
             name: null,
-            error: `Failed to create workspace context: ${failure.error}`,
+            error: `Failed to create workspace context: ${createResult.error}`,
           };
         }
 
@@ -190,13 +192,13 @@ export class WorkspaceRpcHandlers {
 
           const createResult =
             await this.workspaceContextManager.createWorkspace(folderPath);
-          if (!createResult.success) {
-            const failure = createResult as { success: false; error: string };
+          // `in`-based narrowing — see registerAddFolder for the rationale.
+          if ('error' in createResult) {
             return {
               success: false,
               path: folderPath,
               name: folderName,
-              error: `Failed to create workspace context: ${failure.error}`,
+              error: `Failed to create workspace context: ${createResult.error}`,
             };
           }
 

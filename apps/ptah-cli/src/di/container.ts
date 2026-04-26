@@ -346,15 +346,19 @@ export class CliDIContainer {
     // workspace:* calls until well after this resolves.
     workspaceContextManager.createWorkspace(workspacePath).then(
       (result) => {
-        if (result.success) {
-          workspaceAwareStorage.setActiveWorkspace(path.resolve(workspacePath));
-        } else {
-          const failure = result as { success: false; error: string };
+        if ('error' in result) {
+          // CreateWorkspaceFailure variant. Use `in`-based narrowing rather
+          // than `if (result.success)` because ts-jest's spec tsconfig runs
+          // without `strictNullChecks`, where boolean-discriminant narrowing
+          // can collapse and require a structural cast. `in` narrowing
+          // works under both strict and non-strict modes.
           logger.warn(
             '[CLI DI] Failed to create initial workspace context (non-fatal)',
-            { error: failure.error } as unknown as Error,
+            { error: result.error } as unknown as Error,
           );
+          return;
         }
+        workspaceAwareStorage.setActiveWorkspace(path.resolve(workspacePath));
       },
       (error) => {
         logger.warn(
