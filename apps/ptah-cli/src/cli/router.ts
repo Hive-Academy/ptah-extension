@@ -34,6 +34,7 @@ import * as runCmd from './commands/run.js';
 import * as settingsCmd from './commands/settings.js';
 import * as skillCmd from './commands/skill.js';
 import * as websearchCmd from './commands/websearch.js';
+import * as wizardCmd from './commands/wizard.js';
 import * as workspaceCmd from './commands/workspace.js';
 
 /**
@@ -1797,6 +1798,73 @@ export function buildRouter(): Command {
     .action(async (sessionId: string) => {
       const exit = await newProjectCmd.execute(
         { subcommand: 'approve-plan', sessionId },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah wizard -----------------------------------------------------------
+  // TASK_2026_104 Sub-batch B9c. Low-level Setup Wizard escape hatch backed by
+  // WizardGenerationRpcHandlers (submit-selection / cancel / retry-item) plus
+  // a status read of `setup.lastCompletedPhase` from WORKSPACE_STATE_STORAGE.
+  // The high-level orchestrator lives in `ptah setup` (B9d).
+  const wizard = program
+    .command('wizard')
+    .description(
+      'low-level Setup Wizard sub-commands (submit-selection / cancel / retry-item / status)',
+    );
+
+  wizard
+    .command('submit-selection')
+    .description(
+      'submit a wizard selection (read from --file <path>) via wizard:submit-selection — fire-and-forget; waits for setup-wizard:generation-complete (10-min cap)',
+    )
+    .requiredOption(
+      '--file <path>',
+      'JSON file with { selectedAgentIds, threshold?, variableOverrides?, analysisData?, analysisDir?, model? }',
+    )
+    .action(async (opts: { file: string }) => {
+      const exit = await wizardCmd.execute(
+        { subcommand: 'submit-selection', file: opts.file },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  wizard
+    .command('cancel <session-id>')
+    .description(
+      'cancel an in-flight wizard session via wizard:cancel { saveProgress: true } — idempotent, always exits 0',
+    )
+    .action(async (sessionId: string) => {
+      const exit = await wizardCmd.execute(
+        { subcommand: 'cancel', sessionId },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  wizard
+    .command('retry-item <item-id>')
+    .description(
+      'retry a single failed generation item via wizard:retry-item (synchronous; emits wizard.retry.{start,complete})',
+    )
+    .action(async (itemId: string) => {
+      const exit = await wizardCmd.execute(
+        { subcommand: 'retry-item', itemId },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  wizard
+    .command('status')
+    .description(
+      'emit wizard.status with the last completed setup phase (read from WORKSPACE_STATE_STORAGE — null until B9d setup runs)',
+    )
+    .action(async () => {
+      const exit = await wizardCmd.execute(
+        { subcommand: 'status' },
         resolveGlobals(program),
       );
       process.exitCode = exit;
