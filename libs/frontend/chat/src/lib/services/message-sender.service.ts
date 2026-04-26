@@ -340,12 +340,7 @@ export class MessageSenderService {
       const autoName = hasUserName
         ? currentName
         : content.substring(0, 50).trim() || 'New Chat';
-      this.tabManager.updateTab(activeTabId, {
-        name: autoName,
-        title: autoName,
-        status: 'streaming',
-        isDirty: false,
-      });
+      this.tabManager.applyNewConversationStreaming(activeTabId, autoName);
 
       // Show streaming indicator (visual only - no side effects)
       this.tabManager.markTabStreaming(activeTabId);
@@ -369,11 +364,10 @@ export class MessageSenderService {
       // Update tab with user message (reuse activeTab from above)
       // Also clear stale streamingState from any previous session on this tab
       // to prevent handleSessionStats from seeing orphaned streaming state
-      this.tabManager.updateTab(activeTabId, {
-        messages: [...(activeTab?.messages ?? []), userMessage],
-        currentMessageId: null, // Reset per-tab message ID for new conversation
-        streamingState: null, // Clear stale streaming state from previous session
-      });
+      this.tabManager.appendUserMessageAndResetStreaming(activeTabId, [
+        ...(activeTab?.messages ?? []),
+        userMessage,
+      ]);
 
       // Session ID will be initialized by StreamingHandler on first event
       // No tracking needed - removed PendingSessionManager
@@ -412,7 +406,7 @@ export class MessageSenderService {
       if (!result.success) {
         console.error('[MessageSender] Failed to start chat:', result.error);
         // Update tab status to loaded (failed)
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        this.tabManager.markLoaded(activeTabId);
         this.sessionManager.setStatus('loaded');
         this.sessionManager.failSession();
       }
@@ -420,7 +414,7 @@ export class MessageSenderService {
       console.error('[MessageSender] Failed to start new conversation:', error);
 
       if (activeTabId) {
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        this.tabManager.markLoaded(activeTabId);
       }
       this.sessionManager.setStatus('loaded');
       this.sessionManager.failSession();
@@ -485,10 +479,7 @@ export class MessageSenderService {
         );
 
         if (activeTabId) {
-          this.tabManager.updateTab(activeTabId, {
-            claudeSessionId: null,
-            status: 'loaded',
-          });
+          this.tabManager.detachSessionAndMarkLoaded(activeTabId);
         }
 
         await this.startNewConversation(content, options);
@@ -511,7 +502,7 @@ export class MessageSenderService {
       this.sessionManager.setStatus('resuming');
 
       // Update tab status
-      this.tabManager.updateTab(activeTabId, { status: 'resuming' });
+      this.tabManager.markResuming(activeTabId);
 
       // Add user message immediately
       const userMessage = createExecutionChatMessage({
@@ -524,9 +515,10 @@ export class MessageSenderService {
       });
 
       // Update tab with user message
-      this.tabManager.updateTab(activeTabId, {
-        messages: [...(activeTab?.messages ?? []), userMessage],
-      });
+      this.tabManager.setMessages(activeTabId, [
+        ...(activeTab?.messages ?? []),
+        userMessage,
+      ]);
 
       // Call RPC to CONTINUE existing chat (uses --resume flag)
       // TASK_2025_092: Include tabId for event routing
@@ -557,18 +549,18 @@ export class MessageSenderService {
 
       if (!result.success) {
         console.error('[MessageSender] Failed to continue chat:', result.error);
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        this.tabManager.markLoaded(activeTabId);
         this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');
       } else {
         this.sessionManager.setStatus('streaming');
-        this.tabManager.updateTab(activeTabId, { status: 'streaming' });
+        this.tabManager.markStreaming(activeTabId);
         this.tabManager.markTabStreaming(activeTabId);
       }
     } catch (error) {
       console.error('[MessageSender] Failed to continue conversation:', error);
       if (activeTabId) {
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        this.tabManager.markLoaded(activeTabId);
         this.tabManager.markTabIdle(activeTabId);
       }
       this.sessionManager.setStatus('loaded');

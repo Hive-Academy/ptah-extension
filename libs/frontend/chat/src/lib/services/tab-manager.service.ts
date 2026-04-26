@@ -1,12 +1,44 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { ModelStateService } from '@ptah-extension/core';
-import { TabState, TabViewMode } from '@ptah-extension/chat-types';
+import {
+  TabState,
+  SessionStatus,
+  TabViewMode,
+  StreamingState,
+  SendMessageOptions,
+} from '@ptah-extension/chat-types';
+import { ExecutionChatMessage, EffortLevel } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { STREAMING_CONTROL } from './streaming-control';
 import {
   TabWorkspacePartitionService,
   TabLookupResult,
 } from './tab-workspace-partition.service';
+
+/**
+ * Stats payload accumulated for the active model usage display.
+ */
+export interface LiveModelStatsPayload {
+  model: string;
+  contextUsed: number;
+  contextWindow: number;
+  contextPercent: number;
+}
+
+/**
+ * Aggregate stats persisted on a tab when a session is loaded from disk
+ * or when previous turn totals must be carried across compaction.
+ */
+export interface PreloadedStatsPayload {
+  totalCost: number;
+  tokens: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheCreation: number;
+  };
+  messageCount: number;
+}
 
 /**
  * TabManagerService - Manages multi-session tab state with workspace partitioning
@@ -614,21 +646,24 @@ export class TabManagerService {
   }
 
   /**
-   * Update tab properties.
+   * Internal mutator. PRIVATE — external callers must use the intent-named
+   * methods below (TASK_2026_105 Wave G2 Phase 1). Direct partial-state writes
+   * from outside this service prevented safe extraction of chat-state into
+   * its own lib because the public surface was an unconstrained escape hatch.
    *
-   * TASK_2025_208: This method is workspace-aware. If the tab belongs to the
-   * active workspace, it updates the _tabs signal (triggering UI reactivity).
-   * If the tab belongs to a background workspace (identified via cross-workspace
-   * lookup), it delegates to TabWorkspacePartitionService.updateBackgroundTab().
+   * TASK_2025_208: workspace-aware. If the tab belongs to the active
+   * workspace, this updates the _tabs signal (triggering UI reactivity).
+   * If the tab belongs to a background workspace, delegates to
+   * TabWorkspacePartitionService.updateBackgroundTab().
    *
-   * PERFORMANCE OPTIMIZATION: Uses shallow equality check to avoid
-   * unnecessary signal updates when streamingState hasn't actually changed.
-   * This is critical during high-frequency streaming events.
+   * PERFORMANCE: shallow equality check skips signal updates when only
+   * streamingState reference is set to itself (single-key fast path) —
+   * critical during 100+/sec streaming events.
    *
    * @param tabId - Tab ID to update
    * @param updates - Partial tab state updates
    */
-  updateTab(tabId: string, updates: Partial<TabState>): void {
+  private updateTabInternal(tabId: string, updates: Partial<TabState>): void {
     // Fast path: check active workspace's tabs first
     const activeTabs = this._tabs();
     const activeTabIndex = activeTabs.findIndex((t) => t.id === tabId);
@@ -679,6 +714,467 @@ export class TabManagerService {
     this.workspacePartition.updateBackgroundTab(tabId, updates);
   }
 
+  // ============================================================================
+  // INTENT-NAMED MUTATORS (TASK_2026_105 Wave G2 Phase 1)
+  // ============================================================================
+  //
+  // These replace the previous `updateTab(tabId, partial)` escape hatch. The
+  // generic API permitted unconstrained writes from any service and prevented
+  // safe extraction of chat-state into its own lib in Wave G2 Phase 2. Each
+  // method below maps 1:1 to a partial-keys mutation pattern observed in the
+  // chat-store services as of TASK_2026_105 inventory. New mutation patterns
+  // must add a new intent method here rather than reaching for a partial.
+  //
+  // All methods are thin wrappers over `updateTabInternal` and preserve every
+  // existing invariant (signal updates, shallow-equality fast path, workspace
+  // partition delegation, claudeSessionId reverse-index registration).
+  // ============================================================================
+
+  // ----- Status transitions -----
+
+  /** Transition the tab into the `streaming` status. */
+  markStreaming(tabId: string): void {
+    this.updateTabInternal(tabId, { status: 'streaming' });
+  }
+
+  /** Transition the tab into the `loaded` status. */
+  markLoaded(tabId: string): void {
+    this.updateTabInternal(tabId, { status: 'loaded' });
+  }
+
+  /** Transition the tab into the `resuming` status. */
+  markResuming(tabId: string): void {
+    this.updateTabInternal(tabId, { status: 'resuming' });
+  }
+
+  /**
+   * Initialize a tab for a brand-new conversation: apply the auto-derived
+   * name/title, mark it `draft`, clear dirty flag, and explicitly null the
+   * claudeSessionId so the SDK can assign a real UUID.
+   */
+  applyNewConversationDraft(tabId: string, name: string): void {
+    this.updateTabInternal(tabId, {
+      name,
+      title: name,
+      status: 'draft',
+      isDirty: false,
+      claudeSessionId: null,
+    });
+  }
+
+  /**
+   * Apply auto-derived name/title and switch to `streaming`, clearing dirty.
+   * Used by the synchronous send path that skips the `draft` intermediate.
+   */
+  applyNewConversationStreaming(tabId: string, name: string): void {
+    this.updateTabInternal(tabId, {
+      name,
+      title: name,
+      status: 'streaming',
+      isDirty: false,
+    });
+  }
+
+  // ----- Session ID + initial-event hijack -----
+
+  /** Attach the real Claude SDK session UUID to the tab. */
+  attachSession(tabId: string, sessionId: string): void {
+    this.updateTabInternal(tabId, { claudeSessionId: sessionId });
+  }
+
+  /**
+   * Adopt an empty fresh/draft tab for a session whose first event just
+   * arrived: set the session id and force `streaming` status so the
+   * UI shows incoming content immediately.
+   */
+  adoptStreamingSession(tabId: string, sessionId: string): void {
+    this.updateTabInternal(tabId, {
+      claudeSessionId: sessionId,
+      status: 'streaming',
+    });
+  }
+
+  // ----- Streaming state lifecycle -----
+
+  /** Replace the tab's streaming state (or null it out). */
+  setStreamingState(tabId: string, state: StreamingState | null): void {
+    this.updateTabInternal(tabId, { streamingState: state });
+  }
+
+  /**
+   * Set both streaming state and currentMessageId in one atomic write.
+   * Used by conversation startup which must reset both fields together.
+   */
+  setStreamingStateAndCurrentMessage(
+    tabId: string,
+    state: StreamingState | null,
+    currentMessageId: string | null,
+  ): void {
+    this.updateTabInternal(tabId, {
+      streamingState: state,
+      currentMessageId,
+    });
+  }
+
+  // ----- Messages -----
+
+  /** Replace the tab's full messages array. */
+  setMessages(tabId: string, messages: ExecutionChatMessage[]): void {
+    this.updateTabInternal(tabId, { messages });
+  }
+
+  /**
+   * Append a single user message and reset currentMessageId for a new turn.
+   * Used by conversation/message-sender flows on send.
+   */
+  appendUserMessageForNewTurn(
+    tabId: string,
+    nextMessages: ExecutionChatMessage[],
+  ): void {
+    this.updateTabInternal(tabId, {
+      messages: nextMessages,
+      currentMessageId: null,
+    });
+  }
+
+  /**
+   * Conversation-startup variant that also clears any stale streamingState
+   * carried over from a previous session on the same tab. Without the clear,
+   * handleSessionStats would see orphaned state and finalize incorrectly.
+   */
+  appendUserMessageAndResetStreaming(
+    tabId: string,
+    nextMessages: ExecutionChatMessage[],
+  ): void {
+    this.updateTabInternal(tabId, {
+      messages: nextMessages,
+      currentMessageId: null,
+      streamingState: null,
+    });
+  }
+
+  /**
+   * Replace messages and force `loaded` (used by failure paths that record
+   * an error reply and end the streaming state machine).
+   */
+  setMessagesAndMarkLoaded(
+    tabId: string,
+    messages: ExecutionChatMessage[],
+  ): void {
+    this.updateTabInternal(tabId, { messages, status: 'loaded' });
+  }
+
+  // ----- Finalization -----
+
+  /**
+   * Finalize a streaming turn: install the finalized messages array, drop
+   * the streaming state, transition to `loaded`, and clear currentMessageId.
+   * Single atomic write — components observing any of those signals see a
+   * consistent end-of-turn snapshot.
+   */
+  applyFinalizedTurn(tabId: string, messages: ExecutionChatMessage[]): void {
+    this.updateTabInternal(tabId, {
+      messages,
+      streamingState: null,
+      status: 'loaded',
+      currentMessageId: null,
+    });
+  }
+
+  /**
+   * Finalize a loaded session-history replay: install the rebuilt messages,
+   * drop streamingState, mark `loaded`. (No currentMessageId clear — history
+   * replay never sets it.)
+   */
+  applyFinalizedHistory(tabId: string, messages: ExecutionChatMessage[]): void {
+    this.updateTabInternal(tabId, {
+      messages,
+      streamingState: null,
+      status: 'loaded',
+    });
+  }
+
+  /**
+   * Drop the streaming state without touching messages. Used when finalize
+   * detects the message has already been recorded (deduplication path).
+   */
+  clearStreamingForLoaded(tabId: string): void {
+    this.updateTabInternal(tabId, {
+      streamingState: null,
+      status: 'loaded',
+      currentMessageId: null,
+    });
+  }
+
+  // ----- Error / abort reset -----
+
+  /**
+   * Reset a tab after an error: status=loaded, currentMessageId cleared, and
+   * any queued content/options dropped so the next user message is sent
+   * fresh instead of draining a stale queue.
+   */
+  applyErrorReset(tabId: string): void {
+    this.updateTabInternal(tabId, {
+      status: 'loaded',
+      currentMessageId: null,
+      queuedContent: null,
+      queuedOptions: null,
+    });
+  }
+
+  /**
+   * Lighter error reset: only status + currentMessageId. Used by handlers
+   * that don't own the queue (e.g. completion-handler legacy path).
+   */
+  applyStatusErrorReset(tabId: string): void {
+    this.updateTabInternal(tabId, {
+      status: 'loaded',
+      currentMessageId: null,
+    });
+  }
+
+  /**
+   * Drop the cached claudeSessionId and revert to `loaded`. Used when
+   * resume-validation detects the session file no longer exists on disk.
+   */
+  detachSessionAndMarkLoaded(tabId: string): void {
+    this.updateTabInternal(tabId, {
+      claudeSessionId: null,
+      status: 'loaded',
+    });
+  }
+
+  // ----- Queue -----
+
+  /** Replace queuedContent only (preserving queuedOptions if any). */
+  setQueuedContent(tabId: string, content: string | null): void {
+    this.updateTabInternal(tabId, { queuedContent: content });
+  }
+
+  /**
+   * First-message queue write: store both content and options together so the
+   * stored options match the message they were attached to.
+   */
+  setQueuedContentAndOptions(
+    tabId: string,
+    content: string,
+    options: SendMessageOptions,
+  ): void {
+    this.updateTabInternal(tabId, {
+      queuedContent: content,
+      queuedOptions: options,
+    });
+  }
+
+  /**
+   * Reset queue: empty-string queuedContent + null queuedOptions. Used by the
+   * conversation-startup path which signals "queue drained, ready for next".
+   */
+  resetQueuedContentAndOptions(tabId: string): void {
+    this.updateTabInternal(tabId, {
+      queuedContent: '',
+      queuedOptions: null,
+    });
+  }
+
+  /**
+   * Drop both queuedContent (null) and queuedOptions. Used by sendQueuedMessage
+   * before dispatching the queued content — null signals "no pending queue".
+   */
+  clearQueuedContentAndOptions(tabId: string): void {
+    this.updateTabInternal(tabId, {
+      queuedContent: null,
+      queuedOptions: null,
+    });
+  }
+
+  // ----- Compaction -----
+
+  /** Mark compaction in progress for the tab. */
+  markCompactionStart(tabId: string): void {
+    this.updateTabInternal(tabId, { isCompacting: true });
+  }
+
+  /** Clear the per-tab `isCompacting` flag (no other state touched). */
+  clearCompactingFlag(tabId: string): void {
+    this.updateTabInternal(tabId, { isCompacting: false });
+  }
+
+  /**
+   * Apply the compaction-safety-timeout reset: clear isCompacting and reset
+   * the streaming state machine so a stuck compaction banner doesn't leave
+   * the tab in a non-recoverable state.
+   */
+  applyCompactionTimeoutReset(tabId: string): void {
+    this.updateTabInternal(tabId, {
+      isCompacting: false,
+      status: 'loaded',
+      streamingState: null,
+      currentMessageId: null,
+    });
+  }
+
+  /**
+   * Apply the post-compaction reload state: clear messages, install the
+   * snapshot preloadedStats, increment compactionCount, reset streaming
+   * state machine, and drop any queued message so the next user input is
+   * sent fresh against the new compacted session.
+   */
+  applyCompactionComplete(
+    tabId: string,
+    payload: {
+      preloadedStats: PreloadedStatsPayload | null | undefined;
+      compactionCount: number;
+    },
+  ): void {
+    this.updateTabInternal(tabId, {
+      messages: [],
+      preloadedStats: payload.preloadedStats,
+      compactionCount: payload.compactionCount,
+      status: 'loaded',
+      streamingState: null,
+      currentMessageId: null,
+      queuedContent: null,
+      queuedOptions: null,
+    });
+  }
+
+  // ----- Stats and model bookkeeping -----
+
+  /** Set the live model stats summary for the tab. */
+  setLiveModelStats(tabId: string, stats: LiveModelStatsPayload): void {
+    this.updateTabInternal(tabId, { liveModelStats: stats });
+  }
+
+  /**
+   * Set both liveModelStats and modelUsageList in one write. Used by the
+   * SESSION_STATS aggregator when a turn finishes with a modelUsage payload.
+   */
+  setLiveModelStatsAndUsageList(
+    tabId: string,
+    stats: LiveModelStatsPayload,
+    usageList: TabState['modelUsageList'],
+  ): void {
+    this.updateTabInternal(tabId, {
+      liveModelStats: stats,
+      modelUsageList: usageList,
+    });
+  }
+
+  /** Replace the modelUsageList for the tab. */
+  setModelUsageList(
+    tabId: string,
+    usageList: TabState['modelUsageList'],
+  ): void {
+    this.updateTabInternal(tabId, { modelUsageList: usageList });
+  }
+
+  /** Replace the preloadedStats snapshot for the tab. */
+  setPreloadedStats(
+    tabId: string,
+    stats: PreloadedStatsPayload | null | undefined,
+  ): void {
+    this.updateTabInternal(tabId, { preloadedStats: stats });
+  }
+
+  /**
+   * Apply the loaded-session preloaded-stats payload: install both the
+   * stats snapshot and the originating sessionModel together so future
+   * `chat:continue` calls use the original session model.
+   */
+  applyLoadedSessionStats(
+    tabId: string,
+    stats: PreloadedStatsPayload,
+    sessionModel: string | null,
+  ): void {
+    this.updateTabInternal(tabId, {
+      preloadedStats: stats,
+      sessionModel,
+    });
+  }
+
+  // ----- Per-session config overrides (canvas tile context) -----
+
+  /** Set the per-tab override model (canvas tile context). */
+  setOverrideModel(tabId: string, model: string | null): void {
+    this.updateTabInternal(tabId, { overrideModel: model });
+  }
+
+  /** Set the per-tab override effort level (canvas tile context). */
+  setOverrideEffort(tabId: string, effort: EffortLevel | null): void {
+    this.updateTabInternal(tabId, { overrideEffort: effort });
+  }
+
+  // ----- Naming -----
+
+  /**
+   * Rename a tab from outside the service (e.g. on session rename RPC
+   * success). Sets both name and title atomically.
+   */
+  setNameAndTitle(tabId: string, name: string, title: string): void {
+    this.updateTabInternal(tabId, { name, title });
+  }
+
+  // ----- Session resume / load -----
+
+  /**
+   * Apply the session-loader resume-init state: install loading title/name,
+   * attach the resumed sessionId, install an empty streamingState, clear
+   * the messages list, and mark `resuming`. Single atomic write so the UI
+   * doesn't briefly render an inconsistent in-between snapshot.
+   */
+  applyResumingSession(
+    tabId: string,
+    payload: {
+      sessionId: string;
+      name: string;
+      title: string;
+      streamingState: StreamingState;
+    },
+  ): void {
+    this.updateTabInternal(tabId, {
+      messages: [],
+      streamingState: payload.streamingState,
+      status: 'resuming',
+      title: payload.title,
+      name: payload.name,
+      claudeSessionId: payload.sessionId,
+    });
+  }
+
+  /**
+   * Resume-fallback path: install the simple-message replay, drop streaming
+   * state, mark `loaded`. Used when the backend has only legacy messages
+   * (no events array).
+   */
+  applyResumedHistory(tabId: string, messages: ExecutionChatMessage[]): void {
+    this.updateTabInternal(tabId, {
+      messages,
+      status: 'loaded',
+      streamingState: null,
+    });
+  }
+
+  /** Resume-failure path: drop streamingState, mark `loaded`. */
+  applyResumeFailure(tabId: string): void {
+    this.updateTabInternal(tabId, {
+      status: 'loaded',
+      streamingState: null,
+    });
+  }
+
+  // ----- Generic single-status helper for legacy -----
+
+  /**
+   * Generic status setter used by callsites that pass `status` through
+   * dynamic logic (e.g. retain streaming/resuming on early exits). Prefer
+   * the explicit `markStreaming`/`markLoaded`/`markResuming` helpers when
+   * the target status is statically known.
+   */
+  setStatus(tabId: string, status: SessionStatus): void {
+    this.updateTabInternal(tabId, { status });
+  }
+
   /**
    * Reorder tabs via drag-and-drop
    * @param fromIndex - Source index
@@ -719,7 +1215,7 @@ export class TabManagerService {
     // Truncate to 100 chars max
     const sanitizedTitle = newTitle.trim().substring(0, 100);
 
-    this.updateTab(tabId, { title: sanitizedTitle });
+    this.updateTabInternal(tabId, { title: sanitizedTitle });
   }
 
   /**
@@ -1017,7 +1513,7 @@ export class TabManagerService {
     if (!tab) return;
     const newMode: TabViewMode =
       (tab.viewMode ?? 'full') === 'full' ? 'compact' : 'full';
-    this.updateTab(tabId, { viewMode: newMode });
+    this.updateTabInternal(tabId, { viewMode: newMode });
   }
 
   /**

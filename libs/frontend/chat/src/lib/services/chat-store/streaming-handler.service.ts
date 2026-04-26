@@ -140,10 +140,7 @@ export class StreamingHandlerService {
         ) {
           const realSessionId = sessionId || event.sessionId;
 
-          this.tabManager.updateTab(activeTab.id, {
-            claudeSessionId: realSessionId,
-            status: 'streaming',
-          });
+          this.tabManager.adoptStreamingSession(activeTab.id, realSessionId);
 
           this.sessionManager.setSessionId(realSessionId);
           this.sessionManager.setStatus('streaming');
@@ -166,17 +163,15 @@ export class StreamingHandlerService {
 
       // If tab doesn't have claudeSessionId yet, set it and ensure streaming status
       if (targetTab && sessionId && !targetTab.claudeSessionId) {
-        this.tabManager.updateTab(targetTab.id, {
-          claudeSessionId: sessionId,
-          status: 'streaming', // Ensure tab is in streaming state when session starts
-        });
+        this.tabManager.adoptStreamingSession(targetTab.id, sessionId);
       }
 
       // Initialize streaming state if null
       if (!targetTab.streamingState) {
-        this.tabManager.updateTab(targetTab.id, {
-          streamingState: createEmptyStreamingState(),
-        });
+        this.tabManager.setStreamingState(
+          targetTab.id,
+          createEmptyStreamingState(),
+        );
         const refreshedTab = this.tabManager
           .tabs()
           .find((t) => t.id === targetTab?.id);
@@ -500,9 +495,10 @@ export class StreamingHandlerService {
 
         case 'compaction_complete': {
           // Reset streaming state to fresh - pre-compaction events are stale
-          this.tabManager.updateTab(targetTab.id, {
-            streamingState: createEmptyStreamingState(),
-          });
+          this.tabManager.setStreamingState(
+            targetTab.id,
+            createEmptyStreamingState(),
+          );
 
           // Clear deduplication state across compaction boundary
           this.deduplication.cleanupSession(event.sessionId);
@@ -710,9 +706,7 @@ export class StreamingHandlerService {
           activeTab.status === 'streaming' ||
           activeTab.status === 'draft')
       ) {
-        this.tabManager.updateTab(activeTab.id, {
-          claudeSessionId: stats.sessionId,
-        });
+        this.tabManager.attachSession(activeTab.id, stats.sessionId);
         this.sessionManager.setSessionId(stats.sessionId);
         targetTab = activeTab;
       } else if (
@@ -824,9 +818,7 @@ export class StreamingHandlerService {
       duration: stats.duration,
     };
 
-    this.tabManager.updateTab(targetTab.id, {
-      messages: updatedMessages,
-    });
+    this.tabManager.setMessages(targetTab.id, updatedMessages);
 
     return null;
   }

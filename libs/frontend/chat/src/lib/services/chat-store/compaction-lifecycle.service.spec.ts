@@ -8,7 +8,7 @@
  *   - Safety timeout fires: resets tab, marks idle, sets sessionManager loaded
  *   - handleCompactionComplete clears tree-builder cache, snapshots preloadedStats
  *   - handleCompactionComplete early-returns when tab no longer exists
- *   - clearCompactionStateForTab single-tab updateTab call
+ *   - clearCompactionStateForTab single-tab clearCompactingFlag call
  *   - clearCompactionState(tabId) clears specified tab + timeout
  *   - clearCompactionState(undefined) sweeps all isCompacting tabs
  */
@@ -44,7 +44,10 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
 describe('CompactionLifecycleService', () => {
   let service: CompactionLifecycleService;
   let tabs: TabState[];
-  let updateTabMock: jest.Mock;
+  let markCompactionStartMock: jest.Mock;
+  let clearCompactingFlagMock: jest.Mock;
+  let applyCompactionTimeoutResetMock: jest.Mock;
+  let applyCompactionCompleteMock: jest.Mock;
   let findTabBySessionIdMock: jest.Mock;
   let markTabIdleMock: jest.Mock;
   let setStatusMock: jest.Mock;
@@ -55,9 +58,14 @@ describe('CompactionLifecycleService', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     tabs = [makeTab()];
-    updateTabMock = jest.fn((id: string, patch: Partial<TabState>) => {
-      tabs = tabs.map((t) => (t.id === id ? { ...t, ...patch } : t));
+    markCompactionStartMock = jest.fn((id: string) => {
+      tabs = tabs.map((t) => (t.id === id ? { ...t, isCompacting: true } : t));
     });
+    clearCompactingFlagMock = jest.fn((id: string) => {
+      tabs = tabs.map((t) => (t.id === id ? { ...t, isCompacting: false } : t));
+    });
+    applyCompactionTimeoutResetMock = jest.fn();
+    applyCompactionCompleteMock = jest.fn();
     findTabBySessionIdMock = jest.fn(
       (sessionId: string) =>
         tabs.find((t) => t.claudeSessionId === sessionId) ?? null,
@@ -68,7 +76,10 @@ describe('CompactionLifecycleService', () => {
     switchSessionMock = jest.fn().mockResolvedValue(undefined);
 
     const tabManagerMock = {
-      updateTab: updateTabMock,
+      markCompactionStart: markCompactionStartMock,
+      clearCompactingFlag: clearCompactingFlagMock,
+      applyCompactionTimeoutReset: applyCompactionTimeoutResetMock,
+      applyCompactionComplete: applyCompactionCompleteMock,
       findTabBySessionId: findTabBySessionIdMock,
       markTabIdle: markTabIdleMock,
       tabs: () => tabs,
@@ -109,14 +120,12 @@ describe('CompactionLifecycleService', () => {
   describe('handleCompactionStart', () => {
     it('sets isCompacting=true and schedules safety timeout', () => {
       service.handleCompactionStart('sess-1');
-      expect(updateTabMock).toHaveBeenCalledWith('tab-1', {
-        isCompacting: true,
-      });
+      expect(markCompactionStartMock).toHaveBeenCalledWith('tab-1');
     });
 
     it('warns and does nothing when no tab matches sessionId', () => {
       service.handleCompactionStart('unknown-session');
-      expect(updateTabMock).not.toHaveBeenCalled();
+      expect(markCompactionStartMock).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] handleCompactionStart: no tab found for sessionId',
         { sessionId: 'unknown-session' },
@@ -128,23 +137,13 @@ describe('CompactionLifecycleService', () => {
       service.handleCompactionStart('sess-1');
       // Advance time to verify only ONE timeout fires (the second one)
       jest.advanceTimersByTime(120000);
-      // Reset on safety-timeout fires once -> 5-field reset payload
-      const resetCalls = updateTabMock.mock.calls.filter((c) => {
-        const patch = c[1] as Partial<TabState>;
-        return patch.isCompacting === false && patch.status === 'loaded';
-      });
-      expect(resetCalls).toHaveLength(1);
+      expect(applyCompactionTimeoutResetMock).toHaveBeenCalledTimes(1);
     });
 
     it('safety timeout resets tab fields, marks idle, sets sessionManager loaded', () => {
       service.handleCompactionStart('sess-1');
       jest.advanceTimersByTime(120000);
-      expect(updateTabMock).toHaveBeenCalledWith('tab-1', {
-        isCompacting: false,
-        status: 'loaded',
-        streamingState: null,
-        currentMessageId: null,
-      });
+      expect(applyCompactionTimeoutResetMock).toHaveBeenCalledWith('tab-1');
       expect(markTabIdleMock).toHaveBeenCalledWith('tab-1');
       expect(setStatusMock).toHaveBeenCalledWith('loaded');
       expect(warn).toHaveBeenCalledWith(
@@ -166,10 +165,10 @@ describe('CompactionLifecycleService', () => {
         compactionSessionId: 'reload-sess',
       });
       expect(clearCacheMock).toHaveBeenCalled();
-      const compactionCall = updateTabMock.mock.calls.find(
-        (c) => (c[1] as Partial<TabState>).compactionCount === 3,
+      expect(applyCompactionCompleteMock).toHaveBeenCalledWith(
+        'tab-1',
+        expect.objectContaining({ compactionCount: 3 }),
       );
-      expect(compactionCall).toBeDefined();
       expect(switchSessionMock).toHaveBeenCalledWith('sess-1');
     });
 
@@ -184,12 +183,14 @@ describe('CompactionLifecycleService', () => {
         tabId: 'tab-1',
         compactionSessionId: 'reload-sess',
       });
-      const call = updateTabMock.mock.calls.find(
-        (c) => (c[1] as Partial<TabState>).compactionCount === 1,
+      const call = applyCompactionCompleteMock.mock.calls.find(
+        (c) => (c[1] as { compactionCount: number }).compactionCount === 1,
       );
       expect(call).toBeDefined();
-      const patch = call![1] as Partial<TabState>;
-      expect(patch.preloadedStats).toBeDefined();
+      const payload = (
+        call as unknown as [string, { preloadedStats: unknown }]
+      )[1];
+      expect(payload.preloadedStats).toBeDefined();
     });
 
     it('does nothing when tab no longer exists', () => {
@@ -205,9 +206,7 @@ describe('CompactionLifecycleService', () => {
   describe('clearCompactionStateForTab', () => {
     it('clears isCompacting on the specified tab', () => {
       service.clearCompactionStateForTab('tab-1');
-      expect(updateTabMock).toHaveBeenCalledWith('tab-1', {
-        isCompacting: false,
-      });
+      expect(clearCompactingFlagMock).toHaveBeenCalledWith('tab-1');
     });
   });
 
@@ -217,11 +216,7 @@ describe('CompactionLifecycleService', () => {
       service.clearCompactionState('tab-1');
       jest.advanceTimersByTime(120000);
       // No safety-timeout reset call should appear
-      const resetCalls = updateTabMock.mock.calls.filter((c) => {
-        const patch = c[1] as Partial<TabState>;
-        return patch.isCompacting === false && patch.status === 'loaded';
-      });
-      expect(resetCalls).toHaveLength(0);
+      expect(applyCompactionTimeoutResetMock).not.toHaveBeenCalled();
     });
 
     it('without tabId, sweeps all isCompacting tabs', () => {
@@ -235,16 +230,9 @@ describe('CompactionLifecycleService', () => {
         }),
       ];
       service.clearCompactionState();
-      expect(updateTabMock).toHaveBeenCalledWith('tab-1', {
-        isCompacting: false,
-      });
-      expect(updateTabMock).toHaveBeenCalledWith('tab-2', {
-        isCompacting: false,
-      });
-      expect(updateTabMock).not.toHaveBeenCalledWith(
-        'tab-3',
-        expect.anything(),
-      );
+      expect(clearCompactingFlagMock).toHaveBeenCalledWith('tab-1');
+      expect(clearCompactingFlagMock).toHaveBeenCalledWith('tab-2');
+      expect(clearCompactingFlagMock).not.toHaveBeenCalledWith('tab-3');
     });
   });
 });

@@ -162,22 +162,23 @@ export class ConversationService {
     const targetTab = this.tabManager.tabs().find((t) => t.id === targetTabId);
     const existingQueue = targetTab?.queuedContent?.trim() ?? '';
 
-    let newQueuedContent: string;
-    const tabUpdate: Record<string, unknown> = {};
-
     if (existingQueue) {
       // Append with newline separator (options from first message preserved)
-      newQueuedContent = `${existingQueue}\n${sanitized}`;
+      this.tabManager.setQueuedContent(
+        targetTabId,
+        `${existingQueue}\n${sanitized}`,
+      );
+    } else if (options) {
+      // First content in queue - also store options atomically
+      this.tabManager.setQueuedContentAndOptions(
+        targetTabId,
+        sanitized,
+        options,
+      );
     } else {
-      // First content in queue - also store options
-      newQueuedContent = sanitized;
-      if (options) {
-        tabUpdate['queuedOptions'] = options;
-      }
+      // First content in queue without options
+      this.tabManager.setQueuedContent(targetTabId, sanitized);
     }
-
-    tabUpdate['queuedContent'] = newQueuedContent;
-    this.tabManager.updateTab(targetTabId, tabUpdate);
   }
 
   /**
@@ -188,10 +189,7 @@ export class ConversationService {
     const targetTabId = tabId ?? this.tabManager.activeTabId();
     if (!targetTabId) return;
 
-    this.tabManager.updateTab(targetTabId, {
-      queuedContent: '',
-      queuedOptions: null,
-    });
+    this.tabManager.resetQueuedContentAndOptions(targetTabId);
   }
 
   /**
@@ -208,10 +206,7 @@ export class ConversationService {
 
     // Only finalize if tab is still in streaming/resuming state
     if (targetTab.status === 'streaming' || targetTab.status === 'resuming') {
-      this.tabManager.updateTab(targetTabId, {
-        status: 'loaded',
-        currentMessageId: null,
-      });
+      this.tabManager.applyStatusErrorReset(targetTabId);
     }
   }
 
@@ -304,13 +299,8 @@ export class ConversationService {
       const autoName = hasUserName
         ? currentName
         : content.substring(0, 50).trim() || 'New Chat';
-      this.tabManager.updateTab(activeTabId, {
-        name: autoName,
-        title: autoName,
-        status: 'draft',
-        isDirty: false,
-        claudeSessionId: null, // Explicitly null - will be set when real UUID arrives
-      });
+      // Explicitly nulls claudeSessionId — will be set when real UUID arrives.
+      this.tabManager.applyNewConversationDraft(activeTabId, autoName);
 
       // Update SessionManager state - no sessionId yet, just status
       this.sessionManager.setStatus('draft');
@@ -326,10 +316,10 @@ export class ConversationService {
 
       // Update tab with user message
       const activeTab = this.tabManager.activeTab();
-      this.tabManager.updateTab(activeTabId, {
-        messages: [...(activeTab?.messages ?? []), userMessage],
-        currentMessageId: null, // Reset per-tab message ID for new conversation
-      });
+      this.tabManager.appendUserMessageForNewTurn(activeTabId, [
+        ...(activeTab?.messages ?? []),
+        userMessage,
+      ]);
 
       // Call RPC to start NEW chat - using tabId for correlation
       // TASK_2025_170: Pass ptahCliId if a Ptah CLI agent is selected
@@ -354,14 +344,14 @@ export class ConversationService {
           rawContent: result.error || 'Failed to start chat session.',
         });
         const currentTab = this.tabManager.activeTab();
-        this.tabManager.updateTab(activeTabId, {
-          status: 'loaded',
-          messages: [...(currentTab?.messages ?? []), errorMessage],
-        });
+        this.tabManager.setMessagesAndMarkLoaded(activeTabId, [
+          ...(currentTab?.messages ?? []),
+          errorMessage,
+        ]);
       } else {
         // Set status to 'streaming' after successful chat:start
         // Real sessionId will arrive with first streaming event
-        this.tabManager.updateTab(activeTabId, { status: 'streaming' });
+        this.tabManager.markStreaming(activeTabId);
         this.sessionManager.setStatus('streaming');
 
         // Note: Sessions list refresh moved to handleSessionIdResolved() in ChatStore
@@ -376,7 +366,7 @@ export class ConversationService {
       // Update tab status to loaded (error)
       const activeTabId = this.tabManager.activeTabId();
       if (activeTabId) {
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        this.tabManager.markLoaded(activeTabId);
       }
 
       // Rethrow error to preserve error propagation
@@ -449,7 +439,7 @@ export class ConversationService {
       this.sessionManager.setStatus('resuming');
 
       // Update tab status
-      this.tabManager.updateTab(targetTabId, { status: 'resuming' });
+      this.tabManager.markResuming(targetTabId);
 
       // TASK_2025_093 FIX: Finalize any existing streaming state before starting new turn.
       // This converts the streaming content into a proper message in tab.messages.
@@ -476,9 +466,10 @@ export class ConversationService {
       });
 
       // Update tab with user message (use currentTab to include finalized messages)
-      this.tabManager.updateTab(targetTabId, {
-        messages: [...(currentTab?.messages ?? []), userMessage],
-      });
+      this.tabManager.setMessages(targetTabId, [
+        ...(currentTab?.messages ?? []),
+        userMessage,
+      ]);
 
       // Call RPC to CONTINUE existing chat (uses --resume flag)
       // Both sessionId (for SDK) and tabId (for event routing) are required
@@ -502,13 +493,13 @@ export class ConversationService {
           rawContent: result.error || 'Failed to continue chat session.',
         });
         const updatedTab = this.tabManager.activeTab();
-        this.tabManager.updateTab(targetTabId, {
-          status: 'loaded',
-          messages: [...(updatedTab?.messages ?? []), errorMsg],
-        });
+        this.tabManager.setMessagesAndMarkLoaded(targetTabId, [
+          ...(updatedTab?.messages ?? []),
+          errorMsg,
+        ]);
       } else {
         this.sessionManager.setStatus('streaming');
-        this.tabManager.updateTab(targetTabId, { status: 'streaming' });
+        this.tabManager.markStreaming(targetTabId);
       }
     } catch (error) {
       console.error(
@@ -517,7 +508,7 @@ export class ConversationService {
       );
       const fallbackTabId = explicitTabId ?? this.tabManager.activeTabId();
       if (fallbackTabId) {
-        this.tabManager.updateTab(fallbackTabId, { status: 'loaded' });
+        this.tabManager.markLoaded(fallbackTabId);
       }
     }
   }

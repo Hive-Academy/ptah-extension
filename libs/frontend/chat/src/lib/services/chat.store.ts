@@ -283,7 +283,7 @@ export class ChatStore {
   clearQueuedContent(tabId?: string): void {
     const targetTabId = tabId ?? this.tabManager.activeTabId();
     if (!targetTabId) return;
-    this.tabManager.updateTab(targetTabId, { queuedContent: null });
+    this.tabManager.setQueuedContent(targetTabId, null);
   }
 
   clearQueueRestoreSignal(): void {

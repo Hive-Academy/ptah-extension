@@ -53,7 +53,8 @@ const baseStats = {
 describe('SessionStatsAggregatorService', () => {
   let service: SessionStatsAggregatorService;
   let tabs: TabState[];
-  let updateTabMock: jest.Mock;
+  let setLiveModelStatsAndUsageListMock: jest.Mock;
+  let setPreloadedStatsMock: jest.Mock;
   let findTabBySessionIdMock: jest.Mock;
   let activeTabMock: jest.Mock;
   let streamHandleStatsMock: jest.Mock;
@@ -64,9 +65,8 @@ describe('SessionStatsAggregatorService', () => {
 
   beforeEach(() => {
     tabs = [makeTab()];
-    updateTabMock = jest.fn((id: string, patch: Partial<TabState>) => {
-      tabs = tabs.map((t) => (t.id === id ? { ...t, ...patch } : t));
-    });
+    setLiveModelStatsAndUsageListMock = jest.fn();
+    setPreloadedStatsMock = jest.fn();
     findTabBySessionIdMock = jest.fn(
       (sid: string) => tabs.find((t) => t.claudeSessionId === sid) ?? null,
     );
@@ -80,7 +80,8 @@ describe('SessionStatsAggregatorService', () => {
     const tabManagerMock = {
       findTabBySessionId: findTabBySessionIdMock,
       activeTab: activeTabMock,
-      updateTab: updateTabMock,
+      setLiveModelStatsAndUsageList: setLiveModelStatsAndUsageListMock,
+      setPreloadedStats: setPreloadedStatsMock,
     } as unknown as TabManagerService;
     const streamingHandlerMock = {
       handleSessionStats: streamHandleStatsMock,
@@ -149,13 +150,8 @@ describe('SessionStatsAggregatorService', () => {
           },
         ],
       });
-      const call = updateTabMock.mock.calls.find(
-        (c) => (c[1] as Partial<TabState>).liveModelStats,
-      );
-      expect(
-        (call![1] as { liveModelStats: { model: string } }).liveModelStats
-          .model,
-      ).toBe('opus');
+      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      expect((liveStats as { model: string }).model).toBe('opus');
     });
 
     it('single-model array uses [0]', () => {
@@ -171,13 +167,8 @@ describe('SessionStatsAggregatorService', () => {
           },
         ],
       });
-      const call = updateTabMock.mock.calls.find(
-        (c) => (c[1] as Partial<TabState>).liveModelStats,
-      );
-      expect(
-        (call![1] as { liveModelStats: { model: string } }).liveModelStats
-          .model,
-      ).toBe('sonnet');
+      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      expect((liveStats as { model: string }).model).toBe('sonnet');
     });
   });
 
@@ -197,13 +188,8 @@ describe('SessionStatsAggregatorService', () => {
           },
         ],
       });
-      const call = updateTabMock.mock.calls.find(
-        (c) => (c[1] as Partial<TabState>).liveModelStats,
-      );
-      expect(
-        (call![1] as { liveModelStats: { contextUsed: number } }).liveModelStats
-          .contextUsed,
-      ).toBe(12345);
+      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      expect((liveStats as { contextUsed: number }).contextUsed).toBe(12345);
     });
 
     it('falls back to inputTokens + cacheReadInputTokens + outputTokens', () => {
@@ -220,13 +206,8 @@ describe('SessionStatsAggregatorService', () => {
           },
         ],
       });
-      const call = updateTabMock.mock.calls.find(
-        (c) => (c[1] as Partial<TabState>).liveModelStats,
-      );
-      expect(
-        (call![1] as { liveModelStats: { contextUsed: number } }).liveModelStats
-          .contextUsed,
-      ).toBe(175);
+      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      expect((liveStats as { contextUsed: number }).contextUsed).toBe(175);
     });
 
     it('contextPercent rounding to 1 decimal place', () => {
@@ -243,14 +224,11 @@ describe('SessionStatsAggregatorService', () => {
           },
         ],
       });
-      const call = updateTabMock.mock.calls.find(
-        (c) => (c[1] as Partial<TabState>).liveModelStats,
-      );
+      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
       // 23456 / 100000 * 1000 = 234.56 → round = 235 / 10 = 23.5
-      expect(
-        (call![1] as { liveModelStats: { contextPercent: number } })
-          .liveModelStats.contextPercent,
-      ).toBe(23.5);
+      expect((liveStats as { contextPercent: number }).contextPercent).toBe(
+        23.5,
+      );
     });
   });
 
@@ -273,12 +251,11 @@ describe('SessionStatsAggregatorService', () => {
       (sid: string) => tabs.find((t) => t.claudeSessionId === sid) ?? null,
     );
     service.handleSessionStats(baseStats);
-    const call = updateTabMock.mock.calls.find(
-      (c) => (c[1] as Partial<TabState>).preloadedStats,
-    );
-    const stats = (
-      call![1] as { preloadedStats: NonNullable<TabState['preloadedStats']> }
-    ).preloadedStats;
+    expect(setPreloadedStatsMock).toHaveBeenCalledTimes(1);
+    const [, stats] = setPreloadedStatsMock.mock.calls[0] as [
+      string,
+      NonNullable<TabState['preloadedStats']>,
+    ];
     expect(stats.totalCost).toBeCloseTo(1.5);
     expect(stats.tokens.input).toBe(1100);
     expect(stats.tokens.output).toBe(550);
@@ -289,10 +266,7 @@ describe('SessionStatsAggregatorService', () => {
 
   it('does not touch preloadedStats when undefined (fresh session)', () => {
     service.handleSessionStats(baseStats);
-    const call = updateTabMock.mock.calls.find(
-      (c) => (c[1] as Partial<TabState>).preloadedStats !== undefined,
-    );
-    expect(call).toBeUndefined();
+    expect(setPreloadedStatsMock).not.toHaveBeenCalled();
   });
 
   it('triggers auto-send via MessageDispatchService when queuedContent returned', () => {

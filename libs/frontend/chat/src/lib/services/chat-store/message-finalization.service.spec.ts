@@ -84,7 +84,10 @@ describe('MessageFinalizationService', () => {
     tabs: ReturnType<typeof computed<TabState[]>>;
     activeTabId: ReturnType<typeof computed<string | null>>;
     activeTab: ReturnType<typeof computed<TabState | null>>;
-    updateTab: jest.Mock;
+    applyFinalizedTurn: jest.Mock;
+    applyFinalizedHistory: jest.Mock;
+    clearStreamingForLoaded: jest.Mock;
+    setMessages: jest.Mock;
   };
   let sessionManager: jest.Mocked<Pick<SessionManager, 'setStatus'>>;
   let treeBuilder: jest.Mocked<Pick<ExecutionTreeBuilderService, 'buildTree'>>;
@@ -101,7 +104,10 @@ describe('MessageFinalizationService', () => {
         const id = activeTabIdSignal();
         return tabsSignal().find((t) => t.id === id) ?? null;
       }),
-      updateTab: jest.fn(),
+      applyFinalizedTurn: jest.fn(),
+      applyFinalizedHistory: jest.fn(),
+      clearStreamingForLoaded: jest.fn(),
+      setMessages: jest.fn(),
     };
 
     sessionManager = {
@@ -204,7 +210,8 @@ describe('MessageFinalizationService', () => {
   describe('finalizeCurrentMessage', () => {
     it('is a no-op when there is no active tab', () => {
       service.finalizeCurrentMessage();
-      expect(tabManager.updateTab).not.toHaveBeenCalled();
+      expect(tabManager.applyFinalizedTurn).not.toHaveBeenCalled();
+      expect(tabManager.clearStreamingForLoaded).not.toHaveBeenCalled();
       expect(batchedUpdate.flushSync).toHaveBeenCalled();
     });
 
@@ -213,7 +220,8 @@ describe('MessageFinalizationService', () => {
       activeTabIdSignal.set('tab-1');
 
       service.finalizeCurrentMessage();
-      expect(tabManager.updateTab).not.toHaveBeenCalled();
+      expect(tabManager.applyFinalizedTurn).not.toHaveBeenCalled();
+      expect(tabManager.clearStreamingForLoaded).not.toHaveBeenCalled();
     });
 
     it('is a no-op when currentMessageId is missing', () => {
@@ -226,7 +234,8 @@ describe('MessageFinalizationService', () => {
       activeTabIdSignal.set('tab-1');
 
       service.finalizeCurrentMessage();
-      expect(tabManager.updateTab).not.toHaveBeenCalled();
+      expect(tabManager.applyFinalizedTurn).not.toHaveBeenCalled();
+      expect(tabManager.clearStreamingForLoaded).not.toHaveBeenCalled();
     });
 
     it('builds a final tree and appends a new assistant message to the tab', () => {
@@ -251,14 +260,13 @@ describe('MessageFinalizationService', () => {
 
       service.finalizeCurrentMessage();
 
-      expect(tabManager.updateTab).toHaveBeenCalledTimes(1);
-      const [tabId, patch] = tabManager.updateTab.mock.calls[0];
+      expect(tabManager.applyFinalizedTurn).toHaveBeenCalledTimes(1);
+      const [tabId, msgs] = tabManager.applyFinalizedTurn.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
       expect(tabId).toBe('tab-1');
-      expect(patch.status).toBe('loaded');
-      expect(patch.streamingState).toBeNull();
-      expect(patch.currentMessageId).toBeNull();
 
-      const msgs = patch.messages as ExecutionChatMessage[];
       expect(msgs).toHaveLength(1);
       expect(msgs[0].id).toBe('root');
       expect(msgs[0].role).toBe('assistant');
@@ -288,16 +296,8 @@ describe('MessageFinalizationService', () => {
 
       service.finalizeCurrentMessage();
 
-      expect(tabManager.updateTab).toHaveBeenCalledWith('tab-1', {
-        streamingState: null,
-        status: 'loaded',
-        currentMessageId: null,
-      });
-      // messages not in patch — we only clear the streaming state.
-      expect(
-        (tabManager.updateTab.mock.calls[0][1] as Record<string, unknown>)
-          .messages,
-      ).toBeUndefined();
+      expect(tabManager.clearStreamingForLoaded).toHaveBeenCalledWith('tab-1');
+      expect(tabManager.applyFinalizedTurn).not.toHaveBeenCalled();
     });
 
     it('marks streaming nodes as interrupted when isAborted=true', () => {
@@ -322,10 +322,11 @@ describe('MessageFinalizationService', () => {
 
       service.finalizeCurrentMessage(undefined, true);
 
-      const patch = tabManager.updateTab.mock.calls[0][1] as {
-        messages: ExecutionChatMessage[];
-      };
-      const rootTree = patch.messages[0].streamingState as ExecutionNode;
+      const [, msgs] = tabManager.applyFinalizedTurn.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
+      const rootTree = msgs[0].streamingState as ExecutionNode;
       expect(rootTree.children[0].status).toBe('interrupted');
     });
   });
@@ -333,7 +334,7 @@ describe('MessageFinalizationService', () => {
   describe('markLastAgentAsInterrupted', () => {
     it('is a no-op when the tab is missing or has no messages', () => {
       service.markLastAgentAsInterrupted('nope');
-      expect(tabManager.updateTab).not.toHaveBeenCalled();
+      expect(tabManager.setMessages).not.toHaveBeenCalled();
     });
 
     it('marks the last complete agent as interrupted', () => {
@@ -355,10 +356,11 @@ describe('MessageFinalizationService', () => {
 
       service.markLastAgentAsInterrupted('tab-1');
 
-      const patch = tabManager.updateTab.mock.calls[0][1] as {
-        messages: ExecutionChatMessage[];
-      };
-      const tree = patch.messages[0].streamingState as ExecutionNode;
+      const [, msgs] = tabManager.setMessages.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
+      const tree = msgs[0].streamingState as ExecutionNode;
       expect(tree.children[0].status).toBe('interrupted');
     });
 
@@ -372,7 +374,7 @@ describe('MessageFinalizationService', () => {
       tabsSignal.set([makeTab({ id: 'tab-1', messages: [assistantMsg] })]);
 
       service.markLastAgentAsInterrupted('tab-1');
-      expect(tabManager.updateTab).not.toHaveBeenCalled();
+      expect(tabManager.setMessages).not.toHaveBeenCalled();
     });
   });
 
@@ -412,10 +414,11 @@ describe('MessageFinalizationService', () => {
         new Set(['tc-A', 'tc-C']),
       );
 
-      const patch = tabManager.updateTab.mock.calls[0][1] as {
-        messages: ExecutionChatMessage[];
-      };
-      const tree = patch.messages[0].streamingState as ExecutionNode;
+      const [, msgs] = tabManager.setMessages.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
+      const tree = msgs[0].streamingState as ExecutionNode;
       expect(tree.children[0].status).toBe('interrupted');
       expect(tree.children[1].status).toBe('complete');
       expect(tree.children[2].status).toBe('interrupted');
@@ -440,7 +443,7 @@ describe('MessageFinalizationService', () => {
       tabsSignal.set([makeTab({ id: 'tab-1', messages: [assistantMsg] })]);
 
       service.markAgentsAsInterruptedByToolCallIds('tab-1', new Set(['tc-ZZ']));
-      expect(tabManager.updateTab).not.toHaveBeenCalled();
+      expect(tabManager.setMessages).not.toHaveBeenCalled();
     });
   });
 });

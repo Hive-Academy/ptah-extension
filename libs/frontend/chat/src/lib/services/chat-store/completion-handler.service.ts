@@ -69,10 +69,7 @@ export class CompletionHandlerService {
     }
 
     // Reset streaming state (including per-tab currentMessageId)
-    this.tabManager.updateTab(targetTabId, {
-      status: 'loaded',
-      currentMessageId: null,
-    });
+    this.tabManager.applyStatusErrorReset(targetTabId);
     this.sessionManager.setStatus('loaded');
 
     // Hide streaming indicator (visual only - no side effects)

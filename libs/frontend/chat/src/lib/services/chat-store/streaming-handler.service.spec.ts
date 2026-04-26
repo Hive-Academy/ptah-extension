@@ -170,7 +170,10 @@ describe('StreamingHandlerService', () => {
       | 'tabs'
       | 'activeTab'
       | 'findTabBySessionId'
-      | 'updateTab'
+      | 'adoptStreamingSession'
+      | 'attachSession'
+      | 'setStreamingState'
+      | 'setMessages'
       | 'markTabIdle'
       | 'markTabStreaming'
     >
@@ -221,10 +224,43 @@ describe('StreamingHandlerService', () => {
         (sid: string) =>
           tabsSignal().find((t) => t.claudeSessionId === sid) ?? null,
       ),
-      updateTab: jest.fn((tabId: string, patch: Partial<TabState>) => {
+      adoptStreamingSession: jest.fn((tabId: string, sessionId: string) => {
         tabsSignal.update((tabs) =>
           tabs.map((t) =>
-            t.id === tabId ? ({ ...t, ...patch } as TabState) : t,
+            t.id === tabId
+              ? ({
+                  ...t,
+                  claudeSessionId: sessionId,
+                  status: 'streaming',
+                } as TabState)
+              : t,
+          ),
+        );
+      }),
+      attachSession: jest.fn((tabId: string, sessionId: string) => {
+        tabsSignal.update((tabs) =>
+          tabs.map((t) =>
+            t.id === tabId
+              ? ({ ...t, claudeSessionId: sessionId } as TabState)
+              : t,
+          ),
+        );
+      }),
+      setStreamingState: jest.fn(
+        (tabId: string, state: TabState['streamingState']) => {
+          tabsSignal.update((tabs) =>
+            tabs.map((t) =>
+              t.id === tabId
+                ? ({ ...t, streamingState: state } as TabState)
+                : t,
+            ),
+          );
+        },
+      ),
+      setMessages: jest.fn((tabId: string, messages: TabState['messages']) => {
+        tabsSignal.update((tabs) =>
+          tabs.map((t) =>
+            t.id === tabId ? ({ ...t, messages } as TabState) : t,
           ),
         );
       }),
@@ -236,7 +272,10 @@ describe('StreamingHandlerService', () => {
         | 'tabs'
         | 'activeTab'
         | 'findTabBySessionId'
-        | 'updateTab'
+        | 'adoptStreamingSession'
+        | 'attachSession'
+        | 'setStreamingState'
+        | 'setMessages'
         | 'markTabIdle'
         | 'markTabStreaming'
       >

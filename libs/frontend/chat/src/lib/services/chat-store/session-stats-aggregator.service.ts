@@ -100,15 +100,16 @@ export class SessionStatsAggregatorService {
           : 0;
 
       if (targetTab) {
-        this.tabManager.updateTab(targetTab.id, {
-          liveModelStats: {
+        this.tabManager.setLiveModelStatsAndUsageList(
+          targetTab.id,
+          {
             model: primaryModel.model,
             contextUsed,
             contextWindow: primaryModel.contextWindow,
             contextPercent,
           },
-          modelUsageList: stats.modelUsage,
-        });
+          stats.modelUsage,
+        );
       }
     }
 
@@ -116,23 +117,20 @@ export class SessionStatsAggregatorService {
     // When a loaded historical session gets new messages, the preloadedStats
     // must be updated so the stats summary shows the combined totals.
     if (targetTab?.preloadedStats) {
-      this.tabManager.updateTab(targetTab.id, {
-        preloadedStats: {
-          ...targetTab.preloadedStats,
-          totalCost: targetTab.preloadedStats.totalCost + stats.cost,
-          tokens: {
-            input: targetTab.preloadedStats.tokens.input + stats.tokens.input,
-            output:
-              targetTab.preloadedStats.tokens.output + stats.tokens.output,
-            cacheRead:
-              targetTab.preloadedStats.tokens.cacheRead +
-              (stats.tokens.cacheRead ?? 0),
-            cacheCreation:
-              targetTab.preloadedStats.tokens.cacheCreation +
-              (stats.tokens.cacheCreation ?? 0),
-          },
-          messageCount: targetTab.preloadedStats.messageCount + 1,
+      this.tabManager.setPreloadedStats(targetTab.id, {
+        ...targetTab.preloadedStats,
+        totalCost: targetTab.preloadedStats.totalCost + stats.cost,
+        tokens: {
+          input: targetTab.preloadedStats.tokens.input + stats.tokens.input,
+          output: targetTab.preloadedStats.tokens.output + stats.tokens.output,
+          cacheRead:
+            targetTab.preloadedStats.tokens.cacheRead +
+            (stats.tokens.cacheRead ?? 0),
+          cacheCreation:
+            targetTab.preloadedStats.tokens.cacheCreation +
+            (stats.tokens.cacheCreation ?? 0),
         },
+        messageCount: targetTab.preloadedStats.messageCount + 1,
       });
     }
 

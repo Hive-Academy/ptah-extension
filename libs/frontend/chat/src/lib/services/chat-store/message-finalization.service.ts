@@ -139,21 +139,15 @@ export class MessageFinalizationService {
 
     if (messageExists) {
       // Message already finalized - just clear streaming state
-      this.tabManager.updateTab(targetTabId, {
-        streamingState: null,
-        status: 'loaded',
-        currentMessageId: null,
-      });
+      this.tabManager.clearStreamingForLoaded(targetTabId);
       return;
     }
 
     // Add to target tab's messages and clear streaming state
-    this.tabManager.updateTab(targetTabId, {
-      messages: [...existingMessages, assistantMessage],
-      streamingState: null,
-      status: 'loaded',
-      currentMessageId: null,
-    });
+    this.tabManager.applyFinalizedTurn(targetTabId, [
+      ...existingMessages,
+      assistantMessage,
+    ]);
 
     // Update SessionManager status
     this.sessionManager.setStatus('loaded');
@@ -322,11 +316,7 @@ export class MessageFinalizationService {
     });
 
     // Update tab with finalized messages and clear streaming state
-    this.tabManager.updateTab(tabId, {
-      messages: finalMessages,
-      streamingState: null,
-      status: 'loaded',
-    });
+    this.tabManager.applyFinalizedHistory(tabId, finalMessages);
 
     return finalMessages;
   }
@@ -455,7 +445,7 @@ export class MessageFinalizationService {
       streamingState: updatedTree,
     };
 
-    this.tabManager.updateTab(tabId, { messages: updatedMessages });
+    this.tabManager.setMessages(tabId, updatedMessages);
   }
 
   /**
@@ -529,7 +519,7 @@ export class MessageFinalizationService {
       streamingState: updatedTree,
     };
 
-    this.tabManager.updateTab(tabId, { messages: updatedMessages });
+    this.tabManager.setMessages(tabId, updatedMessages);
   }
 
   /**

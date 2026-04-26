@@ -231,7 +231,7 @@ export class ModelSelectorComponent {
     if (ctx) {
       const tabId = ctx();
       if (tabId) {
-        this.tabManager.updateTab(tabId, { overrideModel: model });
+        this.tabManager.setOverrideModel(tabId, model);
         return;
       }
     }

@@ -187,9 +187,7 @@ export class ChatLifecycleService {
 
     // Trigger tab update to invalidate tree cache and re-render
     // Create shallow copy to trigger signal change detection
-    this.tabManager.updateTab(targetTab.id, {
-      streamingState: { ...state },
-    });
+    this.tabManager.setStreamingState(targetTab.id, { ...state });
   }
 
   /**
@@ -216,9 +214,7 @@ export class ChatLifecycleService {
 
     if (targetTab) {
       // Update the tab with the real session ID
-      this.tabManager.updateTab(targetTab.id, {
-        claudeSessionId: realSessionId,
-      });
+      this.tabManager.attachSession(targetTab.id, realSessionId);
     } else {
       // Fallback: Check active tab if it's streaming without a real session ID
       const activeTab = this.tabManager.activeTab();
@@ -226,9 +222,7 @@ export class ChatLifecycleService {
         activeTab &&
         (activeTab.status === 'streaming' || activeTab.status === 'draft')
       ) {
-        this.tabManager.updateTab(activeTab.id, {
-          claudeSessionId: realSessionId,
-        });
+        this.tabManager.attachSession(activeTab.id, realSessionId);
       } else {
         console.warn('[ChatStore] No tab found for session ID resolution:', {
           tabId,
@@ -322,12 +316,7 @@ export class ChatLifecycleService {
     // Reset streaming state (including per-tab currentMessageId)
     // TASK_2025_COMPACT_FIX: Also clear queued content and visual streaming indicator
     // to prevent "Message queued" banner from persisting after slash command errors
-    this.tabManager.updateTab(targetTabId, {
-      status: 'loaded',
-      currentMessageId: null,
-      queuedContent: null,
-      queuedOptions: null,
-    });
+    this.tabManager.applyErrorReset(targetTabId);
     this.tabManager.markTabIdle(targetTabId);
     this.sessionManager.setStatus('loaded');
 

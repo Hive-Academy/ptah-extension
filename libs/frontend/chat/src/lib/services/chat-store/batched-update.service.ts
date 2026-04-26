@@ -27,7 +27,7 @@ export class BatchedUpdateService {
 
   /**
    * PERFORMANCE OPTIMIZATION: Schedule batched UI update
-   * Instead of calling tabManager.updateTab() on every event (100+/sec),
+   * Instead of calling tabManager.setStreamingState() on every event (100+/sec),
    * we accumulate changes and flush once per animation frame (~60/sec max).
    *
    * @param tabId - Tab ID to update
@@ -55,9 +55,7 @@ export class BatchedUpdateService {
     for (const [tabId, state] of this.pendingTabUpdates) {
       // Create shallow copy of state to trigger signal change detection
       // This happens once per frame instead of 100+ times per frame
-      this.tabManager.updateTab(tabId, {
-        streamingState: { ...state },
-      });
+      this.tabManager.setStreamingState(tabId, { ...state });
     }
 
     // Clear pending updates

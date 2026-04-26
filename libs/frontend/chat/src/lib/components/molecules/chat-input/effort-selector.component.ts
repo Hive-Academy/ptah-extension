@@ -289,9 +289,7 @@ export class EffortSelectorComponent {
     if (ctx) {
       const tabId = ctx();
       if (tabId) {
-        this.tabManager.updateTab(tabId, {
-          overrideEffort: effortValue ?? null,
-        });
+        this.tabManager.setOverrideEffort(tabId, effortValue ?? null);
         return;
       }
     }

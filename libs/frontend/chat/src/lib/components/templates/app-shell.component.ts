@@ -578,7 +578,7 @@ export class AppShellComponent {
         // Update open tab name and title if this session has one
         const tab = this.tabManager.findTabBySessionId(session.id);
         if (tab) {
-          this.tabManager.updateTab(tab.id, { name: newName, title: newName });
+          this.tabManager.setNameAndTitle(tab.id, newName, newName);
         }
       } else {
         console.error(

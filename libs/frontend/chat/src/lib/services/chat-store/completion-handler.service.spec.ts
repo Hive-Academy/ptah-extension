@@ -18,7 +18,7 @@ type TabManagerSlice = Pick<
   | 'findTabBySessionId'
   | 'activeTabId'
   | 'activeTab'
-  | 'updateTab'
+  | 'applyStatusErrorReset'
   | 'markTabIdle'
 >;
 type SessionManagerSlice = Pick<SessionManager, 'setStatus'>;
@@ -50,7 +50,7 @@ describe('CompletionHandlerService', () => {
       findTabBySessionId: jest.fn(),
       activeTabId: jest.fn(),
       activeTab: jest.fn(),
-      updateTab: jest.fn(),
+      applyStatusErrorReset: jest.fn(),
       markTabIdle: jest.fn(),
     } as unknown as jest.Mocked<TabManagerSlice>;
 
@@ -87,10 +87,7 @@ describe('CompletionHandlerService', () => {
       service.handleChatError({ sessionId: 'sess-1', error: 'CLI crashed' });
 
       expect(tabManager.findTabBySessionId).toHaveBeenCalledWith('sess-1');
-      expect(tabManager.updateTab).toHaveBeenCalledWith('tab-abc', {
-        status: 'loaded',
-        currentMessageId: null,
-      });
+      expect(tabManager.applyStatusErrorReset).toHaveBeenCalledWith('tab-abc');
       expect(sessionManager.setStatus).toHaveBeenCalledWith('loaded');
       expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-abc');
     });
@@ -103,10 +100,9 @@ describe('CompletionHandlerService', () => {
 
       service.handleChatError({ sessionId: 'unknown-session', error: 'boom' });
 
-      expect(tabManager.updateTab).toHaveBeenCalledWith('tab-active', {
-        status: 'loaded',
-        currentMessageId: null,
-      });
+      expect(tabManager.applyStatusErrorReset).toHaveBeenCalledWith(
+        'tab-active',
+      );
       expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-active');
     });
 
@@ -131,7 +127,7 @@ describe('CompletionHandlerService', () => {
           activeTabSessionId: 'other-session',
         }),
       );
-      expect(tabManager.updateTab).not.toHaveBeenCalled();
+      expect(tabManager.applyStatusErrorReset).not.toHaveBeenCalled();
       expect(tabManager.markTabIdle).not.toHaveBeenCalled();
     });
 
@@ -145,7 +141,7 @@ describe('CompletionHandlerService', () => {
       expect(consoleWarn).toHaveBeenCalledWith(
         expect.stringContaining('No target tab for chat error'),
       );
-      expect(tabManager.updateTab).not.toHaveBeenCalled();
+      expect(tabManager.applyStatusErrorReset).not.toHaveBeenCalled();
     });
 
     it('falls back to active tab when sessionId is empty string', () => {
@@ -157,10 +153,9 @@ describe('CompletionHandlerService', () => {
 
       // Empty sessionId means findTabBySessionId is NOT called (guarded by if data.sessionId).
       expect(tabManager.findTabBySessionId).not.toHaveBeenCalled();
-      expect(tabManager.updateTab).toHaveBeenCalledWith('tab-active', {
-        status: 'loaded',
-        currentMessageId: null,
-      });
+      expect(tabManager.applyStatusErrorReset).toHaveBeenCalledWith(
+        'tab-active',
+      );
     });
 
     it('logs the error via console.error before processing', () => {

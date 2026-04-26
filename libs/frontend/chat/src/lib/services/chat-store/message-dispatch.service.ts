@@ -107,10 +107,7 @@ export class MessageDispatchService {
       const queuedOptions = tab?.queuedOptions ?? undefined;
 
       // Clear the queue and options before sending
-      this.tabManager.updateTab(tabId, {
-        queuedContent: null,
-        queuedOptions: null,
-      });
+      this.tabManager.clearQueuedContentAndOptions(tabId);
 
       // TASK_2025_185: Call continueConversation directly instead of messageSender.send().
       // messageSender.send() checks tab.status === 'loaded' which is false during streaming,
@@ -126,7 +123,7 @@ export class MessageDispatchService {
     } catch (error) {
       console.error('[ChatStore] sendQueuedMessage failed:', error);
       // On error, restore content to queue so user doesn't lose it
-      this.tabManager.updateTab(tabId, { queuedContent: content });
+      this.tabManager.setQueuedContent(tabId, content);
     }
   }
 
@@ -188,8 +185,10 @@ export class MessageDispatchService {
         `switch to a direct Anthropic connection in **Settings > Authentication**.`,
     });
 
-    this.tabManager.updateTab(activeTabId, {
-      messages: [...(activeTab?.messages ?? []), userMessage, warningMessage],
-    });
+    this.tabManager.setMessages(activeTabId, [
+      ...(activeTab?.messages ?? []),
+      userMessage,
+      warningMessage,
+    ]);
   }
 }

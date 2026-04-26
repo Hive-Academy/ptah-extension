@@ -73,17 +73,12 @@ export class CompactionLifecycleService {
     }
 
     // Set compacting state on the specific tab
-    this.tabManager.updateTab(tab.id, { isCompacting: true });
+    this.tabManager.markCompactionStart(tab.id);
 
     // Safety fallback: dismiss if compaction_complete event is never received
     const compactingTabId = tab.id;
     this.compactionTimeoutId = setTimeout(() => {
-      this.tabManager.updateTab(compactingTabId, {
-        isCompacting: false,
-        status: 'loaded',
-        streamingState: null,
-        currentMessageId: null,
-      });
+      this.tabManager.applyCompactionTimeoutReset(compactingTabId);
       this.tabManager.markTabIdle(compactingTabId);
       this.sessionManager.setStatus('loaded');
       this.compactionTimeoutId = null;
@@ -133,18 +128,12 @@ export class CompactionLifecycleService {
         };
       }
 
-      this.tabManager.updateTab(result.tabId, {
-        messages: [],
+      // TASK_2025_COMPACT_FIX: Also clears any queued message so the
+      // "Message queued (will send when Claude finishes)" banner disappears
+      // and the next user message is sent fresh instead of draining a stale queue.
+      this.tabManager.applyCompactionComplete(result.tabId, {
         preloadedStats,
         compactionCount: (compactionTab.compactionCount ?? 0) + 1,
-        status: 'loaded',
-        streamingState: null,
-        currentMessageId: null,
-        // TASK_2025_COMPACT_FIX: Clear any queued message so the
-        // "Message queued (will send when Claude finishes)" banner disappears
-        // and the next user message is sent fresh instead of draining a stale queue.
-        queuedContent: null,
-        queuedOptions: null,
       });
 
       // Also clear the visual streaming indicator and session manager state
@@ -173,7 +162,7 @@ export class CompactionLifecycleService {
    * Public for use by ChatMessageHandler on CHAT_COMPLETE.
    */
   clearCompactionStateForTab(tabId: string): void {
-    this.tabManager.updateTab(tabId, { isCompacting: false });
+    this.tabManager.clearCompactingFlag(tabId);
   }
 
   /**
@@ -187,12 +176,12 @@ export class CompactionLifecycleService {
     }
     // Clear on the specific tab if provided, otherwise clear on all compacting tabs
     if (tabId) {
-      this.tabManager.updateTab(tabId, { isCompacting: false });
+      this.tabManager.clearCompactingFlag(tabId);
     } else {
       // Fallback: clear isCompacting on any tab that has it set
       for (const tab of this.tabManager.tabs()) {
         if (tab.isCompacting) {
-          this.tabManager.updateTab(tab.id, { isCompacting: false });
+          this.tabManager.clearCompactingFlag(tab.id);
         }
       }
     }

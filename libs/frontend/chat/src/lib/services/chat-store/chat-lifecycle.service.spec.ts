@@ -72,7 +72,9 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
 describe('ChatLifecycleService', () => {
   let service: ChatLifecycleService;
   let tabs: TabState[];
-  let updateTabMock: jest.Mock;
+  let setStreamingStateMock: jest.Mock;
+  let attachSessionMock: jest.Mock;
+  let applyErrorResetMock: jest.Mock;
   let findTabBySessionIdMock: jest.Mock;
   let activeTabMock: jest.Mock;
   let activeTabIdMock: jest.Mock;
@@ -89,8 +91,30 @@ describe('ChatLifecycleService', () => {
 
   beforeEach(() => {
     tabs = [makeTab()];
-    updateTabMock = jest.fn((id: string, patch: Partial<TabState>) => {
-      tabs = tabs.map((t) => (t.id === id ? { ...t, ...patch } : t));
+    setStreamingStateMock = jest.fn(
+      (id: string, state: StreamingState | null) => {
+        tabs = tabs.map((t) =>
+          t.id === id ? { ...t, streamingState: state } : t,
+        );
+      },
+    );
+    attachSessionMock = jest.fn((id: string, sid: string) => {
+      tabs = tabs.map((t) =>
+        t.id === id ? { ...t, claudeSessionId: sid } : t,
+      );
+    });
+    applyErrorResetMock = jest.fn((id: string) => {
+      tabs = tabs.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              status: 'loaded',
+              currentMessageId: null,
+              queuedContent: null,
+              queuedOptions: null,
+            }
+          : t,
+      );
     });
     findTabBySessionIdMock = jest.fn(
       (sid: string) => tabs.find((t) => t.claudeSessionId === sid) ?? null,
@@ -110,7 +134,9 @@ describe('ChatLifecycleService', () => {
 
     const tabManagerMock = {
       tabs: () => tabs,
-      updateTab: updateTabMock,
+      setStreamingState: setStreamingStateMock,
+      attachSession: attachSessionMock,
+      applyErrorReset: applyErrorResetMock,
       findTabBySessionId: findTabBySessionIdMock,
       activeTab: activeTabMock,
       activeTabId: activeTabIdMock,
@@ -261,7 +287,7 @@ describe('ChatLifecycleService', () => {
         '[ChatStore] No tab with streamingState for summary chunk:',
         { toolUseId: 't1', agentId: 'agent-1', sessionId: 'sess-unknown' },
       );
-      expect(updateTabMock).not.toHaveBeenCalled();
+      expect(setStreamingStateMock).not.toHaveBeenCalled();
     });
 
     it('appends summary content to agentSummaryAccumulators by agentId', () => {
@@ -275,9 +301,10 @@ describe('ChatLifecycleService', () => {
         sessionId: 'sess-1',
       });
       expect(state.agentSummaryAccumulators.get('agent-1')).toBe('prev next');
-      expect(updateTabMock).toHaveBeenCalledWith('tab-1', {
-        streamingState: expect.any(Object),
-      });
+      expect(setStreamingStateMock).toHaveBeenCalledWith(
+        'tab-1',
+        expect.any(Object),
+      );
     });
 
     it('stores contentBlocks when present', () => {
@@ -302,9 +329,7 @@ describe('ChatLifecycleService', () => {
         tabId: 'tab-1',
         realSessionId: 'real-uuid',
       });
-      expect(updateTabMock).toHaveBeenCalledWith('tab-1', {
-        claudeSessionId: 'real-uuid',
-      });
+      expect(attachSessionMock).toHaveBeenCalledWith('tab-1', 'real-uuid');
     });
 
     it('falls back to active tab when streaming/draft', () => {
@@ -313,9 +338,7 @@ describe('ChatLifecycleService', () => {
         tabId: 'missing',
         realSessionId: 'real-uuid',
       });
-      expect(updateTabMock).toHaveBeenCalledWith('tab-2', {
-        claudeSessionId: 'real-uuid',
-      });
+      expect(attachSessionMock).toHaveBeenCalledWith('tab-2', 'real-uuid');
     });
 
     it('warns when no tab matches and active tab is not streaming/draft', () => {
@@ -339,12 +362,7 @@ describe('ChatLifecycleService', () => {
 
     it('routes by tabId when present (primary)', () => {
       service.handleChatError({ tabId: 'tab-1', error: 'boom' });
-      expect(updateTabMock).toHaveBeenCalledWith('tab-1', {
-        status: 'loaded',
-        currentMessageId: null,
-        queuedContent: null,
-        queuedOptions: null,
-      });
+      expect(applyErrorResetMock).toHaveBeenCalledWith('tab-1');
       expect(markTabIdleMock).toHaveBeenCalledWith('tab-1');
       expect(setStatusMock).toHaveBeenCalledWith('loaded');
     });
@@ -380,11 +398,19 @@ describe('ChatLifecycleService', () => {
       finalizeCurrentMessageMock.mockImplementation(() =>
         callOrder.push('finalize'),
       );
-      updateTabMock.mockImplementation((id, patch) => {
-        if ((patch as Partial<TabState>).currentMessageId === null) {
-          callOrder.push('clear');
-        }
-        tabs = tabs.map((t) => (t.id === id ? { ...t, ...patch } : t));
+      applyErrorResetMock.mockImplementation((id: string) => {
+        callOrder.push('clear');
+        tabs = tabs.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                status: 'loaded',
+                currentMessageId: null,
+                queuedContent: null,
+                queuedOptions: null,
+              }
+            : t,
+        );
       });
       service.handleChatError({ tabId: 'tab-1', error: 'boom' });
       expect(callOrder).toEqual(['finalize', 'clear']);

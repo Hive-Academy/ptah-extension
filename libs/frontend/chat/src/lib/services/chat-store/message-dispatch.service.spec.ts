@@ -43,7 +43,9 @@ function makeTab(overrides: Partial<TabState> = {}): TabState {
 describe('MessageDispatchService', () => {
   let service: MessageDispatchService;
   let tabs: TabState[];
-  let updateTabMock: jest.Mock;
+  let setMessagesMock: jest.Mock;
+  let setQueuedContentMock: jest.Mock;
+  let clearQueuedContentAndOptionsMock: jest.Mock;
   let activeTabStatus: ReturnType<typeof signal<string | null>>;
   let activeTabId: ReturnType<typeof signal<string | null>>;
   let persistedAuthMethod: ReturnType<typeof signal<string | null>>;
@@ -56,8 +58,18 @@ describe('MessageDispatchService', () => {
 
   beforeEach(() => {
     tabs = [makeTab()];
-    updateTabMock = jest.fn((id: string, patch: Partial<TabState>) => {
-      tabs = tabs.map((t) => (t.id === id ? { ...t, ...patch } : t));
+    setMessagesMock = jest.fn((id: string, messages: TabState['messages']) => {
+      tabs = tabs.map((t) => (t.id === id ? { ...t, messages } : t));
+    });
+    setQueuedContentMock = jest.fn((id: string, content: string | null) => {
+      tabs = tabs.map((t) =>
+        t.id === id ? { ...t, queuedContent: content } : t,
+      );
+    });
+    clearQueuedContentAndOptionsMock = jest.fn((id: string) => {
+      tabs = tabs.map((t) =>
+        t.id === id ? { ...t, queuedContent: null, queuedOptions: null } : t,
+      );
     });
     activeTabStatus = signal<string | null>('loaded');
     activeTabId = signal<string | null>('tab-1');
@@ -71,7 +83,9 @@ describe('MessageDispatchService', () => {
 
     const tabManagerMock = {
       tabs: () => tabs,
-      updateTab: updateTabMock,
+      setMessages: setMessagesMock,
+      setQueuedContent: setQueuedContentMock,
+      clearQueuedContentAndOptions: clearQueuedContentAndOptionsMock,
       activeTabStatus: () => activeTabStatus(),
       activeTabId: () => activeTabId(),
     } as unknown as TabManagerService;
@@ -116,8 +130,8 @@ describe('MessageDispatchService', () => {
       await service.sendOrQueueMessage('/compact');
       expect(sendMock).not.toHaveBeenCalled();
       expect(queueOrAppendMock).not.toHaveBeenCalled();
-      // Warning message added via updateTab
-      expect(updateTabMock).toHaveBeenCalled();
+      // Warning message added via setMessages
+      expect(setMessagesMock).toHaveBeenCalled();
     });
 
     it('does NOT block when authState.isLoading() is true', async () => {
@@ -179,10 +193,7 @@ describe('MessageDispatchService', () => {
 
     it('clears queue + queuedOptions before dispatch', async () => {
       await service.sendQueuedMessage('tab-1', 'queued');
-      expect(updateTabMock).toHaveBeenCalledWith('tab-1', {
-        queuedContent: null,
-        queuedOptions: null,
-      });
+      expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
     });
 
     it('passes files from stored options to continueConversation', async () => {
@@ -205,9 +216,7 @@ describe('MessageDispatchService', () => {
       continueConversationMock.mockRejectedValueOnce(err);
       const errorSpy = jest.spyOn(console, 'error').mockImplementation();
       await service.sendQueuedMessage('tab-1', 'queued');
-      expect(updateTabMock).toHaveBeenCalledWith('tab-1', {
-        queuedContent: 'queued',
-      });
+      expect(setQueuedContentMock).toHaveBeenCalledWith('tab-1', 'queued');
       expect(errorSpy).toHaveBeenCalledWith(
         '[ChatStore] sendQueuedMessage failed:',
         err,

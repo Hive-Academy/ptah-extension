@@ -1,7 +1,7 @@
 /**
  * BatchedUpdateService specs — RAF-batched streaming state updates.
  *
- * The service coalesces rapid `updateTab({streamingState})` calls into one
+ * The service coalesces rapid `setStreamingState(state)` calls into one
  * `requestAnimationFrame` flush so TabManager signals tick once per frame,
  * not per streaming event. Tests drive the RAF with Jest fake timers +
  * `requestAnimationFrame` polyfill.
@@ -12,7 +12,7 @@ import { BatchedUpdateService } from './batched-update.service';
 import { TabManagerService } from '../tab-manager.service';
 import type { StreamingState } from '@ptah-extension/chat-types';
 
-type TabManagerSlice = Pick<TabManagerService, 'updateTab'>;
+type TabManagerSlice = Pick<TabManagerService, 'setStreamingState'>;
 
 function makeEmptyStreamingState(): StreamingState {
   return {
@@ -55,7 +55,9 @@ describe('BatchedUpdateService', () => {
       }
     }) as typeof cancelAnimationFrame;
 
-    tabManager = { updateTab: jest.fn() } as jest.Mocked<TabManagerSlice>;
+    tabManager = {
+      setStreamingState: jest.fn(),
+    } as jest.Mocked<TabManagerSlice>;
 
     TestBed.configureTestingModule({
       providers: [
@@ -87,14 +89,15 @@ describe('BatchedUpdateService', () => {
     service.scheduleUpdate('tab-1', state);
 
     // No updates until RAF fires.
-    expect(tabManager.updateTab).not.toHaveBeenCalled();
+    expect(tabManager.setStreamingState).not.toHaveBeenCalled();
 
     runRaf();
 
-    expect(tabManager.updateTab).toHaveBeenCalledTimes(1);
-    expect(tabManager.updateTab).toHaveBeenCalledWith('tab-1', {
-      streamingState: expect.any(Object),
-    });
+    expect(tabManager.setStreamingState).toHaveBeenCalledTimes(1);
+    expect(tabManager.setStreamingState).toHaveBeenCalledWith(
+      'tab-1',
+      expect.any(Object),
+    );
   });
 
   it('clones the streaming state on flush so later mutations do not bleed', () => {
@@ -102,8 +105,8 @@ describe('BatchedUpdateService', () => {
     service.scheduleUpdate('tab-1', state);
     runRaf();
 
-    const flushedState = tabManager.updateTab.mock.calls[0][1]
-      .streamingState as StreamingState;
+    const flushedState = tabManager.setStreamingState.mock
+      .calls[0][1] as StreamingState;
     expect(flushedState).not.toBe(state);
     // Shallow clone: nested Maps are referenced, the top-level object is new.
     expect(flushedState.events).toBe(state.events);
@@ -115,8 +118,8 @@ describe('BatchedUpdateService', () => {
     service.scheduleUpdate('tab-2', state);
 
     runRaf();
-    expect(tabManager.updateTab).toHaveBeenCalledTimes(2);
-    const ids = tabManager.updateTab.mock.calls.map((c) => c[0]);
+    expect(tabManager.setStreamingState).toHaveBeenCalledTimes(2);
+    const ids = tabManager.setStreamingState.mock.calls.map((c) => c[0]);
     expect(new Set(ids)).toEqual(new Set(['tab-1', 'tab-2']));
   });
 
@@ -124,13 +127,13 @@ describe('BatchedUpdateService', () => {
     const state = makeEmptyStreamingState();
     service.scheduleUpdate('tab-1', state);
     runRaf();
-    expect(tabManager.updateTab).toHaveBeenCalledTimes(1);
+    expect(tabManager.setStreamingState).toHaveBeenCalledTimes(1);
 
     service.scheduleUpdate('tab-1', state);
     // The previous RAF id was consumed; a fresh one must have been requested.
     expect(rafCallbacks).toHaveLength(1);
     runRaf();
-    expect(tabManager.updateTab).toHaveBeenCalledTimes(2);
+    expect(tabManager.setStreamingState).toHaveBeenCalledTimes(2);
   });
 
   it('flushSync cancels the pending RAF and flushes immediately', () => {
@@ -138,16 +141,16 @@ describe('BatchedUpdateService', () => {
     service.scheduleUpdate('tab-1', state);
 
     service.flushSync();
-    expect(tabManager.updateTab).toHaveBeenCalledTimes(1);
+    expect(tabManager.setStreamingState).toHaveBeenCalledTimes(1);
 
     // Running the original RAF callback must not double-flush.
     runRaf();
-    expect(tabManager.updateTab).toHaveBeenCalledTimes(1);
+    expect(tabManager.setStreamingState).toHaveBeenCalledTimes(1);
   });
 
   it('flushSync on an empty queue is a no-op', () => {
     service.flushSync();
-    expect(tabManager.updateTab).not.toHaveBeenCalled();
+    expect(tabManager.setStreamingState).not.toHaveBeenCalled();
   });
 
   it('hasPendingUpdates reports true between schedule and flush', () => {
@@ -168,8 +171,8 @@ describe('BatchedUpdateService', () => {
     service.clearPendingUpdates('tab-1');
     runRaf();
 
-    expect(tabManager.updateTab).toHaveBeenCalledTimes(1);
-    expect(tabManager.updateTab).toHaveBeenCalledWith(
+    expect(tabManager.setStreamingState).toHaveBeenCalledTimes(1);
+    expect(tabManager.setStreamingState).toHaveBeenCalledWith(
       'tab-2',
       expect.any(Object),
     );
@@ -184,8 +187,8 @@ describe('BatchedUpdateService', () => {
     service.scheduleUpdate('tab-1', second);
     runRaf();
 
-    const flushed = tabManager.updateTab.mock.calls[0][1]
-      .streamingState as StreamingState;
+    const flushed = tabManager.setStreamingState.mock
+      .calls[0][1] as StreamingState;
     expect(flushed.currentMessageId).toBe('msg-2');
   });
 });

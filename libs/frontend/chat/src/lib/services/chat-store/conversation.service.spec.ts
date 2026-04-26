@@ -61,10 +61,20 @@ describe('ConversationService', () => {
     tabs: ReturnType<typeof computed<TabState[]>>;
     activeTabId: ReturnType<typeof computed<string | null>>;
     activeTab: ReturnType<typeof computed<TabState | null>>;
-    updateTab: jest.Mock;
     createTab: jest.Mock;
     switchTab: jest.Mock;
     markTabIdle: jest.Mock;
+    setQueuedContent: jest.Mock;
+    setQueuedContentAndOptions: jest.Mock;
+    resetQueuedContentAndOptions: jest.Mock;
+    applyStatusErrorReset: jest.Mock;
+    applyNewConversationDraft: jest.Mock;
+    appendUserMessageForNewTurn: jest.Mock;
+    setMessagesAndMarkLoaded: jest.Mock;
+    markStreaming: jest.Mock;
+    markLoaded: jest.Mock;
+    markResuming: jest.Mock;
+    setMessages: jest.Mock;
   };
   let sessionManager: jest.Mocked<
     Pick<SessionManager, 'setStatus' | 'isSessionConfirmed' | 'clearNodeMaps'>
@@ -85,6 +95,16 @@ describe('ConversationService', () => {
     tabsSignal = signal<TabState[]>([makeTab({ id: 'tab-1' })]);
     activeTabIdSignal = signal<string | null>('tab-1');
 
+    // Mocks update the signal-backed tab state so subsequent reads observe the
+    // mutation, mirroring real TabManagerService behavior.
+    const applyPatch = (tabId: string, patch: Partial<TabState>): void => {
+      tabsSignal.update((tabs) =>
+        tabs.map((t) =>
+          t.id === tabId ? ({ ...t, ...patch } as TabState) : t,
+        ),
+      );
+    };
+
     tabManager = {
       tabs: computed(() => tabsSignal()),
       activeTabId: computed(() => activeTabIdSignal()),
@@ -92,16 +112,50 @@ describe('ConversationService', () => {
         const id = activeTabIdSignal();
         return tabsSignal().find((t) => t.id === id) ?? null;
       }),
-      updateTab: jest.fn((tabId: string, patch: Partial<TabState>) => {
-        tabsSignal.update((tabs) =>
-          tabs.map((t) =>
-            t.id === tabId ? ({ ...t, ...patch } as TabState) : t,
-          ),
-        );
-      }),
       createTab: jest.fn(() => 'tab-new'),
       switchTab: jest.fn(),
       markTabIdle: jest.fn(),
+      setQueuedContent: jest.fn((tabId: string, content: string | null) =>
+        applyPatch(tabId, { queuedContent: content }),
+      ),
+      setQueuedContentAndOptions: jest.fn(
+        (tabId: string, content: string, options: TabState['queuedOptions']) =>
+          applyPatch(tabId, { queuedContent: content, queuedOptions: options }),
+      ),
+      resetQueuedContentAndOptions: jest.fn((tabId: string) =>
+        applyPatch(tabId, { queuedContent: '', queuedOptions: null }),
+      ),
+      applyStatusErrorReset: jest.fn((tabId: string) =>
+        applyPatch(tabId, { status: 'loaded', currentMessageId: null }),
+      ),
+      applyNewConversationDraft: jest.fn((tabId: string, name: string) =>
+        applyPatch(tabId, {
+          name,
+          title: name,
+          status: 'draft',
+          claudeSessionId: null,
+        } as Partial<TabState>),
+      ),
+      appendUserMessageForNewTurn: jest.fn(
+        (tabId: string, messages: ExecutionChatMessage[]) =>
+          applyPatch(tabId, { messages, currentMessageId: null }),
+      ),
+      setMessagesAndMarkLoaded: jest.fn(
+        (tabId: string, messages: ExecutionChatMessage[]) =>
+          applyPatch(tabId, { messages, status: 'loaded' }),
+      ),
+      markStreaming: jest.fn((tabId: string) =>
+        applyPatch(tabId, { status: 'streaming' }),
+      ),
+      markLoaded: jest.fn((tabId: string) =>
+        applyPatch(tabId, { status: 'loaded' }),
+      ),
+      markResuming: jest.fn((tabId: string) =>
+        applyPatch(tabId, { status: 'resuming' }),
+      ),
+      setMessages: jest.fn((tabId: string, messages: ExecutionChatMessage[]) =>
+        applyPatch(tabId, { messages }),
+      ),
     };
 
     sessionManager = {
@@ -164,24 +218,27 @@ describe('ConversationService', () => {
 
       expect(validator.validate).toHaveBeenCalledWith('  hello  ');
       expect(validator.sanitize).toHaveBeenCalledWith('  hello  ');
-      expect(tabManager.updateTab).toHaveBeenCalledWith('tab-1', {
-        queuedContent: 'hello',
-        queuedOptions: { tabId: 'tab-1', files: ['a.ts'] },
-      });
+      expect(tabManager.setQueuedContentAndOptions).toHaveBeenCalledWith(
+        'tab-1',
+        'hello',
+        { tabId: 'tab-1', files: ['a.ts'] },
+      );
     });
 
     it('appends new content with a newline when queue already has content', () => {
       tabsSignal.set([makeTab({ id: 'tab-1', queuedContent: 'first' })]);
       service.queueOrAppendMessage('second');
-      expect(tabManager.updateTab).toHaveBeenCalledWith('tab-1', {
-        queuedContent: 'first\nsecond',
-      });
+      expect(tabManager.setQueuedContent).toHaveBeenCalledWith(
+        'tab-1',
+        'first\nsecond',
+      );
     });
 
     it('silently returns when no active tab', () => {
       activeTabIdSignal.set(null);
       service.queueOrAppendMessage('hello');
-      expect(tabManager.updateTab).not.toHaveBeenCalled();
+      expect(tabManager.setQueuedContent).not.toHaveBeenCalled();
+      expect(tabManager.setQueuedContentAndOptions).not.toHaveBeenCalled();
     });
 
     it('warns and returns when content fails validation', () => {
@@ -190,31 +247,30 @@ describe('ConversationService', () => {
       expect(consoleWarn).toHaveBeenCalledWith(
         expect.stringContaining('Invalid queue content'),
       );
-      expect(tabManager.updateTab).not.toHaveBeenCalled();
+      expect(tabManager.setQueuedContent).not.toHaveBeenCalled();
+      expect(tabManager.setQueuedContentAndOptions).not.toHaveBeenCalled();
     });
   });
 
   describe('clearQueuedContent', () => {
     it('resets queuedContent and queuedOptions for the active tab', () => {
       service.clearQueuedContent();
-      expect(tabManager.updateTab).toHaveBeenCalledWith('tab-1', {
-        queuedContent: '',
-        queuedOptions: null,
-      });
+      expect(tabManager.resetQueuedContentAndOptions).toHaveBeenCalledWith(
+        'tab-1',
+      );
     });
 
     it('accepts an explicit tabId', () => {
       service.clearQueuedContent('other-tab');
-      expect(tabManager.updateTab).toHaveBeenCalledWith('other-tab', {
-        queuedContent: '',
-        queuedOptions: null,
-      });
+      expect(tabManager.resetQueuedContentAndOptions).toHaveBeenCalledWith(
+        'other-tab',
+      );
     });
 
     it('no-ops when there is no tab to target', () => {
       activeTabIdSignal.set(null);
       service.clearQueuedContent();
-      expect(tabManager.updateTab).not.toHaveBeenCalled();
+      expect(tabManager.resetQueuedContentAndOptions).not.toHaveBeenCalled();
     });
   });
 
@@ -230,10 +286,11 @@ describe('ConversationService', () => {
       tabsSignal.set([makeTab({ id: 'tab-1', status: 'streaming' })]);
       await service.sendOrQueueMessage('hello');
 
-      // Queue is updated; no RPC call placed.
-      expect(tabManager.updateTab).toHaveBeenCalledWith(
+      // Queue is updated via setQueuedContent (no options passed → no
+      // setQueuedContentAndOptions on the first write either).
+      expect(tabManager.setQueuedContent).toHaveBeenCalledWith(
         'tab-1',
-        expect.objectContaining({ queuedContent: 'hello' }),
+        'hello',
       );
       expect(rpcCall).not.toHaveBeenCalled();
     });
@@ -296,14 +353,14 @@ describe('ConversationService', () => {
         }),
       );
 
-      // User message appended to the tab.
-      const patches = tabManager.updateTab.mock.calls.map((c) => c[1]);
-      const userAppend = patches.find((p) =>
-        Array.isArray((p as { messages?: unknown }).messages),
-      ) as { messages: ExecutionChatMessage[] };
-      expect(userAppend).toBeDefined();
-      expect(userAppend.messages[0].role).toBe('user');
-      expect(userAppend.messages[0].rawContent).toBe('Plan a refactor');
+      // User message appended to the tab via the dedicated intent method.
+      expect(tabManager.appendUserMessageForNewTurn).toHaveBeenCalledTimes(1);
+      const [, msgs] = tabManager.appendUserMessageForNewTurn.mock.calls[0] as [
+        string,
+        ExecutionChatMessage[],
+      ];
+      expect(msgs[0].role).toBe('user');
+      expect(msgs[0].rawContent).toBe('Plan a refactor');
     });
 
     it('auto-names the tab from the first 50 chars of the prompt when the name is still "New Chat"', async () => {
@@ -311,35 +368,24 @@ describe('ConversationService', () => {
       const prompt = 'Refactor the authentication module to use Zod schemas';
       await service.startNewConversation(prompt);
 
-      const namingPatches = tabManager.updateTab.mock.calls
-        .map((c) => c[1])
-        .filter(
-          (p): p is { name: string; title: string } =>
-            typeof (p as { name?: unknown }).name === 'string',
-        );
-      expect(namingPatches[0].name).toBe(prompt.substring(0, 50).trim());
+      expect(tabManager.applyNewConversationDraft).toHaveBeenCalledWith(
+        'tab-1',
+        prompt.substring(0, 50).trim(),
+      );
     });
 
     it('surfaces an assistant error message and resets to loaded on RPC failure', async () => {
       rpcCall.mockResolvedValue({ success: false, error: 'no api key' });
       await service.startNewConversation('hello');
 
-      // The last updateTab should add an assistant message and set status: loaded.
-      const lastPatch = tabManager.updateTab.mock.calls
-        .slice()
-        .reverse()
-        .find(
-          (c) =>
-            typeof (c[1] as { status?: unknown }).status === 'string' &&
-            Array.isArray((c[1] as { messages?: unknown }).messages),
-        );
-      expect(lastPatch).toBeDefined();
-      const patch = lastPatch![1] as {
-        status: string;
-        messages: ExecutionChatMessage[];
-      };
-      expect(patch.status).toBe('loaded');
-      const errMsg = patch.messages[patch.messages.length - 1];
+      // setMessagesAndMarkLoaded captures the error reply append + status reset.
+      expect(tabManager.setMessagesAndMarkLoaded).toHaveBeenCalled();
+      const lastCall =
+        tabManager.setMessagesAndMarkLoaded.mock.calls[
+          tabManager.setMessagesAndMarkLoaded.mock.calls.length - 1
+        ];
+      const msgs = lastCall[1] as ExecutionChatMessage[];
+      const errMsg = msgs[msgs.length - 1];
       expect(errMsg.role).toBe('assistant');
       expect(errMsg.rawContent).toContain('no api key');
     });
@@ -404,10 +450,9 @@ describe('ConversationService', () => {
         tabId: 'tab-1',
         content: 'queued-text',
       });
-      // Queue cleared after restoration.
-      expect(tabManager.updateTab).toHaveBeenCalledWith(
+      // Queue cleared after restoration via the dedicated reset intent.
+      expect(tabManager.resetQueuedContentAndOptions).toHaveBeenCalledWith(
         'tab-1',
-        expect.objectContaining({ queuedContent: '', queuedOptions: null }),
       );
     });
   });
