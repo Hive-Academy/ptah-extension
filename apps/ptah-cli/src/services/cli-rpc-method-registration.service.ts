@@ -24,6 +24,7 @@ import {
   wireSdkCallbacks,
   wireAgentEventListeners,
 } from '@ptah-extension/agent-sdk';
+import { SkillsShRpcHandlers } from './rpc/handlers/skills-sh-rpc.handlers.js';
 
 /**
  * RPC methods that have NO sensible CLI implementation — they all sit on top
@@ -110,6 +111,14 @@ export class CliRpcMethodRegistrationService {
     // TASK_2026_104 Batch 4: drop `exclude: [HarnessRpcHandlers]` so the
     // harness handler joins the shared set. Parity with Electron.
     registerAllRpcHandlers(container);
+
+    // TASK_2026_104 Sub-batch B6b: re-register `SkillsShRpcHandlers` (CLI
+    // copy of the Electron handler — `skills-sh-rpc.handlers.ts`). The Skills
+    // handler is intentionally NOT in the shared rpc-handlers library; both
+    // Electron and the CLI keep app-local copies because the upstream
+    // `npx skills` integration may diverge per-platform in the future.
+    container.registerSingleton(SkillsShRpcHandlers);
+    container.resolve(SkillsShRpcHandlers).register();
 
     wireSdkCallbacks(container, {
       logger: this.logger,

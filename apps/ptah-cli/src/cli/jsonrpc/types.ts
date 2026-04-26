@@ -134,6 +134,19 @@ export type PtahNotification =
   | 'harness.initialized'
   | 'skill.installed'
   | 'skill.list'
+  // Skill commands (TASK_2026_104 B6b) — task-description.md §4.1.5
+  | 'skill.search'
+  | 'skill.removed'
+  | 'skill.popular'
+  | 'skill.recommended'
+  | 'skill.created'
+  // MCP commands (TASK_2026_104 B6b) — task-description.md §4.1.5
+  | 'mcp.search'
+  | 'mcp.details'
+  | 'mcp.installed'
+  | 'mcp.uninstalled'
+  | 'mcp.list'
+  | 'mcp.popular'
   // Profile commands
   | 'profile.applied'
   | 'profile.list'

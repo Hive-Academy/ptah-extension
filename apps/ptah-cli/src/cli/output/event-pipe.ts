@@ -46,6 +46,15 @@ export const EVENT_MAP: Readonly<Record<string, PtahNotification>> = {
   // numbered bootstrap phase (see `apps/ptah-cli/src/di/container.ts`).
   // TASK_2026_104 Batch 4 (task-description.md § 4.1.9).
   'debug.di.phase': 'debug.di.phase',
+  // Resource Catalog — TASK_2026_104 Sub-batch B6b (task-description.md §4.1.5).
+  // Forwarded only when backend services emit them. The CLI commands themselves
+  // emit the same notifications synchronously via `formatter.writeNotification`,
+  // so these mappings exist for parity with Electron push events (e.g. when
+  // a remote install pipeline completes asynchronously).
+  'skill:installed': 'skill.installed',
+  'skill:removed': 'skill.removed',
+  'mcp:installed': 'mcp.installed',
+  'mcp:uninstalled': 'mcp.uninstalled',
 };
 
 /** Backend event types that must be transformed into per-turn deltas. */

@@ -21,10 +21,12 @@ import * as gitCmd from './commands/git.js';
 import * as harnessCmd from './commands/harness.js';
 import * as interactCmd from './commands/interact.js';
 import * as licenseCmd from './commands/license.js';
+import * as mcpCmd from './commands/mcp.js';
 import * as profileCmd from './commands/profile.js';
 import * as providerCmd from './commands/provider.js';
 import * as runCmd from './commands/run.js';
 import * as settingsCmd from './commands/settings.js';
+import * as skillCmd from './commands/skill.js';
 import * as websearchCmd from './commands/websearch.js';
 import * as workspaceCmd from './commands/workspace.js';
 
@@ -669,6 +671,203 @@ export function buildRouter(): Command {
     .action(async (opts: { path: string }) => {
       const exit = await workspaceCmd.execute(
         { subcommand: 'switch', path: opts.path },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah skill ------------------------------------------------------------
+  // TASK_2026_104 Sub-batch B6b. Backed by `SkillsShRpcHandlers` re-registered
+  // in the CLI app + shared `harness:create-skill`.
+  const skill = program
+    .command('skill')
+    .description(
+      'manage skills.sh skills (search / installed / install / remove / popular / recommended / create)',
+    );
+
+  skill
+    .command('search <query>')
+    .description('search the skills.sh registry via skillsSh:search')
+    .action(async (query: string) => {
+      const exit = await skillCmd.execute(
+        { subcommand: 'search', query },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skill
+    .command('installed')
+    .description('list locally-installed skills via skillsSh:listInstalled')
+    .action(async () => {
+      const exit = await skillCmd.execute(
+        { subcommand: 'installed' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skill
+    .command('install <source>')
+    .description(
+      'install a skill via skillsSh:install (idempotent — second run reports changed:false)',
+    )
+    .option('--skill-id <id>', 'optional skill id inside the source repo')
+    .option('--scope <scope>', 'installation scope (project|global)', 'project')
+    .action(
+      async (source: string, opts: { skillId?: string; scope?: string }) => {
+        const exit = await skillCmd.execute(
+          {
+            subcommand: 'install',
+            source,
+            skillId: opts.skillId,
+            scope: opts.scope,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  skill
+    .command('remove <name>')
+    .description(
+      'uninstall a skill via skillsSh:uninstall (idempotent — emits changed:false when absent)',
+    )
+    .option('--scope <scope>', 'installation scope (project|global)', 'project')
+    .action(async (name: string, opts: { scope?: string }) => {
+      const exit = await skillCmd.execute(
+        { subcommand: 'remove', name, scope: opts.scope },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skill
+    .command('popular')
+    .description('emit the curated popular skills list via skillsSh:getPopular')
+    .action(async () => {
+      const exit = await skillCmd.execute(
+        { subcommand: 'popular' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skill
+    .command('recommended')
+    .description(
+      'detect workspace technologies and emit recommended skills via skillsSh:detectRecommended',
+    )
+    .action(async () => {
+      const exit = await skillCmd.execute(
+        { subcommand: 'recommended' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skill
+    .command('create')
+    .description(
+      'create a skill from a JSON spec via harness:create-skill (--from-spec is required)',
+    )
+    .requiredOption(
+      '--from-spec <path>',
+      'path to a JSON file with name/description/content[/allowedTools]',
+    )
+    .action(async (opts: { fromSpec: string }) => {
+      const exit = await skillCmd.execute(
+        { subcommand: 'create', fromSpec: opts.fromSpec },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah mcp --------------------------------------------------------------
+  // TASK_2026_104 Sub-batch B6b. Backed by shared McpDirectoryRpcHandlers (B6a).
+  const mcp = program
+    .command('mcp')
+    .description(
+      'browse and install MCP servers (search / details / install / uninstall / list / popular)',
+    );
+
+  mcp
+    .command('search <query>')
+    .description('search the Official MCP Registry via mcpDirectory:search')
+    .option('--limit <n>', 'max results to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .action(async (query: string, opts: { limit?: number }) => {
+      const exit = await mcpCmd.execute(
+        { subcommand: 'search', query, limit: opts.limit },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  mcp
+    .command('details <name>')
+    .description('fetch a server entry via mcpDirectory:getDetails')
+    .action(async (name: string) => {
+      const exit = await mcpCmd.execute(
+        { subcommand: 'details', name },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  mcp
+    .command('install <name>')
+    .description(
+      'install an MCP server to one target via mcpDirectory:install (idempotent — emits changed:false on re-install with same config)',
+    )
+    .requiredOption(
+      '--target <id>',
+      'install target (vscode|claude|cursor|gemini|copilot)',
+    )
+    .action(async (name: string, opts: { target: string }) => {
+      const exit = await mcpCmd.execute(
+        { subcommand: 'install', name, target: opts.target },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  mcp
+    .command('uninstall <key>')
+    .description(
+      'uninstall an MCP server from one target via mcpDirectory:uninstall (idempotent — emits changed:false when absent)',
+    )
+    .requiredOption(
+      '--target <id>',
+      'install target (vscode|claude|cursor|gemini|copilot)',
+    )
+    .action(async (key: string, opts: { target: string }) => {
+      const exit = await mcpCmd.execute(
+        { subcommand: 'uninstall', key, target: opts.target },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  mcp
+    .command('list')
+    .description('list installed MCP servers via mcpDirectory:listInstalled')
+    .action(async () => {
+      const exit = await mcpCmd.execute(
+        { subcommand: 'list' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  mcp
+    .command('popular')
+    .description('emit popular/trending servers via mcpDirectory:getPopular')
+    .action(async () => {
+      const exit = await mcpCmd.execute(
+        { subcommand: 'popular' },
         resolveGlobals(program),
       );
       process.exitCode = exit;
