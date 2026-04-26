@@ -110,11 +110,19 @@ export type JsonRpcErrorCodeValue =
 export type PtahNotification =
   // Session lifecycle
   | 'session.ready'
+  | 'session.created'
   // Agent stream
   | 'agent.thought'
   | 'agent.message'
   | 'agent.tool_use'
   | 'agent.tool_result'
+  // Approval round-trip notifications (TASK_2026_104 B10b — task-description.md §4.2).
+  // These are fire-and-forget CLI → client notifications; the matching client
+  // → CLI responses arrive as JSON-RPC requests on the inbound channel
+  // (`permission.response` / `question.response`) and are dispatched through
+  // `JsonRpcServer.register()` handlers wired by the `ApprovalBridge`.
+  | 'permission.request'
+  | 'question.ask'
   // Session metering
   | 'session.cost'
   | 'session.token_usage'
