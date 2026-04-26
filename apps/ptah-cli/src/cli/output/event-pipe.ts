@@ -55,6 +55,19 @@ export const EVENT_MAP: Readonly<Record<string, PtahNotification>> = {
   'skill:removed': 'skill.removed',
   'mcp:installed': 'mcp.installed',
   'mcp:uninstalled': 'mcp.uninstalled',
+  // Plugin / Prompts / Harness — TASK_2026_104 Sub-batch B6c
+  // (task-description.md §3.1). Most B6c notifications are emitted
+  // synchronously by the CLI command body via `formatter.writeNotification`,
+  // so these mappings exist purely for parity with Electron push events
+  // (e.g. an asynchronous skill-junction rebuild after `plugins:save-config`,
+  // a streaming `harness:design-agents` run, or `setup-wizard:enhance-stream`
+  // chunks during `enhancedPrompts:regenerate`). No `harness.chat.*` mapping
+  // is added here — `harness chat` is a deferred-to-Batch-10 alias stub that
+  // emits `task.error` synchronously without any push events. See harness.ts.
+  'plugin:config-updated': 'plugin.config.updated',
+  'setup-wizard:enhance-stream': 'prompts.regenerate.start',
+  'harness:flat-stream': 'harness.document.stream',
+  'harness:flat-stream-complete': 'harness.document.complete',
 };
 
 /** Backend event types that must be transformed into per-turn deltas. */

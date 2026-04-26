@@ -147,6 +147,38 @@ export type PtahNotification =
   | 'mcp.uninstalled'
   | 'mcp.list'
   | 'mcp.popular'
+  // Plugin commands (TASK_2026_104 B6c) — task-description.md §3.1 `plugin *`
+  | 'plugin.list'
+  | 'plugin.config.value'
+  | 'plugin.config.updated'
+  | 'plugin.skills.list'
+  // Prompts commands (TASK_2026_104 B6c) — task-description.md §3.1 `prompts *`
+  | 'prompts.status'
+  | 'prompts.enabled'
+  | 'prompts.disabled'
+  | 'prompts.regenerate.start'
+  | 'prompts.regenerate.complete'
+  | 'prompts.content'
+  | 'prompts.download.complete'
+  // Harness commands (TASK_2026_104 B6c) — task-description.md §3.1 `harness *`.
+  // NOTE: `harness.chat.*` is intentionally OMITTED — the `harness chat`
+  // sub-subcommand is a deferred-to-Batch-10 alias for `session start
+  // --scope harness-skill` and emits `task.error` synchronously without
+  // any new notifications. See `harness.ts#runChatAlias`.
+  | 'harness.status'
+  | 'harness.workspace_context'
+  | 'harness.available_agents'
+  | 'harness.available_skills'
+  | 'harness.existing_presets'
+  | 'harness.applied'
+  | 'harness.preset.saved'
+  | 'harness.preset.list'
+  | 'harness.intent.analysis'
+  | 'harness.agent_design.start'
+  | 'harness.agent_design.complete'
+  | 'harness.document.start'
+  | 'harness.document.stream'
+  | 'harness.document.complete'
   // Profile commands
   | 'profile.applied'
   | 'profile.list'

@@ -22,7 +22,9 @@ import * as harnessCmd from './commands/harness.js';
 import * as interactCmd from './commands/interact.js';
 import * as licenseCmd from './commands/license.js';
 import * as mcpCmd from './commands/mcp.js';
+import * as pluginCmd from './commands/plugin.js';
 import * as profileCmd from './commands/profile.js';
+import * as promptsCmd from './commands/prompts.js';
 import * as providerCmd from './commands/provider.js';
 import * as runCmd from './commands/run.js';
 import * as settingsCmd from './commands/settings.js';
@@ -329,40 +331,185 @@ export function buildRouter(): Command {
     });
 
   // -- ptah harness ----------------------------------------------------------
+  // TASK_2026_104 Sub-batch B6c. Backed by shared HarnessRpcHandlers
+  // (registered globally via `registerAllRpcHandlers()`), so VS Code, Electron,
+  // and the CLI all dispatch identical RPC verbs.
   const harness = program
     .command('harness')
-    .description('provision a Ptah workspace and install skills');
+    .description(
+      'Harness Setup Builder — scaffold, scan, design, and apply project harness presets',
+    );
 
   harness
     .command('init')
-    .description('create the .ptah/ scaffolding (idempotent)')
+    .description(
+      'create the .ptah/ scaffolding (pure mkdir, no DI; idempotent — second run reports changed:false)',
+    )
     .option('--dir <path>', 'target directory (defaults to --cwd)')
-    .option('--skills <comma-list>', 'comma-separated skills to install')
-    .action(async (opts: { dir?: string; skills?: string }) => {
+    .action(async (opts: { dir?: string }) => {
       const exit = await harnessCmd.execute(
-        { subcommand: 'init', dir: opts.dir, skills: opts.skills },
+        { subcommand: 'init', dir: opts.dir },
         resolveGlobals(program),
       );
       process.exitCode = exit;
     });
 
   harness
-    .command('install-skill <name>')
-    .description('install a skill into .ptah/skills/<name>/')
-    .action(async (name: string) => {
+    .command('status')
+    .description(
+      'inspect .ptah/ contents (pure fs.readdir, no DI) and emit harness.status',
+    )
+    .option('--dir <path>', 'workspace root (defaults to --cwd)')
+    .action(async (opts: { dir?: string }) => {
       const exit = await harnessCmd.execute(
-        { subcommand: 'install-skill', name },
+        { subcommand: 'status', dir: opts.dir },
         resolveGlobals(program),
       );
       process.exitCode = exit;
     });
 
   harness
-    .command('list-skills')
-    .description('list installed skills in .ptah/skills/')
+    .command('scan')
+    .description(
+      'run harness:initialize and emit workspace_context / available_agents / available_skills / existing_presets',
+    )
     .action(async () => {
       const exit = await harnessCmd.execute(
-        { subcommand: 'list-skills' },
+        { subcommand: 'scan' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  harness
+    .command('apply')
+    .description('apply a stored harness preset via harness:apply')
+    .requiredOption('--preset <id>', 'preset id or name')
+    .action(async (opts: { preset: string }) => {
+      const exit = await harnessCmd.execute(
+        { subcommand: 'apply', preset: opts.preset },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  const harnessPreset = harness
+    .command('preset')
+    .description('manage harness presets (save / load)');
+
+  harnessPreset
+    .command('save <name>')
+    .description(
+      'persist a HarnessConfig (read from --from <path>) via harness:save-preset',
+    )
+    .requiredOption(
+      '--from <path>',
+      'JSON file containing a HarnessConfig payload',
+    )
+    .option('--description <text>', 'human-readable description', '')
+    .action(
+      async (name: string, opts: { from: string; description?: string }) => {
+        const exit = await harnessCmd.execute(
+          {
+            subcommand: 'preset-save',
+            name,
+            from: opts.from,
+            description: opts.description,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  harnessPreset
+    .command('load')
+    .description('emit harness.preset.list via harness:load-presets')
+    .action(async () => {
+      const exit = await harnessCmd.execute(
+        { subcommand: 'preset-load' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // ---------------------------------------------------------------------------
+  // `harness chat` — locked alias contract per TASK_2026_104 architect spec.
+  //
+  // Currently a deferred-to-Batch-10 alias for `session start --scope
+  // harness-skill`. The body emits a `task.error` notification synchronously
+  // and exits 1. The flag set below mirrors `session start --scope
+  // harness-skill` so when Batch 10 lands the parser surface stays stable.
+  //
+  // TODO(B10): When session.ts ships, re-verify the harness chat parser
+  // accepts the same flag set as `session start --scope harness-skill` and
+  // delegates the action body to `executeSession({ scope: 'harness-skill' })`.
+  // ---------------------------------------------------------------------------
+  harness
+    .command('chat')
+    .description(
+      'alias for `ptah session start --scope harness-skill` (deferred to Batch 10 — emits task.error, exit 1)',
+    )
+    .option('--task <string>', 'free-form task prompt')
+    .option('--profile <name>', 'sub-agent profile to use')
+    .option('--session <id>', 'resume the given session id')
+    .option('--auto-approve', 'auto-allow all permission requests', false)
+    .action(
+      async (_opts: {
+        task?: string;
+        profile?: string;
+        session?: string;
+        autoApprove?: boolean;
+      }) => {
+        const exit = await harnessCmd.execute(
+          { subcommand: 'chat' },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  harness
+    .command('analyze-intent')
+    .description(
+      'analyze a free-form intent via harness:analyze-intent and emit harness.intent.analysis',
+    )
+    .requiredOption('--intent <text>', 'free-form intent (min 10 chars)')
+    .action(async (opts: { intent: string }) => {
+      const exit = await harnessCmd.execute(
+        { subcommand: 'analyze-intent', intent: opts.intent },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  harness
+    .command('design-agents')
+    .description(
+      'design sub-agents via harness:design-agents (use --workspace to derive persona from harness:initialize)',
+    )
+    .option(
+      '--workspace',
+      'derive persona + existing agents from the active workspace',
+      false,
+    )
+    .action(async (opts: { workspace?: boolean }) => {
+      const exit = await harnessCmd.execute(
+        { subcommand: 'design-agents', workspace: opts.workspace === true },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  harness
+    .command('generate-document')
+    .description(
+      'generate a project document via harness:generate-document (--kind prd|spec)',
+    )
+    .requiredOption('--kind <kind>', 'document kind (prd|spec)')
+    .action(async (opts: { kind: string }) => {
+      const exit = await harnessCmd.execute(
+        { subcommand: 'generate-document', kind: opts.kind },
         resolveGlobals(program),
       );
       process.exitCode = exit;
@@ -868,6 +1015,205 @@ export function buildRouter(): Command {
     .action(async () => {
       const exit = await mcpCmd.execute(
         { subcommand: 'popular' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah plugin -----------------------------------------------------------
+  // TASK_2026_104 Sub-batch B6c. Backed by shared PluginRpcHandlers.
+  // NOTE: there is intentionally NO `install` sub-subcommand — Discovery D8
+  // locked "install = enable" so `plugin enable <id>` IS the install verb.
+  const plugin = program
+    .command('plugin')
+    .description(
+      'manage workspace plugins (list / enable / disable / config / skills) — install = enable',
+    );
+
+  plugin
+    .command('list')
+    .description('emit plugin.list via plugins:list-available')
+    .action(async () => {
+      const exit = await pluginCmd.execute(
+        { subcommand: 'list' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  plugin
+    .command('enable <id>')
+    .description(
+      'enable (= install) a plugin via plugins:save-config (idempotent — emits changed:false when already enabled)',
+    )
+    .action(async (id: string) => {
+      const exit = await pluginCmd.execute(
+        { subcommand: 'enable', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  plugin
+    .command('disable <id>')
+    .description(
+      'disable a plugin via plugins:save-config (idempotent — emits changed:false when already disabled)',
+    )
+    .action(async (id: string) => {
+      const exit = await pluginCmd.execute(
+        { subcommand: 'disable', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  const pluginConfig = plugin
+    .command('config')
+    .description('read or write the plugin config');
+
+  pluginConfig
+    .command('get')
+    .description(
+      'emit plugin.config.value via plugins:get-config (enabled plugin ids + disabled skill ids)',
+    )
+    .action(async () => {
+      const exit = await pluginCmd.execute(
+        { subcommand: 'config-get' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  pluginConfig
+    .command('set')
+    .description(
+      'replace the plugin config via plugins:save-config (idempotent — emits changed:false when state matches)',
+    )
+    .option(
+      '--enabled <list>',
+      'comma-separated enabled plugin ids (omit to keep current)',
+      collectCsv,
+    )
+    .option(
+      '--disabled-skills <list>',
+      'comma-separated disabled skill ids (omit to keep current)',
+      collectCsv,
+    )
+    .action(async (opts: { enabled?: string[]; disabledSkills?: string[] }) => {
+      const exit = await pluginCmd.execute(
+        {
+          subcommand: 'config-set',
+          enabled: opts.enabled,
+          disabledSkills: opts.disabledSkills,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  const pluginSkills = plugin
+    .command('skills')
+    .description('inspect skills exposed by enabled plugins');
+
+  pluginSkills
+    .command('list')
+    .description(
+      'emit plugin.skills.list via plugins:list-skills (defaults to currently-enabled plugins; pass --plugins to override)',
+    )
+    .option(
+      '--plugins <list>',
+      'comma-separated plugin ids to scope',
+      collectCsv,
+    )
+    .action(async (opts: { plugins?: string[] }) => {
+      const exit = await pluginCmd.execute(
+        { subcommand: 'skills-list', plugins: opts.plugins },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah prompts ----------------------------------------------------------
+  // TASK_2026_104 Sub-batch B6c. Backed by shared EnhancedPromptsRpcHandlers.
+  // The `regenerate` sub-subcommand is premium-gated (license_required is
+  // surfaced by the backend and converted to a task.error).
+  const prompts = program
+    .command('prompts')
+    .description(
+      'manage Enhanced Prompts (status / enable / disable / regenerate / show / download) — premium-gated',
+    );
+
+  prompts
+    .command('status')
+    .description('emit prompts.status via enhancedPrompts:getStatus')
+    .action(async () => {
+      const exit = await promptsCmd.execute(
+        { subcommand: 'status' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  prompts
+    .command('enable')
+    .description('enable enhanced prompts via enhancedPrompts:setEnabled')
+    .action(async () => {
+      const exit = await promptsCmd.execute(
+        { subcommand: 'enable' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  prompts
+    .command('disable')
+    .description('disable enhanced prompts via enhancedPrompts:setEnabled')
+    .action(async () => {
+      const exit = await promptsCmd.execute(
+        { subcommand: 'disable' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  prompts
+    .command('regenerate')
+    .description(
+      'regenerate the project prompt via enhancedPrompts:regenerate (premium-gated; streams via setup-wizard:enhance-stream)',
+    )
+    .option(
+      '--no-force',
+      'skip the regenerate when a recent cache exists (default: --force)',
+    )
+    .action(async (opts: { force?: boolean }) => {
+      const exit = await promptsCmd.execute(
+        { subcommand: 'regenerate', force: opts.force !== false },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  prompts
+    .command('show <name>')
+    .description(
+      'emit prompts.content via enhancedPrompts:getPromptContent (the <name> is informational — backend returns the combined prompt)',
+    )
+    .action(async (name: string) => {
+      const exit = await promptsCmd.execute(
+        { subcommand: 'show', name },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  prompts
+    .command('download')
+    .description(
+      'download the combined prompt to disk via enhancedPrompts:download',
+    )
+    .action(async () => {
+      const exit = await promptsCmd.execute(
+        { subcommand: 'download' },
         resolveGlobals(program),
       );
       process.exitCode = exit;
