@@ -25,11 +25,9 @@
           "outExtension": { ".js": ".mjs" },
           "banner": {
             "js": "import 'reflect-metadata'; import { createRequire } from 'module'; import { fileURLToPath as __esm_fileURLToPath } from 'url'; import { dirname as __esm_dirname } from 'path'; const require = createRequire(import.meta.url); const __filename = __esm_fileURLToPath(import.meta.url); const __dirname = __esm_dirname(__filename);"
-          },
-          "jsx": "automatic"
+          }
         },
         "external": [
-          "react-devtools-core",
           "@anthropic-ai/claude-agent-sdk",
           "@github/copilot-sdk",
           "@openai/codex-sdk",
@@ -57,15 +55,7 @@
           "gpt-tokenizer",
           "web-tree-sitter",
           "@tavily/core",
-          "ink",
-          "react",
-          "@inkjs/ui",
-          "ink-text-input",
-          "ink-select-input",
-          "ink-spinner",
           "marked",
-          "marked-terminal",
-          "cli-highlight",
           "commander"
         ],
         "assets": [

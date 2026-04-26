@@ -1,8 +1,8 @@
 /**
  * Commander router for the `ptah` headless CLI.
  *
- * Declares all 6 subcommands (config, harness, profile, run, execute-spec,
- * interact) plus the global flags listed in
+ * Declares all subcommands (config, harness, agent, run, execute-spec,
+ * interact, etc.) plus the global flags listed in
  * `.ptah/specs/TASK_2026_104/task-description.md` § 5.
  *
  * TASK_2026_104 Batch 2 — scaffold only. Each subcommand handler invokes a
@@ -26,7 +26,6 @@ import * as licenseCmd from './commands/license.js';
 import * as mcpCmd from './commands/mcp.js';
 import * as newProjectCmd from './commands/new-project.js';
 import * as pluginCmd from './commands/plugin.js';
-import * as profileCmd from './commands/profile.js';
 import * as promptsCmd from './commands/prompts.js';
 import * as providerCmd from './commands/provider.js';
 import * as qualityCmd from './commands/quality.js';
@@ -522,35 +521,9 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
-  // -- ptah profile ----------------------------------------------------------
-  const profile = program
-    .command('profile')
-    .description('apply and list sub-agent profiles');
-
-  profile
-    .command('apply <name>')
-    .description('write the named profile into .ptah/agents/')
-    .action(async (name: string) => {
-      const exit = await profileCmd.execute(
-        { subcommand: 'apply', name },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
-
-  profile
-    .command('list')
-    .description('list registry-available and locally-applied profiles')
-    .action(async () => {
-      const exit = await profileCmd.execute(
-        { subcommand: 'list' },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
-
   // -- ptah agent ------------------------------------------------------------
-  // TASK_2026_104 Batch B7. Replaces the deprecated `profile` surface.
+  // TASK_2026_104 Batch B7. Replaces the deprecated `profile` surface
+  // (deletion shim removed in Batch B11 — TASK_2026_104).
   const agent = program
     .command('agent')
     .description(
