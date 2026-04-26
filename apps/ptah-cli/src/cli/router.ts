@@ -32,6 +32,7 @@ import * as providerCmd from './commands/provider.js';
 import * as qualityCmd from './commands/quality.js';
 import * as runCmd from './commands/run.js';
 import * as settingsCmd from './commands/settings.js';
+import * as setupCmd from './commands/setup.js';
 import * as skillCmd from './commands/skill.js';
 import * as websearchCmd from './commands/websearch.js';
 import * as wizardCmd from './commands/wizard.js';
@@ -1865,6 +1866,40 @@ export function buildRouter(): Command {
     .action(async () => {
       const exit = await wizardCmd.execute(
         { subcommand: 'status' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah setup ------------------------------------------------------------
+  // TASK_2026_104 Sub-batch B9d. Top-level 5-phase Setup Wizard orchestrator
+  // built on top of the B9c phase-runner. Each phase is wrapped with a best-
+  // effort rollback strategy; `setup.lastCompletedPhase` is persisted to
+  // WORKSPACE_STATE_STORAGE after every successful phase (so `ptah wizard
+  // status` from B9c reads the live progress). On any phase failure: emits
+  // `task.error { ptah_code: 'wizard_phase_failed', data: { phase, error } }`
+  // and exits 1. `--dry-run` skips phases 3-5 (writes-free smoke test).
+  program
+    .command('setup')
+    .description(
+      'run the 5-phase Setup Wizard end-to-end (analyze → recommend → install_pack → generate → apply_harness)',
+    )
+    .option(
+      '--dry-run',
+      'skip phases 3-5 (only run analyze + recommend; emits dry_run: true)',
+      false,
+    )
+    .option(
+      '--auto-approve',
+      'forward auto-approve to harness:apply config (forward-compatible)',
+      false,
+    )
+    .action(async (opts: { dryRun?: boolean; autoApprove?: boolean }) => {
+      const exit = await setupCmd.execute(
+        {
+          dryRun: opts.dryRun === true,
+          autoApprove: opts.autoApprove === true,
+        },
         resolveGlobals(program),
       );
       process.exitCode = exit;
