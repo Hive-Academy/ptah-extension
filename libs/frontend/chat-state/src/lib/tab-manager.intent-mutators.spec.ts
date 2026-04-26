@@ -19,7 +19,6 @@ import {
   MODEL_REFRESH_CONTROL,
   type ModelRefreshControl,
 } from './model-refresh-control';
-import { STREAMING_CONTROL, type StreamingControl } from './streaming-control';
 import { TabManagerService } from './tab-manager.service';
 import { TabWorkspacePartitionService } from './tab-workspace-partition.service';
 
@@ -37,10 +36,8 @@ describe('TabManagerService — intent-named mutators', () => {
 
   beforeEach(() => {
     const confirmMock = { confirm: jest.fn().mockResolvedValue(true) };
-    const streamingControl: jest.Mocked<StreamingControl> = {
-      cleanupSessionDeduplication: jest.fn(),
-      clearSessionAgents: jest.fn(),
-    } as jest.Mocked<StreamingControl>;
+    // TASK_2026_106 Phase 3: STREAMING_CONTROL provider removed; cleanup
+    // ownership moved to `StreamRouter` (see chat-routing specs).
     partitionMock = {
       initialize: jest.fn(),
       activeWorkspacePath: null,
@@ -63,7 +60,6 @@ describe('TabManagerService — intent-named mutators', () => {
       providers: [
         TabManagerService,
         { provide: ConfirmationDialogService, useValue: confirmMock },
-        { provide: STREAMING_CONTROL, useValue: streamingControl },
         { provide: TabWorkspacePartitionService, useValue: partitionMock },
         { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshMock },
       ],

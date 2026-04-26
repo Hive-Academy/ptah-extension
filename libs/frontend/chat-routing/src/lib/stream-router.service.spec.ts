@@ -1,5 +1,5 @@
 /**
- * StreamRouter specs — TASK_2026_106 Phase 2 (SHADOW MODE).
+ * StreamRouter specs — TASK_2026_106 Phase 3 (AUTHORITATIVE).
  *
  * What is in scope:
  *   - onTabCreated mints conversation, optionally seeds with session, binds tab
@@ -9,32 +9,35 @@
  *   - onTabClosed unbinds; removes conversation only when no tab references it
  *   - compaction_start / compaction_complete update registry flags
  *   - Lookup helpers reflect current binding state
+ *   - **Phase 3**: bootstrap migrates persisted `tab.claudeSessionId` values
+ *     from `TabManagerService` into the registry/binding
+ *   - **Phase 3**: `closedTab` signal effect performs router-owned cleanup —
+ *     `cleanupSessionDeduplication` always (when sessionId present), and
+ *     `clearSessionAgents` only on `kind === 'close'`
  *
  * What is intentionally OUT of scope:
  *   - Multi-tab fan-out (Phase 4)
  *   - Permission prompt routing (Phase 6)
- *   - StreamingHandler cleanup (Phase 3 owns it; shadow mode forbids it)
- *
- * Shadow-mode invariant (asserted across multiple tests):
- *   The router NEVER calls TabManager mutators. Verified by injecting a
- *   jest.Mocked<TabManagerService> and asserting that
- *   adoptStreamingSession / attachSession / setStreamingState are
- *   never called for the lifetime of the test.
+ *   - Tab content rendering (still flows through chat.store.processStreamEvent)
  */
 
 import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import {
   ConversationRegistry,
   TabId,
+  TabManagerService,
   TabSessionBinding,
   type ClaudeSessionId,
+  type ClosedTabEvent,
 } from '@ptah-extension/chat-state';
-import { TabManagerService } from '@ptah-extension/chat-state';
-import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
 import type {
   CompactionCompleteEvent,
   CompactionStartEvent,
-  FlatStreamEventUnion,
   MessageStartEvent,
   TextDeltaEvent,
 } from '@ptah-extension/shared';
@@ -105,44 +108,54 @@ function compactionComplete(
   } as CompactionCompleteEvent;
 }
 
+/**
+ * Phase 3 mock harness for `TabManagerService`. The router only reads
+ * `tabs()` (constructor migration) and `closedTab()` (effect cleanup), so
+ * the mock exposes both as signals plus a `_emitClosedTab` test helper.
+ */
+function makeTabManagerMock(
+  initialTabs: { id: string; claudeSessionId: string | null }[] = [],
+) {
+  const tabsSignal =
+    signal<{ id: string; claudeSessionId: string | null }[]>(initialTabs);
+  const closedTabSignal = signal<ClosedTabEvent | null>(null);
+  return {
+    tabs: tabsSignal.asReadonly(),
+    closedTab: closedTabSignal.asReadonly(),
+    _setTabs: (next: { id: string; claudeSessionId: string | null }[]) =>
+      tabsSignal.set(next),
+    _emitClosedTab: (evt: ClosedTabEvent) => closedTabSignal.set(evt),
+  };
+}
+
 // ---------- Suite ----------------------------------------------------------
 
-describe('StreamRouter (shadow mode)', () => {
+describe('StreamRouter (authoritative — Phase 3)', () => {
   let router: StreamRouter;
   let registry: ConversationRegistry;
   let binding: TabSessionBinding;
-  let tabManager: jest.Mocked<
-    Pick<
-      TabManagerService,
-      | 'adoptStreamingSession'
-      | 'attachSession'
-      | 'setStreamingState'
-      | 'findTabBySessionId'
-      | 'markTabIdle'
-      | 'markTabStreaming'
-    >
-  >;
+  let tabManager: ReturnType<typeof makeTabManagerMock>;
   let streamingHandler: jest.Mocked<
     Pick<StreamingHandlerService, 'cleanupSessionDeduplication'>
   >;
+  let agentMonitorStore: jest.Mocked<
+    Pick<AgentMonitorStore, 'clearSessionAgents'>
+  >;
 
   beforeEach(() => {
-    tabManager = {
-      adoptStreamingSession: jest.fn(),
-      attachSession: jest.fn(),
-      setStreamingState: jest.fn(),
-      findTabBySessionId: jest.fn(),
-      markTabIdle: jest.fn(),
-      markTabStreaming: jest.fn(),
-    };
+    tabManager = makeTabManagerMock();
     streamingHandler = {
       cleanupSessionDeduplication: jest.fn(),
+    };
+    agentMonitorStore = {
+      clearSessionAgents: jest.fn(),
     };
 
     TestBed.configureTestingModule({
       providers: [
         { provide: TabManagerService, useValue: tabManager },
         { provide: StreamingHandlerService, useValue: streamingHandler },
+        { provide: AgentMonitorStore, useValue: agentMonitorStore },
       ],
     });
 
@@ -205,11 +218,9 @@ describe('StreamRouter (shadow mode)', () => {
     const tabA = newTabId();
     const tabB = newTabId();
 
-    // tabA opens the conversation
     const convA = router.routeStreamEvent(msgStart(SESSION_A), tabA);
     expect(convA).not.toBeNull();
 
-    // tabB sees a follow-up event for the same session — should bind to convA
     const convB = router.routeStreamEvent(textDelta(SESSION_A), tabB);
 
     expect(convB).toBe(convA);
@@ -233,7 +244,6 @@ describe('StreamRouter (shadow mode)', () => {
     const conv = router.conversationForTab(tab);
     expect(conv).not.toBeNull();
 
-    // Replay the same delta many times
     for (let i = 0; i < 5; i += 1) {
       router.routeStreamEvent(textDelta(SESSION_A), tab);
     }
@@ -246,7 +256,6 @@ describe('StreamRouter (shadow mode)', () => {
     const tab = newTabId();
     const convA = router.onTabCreated(tab, SESSION_A);
 
-    // Same tab, different session id (e.g. SDK rolled session id post-compaction)
     router.routeStreamEvent(msgStart(SESSION_B), tab);
 
     const sessions = registry.getRecord(convA)?.sessions ?? [];
@@ -275,7 +284,7 @@ describe('StreamRouter (shadow mode)', () => {
     const tabA = newTabId();
     const tabB = newTabId();
     const conv = router.onTabCreated(tabA, SESSION_A);
-    router.routeStreamEvent(textDelta(SESSION_A), tabB); // binds tabB to conv
+    router.routeStreamEvent(textDelta(SESSION_A), tabB);
 
     router.onTabClosed(tabA);
 
@@ -312,37 +321,6 @@ describe('StreamRouter (shadow mode)', () => {
     expect(record?.lastCompactionAt).not.toBeNull();
   });
 
-  // ---- Shadow-mode invariant ---------------------------------------------
-
-  it('routeStreamEvent never calls TabManager mutators (shadow mode)', () => {
-    const tab = newTabId();
-
-    const events: FlatStreamEventUnion[] = [
-      msgStart(SESSION_A),
-      textDelta(SESSION_A),
-      compactionStart(SESSION_A),
-      compactionComplete(SESSION_A),
-    ];
-
-    for (const event of events) {
-      router.routeStreamEvent(event, tab);
-    }
-
-    expect(tabManager.adoptStreamingSession).not.toHaveBeenCalled();
-    expect(tabManager.attachSession).not.toHaveBeenCalled();
-    expect(tabManager.setStreamingState).not.toHaveBeenCalled();
-    expect(tabManager.markTabIdle).not.toHaveBeenCalled();
-    expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
-  });
-
-  it('onTabClosed never calls StreamingHandler cleanup (Phase 3 owns it)', () => {
-    const tab = newTabId();
-    router.onTabCreated(tab, SESSION_A);
-    router.onTabClosed(tab);
-
-    expect(streamingHandler.cleanupSessionDeduplication).not.toHaveBeenCalled();
-  });
-
   // ---- Lookup helpers -----------------------------------------------------
 
   it('conversationForTab and tabsForSession reflect the current binding/registry state', () => {
@@ -361,11 +339,226 @@ describe('StreamRouter (shadow mode)', () => {
     expect(router.tabsForSession(SESSION_C)).toHaveLength(0);
   });
 
-  it('notifyEvent is a synonym for routeStreamEvent', () => {
+  it('notifyEvent is a synonym for routeStreamEvent (back-compat alias)', () => {
     const tab = newTabId();
     const conv = router.notifyEvent(msgStart(SESSION_A), tab);
 
     expect(conv).not.toBeNull();
     expect(binding.conversationFor(tab)).toBe(conv);
+  });
+});
+
+// =============================================================================
+// PHASE 3 — closedTab effect cleanup
+// =============================================================================
+
+describe('StreamRouter (authoritative — closedTab effect)', () => {
+  let registry: ConversationRegistry;
+  let binding: TabSessionBinding;
+  let tabManager: ReturnType<typeof makeTabManagerMock>;
+  let streamingHandler: jest.Mocked<
+    Pick<StreamingHandlerService, 'cleanupSessionDeduplication'>
+  >;
+  let agentMonitorStore: jest.Mocked<
+    Pick<AgentMonitorStore, 'clearSessionAgents'>
+  >;
+
+  function bootRouter(
+    initialTabs: { id: string; claudeSessionId: string | null }[] = [],
+  ) {
+    tabManager = makeTabManagerMock(initialTabs);
+    streamingHandler = { cleanupSessionDeduplication: jest.fn() };
+    agentMonitorStore = { clearSessionAgents: jest.fn() };
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: TabManagerService, useValue: tabManager },
+        { provide: StreamingHandlerService, useValue: streamingHandler },
+        { provide: AgentMonitorStore, useValue: agentMonitorStore },
+      ],
+    });
+
+    const router = TestBed.inject(StreamRouter);
+    registry = TestBed.inject(ConversationRegistry);
+    binding = TestBed.inject(TabSessionBinding);
+    // Drain effects scheduled by the constructor.
+    TestBed.tick();
+    return router;
+  }
+
+  it('close event with sessionId triggers cleanupSessionDeduplication AND clearSessionAgents', () => {
+    const router = bootRouter();
+    const tab = newTabId();
+    router.onTabCreated(tab, SESSION_A);
+
+    tabManager._emitClosedTab({
+      tabId: tab,
+      sessionId: SESSION_A,
+      kind: 'close',
+    });
+    TestBed.tick();
+
+    expect(streamingHandler.cleanupSessionDeduplication).toHaveBeenCalledWith(
+      SESSION_A,
+    );
+    expect(agentMonitorStore.clearSessionAgents).toHaveBeenCalledWith(
+      SESSION_A,
+    );
+    expect(binding.conversationFor(tab)).toBeNull();
+  });
+
+  it('forceClose event with sessionId triggers cleanupSessionDeduplication ONLY (agents survive pop-out)', () => {
+    const router = bootRouter();
+    const tab = newTabId();
+    router.onTabCreated(tab, SESSION_A);
+
+    tabManager._emitClosedTab({
+      tabId: tab,
+      sessionId: SESSION_A,
+      kind: 'forceClose',
+    });
+    TestBed.tick();
+
+    expect(streamingHandler.cleanupSessionDeduplication).toHaveBeenCalledWith(
+      SESSION_A,
+    );
+    expect(agentMonitorStore.clearSessionAgents).not.toHaveBeenCalled();
+    expect(binding.conversationFor(tab)).toBeNull();
+  });
+
+  it('close event with null sessionId still unbinds but does not call streaming cleanup', () => {
+    const router = bootRouter();
+    const tab = newTabId();
+    router.onTabCreated(tab);
+
+    tabManager._emitClosedTab({
+      tabId: tab,
+      sessionId: null,
+      kind: 'close',
+    });
+    TestBed.tick();
+
+    expect(streamingHandler.cleanupSessionDeduplication).not.toHaveBeenCalled();
+    expect(agentMonitorStore.clearSessionAgents).not.toHaveBeenCalled();
+    expect(binding.conversationFor(tab)).toBeNull();
+  });
+
+  it('close event keeps conversation alive when other tabs still reference it', () => {
+    const router = bootRouter();
+    const tabA = newTabId();
+    const tabB = newTabId();
+    const conv = router.onTabCreated(tabA, SESSION_A);
+    router.routeStreamEvent(textDelta(SESSION_A), tabB);
+
+    tabManager._emitClosedTab({
+      tabId: tabA,
+      sessionId: SESSION_A,
+      kind: 'close',
+    });
+    TestBed.tick();
+
+    expect(binding.conversationFor(tabA)).toBeNull();
+    expect(binding.conversationFor(tabB)).toBe(conv);
+    expect(registry.getRecord(conv)).not.toBeNull();
+  });
+
+  it('close effect tolerates errors thrown by streaming cleanup (best-effort)', () => {
+    const router = bootRouter();
+    const tab = newTabId();
+    router.onTabCreated(tab, SESSION_A);
+
+    streamingHandler.cleanupSessionDeduplication.mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+    expect(() => {
+      tabManager._emitClosedTab({
+        tabId: tab,
+        sessionId: SESSION_A,
+        kind: 'close',
+      });
+      TestBed.tick();
+    }).not.toThrow();
+
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
+// =============================================================================
+// PHASE 3 — bootstrap migration of persisted tabs
+// =============================================================================
+
+describe('StreamRouter (authoritative — bootstrap migration)', () => {
+  let registry: ConversationRegistry;
+  let binding: TabSessionBinding;
+
+  function bootWithTabs(
+    persisted: { id: string; claudeSessionId: string | null }[],
+  ) {
+    const tabManager = makeTabManagerMock(persisted);
+    const streamingHandler = { cleanupSessionDeduplication: jest.fn() };
+    const agentMonitorStore = { clearSessionAgents: jest.fn() };
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: TabManagerService, useValue: tabManager },
+        { provide: StreamingHandlerService, useValue: streamingHandler },
+        { provide: AgentMonitorStore, useValue: agentMonitorStore },
+      ],
+    });
+
+    const router = TestBed.inject(StreamRouter);
+    registry = TestBed.inject(ConversationRegistry);
+    binding = TestBed.inject(TabSessionBinding);
+    return router;
+  }
+
+  it('migrates persisted tabs with a claudeSessionId into the registry/binding', () => {
+    const tabIdA = TabId.create();
+    const tabIdB = TabId.create();
+    const router = bootWithTabs([
+      { id: tabIdA, claudeSessionId: SESSION_A },
+      { id: tabIdB, claudeSessionId: SESSION_B },
+    ]);
+
+    const convA = router.conversationForTab(tabIdA);
+    const convB = router.conversationForTab(tabIdB);
+    expect(convA).not.toBeNull();
+    expect(convB).not.toBeNull();
+    expect(convA).not.toBe(convB);
+    expect(registry.getRecord(convA as never)?.sessions).toEqual([SESSION_A]);
+    expect(registry.getRecord(convB as never)?.sessions).toEqual([SESSION_B]);
+  });
+
+  it('migrates persisted tabs without a claudeSessionId as empty conversations', () => {
+    const tabId = TabId.create();
+    const router = bootWithTabs([{ id: tabId, claudeSessionId: null }]);
+
+    const conv = router.conversationForTab(tabId);
+    expect(conv).not.toBeNull();
+    expect(registry.getRecord(conv as never)?.sessions).toEqual([]);
+  });
+
+  it('skips tabs with malformed ids (TabId.safeParse returns null)', () => {
+    const router = bootWithTabs([
+      { id: 'not-a-uuid', claudeSessionId: SESSION_A },
+    ]);
+
+    expect(binding.boundTabCount()).toBe(0);
+    expect(registry.conversations()).toHaveLength(0);
+    // Sanity: router still functions for new tabs after a bad migration entry.
+    const fresh = TabId.create();
+    const conv = router.onTabCreated(fresh, SESSION_B);
+    expect(conv).not.toBeNull();
+  });
+
+  it('is a no-op for empty tab list', () => {
+    bootWithTabs([]);
+    expect(binding.boundTabCount()).toBe(0);
+    expect(registry.conversations()).toHaveLength(0);
   });
 });

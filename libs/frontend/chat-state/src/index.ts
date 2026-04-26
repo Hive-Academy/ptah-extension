@@ -10,13 +10,22 @@
  * `type:data-access` and `type:util` libs (currently
  * `@ptah-extension/chat-types` and `@ptah-extension/shared`). Cross-cutting
  * dependencies on `type:core` services are inverted via DI tokens
- * (`MODEL_REFRESH_CONTROL`, `STREAMING_CONTROL`).
+ * (`MODEL_REFRESH_CONTROL`).
+ *
+ * TASK_2026_106 Phase 3: `STREAMING_CONTROL` token removed. TabManager no
+ * longer pushes to streaming code; instead it emits `ClosedTabEvent`s on
+ * its `closedTab` signal and the `StreamRouter` (in
+ * `@ptah-extension/chat-routing`) reacts via `effect()`. This deletes the
+ * NG0200 cycle that motivated the inversion in the first place.
  */
 
 // ============================================================================
 // SERVICES
 // ============================================================================
-export { TabManagerService } from './lib/tab-manager.service';
+export {
+  TabManagerService,
+  type ClosedTabEvent,
+} from './lib/tab-manager.service';
 export {
   TabWorkspacePartitionService,
   type WorkspaceTabSet,
@@ -30,10 +39,6 @@ export {
 // ============================================================================
 // INVERTED-DEPENDENCY TOKENS
 // ============================================================================
-export {
-  STREAMING_CONTROL,
-  type StreamingControl,
-} from './lib/streaming-control';
 export {
   MODEL_REFRESH_CONTROL,
   type ModelRefreshControl,

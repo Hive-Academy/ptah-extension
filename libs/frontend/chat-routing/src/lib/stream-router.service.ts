@@ -1,46 +1,75 @@
 /**
- * StreamRouter — TASK_2026_106 Phase 2 (SHADOW MODE).
+ * StreamRouter — TASK_2026_106 Phase 3 (AUTHORITATIVE).
  *
  * The single service that knows both sides of the routing relation:
  * `ConversationRegistry` (conversation ↔ session) on one side and
- * `TabSessionBinding` (tab ↔ conversation) on the other. Phase 3 will
- * make this service authoritative for stream-event delivery; Phase 2
- * runs it strictly in *shadow* mode — it observes the existing event
- * flow, populates the registry/binding, and exposes lookup helpers,
- * but it must NEVER call `TabManager` mutators or `StreamingHandler`
- * cleanup methods.
+ * `TabSessionBinding` (tab ↔ conversation) on the other. Phase 3 cuts
+ * the router over from shadow to authoritative mode:
  *
- * Wiring approach (shadow mode): rather than modifying
- * `StreamingHandlerService` to call into the router (which would be a
- * write-side change and a Phase 3 concern), the composition root calls
- * `StreamRouter.notifyEvent(event, originTabId?)` from the same site
- * that today routes events into `ChatStore.processStreamEvent` (i.e.
- * `ChatMessageHandler.handleChatChunk`). The router's effect on the
- * legacy code path is *zero* — its only outputs are the registry
- * mutations and binding mutations it owns directly.
+ *   1. `routeStreamEvent` is the primary entry point — `ChatMessageHandler`
+ *      calls it (no try/catch, no shadow-mode fallback).
+ *   2. The router subscribes to `TabManagerService.closedTab` via `effect()`
+ *      and performs the per-session cleanup that used to live inside
+ *      `TabManager.closeTab` / `forceCloseTab` via the deleted
+ *      `STREAMING_CONTROL` inversion. This removes the
+ *      `TabManager → STREAMING_CONTROL → StreamingHandler/AgentMonitor →
+ *      TabManager` NG0200 cycle.
+ *   3. On bootstrap (constructor), the router migrates persisted
+ *      `tab.claudeSessionId` values from `TabManagerService` into the
+ *      registry/binding. This ensures rehydrated tabs participate in
+ *      routing without requiring an explicit `onTabCreated` call.
  *
- * Race notes (per spec): if `notifyEvent` arrives before
- * `onTabCreated`, the event resolves whatever conversation it can
- * (binding lookup may return null) and silently no-ops on the binding
- * side. Phase 3 introduces an event queue + drain semantics; shadow
- * mode keeps the implementation deliberately simple so divergence
- * from production behaviour is observable but bounded.
+ * Cleanup ownership (Phase 3):
+ *   - `close`       → cleanupSessionDeduplication + clearSessionAgents
+ *                     (full teardown, mirrors legacy `closeTab`)
+ *   - `forceClose`  → cleanupSessionDeduplication only
+ *                     (pop-out transfer, agents stay alive for the target
+ *                     panel — mirrors legacy `forceCloseTab`)
+ *
+ * Both paths additionally unbind the tab from its conversation and remove
+ * the conversation from the registry if no other tab still references it.
  */
 
-import { Injectable, inject } from '@angular/core';
+import { Injectable, effect, inject } from '@angular/core';
 import {
   ConversationId,
   ConversationRegistry,
   TabId,
+  TabManagerService,
   TabSessionBinding,
   type ClaudeSessionId,
+  type ClosedTabEvent,
 } from '@ptah-extension/chat-state';
+import {
+  AgentMonitorStore,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 
 @Injectable({ providedIn: 'root' })
 export class StreamRouter {
   private readonly registry = inject(ConversationRegistry);
   private readonly binding = inject(TabSessionBinding);
+  private readonly tabManager = inject(TabManagerService);
+  private readonly streamingHandler = inject(StreamingHandlerService);
+  private readonly agentMonitorStore = inject(AgentMonitorStore);
+
+  constructor() {
+    // Bootstrap migration: hydrate registry/binding from any tabs that were
+    // rehydrated from localStorage before this service was constructed.
+    // Idempotent — `onTabCreated` no-ops when the tab is already bound.
+    this.migratePersistedTabs();
+
+    // Authoritative cleanup hook. Replaces the old TabManager → STREAMING_CONTROL
+    // push. `tabManager.closedTab` is a signal that emits a `ClosedTabEvent`
+    // every time `closeTab`/`forceCloseTab` runs; the effect reacts and the
+    // router (which owns the routing graph) decides what to clean up.
+    effect(() => {
+      const evt = this.tabManager.closedTab();
+      if (!evt) return;
+      this.handleTabClosed(evt);
+    });
+  }
 
   /**
    * Called when a tab is created. If the tab carries a legacy
@@ -80,9 +109,9 @@ export class StreamRouter {
    * Called when a tab is closed. Unbinds the tab. If no other tab references
    * the conversation, removes the conversation from the registry.
    *
-   * In shadow mode, this only updates routing state — it does NOT call
-   * `StreamingHandlerService.cleanupSessionDeduplication` (Phase 3 owns
-   * that) and it does NOT call any `TabManager` mutator.
+   * Phase 3: this method is preserved for explicit-call sites and tests.
+   * The runtime path now flows through the `closedTab` effect — see
+   * `handleTabClosed` below for the full cleanup sequence.
    */
   onTabClosed(tabId: TabId): void {
     const convId = this.binding.conversationFor(tabId);
@@ -98,8 +127,7 @@ export class StreamRouter {
   /**
    * Observe a stream event. Resolves `event.sessionId` → `ConversationId`
    * via the registry, ensures a binding exists for the originating tab,
-   * appends the session if it is new for the tab's conversation. Does NOT
-   * route to other tabs (Phase 3) and does NOT mutate `TabManager`.
+   * appends the session if it is new for the tab's conversation.
    *
    * Returns the resolved ConversationId for telemetry/debug, or null if
    * the router could not resolve a tab/conversation for the event.
@@ -124,10 +152,11 @@ export class StreamRouter {
         this.binding.bind(originTabId, convId);
       } else if (convId && boundConv && boundConv !== convId) {
         // Tab is bound to a *different* conversation than the one
-        // containing this session — leave the binding alone in shadow
-        // mode (the legacy path still drives the user-visible state) and
-        // surface the resolved conversation for debug.
-        // Phase 3 will decide whether to rebind, fan out, or drop.
+        // containing this session. Phase 3 surfaces the divergence via the
+        // returned convId; we deliberately leave the binding alone because
+        // the legacy chat path (chat.store.processStreamEvent) is still the
+        // user-visible source of truth for content. Fan-out across multiple
+        // conversations is a Phase 6+ concern.
       } else if (!convId && boundConv) {
         // Unknown session, but the tab already has a conversation —
         // append the session to that conversation.
@@ -153,11 +182,11 @@ export class StreamRouter {
   }
 
   /**
-   * Public alias for `routeStreamEvent` — the composition root calls this
-   * from `ChatMessageHandler.handleChatChunk` so the router observes every
-   * event without `StreamingHandlerService` having to know about the
-   * router. The two methods are synonyms today; Phase 3 may diverge them
-   * (notify = ingest, route = resolve+fan-out).
+   * Phase 3 alias retained for back-compat with any caller still using the
+   * shadow-mode name. Prefer `routeStreamEvent`. Will be removed once all
+   * call sites are confirmed migrated (Phase 4 sweep).
+   *
+   * @deprecated Use `routeStreamEvent` directly.
    */
   notifyEvent(
     event: FlatStreamEventUnion,
@@ -182,10 +211,9 @@ export class StreamRouter {
   }
 
   /**
-   * Compaction lifecycle is owned by the conversation, not the tab. Even
-   * in shadow mode the router updates the registry flags so consumers
-   * observing the registry (Phase 3 banner UI) can see them populated
-   * before cutover.
+   * Compaction lifecycle is owned by the conversation, not the tab. The
+   * router updates the registry flags so consumers observing the registry
+   * (Phase 4+ banner UI) can see them populated.
    */
   private handleLifecycleEvents(
     event: FlatStreamEventUnion,
@@ -195,6 +223,65 @@ export class StreamRouter {
       this.registry.markCompactionStart(convId);
     } else if (event.eventType === 'compaction_complete') {
       this.registry.markCompactionComplete(convId);
+    }
+  }
+
+  /**
+   * Bootstrap-time migration. After persisted tabs are rehydrated from
+   * localStorage, walk the tab list and seed `ConversationRegistry` +
+   * `TabSessionBinding` from each tab's `claudeSessionId`. Idempotent.
+   *
+   * Persistence stays working (per spec): we DO NOT mutate the tab — we
+   * only read its already-persisted `claudeSessionId`. Phase 6 will
+   * migrate readers off `tab.claudeSessionId` entirely.
+   */
+  private migratePersistedTabs(): void {
+    const tabs = this.tabManager.tabs();
+    for (const tab of tabs) {
+      const tabId = TabId.safeParse(tab.id);
+      if (!tabId) continue;
+      const sessionId = tab.claudeSessionId
+        ? (tab.claudeSessionId as ClaudeSessionId)
+        : undefined;
+      this.onTabCreated(tabId, sessionId);
+    }
+  }
+
+  /**
+   * Reactive cleanup driven by `TabManagerService.closedTab`.
+   *
+   * Replaces the legacy direct-call path that ran inside `closeTab` /
+   * `forceCloseTab` via `STREAMING_CONTROL`. Performs:
+   *   - cleanupSessionDeduplication (always, when sessionId present)
+   *   - clearSessionAgents (only on `kind === 'close'` — pop-out transfers
+   *     keep agents alive in the target panel)
+   *   - unbind the tab from its conversation
+   *   - remove the conversation if no other tab still references it
+   *
+   * Wrapped in try/catch so a single defect can't wedge the effect runner
+   * for subsequent close events.
+   */
+  private handleTabClosed(evt: ClosedTabEvent): void {
+    try {
+      if (evt.sessionId) {
+        const sid = evt.sessionId as ClaudeSessionId;
+        this.streamingHandler.cleanupSessionDeduplication(sid);
+        if (evt.kind === 'close') {
+          this.agentMonitorStore.clearSessionAgents(sid);
+        }
+      }
+
+      const tabId = TabId.safeParse(evt.tabId);
+      if (tabId) {
+        this.onTabClosed(tabId);
+      }
+    } catch (err) {
+      console.warn(
+        '[StreamRouter] handleTabClosed failed:',
+        err,
+        'event:',
+        evt,
+      );
     }
   }
 }

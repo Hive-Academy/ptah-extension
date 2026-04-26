@@ -9,7 +9,6 @@ import {
 import { ExecutionChatMessage, EffortLevel } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
-import { STREAMING_CONTROL } from './streaming-control';
 import {
   TabWorkspacePartitionService,
   TabLookupResult,
@@ -20,6 +19,32 @@ import {
 } from './tab-state.types';
 
 export type { LiveModelStatsPayload, PreloadedStatsPayload };
+
+/**
+ * Payload emitted on the `closedTab` signal whenever a tab is closed.
+ *
+ * TASK_2026_106 Phase 3: replaces the STREAMING_CONTROL inversion. Instead of
+ * TabManager calling into a streaming-control interface (which formed the DI
+ * cycle), TabManager now emits a structured close event and the StreamRouter
+ * (in `@ptah-extension/chat-routing`) reacts to it via `effect()`. The router
+ * owns the cleanup decision tree (cleanupSessionDeduplication, clearSessionAgents,
+ * binding/registry teardown) so TabManager has zero knowledge of streaming.
+ */
+export interface ClosedTabEvent {
+  readonly tabId: string;
+  /**
+   * The Claude SDK session id bound to the tab at the moment it closed.
+   * Null when the tab never had a session (e.g. fresh tab closed before sending).
+   */
+  readonly sessionId: string | null;
+  /**
+   * `close` — full teardown (router clears dedup state AND agent monitor cards).
+   * `forceClose` — pop-out transfer; router clears dedup state only, leaves agents
+   * alive so the target panel can re-attach. Mirrors the legacy split between
+   * `closeTab` and `forceCloseTab`.
+   */
+  readonly kind: 'close' | 'forceClose';
+}
 
 /**
  * TabManagerService - Manages multi-session tab state with workspace partitioning
@@ -37,6 +62,13 @@ export type { LiveModelStatsPayload, PreloadedStatsPayload };
  * - Computed signals for derived state
  * - _tabs signal always reflects the ACTIVE workspace's tabs (for UI binding)
  * - Workspace partitioning delegated to TabWorkspacePartitionService (TASK_2025_208 Batch 6)
+ *
+ * TASK_2026_106 Phase 3: STREAMING_CONTROL removed. TabManager no longer
+ * imports any streaming/agent contract. Instead, on close we emit a structured
+ * `ClosedTabEvent` via the `closedTab` signal; the StreamRouter subscribes
+ * via `effect()` and performs the per-session cleanup that used to live here.
+ * Direction of dependency now flows TabManager → (nothing streaming-aware);
+ * the router is the only service that knows both sides of the routing relation.
  */
 @Injectable({ providedIn: 'root' })
 export class TabManagerService {
@@ -55,16 +87,6 @@ export class TabManagerService {
    * module-boundary rule that forbids `type:data-access → type:core`.
    */
   private readonly modelRefresh = inject(MODEL_REFRESH_CONTROL);
-  /**
-   * StreamingControl — inverted-dependency contract for coordinating
-   * per-session cleanup with the streaming/agent worker services.
-   * TASK_2026_103 Wave B1: replaces direct `Injector.get(StreamingHandlerService)`
-   * and `Injector.get(AgentMonitorStore)` calls so that this file only
-   * statically imports a neutral interface module — breaking the
-   * tab-manager ↔ streaming-handler ↔ {batched,finalization,permission}
-   * and tab-manager ↔ agent-monitor.store cycles.
-   */
-  private readonly streamingControl = inject(STREAMING_CONTROL);
 
   // ============================================================================
   // PRIVATE STATE SIGNALS
@@ -87,6 +109,24 @@ export class TabManagerService {
    */
   private readonly _pendingSessionLoad = signal<string | null>(null);
   readonly pendingSessionLoad = this._pendingSessionLoad.asReadonly();
+
+  /**
+   * TASK_2026_106 Phase 3 — closedTab event signal.
+   *
+   * Emits a `ClosedTabEvent` whenever a tab is closed (via `closeTab` or
+   * `forceCloseTab`). Replaces the legacy `STREAMING_CONTROL` push from
+   * TabManager → streaming/agent code. The StreamRouter (in
+   * `@ptah-extension/chat-routing`) subscribes via `effect()` and performs
+   * the per-session cleanup that used to be inlined here, breaking the
+   * `TabManager → STREAMING_CONTROL → StreamingHandler/AgentMonitor → TabManager`
+   * NG0200 cycle.
+   *
+   * Held as `null` between events. Each new emission overwrites the previous
+   * one — consumers must read it inside an `effect()` or computed reactor;
+   * polling is not supported.
+   */
+  private readonly _closedTab = signal<ClosedTabEvent | null>(null);
+  readonly closedTab = this._closedTab.asReadonly();
 
   // Debounce timer for localStorage saves (reduces spam during streaming)
   private _saveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -522,16 +562,21 @@ export class TabManagerService {
 
     const tabIndex = tabs.findIndex((t) => t.id === tabId);
 
-    // Skip agent cleanup -- agents will be restored in the target panel
-    // Only clean up deduplication state
+    // Skip agent cleanup -- agents will be restored in the target panel.
+    // TASK_2026_103 Wave B1 → TASK_2026_106 Phase 3: was a direct
+    // STREAMING_CONTROL push; now we emit a `forceClose` event and the
+    // StreamRouter performs `cleanupSessionDeduplication` only (no agent
+    // clear) because pop-out transfers the session to another panel.
+    // workspacePartition cleanup stays here — it's TabManager's own concern.
     if (tab.claudeSessionId) {
-      // Inverted dependency (TASK_2026_103 Wave B1): use STREAMING_CONTROL
-      // contract instead of importing StreamingHandlerService directly.
-      this.streamingControl.cleanupSessionDeduplication(tab.claudeSessionId);
-
-      // TASK_2025_208 Fix 4: Clean up reverse index
       this.workspacePartition.unregisterSession(tab.claudeSessionId);
     }
+
+    this._closedTab.set({
+      tabId,
+      sessionId: tab.claudeSessionId ?? null,
+      kind: 'forceClose',
+    });
 
     this._tabs.update((tabs) => tabs.filter((t) => t.id !== tabId));
 
@@ -586,18 +631,20 @@ export class TabManagerService {
     this.abortStreamingForTab(tabId);
 
     // TASK_2025_090: Clean up deduplication state to prevent memory leaks.
-    // TASK_2026_103 Wave B1: use STREAMING_CONTROL contract — replaces the
-    // previous lazy `Injector.get(StreamingHandlerService/AgentMonitorStore)`
-    // pattern with a static-import-safe interface to break service cycles.
+    // TASK_2026_106 Phase 3: STREAMING_CONTROL inversion removed. We emit
+    // a `close` event and the StreamRouter (which owns the routing graph)
+    // performs the per-session cleanup: cleanupSessionDeduplication +
+    // clearSessionAgents. workspacePartition cleanup stays here — it's
+    // TabManager's own concern, not streaming.
     if (tab.claudeSessionId) {
-      this.streamingControl.cleanupSessionDeduplication(tab.claudeSessionId);
-
-      // Clean up agent monitor cards for this session
-      this.streamingControl.clearSessionAgents(tab.claudeSessionId);
-
-      // TASK_2025_208 Fix 4: Clean up reverse index
       this.workspacePartition.unregisterSession(tab.claudeSessionId);
     }
+
+    this._closedTab.set({
+      tabId,
+      sessionId: tab.claudeSessionId ?? null,
+      kind: 'close',
+    });
 
     const tabIndex = tabs.findIndex((t) => t.id === tabId);
 

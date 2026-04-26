@@ -12,7 +12,6 @@ import {
   MODEL_REFRESH_CONTROL,
   type ModelRefreshControl,
 } from './model-refresh-control';
-import { STREAMING_CONTROL, type StreamingControl } from './streaming-control';
 import { TabManagerService } from './tab-manager.service';
 import { TabWorkspacePartitionService } from './tab-workspace-partition.service';
 
@@ -24,10 +23,10 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
   beforeEach(() => {
     localStorage.clear();
     confirm = jest.fn().mockResolvedValue(true);
-    const streamingControl: jest.Mocked<StreamingControl> = {
-      cleanupSessionDeduplication: jest.fn(),
-      clearSessionAgents: jest.fn(),
-    } as jest.Mocked<StreamingControl>;
+    // TASK_2026_106 Phase 3: STREAMING_CONTROL provider removed.
+    // Cleanup is owned by `StreamRouter` (in `@ptah-extension/chat-routing`),
+    // which subscribes to `closedTab` via `effect()`. TabManager itself only
+    // emits the event — assertions about cleanup live in chat-routing specs.
     partition = {
       initialize: jest.fn(),
       activeWorkspacePath: null,
@@ -50,7 +49,6 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       providers: [
         TabManagerService,
         { provide: ConfirmationDialogService, useValue: { confirm } },
-        { provide: STREAMING_CONTROL, useValue: streamingControl },
         { provide: TabWorkspacePartitionService, useValue: partition },
         { provide: MODEL_REFRESH_CONTROL, useValue: modelRefresh },
       ],

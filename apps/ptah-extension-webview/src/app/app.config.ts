@@ -26,7 +26,6 @@ import {
   ChatStore,
   WorkspaceCoordinatorService,
   provideModelRefreshControl,
-  provideStreamingControl,
 } from '@ptah-extension/chat';
 import {
   WizardViewComponent,
@@ -126,13 +125,15 @@ export const appConfig: ApplicationConfig = {
     },
     // Setup hub component: breaks circular dependency between chat and harness-builder.
     { provide: SETUP_HUB_COMPONENT, useValue: SetupHubComponent },
-    // StreamingControl: inverted-dependency contract that lets TabManagerService
-    // coordinate per-session cleanup with StreamingHandlerService and
-    // AgentMonitorStore without statically importing them.
-    // TASK_2026_103 Wave B1: breaks the
-    //   tab-manager ↔ streaming-handler ↔ {batched,finalization,permission}
-    // and tab-manager ↔ agent-monitor.store cycles.
-    ...provideStreamingControl(),
+    // TASK_2026_106 Phase 3: `provideStreamingControl()` removed. The
+    // STREAMING_CONTROL inversion was the source of the NG0200 cycle —
+    // token inversion + a useExisting impl that injected the consumer back
+    // formed the same runtime cycle the import inversion was meant to
+    // prevent. The router (`@ptah-extension/chat-routing/StreamRouter`)
+    // now owns cleanup, reacting to `TabManagerService.closedTab` via
+    // `effect()`. No DI registration needed — `StreamRouter` is
+    // `providedIn: 'root'` and self-wires through the chat-message-handler
+    // import chain.
     // ModelRefreshControl: inverted-dependency contract that lets
     // TabManagerService (in @ptah-extension/chat-state, type:data-access)
     // refresh the available-models list after createTab() without statically

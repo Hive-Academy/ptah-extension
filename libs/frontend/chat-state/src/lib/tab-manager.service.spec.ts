@@ -4,12 +4,17 @@
  * Focused tests for tab-close-during-stream cancellation. We exercise the
  * abort lifecycle directly against the service rather than the full chat
  * pipeline, so the suite uses lightweight mocks for the collaborators
- * (ConfirmationDialog, TabWorkspacePartition, MODEL_REFRESH_CONTROL,
- * STREAMING_CONTROL).
+ * (ConfirmationDialog, TabWorkspacePartition, MODEL_REFRESH_CONTROL).
  *
  * TASK_2026_105 Wave G2 Phase 2: ModelStateService dependency was inverted
  * to `MODEL_REFRESH_CONTROL` to keep `chat-state` (`type:data-access`) free
  * of `@ptah-extension/core` (`type:core`) per Nx module-boundary rules.
+ *
+ * TASK_2026_106 Phase 3: STREAMING_CONTROL token deleted. TabManager no
+ * longer injects any streaming-side service — it emits `closedTab` events
+ * and `StreamRouter` (in `@ptah-extension/chat-routing`) reacts. Specs that
+ * used to mock `STREAMING_CONTROL` now omit it entirely; cleanup is the
+ * router's responsibility and is exercised in `chat-routing` specs.
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -18,24 +23,17 @@ import {
   MODEL_REFRESH_CONTROL,
   type ModelRefreshControl,
 } from './model-refresh-control';
-import { STREAMING_CONTROL, type StreamingControl } from './streaming-control';
 import { TabManagerService } from './tab-manager.service';
 import { TabWorkspacePartitionService } from './tab-workspace-partition.service';
 
 describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
   let service: TabManagerService;
   let confirmMock: { confirm: jest.Mock };
-  let streamingControl: jest.Mocked<StreamingControl>;
   let partitionMock: Partial<jest.Mocked<TabWorkspacePartitionService>>;
   let modelRefreshMock: jest.Mocked<ModelRefreshControl>;
 
   beforeEach(() => {
     confirmMock = { confirm: jest.fn().mockResolvedValue(true) };
-
-    streamingControl = {
-      cleanupSessionDeduplication: jest.fn(),
-      clearSessionAgents: jest.fn(),
-    } as jest.Mocked<StreamingControl>;
 
     partitionMock = {
       initialize: jest.fn(),
@@ -60,7 +58,6 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       providers: [
         TabManagerService,
         { provide: ConfirmationDialogService, useValue: confirmMock },
-        { provide: STREAMING_CONTROL, useValue: streamingControl },
         { provide: TabWorkspacePartitionService, useValue: partitionMock },
         { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshMock },
       ],

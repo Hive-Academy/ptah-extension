@@ -125,20 +125,13 @@ export { SessionDisplayUtils } from './session-display-utils.service';
 // SESSION_CONTEXT — optional per-tile session override for canvas tiles (TASK_2025_265)
 export { SESSION_CONTEXT } from '../tokens/session-context.token';
 
-// StreamingControl — inverted-dependency contract used by TabManagerService
-// to coordinate per-session cleanup with the streaming/agent worker services.
-// TASK_2026_103 Wave B1: introduced to break the
-// tab-manager ↔ streaming-handler ↔ {batched,finalization,permission}
-// and tab-manager ↔ agent-monitor.store cycles.
-// TASK_2026_105 Wave G2 Phase 2: token + interface live in chat-state now,
-// re-exported here for backwards compatibility.
-/** @deprecated Import from `@ptah-extension/chat-state` instead. */
-export {
-  STREAMING_CONTROL,
-  type StreamingControl,
-} from '@ptah-extension/chat-state';
-export { StreamingControlImpl } from './chat-store/streaming-control-impl.service';
-export { provideStreamingControl } from './chat-store/streaming-control.provider';
+// TASK_2026_106 Phase 3: STREAMING_CONTROL token + StreamingControlImpl +
+// provideStreamingControl have been DELETED. The cycle they were inverting
+// (TabManager → STREAMING_CONTROL → StreamingHandler/AgentMonitorStore →
+// TabManager) was a runtime cycle the inversion did not actually break;
+// it was the source of NG0200 in the webview. The router (in
+// `@ptah-extension/chat-routing`) now owns the cleanup decision tree by
+// subscribing to `TabManagerService.closedTab` via `effect()`.
 
 // ModelRefreshControl — inverted-dependency contract used by TabManagerService
 // to refresh the available-models list after createTab() without depending

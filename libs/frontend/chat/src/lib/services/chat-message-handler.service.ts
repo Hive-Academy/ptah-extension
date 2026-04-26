@@ -30,12 +30,14 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly chatStore = inject(ChatStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   /**
-   * TASK_2026_106 Phase 2 — shadow-mode StreamRouter observation.
+   * TASK_2026_106 Phase 3 — authoritative StreamRouter.
    *
-   * The router populates ConversationRegistry/TabSessionBinding alongside
-   * the legacy chatStore.processStreamEvent path. Phase 3 cuts over and
-   * the legacy path comes out. While in shadow mode, router failures must
-   * never break the chat — every notifyEvent call is wrapped in try/catch.
+   * The router owns the routing graph (ConversationRegistry +
+   * TabSessionBinding) and reacts to TabManager's `closedTab` signal to
+   * perform per-session cleanup. The shadow-mode try/catch is gone — a
+   * router defect now needs to surface, not be silently swallowed.
+   * `chat.store.processStreamEvent` continues to drive the user-visible
+   * tree update (no behavior change for content rendering).
    */
   private readonly streamRouter = inject(StreamRouter);
 
@@ -103,18 +105,13 @@ export class ChatMessageHandler implements MessageHandler {
 
     this.chatStore.processStreamEvent(event, tabId, sessionId);
 
-    // TASK_2026_106 Phase 2 — shadow-mode observation. Router writes to
-    // ConversationRegistry/TabSessionBinding only; never mutates TabManager.
-    // Wrapped in try/catch so a router defect can never break chat ingest.
-    try {
-      const originTabId = tabId ? TabId.safeParse(tabId) : null;
-      this.streamRouter.notifyEvent(event, originTabId ?? undefined);
-    } catch (err) {
-      console.warn(
-        '[ChatMessageHandler] StreamRouter.notifyEvent failed (shadow mode, ignored):',
-        err,
-      );
-    }
+    // TASK_2026_106 Phase 3 — authoritative routing. The router maintains
+    // ConversationRegistry/TabSessionBinding so other consumers (Phase 4+
+    // banner UI, fan-out) can resolve session→conversation→tab[] mapping
+    // from a single source. Errors are NOT swallowed — a router defect
+    // needs to surface during testing.
+    const originTabId = tabId ? TabId.safeParse(tabId) : null;
+    this.streamRouter.routeStreamEvent(event, originTabId ?? undefined);
   }
 
   // CHAT_ERROR: Chat error signal
