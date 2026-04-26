@@ -9,7 +9,9 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 import { ScanProgressComponent } from './scan-progress.component';
 
 // F8: The ScanProgressComponent imports @ptah-extension/chat transitively
-// (via SetupWizardStateService -> WizardStreamAccumulator -> chat barrel).
+// (via SetupWizardStateService -> chat-routing/chat-streaming -> chat barrel
+// — TASK_2026_107 Phase 3 swapped the legacy WizardStreamAccumulator for
+// StreamRouter, but the transitive chat-barrel pull-in is unchanged).
 // That barrel eagerly pulls in ExecutionNodeComponent + its deep component
 // tree, at least one of which is `undefined` at Angular TestBed compile time
 // in the Jest ESM/CJS interop window — `queueTypesFromModulesArrayRecur`

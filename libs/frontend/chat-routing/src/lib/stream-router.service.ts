@@ -34,6 +34,7 @@ import { Injectable, effect, inject } from '@angular/core';
 import {
   ConversationId,
   ConversationRegistry,
+  SurfaceId,
   TabId,
   TabManagerService,
   TabSessionBinding,
@@ -42,13 +43,20 @@ import {
 } from '@ptah-extension/chat-state';
 import {
   AgentMonitorStore,
+  BackgroundAgentStore,
+  BatchedUpdateService,
+  EventDeduplicationService,
   PermissionHandlerService,
+  SessionManager,
+  StreamingAccumulatorCore,
   StreamingHandlerService,
+  type AccumulatorContext,
 } from '@ptah-extension/chat-streaming';
 import type {
   FlatStreamEventUnion,
   PermissionRequest,
 } from '@ptah-extension/shared';
+import { StreamingSurfaceRegistry } from './streaming-surface-registry.service';
 
 @Injectable({ providedIn: 'root' })
 export class StreamRouter {
@@ -58,6 +66,16 @@ export class StreamRouter {
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly permissionHandler = inject(PermissionHandlerService);
+  // TASK_2026_107 Phase 2 — surface routing dependencies. The router
+  // assembles the AccumulatorContext directly here so the chat-streaming
+  // layer doesn't need to know about surfaces (one-way dependency:
+  // chat-routing → chat-streaming).
+  private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
+  private readonly accumulatorCore = inject(StreamingAccumulatorCore);
+  private readonly sessionManager = inject(SessionManager);
+  private readonly deduplication = inject(EventDeduplicationService);
+  private readonly batchedUpdate = inject(BatchedUpdateService);
+  private readonly backgroundAgentStore = inject(BackgroundAgentStore);
 
   constructor() {
     // Bootstrap migration: hydrate registry/binding from any tabs that were
@@ -234,6 +252,213 @@ export class StreamRouter {
     return this.binding.tabsFor(record.id);
   }
 
+  // =========================================================================
+  // TASK_2026_107 Phase 2 — Surface routing (additive, shadow mode).
+  //
+  // Sibling APIs to onTabCreated/onTabClosed/routeStreamEvent/tabsForSession,
+  // keyed by SurfaceId. Wizard (Phase 3) and harness (Phase 4) wire in later;
+  // chat is unaffected. Permission-prompt routing is intentionally NOT
+  // extended — wizard/harness run in full-auto background mode.
+  // =========================================================================
+
+  /**
+   * Called when a non-tab surface (wizard analysis phase, harness operation)
+   * is created. Sibling of `onTabCreated`.
+   *
+   * If `existingSessionId` resolves to a known conversation (rehydration
+   * path), reuse it; otherwise mint a fresh conversation seeded with the
+   * session. Returns the bound `ConversationId`.
+   *
+   * Idempotent: re-registering an already-bound surface returns the same
+   * conversation id and does not duplicate sessions.
+   */
+  onSurfaceCreated(
+    surfaceId: SurfaceId,
+    existingSessionId?: ClaudeSessionId,
+  ): ConversationId {
+    // Re-entrant safety: if the surface is already bound, return the existing
+    // conversation. Mirror onTabCreated's idempotency contract — surface
+    // registration may fire twice during component re-mount (wizard panel
+    // close + reopen mid-analysis).
+    const existingConv = this.binding.conversationForSurface(surfaceId);
+    if (existingConv) {
+      if (existingSessionId) {
+        const record = this.registry.getRecord(existingConv);
+        if (record && !record.sessions.includes(existingSessionId)) {
+          this.registry.appendSession(existingConv, existingSessionId);
+        }
+      }
+      return existingConv;
+    }
+
+    // If the session is already known to a conversation (e.g. a chat tab
+    // already opened it — unusual for wizard/harness but possible in
+    // theory), reuse that conversation and bind the surface alongside.
+    if (existingSessionId) {
+      const containing = this.registry.findContainingSession(existingSessionId);
+      if (containing) {
+        this.binding.bindSurface(surfaceId, containing.id);
+        return containing.id;
+      }
+    }
+
+    const convId = this.registry.create(existingSessionId);
+    this.binding.bindSurface(surfaceId, convId);
+    return convId;
+  }
+
+  /**
+   * Called when a non-tab surface is closed. Sibling of `onTabClosed`.
+   *
+   * Mirrors `handleTabClosed`'s cleanup semantics with one difference: the
+   * "last consumer" check considers BOTH tabs and surfaces (because chat
+   * tabs may still be bound to the same conversation as a wizard surface
+   * in theory). Cleanup runs only when the surface being closed is the
+   * final consumer of the conversation:
+   *   - `streamingHandler.cleanupSessionDeduplication(sid)` — for every
+   *     session in the conversation (mirrors handleTabClosed but extended
+   *     to cover compaction-spanning conversations).
+   *   - `agentMonitorStore.clearSessionAgents(sid)` — same.
+   *   - `binding.unbindSurface` — always.
+   *   - `registry.remove(convId)` — only if no tabs OR surfaces remain.
+   *
+   * Wrapped in try/catch like `handleTabClosed` so a single defect can't
+   * wedge the cleanup path.
+   */
+  onSurfaceClosed(surfaceId: SurfaceId): void {
+    try {
+      const convId = this.binding.conversationForSurface(surfaceId);
+      if (!convId) {
+        // Idempotent: unbinding an unbound surface is a no-op. Also drop
+        // from the surface adapter registry in case the caller forgot.
+        this.surfaceRegistry.unregister(surfaceId);
+        return;
+      }
+
+      // Snapshot sessions BEFORE we unbind so we can run per-session
+      // cleanup if this is the last consumer.
+      const record = this.registry.getRecord(convId);
+      const sessions = record?.sessions ?? [];
+
+      this.binding.unbindSurface(surfaceId);
+      this.surfaceRegistry.unregister(surfaceId);
+
+      const tabsRemain = this.binding.tabsFor(convId).length > 0;
+      const surfacesRemain = this.binding.surfacesFor(convId).length > 0;
+
+      if (!tabsRemain && !surfacesRemain) {
+        // Last consumer — clean up dedup + agent state for every session
+        // the conversation ever spanned, then drop the conversation.
+        for (const sid of sessions) {
+          this.streamingHandler.cleanupSessionDeduplication(sid);
+          this.agentMonitorStore.clearSessionAgents(sid);
+        }
+        this.registry.remove(convId);
+      }
+    } catch (err) {
+      console.warn(
+        '[StreamRouter] onSurfaceClosed failed:',
+        err,
+        'surfaceId:',
+        surfaceId,
+      );
+    }
+  }
+
+  /**
+   * Stream-event ingestion for a surface. Sibling of `routeStreamEvent`.
+   *
+   * Resolves the conversation, ensures the binding exists, appends the
+   * session to the conversation if it is new, then invokes
+   * `StreamingAccumulatorCore.process` against the surface adapter's
+   * state slot. The accumulator mutates the state in place; on
+   * `compaction_complete` it returns a `replacementState` which we
+   * install via `adapter.setState`.
+   *
+   * Returns the resolved `ConversationId`, or `null` if either the
+   * surface is not registered or no session/conversation could be
+   * resolved (the event is silently dropped — surface lifecycle
+   * mismatches should never wedge the stream).
+   */
+  routeStreamEventForSurface(
+    event: FlatStreamEventUnion,
+    surfaceId: SurfaceId,
+  ): ConversationId | null {
+    const adapter = this.surfaceRegistry.getAdapter(surfaceId);
+    if (!adapter) {
+      // Caller registered a surface and then unregistered it before the
+      // stream drained. Drop silently — Phase 3/4 cleanup will route any
+      // residual events to the void.
+      return null;
+    }
+
+    let convId = this.binding.conversationForSurface(surfaceId);
+    if (!convId) {
+      // Lazy bind: if the caller forgot to call onSurfaceCreated first,
+      // mint a conversation now seeded with the event's session id (if
+      // any). Mirrors the lazy-bind path in routeStreamEvent for tabs.
+      const seeded = event.sessionId
+        ? (event.sessionId as ClaudeSessionId)
+        : undefined;
+      convId = this.registry.create(seeded);
+      this.binding.bindSurface(surfaceId, convId);
+    }
+
+    // Append the session to the conversation if new for it (e.g. the
+    // surface was created with no session and the first event carries one).
+    if (event.sessionId) {
+      const sid = event.sessionId as ClaudeSessionId;
+      const record = this.registry.getRecord(convId);
+      if (record && !record.sessions.includes(sid)) {
+        this.registry.appendSession(convId, sid);
+      }
+    }
+
+    // Mutate the surface's state via the accumulator core. The adapter's
+    // setState is invoked only on compaction_complete (where the core
+    // returns a fresh replacement state); for in-place mutations the
+    // signal-backed adapter's getter is already pointing at the mutated
+    // object. Surfaces that need to notify on every mutation can supply
+    // their own onStateChanged hook by registering a wrapping adapter.
+    const ctx: AccumulatorContext = {
+      sessionManager: this.sessionManager,
+      deduplication: this.deduplication,
+      batchedUpdate: this.batchedUpdate,
+      backgroundAgentStore: this.backgroundAgentStore,
+      agentMonitorStore: this.agentMonitorStore,
+      // No onAgentStart hook — surfaces have no `tab.messages` to read for
+      // resumed-agent detection, and wizard/harness don't surface a
+      // resumed badge in their UI anyway.
+    };
+
+    const result = this.accumulatorCore.process(adapter.getState(), event, ctx);
+
+    // Install replacement state on compaction_complete — the only path
+    // where the core hands us a brand-new state object reference.
+    if (result.replacementState) {
+      adapter.setState(result.replacementState);
+    }
+
+    // Lifecycle (compaction flags on the conversation record).
+    this.handleLifecycleEvents(event, convId);
+
+    return convId;
+  }
+
+  /**
+   * Lookup helper. Sibling of `tabsForSession`. Returns every surface
+   * bound to any conversation that contains `sessionId`.
+   *
+   * Used by the Phase 5 defensive guard in `PermissionHandlerService` to
+   * detect a "permission prompt arrived for a surface-only conversation"
+   * regression in the SDK auto-allow policy.
+   */
+  surfacesForSession(sessionId: ClaudeSessionId): readonly SurfaceId[] {
+    const record = this.registry.findContainingSession(sessionId);
+    if (!record) return [];
+    return this.binding.surfacesFor(record.id);
+  }
+
   /**
    * TASK_2026_106 Phase 6a — permission prompt fan-out routing.
    *
@@ -252,6 +477,21 @@ export class StreamRouter {
    * The caller (typically the message handler that just dispatched the
    * prompt to PermissionHandler) is responsible for actually dispatching
    * the prompt; this method only computes routing metadata.
+   *
+   * TASK_2026_107 Phase 5 — defensive guard.
+   *
+   * Wizard and harness surfaces run in full-auto background mode and must
+   * never receive permission prompts (auto-allow is enforced at the SDK
+   * layer). If a prompt arrives for a `sessionId` whose conversation is
+   * bound to surfaces ONLY (no tabs), this is an SDK regression — silent
+   * hangs on a surface-only flow are far worse than an explicit deny.
+   *
+   * Action: emit a structured `prompt.received.no-tab-surface-only` warning
+   * carrying `{ promptId, sessionId, conversationId, surfaceCount }`, then
+   * auto-deny via `permissionHandler.handlePermissionResponse` so the
+   * backend unblocks immediately and the queue is cleared. Returns the
+   * empty `TabId[]` (matching the no-bound-tabs return path) so the public
+   * signature is byte-unchanged.
    */
   routePermissionPrompt(prompt: PermissionRequest): readonly TabId[] {
     if (!prompt.sessionId) return [];
@@ -259,7 +499,37 @@ export class StreamRouter {
     const tabs = this.tabsForSession(sessionId);
     if (tabs.length > 0) {
       this.permissionHandler.attachPromptTargets(prompt.id, tabs);
+      return tabs;
     }
+
+    // No tabs resolved. Check whether the conversation has SURFACES bound
+    // (wizard/harness) — that's the regression case the guard catches.
+    // If the session is unknown to the registry entirely, fall through to
+    // the legacy global-visibility return (empty array, no warning).
+    const containing = this.registry.findContainingSession(sessionId);
+    if (containing) {
+      const surfaces = this.binding.surfacesFor(containing.id);
+      if (surfaces.length > 0) {
+        // Structured warning — payload mirrors the existing "warned" pattern
+        // (see PermissionHandlerService for similar high-latency warnings).
+        console.warn('prompt.received.no-tab-surface-only', {
+          promptId: prompt.id,
+          sessionId: prompt.sessionId,
+          conversationId: containing.id,
+          surfaceCount: surfaces.length,
+        });
+        // Auto-deny: route a deny response so the backend unblocks and the
+        // prompt is removed from the queue. Reusing handlePermissionResponse
+        // (rather than cancelPrompt) ensures the SDK is told the prompt was
+        // resolved — cancelPrompt only mutates UI queue state.
+        this.permissionHandler.handlePermissionResponse({
+          id: prompt.id,
+          decision: 'deny',
+          reason: 'auto-deny: prompt arrived for surface-only conversation',
+        });
+      }
+    }
+
     return tabs;
   }
 

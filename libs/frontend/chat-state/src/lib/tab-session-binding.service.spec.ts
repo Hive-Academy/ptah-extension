@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { ConversationId, TabId } from './identity/ids';
+import { ConversationId, SurfaceId, TabId } from './identity/ids';
 import { TabSessionBinding } from './tab-session-binding.service';
 
 describe('TabSessionBinding — TASK_2026_106 Phase 1', () => {
@@ -139,6 +139,204 @@ describe('TabSessionBinding — TASK_2026_106 Phase 1', () => {
 
       // Internal state unaffected
       expect(binding.tabsFor(conv)).toEqual([tab]);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // TASK_2026_107 Phase 1 — surface bindings (parallel to tab bindings).
+  // ------------------------------------------------------------------
+
+  describe('bindSurface()', () => {
+    it('records both forward and reverse edges', () => {
+      const surface = SurfaceId.create();
+      const conv = ConversationId.create();
+      binding.bindSurface(surface, conv);
+
+      expect(binding.conversationForSurface(surface)).toBe(conv);
+      expect(binding.surfacesFor(conv)).toEqual([surface]);
+      expect(binding.boundSurfaceCount()).toBe(1);
+      expect(binding.boundConversationCount()).toBe(1);
+    });
+
+    it('supports multiple surfaces bound to the same conversation', () => {
+      const conv = ConversationId.create();
+      const s1 = SurfaceId.create();
+      const s2 = SurfaceId.create();
+      binding.bindSurface(s1, conv);
+      binding.bindSurface(s2, conv);
+
+      const surfaces = binding.surfacesFor(conv);
+      expect(new Set(surfaces)).toEqual(new Set([s1, s2]));
+      expect(binding.boundConversationCount()).toBe(1);
+      expect(binding.boundSurfaceCount()).toBe(2);
+    });
+
+    it('replaces a prior binding when a surface moves to a new conversation', () => {
+      const surface = SurfaceId.create();
+      const oldConv = ConversationId.create();
+      const newConv = ConversationId.create();
+
+      binding.bindSurface(surface, oldConv);
+      binding.bindSurface(surface, newConv);
+
+      expect(binding.conversationForSurface(surface)).toBe(newConv);
+      expect(binding.surfacesFor(newConv)).toEqual([surface]);
+      expect(binding.surfacesFor(oldConv)).toEqual([]);
+      expect(binding.hasBoundSurfaces(oldConv)).toBe(false);
+      expect(binding.boundConversationCount()).toBe(1);
+    });
+
+    it('is a no-op when re-binding to the same conversation', () => {
+      const surface = SurfaceId.create();
+      const conv = ConversationId.create();
+      binding.bindSurface(surface, conv);
+      const before = binding.surfacesFor(conv);
+      binding.bindSurface(surface, conv);
+      const after = binding.surfacesFor(conv);
+      expect(after).toEqual(before);
+      expect(binding.boundSurfaceCount()).toBe(1);
+    });
+
+    it('keeps surface siblings when a peer is moved', () => {
+      const conv = ConversationId.create();
+      const otherConv = ConversationId.create();
+      const s1 = SurfaceId.create();
+      const s2 = SurfaceId.create();
+      binding.bindSurface(s1, conv);
+      binding.bindSurface(s2, conv);
+
+      binding.bindSurface(s2, otherConv);
+
+      expect(binding.surfacesFor(conv)).toEqual([s1]);
+      expect(binding.surfacesFor(otherConv)).toEqual([s2]);
+    });
+  });
+
+  describe('unbindSurface()', () => {
+    it('removes both edges', () => {
+      const surface = SurfaceId.create();
+      const conv = ConversationId.create();
+      binding.bindSurface(surface, conv);
+      binding.unbindSurface(surface);
+
+      expect(binding.conversationForSurface(surface)).toBeNull();
+      expect(binding.surfacesFor(conv)).toEqual([]);
+      expect(binding.boundSurfaceCount()).toBe(0);
+      expect(binding.boundConversationCount()).toBe(0);
+    });
+
+    it('leaves siblings intact when one of many is unbound', () => {
+      const conv = ConversationId.create();
+      const s1 = SurfaceId.create();
+      const s2 = SurfaceId.create();
+      binding.bindSurface(s1, conv);
+      binding.bindSurface(s2, conv);
+      binding.unbindSurface(s1);
+
+      expect(binding.surfacesFor(conv)).toEqual([s2]);
+      expect(binding.boundConversationCount()).toBe(1);
+    });
+
+    it('is a no-op on an unbound surface', () => {
+      const surface = SurfaceId.create();
+      expect(() => binding.unbindSurface(surface)).not.toThrow();
+      expect(binding.boundSurfaceCount()).toBe(0);
+    });
+  });
+
+  describe('surface lookup helpers', () => {
+    it('conversationForSurface() returns null on unbound surface', () => {
+      expect(binding.conversationForSurface(SurfaceId.create())).toBeNull();
+    });
+
+    it('surfacesFor() returns empty array on unknown conversation', () => {
+      expect(binding.surfacesFor(ConversationId.create())).toEqual([]);
+    });
+
+    it('hasBoundSurfaces() reflects current state', () => {
+      const conv = ConversationId.create();
+      expect(binding.hasBoundSurfaces(conv)).toBe(false);
+      const surface = SurfaceId.create();
+      binding.bindSurface(surface, conv);
+      expect(binding.hasBoundSurfaces(conv)).toBe(true);
+      binding.unbindSurface(surface);
+      expect(binding.hasBoundSurfaces(conv)).toBe(false);
+    });
+
+    it('callers cannot mutate the reverse set through surfacesFor()', () => {
+      const conv = ConversationId.create();
+      const surface = SurfaceId.create();
+      binding.bindSurface(surface, conv);
+
+      const snapshot = binding.surfacesFor(conv) as SurfaceId[];
+      snapshot.push(SurfaceId.create());
+
+      expect(binding.surfacesFor(conv)).toEqual([surface]);
+    });
+  });
+
+  describe('tab/surface isolation', () => {
+    it('binding a surface does not add it to tabsFor()', () => {
+      const conv = ConversationId.create();
+      const surface = SurfaceId.create();
+      binding.bindSurface(surface, conv);
+
+      expect(binding.tabsFor(conv)).toEqual([]);
+      expect(binding.hasBoundTabs(conv)).toBe(false);
+    });
+
+    it('binding a tab does not add it to surfacesFor()', () => {
+      const conv = ConversationId.create();
+      const tab = TabId.create();
+      binding.bind(tab, conv);
+
+      expect(binding.surfacesFor(conv)).toEqual([]);
+      expect(binding.hasBoundSurfaces(conv)).toBe(false);
+    });
+
+    it('boundConversationCount counts a conversation referenced by both a tab and a surface only once', () => {
+      const conv = ConversationId.create();
+      binding.bind(TabId.create(), conv);
+      binding.bindSurface(SurfaceId.create(), conv);
+
+      expect(binding.boundConversationCount()).toBe(1);
+    });
+
+    it('boundConversationCount sums distinct conversations across tabs and surfaces', () => {
+      const tabConv = ConversationId.create();
+      const surfaceConv = ConversationId.create();
+      binding.bind(TabId.create(), tabConv);
+      binding.bindSurface(SurfaceId.create(), surfaceConv);
+
+      expect(binding.boundConversationCount()).toBe(2);
+    });
+
+    it('unbinding a surface does not affect tab bindings on the same conversation', () => {
+      const conv = ConversationId.create();
+      const tab = TabId.create();
+      const surface = SurfaceId.create();
+      binding.bind(tab, conv);
+      binding.bindSurface(surface, conv);
+
+      binding.unbindSurface(surface);
+
+      expect(binding.tabsFor(conv)).toEqual([tab]);
+      expect(binding.surfacesFor(conv)).toEqual([]);
+      expect(binding.boundConversationCount()).toBe(1);
+    });
+
+    it('unbinding a tab does not affect surface bindings on the same conversation', () => {
+      const conv = ConversationId.create();
+      const tab = TabId.create();
+      const surface = SurfaceId.create();
+      binding.bind(tab, conv);
+      binding.bindSurface(surface, conv);
+
+      binding.unbind(tab);
+
+      expect(binding.tabsFor(conv)).toEqual([]);
+      expect(binding.surfacesFor(conv)).toEqual([surface]);
+      expect(binding.boundConversationCount()).toBe(1);
     });
   });
 });

@@ -16,7 +16,6 @@ import { Injectable, inject } from '@angular/core';
 import {
   ExecutionNode,
   FlatStreamEventUnion,
-  assertNever,
   ExecutionChatMessage,
   UNKNOWN_AGENT_TOOL_CALL_ID,
 } from '@ptah-extension/shared';
@@ -26,8 +25,6 @@ import {
   TabState,
   createEmptyStreamingState,
   StreamingState,
-  AccumulatorKeys,
-  setStreamingEventCapped,
 } from '@ptah-extension/chat-types';
 
 // Child services
@@ -37,6 +34,10 @@ import { MessageFinalizationService } from './message-finalization.service';
 import { PermissionHandlerService } from './permission-handler.service';
 import { BackgroundAgentStore } from './background-agent.store';
 import { AgentMonitorStore } from './agent-monitor.store';
+import {
+  StreamingAccumulatorCore,
+  type AccumulatorContext,
+} from './accumulator-core.service';
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
@@ -62,19 +63,10 @@ export class StreamingHandlerService {
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
-
-  /**
-   * Tracks messageIds where text accumulators need clearing on next complete text_delta.
-   * Split from thinking to prevent cross-type clearing: a complete thinking_delta should
-   * NOT wipe text accumulators (and vice versa). This prevents content loss when the
-   * complete message only includes one content type.
-   */
-  private readonly pendingTextClear = new Set<string>();
-
-  /**
-   * Tracks messageIds where thinking accumulators need clearing on next complete thinking_delta.
-   */
-  private readonly pendingThinkingClear = new Set<string>();
+  // TASK_2026_107 Phase 2 — the event-type switch lives in the core. The
+  // wrapper retains the chat-shaped tab fan-out, queued-content surfacing,
+  // and batched-update scheduling.
+  private readonly accumulatorCore = inject(StreamingAccumulatorCore);
 
   /**
    * Clean up deduplication state for a session.
@@ -82,8 +74,7 @@ export class StreamingHandlerService {
    */
   cleanupSessionDeduplication(sessionId: string): void {
     this.deduplication.cleanupSession(sessionId);
-    this.pendingTextClear.clear();
-    this.pendingThinkingClear.clear();
+    this.accumulatorCore.clearPendingClears();
     this.warnedNoTargetSessions.delete(sessionId);
   }
 
@@ -273,467 +264,85 @@ export class StreamingHandlerService {
 
     const state = targetTab.streamingState as StreamingState;
 
-    // Handle by event type
-    switch (event.eventType) {
-      case 'message_start': {
-        const result = this.deduplication.handleDuplicateMessageStart(
-          state,
-          event,
-        );
-
-        if (result.skip) {
-          state.currentMessageId = event.messageId;
-          return null;
+    // TASK_2026_107 Phase 2 — delegate the event-type switch to the core.
+    // The wrapper handles the chat-shaped tail (queued-content surfacing on
+    // `message_complete`, compaction-state replacement on
+    // `compaction_complete`, batched-update scheduling, agent_start
+    // force-flush) below.
+    const ctx: AccumulatorContext = {
+      sessionManager: this.sessionManager,
+      deduplication: this.deduplication,
+      batchedUpdate: this.batchedUpdate,
+      backgroundAgentStore: this.backgroundAgentStore,
+      agentMonitorStore: this.agentMonitorStore,
+      // TASK_2025_211 — chat reads `tab.messages` to detect resumed agents
+      // of the same agentType. Surfaces have no finalized messages; the
+      // hook is supplied by chat only.
+      onAgentStart: (evt) => {
+        if (evt.agentType) {
+          this.detectAndMarkResumedAgent(evt.agentType, targetTab);
         }
+      },
+    };
 
-        if (!result.existingEvent) {
-          // First message_start for this messageId
-          this.deduplication
-            .getProcessedMessageIds(event.sessionId)
-            .add(event.messageId);
-          state.messageEventIds.push(event.messageId);
-        } else if (event.source === 'complete' || event.source === 'history') {
-          // REPLACEMENT: Complete/history message_start replacing a previous one.
-          // Mark for DEFERRED, TYPE-SPLIT accumulator clearing.
-          //
-          // text_delta clears only text keys (`*-block-*`), thinking_delta
-          // clears only thinking keys (`*-thinking-*`). This prevents:
-          // 1. Duplicate text (stream blockIndex=1 + complete blockIndex=0)
-          // 2. Text/thinking LOSS when complete message omits that content type
-          // 3. Cross-turn wipes on non-Anthropic models that reuse the same
-          //    chatcmpl-* messageId across ALL turns
-          this.pendingTextClear.add(event.messageId);
-          this.pendingThinkingClear.add(event.messageId);
-        }
+    const result = this.accumulatorCore.process(state, event, ctx);
 
-        setStreamingEventCapped(state, event);
-        this.indexEventByMessage(state, event);
-        state.currentMessageId = event.messageId;
-
-        // Backfill agent_start parentToolUseId when we see a subagent message_start
-        // with a toolu_* format parentToolUseId. Hook-based agent_start events have
-        // UUID-format toolCallId/parentToolUseId which doesn't match the tool_start's
-        // toolCallId (toolu_* format). This causes the tree builder's primary matching
-        // path to fail. By updating the agent_start with the correct toolu_* ID,
-        // we fix the correlation at the source.
-        if (
-          event.parentToolUseId &&
-          event.parentToolUseId.startsWith('toolu_')
-        ) {
-          this.backfillAgentStartToolId(state, event.parentToolUseId);
-        }
-
-        break;
-      }
-
-      case 'text_delta': {
-        if (
-          this.deduplication.isMessageAlreadyFinalized(
-            event.sessionId,
-            event.messageId,
-            state,
-          )
-        ) {
-          return null;
-        }
-
-        setStreamingEventCapped(state, event);
-        this.indexEventByMessage(state, event);
-
-        const blockIndex = event.blockIndex ?? 0;
-        const blockKey = AccumulatorKeys.textBlock(event.messageId, blockIndex);
-
-        if (event.source === 'complete' || event.source === 'history') {
-          // Deferred TEXT clearing: on the first complete/history text_delta,
-          // clear only text accumulator keys (`*-block-*`) for this messageId.
-          // Thinking keys are left untouched â€” they're cleared separately by
-          // thinking_delta. This prevents a complete thinking_delta from wiping
-          // text and vice versa.
-          if (this.pendingTextClear.has(event.messageId)) {
-            this.clearTextAccumulators(state, event.messageId);
-            this.pendingTextClear.delete(event.messageId);
-          }
-          state.textAccumulators.set(blockKey, event.delta);
-        } else {
-          this.accumulateDelta(state.textAccumulators, blockKey, event.delta);
-        }
-        break;
-      }
-
-      case 'thinking_start': {
-        setStreamingEventCapped(state, event);
-        this.indexEventByMessage(state, event);
-        break;
-      }
-
-      case 'thinking_delta': {
-        if (
-          this.deduplication.isMessageAlreadyFinalized(
-            event.sessionId,
-            event.messageId,
-            state,
-          )
-        ) {
-          return null;
-        }
-
-        setStreamingEventCapped(state, event);
-        this.indexEventByMessage(state, event);
-
-        const blockIndex = event.blockIndex ?? 0;
-        const thinkKey = AccumulatorKeys.thinkingBlock(
-          event.messageId,
-          blockIndex,
-        );
-
-        if (event.source === 'complete' || event.source === 'history') {
-          // Deferred THINKING clearing: on the first complete/history
-          // thinking_delta, clear only thinking keys (`*-thinking-*`).
-          // Text keys are left untouched.
-          if (this.pendingThinkingClear.has(event.messageId)) {
-            this.clearThinkingAccumulators(state, event.messageId);
-            this.pendingThinkingClear.delete(event.messageId);
-          }
-          state.textAccumulators.set(thinkKey, event.delta);
-        } else {
-          this.accumulateDelta(state.textAccumulators, thinkKey, event.delta);
-        }
-        break;
-      }
-
-      case 'tool_start': {
-        const existingToolStart = this.deduplication.replaceStreamEventIfNeeded(
-          state,
-          event.toolCallId,
-          'tool_start',
-          event.source,
-        );
-
-        if (existingToolStart) {
-          return null;
-        }
-
-        setStreamingEventCapped(state, event);
-        this.indexEventByMessage(state, event);
-
-        this.deduplication
-          .getProcessedToolCallIds(event.sessionId)
-          .add(event.toolCallId);
-
-        if (!state.toolCallMap.has(event.toolCallId)) {
-          state.toolCallMap.set(event.toolCallId, []);
-        }
-        state.toolCallMap.get(event.toolCallId)?.push(event.id);
-        break;
-      }
-
-      case 'tool_delta': {
-        if (
-          this.deduplication.isToolAlreadyFinalized(
-            event.sessionId,
-            event.toolCallId,
-            state,
-          )
-        ) {
-          return null;
-        }
-
-        setStreamingEventCapped(state, event);
-        this.indexEventByMessage(state, event);
-
-        const inputKey = AccumulatorKeys.toolInput(event.toolCallId);
-        this.accumulateDelta(
-          state.toolInputAccumulators,
-          inputKey,
-          event.delta,
-        );
-        break;
-      }
-
-      case 'tool_result': {
-        const existingToolResult =
-          this.deduplication.replaceStreamEventIfNeeded(
-            state,
-            event.toolCallId,
-            'tool_result',
-            event.source,
-          );
-
-        if (existingToolResult) {
-          return null;
-        }
-
-        setStreamingEventCapped(state, event);
-        this.indexEventByMessage(state, event);
-        break;
-      }
-
-      case 'agent_start': {
-        // TASK_2025_126_FIX: Use agentId for deduplication (stable across hook and complete)
-        // Hook sends UUID-format toolCallId, complete sends toolu_* format - they don't match!
-        // agentId (e.g., "adcecb2") is stable and present in both sources.
-        const existingByAgentId = this.deduplication.replaceAgentStartByAgentId(
-          state,
-          event.agentId,
-          event.source,
-        );
-
-        if (existingByAgentId) {
-          return null;
-        }
-
-        // Fallback: Also check by toolCallId for events without agentId
-        const existingByToolCallId =
-          this.deduplication.replaceStreamEventIfNeeded(
-            state,
-            event.toolCallId,
-            'agent_start',
-            event.source,
-          );
-
-        if (existingByToolCallId) {
-          return null;
-        }
-
-        setStreamingEventCapped(state, event);
-        this.indexEventByMessage(state, event);
-
-        // Register agent with SessionManager
-        const preliminaryAgentNode: ExecutionNode = {
-          id: event.id,
-          type: 'agent',
-          status: 'streaming',
-          content: event.agentDescription || '',
-          children: [],
-          agentType: event.agentType,
-          agentDescription: event.agentDescription,
-          toolCallId: event.toolCallId,
-          startTime: event.timestamp,
-          isCollapsed: false,
-        };
-
-        // TASK_2025_211: Detect SDK subagent resume â€” if a new agent of the
-        // same type as a previously interrupted agent is spawned, mark the old
-        // agent type as "resumed" so inline bubbles update their badge.
-        if (event.agentType) {
-          this.detectAndMarkResumedAgent(event.agentType, targetTab);
-        }
-
-        const pendingDeltas = this.sessionManager.registerAgent(
-          event.toolCallId,
-          preliminaryAgentNode,
-        );
-
-        if (pendingDeltas.length > 0) {
-          const summaryContent = pendingDeltas.join('');
-          const updatedNode: ExecutionNode = {
-            ...preliminaryAgentNode,
-            summaryContent,
-          };
-          this.sessionManager.registerAgent(event.toolCallId, updatedNode);
-        }
-        break;
-      }
-
-      case 'message_complete': {
-        setStreamingEventCapped(state, event);
-        this.indexEventByMessage(state, event);
-
-        state.currentTokenUsage = event.tokenUsage || null;
-
-        // Check for queued content to auto-send â€” but ONLY on root-level messages.
-        // Sub-agent messages have parentToolUseId set; triggering re-steer on sub-agent
-        // message_complete would immediately interrupt the sub-agent mid-execution.
-        // Queued content should wait for the main agent's turn to complete (handled
-        // either by a root message_complete or by handleSessionStats).
-        if (!event.parentToolUseId) {
-          const queuedContent = targetTab.queuedContent;
-          if (queuedContent && queuedContent.trim()) {
-            this.batchedUpdate.scheduleUpdate(targetTab.id, state);
-            return { tabId: targetTab.id, queuedContent };
-          }
-        }
-        break;
-      }
-
-      case 'message_delta': {
-        setStreamingEventCapped(state, event);
-        this.indexEventByMessage(state, event);
-        state.currentTokenUsage = event.tokenUsage;
-        break;
-      }
-
-      case 'signature_delta': {
-        setStreamingEventCapped(state, event);
-        this.indexEventByMessage(state, event);
-        break;
-      }
-
-      case 'compaction_start': {
-        // TASK_2025_098: Unified compaction flow
-        // Compaction events now flow through CHAT_CHUNK (same as all streaming events)
-        // Return compaction info so ChatStore can call handleCompactionStart()
-        return { tabId: targetTab.id, compactionSessionId: event.sessionId };
-      }
-
-      case 'compaction_complete': {
-        // Reset streaming state to fresh - pre-compaction events are stale
-        this.tabManager.setStreamingState(
-          targetTab.id,
-          createEmptyStreamingState(),
-        );
-
-        // Clear deduplication state across compaction boundary
-        this.deduplication.cleanupSession(event.sessionId);
-
-        return {
-          tabId: targetTab.id,
-          compactionComplete: true,
-          compactionSessionId: event.sessionId,
-        };
-      }
-
-      case 'background_agent_started':
-        this.backgroundAgentStore.onStarted(event);
-        break;
-      case 'background_agent_progress':
-        this.backgroundAgentStore.onProgress(event);
-        break;
-      case 'background_agent_completed':
-        this.backgroundAgentStore.onCompleted(event);
-        break;
-      case 'background_agent_stopped':
-        this.backgroundAgentStore.onStopped(event);
-        break;
-
-      default:
-        assertNever(
-          event,
-          `Unhandled event type: ${(event as FlatStreamEventUnion).eventType}`,
-        );
+    // Compaction lifecycle: the core surfaces both edges via flags so the
+    // chat wrapper can return its legacy { compactionSessionId, ... } shape
+    // without re-implementing the switch.
+    if (result.compactionStart) {
+      // TASK_2025_098: Unified compaction flow — caller consumes
+      // compactionSessionId to invoke handleCompactionStart on ChatStore.
+      return { tabId: targetTab.id, compactionSessionId: event.sessionId };
+    }
+    if (result.compactionComplete && result.replacementState) {
+      // The core cleared dedup; we install the replacement state via the
+      // tab manager so signal observers see the swap.
+      this.tabManager.setStreamingState(targetTab.id, result.replacementState);
+      return {
+        tabId: targetTab.id,
+        compactionComplete: true,
+        compactionSessionId: event.sessionId,
+      };
     }
 
-    // Schedule batched UI update
-    this.batchedUpdate.scheduleUpdate(targetTab.id, state);
+    // Queued-content surfacing on root-level `message_complete`. Sub-agent
+    // messages have parentToolUseId set; triggering re-steer on a sub-agent
+    // would interrupt the sub-agent mid-execution. Queued content waits for
+    // the main agent's turn to complete (via root message_complete or
+    // handleSessionStats).
+    if (
+      result.eventType === 'message_complete' &&
+      !(event as FlatStreamEventUnion & { eventType: 'message_complete' })
+        .parentToolUseId
+    ) {
+      const queuedContent = targetTab.queuedContent;
+      if (queuedContent && queuedContent.trim()) {
+        this.batchedUpdate.scheduleUpdate(targetTab.id, state);
+        return { tabId: targetTab.id, queuedContent };
+      }
+    }
 
-    // Structural events that change the execution tree layout must flush immediately.
-    // In VS Code webviews, requestAnimationFrame can be throttled/delayed when the
-    // webview isn't actively rendering. Without an immediate flush, agent_start events
-    // stay invisible until an unrelated signal update (e.g. permission request) forces
-    // Angular change detection.
-    if (event.eventType === 'agent_start') {
+    // Schedule batched UI update for any state mutation.
+    if (result.stateMutated) {
+      this.batchedUpdate.scheduleUpdate(targetTab.id, state);
+    }
+
+    // Structural events that change the execution tree layout must flush
+    // immediately. In VS Code webviews, requestAnimationFrame can be
+    // throttled/delayed when the webview isn't actively rendering. Without
+    // an immediate flush, agent_start events stay invisible until an
+    // unrelated signal update (e.g. permission request) forces Angular
+    // change detection.
+    if (result.agentStartFlushNeeded) {
       this.batchedUpdate.flushSync();
     }
 
     return null;
   }
 
-  /**
-   * Backfill agent_start events with the correct toolu_* format parentToolUseId.
-   *
-   * Hook-based agent_start events arrive with UUID-format toolCallId/parentToolUseId
-   * because the SDK SubagentStart hook only provides a UUID. When the first stream
-   * message_start arrives from the subagent, it carries parentToolUseId in toolu_*
-   * format (the actual Anthropic API tool_use ID). This method finds the corresponding
-   * hook-based agent_start and replaces it with an updated copy carrying the correct ID.
-   *
-   * This fixes the tree builder's primary matching path:
-   *   tool_start.toolCallId (toolu_*) === agent_start.parentToolUseId (toolu_*)
-   */
-  private backfillAgentStartToolId(
-    state: StreamingState,
-    tooluParentToolUseId: string,
-  ): void {
-    // Find a hook-based agent_start with UUID-format toolCallId (not toolu_*)
-    // that hasn't been backfilled yet
-    for (const [eventId, evt] of state.events) {
-      if (
-        evt.eventType === 'agent_start' &&
-        evt.source === 'hook' &&
-        evt.toolCallId &&
-        !evt.toolCallId.startsWith('toolu_')
-      ) {
-        // Check if this agent_start has already been backfilled
-        // (i.e., another message_start already updated it)
-        const alreadyBackfilled = [...state.events.values()].some(
-          (e) =>
-            e.eventType === 'agent_start' &&
-            e.parentToolUseId === tooluParentToolUseId,
-        );
-        if (alreadyBackfilled) {
-          return; // Already have an agent_start with this toolu_* ID
-        }
-
-        // Replace the event with an updated copy carrying the correct toolu_* ID
-        const updatedEvent = {
-          ...evt,
-          toolCallId: tooluParentToolUseId,
-          parentToolUseId: tooluParentToolUseId,
-        };
-        state.events.set(eventId, updatedEvent as FlatStreamEventUnion);
-
-        return; // Only backfill one agent_start per message_start
-      }
-    }
-  }
-
-  /**
-   * Helper to index event by messageId for O(1) lookup.
-   */
-  private indexEventByMessage(
-    state: StreamingState,
-    event: FlatStreamEventUnion,
-  ): void {
-    if (event.messageId) {
-      const messageEvents = state.eventsByMessage.get(event.messageId) || [];
-      messageEvents.push(event);
-      state.eventsByMessage.set(event.messageId, messageEvents);
-    }
-  }
-
-  /**
-   * Clear only TEXT accumulators (`*-block-*`) for a given messageId.
-   * Thinking keys are left untouched.
-   */
-  private clearTextAccumulators(
-    state: StreamingState,
-    messageId: string,
-  ): void {
-    const prefix = `${messageId}-block-`;
-    for (const key of state.textAccumulators.keys()) {
-      if (key.startsWith(prefix)) {
-        state.textAccumulators.delete(key);
-      }
-    }
-  }
-
-  /**
-   * Clear only THINKING accumulators (`*-thinking-*`) for a given messageId.
-   * Text keys are left untouched.
-   */
-  private clearThinkingAccumulators(
-    state: StreamingState,
-    messageId: string,
-  ): void {
-    const thinkPrefix = `${messageId}-thinking-`;
-    for (const key of state.textAccumulators.keys()) {
-      if (key.startsWith(thinkPrefix)) {
-        state.textAccumulators.delete(key);
-      }
-    }
-  }
-
-  /**
-   * Helper to accumulate delta into Map.
-   */
-  private accumulateDelta(
-    map: Map<string, string>,
-    key: string,
-    delta: string,
-  ): void {
-    const current = map.get(key) || '';
-    map.set(key, current + delta);
-  }
+  // (Pure event-type dispatch + per-event helpers moved to
+  // StreamingAccumulatorCore in TASK_2026_107 Phase 2.)
 
   /**
    * Finalize the current streaming message
