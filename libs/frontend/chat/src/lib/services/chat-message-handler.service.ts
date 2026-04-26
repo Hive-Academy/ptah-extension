@@ -144,9 +144,17 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    this.chatStore.handlePermissionRequest(
-      payload as Parameters<typeof this.chatStore.handlePermissionRequest>[0],
-    );
+    const prompt = payload as Parameters<
+      typeof this.chatStore.handlePermissionRequest
+    >[0];
+    // 1. Append to PermissionHandler queue first so the prompt is in
+    //    `_permissionRequests` by the time the router tags target tabs.
+    this.chatStore.handlePermissionRequest(prompt);
+    // 2. TASK_2026_106 Phase 6a — compute fan-out target tabs and stash
+    //    them on the PermissionHandler so cancel-on-decision can broadcast
+    //    correctly. Router falls back to no-op when the prompt's session
+    //    isn't yet in the registry — global visibility kicks in.
+    this.streamRouter.routePermissionPrompt(prompt);
   }
 
   // AGENT_SUMMARY_CHUNK: Real-time agent summary streaming

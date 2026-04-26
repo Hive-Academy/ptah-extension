@@ -33,12 +33,14 @@ import {
 } from '@ptah-extension/chat-state';
 import {
   AgentMonitorStore,
+  PermissionHandlerService,
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
 import type {
   CompactionCompleteEvent,
   CompactionStartEvent,
   MessageStartEvent,
+  PermissionRequest,
   TextDeltaEvent,
 } from '@ptah-extension/shared';
 import { StreamRouter } from './stream-router.service';
@@ -128,6 +130,56 @@ function makeTabManagerMock(
   };
 }
 
+/**
+ * Phase 6a mock harness for `PermissionHandlerService`. The router only
+ * touches `attachPromptTargets`, `targetTabsFor`, `cancelPrompt`, and
+ * subscribes to `decisionPulse` via effect — so the mock exposes those
+ * methods + a writable signal for decision broadcasts.
+ */
+function makePermissionHandlerMock() {
+  const targets = new Map<string, readonly string[]>();
+  const cancelled: { promptId: string; exceptTabId: string | null }[] = [];
+  const pulseSignal = signal<{
+    seq: number;
+    promptId: string;
+    decidingTabId: string | null;
+  } | null>(null);
+  return {
+    attachPromptTargets: jest.fn(
+      (promptId: string, tabIds: readonly string[]) => {
+        if (tabIds.length === 0) return;
+        targets.set(promptId, [...tabIds]);
+      },
+    ),
+    targetTabsFor: jest.fn((promptId: string) => targets.get(promptId) ?? []),
+    cancelPrompt: jest.fn((promptId: string, exceptTabId: string | null) => {
+      cancelled.push({ promptId, exceptTabId });
+      targets.delete(promptId);
+    }),
+    decisionPulse: pulseSignal.asReadonly(),
+    _emitDecision: (promptId: string, decidingTabId: string | null, seq = 1) =>
+      pulseSignal.set({ seq, promptId, decidingTabId }),
+    _cancelled: cancelled,
+    _targets: targets,
+  };
+}
+
+function makePermissionRequest(
+  overrides: Partial<PermissionRequest> = {},
+): PermissionRequest {
+  return {
+    id: 'perm-1',
+    toolName: 'Bash',
+    toolInput: {},
+    toolUseId: 'tool-1',
+    timestamp: Date.now(),
+    description: 'Run a command',
+    timeoutAt: 0,
+    sessionId: SESSION_A as unknown as string,
+    ...overrides,
+  } as PermissionRequest;
+}
+
 // ---------- Suite ----------------------------------------------------------
 
 describe('StreamRouter (authoritative — Phase 3)', () => {
@@ -141,6 +193,7 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
   let agentMonitorStore: jest.Mocked<
     Pick<AgentMonitorStore, 'clearSessionAgents'>
   >;
+  let permissionHandler: ReturnType<typeof makePermissionHandlerMock>;
 
   beforeEach(() => {
     tabManager = makeTabManagerMock();
@@ -150,12 +203,14 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
     agentMonitorStore = {
       clearSessionAgents: jest.fn(),
     };
+    permissionHandler = makePermissionHandlerMock();
 
     TestBed.configureTestingModule({
       providers: [
         { provide: TabManagerService, useValue: tabManager },
         { provide: StreamingHandlerService, useValue: streamingHandler },
         { provide: AgentMonitorStore, useValue: agentMonitorStore },
+        { provide: PermissionHandlerService, useValue: permissionHandler },
       ],
     });
 
@@ -364,6 +419,122 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
     expect(conv).not.toBeNull();
     expect(binding.conversationFor(tab)).toBe(conv);
   });
+
+  // =============================================================================
+  // PHASE 6a — Permission prompt fan-out
+  // =============================================================================
+  //
+  // Two-tab canvas-grid scenario: both tabs are bound to the same SDK session
+  // (the same conversation). When a permission_required prompt arrives, the
+  // router resolves the bound tab set and tags the prompt; when one tab
+  // decides, the router broadcasts a cancellation that targets the OTHER
+  // tabs (deciding tab is excluded).
+
+  describe('routePermissionPrompt + cancelPendingPromptOnOtherTabs (Phase 6a)', () => {
+    it('routePermissionPrompt resolves both tabs when two are bound to the same conversation', () => {
+      const tabA = newTabId();
+      const tabB = newTabId();
+      router.onTabCreated(tabA, SESSION_A);
+      router.routeStreamEvent(textDelta(SESSION_A), tabB);
+
+      const prompt = makePermissionRequest({ id: 'perm-fanout' });
+      const targets = router.routePermissionPrompt(prompt);
+
+      expect(new Set(targets)).toEqual(new Set([tabA, tabB]));
+      // Router stashed the resolution on PermissionHandler for later
+      // cancellation broadcast.
+      expect(permissionHandler.attachPromptTargets).toHaveBeenCalledWith(
+        'perm-fanout',
+        expect.arrayContaining([tabA, tabB]),
+      );
+    });
+
+    it('routePermissionPrompt returns empty array when prompt has no sessionId', () => {
+      const prompt = makePermissionRequest({
+        id: 'perm-no-session',
+        sessionId: undefined,
+      });
+      expect(router.routePermissionPrompt(prompt)).toEqual([]);
+      expect(permissionHandler.attachPromptTargets).not.toHaveBeenCalled();
+    });
+
+    it('routePermissionPrompt returns empty array when sessionId is unknown to the registry', () => {
+      const prompt = makePermissionRequest({
+        id: 'perm-unknown',
+        sessionId: SESSION_C as unknown as string,
+      });
+      expect(router.routePermissionPrompt(prompt)).toEqual([]);
+      expect(permissionHandler.attachPromptTargets).not.toHaveBeenCalled();
+    });
+
+    it('cancelPendingPromptOnOtherTabs excludes the deciding tab and cancels on the others', () => {
+      const tabA = newTabId();
+      const tabB = newTabId();
+      router.onTabCreated(tabA, SESSION_A);
+      router.routeStreamEvent(textDelta(SESSION_A), tabB);
+
+      const prompt = makePermissionRequest({ id: 'perm-decide' });
+      router.routePermissionPrompt(prompt);
+
+      // tabA decides — broadcast cancellation should exclude tabA.
+      const cancelOn = router.cancelPendingPromptOnOtherTabs(
+        'perm-decide',
+        tabA,
+      );
+
+      expect(cancelOn).toEqual([tabB]);
+      expect(permissionHandler.cancelPrompt).toHaveBeenCalledWith(
+        'perm-decide',
+        tabA as unknown as string,
+      );
+    });
+
+    it('decisionPulse signal triggers router fan-out via effect (decision-from-tab-A cancels prompt on tab-B)', () => {
+      const tabA = newTabId();
+      const tabB = newTabId();
+      router.onTabCreated(tabA, SESSION_A);
+      router.routeStreamEvent(textDelta(SESSION_A), tabB);
+
+      router.routePermissionPrompt(makePermissionRequest({ id: 'perm-pulse' }));
+
+      // Simulate PermissionHandler.handlePermissionResponse firing the
+      // pulse with tabA as the deciding tab.
+      permissionHandler._emitDecision('perm-pulse', tabA as unknown as string);
+      TestBed.tick();
+
+      // Router's effect should have called cancelPrompt for the other
+      // tab (the prompt is dropped from PermissionHandler's queue).
+      expect(permissionHandler.cancelPrompt).toHaveBeenCalledWith(
+        'perm-pulse',
+        tabA as unknown as string,
+      );
+    });
+
+    it('cancelPendingPromptOnOtherTabs is a no-op when prompt has no resolved targets', () => {
+      const result = router.cancelPendingPromptOnOtherTabs('perm-orphan', null);
+      expect(result).toEqual([]);
+      expect(permissionHandler.cancelPrompt).not.toHaveBeenCalled();
+    });
+
+    it('decisionPulse with null decidingTabId still cancels the prompt across all bound tabs', () => {
+      const tabA = newTabId();
+      const tabB = newTabId();
+      router.onTabCreated(tabA, SESSION_A);
+      router.routeStreamEvent(textDelta(SESSION_A), tabB);
+
+      router.routePermissionPrompt(
+        makePermissionRequest({ id: 'perm-headless' }),
+      );
+
+      permissionHandler._emitDecision('perm-headless', null);
+      TestBed.tick();
+
+      expect(permissionHandler.cancelPrompt).toHaveBeenCalledWith(
+        'perm-headless',
+        null,
+      );
+    });
+  });
 });
 
 // =============================================================================
@@ -387,6 +558,7 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
     tabManager = makeTabManagerMock(initialTabs);
     streamingHandler = { cleanupSessionDeduplication: jest.fn() };
     agentMonitorStore = { clearSessionAgents: jest.fn() };
+    const permissionHandler = makePermissionHandlerMock();
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -394,6 +566,7 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: StreamingHandlerService, useValue: streamingHandler },
         { provide: AgentMonitorStore, useValue: agentMonitorStore },
+        { provide: PermissionHandlerService, useValue: permissionHandler },
       ],
     });
 

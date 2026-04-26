@@ -48,6 +48,49 @@ export class PermissionHandlerService {
   private readonly _permissionRequests = signal<PermissionRequest[]>([]);
 
   /**
+   * TASK_2026_106 Phase 6a — fan-out routing metadata.
+   *
+   * Per-prompt list of tab ids the prompt is targeted at, populated by
+   * `StreamRouter.routePermissionPrompt` after a prompt arrives. The
+   * StreamRouter cannot inject this service circularly, so we expose a
+   * setter (`attachPromptTargets`) that StreamRouter calls. The map is
+   * cleared when the prompt is removed (decision arrives, auto-resolve,
+   * or session cleanup).
+   *
+   * Today the UI renders prompts globally (per-session filter intentionally
+   * returns true), so per-tab visibility is not yet enforced through this
+   * map. The data lives here for the cancel-on-decision broadcast and so
+   * downstream surfaces (canvas grid, multi-pop-out) can begin reading it
+   * without another routing pass.
+   */
+  private readonly _promptTargetTabs = new Map<string, readonly string[]>();
+
+  /**
+   * TASK_2026_106 Phase 6a — decision broadcast.
+   *
+   * Bumps every time a permission decision is processed. Carries the
+   * `promptId` and the `decidingTabId` (or null when the deciding tab
+   * cannot be resolved — e.g. headless flows). The `seq` field forces a
+   * fresh signal value on repeat decisions for the same prompt id.
+   *
+   * `StreamRouter` watches this via `effect()` and calls
+   * `cancelPendingPromptOnOtherTabs(promptId, decidingTabId)` to fan a
+   * cancellation out to every other bound tab. Layering is preserved
+   * because PermissionHandler does not import StreamRouter.
+   */
+  private readonly _decisionPulse = signal<{
+    seq: number;
+    promptId: string;
+    decidingTabId: string | null;
+  } | null>(null);
+  /**
+   * Public read-only access to the decision pulse. Consumers (StreamRouter)
+   * wrap this in `effect()` to react to each decision.
+   */
+  readonly decisionPulse = this._decisionPulse.asReadonly();
+  private _decisionSeq = 0;
+
+  /**
    * Tracks toolUseIds of hard permission denies (not deny_with_message).
    * Used by StreamingHandlerService to mark specific agent nodes as "interrupted".
    * Set-based to handle multiple concurrent denies correctly.
@@ -311,6 +354,54 @@ export class PermissionHandlerService {
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.id !== payload.id),
     );
+    this._promptTargetTabs.delete(payload.id);
+  }
+
+  /**
+   * TASK_2026_106 Phase 6a — fan-out target attachment.
+   *
+   * Called by `StreamRouter.routePermissionPrompt` once a prompt arrives,
+   * with the resolved set of bound tab ids. No-op when `tabIds` is empty
+   * (router could not resolve a conversation — fall back to legacy global
+   * visibility).
+   *
+   * Must be called AFTER `handlePermissionRequest` to ensure the prompt
+   * is in the queue. Order is enforced by ChatMessageHandler (handler
+   * runs router *after* permission handler).
+   */
+  attachPromptTargets(promptId: string, tabIds: readonly string[]): void {
+    if (!tabIds || tabIds.length === 0) return;
+    this._promptTargetTabs.set(promptId, [...tabIds]);
+  }
+
+  /**
+   * TASK_2026_106 Phase 6a — read access to the per-prompt target tabs
+   * computed by `StreamRouter`. Returns an empty array if the prompt has
+   * no resolved tabs (router fall-back to global visibility) or has
+   * already been resolved.
+   */
+  targetTabsFor(promptId: string): readonly string[] {
+    return this._promptTargetTabs.get(promptId) ?? [];
+  }
+
+  /**
+   * TASK_2026_106 Phase 6a — cancellation API used by `StreamRouter` to
+   * remove a prompt that was decided on another tab. Idempotent: removing
+   * an already-removed prompt is a no-op. Does NOT emit `decisionPulse` —
+   * the original decision already did, and we must avoid an infinite loop
+   * with the router's effect.
+   *
+   * `_exceptTabId` is reserved for a future world where prompts have
+   * per-tab queues — today the queue is global, so cancelling on "other
+   * tabs" is the same as removing from the queue entirely. The argument
+   * is kept on the signature so the router's broadcast contract reads
+   * cleanly today and future per-tab queues drop in without API churn.
+   */
+  cancelPrompt(promptId: string, _exceptTabId: string | null): void {
+    this._permissionRequests.update((requests) =>
+      requests.filter((r) => r.id !== promptId),
+    );
+    this._promptTargetTabs.delete(promptId);
   }
 
   /**
@@ -348,6 +439,20 @@ export class PermissionHandlerService {
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.id !== response.id),
     );
+
+    // TASK_2026_106 Phase 6a — broadcast the decision so StreamRouter can
+    // fan a cancellation out to every other bound tab. We resolve the
+    // deciding tab id from the active tab (the user clicked from there).
+    // If no active tab, pass null — the router will still drop the prompt
+    // from any per-tab queues globally.
+    const decidingTabId = this.tabManager.activeTabId() ?? null;
+    this._decisionSeq += 1;
+    this._decisionPulse.set({
+      seq: this._decisionSeq,
+      promptId: response.id,
+      decidingTabId,
+    });
+    this._promptTargetTabs.delete(response.id);
 
     // Use public VSCodeService.postMessage() API
     this.vscodeService.postMessage({
@@ -471,6 +576,12 @@ export class PermissionHandlerService {
    * Prevents stale permission/question cards from lingering in the UI.
    */
   cleanupSession(sessionId: string): void {
+    // Capture removed prompt ids first so we can drop their fan-out
+    // metadata (TASK_2026_106 Phase 6a).
+    const removedIds = this._permissionRequests()
+      .filter((r) => r.sessionId === sessionId)
+      .map((r) => r.id);
+
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.sessionId !== sessionId),
     );
@@ -478,5 +589,9 @@ export class PermissionHandlerService {
     this._questionRequests.update((requests) =>
       requests.filter((r) => r.sessionId !== sessionId),
     );
+
+    for (const id of removedIds) {
+      this._promptTargetTabs.delete(id);
+    }
   }
 }

@@ -42,9 +42,13 @@ import {
 } from '@ptah-extension/chat-state';
 import {
   AgentMonitorStore,
+  PermissionHandlerService,
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
-import type { FlatStreamEventUnion } from '@ptah-extension/shared';
+import type {
+  FlatStreamEventUnion,
+  PermissionRequest,
+} from '@ptah-extension/shared';
 
 @Injectable({ providedIn: 'root' })
 export class StreamRouter {
@@ -53,6 +57,7 @@ export class StreamRouter {
   private readonly tabManager = inject(TabManagerService);
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly permissionHandler = inject(PermissionHandlerService);
 
   constructor() {
     // Bootstrap migration: hydrate registry/binding from any tabs that were
@@ -68,6 +73,25 @@ export class StreamRouter {
       const evt = this.tabManager.closedTab();
       if (!evt) return;
       this.handleTabClosed(evt);
+    });
+
+    // TASK_2026_106 Phase 6a — permission decision broadcast.
+    //
+    // PermissionHandler exposes a one-way `decisionPulse` signal that
+    // bumps each time `handlePermissionResponse` resolves a prompt. The
+    // router watches it (effect) and fans cancellation out to every
+    // OTHER bound tab via `cancelPendingPromptOnOtherTabs`. Layering
+    // direction stays one-way: chat-routing → chat-streaming. Permission
+    // handler does not import the router.
+    effect(() => {
+      const pulse = this.permissionHandler.decisionPulse();
+      if (!pulse) return;
+      this.cancelPendingPromptOnOtherTabs(
+        pulse.promptId,
+        pulse.decidingTabId
+          ? (TabId.safeParse(pulse.decidingTabId) ?? null)
+          : null,
+      );
     });
   }
 
@@ -208,6 +232,73 @@ export class StreamRouter {
     const record = this.registry.findContainingSession(sessionId);
     if (!record) return [];
     return this.binding.tabsFor(record.id);
+  }
+
+  /**
+   * TASK_2026_106 Phase 6a — permission prompt fan-out routing.
+   *
+   * Resolves the prompt's `sessionId` to the conversation that contains
+   * it, then returns every tab currently bound to that conversation.
+   * Side-effect: stores the resolved tab ids on the PermissionHandler so
+   * downstream surfaces (canvas grid tiles, pop-out panels) can read
+   * them without redoing the resolution.
+   *
+   * Returns an empty array when:
+   *   - prompt has no sessionId, or
+   *   - sessionId is unknown to the registry (router didn't see the
+   *     binding event yet — fall back to global visibility), or
+   *   - no tab is bound to the conversation.
+   *
+   * The caller (typically the message handler that just dispatched the
+   * prompt to PermissionHandler) is responsible for actually dispatching
+   * the prompt; this method only computes routing metadata.
+   */
+  routePermissionPrompt(prompt: PermissionRequest): readonly TabId[] {
+    if (!prompt.sessionId) return [];
+    const sessionId = prompt.sessionId as ClaudeSessionId;
+    const tabs = this.tabsForSession(sessionId);
+    if (tabs.length > 0) {
+      this.permissionHandler.attachPromptTargets(prompt.id, tabs);
+    }
+    return tabs;
+  }
+
+  /**
+   * TASK_2026_106 Phase 6a — fan a "prompt resolved" signal out to every
+   * other bound tab. Today the prompt list is global, so cancellation is
+   * a no-op once the deciding tab has already removed the entry from
+   * `_permissionRequests` (PermissionHandler.handlePermissionResponse
+   * already does that). This method is the architectural seam for the
+   * future per-tab queue model — when prompts move into per-tab queues,
+   * this method drops the queued copy on every tab except the one that
+   * decided.
+   *
+   * Idempotent on repeat calls for the same prompt id (PermissionHandler.
+   * cancelPrompt is itself a no-op when the prompt is already gone).
+   */
+  cancelPendingPromptOnOtherTabs(
+    promptId: string,
+    decidingTabId: TabId | null,
+  ): readonly TabId[] {
+    const tabs = this.permissionHandler.targetTabsFor(promptId);
+    const cancelOn: TabId[] = [];
+    for (const id of tabs) {
+      const tabId = TabId.safeParse(id);
+      if (!tabId) continue;
+      if (decidingTabId && tabId === decidingTabId) continue;
+      cancelOn.push(tabId);
+    }
+    // Today the prompt list is global. Calling cancelPrompt removes any
+    // residual entry for the prompt id (the deciding tab already removed
+    // it via handlePermissionResponse, so this is defensive). The
+    // exceptTabId arg is reserved for the future per-tab queue.
+    if (cancelOn.length > 0 || tabs.length > 0) {
+      this.permissionHandler.cancelPrompt(
+        promptId,
+        decidingTabId ? (decidingTabId as string) : null,
+      );
+    }
+    return cancelOn;
   }
 
   /**

@@ -420,5 +420,169 @@ describe('PermissionHandlerService', () => {
       expect(service.permissionRequests().map((r) => r.id)).toEqual(['p-2']);
       expect(service.questionRequests().map((r) => r.id)).toEqual(['q-2']);
     });
+
+    it('clears prompt target tabs for matching sessionId', () => {
+      service.handlePermissionRequest(
+        makePermissionRequest({ id: 'p-1', sessionId: 'sess-A' }),
+      );
+      service.attachPromptTargets('p-1', ['tab-1', 'tab-2']);
+      expect(service.targetTabsFor('p-1')).toEqual(['tab-1', 'tab-2']);
+
+      service.cleanupSession('sess-A');
+
+      expect(service.targetTabsFor('p-1')).toEqual([]);
+    });
+  });
+
+  describe('TASK_2026_106 Phase 6a — fan-out target tracking', () => {
+    describe('attachPromptTargets', () => {
+      it('records the resolved target tabs for a prompt', () => {
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+        service.attachPromptTargets('p-1', ['tab-1', 'tab-2', 'tab-3']);
+        expect(service.targetTabsFor('p-1')).toEqual([
+          'tab-1',
+          'tab-2',
+          'tab-3',
+        ]);
+      });
+
+      it('is a no-op when tabIds is empty (router fall-back)', () => {
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+        service.attachPromptTargets('p-1', []);
+        expect(service.targetTabsFor('p-1')).toEqual([]);
+      });
+
+      it('overwrites a prior target list for the same prompt', () => {
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+        service.attachPromptTargets('p-1', ['tab-1']);
+        service.attachPromptTargets('p-1', ['tab-2', 'tab-3']);
+        expect(service.targetTabsFor('p-1')).toEqual(['tab-2', 'tab-3']);
+      });
+
+      it('defensively copies the input array (caller mutation safe)', () => {
+        const inputTabs: string[] = ['tab-1', 'tab-2'];
+        service.attachPromptTargets('p-1', inputTabs);
+        inputTabs.push('tab-3');
+        expect(service.targetTabsFor('p-1')).toEqual(['tab-1', 'tab-2']);
+      });
+    });
+
+    describe('targetTabsFor', () => {
+      it('returns empty array for an unknown promptId', () => {
+        expect(service.targetTabsFor('unknown')).toEqual([]);
+      });
+    });
+
+    describe('cancelPrompt', () => {
+      it('removes the prompt from the queue and clears its target tabs', () => {
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+        service.attachPromptTargets('p-1', ['tab-1', 'tab-2']);
+
+        service.cancelPrompt('p-1', 'tab-1');
+
+        expect(service.permissionRequests()).toEqual([]);
+        expect(service.targetTabsFor('p-1')).toEqual([]);
+      });
+
+      it('is idempotent (cancelling an already-removed prompt is a no-op)', () => {
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+        service.cancelPrompt('p-1', null);
+        expect(() => service.cancelPrompt('p-1', null)).not.toThrow();
+        expect(service.permissionRequests()).toEqual([]);
+      });
+
+      it('does NOT emit decisionPulse (no router-effect feedback loop)', () => {
+        const before = service.decisionPulse();
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+        service.cancelPrompt('p-1', 'tab-1');
+        expect(service.decisionPulse()).toBe(before);
+      });
+
+      it('does not affect other prompts in the queue', () => {
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-2' }));
+        service.attachPromptTargets('p-1', ['tab-1']);
+        service.attachPromptTargets('p-2', ['tab-2']);
+
+        service.cancelPrompt('p-1', null);
+
+        expect(service.permissionRequests().map((r) => r.id)).toEqual(['p-2']);
+        expect(service.targetTabsFor('p-2')).toEqual(['tab-2']);
+      });
+    });
+
+    describe('decisionPulse on handlePermissionResponse', () => {
+      it('emits a pulse with promptId, decidingTabId (active tab), and incrementing seq', () => {
+        tabSignals.activeTabId.set('tab-deciding');
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+        service.attachPromptTargets('p-1', ['tab-deciding', 'tab-other']);
+
+        service.handlePermissionResponse({
+          id: 'p-1',
+          decision: 'allow',
+        } as never);
+
+        const pulse = service.decisionPulse();
+        expect(pulse).not.toBeNull();
+        expect(pulse?.promptId).toBe('p-1');
+        expect(pulse?.decidingTabId).toBe('tab-deciding');
+        expect(pulse?.seq).toBeGreaterThan(0);
+      });
+
+      it('passes null decidingTabId when no active tab', () => {
+        tabSignals.activeTabId.set(null);
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+
+        service.handlePermissionResponse({
+          id: 'p-1',
+          decision: 'allow',
+        } as never);
+
+        expect(service.decisionPulse()?.decidingTabId).toBeNull();
+      });
+
+      it('emits a fresh pulse with a higher seq for each response', () => {
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-2' }));
+
+        service.handlePermissionResponse({
+          id: 'p-1',
+          decision: 'allow',
+        } as never);
+        const seq1 = service.decisionPulse()?.seq ?? 0;
+
+        service.handlePermissionResponse({
+          id: 'p-2',
+          decision: 'deny',
+        } as never);
+        const seq2 = service.decisionPulse()?.seq ?? 0;
+
+        expect(seq2).toBeGreaterThan(seq1);
+        expect(service.decisionPulse()?.promptId).toBe('p-2');
+      });
+
+      it('clears prompt target tabs after a decision', () => {
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+        service.attachPromptTargets('p-1', ['tab-1', 'tab-2']);
+
+        service.handlePermissionResponse({
+          id: 'p-1',
+          decision: 'allow',
+        } as never);
+
+        expect(service.targetTabsFor('p-1')).toEqual([]);
+      });
+    });
+
+    describe('handlePermissionAutoResolved', () => {
+      it('clears target tabs for the auto-resolved prompt', () => {
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+        service.attachPromptTargets('p-1', ['tab-1', 'tab-2']);
+
+        service.handlePermissionAutoResolved({ id: 'p-1', toolName: 'Bash' });
+
+        expect(service.targetTabsFor('p-1')).toEqual([]);
+      });
+    });
   });
 });
