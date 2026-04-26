@@ -142,6 +142,30 @@ export class ConversationRegistry {
   }
 
   /**
+   * TASK_2026_106 Phase 4c — compaction-on-conversation.
+   *
+   * Returns the compaction state of the conversation, or `null` if the
+   * conversation is unknown. Reads through the same internal `_byId` signal
+   * as `getRecord`, so callers wrapping this in `computed()` get reactive
+   * updates whenever `markCompactionStart` / `markCompactionComplete` fires.
+   *
+   * The compaction banner UI uses this to render banner state from the
+   * conversation rather than the tab — so closing one of two side-by-side
+   * canvas tiles bound to the same session does not lose banner state on
+   * the surviving tile.
+   */
+  compactionStateFor(
+    convId: ConversationId,
+  ): { inFlight: boolean; lastCompactionAt: number | null } | null {
+    const r = this._byId().get(convId);
+    if (!r) return null;
+    return {
+      inFlight: r.compactionInFlight,
+      lastCompactionAt: r.lastCompactionAt,
+    };
+  }
+
+  /**
    * Remove a conversation. The router calls this once the last bound tab
    * unbinds *and* the underlying SDK session(s) have been cleaned up.
    * No-op on unknown id (defensive — close races can fire twice).

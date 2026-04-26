@@ -160,11 +160,18 @@ export class ChatLifecycleService {
     const { toolUseId, summaryDelta, agentId, sessionId, contentBlocks } =
       payload;
 
-    // Route to the correct tab by sessionId (multi-tab safe).
-    // If the session's tab was closed, drop the chunk rather than
-    // corrupting an unrelated active tab.
-    const targetTab = this.tabManager.findTabBySessionId(sessionId);
-    if (!targetTab?.streamingState) {
+    // TASK_2026_106 Phase 4b — fan out to ALL tabs bound to this session.
+    // Canvas grid: every tile bound to the session needs its
+    // streamingState.agentSummaryAccumulators updated, otherwise sub-agent
+    // summaries appear on one tile and freeze on the others.
+    //
+    // Per-tab streamingState is a separate object per tab — so accumulators
+    // are tracked independently. This means the same delta is appended to
+    // each tab's accumulator, which is exactly what we want for per-tab
+    // rendering parity.
+    const targetTabs = this.tabManager.findTabsBySessionId(sessionId);
+    const tabsWithStreaming = targetTabs.filter((t) => t.streamingState);
+    if (tabsWithStreaming.length === 0) {
       console.warn(
         '[ChatStore] No tab with streamingState for summary chunk:',
         { toolUseId, agentId, sessionId },
@@ -172,24 +179,27 @@ export class ChatLifecycleService {
       return;
     }
 
-    const state = targetTab.streamingState;
+    for (const tab of tabsWithStreaming) {
+      const state = tab.streamingState;
+      if (!state) continue;
 
-    // TASK_2025_099: Use agentId as key for summary accumulation.
-    // This is stable across hook (UUID toolUseId) and complete (toolu_* toolCallId).
-    const currentSummary = state.agentSummaryAccumulators.get(agentId) || '';
-    const newSummary = currentSummary + summaryDelta;
-    state.agentSummaryAccumulators.set(agentId, newSummary);
+      // TASK_2025_099: Use agentId as key for summary accumulation.
+      // This is stable across hook (UUID toolUseId) and complete (toolu_* toolCallId).
+      const currentSummary = state.agentSummaryAccumulators.get(agentId) || '';
+      const newSummary = currentSummary + summaryDelta;
+      state.agentSummaryAccumulators.set(agentId, newSummary);
 
-    // TASK_2025_102: Also store structured content blocks for interleaving
-    if (contentBlocks && contentBlocks.length > 0) {
-      const currentBlocks = state.agentContentBlocksMap.get(agentId) || [];
-      const newBlocks = [...currentBlocks, ...contentBlocks];
-      state.agentContentBlocksMap.set(agentId, newBlocks);
+      // TASK_2025_102: Also store structured content blocks for interleaving
+      if (contentBlocks && contentBlocks.length > 0) {
+        const currentBlocks = state.agentContentBlocksMap.get(agentId) || [];
+        const newBlocks = [...currentBlocks, ...contentBlocks];
+        state.agentContentBlocksMap.set(agentId, newBlocks);
+      }
+
+      // Trigger tab update to invalidate tree cache and re-render
+      // Create shallow copy to trigger signal change detection
+      this.tabManager.setStreamingState(tab.id, { ...state });
     }
-
-    // Trigger tab update to invalidate tree cache and re-render
-    // Create shallow copy to trigger signal change detection
-    this.tabManager.setStreamingState(targetTab.id, { ...state });
   }
 
   /**
@@ -262,45 +272,50 @@ export class ChatLifecycleService {
 
     console.error('[ChatStore] Chat error:', data);
 
-    // TASK_2025_092: Route by tabId (primary) or fall back to sessionId lookup
-    let targetTab: TabState | null = null;
-    let targetTabId: string | null = null;
+    // TASK_2025_092 / TASK_2026_106 Phase 4b: Route by tabId (primary, single
+    // tab — the originating call site already knows which tab errored), or
+    // fall back to sessionId lookup which fans out to ALL bound tabs.
+    let targetTabs: readonly TabState[] = [];
 
     // Primary: Use tabId for direct routing
     if (data.tabId) {
-      targetTabId = data.tabId;
-      targetTab =
+      const directTab =
         this.tabManager.tabs().find((t) => t.id === data.tabId) ?? null;
-    }
-
-    // Fallback: Find by sessionId if tabId not available (legacy support)
-    if (!targetTab && data.sessionId) {
-      targetTab = this.tabManager.findTabBySessionId(data.sessionId);
-      if (targetTab) {
-        targetTabId = targetTab.id;
+      if (directTab) {
+        targetTabs = [directTab];
       }
     }
 
+    // Fallback: Find by sessionId if tabId not available (legacy support).
+    // Phase 4b: fan out so canvas-grid tiles bound to the same session all
+    // get reset rather than only the first one returned by the legacy lookup.
+    if (targetTabs.length === 0 && data.sessionId) {
+      targetTabs = this.tabManager.findTabsBySessionId(data.sessionId);
+    }
+
     // Last resort: Use active tab
-    if (!targetTab) {
-      targetTabId = this.tabManager.activeTabId();
-      targetTab = this.tabManager.activeTab();
+    if (targetTabs.length === 0) {
+      const activeTab = this.tabManager.activeTab();
 
       // Warn if session ID doesn't match active tab
       if (
         data.sessionId &&
-        targetTab?.claudeSessionId &&
-        targetTab.claudeSessionId !== data.sessionId
+        activeTab?.claudeSessionId &&
+        activeTab.claudeSessionId !== data.sessionId
       ) {
         console.warn('[ChatStore] Error for unknown session', {
           sessionId: data.sessionId,
-          activeTabSessionId: targetTab.claudeSessionId,
+          activeTabSessionId: activeTab.claudeSessionId,
         });
         return;
       }
+
+      if (activeTab) {
+        targetTabs = [activeTab];
+      }
     }
 
-    if (!targetTabId || !targetTab) {
+    if (targetTabs.length === 0) {
       console.warn('[ChatStore] No target tab for chat error');
       return;
     }
@@ -311,15 +326,21 @@ export class ChatLifecycleService {
     // If we clear currentMessageId first, finalization returns early and
     // the interrupted badge never shows. By finalizing here, we ensure
     // partial streaming content is preserved with 'interrupted' status.
-    if (targetTab.streamingState?.currentMessageId) {
-      this.streamingHandler.finalizeCurrentMessage(targetTabId, true);
+    //
+    // Phase 4b: per-tab finalization — each bound tab has its own
+    // streamingState.currentMessageId, so finalize each independently.
+    for (const tab of targetTabs) {
+      if (tab.streamingState?.currentMessageId) {
+        this.streamingHandler.finalizeCurrentMessage(tab.id, true);
+      }
+      // Reset streaming state (including per-tab currentMessageId)
+      // TASK_2025_COMPACT_FIX: Also clear queued content and visual streaming indicator
+      // to prevent "Message queued" banner from persisting after slash command errors
+      this.tabManager.applyErrorReset(tab.id);
+      this.tabManager.markTabIdle(tab.id);
     }
 
-    // Reset streaming state (including per-tab currentMessageId)
-    // TASK_2025_COMPACT_FIX: Also clear queued content and visual streaming indicator
-    // to prevent "Message queued" banner from persisting after slash command errors
-    this.tabManager.applyErrorReset(targetTabId);
-    this.tabManager.markTabIdle(targetTabId);
+    // Session status is global to the SDK session — set once.
     this.sessionManager.setStatus('loaded');
 
     // Safety net: refresh sidebar in case session metadata was created before the error.

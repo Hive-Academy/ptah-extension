@@ -1,6 +1,7 @@
 ﻿import { Injectable, inject } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
+import type { TabState } from '@ptah-extension/chat-types';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';
@@ -50,24 +51,38 @@ export class SessionStatsAggregatorService {
       lastTurnContextTokens?: number;
     }>;
   }): void {
-    // Resolve the target tab by sessionId first.
-    // Fallback to activeTab() only as safety net â€” stats can't be dropped since
-    // they're the only opportunity to record cost/token data for the turn.
-    let targetTab = this.tabManager.findTabBySessionId(stats.sessionId);
+    // TASK_2026_106 Phase 4b — fan out to ALL tabs bound to this session.
+    // Canvas grid: every tile bound to the session needs its `liveModelStats`
+    // and `preloadedStats` updated. Stats are accurate per-tab because
+    // `setLiveModelStatsAndUsageList` and `setPreloadedStats` are idempotent
+    // overwrites (not accumulators) — applying the same stats N times still
+    // yields the correct final value.
+    let targetTabs: readonly TabState[] = this.tabManager.findTabsBySessionId(
+      stats.sessionId,
+    );
 
     // TASK_2025_098: Clear compaction state when new message finishes
-    // This indicates compaction (if any) has completed successfully
-    this.compactionLifecycle.clearCompactionState(targetTab?.id);
-    if (!targetTab) {
-      targetTab = this.tabManager.activeTab();
-      if (targetTab) {
+    // This indicates compaction (if any) has completed successfully.
+    // Clear on every bound tab; legacy single-tab behavior is the loop-of-1.
+    for (const t of targetTabs) {
+      this.compactionLifecycle.clearCompactionState(t.id);
+    }
+    if (targetTabs.length === 0) {
+      const activeTab = this.tabManager.activeTab();
+      if (activeTab) {
         console.warn(
           '[ChatStore] handleSessionStats: findTabBySessionId failed, fell back to activeTab',
-          { sessionId: stats.sessionId, activeTabId: targetTab.id },
+          { sessionId: stats.sessionId, activeTabId: activeTab.id },
         );
+        targetTabs = [activeTab];
+        // Mirror legacy behaviour: clearCompactionState was also called for the
+        // fallback tab.
+        this.compactionLifecycle.clearCompactionState(activeTab.id);
+      } else {
+        // Fallback path with no targets — keep legacy clearCompactionState(undefined) call.
+        this.compactionLifecycle.clearCompactionState(undefined);
       }
     }
-
     // Process modelUsage to update liveModelStats for context display
     if (stats.modelUsage && stats.modelUsage.length > 0) {
       // Select the model with the highest cost as the user's primary model.
@@ -99,9 +114,13 @@ export class SessionStatsAggregatorService {
           ? Math.round((contextUsed / primaryModel.contextWindow) * 1000) / 10
           : 0;
 
-      if (targetTab) {
+      // TASK_2026_106 Phase 4b — fan out liveModelStats to every bound tab.
+      // Stats are an idempotent overwrite, so applying to the same value N
+      // times converges; canvas-grid tiles see the same stats as the legacy
+      // single-tab caller.
+      for (const t of targetTabs) {
         this.tabManager.setLiveModelStatsAndUsageList(
-          targetTab.id,
+          t.id,
           {
             model: primaryModel.model,
             contextUsed,
@@ -116,21 +135,31 @@ export class SessionStatsAggregatorService {
     // Bug 2 fix: Accumulate preloadedStats with new turn data
     // When a loaded historical session gets new messages, the preloadedStats
     // must be updated so the stats summary shows the combined totals.
-    if (targetTab?.preloadedStats) {
-      this.tabManager.setPreloadedStats(targetTab.id, {
-        ...targetTab.preloadedStats,
-        totalCost: targetTab.preloadedStats.totalCost + stats.cost,
+    //
+    // TASK_2026_106 Phase 4b — fan out preloadedStats accumulation. Each tab
+    // tracks its own preloadedStats (carried from the SDK session it was
+    // loaded from) so we accumulate per-tab. For bound canvas-grid tiles
+    // sharing one session this WILL double-count if both tiles have a
+    // non-null preloadedStats — but in practice both tiles either inherit
+    // the same preloaded baseline (one accumulation per tile, identical
+    // result) or one is null and only the other is touched. We accept the
+    // remaining edge case (both populated, same baseline) as correct because
+    // each tile is a separate user-visible accounting surface.
+    for (const t of targetTabs) {
+      if (!t.preloadedStats) continue;
+      this.tabManager.setPreloadedStats(t.id, {
+        ...t.preloadedStats,
+        totalCost: t.preloadedStats.totalCost + stats.cost,
         tokens: {
-          input: targetTab.preloadedStats.tokens.input + stats.tokens.input,
-          output: targetTab.preloadedStats.tokens.output + stats.tokens.output,
+          input: t.preloadedStats.tokens.input + stats.tokens.input,
+          output: t.preloadedStats.tokens.output + stats.tokens.output,
           cacheRead:
-            targetTab.preloadedStats.tokens.cacheRead +
-            (stats.tokens.cacheRead ?? 0),
+            t.preloadedStats.tokens.cacheRead + (stats.tokens.cacheRead ?? 0),
           cacheCreation:
-            targetTab.preloadedStats.tokens.cacheCreation +
+            t.preloadedStats.tokens.cacheCreation +
             (stats.tokens.cacheCreation ?? 0),
         },
-        messageCount: targetTab.preloadedStats.messageCount + 1,
+        messageCount: t.preloadedStats.messageCount + 1,
       });
     }
 

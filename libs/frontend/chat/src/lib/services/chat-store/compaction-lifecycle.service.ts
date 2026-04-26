@@ -58,9 +58,11 @@ export class CompactionLifecycleService {
    * @param sessionId - The session ID where compaction is occurring
    */
   handleCompactionStart(sessionId: string): void {
-    // Find the tab for this session â€” compaction state is per-tab, not global
-    const tab = this.tabManager.findTabBySessionId(sessionId);
-    if (!tab) {
+    // TASK_2026_106 Phase 4b — fan out to ALL tabs bound to this session.
+    // Canvas-grid scenario: two tiles share a session; both must show the
+    // banner. Legacy single-tab path used to silently freeze the other tile.
+    const tabs = this.tabManager.findTabsBySessionId(sessionId);
+    if (tabs.length === 0) {
       console.warn(
         '[ChatStore] handleCompactionStart: no tab found for sessionId',
         { sessionId },
@@ -74,14 +76,22 @@ export class CompactionLifecycleService {
       this.compactionTimeoutId = null;
     }
 
-    // Set compacting state on the specific tab
-    this.tabManager.markCompactionStart(tab.id);
+    // Set compacting state on every bound tab (loop of 1 = legacy behavior).
+    for (const tab of tabs) {
+      this.tabManager.markCompactionStart(tab.id);
+    }
 
-    // Safety fallback: dismiss if compaction_complete event is never received
-    const compactingTabId = tab.id;
+    // Safety fallback: dismiss if compaction_complete event is never received.
+    // We snapshot the bound tab IDs at trigger time — tabs closed during the
+    // 120s window are skipped via the per-tab existence check inside the
+    // timeout callback. The session's first tab also drives sessionManager
+    // status (legacy behavior) so single-tab callers see no change.
+    const compactingTabIds = tabs.map((t) => t.id);
     this.compactionTimeoutId = setTimeout(() => {
-      this.tabManager.applyCompactionTimeoutReset(compactingTabId);
-      this.tabManager.markTabIdle(compactingTabId);
+      for (const tabId of compactingTabIds) {
+        this.tabManager.applyCompactionTimeoutReset(tabId);
+        this.tabManager.markTabIdle(tabId);
+      }
       this.sessionManager.setStatus('loaded');
       this.compactionTimeoutId = null;
       console.warn(

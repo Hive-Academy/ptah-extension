@@ -14,6 +14,9 @@ import {
 } from './model-refresh-control';
 import { TabManagerService } from './tab-manager.service';
 import { TabWorkspacePartitionService } from './tab-workspace-partition.service';
+import { ConversationRegistry } from './conversation-registry.service';
+import { TabSessionBinding } from './tab-session-binding.service';
+import { TabId, type ClaudeSessionId } from './identity/ids';
 
 describe('TabManagerService — tab lifecycle + selectors', () => {
   let service: TabManagerService;
@@ -198,6 +201,50 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
         workspacePath: '/ws/b',
       });
       expect(service.findTabBySessionId('sess-bg')?.id).toBe('bg-1');
+    });
+  });
+
+  // TASK_2026_106 Phase 4a — multi-tab fan-out lookup. Reads
+  // `ConversationRegistry` + `TabSessionBinding` for the conversation that
+  // contains the session, with a legacy fallback to `findTabBySessionId`
+  // when no registry entry exists yet.
+  describe('findTabsBySessionId (TASK_2026_106 Phase 4a)', () => {
+    it('falls back to singular lookup wrapped in an array when no registry entry exists', () => {
+      const id = service.openSessionTab('sess-legacy');
+      const result = service.findTabsBySessionId('sess-legacy');
+      expect(result.length).toBe(1);
+      expect(result[0]?.id).toBe(id);
+    });
+
+    it('returns an empty array when nothing matches', () => {
+      service.createTab('plain');
+      expect(service.findTabsBySessionId('sess-not-here')).toEqual([]);
+    });
+
+    it('returns ALL tabs bound to the conversation containing the session', () => {
+      // Bind two tabs to the same conversation via the chat-state registries
+      // directly (the StreamRouter normally drives these — Phase 4a only
+      // requires that TabManager READ them).
+      const registry = TestBed.inject(ConversationRegistry);
+      const binding = TestBed.inject(TabSessionBinding);
+
+      const tabA = service.createTab('A');
+      const tabB = service.createTab('B');
+      // Attach the same SDK session to both tabs (canvas-grid scenario).
+      service.attachSession(tabA, 'sess-shared');
+      service.attachSession(tabB, 'sess-shared');
+
+      // tab IDs from TabManager are not UUIDs (tab_xxx_yyy format) — cast
+      // through `unknown` to satisfy the branded TabId type for the
+      // test-only direct registry write.
+      const convId = registry.create('sess-shared' as ClaudeSessionId);
+      binding.bind(tabA as unknown as TabId, convId);
+      binding.bind(tabB as unknown as TabId, convId);
+
+      const result = service.findTabsBySessionId('sess-shared');
+      expect(result.length).toBe(2);
+      const ids = result.map((t) => t.id).sort();
+      expect(ids).toEqual([tabA, tabB].sort());
     });
   });
 

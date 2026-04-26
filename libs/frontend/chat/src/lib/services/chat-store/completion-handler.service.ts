@@ -33,51 +33,53 @@ export class CompletionHandlerService {
   handleChatError(data: { sessionId: string; error: string }): void {
     console.error('[CompletionHandlerService] Chat error:', data);
 
-    // Find the target tab by session ID (proper multi-tab routing)
-    let targetTab: TabState | null = null;
-    let targetTabId: string | null = null;
+    // TASK_2026_106 Phase 4b — fan out to all tabs bound to this session.
+    // Canvas grid: when both tiles share a session, both must reset on error
+    // or one tile remains stuck in `streaming` status forever.
+    let targetTabs: readonly TabState[] = [];
 
     if (data.sessionId) {
-      targetTab = this.tabManager.findTabBySessionId(data.sessionId);
-      if (targetTab) {
-        targetTabId = targetTab.id;
-      }
+      targetTabs = this.tabManager.findTabsBySessionId(data.sessionId);
     }
 
     // Fall back to active tab if no matching tab found
-    if (!targetTab) {
-      targetTabId = this.tabManager.activeTabId();
-      targetTab = this.tabManager.activeTab();
+    if (targetTabs.length === 0) {
+      const activeTab = this.tabManager.activeTab();
 
       // Warn if session ID doesn't match active tab
       if (
         data.sessionId &&
-        targetTab?.claudeSessionId &&
-        targetTab.claudeSessionId !== data.sessionId
+        activeTab?.claudeSessionId &&
+        activeTab.claudeSessionId !== data.sessionId
       ) {
         console.warn('[CompletionHandlerService] Error for unknown session', {
           sessionId: data.sessionId,
-          activeTabSessionId: targetTab.claudeSessionId,
+          activeTabSessionId: activeTab.claudeSessionId,
         });
         return;
       }
+
+      if (!activeTab) {
+        console.warn('[CompletionHandlerService] No target tab for chat error');
+        return;
+      }
+
+      targetTabs = [activeTab];
     }
 
-    if (!targetTabId) {
-      console.warn('[CompletionHandlerService] No target tab for chat error');
-      return;
+    // Reset streaming state for every bound tab.
+    for (const tab of targetTabs) {
+      this.tabManager.applyStatusErrorReset(tab.id);
+      // Hide streaming indicator (visual only - no side effects)
+      this.tabManager.markTabIdle(tab.id);
     }
 
-    // Reset streaming state (including per-tab currentMessageId)
-    this.tabManager.applyStatusErrorReset(targetTabId);
+    // Session status is global to the SDK session — set once.
     this.sessionManager.setStatus('loaded');
 
-    // Hide streaming indicator (visual only - no side effects)
-    this.tabManager.markTabIdle(targetTabId);
-
     console.log(
-      '[CompletionHandlerService] Chat state reset due to error for tab',
-      targetTabId,
+      '[CompletionHandlerService] Chat state reset due to error for tabs',
+      targetTabs.map((t) => t.id),
     );
   }
 }

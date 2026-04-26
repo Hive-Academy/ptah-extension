@@ -40,7 +40,12 @@ import {
   ExecutionTreeBuilderService,
 } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  TabManagerService,
+  ConversationRegistry,
+  TabSessionBinding,
+  TabId,
+} from '@ptah-extension/chat-state';
 import { SESSION_CONTEXT } from '../../tokens/session-context.token';
 import { VSCodeService } from '@ptah-extension/core';
 import {
@@ -107,6 +112,13 @@ export class ChatViewComponent {
   });
   private readonly _tabManager = inject(TabManagerService);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
+
+  // TASK_2026_106 Phase 4c — compaction banner is now sourced from the
+  // ConversationRegistry so all tabs bound to a compacting conversation
+  // see the banner simultaneously (canvas-grid scenario). Falls back to
+  // legacy per-tab `isCompacting` flag for tabs not yet registered.
+  private readonly _conversationRegistry = inject(ConversationRegistry);
+  private readonly _tabSessionBinding = inject(TabSessionBinding);
 
   /** Lucide icon references for template binding */
   protected readonly BellIcon = Bell;
@@ -387,9 +399,27 @@ export class ChatViewComponent {
   /**
    * Resolved isCompacting: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
    * Prevents compaction banner from showing on ALL canvas tiles when only one session compacts.
+   *
+   * TASK_2026_106 Phase 4c — sourced from `ConversationRegistry` via
+   * `TabSessionBinding`. Compaction is conversation-scoped, so every tab
+   * bound to the conversation sees the banner together (canvas-grid). Falls
+   * back to legacy per-tab `isCompacting` when the tab has no binding yet
+   * (e.g. before StreamRouter has hydrated, or the tab predates the bind).
    */
   readonly resolvedIsCompacting = computed(() => {
     const tab = this.resolvedTab();
+    const tabId = tab?.id ?? this._tabManager.activeTabId();
+    if (tabId) {
+      const convId = this._tabSessionBinding.conversationFor(tabId as TabId);
+      if (convId) {
+        const compactionState =
+          this._conversationRegistry.compactionStateFor(convId);
+        if (compactionState) {
+          return compactionState.inFlight;
+        }
+      }
+    }
+    // Legacy fallback: tab predates conversation registration, or no binding yet.
     return tab !== null
       ? (tab.isCompacting ?? false)
       : this.chatStore.isCompacting();

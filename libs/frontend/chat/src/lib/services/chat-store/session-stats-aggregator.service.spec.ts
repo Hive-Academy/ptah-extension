@@ -55,7 +55,7 @@ describe('SessionStatsAggregatorService', () => {
   let tabs: TabState[];
   let setLiveModelStatsAndUsageListMock: jest.Mock;
   let setPreloadedStatsMock: jest.Mock;
-  let findTabBySessionIdMock: jest.Mock;
+  let findTabsBySessionIdMock: jest.Mock;
   let activeTabMock: jest.Mock;
   let streamHandleStatsMock: jest.Mock;
   let loadSessionsMock: jest.Mock;
@@ -67,8 +67,9 @@ describe('SessionStatsAggregatorService', () => {
     tabs = [makeTab()];
     setLiveModelStatsAndUsageListMock = jest.fn();
     setPreloadedStatsMock = jest.fn();
-    findTabBySessionIdMock = jest.fn(
-      (sid: string) => tabs.find((t) => t.claudeSessionId === sid) ?? null,
+    // TASK_2026_106 Phase 4b — service now uses plural fan-out lookup.
+    findTabsBySessionIdMock = jest.fn((sid: string) =>
+      tabs.filter((t) => t.claudeSessionId === sid),
     );
     activeTabMock = jest.fn(() => tabs[0] ?? null);
     streamHandleStatsMock = jest.fn().mockReturnValue(null);
@@ -78,7 +79,7 @@ describe('SessionStatsAggregatorService', () => {
     warn = jest.spyOn(console, 'warn').mockImplementation();
 
     const tabManagerMock = {
-      findTabBySessionId: findTabBySessionIdMock,
+      findTabsBySessionId: findTabsBySessionIdMock,
       activeTab: activeTabMock,
       setLiveModelStatsAndUsageList: setLiveModelStatsAndUsageListMock,
       setPreloadedStats: setPreloadedStatsMock,
@@ -116,12 +117,12 @@ describe('SessionStatsAggregatorService', () => {
 
   it('finds tab by sessionId and clears compaction state', () => {
     service.handleSessionStats(baseStats);
-    expect(findTabBySessionIdMock).toHaveBeenCalledWith('sess-1');
+    expect(findTabsBySessionIdMock).toHaveBeenCalledWith('sess-1');
     expect(clearCompactionStateMock).toHaveBeenCalledWith('tab-1');
   });
 
   it('falls back to active tab when sessionId lookup fails (warns)', () => {
-    findTabBySessionIdMock.mockReturnValue(null);
+    findTabsBySessionIdMock.mockReturnValue([]);
     service.handleSessionStats({ ...baseStats, sessionId: 'unknown' });
     expect(warn).toHaveBeenCalledWith(
       '[ChatStore] handleSessionStats: findTabBySessionId failed, fell back to activeTab',
@@ -247,8 +248,8 @@ describe('SessionStatsAggregatorService', () => {
         },
       }),
     ];
-    findTabBySessionIdMock.mockImplementation(
-      (sid: string) => tabs.find((t) => t.claudeSessionId === sid) ?? null,
+    findTabsBySessionIdMock.mockImplementation((sid: string) =>
+      tabs.filter((t) => t.claudeSessionId === sid),
     );
     service.handleSessionStats(baseStats);
     expect(setPreloadedStatsMock).toHaveBeenCalledTimes(1);

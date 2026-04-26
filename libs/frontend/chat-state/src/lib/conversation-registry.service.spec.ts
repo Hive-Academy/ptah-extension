@@ -133,6 +133,33 @@ describe('ConversationRegistry — TASK_2026_106 Phase 1', () => {
     });
   });
 
+  // TASK_2026_106 Phase 4c — compaction-on-conversation read API used by
+  // the chat view's `resolvedIsCompacting` signal so every tab bound to a
+  // compacting conversation sees the banner together.
+  describe('compactionStateFor() (TASK_2026_106 Phase 4c)', () => {
+    it('returns null for an unknown conversation id', () => {
+      const orphan = ConversationId.create();
+      expect(registry.compactionStateFor(orphan)).toBeNull();
+    });
+
+    it('reflects start and complete events on the conversation', () => {
+      const id = registry.create(sid());
+      // Initially false / null.
+      const initial = registry.compactionStateFor(id);
+      expect(initial?.inFlight).toBe(false);
+      expect(initial?.lastCompactionAt).toBeNull();
+
+      registry.markCompactionStart(id);
+      const started = registry.compactionStateFor(id);
+      expect(started?.inFlight).toBe(true);
+
+      registry.markCompactionComplete(id);
+      const completed = registry.compactionStateFor(id);
+      expect(completed?.inFlight).toBe(false);
+      expect(typeof completed?.lastCompactionAt).toBe('number');
+    });
+  });
+
   describe('remove()', () => {
     it('drops the conversation from the registry', () => {
       const id = registry.create();

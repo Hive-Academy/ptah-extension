@@ -170,6 +170,7 @@ describe('StreamingHandlerService', () => {
       | 'tabs'
       | 'activeTab'
       | 'findTabBySessionId'
+      | 'findTabsBySessionId'
       | 'adoptStreamingSession'
       | 'attachSession'
       | 'setStreamingState'
@@ -223,6 +224,12 @@ describe('StreamingHandlerService', () => {
       findTabBySessionId: jest.fn(
         (sid: string) =>
           tabsSignal().find((t) => t.claudeSessionId === sid) ?? null,
+      ),
+      // TASK_2026_106 Phase 4b — fan-out lookup. Test default returns all
+      // tabs whose claudeSessionId matches; specific tests can override
+      // via mockImplementation to simulate canvas-grid scenarios.
+      findTabsBySessionId: jest.fn((sid: string) =>
+        tabsSignal().filter((t) => t.claudeSessionId === sid),
       ),
       adoptStreamingSession: jest.fn((tabId: string, sessionId: string) => {
         tabsSignal.update((tabs) =>
@@ -549,6 +556,83 @@ describe('StreamingHandlerService', () => {
     it('delegates to BatchedUpdateService.flushSync', () => {
       service.flushUpdatesSync();
       expect(batchedUpdate.flushSync).toHaveBeenCalled();
+    });
+  });
+
+  // TASK_2026_106 Phase 4b — multi-tab fan-out. When two tabs share a
+  // claudeSessionId (canvas-grid scenario), processStreamEvent must write
+  // streamingState to BOTH tabs' state, not just the primary.
+  describe('multi-tab fan-out (TASK_2026_106 Phase 4b)', () => {
+    it('processStreamEvent writes streaming state to every bound tab', () => {
+      // Set up two tabs both bound to the same SDK session.
+      const tabA = makeTab({
+        id: 'tab-a',
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+      });
+      const tabB = makeTab({
+        id: 'tab-b',
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+      });
+      tabsSignal.set([tabA, tabB]);
+      activeTabIdSignal.set('tab-a');
+
+      // Override the fan-out lookup so both tabs are returned.
+      tabManager.findTabsBySessionId.mockReturnValue([tabA, tabB]);
+
+      // Process a single text_delta with explicit tabId for the primary.
+      service.processStreamEvent(textDelta(), 'tab-a');
+
+      // Both tabs' streamingState should now contain the event.
+      const stateA = tabsSignal().find((t) => t.id === 'tab-a')?.streamingState;
+      const stateB = tabsSignal().find((t) => t.id === 'tab-b')?.streamingState;
+      expect(stateA?.events.size).toBeGreaterThan(0);
+      expect(stateB?.events.size).toBeGreaterThan(0);
+      // Both states scheduled a UI update.
+      expect(batchedUpdate.scheduleUpdate).toHaveBeenCalledWith(
+        'tab-a',
+        expect.anything(),
+      );
+      expect(batchedUpdate.scheduleUpdate).toHaveBeenCalledWith(
+        'tab-b',
+        expect.anything(),
+      );
+    });
+
+    it('handleSessionStats finalizes every bound tab and consumes hard-deny once', () => {
+      const tabA = makeTab({
+        id: 'tab-a',
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+        status: 'streaming',
+      });
+      const tabB = makeTab({
+        id: 'tab-b',
+        claudeSessionId: SESSION_ID,
+        streamingState: createEmptyStreamingState(),
+        status: 'streaming',
+      });
+      tabsSignal.set([tabA, tabB]);
+      tabManager.findTabsBySessionId.mockReturnValue([tabA, tabB]);
+
+      service.handleSessionStats({
+        sessionId: SESSION_ID,
+        cost: 0.1,
+        tokens: { input: 5, output: 5 },
+        duration: 100,
+      });
+
+      // Per-tab finalize + idle.
+      expect(finalization.finalizeCurrentMessage).toHaveBeenCalledWith('tab-a');
+      expect(finalization.finalizeCurrentMessage).toHaveBeenCalledWith('tab-b');
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-a');
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-b');
+      // Hard-deny consumption is per-session — exactly one call regardless of
+      // how many bound tabs received finalization.
+      expect(permissionHandler.consumeHardDenyToolUseIds).toHaveBeenCalledTimes(
+        1,
+      );
     });
   });
 });

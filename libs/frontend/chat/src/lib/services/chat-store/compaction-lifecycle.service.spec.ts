@@ -50,7 +50,7 @@ describe('CompactionLifecycleService', () => {
   let clearCompactingFlagMock: jest.Mock;
   let applyCompactionTimeoutResetMock: jest.Mock;
   let applyCompactionCompleteMock: jest.Mock;
-  let findTabBySessionIdMock: jest.Mock;
+  let findTabsBySessionIdMock: jest.Mock;
   let markTabIdleMock: jest.Mock;
   let setStatusMock: jest.Mock;
   let clearCacheMock: jest.Mock;
@@ -68,9 +68,9 @@ describe('CompactionLifecycleService', () => {
     });
     applyCompactionTimeoutResetMock = jest.fn();
     applyCompactionCompleteMock = jest.fn();
-    findTabBySessionIdMock = jest.fn(
-      (sessionId: string) =>
-        tabs.find((t) => t.claudeSessionId === sessionId) ?? null,
+    // TASK_2026_106 Phase 4b — service now uses plural fan-out lookup.
+    findTabsBySessionIdMock = jest.fn((sessionId: string) =>
+      tabs.filter((t) => t.claudeSessionId === sessionId),
     );
     markTabIdleMock = jest.fn();
     setStatusMock = jest.fn();
@@ -82,7 +82,7 @@ describe('CompactionLifecycleService', () => {
       clearCompactingFlag: clearCompactingFlagMock,
       applyCompactionTimeoutReset: applyCompactionTimeoutResetMock,
       applyCompactionComplete: applyCompactionCompleteMock,
-      findTabBySessionId: findTabBySessionIdMock,
+      findTabsBySessionId: findTabsBySessionIdMock,
       markTabIdle: markTabIdleMock,
       tabs: () => tabs,
     } as unknown as TabManagerService;

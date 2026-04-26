@@ -321,6 +321,24 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
     expect(record?.lastCompactionAt).not.toBeNull();
   });
 
+  // TASK_2026_106 Phase 4c — banner UI reads compaction state via the new
+  // `compactionStateFor(convId)` API, which the StreamRouter must drive
+  // through the same lifecycle events as the per-record flag.
+  it('compactionStateFor reflects router-driven compaction lifecycle (TASK_2026_106 Phase 4c)', () => {
+    const tab = newTabId();
+    const conv = router.onTabCreated(tab, SESSION_A);
+
+    expect(registry.compactionStateFor(conv)?.inFlight).toBe(false);
+
+    router.routeStreamEvent(compactionStart(SESSION_A), tab);
+    expect(registry.compactionStateFor(conv)?.inFlight).toBe(true);
+
+    router.routeStreamEvent(compactionComplete(SESSION_A), tab);
+    const after = registry.compactionStateFor(conv);
+    expect(after?.inFlight).toBe(false);
+    expect(typeof after?.lastCompactionAt).toBe('number');
+  });
+
   // ---- Lookup helpers -----------------------------------------------------
 
   it('conversationForTab and tabsForSession reflect the current binding/registry state', () => {

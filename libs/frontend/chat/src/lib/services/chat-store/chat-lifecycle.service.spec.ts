@@ -77,7 +77,7 @@ describe('ChatLifecycleService', () => {
   let setStreamingStateMock: jest.Mock;
   let attachSessionMock: jest.Mock;
   let applyErrorResetMock: jest.Mock;
-  let findTabBySessionIdMock: jest.Mock;
+  let findTabsBySessionIdMock: jest.Mock;
   let activeTabMock: jest.Mock;
   let activeTabIdMock: jest.Mock;
   let markTabIdleMock: jest.Mock;
@@ -118,8 +118,9 @@ describe('ChatLifecycleService', () => {
           : t,
       );
     });
-    findTabBySessionIdMock = jest.fn(
-      (sid: string) => tabs.find((t) => t.claudeSessionId === sid) ?? null,
+    // TASK_2026_106 Phase 4b — service uses plural fan-out lookup.
+    findTabsBySessionIdMock = jest.fn((sid: string) =>
+      tabs.filter((t) => t.claudeSessionId === sid),
     );
     activeTabMock = jest.fn(() => tabs[0] ?? null);
     activeTabIdMock = jest.fn(() => tabs[0]?.id ?? null);
@@ -139,7 +140,7 @@ describe('ChatLifecycleService', () => {
       setStreamingState: setStreamingStateMock,
       attachSession: attachSessionMock,
       applyErrorReset: applyErrorResetMock,
-      findTabBySessionId: findTabBySessionIdMock,
+      findTabsBySessionId: findTabsBySessionIdMock,
       activeTab: activeTabMock,
       activeTabId: activeTabIdMock,
       markTabIdle: markTabIdleMock,
@@ -372,7 +373,7 @@ describe('ChatLifecycleService', () => {
     it('falls back to sessionId lookup when tabId absent', () => {
       tabs = [makeTab({ id: 'tab-2', claudeSessionId: 'sess-2' })];
       service.handleChatError({ sessionId: 'sess-2', error: 'boom' });
-      expect(findTabBySessionIdMock).toHaveBeenCalledWith('sess-2');
+      expect(findTabsBySessionIdMock).toHaveBeenCalledWith('sess-2');
       expect(markTabIdleMock).toHaveBeenCalledWith('tab-2');
     });
 

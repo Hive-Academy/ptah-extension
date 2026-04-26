@@ -17,6 +17,9 @@ import {
   LiveModelStatsPayload,
   PreloadedStatsPayload,
 } from './tab-state.types';
+import { TabSessionBinding } from './tab-session-binding.service';
+import { ConversationRegistry } from './conversation-registry.service';
+import { ClaudeSessionId, TabId } from './identity/ids';
 
 export type { LiveModelStatsPayload, PreloadedStatsPayload };
 
@@ -78,6 +81,18 @@ export class TabManagerService {
 
   private readonly confirmationDialog = inject(ConfirmationDialogService);
   private readonly workspacePartition = inject(TabWorkspacePartitionService);
+  /**
+   * TASK_2026_106 Phase 4a — multi-tab fan-out.
+   *
+   * `findTabsBySessionId` (the plural API below) reads `ConversationRegistry`
+   * + `TabSessionBinding` to resolve every tab bound to the conversation
+   * containing the session. Both services live in `chat-state` so this is
+   * an in-layer dependency — no boundary violation. The router
+   * (`@ptah-extension/chat-routing`) is the only writer; TabManager only
+   * reads here.
+   */
+  private readonly conversationRegistry = inject(ConversationRegistry);
+  private readonly tabSessionBinding = inject(TabSessionBinding);
   /**
    * MODEL_REFRESH_CONTROL — inverted-dependency contract for refreshing the
    * available-models list after a new tab is created.
@@ -308,6 +323,46 @@ export class TabManagerService {
       this._tabs(),
     );
     return result?.tab ?? null;
+  }
+
+  /**
+   * TASK_2026_106 Phase 4a — multi-tab fan-out (plural).
+   *
+   * Returns EVERY tab bound to the conversation that contains `sessionId`.
+   * This is the canvas-grid scenario: two (or more) side-by-side tiles
+   * showing the same SDK session both need each stream event written. The
+   * legacy singular `findTabBySessionId` returns one match arbitrarily —
+   * the others freeze.
+   *
+   * Resolution order:
+   *   1. Look up the conversation containing `sessionId` via
+   *      `ConversationRegistry.findContainingSession`.
+   *      - If unknown (e.g. tab not yet bound by `StreamRouter`), fall back
+   *        to wrapping the legacy singular result in a one-element array
+   *        so callers behave identically for not-yet-migrated tabs.
+   *   2. Otherwise resolve `TabSessionBinding.tabsFor(convId)` to TabIds and
+   *      map each to the matching `TabState` from `_tabs()`.
+   *
+   * Returns a fresh readonly array (callers may iterate freely). The legacy
+   * `findTabBySessionId` is preserved unchanged for the many call sites that
+   * only need one tab (presence checks, single-tab UI actions).
+   */
+  findTabsBySessionId(sessionId: string): readonly TabState[] {
+    const convRecord = this.conversationRegistry.findContainingSession(
+      sessionId as ClaudeSessionId,
+    );
+    if (!convRecord) {
+      // Legacy fallback — tab existed before StreamRouter hydrated bindings,
+      // or was created in a path that doesn't touch the router yet.
+      const legacy = this.findTabBySessionId(sessionId);
+      return legacy ? [legacy] : [];
+    }
+
+    const tabIds = this.tabSessionBinding.tabsFor(convRecord.id);
+    if (tabIds.length === 0) return [];
+
+    const boundTabIds = new Set<TabId>(tabIds);
+    return this._tabs().filter((t) => boundTabIds.has(t.id as TabId));
   }
 
   /**
