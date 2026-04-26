@@ -22,11 +22,22 @@ import { type MessageHandler } from '@ptah-extension/core';
 import { FlatStreamEventUnion, MESSAGE_TYPES } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { TabId } from '@ptah-extension/chat-state';
+import { StreamRouter } from '@ptah-extension/chat-routing';
 
 @Injectable({ providedIn: 'root' })
 export class ChatMessageHandler implements MessageHandler {
   private readonly chatStore = inject(ChatStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  /**
+   * TASK_2026_106 Phase 2 — shadow-mode StreamRouter observation.
+   *
+   * The router populates ConversationRegistry/TabSessionBinding alongside
+   * the legacy chatStore.processStreamEvent path. Phase 3 cuts over and
+   * the legacy path comes out. While in shadow mode, router failures must
+   * never break the chat — every notifyEvent call is wrapped in try/catch.
+   */
+  private readonly streamRouter = inject(StreamRouter);
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
@@ -91,6 +102,19 @@ export class ChatMessageHandler implements MessageHandler {
     };
 
     this.chatStore.processStreamEvent(event, tabId, sessionId);
+
+    // TASK_2026_106 Phase 2 — shadow-mode observation. Router writes to
+    // ConversationRegistry/TabSessionBinding only; never mutates TabManager.
+    // Wrapped in try/catch so a router defect can never break chat ingest.
+    try {
+      const originTabId = tabId ? TabId.safeParse(tabId) : null;
+      this.streamRouter.notifyEvent(event, originTabId ?? undefined);
+    } catch (err) {
+      console.warn(
+        '[ChatMessageHandler] StreamRouter.notifyEvent failed (shadow mode, ignored):',
+        err,
+      );
+    }
   }
 
   // CHAT_ERROR: Chat error signal
