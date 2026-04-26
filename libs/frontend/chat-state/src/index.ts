@@ -46,3 +46,22 @@ export type {
   LiveModelStatsPayload,
   PreloadedStatsPayload,
 } from './lib/tab-state.types';
+
+// ============================================================================
+// IDENTITY (TASK_2026_106 Phase 1)
+// ============================================================================
+export {
+  TabId,
+  ConversationId,
+  BackgroundAgentId,
+  type ClaudeSessionId,
+} from './lib/identity/ids';
+
+// ============================================================================
+// ROUTING REGISTRIES (TASK_2026_106 Phase 1, additive — no callers yet)
+// ============================================================================
+export {
+  ConversationRegistry,
+  type ConversationRecord,
+} from './lib/conversation-registry.service';
+export { TabSessionBinding } from './lib/tab-session-binding.service';
