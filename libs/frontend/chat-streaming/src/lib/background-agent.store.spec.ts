@@ -2,15 +2,25 @@
  * BackgroundAgentStore specs — signal store for background (run_in_background)
  * agents spawned via the Task tool.
  *
+ * TASK_2026_106 Phase 5 — store is now keyed by `BackgroundAgentId` (the
+ * SDK-issued `agentId`), not by `toolCallId`. The toolCallId stays on the
+ * entry so the tree builder's `isBackgroundAgent(toolCallId)` lookup keeps
+ * working (now O(n) over the bounded agent set).
+ *
  * Coverage:
  *   - onStarted: inserts a running entry and starts the 1s tick interval
- *   - onStarted is idempotent when already running
+ *   - onStarted is idempotent when the same agentId is already running
  *   - onProgress: appends summary and respects error status
  *   - onCompleted: updates status + cost + duration + triggers tick stop
- *   - onCompleted for an unknown toolCallId inserts a synthetic entry
+ *   - onCompleted for an unknown agentId inserts a synthetic entry
  *   - onStopped: marks the entry stopped (with fallback insertion)
  *   - agentsForSession filters by sessionId
- *   - isBackgroundAgent lookup
+ *   - isBackgroundAgent lookup (by toolCallId, scans entries)
+ *   - findByAgentId (Phase 5) — O(1) lookup by branded agentId
+ *   - sessionForAgent (Phase 5) — parent-session lookup, null when missing
+ *   - Map keyed by agentId (Phase 5) — same toolCallId across two agentIds
+ *     keeps both entries
+ *   - Fallback warning (Phase 5) — SDK-omits-agentId path warns once
  *   - clearCompleted drops non-running entries
  *   - Computed signals: runningAgents, completedAgents, runningCount,
  *     totalCount, hasRunningAgents, backgroundToolCallIds
@@ -20,6 +30,7 @@
 
 import { TestBed } from '@angular/core/testing';
 import { BackgroundAgentStore } from './background-agent.store';
+import { BackgroundAgentId } from '@ptah-extension/chat-state';
 import type {
   BackgroundAgentCompletedEvent,
   BackgroundAgentProgressEvent,
@@ -46,6 +57,7 @@ function progressEvent(
 ): BackgroundAgentProgressEvent {
   return {
     toolCallId: 'tc-1',
+    agentId: 'a-1',
     sessionId: 'sess-1',
     summaryDelta: 'tick ',
     status: 'running',
@@ -120,49 +132,75 @@ describe('BackgroundAgentStore', () => {
       expect(store.tick()).toBe(before + 1);
     });
 
-    it('uses toolCallId as agentId when agentId is empty', () => {
+    it('uses toolCallId as agentId when agentId is empty (fallback path)', () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation();
       store.onStarted(startEvent({ agentId: '', toolCallId: 'only-tc' }));
       expect(store.agents()[0].agentId).toBe('only-tc');
+      // Warn fires exactly once for the missing-agentId fallback.
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain(
+        'background_agent event missing agentId',
+      );
+      warn.mockRestore();
     });
 
-    it('is idempotent when the same toolCallId is already running', () => {
-      store.onStarted(startEvent({ toolCallId: 'tc-A' }));
+    it('is idempotent when the same agentId is already running', () => {
+      store.onStarted(startEvent({ agentId: 'a-A', toolCallId: 'tc-A' }));
       const firstMap = store.agents();
-      store.onStarted(startEvent({ toolCallId: 'tc-A' }));
+      // Same agentId, even with a different toolCallId, must dedup.
+      store.onStarted(startEvent({ agentId: 'a-A', toolCallId: 'tc-A2' }));
       const secondMap = store.agents();
+      expect(secondMap).toHaveLength(1);
       expect(secondMap[0]).toBe(firstMap[0]);
     });
   });
 
   describe('onProgress', () => {
     it('appends summaryDelta to the existing summary', () => {
-      store.onStarted(startEvent({ toolCallId: 'tc-X' }));
+      store.onStarted(startEvent({ agentId: 'a-X', toolCallId: 'tc-X' }));
       store.onProgress(
-        progressEvent({ toolCallId: 'tc-X', summaryDelta: 'hello ' }),
+        progressEvent({
+          agentId: 'a-X',
+          toolCallId: 'tc-X',
+          summaryDelta: 'hello ',
+        }),
       );
       store.onProgress(
-        progressEvent({ toolCallId: 'tc-X', summaryDelta: 'world' }),
+        progressEvent({
+          agentId: 'a-X',
+          toolCallId: 'tc-X',
+          summaryDelta: 'world',
+        }),
       );
       expect(store.agents()[0].summary).toBe('hello world');
     });
 
-    it('is a no-op for an unknown toolCallId', () => {
-      store.onProgress(progressEvent({ toolCallId: 'missing' }));
+    it('is a no-op for an unknown agentId', () => {
+      store.onProgress(
+        progressEvent({ agentId: 'missing', toolCallId: 'missing' }),
+      );
       expect(store.agents()).toHaveLength(0);
     });
 
     it('propagates error status from the event', () => {
-      store.onStarted(startEvent({ toolCallId: 'tc-E' }));
-      store.onProgress(progressEvent({ toolCallId: 'tc-E', status: 'error' }));
+      store.onStarted(startEvent({ agentId: 'a-E', toolCallId: 'tc-E' }));
+      store.onProgress(
+        progressEvent({
+          agentId: 'a-E',
+          toolCallId: 'tc-E',
+          status: 'error',
+        }),
+      );
       expect(store.agents()[0].status).toBe('error');
     });
   });
 
   describe('onCompleted', () => {
     it('transitions running → completed and records cost/duration', () => {
-      store.onStarted(startEvent({ toolCallId: 'tc-C' }));
+      store.onStarted(startEvent({ agentId: 'a-C', toolCallId: 'tc-C' }));
       store.onCompleted(
         completedEvent({
+          agentId: 'a-C',
           toolCallId: 'tc-C',
           result: 'OK',
           cost: 0.5,
@@ -178,9 +216,10 @@ describe('BackgroundAgentStore', () => {
       expect(agent.completedAt).toBeDefined();
     });
 
-    it('inserts a synthetic entry when completing an unknown toolCallId', () => {
+    it('inserts a synthetic entry when completing an unknown agentId', () => {
       store.onCompleted(
         completedEvent({
+          agentId: 'late-a',
           toolCallId: 'late',
           agentType: '',
           result: 'surprise',
@@ -188,18 +227,21 @@ describe('BackgroundAgentStore', () => {
       );
       const agent = store.agents()[0];
       expect(agent.toolCallId).toBe('late');
+      expect(agent.agentId).toBe('late-a');
       expect(agent.status).toBe('completed');
       expect(agent.agentType).toBe('unknown');
       expect(agent.result).toBe('surprise');
     });
 
     it('stops the tick interval when no agents remain running', () => {
-      store.onStarted(startEvent({ toolCallId: 'tc-stop' }));
+      store.onStarted(startEvent({ agentId: 'a-stop', toolCallId: 'tc-stop' }));
       // Tick is running.
       jest.advanceTimersByTime(1000);
       expect(store.tick()).toBeGreaterThan(0);
 
-      store.onCompleted(completedEvent({ toolCallId: 'tc-stop' }));
+      store.onCompleted(
+        completedEvent({ agentId: 'a-stop', toolCallId: 'tc-stop' }),
+      );
       const tickAtCompletion = store.tick();
       jest.advanceTimersByTime(5000);
       expect(store.tick()).toBe(tickAtCompletion);
@@ -208,15 +250,22 @@ describe('BackgroundAgentStore', () => {
 
   describe('onStopped', () => {
     it('transitions the existing entry to stopped', () => {
-      store.onStarted(startEvent({ toolCallId: 'tc-S' }));
-      store.onStopped(stoppedEvent({ toolCallId: 'tc-S' }));
+      store.onStarted(startEvent({ agentId: 'a-S', toolCallId: 'tc-S' }));
+      store.onStopped(stoppedEvent({ agentId: 'a-S', toolCallId: 'tc-S' }));
       expect(store.agents()[0].status).toBe('stopped');
     });
 
-    it('inserts a synthetic entry when the id is unknown', () => {
-      store.onStopped(stoppedEvent({ toolCallId: 'ghost', agentType: '' }));
+    it('inserts a synthetic entry when the agentId is unknown', () => {
+      store.onStopped(
+        stoppedEvent({
+          agentId: 'ghost-a',
+          toolCallId: 'ghost',
+          agentType: '',
+        }),
+      );
       const agent = store.agents()[0];
       expect(agent.toolCallId).toBe('ghost');
+      expect(agent.agentId).toBe('ghost-a');
       expect(agent.status).toBe('stopped');
       expect(agent.agentType).toBe('unknown');
     });
@@ -224,55 +273,129 @@ describe('BackgroundAgentStore', () => {
 
   describe('lookups and filters', () => {
     it('agentsForSession filters by sessionId', () => {
-      store.onStarted(startEvent({ toolCallId: 't1', sessionId: 'A' }));
-      store.onStarted(startEvent({ toolCallId: 't2', sessionId: 'B' }));
-      store.onStarted(startEvent({ toolCallId: 't3', sessionId: 'A' }));
+      store.onStarted(
+        startEvent({ agentId: 'a1', toolCallId: 't1', sessionId: 'A' }),
+      );
+      store.onStarted(
+        startEvent({ agentId: 'a2', toolCallId: 't2', sessionId: 'B' }),
+      );
+      store.onStarted(
+        startEvent({ agentId: 'a3', toolCallId: 't3', sessionId: 'A' }),
+      );
 
       const a = store.agentsForSession('A').map((e) => e.toolCallId);
       expect(new Set(a)).toEqual(new Set(['t1', 't3']));
     });
 
     it('isBackgroundAgent returns true only for known toolCallIds', () => {
-      store.onStarted(startEvent({ toolCallId: 'known' }));
+      store.onStarted(startEvent({ agentId: 'known-a', toolCallId: 'known' }));
       expect(store.isBackgroundAgent('known')).toBe(true);
       expect(store.isBackgroundAgent('missing')).toBe(false);
+    });
+
+    it('findByAgentId returns the entry when present, null otherwise', () => {
+      store.onStarted(startEvent({ agentId: 'a-find', toolCallId: 'tc-find' }));
+      const entry = store.findByAgentId('a-find' as BackgroundAgentId);
+      expect(entry).not.toBeNull();
+      expect(entry?.toolCallId).toBe('tc-find');
+      expect(store.findByAgentId('nope' as BackgroundAgentId)).toBeNull();
+    });
+
+    it('sessionForAgent returns the parent ClaudeSessionId or null', () => {
+      store.onStarted(
+        startEvent({
+          agentId: 'a-sess',
+          toolCallId: 'tc-sess',
+          sessionId: 'sess-XYZ',
+        }),
+      );
+      expect(store.sessionForAgent('a-sess' as BackgroundAgentId)).toBe(
+        'sess-XYZ',
+      );
+      expect(store.sessionForAgent('unknown' as BackgroundAgentId)).toBeNull();
+    });
+
+    it('keys by agentId — two events with the same toolCallId but different agentIds keep both entries', () => {
+      // Synthetic edge case: a hypothetical SDK quirk where two background
+      // agents share a parent toolCallId. Under the legacy toolCallId-keyed
+      // store the second event would have clobbered the first.
+      store.onStarted(
+        startEvent({ agentId: 'agent-A', toolCallId: 'shared-tc' }),
+      );
+      store.onStarted(
+        startEvent({ agentId: 'agent-B', toolCallId: 'shared-tc' }),
+      );
+
+      expect(store.totalCount()).toBe(2);
+      const ids = store.agents().map((a) => a.agentId);
+      expect(new Set(ids)).toEqual(new Set(['agent-A', 'agent-B']));
+    });
+  });
+
+  describe('agentId fallback warning', () => {
+    it('warns exactly once per offending toolCallId when SDK omits agentId', () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation();
+
+      // First fallback for tc-fb1 — warns.
+      store.onStarted(startEvent({ agentId: '', toolCallId: 'tc-fb1' }));
+      // Second event (progress) for the same tc-fb1 — no extra warn.
+      store.onProgress(progressEvent({ agentId: '', toolCallId: 'tc-fb1' }));
+      // Different toolCallId — warns again (one per id).
+      store.onStarted(startEvent({ agentId: '', toolCallId: 'tc-fb2' }));
+
+      expect(warn).toHaveBeenCalledTimes(2);
+      const messages = warn.mock.calls.map((c) => c.join(' '));
+      expect(messages.some((m) => m.includes('tc-fb1'))).toBe(true);
+      expect(messages.some((m) => m.includes('tc-fb2'))).toBe(true);
+      warn.mockRestore();
+    });
+
+    it('uses toolCallId as the storage key in the fallback path', () => {
+      jest.spyOn(console, 'warn').mockImplementation();
+      store.onStarted(startEvent({ agentId: '', toolCallId: 'fb-key' }));
+      // The fallback agentId = the toolCallId.
+      const entry = store.findByAgentId('fb-key' as BackgroundAgentId);
+      expect(entry).not.toBeNull();
+      expect(entry?.toolCallId).toBe('fb-key');
     });
   });
 
   describe('computed signals', () => {
     it('runningAgents, completedAgents, totalCount all update after transitions', () => {
-      store.onStarted(startEvent({ toolCallId: 't1' }));
-      store.onStarted(startEvent({ toolCallId: 't2' }));
-      store.onCompleted(completedEvent({ toolCallId: 't2' }));
+      store.onStarted(startEvent({ agentId: 'a1', toolCallId: 't1' }));
+      store.onStarted(startEvent({ agentId: 'a2', toolCallId: 't2' }));
+      store.onCompleted(completedEvent({ agentId: 'a2', toolCallId: 't2' }));
 
       expect(store.totalCount()).toBe(2);
       expect(store.runningAgents().map((a) => a.toolCallId)).toEqual(['t1']);
       expect(store.completedAgents().map((a) => a.toolCallId)).toEqual(['t2']);
     });
 
-    it('backgroundToolCallIds exposes the set of toolCallIds', () => {
-      store.onStarted(startEvent({ toolCallId: 'a' }));
-      store.onStarted(startEvent({ toolCallId: 'b' }));
+    it('backgroundToolCallIds exposes the set of toolCallIds (not agentIds)', () => {
+      store.onStarted(startEvent({ agentId: 'a-a', toolCallId: 'tc-a' }));
+      store.onStarted(startEvent({ agentId: 'a-b', toolCallId: 'tc-b' }));
       const ids = store.backgroundToolCallIds();
-      expect(ids.has('a')).toBe(true);
-      expect(ids.has('b')).toBe(true);
+      expect(ids.has('tc-a')).toBe(true);
+      expect(ids.has('tc-b')).toBe(true);
       expect(ids.size).toBe(2);
     });
 
     it('hasRunningAgents reflects runningCount', () => {
       expect(store.hasRunningAgents()).toBe(false);
-      store.onStarted(startEvent({ toolCallId: 't1' }));
+      store.onStarted(startEvent({ agentId: 'a1', toolCallId: 't1' }));
       expect(store.hasRunningAgents()).toBe(true);
-      store.onCompleted(completedEvent({ toolCallId: 't1' }));
+      store.onCompleted(completedEvent({ agentId: 'a1', toolCallId: 't1' }));
       expect(store.hasRunningAgents()).toBe(false);
     });
   });
 
   describe('clearCompleted', () => {
     it('drops every non-running entry', () => {
-      store.onStarted(startEvent({ toolCallId: 'run' }));
-      store.onStarted(startEvent({ toolCallId: 'done' }));
-      store.onCompleted(completedEvent({ toolCallId: 'done' }));
+      store.onStarted(startEvent({ agentId: 'a-run', toolCallId: 'run' }));
+      store.onStarted(startEvent({ agentId: 'a-done', toolCallId: 'done' }));
+      store.onCompleted(
+        completedEvent({ agentId: 'a-done', toolCallId: 'done' }),
+      );
 
       store.clearCompleted();
       expect(store.agents().map((a) => a.toolCallId)).toEqual(['run']);
@@ -283,12 +406,15 @@ describe('BackgroundAgentStore', () => {
     it('evicts the oldest completed entries beyond MAX_COMPLETED_AGENTS', () => {
       // Populate 51 completed entries — oldest (ts=1) must be evicted.
       for (let i = 0; i < 51; i++) {
-        const id = `c-${i}`;
-        store.onStarted(startEvent({ toolCallId: id, timestamp: i + 1 }));
+        const tcId = `c-${i}`;
+        const agId = `agent-${i}`;
+        store.onStarted(
+          startEvent({ agentId: agId, toolCallId: tcId, timestamp: i + 1 }),
+        );
         store.onCompleted(
           completedEvent({
-            toolCallId: id,
-            agentId: id,
+            agentId: agId,
+            toolCallId: tcId,
             timestamp: i + 1,
           }),
         );
@@ -303,7 +429,7 @@ describe('BackgroundAgentStore', () => {
 
   describe('ngOnDestroy', () => {
     it('stops the tick interval', () => {
-      store.onStarted(startEvent({ toolCallId: 'live' }));
+      store.onStarted(startEvent({ agentId: 'a-live', toolCallId: 'live' }));
       jest.advanceTimersByTime(1000);
       const before = store.tick();
 
