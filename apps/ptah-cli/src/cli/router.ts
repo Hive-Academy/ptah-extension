@@ -24,10 +24,12 @@ import * as harnessCmd from './commands/harness.js';
 import * as interactCmd from './commands/interact.js';
 import * as licenseCmd from './commands/license.js';
 import * as mcpCmd from './commands/mcp.js';
+import * as newProjectCmd from './commands/new-project.js';
 import * as pluginCmd from './commands/plugin.js';
 import * as profileCmd from './commands/profile.js';
 import * as promptsCmd from './commands/prompts.js';
 import * as providerCmd from './commands/provider.js';
+import * as qualityCmd from './commands/quality.js';
 import * as runCmd from './commands/run.js';
 import * as settingsCmd from './commands/settings.js';
 import * as skillCmd from './commands/skill.js';
@@ -1682,6 +1684,119 @@ export function buildRouter(): Command {
           in: opts.in,
           overwrite: opts.overwrite === true,
         },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah quality ----------------------------------------------------------
+  // TASK_2026_104 Sub-batch B9b. Backed by shared QualityRpcHandlers.
+  const quality = program
+    .command('quality')
+    .description(
+      'inspect the quality dashboard (assessment / history / export)',
+    );
+
+  quality
+    .command('assessment')
+    .description('emit quality.assessment via quality:getAssessment')
+    .option('--id <id>', 'advisory assessment id (forwarded but unused today)')
+    .action(async (opts: { id?: string }) => {
+      const exit = await qualityCmd.execute(
+        { subcommand: 'assessment', id: opts.id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  quality
+    .command('history')
+    .description('emit quality.history via quality:getHistory')
+    .option('--limit <n>', 'max entries to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .action(async (opts: { limit?: number }) => {
+      const exit = await qualityCmd.execute(
+        { subcommand: 'history', limit: opts.limit },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  quality
+    .command('export')
+    .description(
+      'export the latest quality report as JSON via quality:export (writes to --out, or stdout if omitted)',
+    )
+    .option('--out <path>', 'output path (defaults to stdout)')
+    .action(async (opts: { out?: string }) => {
+      const exit = await qualityCmd.execute(
+        { subcommand: 'export', out: opts.out },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah new-project ------------------------------------------------------
+  // TASK_2026_104 Sub-batch B9b. Backed by the New Project Wizard handlers
+  // inside the shared SetupRpcHandlers.
+  const newProject = program
+    .command('new-project')
+    .description(
+      'New Project Wizard (select-type / submit-answers / get-plan / approve-plan)',
+    );
+
+  newProject
+    .command('select-type <type>')
+    .description(
+      'fetch question groups for a project type via wizard:new-project-select-type',
+    )
+    .action(async (type: string) => {
+      const exit = await newProjectCmd.execute(
+        { subcommand: 'select-type', projectType: type },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  newProject
+    .command('submit-answers')
+    .description(
+      'submit discovery answers (read from --file <path>) via wizard:new-project-submit-answers',
+    )
+    .requiredOption(
+      '--file <path>',
+      'JSON file with { projectType, projectName, answers[, force] }',
+    )
+    .action(async (opts: { file: string }) => {
+      const exit = await newProjectCmd.execute(
+        { subcommand: 'submit-answers', file: opts.file },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  newProject
+    .command('get-plan <session-id>')
+    .description(
+      'load the previously-generated master plan via wizard:new-project-get-plan',
+    )
+    .action(async (sessionId: string) => {
+      const exit = await newProjectCmd.execute(
+        { subcommand: 'get-plan', sessionId },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  newProject
+    .command('approve-plan <session-id>')
+    .description(
+      'approve and persist the master plan via wizard:new-project-approve-plan',
+    )
+    .action(async (sessionId: string) => {
+      const exit = await newProjectCmd.execute(
+        { subcommand: 'approve-plan', sessionId },
         resolveGlobals(program),
       );
       process.exitCode = exit;
