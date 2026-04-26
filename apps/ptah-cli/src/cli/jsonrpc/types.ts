@@ -160,6 +160,13 @@ export type PtahNotification =
   | 'prompts.regenerate.complete'
   | 'prompts.content'
   | 'prompts.download.complete'
+  // Setup-wizard generation surface (TASK_2026_104 B9a) — task-description.md §4.1.3.
+  // Forwarded by the event-pipe when the backend `setup-wizard:generation-*`
+  // push events fire during wizard prompt generation. Consumed by the upcoming
+  // B9c phase-runner async-broadcast mode and the B9d setup orchestrator.
+  | 'wizard.generation.progress'
+  | 'wizard.generation.stream'
+  | 'wizard.generation.complete'
   // Harness commands (TASK_2026_104 B6c) — task-description.md §3.1 `harness *`.
   // NOTE: `harness.chat.*` is intentionally OMITTED — the `harness chat`
   // sub-subcommand is a deferred-to-Batch-10 alias for `session start

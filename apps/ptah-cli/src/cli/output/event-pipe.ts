@@ -68,6 +68,14 @@ export const EVENT_MAP: Readonly<Record<string, PtahNotification>> = {
   'setup-wizard:enhance-stream': 'prompts.regenerate.start',
   'harness:flat-stream': 'harness.document.stream',
   'harness:flat-stream-complete': 'harness.document.complete',
+  // Setup-wizard generation — TASK_2026_104 Sub-batch B9a
+  // (task-description.md §4.1.3). Forwarded when the backend
+  // `setup-wizard:generation-*` push events fire during wizard prompt
+  // generation. Consumed by the upcoming B9c phase-runner async-broadcast
+  // mode and the B9d setup orchestrator.
+  'setup-wizard:generation-progress': 'wizard.generation.progress',
+  'setup-wizard:generation-stream': 'wizard.generation.stream',
+  'setup-wizard:generation-complete': 'wizard.generation.complete',
 };
 
 /** Backend event types that must be transformed into per-turn deltas. */

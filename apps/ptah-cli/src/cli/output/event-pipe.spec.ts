@@ -49,6 +49,11 @@ describe('EventPipe', () => {
       ['task:start', 'task.start'],
       ['task:complete', 'task.complete'],
       ['task:error', 'task.error'],
+      // Setup-wizard generation — TASK_2026_104 Sub-batch B9a
+      // (task-description.md §4.1.3).
+      ['setup-wizard:generation-progress', 'wizard.generation.progress'],
+      ['setup-wizard:generation-stream', 'wizard.generation.stream'],
+      ['setup-wizard:generation-complete', 'wizard.generation.complete'],
     ])('maps %s → %s', async (eventType, expectedMethod) => {
       const fmt = new RecordingFormatter();
       const pipe = new EventPipe(fmt);
