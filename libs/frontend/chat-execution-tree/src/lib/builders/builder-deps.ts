@@ -5,7 +5,7 @@
  * `agent-node.fn.ts`) take this object as their first arg. Recursion
  * between builders happens by calling `deps.buildMessageNode` /
  * `deps.buildToolNode` / `deps.buildAgentNode` — closures wired by the
- * orchestrating {@link ExecutionTreeBuilderService}.
+ * orchestrating `ExecutionTreeBuilderService` (lives in @ptah-extension/chat).
  *
  * Why callbacks instead of direct file imports? Direct imports between
  * the three .fn files would re-create the module-level cycles the
@@ -20,11 +20,24 @@ import type {
   ToolStartEvent,
 } from '@ptah-extension/shared';
 import type { StreamingState } from '@ptah-extension/chat-types';
-import type { BackgroundAgentStore } from '../../background-agent.store';
 import type { AgentStatsService } from '../agent-stats.service';
 
+/**
+ * Minimal port for the background-agent flag lookup. Inverted-dependency
+ * shape: the concrete `BackgroundAgentStore` lives in `@ptah-extension/chat`
+ * and bundles with `ExecutionTreeBuilderService` in the G2.3 chat-streaming
+ * wave. Typing this lib's `BuilderDeps` against the structural port keeps
+ * the runtime graph one-directional (chat → chat-execution-tree only) and
+ * lets specs supply lightweight stubs without dragging the chat library in.
+ *
+ * TASK_2026_105 Wave G1.
+ */
+export interface BackgroundAgentLookup {
+  isBackgroundAgent(toolCallId: string): boolean;
+}
+
 export interface BuilderDeps {
-  readonly backgroundAgentStore: BackgroundAgentStore;
+  readonly backgroundAgentStore: BackgroundAgentLookup;
   readonly agentStats: AgentStatsService;
   /**
    * Mutable Set tracking toolCallIds already logged as "unmatched" — keeps

@@ -12,6 +12,17 @@ export { ChatStore } from './chat.store';
 // TASK_2025_090: Removed dead tree-builder.service.ts (ExecutionTreeBuilder was unused)
 export { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 
+// TASK_2026_105 Wave G1: pure execution-tree helpers moved to
+// `@ptah-extension/chat-execution-tree`. Re-exported here for backwards
+// compatibility — new code should import directly from the new lib.
+/** @deprecated Import from `@ptah-extension/chat-execution-tree` instead. */
+export {
+  AgentStatsService,
+  MAX_DEPTH,
+  type BuilderDeps,
+  type BackgroundAgentLookup,
+} from '@ptah-extension/chat-execution-tree';
+
 // SessionManager - Session lifecycle and node map management (TASK_2025_023 Phase 4)
 export { SessionManager } from './session-manager.service';
 

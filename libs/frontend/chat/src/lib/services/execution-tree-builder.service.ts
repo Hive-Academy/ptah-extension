@@ -28,21 +28,20 @@ import type {
 } from '@ptah-extension/shared';
 import type { StreamingState } from '@ptah-extension/chat-types';
 import { BackgroundAgentStore } from './background-agent.store';
-import { AgentStatsService } from './execution-tree/agent-stats.service';
-import type { BuilderDeps } from './execution-tree/builders/builder-deps';
+// TASK_2026_105 Wave G1: pure execution-tree helpers extracted to
+// `@ptah-extension/chat-execution-tree`. The orchestrating service +
+// BackgroundAgentStore stay here pending G2.3 (chat-streaming bundle).
 import {
+  AgentStatsService,
+  type BuilderDeps,
   buildMessageNode as buildMessageNodeFn,
   findMessageStartEvent as findMessageStartEventFn,
-} from './execution-tree/builders/message-node.fn';
-import {
   buildToolNode as buildToolNodeFn,
   buildToolChildren as buildToolChildrenFn,
   collectTools as collectToolsFn,
-} from './execution-tree/builders/tool-node.fn';
-import {
   buildAgentNode as buildAgentNodeFn,
   buildInterleavedChildren as buildInterleavedChildrenFn,
-} from './execution-tree/builders/agent-node.fn';
+} from '@ptah-extension/chat-execution-tree';
 
 /**
  * PERFORMANCE OPTIMIZATION: Cache entry for memoized tree building.
