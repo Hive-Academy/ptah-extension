@@ -16,6 +16,7 @@ import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
   registerAllRpcHandlers,
   registerChatServices,
+  registerHarnessServices,
   verifyAndReportRpcRegistration,
   __debugAssertSharedHandlersDisjoint,
 } from '@ptah-extension/rpc-handlers';
@@ -99,6 +100,12 @@ export class CliRpcMethodRegistrationService {
    */
   registerAll(): void {
     registerChatServices(container);
+
+    // HarnessRpcHandlers depends on per-feature services (workspace context,
+    // file system, AI helpers) registered by `registerHarnessServices`. This
+    // MUST run before `registerAllRpcHandlers` resolves the handler. Same
+    // ordering used by Electron / VS Code.
+    registerHarnessServices(container);
 
     // TASK_2026_104 Batch 4: drop `exclude: [HarnessRpcHandlers]` so the
     // harness handler joins the shared set. Parity with Electron.

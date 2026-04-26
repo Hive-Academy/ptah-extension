@@ -122,6 +122,10 @@ import { CliMessageTransport } from '../transport/cli-message-transport';
 import { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter';
 import { CliFireAndForgetHandler } from '../transport/cli-fire-and-forget-handler';
 
+// RPC method registration — wires the handler classes' `METHODS` tuples into
+// the RpcHandler so the in-process dispatch can find them.
+import { CliRpcMethodRegistrationService } from '../services/cli-rpc-method-registration.service';
+
 /**
  * Options for bootstrapping the CLI DI container.
  */
@@ -840,6 +844,25 @@ export class CliDIContainer {
         logger.warn('[CLI DI] Failed to start content download (non-fatal)', {
           error: error instanceof Error ? error.message : String(error),
         } as unknown as Error);
+      }
+
+      // ========================================
+      // PHASE 4.7: Register RPC method handlers with the RpcHandler
+      // ========================================
+      // Registering handler classes in DI is not enough — each handler exposes
+      // a `static readonly METHODS` tuple that must be wired into the
+      // RpcHandler so dispatch can find them. Without this, every CLI command
+      // that calls into the in-process RPC layer would `task.error` with
+      // `Method not found`.
+      try {
+        const registration = new CliRpcMethodRegistrationService();
+        registration.registerAll();
+      } catch (error) {
+        logger.error(
+          '[CLI DI] RPC method registration failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        throw error;
       }
 
       phaseEnd('4', phase4Start);
