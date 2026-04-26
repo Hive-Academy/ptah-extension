@@ -1,10 +1,17 @@
 /**
- * `ptah profile` command stub.
+ * `ptah profile` command — DEPRECATION SHIM (TASK_2026_104 B7).
  *
- * TASK_2026_104 Batch 2 — scaffold only. Real implementation lands in Batch 4
- * (content-diff aware profile apply, registry list).
+ * The agent surface replaces the profile surface. This shim writes a fixed
+ * deprecation message to stderr and exits with `UsageError` (2). It does
+ * NOT call `withEngine`, does NOT touch the DI container, and does NOT
+ * resolve any services — by design, so unbootstrapped or broken workspaces
+ * still receive a clean error.
+ *
+ * Locked by architect — DO NOT add behavior. The next release removes this
+ * file entirely.
  */
 
+import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 
 export type ProfileSubcommand = 'apply' | 'list';
@@ -14,16 +21,27 @@ export interface ProfileOptions {
   name?: string;
 }
 
+export interface ProfileStderrLike {
+  write(chunk: string): boolean;
+}
+
+export interface ProfileExecuteHooks {
+  stderr?: ProfileStderrLike;
+}
+
 /**
- * Execute the `profile` command. Currently prints a "not yet implemented"
- * notice to stdout and returns exit code 0.
+ * Locked deprecation message — referenced verbatim by `profile.spec.ts`.
+ * Do NOT edit without updating the spec.
  */
+export const PROFILE_DEPRECATION_MESSAGE =
+  'Use `ptah agent install` instead. The `ptah profile` command will be removed in the next release.\n';
+
 export async function execute(
-  opts: ProfileOptions,
+  _opts: ProfileOptions,
   _globals: GlobalOptions,
+  hooks: ProfileExecuteHooks = {},
 ): Promise<number> {
-  process.stdout.write(
-    `ptah profile ${opts.subcommand}: not yet implemented (TASK_2026_104 batch 2 scaffold)\n`,
-  );
-  return 0;
+  const stderr: ProfileStderrLike = hooks.stderr ?? process.stderr;
+  stderr.write(PROFILE_DEPRECATION_MESSAGE);
+  return ExitCode.UsageError;
 }

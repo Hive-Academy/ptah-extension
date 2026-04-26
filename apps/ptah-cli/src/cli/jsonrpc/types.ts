@@ -234,6 +234,20 @@ export type PtahNotification =
   | 'provider.default.updated'
   | 'provider.tier.updated'
   | 'provider.tier.cleared'
+  // Agent surface (TASK_2026_104 B7) — task-description.md §4.1.2
+  | 'agent.packs.list'
+  | 'agent.pack.install.start'
+  | 'agent.pack.install.progress'
+  | 'agent.pack.install.complete'
+  | 'agent.list'
+  | 'agent.applied'
+  // Agent CLI surface (TASK_2026_104 B7) — task-description.md §4.1.2
+  | 'agent_cli.detection'
+  | 'agent_cli.config'
+  | 'agent_cli.config.updated'
+  | 'agent_cli.models'
+  | 'agent_cli.stopped'
+  | 'agent_cli.resumed'
   // Diagnostics (verbose)
   | 'debug.di.phase';
 
@@ -281,7 +295,13 @@ export type PtahErrorCode =
   | 'rate_limited'
   | 'license_required'
   | 'unknown'
-  | 'internal_failure';
+  | 'internal_failure'
+  // CLI agent allowlist rejection (TASK_2026_104 B7).
+  // Emitted by `ptah agent-cli {models|stop|resume} --cli <id>` when the
+  // requested CLI is not in the locked allowlist (`glm` | `gemini`). NEVER
+  // bypassable via env vars — the check lives at command entry-point and
+  // ignores `process.env.PTAH_AGENT_CLI_OVERRIDE` entirely.
+  | 'cli_agent_unavailable';
 
 // ---------------------------------------------------------------------------
 // Process exit codes — task-description.md §6

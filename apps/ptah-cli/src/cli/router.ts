@@ -13,6 +13,8 @@
 
 import { Command, Option } from 'commander';
 
+import * as agentCmd from './commands/agent.js';
+import * as agentCliCmd from './commands/agent-cli.js';
 import * as analyzeCmd from './commands/analyze.js';
 import * as authCmd from './commands/auth.js';
 import * as configCmd from './commands/config.js';
@@ -537,6 +539,171 @@ export function buildRouter(): Command {
     .action(async () => {
       const exit = await profileCmd.execute(
         { subcommand: 'list' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah agent ------------------------------------------------------------
+  // TASK_2026_104 Batch B7. Replaces the deprecated `profile` surface.
+  const agent = program
+    .command('agent')
+    .description(
+      'manage agent packs and individual agents (packs / list / apply)',
+    );
+
+  const agentPacks = agent
+    .command('packs')
+    .description('inspect and install curated agent packs');
+
+  agentPacks
+    .command('list')
+    .description('emit agent.packs.list via wizard:list-agent-packs')
+    .action(async () => {
+      const exit = await agentCmd.execute(
+        { subcommand: 'packs-list' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  agentPacks
+    .command('install <pack-id>')
+    .description(
+      'install an agent pack via wizard:install-pack-agents (idempotent — emits changed:false on second run)',
+    )
+    .action(async (packId: string) => {
+      const exit = await agentCmd.execute(
+        { subcommand: 'packs-install', packId },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  agent
+    .command('list')
+    .description(
+      'list locally-applied agents in .ptah/agents (pure fs scan, no DI bootstrap)',
+    )
+    .action(async () => {
+      const exit = await agentCmd.execute(
+        { subcommand: 'list' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  agent
+    .command('apply <name>')
+    .description(
+      'write the named agent template into .ptah/agents/<name>.md (idempotent — emits changed:false on identical content)',
+    )
+    .action(async (name: string) => {
+      const exit = await agentCmd.execute(
+        { subcommand: 'apply', name },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah agent-cli --------------------------------------------------------
+  // TASK_2026_104 Batch B7. Allowlist enforced — only `glm` and `gemini` are
+  // accepted for `--cli`; rejection emits ptah_code: cli_agent_unavailable
+  // and exits 3 (AuthRequired). NEVER bypassable via env vars.
+  const agentCli = program
+    .command('agent-cli')
+    .description(
+      'manage CLI agents (detect / config / models / stop / resume) — allowlist: glm, gemini',
+    );
+
+  agentCli
+    .command('detect')
+    .description('emit agent_cli.detection via agent:detectClis')
+    .action(async () => {
+      const exit = await agentCliCmd.execute(
+        { subcommand: 'detect' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  const agentCliConfig = agentCli
+    .command('config')
+    .description('read or write the agent orchestration config');
+
+  agentCliConfig
+    .command('get')
+    .description('emit agent_cli.config via agent:getConfig')
+    .action(async () => {
+      const exit = await agentCliCmd.execute(
+        { subcommand: 'config-get' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  agentCliConfig
+    .command('set')
+    .description(
+      'write a single agent orchestration config entry via agent:setConfig',
+    )
+    .requiredOption('--key <key>', 'config key (e.g. maxConcurrentAgents)')
+    .requiredOption('--value <value>', 'config value (coerced for known keys)')
+    .action(async (opts: { key: string; value: string }) => {
+      const exit = await agentCliCmd.execute(
+        { subcommand: 'config-set', key: opts.key, value: opts.value },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  const agentCliModels = agentCli
+    .command('models')
+    .description('inspect available models per CLI agent');
+
+  agentCliModels
+    .command('list')
+    .description(
+      'emit agent_cli.models via agent:listCliModels (--cli optional; only glm/gemini accepted)',
+    )
+    .option('--cli <id>', 'scope to a single allowlisted CLI (glm|gemini)')
+    .action(async (opts: { cli?: string }) => {
+      const exit = await agentCliCmd.execute(
+        { subcommand: 'models-list', cli: opts.cli },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  agentCli
+    .command('stop <id>')
+    .description(
+      'stop a running CLI agent via agent:stop (--cli required; only glm/gemini accepted)',
+    )
+    .requiredOption('--cli <id>', 'allowlisted CLI id (glm|gemini)')
+    .action(async (id: string, opts: { cli: string }) => {
+      const exit = await agentCliCmd.execute(
+        { subcommand: 'stop', agentId: id, cli: opts.cli },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  agentCli
+    .command('resume <id>')
+    .description(
+      'resume a CLI agent session via agent:resumeCliSession (--cli required; only glm/gemini accepted)',
+    )
+    .requiredOption('--cli <id>', 'allowlisted CLI id (glm|gemini)')
+    .option('--task <text>', 'free-form task prompt for the resumed session')
+    .action(async (id: string, opts: { cli: string; task?: string }) => {
+      const exit = await agentCliCmd.execute(
+        {
+          subcommand: 'resume',
+          cliSessionId: id,
+          cli: opts.cli,
+          task: opts.task,
+        },
         resolveGlobals(program),
       );
       process.exitCode = exit;

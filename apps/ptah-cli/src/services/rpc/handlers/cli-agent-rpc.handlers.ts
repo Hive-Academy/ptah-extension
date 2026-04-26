@@ -1,17 +1,24 @@
 /**
- * Electron Agent Orchestration RPC Handlers
+ * CLI parity copy of Electron AgentRpcHandlers — TASK_2026_104 B7.
  *
- * Electron-specific implementations for agent orchestration methods:
- * - agent:getConfig - Get agent config from Electron storage + CLI detection
- * - agent:setConfig - Persist agent config to Electron storage
- * - agent:detectClis - Re-detect installed CLI agents
- * - agent:listCliModels - List available models per CLI
- * - agent:permissionResponse - Route permission decisions to Copilot bridge
- * - agent:stop - Stop a running CLI agent
- * - agent:resumeCliSession - Resume a CLI agent session
+ * Handles the seven `agent:*` RPC methods locally inside the CLI app. The
+ * Electron implementation lives at
+ * `apps/ptah-electron/src/services/rpc/handlers/agent-rpc.handlers.ts` —
+ * each method body in this file is a near-byte-for-byte copy of the
+ * Electron counterpart. The differences are intentionally cosmetic:
  *
- * Mirrors the VS Code AgentRpcHandlers but uses platform-agnostic services
- * (IStateStorage, IWorkspaceProvider) instead of VS Code APIs.
+ *   1. Class name (`CliAgentRpcHandlers` vs `AgentRpcHandlers`).
+ *   2. File header comment marking the parity copy.
+ *   3. Logger label (`'CliAgentRpcHandlers'` debug context).
+ *
+ * Injected tokens are IDENTICAL. `PLATFORM_TOKENS.STATE_STORAGE` resolves to
+ * the existing `CliStateStorage` instance registered at Phase 0 by
+ * `registerPlatformCliServices()` — Discovery D10 ruling and user
+ * escalation E1 (2026-04-25): NO new `CliStateStorage` class is created.
+ *
+ * Method registration order is fixed by `static readonly METHODS` and
+ * MUST stay in lockstep with the Electron tuple. Drift is asserted by the
+ * parity spec (`cli-agent-rpc.handlers.spec.ts`).
  */
 
 import { injectable, inject, container } from 'tsyringe';
@@ -49,12 +56,11 @@ import type {
 } from '@ptah-extension/shared';
 
 @injectable()
-export class AgentRpcHandlers {
+export class CliAgentRpcHandlers {
   /**
    * Method names registered against the global `RpcHandler`. Order matches
-   * `register()` invocation order. Asserted in the CLI parity spec
-   * (`apps/ptah-cli/src/services/rpc/handlers/cli-agent-rpc.handlers.spec.ts`)
-   * to keep CLI and Electron in lockstep — TASK_2026_104 Sub-batch B7.
+   * `register()` invocation order. Asserted deep-equal to the Electron
+   * `AgentRpcHandlers.METHODS` tuple in the parity spec.
    */
   static readonly METHODS = [
     'agent:getConfig',
@@ -92,7 +98,8 @@ export class AgentRpcHandlers {
     this.registerAgentStop();
     this.registerResumeCliSession();
 
-    // Initialize Copilot auto-approve from saved config (default: true)
+    // Initialize Copilot auto-approve from saved config (default: true).
+    // Same boot-time hydration the Electron handler performs.
     const copilotAutoApprove =
       this.stateStorage.get<boolean>(
         'agentOrchestration.copilotAutoApprove',
@@ -106,7 +113,7 @@ export class AgentRpcHandlers {
       bridge.setAutoApprove(copilotAutoApprove);
     }
 
-    this.logger.debug('Electron Agent RPC handlers registered', {
+    this.logger.debug('CliAgentRpcHandlers registered', {
       methods: [
         'agent:getConfig',
         'agent:setConfig',
@@ -191,10 +198,7 @@ export class AgentRpcHandlers {
                 'agentOrchestration.disabledMcpNamespaces',
                 [],
               ) ?? [],
-            // Browser settings — read from workspace provider (not stateStorage) because
-            // browser.allowLocalhost is in FILE_BASED_SETTINGS_KEYS and must route through
-            // PtahFileSettingsManager (~/.ptah/settings.json) for parity with the MCP
-            // browser namespace read path in PtahApiBuilderService.
+            // Browser settings — read from workspace provider (file-based settings).
             browserAllowLocalhost:
               this.workspace.getConfiguration<boolean>(
                 'ptah',
@@ -301,8 +305,8 @@ export class AgentRpcHandlers {
             params.disabledMcpNamespaces,
           );
         }
-        // Browser settings — write via workspace provider (not stateStorage) because
-        // browser.allowLocalhost routes through FILE_BASED_SETTINGS_KEYS to ~/.ptah/settings.json.
+        // Browser settings — write via workspace provider (FILE_BASED_SETTINGS_KEYS routes
+        // through PtahFileSettingsManager → ~/.ptah/settings.json).
         if (params.browserAllowLocalhost !== undefined) {
           await this.workspace.setConfiguration(
             'ptah',
@@ -362,7 +366,6 @@ export class AgentRpcHandlers {
 
           const gemini = (modelMap['gemini'] ?? []) as CliModelOption[];
           const codex = (modelMap['codex'] ?? []) as CliModelOption[];
-          // Electron has no VS Code LM API — use adapter's curated list
           const copilot = (modelMap['copilot'] ?? []) as CliModelOption[];
 
           const result: AgentListCliModelsResult = { gemini, codex, copilot };
@@ -386,15 +389,13 @@ export class AgentRpcHandlers {
   }
 
   /**
-   * agent:permissionResponse - Route user's permission decision to handlers
+   * agent:permissionResponse - Route user's permission decision to handlers.
    *
    * Tries both:
-   * 1. SdkPermissionHandler (Ptah CLI agent permissions) - via lazy container resolution
-   * 2. CopilotPermissionBridge (Copilot SDK permissions) - via CLI adapter
+   * 1. SdkPermissionHandler (Ptah CLI agent permissions) — lazy container resolve.
+   * 2. CopilotPermissionBridge (Copilot SDK permissions) — via CLI adapter.
    *
    * Both handlers silently ignore unknown requestIds, so trying both is safe.
-   *
-   * TASK_2025_255: Extended to also route to SdkPermissionHandler for Ptah CLI agents
    */
   private registerPermissionResponse(): void {
     this.rpcHandler.registerMethod<
@@ -409,8 +410,6 @@ export class AgentRpcHandlers {
 
         let handled = false;
 
-        // Try SdkPermissionHandler first (handles Ptah CLI agent permissions)
-        // Uses lazy container resolution (same pattern as webview-message-handler.service.ts:464)
         if (container.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)) {
           const permissionHandler = container.resolve<ISdkPermissionHandler>(
             SDK_TOKENS.SDK_PERMISSION_HANDLER,
@@ -424,7 +423,6 @@ export class AgentRpcHandlers {
           handled = true;
         }
 
-        // Also try Copilot bridge (existing flow, idempotent for unknown requestIds)
         const copilotAdapter = this.cliDetection.getAdapter('copilot');
         if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
           const bridge = (
@@ -527,7 +525,7 @@ export class AgentRpcHandlers {
           );
           if (!cliSessionExists) {
             this.logger.warn(
-              `[AgentRpc] CLI session file not found for ${params.cliSessionId} — starting fresh`,
+              `[CliAgentRpc] CLI session file not found for ${params.cliSessionId} — starting fresh`,
             );
           }
           result = await this.agentProcessManager.spawn({
@@ -608,7 +606,7 @@ export class AgentRpcHandlers {
 
     if (!sessionFileExists) {
       this.logger.warn(
-        `[AgentRpc] Session file not found for ${params.cliSessionId} — starting fresh instead of resuming`,
+        `[CliAgentRpc] Session file not found for ${params.cliSessionId} — starting fresh instead of resuming`,
       );
     }
 
@@ -623,7 +621,7 @@ export class AgentRpcHandlers {
           .createChild(sessionId, workspaceRoot, sessionName)
           .catch((err) =>
             this.logger.warn(
-              `[AgentRpc] Failed to save child session metadata: ${err}`,
+              `[CliAgentRpc] Failed to save child session metadata: ${err}`,
             ),
           );
       });
@@ -643,7 +641,6 @@ export class AgentRpcHandlers {
       },
     );
 
-    // TASK_2025_255: Wire agentId so CLI permission requests route to agent monitor panel
     spawnResult.setAgentId(result.agentId);
 
     return result;

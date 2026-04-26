@@ -24,6 +24,7 @@ import {
   wireSdkCallbacks,
   wireAgentEventListeners,
 } from '@ptah-extension/agent-sdk';
+import { CliAgentRpcHandlers } from './rpc/handlers/cli-agent-rpc.handlers.js';
 import { SkillsShRpcHandlers } from './rpc/handlers/skills-sh-rpc.handlers.js';
 
 /**
@@ -119,6 +120,15 @@ export class CliRpcMethodRegistrationService {
     // `npx skills` integration may diverge per-platform in the future.
     container.registerSingleton(SkillsShRpcHandlers);
     container.resolve(SkillsShRpcHandlers).register();
+
+    // TASK_2026_104 Batch B7: register `CliAgentRpcHandlers` — byte-for-byte
+    // parity copy of the Electron `AgentRpcHandlers`. Same 7 methods, same
+    // injection set, same dispatch bodies. Ships the agent surface for the
+    // CLI now that the deprecated `profile` command emits a deprecation shim.
+    // Both classes expose `static readonly METHODS` (locked tuple, deep-equal
+    // verified by `cli-agent-rpc.handlers.spec.ts`).
+    container.registerSingleton(CliAgentRpcHandlers);
+    container.resolve(CliAgentRpcHandlers).register();
 
     wireSdkCallbacks(container, {
       logger: this.logger,
