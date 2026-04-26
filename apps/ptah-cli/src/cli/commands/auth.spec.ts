@@ -32,6 +32,16 @@ jest.mock(
     SDK_TOKENS: {
       SDK_COPILOT_AUTH: Symbol.for('SdkCopilotAuth'),
     },
+    // `auth-rpc.schema.ts` (loaded transitively via the static
+    // `CliDIContainer` import) reads `ANTHROPIC_PROVIDERS.map(p => p.id)`
+    // at module load to build a Zod enum. Provide a stable stub so module
+    // evaluation succeeds.
+    ANTHROPIC_PROVIDERS: [
+      { id: 'anthropic' },
+      { id: 'openrouter' },
+      { id: 'copilot' },
+      { id: 'codex' },
+    ],
   }),
   { virtual: true },
 );
@@ -276,9 +286,8 @@ describe('ptah auth login copilot', () => {
       outcome: 'success' as const,
       deviceCode: 'dc-1',
     }));
-    // The `resolveCopilotAuth` hook bypasses the production `await import(
-    // '@ptah-extension/agent-sdk')`, so the scripted `runHeadlessLogin`
-    // mock is what actually executes against a vanilla copilotAuth stub.
+    // The `resolveCopilotAuth` hook returns a vanilla stub so the scripted
+    // `runHeadlessLogin` mock is what actually executes.
     const copilotAuthStub = {
       beginLogin: jest.fn(),
       pollLogin: jest.fn(),

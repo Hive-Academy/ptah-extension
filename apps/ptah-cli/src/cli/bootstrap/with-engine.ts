@@ -18,13 +18,10 @@
 
 import type { DependencyContainer } from 'tsyringe';
 
-// Type-only imports — we lazy-load the real `CliDIContainer` value inside
-// `withEngine` so test runners (ts-jest) do not eagerly compile the entire
-// DI module graph at spec-load time. Tests inject a `bootstrap` override
-// and never touch the production class.
-import type {
-  CliBootstrapOptions,
-  CliBootstrapResult,
+import {
+  CliDIContainer,
+  type CliBootstrapOptions,
+  type CliBootstrapResult,
 } from '../../di/container.js';
 import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
 import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
@@ -79,7 +76,7 @@ export async function withEngine<T>(
   opts: WithEngineOptions,
   fn: (ctx: EngineContext) => Promise<T>,
 ): Promise<T> {
-  const bootstrap = opts.bootstrap ?? (await loadDefaultBootstrap());
+  const bootstrap = opts.bootstrap ?? defaultBootstrap;
 
   const bootOptions: CliBootstrapOptions = {
     bootstrapMode: opts.mode,
@@ -101,15 +98,8 @@ export async function withEngine<T>(
   }
 }
 
-/**
- * Lazy ESM import of the real DI container. Production callers hit this
- * path; tests inject `opts.bootstrap` and never load the heavy module graph.
- */
-async function loadDefaultBootstrap(): Promise<
-  (options: CliBootstrapOptions) => CliBootstrapResult
-> {
-  const mod = await import('../../di/container.js');
-  return mod.CliDIContainer.setup.bind(mod.CliDIContainer);
+function defaultBootstrap(options: CliBootstrapOptions): CliBootstrapResult {
+  return CliDIContainer.setup(options);
 }
 
 /**

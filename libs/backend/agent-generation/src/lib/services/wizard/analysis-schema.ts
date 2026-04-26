@@ -21,6 +21,7 @@ import {
   MonorepoType,
 } from '@ptah-extension/workspace-intelligence';
 import type { DeepProjectAnalysis } from '../../types/analysis.types';
+import type { CodeConventions } from '@ptah-extension/shared';
 
 // ============================================================================
 // Enum Lookup Maps (case-insensitive)
@@ -31,7 +32,7 @@ import type { DeepProjectAnalysis } from '../../types/analysis.types';
  * Maps normalized keys (lowercase, alphanumeric only) to enum values.
  */
 function buildLookupMap<T extends string>(
-  enumObj: Record<string, T>
+  enumObj: Record<string, T>,
 ): Map<string, T> {
   const map = new Map<string, T>();
   for (const value of Object.values(enumObj)) {
@@ -199,7 +200,7 @@ function resolveFramework(raw: string | number): Framework | undefined {
  * Resolve a raw LLM string to a MonorepoType enum value, or undefined if no match.
  */
 function resolveMonorepoType(
-  raw: string | null | undefined
+  raw: string | null | undefined,
 ): MonorepoType | undefined {
   if (!raw) return undefined;
 
@@ -278,9 +279,9 @@ export const ProjectAnalysisZodSchema = z.object({
           confidence: z.number().min(0).max(100).default(50),
           evidence: z.array(z.string()).default([]),
           description: z.string().optional(),
-        })
+        }),
       )
-      .default([])
+      .default([]),
   ),
 
   // Key file locations organized by purpose
@@ -318,7 +319,7 @@ export const ProjectAnalysisZodSchema = z.object({
         apiRoutes: [],
         components: [],
         services: [],
-      })
+      }),
   ),
 
   // Language distribution statistics
@@ -335,7 +336,7 @@ export const ProjectAnalysisZodSchema = z.object({
             language,
             percentage: typeof value === 'number' ? value : 0,
             fileCount: 0,
-          })
+          }),
         );
       } else {
         return [];
@@ -360,9 +361,9 @@ export const ProjectAnalysisZodSchema = z.object({
           percentage: z.number().min(0).max(100).default(0),
           fileCount: z.number().min(0).default(0),
           linesOfCode: z.number().min(0).optional(),
-        })
+        }),
       )
-      .default([])
+      .default([]),
   ),
 
   // Code health diagnostics
@@ -379,7 +380,7 @@ export const ProjectAnalysisZodSchema = z.object({
             message: z.string(),
             count: z.number(),
             source: z.string(),
-          })
+          }),
         )
         .optional(),
     })
@@ -460,7 +461,7 @@ export const ProjectAnalysisZodSchema = z.object({
             description: z.string(),
             recommendation: z.string(),
             affectedFiles: z.array(z.string()).optional(),
-          })
+          }),
         )
         .default([]),
       strengths: z.array(z.string()).default([]),
@@ -471,7 +472,7 @@ export const ProjectAnalysisZodSchema = z.object({
             category: z.string(),
             issue: z.string(),
             solution: z.string(),
-          })
+          }),
         )
         .default([]),
     })
@@ -504,7 +505,7 @@ export type ProjectAnalysisZodOutput = z.infer<typeof ProjectAnalysisZodSchema>;
  * @returns Properly typed DeepProjectAnalysis with enum values
  */
 export function normalizeAgentOutput(
-  zodData: ProjectAnalysisZodOutput
+  zodData: ProjectAnalysisZodOutput,
 ): DeepProjectAnalysis {
   // Resolve projectType from LLM string to enum
   const projectType = resolveProjectType(zodData.projectType);
@@ -512,8 +513,8 @@ export function normalizeAgentOutput(
   if (projectType === ProjectType.General) {
     console.warn(
       `[analysis-schema] projectType "${String(
-        zodData.projectType
-      )}" could not be resolved to a known ProjectType; falling back to General`
+        zodData.projectType,
+      )}" could not be resolved to a known ProjectType; falling back to General`,
     );
   }
 
@@ -530,13 +531,13 @@ export function normalizeAgentOutput(
   });
 
   const dynamicFrameworks = resolvedFrameworks.filter(
-    (r) => r.resolved === undefined
+    (r) => r.resolved === undefined,
   );
   if (dynamicFrameworks.length > 0) {
     console.log(
       `[analysis-schema] Dynamic frameworks discovered: ${dynamicFrameworks
         .map((r) => `"${String(r.raw)}"`)
-        .join(', ')}`
+        .join(', ')}`,
     );
   }
 
@@ -548,7 +549,10 @@ export function normalizeAgentOutput(
 
   // codeConventions is guaranteed to have all required fields by Zod defaults,
   // including trailingComma which uses .default('es5') at the field level.
-  const codeConventions = zodData.codeConventions;
+  // Cast required because Zod 4 inference under ts-jest treats `.default()`
+  // fields as optional in `_output`, while `tsc --noEmit` narrows them to
+  // required. Runtime values always have these fields populated.
+  const codeConventions = zodData.codeConventions as CodeConventions;
 
   // Preserve the agent's original rich description (e.g., "React SPA with Supabase Backend")
   // while the enum is a best-effort infrastructure mapping

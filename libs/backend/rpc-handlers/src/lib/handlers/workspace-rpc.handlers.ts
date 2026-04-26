@@ -140,14 +140,15 @@ export class WorkspaceRpcHandlers {
         const createResult =
           await this.workspaceContextManager.createWorkspace(folderPath);
         if (!createResult.success) {
+          const failure = createResult as { success: false; error: string };
           this.logger.error(
             '[RPC] workspace:addFolder - failed to create workspace context',
-            { folderPath, error: createResult.error },
+            { folderPath, error: failure.error },
           );
           return {
             path: null,
             name: null,
-            error: `Failed to create workspace context: ${createResult.error}`,
+            error: `Failed to create workspace context: ${failure.error}`,
           };
         }
 
@@ -190,11 +191,12 @@ export class WorkspaceRpcHandlers {
           const createResult =
             await this.workspaceContextManager.createWorkspace(folderPath);
           if (!createResult.success) {
+            const failure = createResult as { success: false; error: string };
             return {
               success: false,
               path: folderPath,
               name: folderName,
-              error: `Failed to create workspace context: ${createResult.error}`,
+              error: `Failed to create workspace context: ${failure.error}`,
             };
           }
 

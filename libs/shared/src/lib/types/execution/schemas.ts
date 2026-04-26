@@ -39,7 +39,9 @@ export const MessageTokenUsageSchema = z.object({
   cacheCreation: z.number().optional(),
 });
 
-// Recursive schema requires lazy evaluation
+// Recursive schema requires lazy evaluation. Cast through `unknown` because
+// Zod 4 infers `content: z.string().nullable()` as optional in `_output`,
+// which clashes with the required `content: string | null` on ExecutionNode.
 export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
   z.object({
     id: z.string(),
@@ -67,7 +69,7 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
     isHighlighted: z.boolean().optional(),
     isBackground: z.boolean().optional(),
   }),
-);
+) as unknown as z.ZodType<ExecutionNode>;
 
 export const AgentInfoSchema = z.object({
   agentType: z.string(),

@@ -349,9 +349,10 @@ export class CliDIContainer {
         if (result.success) {
           workspaceAwareStorage.setActiveWorkspace(path.resolve(workspacePath));
         } else {
+          const failure = result as { success: false; error: string };
           logger.warn(
             '[CLI DI] Failed to create initial workspace context (non-fatal)',
-            { error: result.error } as unknown as Error,
+            { error: failure.error } as unknown as Error,
           );
         }
       },

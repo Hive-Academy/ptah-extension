@@ -30,7 +30,7 @@ export class Result<T, E extends Error = Error> {
    * @param error The error value
    */
   public static err<E extends Error>(error: E): Result<never, E> {
-    return new Result<never, E>(false, undefined, error);
+    return new Result<never, E>(false, undefined as never, error);
   }
 
   /**

@@ -36,6 +36,16 @@ jest.mock(
       SDK_SETTINGS_EXPORT: Symbol.for('SdkSettingsExport'),
       SDK_SETTINGS_IMPORT: Symbol.for('SdkSettingsImport'),
     },
+    // `auth-rpc.schema.ts` (loaded transitively via the static
+    // `CliDIContainer` import) reads `ANTHROPIC_PROVIDERS.map(p => p.id)`
+    // at module load to build a Zod enum. Provide a stable stub so module
+    // evaluation succeeds.
+    ANTHROPIC_PROVIDERS: [
+      { id: 'anthropic' },
+      { id: 'openrouter' },
+      { id: 'copilot' },
+      { id: 'codex' },
+    ],
   }),
   { virtual: true },
 );
