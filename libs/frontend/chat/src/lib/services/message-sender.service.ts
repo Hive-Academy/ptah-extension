@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MessageSenderService - Centralized Message Sending Logic (Mediator Pattern)
  *
  * Eliminates 3-level callback indirection by providing direct message sending API.
@@ -31,7 +31,7 @@ import {
   SessionId,
   EffortLevel,
 } from '@ptah-extension/shared';
-import { TabManagerService } from './tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from './session-manager.service';
 import { MessageValidationService } from './message-validation.service';
 import type { SendMessageOptions } from '@ptah-extension/chat-types';
@@ -126,12 +126,12 @@ export class MessageSenderService {
     signal.addEventListener(
       'abort',
       () => {
-        // Re-resolve the session id at abort time — when the stream first
+        // Re-resolve the session id at abort time â€” when the stream first
         // started, claudeSessionId may not have been assigned yet.
         const tab = this.tabManager.tabs().find((t) => t.id === tabId);
         const sessionId = tab?.claudeSessionId;
         if (!sessionId) {
-          // No backend session was established before abort — nothing to
+          // No backend session was established before abort â€” nothing to
           // cancel on the host side. The frontend RPC promise still
           // resolves with an aborted error via the signal.
           return;
@@ -209,7 +209,7 @@ export class MessageSenderService {
       return;
     }
 
-    // Sanitize content (trim whitespace) — slash commands passed through as-is
+    // Sanitize content (trim whitespace) â€” slash commands passed through as-is
     const sanitized = this.validator.sanitize(content);
 
     // When a tabId is provided (canvas tile context), use that specific tab
@@ -249,7 +249,7 @@ export class MessageSenderService {
     content: string,
     options?: SendMessageOptions,
   ): Promise<void> {
-    // Check if streaming — use target tab if specified, otherwise global active tab
+    // Check if streaming â€” use target tab if specified, otherwise global active tab
     const targetTabId = options?.tabId;
     const targetTab = targetTabId
       ? (this.tabManager.tabs().find((t) => t.id === targetTabId) ??
@@ -324,7 +324,7 @@ export class MessageSenderService {
       // Clear previous node maps to prevent stale references
       this.sessionManager.clearNodeMaps();
 
-      // Resolve the target tab — use explicit tabId when provided (canvas tile)
+      // Resolve the target tab â€” use explicit tabId when provided (canvas tile)
       const activeTab =
         this.tabManager.tabs().find((t) => t.id === activeTabId) ??
         this.tabManager.activeTab();
@@ -466,7 +466,7 @@ export class MessageSenderService {
         return;
       }
 
-      // ✅ VALIDATE: Check if session file actually exists on disk
+      // âœ… VALIDATE: Check if session file actually exists on disk
       const validationResult = await this.validateSessionExists(
         sessionId,
         workspacePath,
@@ -488,7 +488,7 @@ export class MessageSenderService {
 
       if (!activeTabId) {
         console.warn(
-          '[MessageSender] No active tab for continuing conversation — starting new',
+          '[MessageSender] No active tab for continuing conversation â€” starting new',
         );
         await this.startNewConversation(content, options);
         return;

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * EffortSelectorComponent - Reasoning Effort Level Dropdown
  * TASK_2025_184: Reasoning Effort Configuration
  *
@@ -26,7 +26,7 @@ import {
   NativeOptionComponent,
   KeyboardNavigationService,
 } from '@ptah-extension/ui';
-import { TabManagerService } from '../../../services/tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 
 interface EffortOption {

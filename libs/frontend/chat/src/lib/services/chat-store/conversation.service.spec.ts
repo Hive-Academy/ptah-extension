@@ -1,5 +1,5 @@
-/**
- * ConversationService specs — routes send/queue/abort for chat conversations.
+﻿/**
+ * ConversationService specs â€” routes send/queue/abort for chat conversations.
  *
  * Full integration of this service (continueConversation, abortCurrentMessage
  * preserving partial messages, abortWithConfirmation agent-count dialog) is
@@ -14,7 +14,7 @@
  *   - sendMessage: routes to continueConversation when a session exists,
  *     otherwise startNewConversation
  *   - sendOrQueueMessage: queues while streaming, sends otherwise
- *   - startNewConversation happy path: auto-names, marks draft → streaming,
+ *   - startNewConversation happy path: auto-names, marks draft â†’ streaming,
  *     appends user message, calls chat:start RPC with the right payload
  *   - startNewConversation failure path: surfaces an assistant error message
  *     and resets to loaded when RPC returns success=false
@@ -25,7 +25,7 @@
 import { TestBed } from '@angular/core/testing';
 import { signal, computed } from '@angular/core';
 import { ConversationService } from './conversation.service';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from '../session-manager.service';
 import { MessageValidationService } from '../message-validation.service';
 import {
@@ -286,7 +286,7 @@ describe('ConversationService', () => {
       tabsSignal.set([makeTab({ id: 'tab-1', status: 'streaming' })]);
       await service.sendOrQueueMessage('hello');
 
-      // Queue is updated via setQueuedContent (no options passed → no
+      // Queue is updated via setQueuedContent (no options passed â†’ no
       // setQueuedContentAndOptions on the first write either).
       expect(tabManager.setQueuedContent).toHaveBeenCalledWith(
         'tab-1',
@@ -331,14 +331,14 @@ describe('ConversationService', () => {
   });
 
   describe('startNewConversation happy path', () => {
-    it('marks draft → streaming, appends the user message, and sends chat:start RPC', async () => {
+    it('marks draft â†’ streaming, appends the user message, and sends chat:start RPC', async () => {
       rpcCall.mockResolvedValue({ success: true });
 
       await service.startNewConversation('Plan a refactor', ['src/a.ts']);
 
       // clearNodeMaps called to reset correlation state.
       expect(sessionManager.clearNodeMaps).toHaveBeenCalled();
-      // Status moves draft → streaming (in order).
+      // Status moves draft â†’ streaming (in order).
       const statusCalls = sessionManager.setStatus.mock.calls.map((c) => c[0]);
       expect(statusCalls).toEqual(['draft', 'streaming']);
 
@@ -407,13 +407,13 @@ describe('ConversationService', () => {
         makeTab({ id: 'tab-1', claudeSessionId: null, status: 'streaming' }),
       ]);
 
-      // Invoke twice concurrently — second should early-return without calling RPC
+      // Invoke twice concurrently â€” second should early-return without calling RPC
       // again.
       const p1 = service.abortCurrentMessage();
       const p2 = service.abortCurrentMessage();
       await Promise.all([p1, p2]);
 
-      // No active session ⇒ no RPC at all.
+      // No active session â‡’ no RPC at all.
       expect(rpcCall).not.toHaveBeenCalled();
     });
 

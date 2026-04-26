@@ -1,7 +1,7 @@
-import { Injectable, inject } from '@angular/core';
+﻿import { Injectable, inject } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
 import { createExecutionChatMessage } from '@ptah-extension/shared';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { MessageSenderService } from '../message-sender.service';
 import type { SendMessageOptions } from '@ptah-extension/chat-types';
 import { ConversationService } from './conversation.service';
@@ -15,7 +15,7 @@ import { PermissionHandlerService } from './permission-handler.service';
  *   based on streaming state of the target tab; auto-denies in-flight permissions with the
  *   user's content as `deny_with_message` reason
  * - Blocks SDK-native slash commands (`/compact`, `/context`, `/cost`, `/review`) for
- *   non-Anthropic providers — those commands require Claude-specific model behaviour
+ *   non-Anthropic providers â€” those commands require Claude-specific model behaviour
  * - sendQueuedMessage: post-streaming queue flush via ConversationService.continueConversation
  *   (NOT MessageSender.send, which would refuse during streaming)
  */
@@ -58,7 +58,7 @@ export class MessageDispatchService {
       return;
     }
 
-    // Check target tab's streaming state — use explicit tabId if provided (canvas tile)
+    // Check target tab's streaming state â€” use explicit tabId if provided (canvas tile)
     const targetTabId = options?.tabId;
     const targetTab = targetTabId
       ? this.tabManager.tabs().find((t) => t.id === targetTabId)
@@ -69,7 +69,7 @@ export class MessageDispatchService {
     if (isStreaming) {
       // Auto-deny active permissions with the user's message as context.
       // Uses deny_with_message (not hard deny) so the session continues
-      // rather than being killed — the user's intent is "no, do this instead".
+      // rather than being killed â€” the user's intent is "no, do this instead".
       const activePermissions = this.permissionHandler.permissionRequests();
       if (activePermissions.length > 0) {
         for (const perm of activePermissions) {
@@ -135,7 +135,7 @@ export class MessageDispatchService {
     const trimmed = content.trim();
     if (!trimmed.startsWith('/')) return false;
 
-    // Extract command name (e.g., "/compact foo" → "compact")
+    // Extract command name (e.g., "/compact foo" â†’ "compact")
     const spaceIdx = trimmed.indexOf(' ');
     const commandName =
       spaceIdx === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIdx);
@@ -143,7 +143,7 @@ export class MessageDispatchService {
     if (!MessageDispatchService.SDK_NATIVE_COMMANDS.has(commandName))
       return false;
 
-    // If auth state hasn't loaded yet, don't block — let the backend decide.
+    // If auth state hasn't loaded yet, don't block â€” let the backend decide.
     // Blocking on stale defaults would incorrectly reject commands before auth state is known.
     if (this.authState.isLoading()) return false;
 

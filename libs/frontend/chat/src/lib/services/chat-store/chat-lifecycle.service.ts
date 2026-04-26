@@ -1,7 +1,7 @@
-import { Injectable, signal, inject } from '@angular/core';
+﻿import { Injectable, signal, inject } from '@angular/core';
 import { ClaudeRpcService, AuthStateService } from '@ptah-extension/core';
 import { LicenseGetStatusResponse } from '@ptah-extension/shared';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from '../session-manager.service';
 import { SessionLoaderService } from './session-loader.service';
 import { StreamingHandlerService } from './streaming-handler.service';
@@ -198,8 +198,8 @@ export class ChatLifecycleService {
    * TASK_2025_095: Now uses tabId for direct routing - no temp ID lookup needed.
    *
    * Flow:
-   * 1. User sends message → backend creates stream with tabId
-   * 2. Backend SDK returns real UUID → sends SESSION_ID_RESOLVED with tabId
+   * 1. User sends message â†’ backend creates stream with tabId
+   * 2. Backend SDK returns real UUID â†’ sends SESSION_ID_RESOLVED with tabId
    * 3. This method finds tab directly by tabId and updates claudeSessionId
    * 4. Future resume attempts use valid UUID format
    */

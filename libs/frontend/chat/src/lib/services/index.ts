@@ -29,10 +29,14 @@ export {
 } from '@ptah-extension/chat-types';
 
 // ConfirmationDialogService - Custom confirmation dialog for VS Code webview
+// TASK_2026_105 Wave G2 Phase 2: moved to @ptah-extension/chat-state.
+// Re-exported here for backwards compatibility — new code should import
+// directly from '@ptah-extension/chat-state'.
+/** @deprecated Import from `@ptah-extension/chat-state` instead. */
 export {
   ConfirmationDialogService,
   type ConfirmationDialogOptions,
-} from './confirmation-dialog.service';
+} from '@ptah-extension/chat-state';
 
 // MessageSenderService - Centralized message sending mediator (TASK_2025_054 Batch 3)
 export { MessageSenderService } from './message-sender.service';
@@ -65,17 +69,29 @@ export { PanelResizeService } from './panel-resize.service';
 export { AgentMonitorTreeBuilderService } from './agent-monitor-tree-builder.service';
 
 // TabManagerService - Multi-session tab state management with workspace partitioning (TASK_2025_208)
-export { TabManagerService } from './tab-manager.service';
+// TASK_2026_105 Wave G2 Phase 2: moved to @ptah-extension/chat-state.
+// Re-exported here for backwards compatibility — new code should import
+// directly from '@ptah-extension/chat-state'.
+/** @deprecated Import from `@ptah-extension/chat-state` instead. */
+export {
+  TabManagerService,
+  type LiveModelStatsPayload,
+  type PreloadedStatsPayload,
+} from '@ptah-extension/chat-state';
 
 // WorkspaceCoordinatorService - Cross-library workspace coordination (breaks core→chat circular dep)
 export { WorkspaceCoordinatorService } from './workspace-coordinator.service';
 
 // TabWorkspacePartitionService - Workspace-partitioned tab state management (TASK_2025_208 Batch 6)
+// TASK_2026_105 Wave G2 Phase 2: moved to @ptah-extension/chat-state.
+// Re-exported here for backwards compatibility — new code should import
+// directly from '@ptah-extension/chat-state'.
+/** @deprecated Import from `@ptah-extension/chat-state` instead. */
 export {
   TabWorkspacePartitionService,
   type WorkspaceTabSet,
   type TabLookupResult,
-} from './tab-workspace-partition.service';
+} from '@ptah-extension/chat-state';
 
 // SessionDisplayUtils - Shared session name/date formatting (extracted from AppShell + Canvas)
 export { SessionDisplayUtils } from './session-display-utils.service';
@@ -88,6 +104,18 @@ export { SESSION_CONTEXT } from '../tokens/session-context.token';
 // TASK_2026_103 Wave B1: introduced to break the
 // tab-manager ↔ streaming-handler ↔ {batched,finalization,permission}
 // and tab-manager ↔ agent-monitor.store cycles.
-export { STREAMING_CONTROL, type StreamingControl } from './streaming-control';
+// TASK_2026_105 Wave G2 Phase 2: token + interface live in chat-state now,
+// re-exported here for backwards compatibility.
+/** @deprecated Import from `@ptah-extension/chat-state` instead. */
+export {
+  STREAMING_CONTROL,
+  type StreamingControl,
+} from '@ptah-extension/chat-state';
 export { StreamingControlImpl } from './chat-store/streaming-control-impl.service';
 export { provideStreamingControl } from './chat-store/streaming-control.provider';
+
+// ModelRefreshControl — inverted-dependency contract used by TabManagerService
+// to refresh the available-models list after createTab() without depending
+// on @ptah-extension/core (forbidden for type:data-access).
+// TASK_2026_105 Wave G2 Phase 2.
+export { provideModelRefreshControl } from './chat-store/model-refresh-control.provider';

@@ -1,4 +1,4 @@
-import {
+﻿import {
   Component,
   ChangeDetectionStrategy,
   inject,
@@ -13,7 +13,7 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, ChevronLeft, ChevronRight } from 'lucide-angular';
 import { TabItemComponent } from '@ptah-extension/chat-ui';
-import { TabManagerService } from '../../services/tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 
 /**
  * TabBarComponent - Chrome-style scrollable tab bar

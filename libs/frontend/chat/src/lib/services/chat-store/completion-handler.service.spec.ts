@@ -1,5 +1,5 @@
-/**
- * CompletionHandlerService specs — error routing from chat:error events.
+﻿/**
+ * CompletionHandlerService specs â€” error routing from chat:error events.
  *
  * The service is largely deprecated (per its own docstring) and now only
  * handles `handleChatError`. Tests assert the error is routed to the correct
@@ -9,7 +9,7 @@
 
 import { TestBed } from '@angular/core/testing';
 import { CompletionHandlerService } from './completion-handler.service';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from '../session-manager.service';
 import type { TabState } from '@ptah-extension/chat-types';
 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SessionLoaderService - Session List Management and Session Switching
  *
  * Extracted from ChatStore to handle session-related operations:
@@ -25,7 +25,7 @@ import {
   getModelContextWindow,
 } from '@ptah-extension/shared';
 import { SessionManager } from '../session-manager.service';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { StreamingHandlerService } from './streaming-handler.service';
 import { AgentMonitorStore } from '../agent-monitor.store';
 import { createEmptyStreamingState } from '@ptah-extension/chat-types';
@@ -127,7 +127,7 @@ export class SessionLoaderService {
   constructor() {
     // React to pop-out panel session load requests from TabManagerService.
     // This effect breaks the circular dependency: TabManager emits a signal,
-    // SessionLoader consumes it — no import from SessionLoader in TabManager.
+    // SessionLoader consumes it â€” no import from SessionLoader in TabManager.
     effect(() => {
       const sessionId = this.tabManager.pendingSessionLoad();
       if (sessionId) {
@@ -396,11 +396,11 @@ export class SessionLoaderService {
     // Check cache for the target workspace
     const cached = this.sessionCache.get(normalizedNew);
     if (cached) {
-      // TASK_2025_264 P7f: LRU refresh — move entry to end of Map insertion order
+      // TASK_2025_264 P7f: LRU refresh â€” move entry to end of Map insertion order
       this.sessionCache.delete(normalizedNew);
       this.sessionCache.set(normalizedNew, cached);
 
-      // Cache hit — restore instantly without RPC
+      // Cache hit â€” restore instantly without RPC
       this._sessions.set(cached.sessions);
       this._totalSessions.set(cached.totalSessions);
       this._hasMoreSessions.set(cached.hasMoreSessions);
@@ -408,7 +408,7 @@ export class SessionLoaderService {
       return;
     }
 
-    // Cache miss — clear signals and load from backend using explicit path
+    // Cache miss â€” clear signals and load from backend using explicit path
     this._sessions.set([]);
     this._totalSessions.set(0);
     this._hasMoreSessions.set(false);

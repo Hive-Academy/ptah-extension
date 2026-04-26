@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unit tests for ChatInputComponent - Event handler logic
  *
  * Tests the @ trigger autocomplete race condition fix (TASK_2025_163):
@@ -56,7 +56,7 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { ChatInputComponent } from './chat-input.component';
 import { ChatStore } from '../../../services/chat.store';
-import { TabManagerService } from '../../../services/tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { FilePickerService } from '../../../services/file-picker.service';
 import {
   AutopilotStateService,
@@ -537,14 +537,14 @@ describe('ChatInputComponent', () => {
   describe('Regression: Race condition scenario (TASK_2025_163)', () => {
     it('should maintain correct query through activation -> typing -> debounce cycle', () => {
       // Simulate the exact bug scenario:
-      // 1. User types "@" → atActivated fires immediately with query=""
-      // 2. User types "p" → atQueryChanged fires with "p"
-      // 3. User types "o" → atQueryChanged fires with "po"
-      // 4. User types "r" → atQueryChanged fires with "por"
-      // 5. User types "t" → atQueryChanged fires with "port"
-      // 6. User types "a" → atQueryChanged fires with "porta"
-      // 7. User types "l" → atQueryChanged fires with "portal"
-      // 8. 150ms later → atTriggered fires with stale query (could be "p" or "")
+      // 1. User types "@" â†’ atActivated fires immediately with query=""
+      // 2. User types "p" â†’ atQueryChanged fires with "p"
+      // 3. User types "o" â†’ atQueryChanged fires with "po"
+      // 4. User types "r" â†’ atQueryChanged fires with "por"
+      // 5. User types "t" â†’ atQueryChanged fires with "port"
+      // 6. User types "a" â†’ atQueryChanged fires with "porta"
+      // 7. User types "l" â†’ atQueryChanged fires with "portal"
+      // 8. 150ms later â†’ atTriggered fires with stale query (could be "p" or "")
       //    BUG: Previously this overwrote _currentQuery with stale value
       //    FIX: handleAtTriggered no longer sets _currentQuery
 

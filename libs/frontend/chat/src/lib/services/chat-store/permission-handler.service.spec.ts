@@ -1,5 +1,5 @@
-/**
- * PermissionHandlerService specs — permission + question request lifecycle.
+﻿/**
+ * PermissionHandlerService specs â€” permission + question request lifecycle.
  *
  * Coverage:
  *   - `handlePermissionRequest` appends, high-latency warning
@@ -10,7 +10,7 @@
  *   - `getPermissionByToolId` / `getPermissionForTool` lookup
  *   - `handleQuestionRequest` / `handleQuestionResponse`
  *   - `cleanupSession` clears both pools for the sessionId
- *   - `unmatchedPermissions` computed — fallback display for orphan perms
+ *   - `unmatchedPermissions` computed â€” fallback display for orphan perms
  */
 
 import { TestBed, ApplicationRef } from '@angular/core/testing';
@@ -23,7 +23,7 @@ import {
 } from '@ptah-extension/shared';
 import { VSCodeService } from '@ptah-extension/core';
 import { PermissionHandlerService } from './permission-handler.service';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import type { StreamingState } from '@ptah-extension/chat-types';
 
 interface TabManagerSignalsMock {
@@ -199,7 +199,7 @@ describe('PermissionHandlerService', () => {
     });
 
     it('forwards deny_with_message + reason payload (auto-deny mid-stream path)', () => {
-      // message-dispatch.service.ts:73-82 — when a new user message arrives
+      // message-dispatch.service.ts:73-82 â€” when a new user message arrives
       // mid-stream, all in-flight permissions are auto-resolved with
       // `decision: 'deny_with_message'` and `reason: <user content>` so the
       // SDK keeps running rather than being killed.
@@ -219,7 +219,7 @@ describe('PermissionHandlerService', () => {
           reason: 'do this instead',
         },
       });
-      // deny_with_message is NOT a hard deny — must not mark for interruption.
+      // deny_with_message is NOT a hard deny â€” must not mark for interruption.
       expect(service.consumeHardDenyToolUseIds().size).toBe(0);
     });
 
@@ -245,7 +245,7 @@ describe('PermissionHandlerService', () => {
       service.handlePermissionRequest(reqC);
       expect(service.permissionRequests()).toHaveLength(3);
 
-      // Resolve B with allow — A and C must remain.
+      // Resolve B with allow â€” A and C must remain.
       service.handlePermissionResponse({
         id: 'req-B',
         decision: 'allow',
@@ -255,7 +255,7 @@ describe('PermissionHandlerService', () => {
         'req-C',
       ]);
 
-      // Resolve A with deny_with_message — only C remains.
+      // Resolve A with deny_with_message â€” only C remains.
       service.handlePermissionResponse({
         id: 'req-A',
         decision: 'deny_with_message',
@@ -263,14 +263,14 @@ describe('PermissionHandlerService', () => {
       } as never);
       expect(service.permissionRequests().map((r) => r.id)).toEqual(['req-C']);
 
-      // Resolve C with hard deny — list now empty, only C marks hardDeny.
+      // Resolve C with hard deny â€” list now empty, only C marks hardDeny.
       service.handlePermissionResponse({
         id: 'req-C',
         decision: 'deny',
       } as never);
       expect(service.permissionRequests()).toEqual([]);
 
-      // The two RPCs that were sent must each carry their own id/decision —
+      // The two RPCs that were sent must each carry their own id/decision â€”
       // verify no payload mixing across resolutions.
       const responses = vscodePostMessage.mock.calls.map(
         (c) => (c[0] as { response: unknown }).response,
@@ -388,7 +388,7 @@ describe('PermissionHandlerService', () => {
     it.skip('cleanup effect removes expired requests (needs component harness)', () => {
       // The cleanup effect runs on change detection in zoneless Angular 21.
       // Firing it from a pure service spec requires a host component + detectChanges,
-      // which is out of scope for a unit spec. Left as .skip() — the behavior is
+      // which is out of scope for a unit spec. Left as .skip() â€” the behavior is
       // exercised end-to-end in the chat flow integration specs.
       const q = makeQuestionRequest({
         id: 'q-expire',

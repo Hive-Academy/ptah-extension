@@ -1,13 +1,13 @@
-/**
- * AgentMonitorStore Tests — resolveParentSessionId & Session-Scoped Signals
+﻿/**
+ * AgentMonitorStore Tests â€” resolveParentSessionId & Session-Scoped Signals
  *
- * Tests the tab ID → real UUID resolution and session-scoped filtering
+ * Tests the tab ID â†’ real UUID resolution and session-scoped filtering
  * that ensures agents display in the correct tab's sidebar.
  */
 
 import { TestBed } from '@angular/core/testing';
 import { AgentMonitorStore } from './agent-monitor.store';
-import { TabManagerService } from './tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { VSCodeService } from '@ptah-extension/core';
 import { signal, computed } from '@angular/core';
 
@@ -162,10 +162,10 @@ describe('AgentMonitorStore', () => {
       spawnAgent('agent-1', 'tab_abc');
       mockActiveTab.set({ claudeSessionId: 'real-uuid-xyz' });
 
-      // Before resolution: agent has tab_abc, active tab expects real-uuid-xyz → no match
+      // Before resolution: agent has tab_abc, active tab expects real-uuid-xyz â†’ no match
       expect(store.activeTabAgents().length).toBe(0);
 
-      // After resolution: agent now has real-uuid-xyz → matches
+      // After resolution: agent now has real-uuid-xyz â†’ matches
       store.resolveParentSessionId('tab_abc', 'real-uuid-xyz');
       expect(store.activeTabAgents().length).toBe(1);
     });

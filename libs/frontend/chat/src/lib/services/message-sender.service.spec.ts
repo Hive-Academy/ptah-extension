@@ -1,5 +1,5 @@
-/**
- * MessageSenderService specs — mediator that routes send/continue based on
+﻿/**
+ * MessageSenderService specs â€” mediator that routes send/continue based on
  * whether the target tab already has a claudeSessionId.
  *
  * Coverage focuses on:
@@ -14,7 +14,7 @@
  *   - tabId option scopes to a non-active tab (canvas tile isolation)
  *
  * The full continueConversation path involves SessionManager state machine +
- * backend resume semantics — out of scope for this unit spec; covered by the
+ * backend resume semantics â€” out of scope for this unit spec; covered by the
  * chat flow integration tests.
  */
 
@@ -28,7 +28,7 @@ import {
   VSCodeService,
 } from '@ptah-extension/core';
 import { MessageSenderService } from './message-sender.service';
-import { TabManagerService } from './tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from './session-manager.service';
 import { MessageValidationService } from './message-validation.service';
 import type { TabState } from '@ptah-extension/chat-types';
@@ -60,7 +60,7 @@ describe('MessageSenderService', () => {
     switchTab: jest.Mock;
     markTabStreaming: jest.Mock;
     markTabIdle: jest.Mock;
-    // TASK_2026_103 Wave E2: AbortController plumbing for tab-close → stream-cancel.
+    // TASK_2026_103 Wave E2: AbortController plumbing for tab-close â†’ stream-cancel.
     createAbortController: jest.Mock;
     applyNewConversationStreaming: jest.Mock;
     appendUserMessageAndResetStreaming: jest.Mock;

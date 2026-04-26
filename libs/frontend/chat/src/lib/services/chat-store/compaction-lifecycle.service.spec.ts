@@ -1,5 +1,5 @@
-/**
- * CompactionLifecycleService specs — SDK session-compaction state machine.
+﻿/**
+ * CompactionLifecycleService specs â€” SDK session-compaction state machine.
  *
  * Coverage:
  *   - handleCompactionStart sets isCompacting, schedules safety timeout
@@ -15,7 +15,7 @@
 
 import { TestBed } from '@angular/core/testing';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from '../session-manager.service';
 import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
 import { SessionLoaderService } from './session-loader.service';
@@ -147,7 +147,7 @@ describe('CompactionLifecycleService', () => {
       expect(markTabIdleMock).toHaveBeenCalledWith('tab-1');
       expect(setStatusMock).toHaveBeenCalledWith('loaded');
       expect(warn).toHaveBeenCalledWith(
-        '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
+        '[ChatStore] Compaction safety timeout reached â€” compaction_complete event may have been lost',
       );
     });
   });

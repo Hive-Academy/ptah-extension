@@ -1,5 +1,5 @@
-import { Injectable, inject } from '@angular/core';
-import { TabManagerService } from '../tab-manager.service';
+﻿import { Injectable, inject } from '@angular/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { StreamingHandlerService } from './streaming-handler.service';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
@@ -51,7 +51,7 @@ export class SessionStatsAggregatorService {
     }>;
   }): void {
     // Resolve the target tab by sessionId first.
-    // Fallback to activeTab() only as safety net — stats can't be dropped since
+    // Fallback to activeTab() only as safety net â€” stats can't be dropped since
     // they're the only opportunity to record cost/token data for the turn.
     let targetTab = this.tabManager.findTabBySessionId(stats.sessionId);
 
@@ -143,7 +143,7 @@ export class SessionStatsAggregatorService {
     });
 
     // TASK_2025_101: Handle auto-send of queued content here to avoid circular dependency
-    // (StreamingHandler → MessageSender → SessionLoader → StreamingHandler)
+    // (StreamingHandler â†’ MessageSender â†’ SessionLoader â†’ StreamingHandler)
     // TASK_2025_185: Use sendQueuedMessage for consistent error handling with queue restoration
     if (result && result.queuedContent && result.queuedContent.trim()) {
       this.messageDispatch.sendQueuedMessage(

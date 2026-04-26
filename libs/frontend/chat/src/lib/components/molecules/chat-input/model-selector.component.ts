@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ModelSelectorComponent - Elegant AI Model Selection Dropdown
  * TASK_2025_048: Migrate to CDK Overlay with keyboard navigation
  * TASK_2025_092: Migrate to Native components (Floating UI)
@@ -26,7 +26,7 @@ import {
   KeyboardNavigationService,
 } from '@ptah-extension/ui';
 import { ChatStore } from '../../../services/chat.store';
-import { TabManagerService } from '../../../services/tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 import { SessionId } from '@ptah-extension/shared';
 
@@ -63,7 +63,7 @@ import { SessionId } from '@ptah-extension/shared';
           <span
             class="text-[10px] font-mono text-accent truncate"
             [title]="
-              effectiveModelDisplay() + ' → ' + effectiveModelProviderHint()
+              effectiveModelDisplay() + ' â†’ ' + effectiveModelProviderHint()
             "
             >{{ effectiveModelProviderHint() }}</span
           >

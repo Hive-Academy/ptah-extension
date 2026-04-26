@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ConversationService - New Conversation and Send Logic
  *
  * Extracted from ChatStore to handle conversation-related operations:
@@ -18,11 +18,13 @@ import {
 } from '@ptah-extension/core';
 import { createExecutionChatMessage, SessionId } from '@ptah-extension/shared';
 import type { SendMessageOptions } from '@ptah-extension/chat-types';
-import { TabManagerService } from '../tab-manager.service';
+import {
+  ConfirmationDialogService,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import { SessionManager } from '../session-manager.service';
 import { StreamingHandlerService } from './streaming-handler.service';
 import { MessageValidationService } from '../message-validation.service';
-import { ConfirmationDialogService } from '../confirmation-dialog.service';
 
 @Injectable({ providedIn: 'root' })
 export class ConversationService {
@@ -299,7 +301,7 @@ export class ConversationService {
       const autoName = hasUserName
         ? currentName
         : content.substring(0, 50).trim() || 'New Chat';
-      // Explicitly nulls claudeSessionId — will be set when real UUID arrives.
+      // Explicitly nulls claudeSessionId â€” will be set when real UUID arrives.
       this.tabManager.applyNewConversationDraft(activeTabId, autoName);
 
       // Update SessionManager state - no sessionId yet, just status
@@ -636,7 +638,7 @@ export class ConversationService {
       const sessionId = activeTab?.claudeSessionId;
 
       if (!sessionId) {
-        // No session — abort immediately without confirmation
+        // No session â€” abort immediately without confirmation
         console.log(
           '[ConversationService] abortWithConfirmation: no session, aborting immediately',
         );
@@ -656,7 +658,7 @@ export class ConversationService {
         agentCount = agents.length;
         agentTypes = agents.map((a) => a.agentType).join(', ');
       } catch (rpcError) {
-        // RPC failed — fail-safe: abort immediately without confirmation
+        // RPC failed â€” fail-safe: abort immediately without confirmation
         console.warn(
           '[ConversationService] abortWithConfirmation: RPC failed, falling back to immediate abort',
           rpcError,
@@ -666,7 +668,7 @@ export class ConversationService {
       }
 
       if (agentCount === 0) {
-        // No running agents — abort immediately
+        // No running agents â€” abort immediately
         console.log(
           '[ConversationService] abortWithConfirmation: no running agents, aborting immediately',
         );
@@ -674,7 +676,7 @@ export class ConversationService {
         return true;
       }
 
-      // Agents are running — show confirmation dialog
+      // Agents are running â€” show confirmation dialog
       console.log(
         '[ConversationService] abortWithConfirmation: showing confirmation for',
         agentCount,
@@ -703,7 +705,7 @@ export class ConversationService {
       );
       return false;
     } catch (error) {
-      // Unexpected error — fail-safe: abort immediately
+      // Unexpected error â€” fail-safe: abort immediately
       console.error(
         '[ConversationService] abortWithConfirmation failed, falling back to immediate abort:',
         error,

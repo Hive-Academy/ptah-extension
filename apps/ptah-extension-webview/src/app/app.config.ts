@@ -25,6 +25,7 @@ import {
   AgentMonitorMessageHandler,
   ChatStore,
   WorkspaceCoordinatorService,
+  provideModelRefreshControl,
   provideStreamingControl,
 } from '@ptah-extension/chat';
 import {
@@ -132,6 +133,13 @@ export const appConfig: ApplicationConfig = {
     //   tab-manager ↔ streaming-handler ↔ {batched,finalization,permission}
     // and tab-manager ↔ agent-monitor.store cycles.
     ...provideStreamingControl(),
+    // ModelRefreshControl: inverted-dependency contract that lets
+    // TabManagerService (in @ptah-extension/chat-state, type:data-access)
+    // refresh the available-models list after createTab() without statically
+    // importing ModelStateService from @ptah-extension/core (type:core),
+    // which Nx module-boundary rules forbid for type:data-access libs.
+    // TASK_2026_105 Wave G2 Phase 2.
+    ...provideModelRefreshControl(),
     // WizardInternalState: inverted-dependency contract that lets external
     // consumers read/write wizard signals without statically importing
     // SetupWizardStateService (which would re-form a cycle with the

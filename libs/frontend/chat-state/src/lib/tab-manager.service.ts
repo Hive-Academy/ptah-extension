@@ -1,5 +1,4 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { ModelStateService } from '@ptah-extension/core';
 import {
   TabState,
   SessionStatus,
@@ -9,36 +8,18 @@ import {
 } from '@ptah-extension/chat-types';
 import { ExecutionChatMessage, EffortLevel } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
+import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
 import { STREAMING_CONTROL } from './streaming-control';
 import {
   TabWorkspacePartitionService,
   TabLookupResult,
 } from './tab-workspace-partition.service';
+import {
+  LiveModelStatsPayload,
+  PreloadedStatsPayload,
+} from './tab-state.types';
 
-/**
- * Stats payload accumulated for the active model usage display.
- */
-export interface LiveModelStatsPayload {
-  model: string;
-  contextUsed: number;
-  contextWindow: number;
-  contextPercent: number;
-}
-
-/**
- * Aggregate stats persisted on a tab when a session is loaded from disk
- * or when previous turn totals must be carried across compaction.
- */
-export interface PreloadedStatsPayload {
-  totalCost: number;
-  tokens: {
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheCreation: number;
-  };
-  messageCount: number;
-}
+export type { LiveModelStatsPayload, PreloadedStatsPayload };
 
 /**
  * TabManagerService - Manages multi-session tab state with workspace partitioning
@@ -65,7 +46,15 @@ export class TabManagerService {
 
   private readonly confirmationDialog = inject(ConfirmationDialogService);
   private readonly workspacePartition = inject(TabWorkspacePartitionService);
-  private readonly modelState = inject(ModelStateService);
+  /**
+   * MODEL_REFRESH_CONTROL — inverted-dependency contract for refreshing the
+   * available-models list after a new tab is created.
+   * TASK_2026_105 Wave G2 Phase 2: replaces a direct
+   * `inject(ModelStateService)` from `@ptah-extension/core` so that
+   * `chat-state` (tagged `type:data-access`) does not violate the Nx
+   * module-boundary rule that forbids `type:data-access → type:core`.
+   */
+  private readonly modelRefresh = inject(MODEL_REFRESH_CONTROL);
   /**
    * StreamingControl — inverted-dependency contract for coordinating
    * per-session cleanup with the streaming/agent worker services.
@@ -505,7 +494,7 @@ export class TabManagerService {
     this._activeTabId.set(id);
     this.saveTabState();
 
-    this.modelState.refreshModels().catch((err) => {
+    this.modelRefresh.refreshModels().catch((err) => {
       console.warn(
         '[TabManagerService] refreshModels after createTab failed:',
         err,

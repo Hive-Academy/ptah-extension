@@ -13,8 +13,8 @@
  */
 
 import { Provider } from '@angular/core';
+import { STREAMING_CONTROL } from '@ptah-extension/chat-state';
 
-import { STREAMING_CONTROL } from '../streaming-control';
 import { StreamingControlImpl } from './streaming-control-impl.service';
 
 export function provideStreamingControl(): Provider[] {

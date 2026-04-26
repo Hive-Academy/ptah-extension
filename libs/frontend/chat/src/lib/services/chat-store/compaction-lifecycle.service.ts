@@ -1,6 +1,6 @@
-import { Injectable, inject } from '@angular/core';
+﻿import { Injectable, inject } from '@angular/core';
 import { calculateSessionCostSummary } from '@ptah-extension/shared';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from '../session-manager.service';
 import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
 import { SessionLoaderService } from './session-loader.service';
@@ -10,12 +10,12 @@ import { SessionLoaderService } from './session-loader.service';
  *
  * Responsibilities (carved from ChatStore in Wave C7g):
  * - Per-tab `isCompacting` flag management
- * - Compaction safety-fallback timeout (120s) — dismisses banner if backend
+ * - Compaction safety-fallback timeout (120s) â€” dismisses banner if backend
  *   never sends `compaction_complete`
  * - Compaction-complete reload flow: tree-cache clear, preloadedStats
  *   snapshot, message clear, sidebar refresh, session re-switch
  *
- * @see TASK_2025_098 — SDK Session Compaction
+ * @see TASK_2025_098 â€” SDK Session Compaction
  */
 @Injectable({ providedIn: 'root' })
 export class CompactionLifecycleService {
@@ -56,7 +56,7 @@ export class CompactionLifecycleService {
    * @param sessionId - The session ID where compaction is occurring
    */
   handleCompactionStart(sessionId: string): void {
-    // Find the tab for this session — compaction state is per-tab, not global
+    // Find the tab for this session â€” compaction state is per-tab, not global
     const tab = this.tabManager.findTabBySessionId(sessionId);
     if (!tab) {
       console.warn(
@@ -83,7 +83,7 @@ export class CompactionLifecycleService {
       this.sessionManager.setStatus('loaded');
       this.compactionTimeoutId = null;
       console.warn(
-        '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
+        '[ChatStore] Compaction safety timeout reached â€” compaction_complete event may have been lost',
       );
     }, CompactionLifecycleService.COMPACTION_SAFETY_TIMEOUT_MS);
   }

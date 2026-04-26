@@ -1,9 +1,9 @@
-/**
+﻿/**
  * PermissionHandlerService - Permission & Question Request Management
  *
  * Extracted from ChatStore to handle permission-related operations:
  * - Managing permission requests (add/remove)
- * - Correlating permissions with tools (via toolUseId → toolCallId)
+ * - Correlating permissions with tools (via toolUseId â†’ toolCallId)
  * - Identifying unmatched permissions for fallback display
  * - Managing AskUserQuestion requests (TASK_2025_097 Batch 5)
  *
@@ -29,7 +29,7 @@ import {
   type AskUserQuestionRequest,
   type AskUserQuestionResponse,
 } from '@ptah-extension/shared';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { VSCodeService } from '@ptah-extension/core';
 
 @Injectable({ providedIn: 'root' })
@@ -85,7 +85,7 @@ export class PermissionHandlerService {
       if (requests.length === 0) return;
 
       // Schedule cleanup check
-      // Guard: timeoutAt === 0 means "no timeout — block indefinitely" (TASK_2025_215)
+      // Guard: timeoutAt === 0 means "no timeout â€” block indefinitely" (TASK_2025_215)
       const now = Date.now();
       const expiredIds = requests
         .filter((r) => r.timeoutAt > 0 && r.timeoutAt <= now)
@@ -127,7 +127,7 @@ export class PermissionHandlerService {
 
   /**
    * Check if a request should be visible in the UI.
-   * Always returns true — permissions/questions must always be shown regardless
+   * Always returns true â€” permissions/questions must always be shown regardless
    * of which tab is active. Each request carries its own sessionId for response
    * routing, so the backend handles delivery to the correct session.
    * Hiding permissions behind tab matching caused them to be silently dropped
@@ -185,7 +185,7 @@ export class PermissionHandlerService {
 
     const msgCount = messages.length;
     const toolCallMap = streamingState?.toolCallMap;
-    // Build fingerprint from actual keys — catches cases where size stays the
+    // Build fingerprint from actual keys â€” catches cases where size stays the
     // same but keys differ (e.g., one tool removed + another added simultaneously).
     const keyFingerprint = toolCallMap
       ? Array.from(toolCallMap.keys()).sort().join(',')

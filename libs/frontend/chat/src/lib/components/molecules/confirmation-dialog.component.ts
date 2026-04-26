@@ -1,6 +1,6 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+﻿import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
-import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
+import { ConfirmationDialogService } from '@ptah-extension/chat-state';
 
 /**
  * ConfirmationDialogComponent - DaisyUI modal for confirmations

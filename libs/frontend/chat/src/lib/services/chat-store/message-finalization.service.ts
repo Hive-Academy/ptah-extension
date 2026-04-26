@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MessageFinalizationService - Finalize streaming messages to chat messages
  *
  * Extracted from StreamingHandlerService to handle:
@@ -19,7 +19,7 @@ import {
   ExecutionChatMessage,
   SubagentRecord,
 } from '@ptah-extension/shared';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from '../session-manager.service';
 import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
 import { BatchedUpdateService } from './batched-update.service';
@@ -382,7 +382,7 @@ export class MessageFinalizationService {
 
   /**
    * Safety net: Mark any agent nodes still in 'streaming' status as 'interrupted'.
-   * Historical sessions can never have actively streaming agents — if a node is
+   * Historical sessions can never have actively streaming agents â€” if a node is
    * still 'streaming' after history finalization, it means correlation failed to
    * properly resolve it. This prevents agents from being stuck as "Streaming" forever.
    */
@@ -470,7 +470,7 @@ export class MessageFinalizationService {
       return { ...node, children: updatedChildren };
     }
 
-    // This node itself is the last complete agent — mark it
+    // This node itself is the last complete agent â€” mark it
     if (node.type === 'agent' && node.status === 'complete') {
       return { ...node, status: 'interrupted' };
     }
@@ -527,7 +527,7 @@ export class MessageFinalizationService {
    * any in the provided set. Returns the same node reference if no change was needed.
    *
    * Unlike findAndMarkLastAgent (which stops at the first match), this marks ALL
-   * matching agents — handling the case where multiple agents had permissions denied.
+   * matching agents â€” handling the case where multiple agents had permissions denied.
    */
   private markMatchingAgentsAsInterrupted(
     node: ExecutionNode,

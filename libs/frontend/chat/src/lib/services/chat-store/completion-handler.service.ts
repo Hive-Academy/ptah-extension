@@ -1,4 +1,4 @@
-/**
+﻿/**
  * CompletionHandlerService - Chat Completion and Error Handling
  *
  * TASK_2025_101: This service is largely deprecated.
@@ -15,7 +15,7 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from '../session-manager.service';
 import { TabState } from '@ptah-extension/chat-types';
 

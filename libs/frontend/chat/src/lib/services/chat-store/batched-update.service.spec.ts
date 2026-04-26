@@ -1,5 +1,5 @@
-/**
- * BatchedUpdateService specs — RAF-batched streaming state updates.
+﻿/**
+ * BatchedUpdateService specs â€” RAF-batched streaming state updates.
  *
  * The service coalesces rapid `setStreamingState(state)` calls into one
  * `requestAnimationFrame` flush so TabManager signals tick once per frame,
@@ -9,7 +9,7 @@
 
 import { TestBed } from '@angular/core/testing';
 import { BatchedUpdateService } from './batched-update.service';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import type { StreamingState } from '@ptah-extension/chat-types';
 
 type TabManagerSlice = Pick<TabManagerService, 'setStreamingState'>;

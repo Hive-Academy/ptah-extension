@@ -1,5 +1,5 @@
-/**
- * WorkspaceCoordinatorService specs — orchestrates workspace switching across
+﻿/**
+ * WorkspaceCoordinatorService specs â€” orchestrates workspace switching across
  * TabManager, SessionLoader, ConfirmationDialog and lazy-loaded editor services.
  *
  * Coverage:
@@ -9,13 +9,15 @@
  *   - confirm passes options through to ConfirmationDialogService
  *   - Editor-service resolution fails gracefully when the lazy chunk is absent
  *     (the dynamic import() throws in test env because the alias is not
- *     registered in the module resolver — we swallow and continue).
+ *     registered in the module resolver â€” we swallow and continue).
  */
 
 import { TestBed } from '@angular/core/testing';
 import { WorkspaceCoordinatorService } from './workspace-coordinator.service';
-import { TabManagerService } from './tab-manager.service';
-import { ConfirmationDialogService } from './confirmation-dialog.service';
+import {
+  ConfirmationDialogService,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import type { TabState } from '@ptah-extension/chat-types';
 
@@ -98,7 +100,7 @@ describe('WorkspaceCoordinatorService', () => {
       // The dynamic import('@ptah-extension/editor/services') may resolve in
       // the Jest env (Nx registers path aliases) but the resulting services
       // are not provided in the TestBed, so Injector.get either returns null
-      // or throws — either way the service must swallow and resolve.
+      // or throws â€” either way the service must swallow and resolve.
       await expect(service.switchWorkspace('D:/x')).resolves.toBeUndefined();
       expect(tabManager.switchWorkspace).toHaveBeenCalledWith('D:/x');
     });

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Agent Monitor Store
  *
  * Signal-based store for real-time agent process monitoring.
@@ -7,7 +7,7 @@
  * State shape (TASK_2026_103 wave E3):
  * Backing store is `signal<readonly MonitoredAgent[]>([])` plus a derived
  * `_byId` computed for O(1) lookups. Previously this was `signal<Map<...>>`
- * which forced every writer to clone the Map — and silently broke `computed()`
+ * which forced every writer to clone the Map â€” and silently broke `computed()`
  * propagation when a writer forgot to clone, since reference equality held.
  * Array + computed byId is the idiomatic Angular pattern: writes are clearly
  * immutable (`[...list, x]` / `list.filter(...)`), reads stay O(1) via byId.
@@ -24,7 +24,7 @@ import type {
   AgentPermissionRequest,
   CliSessionReference,
 } from '@ptah-extension/shared';
-import { TabManagerService } from './tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { VSCodeService } from '@ptah-extension/core';
 
 /** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
@@ -86,7 +86,7 @@ export class AgentMonitorStore implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
   private readonly vscodeService = inject(VSCodeService);
 
-  // Private mutable state — readonly array of agents.
+  // Private mutable state â€” readonly array of agents.
   // All writers MUST produce a new array (immutable update); reads go through
   // the public `agents` computed or the internal `_byId` computed.
   private readonly _agents = signal<readonly MonitoredAgent[]>([]);
@@ -121,7 +121,7 @@ export class AgentMonitorStore implements OnDestroy {
 
   /**
    * TASK_2025_211: Tracks agent descriptions (tasks) that have been resumed.
-   * Used by inline-agent-bubble to upgrade 'interrupted' → 'resumed' visuals.
+   * Used by inline-agent-bubble to upgrade 'interrupted' â†’ 'resumed' visuals.
    * Key: `${parentSessionId}::${task}` for scoped matching (CLI agent case).
    */
   private readonly _resumedAgentKeys = signal<Set<string>>(new Set());
@@ -163,14 +163,14 @@ export class AgentMonitorStore implements OnDestroy {
   readonly tick = signal(0);
   private _tickInterval: ReturnType<typeof setInterval> | null = null;
 
-  // Public computed signals — ALL agents (used for global indicators like header badges)
+  // Public computed signals â€” ALL agents (used for global indicators like header badges)
   readonly agents = computed(() => {
-    // Copy then sort — never mutate the underlying readonly array.
+    // Copy then sort â€” never mutate the underlying readonly array.
     return [...this._agents()].sort((a, b) => b.startedAt - a.startedAt);
   });
 
   /**
-   * Public byId index — exposed alongside `agents` for callers that need O(1)
+   * Public byId index â€” exposed alongside `agents` for callers that need O(1)
    * lookup. Readers prefer this to `agents().find(...)` when scanning is hot.
    */
   readonly agentsById = computed(() => this._byId());
@@ -228,7 +228,7 @@ export class AgentMonitorStore implements OnDestroy {
     equal: (a, b) => a === b,
   });
 
-  /** Agents that currently have a pending permission request (global — all tabs).
+  /** Agents that currently have a pending permission request (global â€” all tabs).
    * Permissions are global because the user should always see them regardless of active tab. */
   readonly pendingPermissions = computed(() =>
     this.agents().filter((a) => a.permissionQueue.length > 0),
@@ -334,12 +334,12 @@ export class AgentMonitorStore implements OnDestroy {
 
   // Agent lifecycle
   onAgentSpawned(info: AgentProcessInfo): void {
-    // Check before adding — auto-open on 0→1 transition only
+    // Check before adding â€” auto-open on 0â†’1 transition only
     const hadAgents = this._agents().length > 0;
 
     this._agents.update((list) => {
       // Strategy 1: Replace by resumedFromAgentId (explicit resume from sidebar button)
-      // Strategy 2: Replace by cliSessionId (MCP-triggered respawn during session resume —
+      // Strategy 2: Replace by cliSessionId (MCP-triggered respawn during session resume â€”
       //   resumedFromAgentId is unavailable because the MCP spawn path doesn't know the old card ID)
       const oldCard = this.findReplacementCard(list, info);
 
@@ -353,7 +353,7 @@ export class AgentMonitorStore implements OnDestroy {
             return next;
           });
         }
-        // Replace old card with new agent — drop oldCard entry, append new entry
+        // Replace old card with new agent â€” drop oldCard entry, append new entry
         const replacement: MonitoredAgent = {
           agentId: info.agentId,
           cli: info.cli,
@@ -416,7 +416,7 @@ export class AgentMonitorStore implements OnDestroy {
       }
     }
 
-    // Auto-open panel on 0→1 agent transition (unless user explicitly closed)
+    // Auto-open panel on 0â†’1 agent transition (unless user explicitly closed)
     if (!hadAgents && !this._userExplicitlyClosed) {
       this._panelOpen.set(true);
     }
@@ -541,7 +541,7 @@ export class AgentMonitorStore implements OnDestroy {
 
     if (completedAgents.length <= MAX_COMPLETED_AGENTS) return [...list];
 
-    // Sort by completedAt ascending — oldest first
+    // Sort by completedAt ascending â€” oldest first
     const sortedCompleted = [...completedAgents].sort(
       (a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0),
     );
@@ -568,10 +568,10 @@ export class AgentMonitorStore implements OnDestroy {
       }
       if (foundIndex === -1) {
         // Agent not yet in store (spawn event hasn't arrived yet).
-        // Buffer the request — it will be replayed in onAgentSpawned().
+        // Buffer the request â€” it will be replayed in onAgentSpawned().
         // TASK_2025_255: Prevents silent permission loss from message ordering.
         console.warn(
-          '[AgentMonitorStore] Permission buffered — agent not yet spawned:',
+          '[AgentMonitorStore] Permission buffered â€” agent not yet spawned:',
           request.agentId,
         );
         const buf = this._pendingPermissionBuffer.get(request.agentId) ?? [];
@@ -643,12 +643,12 @@ export class AgentMonitorStore implements OnDestroy {
       const next = [...list];
 
       if (agent.expanded) {
-        // Collapsing — just toggle off
+        // Collapsing â€” just toggle off
         next[foundIndex] = { ...agent, expanded: false, expandedAt: undefined };
         return next;
       }
 
-      // Expanding — assign order and enforce max-2 rule
+      // Expanding â€” assign order and enforce max-2 rule
       const order = this._expandOrder++;
       next[foundIndex] = { ...agent, expanded: true, expandedAt: order };
       return this.enforceMaxExpanded(next);
@@ -659,7 +659,7 @@ export class AgentMonitorStore implements OnDestroy {
    * Find an existing agent card that the new agent should replace.
    *
    * Strategy 1: Match by resumedFromAgentId (explicit resume from sidebar button).
-   * Strategy 2: Match by cliSessionId (MCP-triggered respawn during session resume —
+   * Strategy 2: Match by cliSessionId (MCP-triggered respawn during session resume â€”
    *   the MCP spawn path doesn't know the old card's agentId, but the same CLI session
    *   ID is reused). Only matches non-running agents in the same parent session.
    */
@@ -701,7 +701,7 @@ export class AgentMonitorStore implements OnDestroy {
     const expanded = list.filter((a) => a.expanded);
     if (expanded.length <= MAX_EXPANDED_AGENTS) return [...list];
 
-    // Sort by expandedAt ascending — oldest first
+    // Sort by expandedAt ascending â€” oldest first
     const sortedExpanded = [...expanded].sort(
       (a, b) => (a.expandedAt ?? 0) - (b.expandedAt ?? 0),
     );
@@ -724,7 +724,7 @@ export class AgentMonitorStore implements OnDestroy {
    * Load CLI sessions from a saved session's metadata (TASK_2025_168).
    * Converts CliSessionReference[] to MonitoredAgent[] and adds them to the store.
    * Called when loading/resuming a session that had CLI agents spawned.
-   * Agents from other sessions are preserved — activeTabAgents handles display filtering.
+   * Agents from other sessions are preserved â€” activeTabAgents handles display filtering.
    * Auto-opens the panel if sessions are loaded.
    */
   loadCliSessions(
@@ -734,7 +734,7 @@ export class AgentMonitorStore implements OnDestroy {
     if (cliSessions.length === 0) return;
 
     this._agents.update((list) => {
-      // Preserve all existing agents — tab-scoped filtering handles display.
+      // Preserve all existing agents â€” tab-scoped filtering handles display.
       // Only clear stale non-running agents for THIS session to allow fresh reload.
       let next: MonitoredAgent[] = list.filter((a) => {
         if (parentSessionId === undefined) return true;
@@ -824,7 +824,7 @@ export class AgentMonitorStore implements OnDestroy {
   clearCompleted(): void {
     this._agents.update((list) => list.filter((a) => a.status === 'running'));
 
-    // Reset explicit-close flag when all agents cleared — next spawn will auto-open
+    // Reset explicit-close flag when all agents cleared â€” next spawn will auto-open
     if (this._agents().length === 0) {
       this._userExplicitlyClosed = false;
     }

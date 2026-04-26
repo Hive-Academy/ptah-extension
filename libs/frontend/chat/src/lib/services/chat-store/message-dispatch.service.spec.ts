@@ -1,5 +1,5 @@
-/**
- * MessageDispatchService specs — send-vs-queue routing + slash-command guard.
+﻿/**
+ * MessageDispatchService specs â€” send-vs-queue routing + slash-command guard.
  *
  * Coverage:
  *   - sendOrQueueMessage: slash-command guard blocks /compact for non-Anthropic
@@ -18,7 +18,7 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
 import { MessageDispatchService } from './message-dispatch.service';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { MessageSenderService } from '../message-sender.service';
 import { ConversationService } from './conversation.service';
 import { PermissionHandlerService } from './permission-handler.service';

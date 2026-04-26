@@ -1,4 +1,4 @@
-/**
+﻿/**
  * BatchedUpdateService - RAF-based batched UI updates
  *
  * Extracted from StreamingHandlerService to handle:
@@ -10,7 +10,7 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import type { StreamingState } from '@ptah-extension/chat-types';
 
 @Injectable({ providedIn: 'root' })

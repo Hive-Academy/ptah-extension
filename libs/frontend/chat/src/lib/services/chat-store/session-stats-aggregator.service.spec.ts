@@ -1,5 +1,5 @@
-/**
- * SessionStatsAggregatorService specs — SESSION_STATS aggregation.
+﻿/**
+ * SessionStatsAggregatorService specs â€” SESSION_STATS aggregation.
  *
  * Coverage:
  *   - findTabBySessionId resolves correct tab
@@ -17,7 +17,7 @@
 
 import { TestBed } from '@angular/core/testing';
 import { SessionStatsAggregatorService } from './session-stats-aggregator.service';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { StreamingHandlerService } from './streaming-handler.service';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
@@ -225,7 +225,7 @@ describe('SessionStatsAggregatorService', () => {
         ],
       });
       const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
-      // 23456 / 100000 * 1000 = 234.56 → round = 235 / 10 = 23.5
+      // 23456 / 100000 * 1000 = 234.56 â†’ round = 235 / 10 = 23.5
       expect((liveStats as { contextPercent: number }).contextPercent).toBe(
         23.5,
       );

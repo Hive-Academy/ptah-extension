@@ -1,4 +1,4 @@
-import {
+﻿import {
   Component,
   inject,
   signal,
@@ -37,7 +37,7 @@ import { CompactSessionCardComponent } from '../molecules/compact-session/compac
 import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
 import { PanelResizeService } from '../../services/panel-resize.service';
-import { TabManagerService } from '../../services/tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { ExecutionTreeBuilderService } from '../../services/execution-tree-builder.service';
 import { SESSION_CONTEXT } from '../../tokens/session-context.token';
 import { VSCodeService } from '@ptah-extension/core';
@@ -227,9 +227,9 @@ export class ChatViewComponent {
   private lastMessageCount = 0;
 
   /**
-   * Tracks previous streaming state to detect the streaming→idle transition.
+   * Tracks previous streaming state to detect the streamingâ†’idle transition.
    * When streaming ends (agent finishes), we force scroll-to-bottom regardless
-   * of userScrolledUp — the dramatic DOM change during finalization (streaming
+   * of userScrolledUp â€” the dramatic DOM change during finalization (streaming
    * DOM replaced with finalized DOM) can trigger layout-driven scroll events
    * that falsely set userScrolledUp=true.
    */
@@ -248,7 +248,7 @@ export class ChatViewComponent {
   private isRestoringScroll = false;
 
   /**
-   * Guard active during the streaming→finalized DOM transition.
+   * Guard active during the streamingâ†’finalized DOM transition.
    * Suppresses onScroll events and forces scheduleScroll to scroll regardless
    * of userScrolledUp. Prevents layout-driven scroll events from blocking
    * auto-scroll during the dramatic DOM swap (streaming elements destroyed,
@@ -395,7 +395,7 @@ export class ChatViewComponent {
 
   /**
    * Resolved question requests: scoped to this tile's session in canvas mode.
-   * Prevents question cards from appearing in ALL tiles — only the session that
+   * Prevents question cards from appearing in ALL tiles â€” only the session that
    * triggered the question shows the card.
    *
    * Matches against BOTH the frontend tab UUID (resolvedTabId) AND the real SDK
@@ -514,7 +514,7 @@ export class ChatViewComponent {
         this.agentPanelOpen.set(true);
       }
 
-      // Reset explicit-close flag when all agents finish — next spawn will auto-open
+      // Reset explicit-close flag when all agents finish â€” next spawn will auto-open
       if (!hasRunning && !hasPendingPermission && agents.length > 0) {
         this._userExplicitlyClosed = false;
       }
@@ -661,7 +661,7 @@ export class ChatViewComponent {
   }
 
   /**
-   * Edit queued message — pushes content back to the input and clears the queue.
+   * Edit queued message â€” pushes content back to the input and clears the queue.
    * Uses restoreContentToInput so the user can modify and re-send.
    */
   editQueue(): void {
@@ -704,7 +704,7 @@ export class ChatViewComponent {
   }
 
   /**
-   * Handle "Resume All" — builds a single combined prompt for all interrupted agents
+   * Handle "Resume All" â€” builds a single combined prompt for all interrupted agents
    * and sends it as one message to the existing session.
    */
   handleResumeAllAgents(agents: SubagentRecord[]): void {

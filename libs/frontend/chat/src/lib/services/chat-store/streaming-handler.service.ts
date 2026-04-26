@@ -1,4 +1,4 @@
-/**
+﻿/**
  * StreamingHandlerService - Flat Event Storage and Processing
  *
  * Refactored to delegate to child services for better maintainability:
@@ -20,7 +20,7 @@ import {
   ExecutionChatMessage,
   UNKNOWN_AGENT_TOOL_CALL_ID,
 } from '@ptah-extension/shared';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from '../session-manager.service';
 import {
   TabState,
@@ -261,7 +261,7 @@ export class StreamingHandlerService {
           if (event.source === 'complete' || event.source === 'history') {
             // Deferred TEXT clearing: on the first complete/history text_delta,
             // clear only text accumulator keys (`*-block-*`) for this messageId.
-            // Thinking keys are left untouched — they're cleared separately by
+            // Thinking keys are left untouched â€” they're cleared separately by
             // thinking_delta. This prevents a complete thinking_delta from wiping
             // text and vice versa.
             if (this.pendingTextClear.has(event.messageId)) {
@@ -429,7 +429,7 @@ export class StreamingHandlerService {
             isCollapsed: false,
           };
 
-          // TASK_2025_211: Detect SDK subagent resume — if a new agent of the
+          // TASK_2025_211: Detect SDK subagent resume â€” if a new agent of the
           // same type as a previously interrupted agent is spawned, mark the old
           // agent type as "resumed" so inline bubbles update their badge.
           if (event.agentType) {
@@ -458,7 +458,7 @@ export class StreamingHandlerService {
 
           state.currentTokenUsage = event.tokenUsage || null;
 
-          // Check for queued content to auto-send — but ONLY on root-level messages.
+          // Check for queued content to auto-send â€” but ONLY on root-level messages.
           // Sub-agent messages have parentToolUseId set; triggering re-steer on sub-agent
           // message_complete would immediately interrupt the sub-agent mid-execution.
           // Queued content should wait for the main agent's turn to complete (handled
@@ -743,7 +743,7 @@ export class StreamingHandlerService {
 
       const queuedContent = targetTab.queuedContent;
 
-      // TASK_2025_213: Check if hard permission deny occurred — now returns specific toolUseIds
+      // TASK_2025_213: Check if hard permission deny occurred â€” now returns specific toolUseIds
       const hardDenyToolUseIds =
         this.permissionHandler.consumeHardDenyToolUseIds();
 
@@ -829,7 +829,7 @@ export class StreamingHandlerService {
    * agent node IDs as "resumed" in the AgentMonitorStore.
    *
    * Tracks by node ID (not agentType) to avoid false positives when multiple
-   * agents of the same type exist — only the specific interrupted agent(s)
+   * agents of the same type exist â€” only the specific interrupted agent(s)
    * that were superseded show "Resumed", not newly interrupted ones.
    */
   private detectAndMarkResumedAgent(agentType: string, tab: TabState): void {

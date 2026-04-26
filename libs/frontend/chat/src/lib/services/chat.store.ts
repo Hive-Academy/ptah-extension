@@ -1,4 +1,4 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+﻿import { Injectable, signal, computed, inject } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import {
   ExecutionNode,
@@ -13,7 +13,7 @@ import type {
   AskUserQuestionResponse,
 } from '@ptah-extension/shared';
 import { SessionManager } from './session-manager.service';
-import { TabManagerService } from './tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { StreamingHandlerService } from './chat-store/streaming-handler.service';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import { ConversationService } from './chat-store/conversation.service';
@@ -34,15 +34,15 @@ import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
  * readonly signals + 36 public methods) while achieving separation of concerns.
  *
  * Child Services:
- * - StreamingHandlerService — Execution tree building
- * - CompletionHandlerService — Chat completion handling and auto-send
- * - SessionLoaderService — Session loading, pagination, switching
- * - ConversationService — New/continue conversation, message sending, abort
- * - PermissionHandlerService — Permission request management and correlation
- * - CompactionLifecycleService — SDK session-compaction state machine (Wave C7g)
- * - MessageDispatchService — Send/queue routing + slash-command guard (Wave C7g)
- * - SessionStatsAggregatorService — SESSION_STATS aggregation (Wave C7g)
- * - ChatLifecycleService — Bootstrap, license, agent-summary, ID resolution,
+ * - StreamingHandlerService â€” Execution tree building
+ * - CompletionHandlerService â€” Chat completion handling and auto-send
+ * - SessionLoaderService â€” Session loading, pagination, switching
+ * - ConversationService â€” New/continue conversation, message sending, abort
+ * - PermissionHandlerService â€” Permission request management and correlation
+ * - CompactionLifecycleService â€” SDK session-compaction state machine (Wave C7g)
+ * - MessageDispatchService â€” Send/queue routing + slash-command guard (Wave C7g)
+ * - SessionStatsAggregatorService â€” SESSION_STATS aggregation (Wave C7g)
+ * - ChatLifecycleService â€” Bootstrap, license, agent-summary, ID resolution,
  *   error handling (Wave C7g)
  */
 @Injectable({ providedIn: 'root' })
@@ -87,7 +87,7 @@ export class ChatStore {
   readonly questionRequests = this.permissionHandler.questionRequests;
   readonly resumableSubagents = this.sessionLoader.resumableSubagents;
   readonly licenseStatus = this.lifecycle.licenseStatus;
-  // Compaction state — per-tab via TabManagerService (TASK_2025_098)
+  // Compaction state â€” per-tab via TabManagerService (TASK_2025_098)
   readonly isCompacting = this.tabManager.activeTabIsCompacting;
 
   readonly activeTab = computed(() => this.tabManager.activeTab());
@@ -158,7 +158,7 @@ export class ChatStore {
 
   /**
    * Clear current session state.
-   * Only clears session state — UI components are responsible for creating tabs
+   * Only clears session state â€” UI components are responsible for creating tabs
    * before calling this (separation prevents duplicate tab creation bugs).
    */
   clearCurrentSession(): void {
@@ -216,7 +216,7 @@ export class ChatStore {
     this.sessionLoader.removeResumableSubagent(toolCallId);
   }
 
-  // TASK_2025_109: handleSubagentResume removed — uses context injection in
+  // TASK_2025_109: handleSubagentResume removed â€” uses context injection in
   // chat:continue RPC. Users type "resume agent {agentId}" for natural resumption.
 
   /** TASK_2025_142: License status fetch with retry. Delegates to ChatLifecycleService. */
@@ -232,7 +232,7 @@ export class ChatStore {
   /**
    * Public accessor for marking a tab idle from external handlers.
    * Used by ChatMessageHandler for CHAT_COMPLETE fallback. Only removes the
-   * visual streaming indicator — full state reset is handled by
+   * visual streaming indicator â€” full state reset is handled by
    * finalizeCurrentMessage / handleError / handleCompaction.
    */
   markTabIdle(tabId: string): void {
@@ -293,9 +293,9 @@ export class ChatStore {
   /**
    * Process flat streaming event from SDK. Three-branch result dispatch
    * delegates to specialized sub-services:
-   * - compactionComplete → CompactionLifecycleService.handleCompactionComplete
-   * - compactionSessionId (start) → CompactionLifecycleService.handleCompactionStart
-   * - queuedContent → MessageDispatchService.sendQueuedMessage
+   * - compactionComplete â†’ CompactionLifecycleService.handleCompactionComplete
+   * - compactionSessionId (start) â†’ CompactionLifecycleService.handleCompactionStart
+   * - queuedContent â†’ MessageDispatchService.sendQueuedMessage
    *
    * TASK_2025_092: tabId routes the event; sessionId stores the real SDK UUID.
    */
@@ -395,7 +395,7 @@ export class ChatStore {
   // ============================================================================
   // SESSION STATS / ID / ERROR HANDLING
   // ============================================================================
-  // NOTE: handleChatComplete was removed — chat:complete is no longer used for
+  // NOTE: handleChatComplete was removed â€” chat:complete is no longer used for
   // streaming state management. SESSION_STATS (from type=result) is the
   // authoritative completion signal (TASK_2025_101).
 

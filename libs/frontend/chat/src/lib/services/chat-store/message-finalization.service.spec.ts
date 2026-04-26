@@ -1,5 +1,5 @@
-/**
- * MessageFinalizationService specs — turns StreamingState into finalized
+﻿/**
+ * MessageFinalizationService specs â€” turns StreamingState into finalized
  * ExecutionChatMessage entries and applies post-finalization mutations
  * (mark-as-interrupted variants).
  *
@@ -26,7 +26,7 @@ import type {
   ExecutionChatMessage,
 } from '@ptah-extension/shared';
 import { MessageFinalizationService } from './message-finalization.service';
-import { TabManagerService } from '../tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from '../session-manager.service';
 import { ExecutionTreeBuilderService } from '../execution-tree-builder.service';
 import { BatchedUpdateService } from './batched-update.service';

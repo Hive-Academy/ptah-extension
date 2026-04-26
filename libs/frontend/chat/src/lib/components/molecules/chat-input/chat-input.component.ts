@@ -1,4 +1,4 @@
-import {
+﻿import {
   Component,
   inject,
   signal,
@@ -27,7 +27,7 @@ import {
   type EffortLevel,
 } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
-import { TabManagerService } from '../../../services/tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 import {
   AutopilotStateService,
@@ -500,7 +500,7 @@ export class ChatInputComponent implements OnInit {
         const isFolder = f.type === 'directory';
         return {
           type: 'file' as const,
-          icon: isFolder ? '📁' : '📄',
+          icon: isFolder ? 'ðŸ“' : 'ðŸ“„',
           description: f.directory,
           isFolder,
           path: f.path,
@@ -582,7 +582,7 @@ export class ChatInputComponent implements OnInit {
 
         // Pre-check blob size against the API cap before decoding.
         if (file.size > MAX_IMAGE_SIZE_BYTES) {
-          this.showImageAttachmentError('Image too large — 5MB max');
+          this.showImageAttachmentError('Image too large â€” 5MB max');
           continue;
         }
 
@@ -595,7 +595,7 @@ export class ChatInputComponent implements OnInit {
           // Size check on decoded bytes (belt-and-suspenders, base64 overhead ~33%)
           const decodedSize = Math.floor(base64.length * 0.75);
           if (decodedSize > MAX_IMAGE_SIZE_BYTES) {
-            this.showImageAttachmentError('Image too large — 5MB max');
+            this.showImageAttachmentError('Image too large â€” 5MB max');
             return;
           }
 
@@ -603,7 +603,7 @@ export class ChatInputComponent implements OnInit {
           const mediaType = resolveImageMediaType(item.type, base64);
           if (!mediaType) {
             this.showImageAttachmentError(
-              'Unsupported image format — use PNG, JPEG, GIF, or WebP',
+              'Unsupported image format â€” use PNG, JPEG, GIF, or WebP',
             );
             return;
           }
@@ -688,7 +688,7 @@ export class ChatInputComponent implements OnInit {
 
       for (const img of result.data.images) {
         // Layer 2 belt-and-suspenders: backend already sniffed these, so a
-        // null here is a bug — warn in console but don't toast the user.
+        // null here is a bug â€” warn in console but don't toast the user.
         const mediaType = resolveImageMediaType(img.mediaType, img.data);
         if (!mediaType) {
           console.warn(
@@ -758,7 +758,7 @@ export class ChatInputComponent implements OnInit {
 
       // Pre-check blob size against the API cap before decoding.
       if (file.size > MAX_IMAGE_SIZE_BYTES) {
-        this.showImageAttachmentError('Image too large — 5MB max');
+        this.showImageAttachmentError('Image too large â€” 5MB max');
         continue;
       }
 
@@ -771,7 +771,7 @@ export class ChatInputComponent implements OnInit {
         const mediaType = resolveImageMediaType(file.type, base64);
         if (!mediaType) {
           this.showImageAttachmentError(
-            'Unsupported image format — use PNG, JPEG, GIF, or WebP',
+            'Unsupported image format â€” use PNG, JPEG, GIF, or WebP',
           );
           return;
         }
@@ -810,7 +810,7 @@ export class ChatInputComponent implements OnInit {
   /**
    * Handle debounced @ trigger from AtTriggerDirective
    * Only updates trigger position (may shift if user edits before @).
-   * Does NOT overwrite _currentQuery — handleQueryChanged already has the latest value.
+   * Does NOT overwrite _currentQuery â€” handleQueryChanged already has the latest value.
    */
   handleAtTriggered(event: AtTriggerEvent): void {
     this._triggerPosition.set(event.triggerPosition);
@@ -841,7 +841,7 @@ export class ChatInputComponent implements OnInit {
 
   /**
    * Handle debounced / trigger from SlashTriggerDirective
-   * Does NOT overwrite _currentQuery — handleQueryChanged already has the latest value.
+   * Does NOT overwrite _currentQuery â€” handleQueryChanged already has the latest value.
    */
   handleSlashTriggered(): void {
     // Debounced trigger - no query update needed
@@ -1122,7 +1122,7 @@ export class ChatInputComponent implements OnInit {
     const images = this._pastedImages();
     if (!content && images.length === 0) return;
 
-    // Slash commands passed through as-is — SDK handles namespace resolution natively
+    // Slash commands passed through as-is â€” SDK handles namespace resolution natively
     const normalizedContent = content;
 
     try {
