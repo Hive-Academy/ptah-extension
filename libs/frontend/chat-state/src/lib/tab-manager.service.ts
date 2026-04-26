@@ -535,7 +535,7 @@ export class TabManagerService {
     const newTab: TabState = {
       id,
       claudeSessionId,
-      placeholderSessionId: null, // No placeholder for existing session
+      // TASK_2026_106 Phase 6b — `placeholderSessionId` field removed.
       name: title || claudeSessionId.substring(0, 50),
       title: title || claudeSessionId.substring(0, 50),
       order: this._tabs().length,
@@ -574,7 +574,7 @@ export class TabManagerService {
     const newTab: TabState = {
       id,
       claudeSessionId: null, // Set by StreamingHandler on first streaming event
-      placeholderSessionId: null, // No longer used
+      // TASK_2026_106 Phase 6b — `placeholderSessionId` field removed.
       name: sessionName,
       title: sessionName,
       order: this._tabs().length,
@@ -873,17 +873,12 @@ export class TabManagerService {
     this.updateTabInternal(tabId, { claudeSessionId: sessionId });
   }
 
-  /**
-   * Adopt an empty fresh/draft tab for a session whose first event just
-   * arrived: set the session id and force `streaming` status so the
-   * UI shows incoming content immediately.
-   */
-  adoptStreamingSession(tabId: string, sessionId: string): void {
-    this.updateTabInternal(tabId, {
-      claudeSessionId: sessionId,
-      status: 'streaming',
-    });
-  }
+  // TASK_2026_106 Phase 6b — `adoptStreamingSession` removed. The
+  // StreamRouter now owns the "first event for a fresh tab seeds the
+  // session" flow via `routeStreamEvent` + `ConversationRegistry.
+  // appendSession`. Callers that need to attach a session id should use
+  // `attachSession` (above) and `markStreaming` (above) — same effect,
+  // narrower contract.
 
   // ----- Streaming state lifecycle -----
 
@@ -1471,21 +1466,32 @@ export class TabManagerService {
         // TASK_2025_087: Clear streamingState when loading from localStorage
         // Maps (events, eventsByMessage, etc.) don't serialize to JSON properly
         // and become plain objects, causing "get is not a function" errors
-        const sanitizedTabs = state.tabs.map((tab: TabState) => ({
-          ...tab,
-          streamingState: null,
-          // Backend sessions don't survive app restarts — clear the ID so
-          // the frontend starts a fresh session instead of attempting resume.
-          claudeSessionId: null,
-          status:
-            tab.status === 'streaming' ||
-            tab.status === 'resuming' ||
-            tab.status === 'switching'
-              ? 'loaded'
-              : tab.status,
-          queuedContent: null,
-          queuedOptions: null,
-        }));
+        const sanitizedTabs = state.tabs.map((tab: TabState) => {
+          // TASK_2026_106 Phase 6b — drop legacy `placeholderSessionId`
+          // field if present in persisted state from older releases. The
+          // field is no longer part of `TabState` and routing now lives
+          // in `ConversationRegistry` + `TabSessionBinding` (read by
+          // StreamRouter at bootstrap).
+          const { placeholderSessionId: _drop, ...rest } = tab as TabState & {
+            placeholderSessionId?: unknown;
+          };
+          void _drop;
+          return {
+            ...rest,
+            streamingState: null,
+            // Backend sessions don't survive app restarts — clear the ID so
+            // the frontend starts a fresh session instead of attempting resume.
+            claudeSessionId: null,
+            status:
+              rest.status === 'streaming' ||
+              rest.status === 'resuming' ||
+              rest.status === 'switching'
+                ? 'loaded'
+                : rest.status,
+            queuedContent: null,
+            queuedOptions: null,
+          };
+        });
         this._tabs.set(sanitizedTabs);
         this._activeTabId.set(state.activeTabId);
       }

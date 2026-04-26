@@ -85,7 +85,7 @@ describe('TabManagerService — intent-named mutators', () => {
     });
   });
 
-  describe('session id attach/adopt', () => {
+  describe('session id attach', () => {
     it('attachSession sets claudeSessionId', () => {
       const id = service.createTab('attach');
       service.attachSession(id, 'sess-123');
@@ -94,9 +94,13 @@ describe('TabManagerService — intent-named mutators', () => {
       );
     });
 
-    it('adoptStreamingSession sets session and forces streaming', () => {
-      const id = service.createTab('adopt');
-      service.adoptStreamingSession(id, 'sess-XYZ');
+    // TASK_2026_106 Phase 6b — `adoptStreamingSession` removed in favour
+    // of explicit `attachSession` + `markStreaming`. Verifies the new
+    // pairing has the same observable effect as the retired helper.
+    it('attachSession + markStreaming is the post-Phase-6b replacement for adoptStreamingSession', () => {
+      const id = service.createTab('adopt-replacement');
+      service.attachSession(id, 'sess-XYZ');
+      service.markStreaming(id);
       const tab = service.tabs().find((t) => t.id === id);
       expect(tab?.claudeSessionId).toBe('sess-XYZ');
       expect(tab?.status).toBe('streaming');

@@ -31,7 +31,12 @@ import {
   SessionId,
   EffortLevel,
 } from '@ptah-extension/shared';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  ConversationRegistry,
+  TabId,
+  TabManagerService,
+  TabSessionBinding,
+} from '@ptah-extension/chat-state';
 import { SessionManager } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
 import type { SendMessageOptions } from '@ptah-extension/chat-types';
@@ -56,6 +61,13 @@ export class MessageSenderService {
   private readonly modelState = inject(ModelStateService);
   private readonly effortState = inject(EffortStateService);
   private readonly ptahCliState = inject(PtahCliStateService);
+  // TASK_2026_106 Phase 6b — `placeholderSessionId` retired. The
+  // sessionId for a brand-new conversation is now sourced from the
+  // routing layer: if the tab is bound to a conversation that already
+  // has a head session, reuse it; otherwise mint a fresh id and let
+  // StreamRouter append it on the first event.
+  private readonly conversationRegistry = inject(ConversationRegistry);
+  private readonly tabSessionBinding = inject(TabSessionBinding);
 
   // ============================================================================
   // HELPER METHODS
@@ -66,6 +78,31 @@ export class MessageSenderService {
    */
   private generateId(): string {
     return `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  }
+
+  /**
+   * TASK_2026_106 Phase 6b — sourcing helper for the session id used in
+   * `startNewConversation`. Replaces `tab.placeholderSessionId`.
+   *
+   * Resolves the active tab's bound conversation via `TabSessionBinding`,
+   * then returns the head session id (last session in the conversation's
+   * ordered list) from `ConversationRegistry`. Returns `null` when:
+   *   - the tab id is not parseable as a `TabId` (legacy id format), OR
+   *   - the tab is not bound to any conversation yet, OR
+   *   - the bound conversation has no sessions (router will append one
+   *     when the first stream event flows back).
+   *
+   * Callers fall back to `generateId()` when this returns null.
+   */
+  private headSessionForTab(tabId: string | undefined): string | null {
+    if (!tabId) return null;
+    const parsedTabId = TabId.safeParse(tabId);
+    if (!parsedTabId) return null;
+    const convId = this.tabSessionBinding.conversationFor(parsedTabId);
+    if (!convId) return null;
+    const record = this.conversationRegistry.getRecord(convId);
+    if (!record || record.sessions.length === 0) return null;
+    return record.sessions[record.sessions.length - 1] as string;
   }
 
   /**
@@ -328,7 +365,13 @@ export class MessageSenderService {
       const activeTab =
         this.tabManager.tabs().find((t) => t.id === activeTabId) ??
         this.tabManager.activeTab();
-      const sessionId = activeTab?.placeholderSessionId || this.generateId();
+      // TASK_2026_106 Phase 6b — replaces `activeTab?.placeholderSessionId`.
+      // Look up the routing layer: if the active tab is bound to a
+      // conversation whose head session is known, reuse it (legacy
+      // resume parity). Otherwise mint a fresh id; StreamRouter will
+      // append it to the conversation when the first event flows back.
+      const sessionId =
+        this.headSessionForTab(activeTab?.id) ?? this.generateId();
 
       // Update tab with streaming status immediately
       // TASK_2025_086: Changed from 'draft' to 'streaming' so UI shows content as it arrives

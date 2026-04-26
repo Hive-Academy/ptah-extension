@@ -147,7 +147,14 @@ export class StreamingHandlerService {
         ) {
           const realSessionId = sessionId || event.sessionId;
 
-          this.tabManager.adoptStreamingSession(activeTab.id, realSessionId);
+          // TASK_2026_106 Phase 6b — `adoptStreamingSession` retired.
+          // Same effect, narrower contract: attach the session id, then
+          // transition status to `streaming`. The StreamRouter (which
+          // observes the upstream `routeStreamEvent` call) is responsible
+          // for binding this tab to the conversation containing
+          // `realSessionId`.
+          this.tabManager.attachSession(activeTab.id, realSessionId);
+          this.tabManager.markStreaming(activeTab.id);
 
           this.sessionManager.setSessionId(realSessionId);
           this.sessionManager.setStatus('streaming');
@@ -171,9 +178,9 @@ export class StreamingHandlerService {
       // TASK_2026_106 Phase 4b — multi-tab fan-out.
       //
       // Once the primary tab has its claudeSessionId attached (via the
-      // adoptStreamingSession block above for fresh tabs, or via prior
-      // routing for already-bound tabs), look up every OTHER tab bound to
-      // the same conversation and fan the event out to each.
+      // attachSession + markStreaming block above for fresh tabs, or via
+      // prior routing for already-bound tabs), look up every OTHER tab
+      // bound to the same conversation and fan the event out to each.
       //
       // We process the primary tab first to preserve the legacy single-tab
       // return-value semantics (queuedContent / compaction signals come from
@@ -241,9 +248,13 @@ export class StreamingHandlerService {
   } | null {
     let targetTab = initialTab;
 
-    // If tab doesn't have claudeSessionId yet, set it and ensure streaming status
+    // If tab doesn't have claudeSessionId yet, set it and ensure streaming status.
+    // TASK_2026_106 Phase 6b — `adoptStreamingSession` retired in favour of
+    // narrower `attachSession` + `markStreaming` calls. Same observable
+    // effect; behavior unchanged.
     if (sessionId && !targetTab.claudeSessionId) {
-      this.tabManager.adoptStreamingSession(targetTab.id, sessionId);
+      this.tabManager.attachSession(targetTab.id, sessionId);
+      this.tabManager.markStreaming(targetTab.id);
     }
 
     // Initialize streaming state if null

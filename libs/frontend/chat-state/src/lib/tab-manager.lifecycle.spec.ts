@@ -186,7 +186,7 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       const tabFromOtherWs = {
         id: 'bg-1',
         claudeSessionId: 'sess-bg',
-        placeholderSessionId: null,
+        // TASK_2026_106 Phase 6b — `placeholderSessionId` removed.
         name: 'bg',
         title: 'bg',
         order: 0,
@@ -347,6 +347,10 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
     });
 
     it('loadTabState restores persisted tabs and clears streamingState', () => {
+      // TASK_2026_106 Phase 6b — `placeholderSessionId` was removed from
+      // `TabState`. Persisted state from old releases that still carries
+      // the field MUST parse cleanly (back-compat). This fixture keeps
+      // the legacy field on purpose to exercise that read path.
       localStorage.setItem(
         'ptah.tabs',
         JSON.stringify({
@@ -374,6 +378,11 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       expect(tab?.streamingState).toBeNull();
       expect(tab?.claudeSessionId).toBeNull();
       expect(tab?.status).toBe('loaded');
+      // Confirm legacy field is dropped from in-memory state — TabState
+      // shape no longer carries it.
+      expect((tab as Record<string, unknown>)?.placeholderSessionId).toBe(
+        undefined,
+      );
     });
   });
 

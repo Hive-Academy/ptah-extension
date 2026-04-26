@@ -14,7 +14,7 @@ import { TabWorkspacePartitionService } from './tab-workspace-partition.service'
 const makeTab = (id: string, sessionId: string | null = null): TabState => ({
   id,
   claudeSessionId: sessionId,
-  placeholderSessionId: null,
+  // TASK_2026_106 Phase 6b — `placeholderSessionId` removed from TabState.
   name: id,
   title: id,
   order: 0,

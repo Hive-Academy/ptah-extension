@@ -171,8 +171,8 @@ describe('StreamingHandlerService', () => {
       | 'activeTab'
       | 'findTabBySessionId'
       | 'findTabsBySessionId'
-      | 'adoptStreamingSession'
       | 'attachSession'
+      | 'markStreaming'
       | 'setStreamingState'
       | 'setMessages'
       | 'markTabIdle'
@@ -231,25 +231,23 @@ describe('StreamingHandlerService', () => {
       findTabsBySessionId: jest.fn((sid: string) =>
         tabsSignal().filter((t) => t.claudeSessionId === sid),
       ),
-      adoptStreamingSession: jest.fn((tabId: string, sessionId: string) => {
-        tabsSignal.update((tabs) =>
-          tabs.map((t) =>
-            t.id === tabId
-              ? ({
-                  ...t,
-                  claudeSessionId: sessionId,
-                  status: 'streaming',
-                } as TabState)
-              : t,
-          ),
-        );
-      }),
+      // TASK_2026_106 Phase 6b — `adoptStreamingSession` retired. The
+      // streaming handler now calls `attachSession` + `markStreaming`
+      // explicitly. The mocks below preserve the same observable effect
+      // (claudeSessionId set, status flipped to 'streaming').
       attachSession: jest.fn((tabId: string, sessionId: string) => {
         tabsSignal.update((tabs) =>
           tabs.map((t) =>
             t.id === tabId
               ? ({ ...t, claudeSessionId: sessionId } as TabState)
               : t,
+          ),
+        );
+      }),
+      markStreaming: jest.fn((tabId: string) => {
+        tabsSignal.update((tabs) =>
+          tabs.map((t) =>
+            t.id === tabId ? ({ ...t, status: 'streaming' } as TabState) : t,
           ),
         );
       }),
@@ -279,8 +277,8 @@ describe('StreamingHandlerService', () => {
         | 'tabs'
         | 'activeTab'
         | 'findTabBySessionId'
-        | 'adoptStreamingSession'
         | 'attachSession'
+        | 'markStreaming'
         | 'setStreamingState'
         | 'setMessages'
         | 'markTabIdle'

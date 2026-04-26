@@ -230,14 +230,13 @@ export interface TabState {
   /** Real Claude CLI session UUID (null if draft) */
   claudeSessionId: string | null;
 
-  /**
-   * Placeholder session ID (proper UUID v4) used temporarily before Claude SDK resolves real ID.
-   * Generated via uuid.v4() at tab creation.
-   * Cleared after session:id-resolved event updates claudeSessionId.
-   *
-   * @example "550e8400-e29b-41d4-a716-446655440000"
-   */
-  placeholderSessionId: string | null;
+  // TASK_2026_106 Phase 6b — `placeholderSessionId` removed. The router
+  // (StreamRouter in `@ptah-extension/chat-routing`) owns the
+  // "tab bound to a conversation with no sessions yet" state, and the
+  // first stream event for that tab seeds the conversation via
+  // `ConversationRegistry.appendSession`. Persisted state with the field
+  // present still parses cleanly — the field is silently dropped on the
+  // next save.
 
   /** User-provided or auto-generated session name */
   name: string;
