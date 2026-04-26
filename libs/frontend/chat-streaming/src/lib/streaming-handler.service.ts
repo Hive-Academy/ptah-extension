@@ -12,7 +12,7 @@
  * - Coordinating between child services
  */
 
-import { Injectable, inject } from '@angular/core';
+import { Injectable, Injector, inject } from '@angular/core';
 import {
   ExecutionNode,
   FlatStreamEventUnion,
@@ -40,7 +40,15 @@ import { AgentMonitorStore } from './agent-monitor.store';
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
-  private readonly tabManager = inject(TabManagerService);
+  // TabManagerService is lazy-resolved to break the DI cycle introduced by the
+  // STREAMING_CONTROL inversion: TabManager → STREAMING_CONTROL →
+  // StreamingControlImpl → StreamingHandler. Resolving the back-edge eagerly in
+  // a field initializer triggers NG0200 during webview bootstrap.
+  private readonly injector = inject(Injector);
+  private _tabManager?: TabManagerService;
+  private get tabManager(): TabManagerService {
+    return (this._tabManager ??= this.injector.get(TabManagerService));
+  }
   private readonly sessionManager = inject(SessionManager);
 
   /**

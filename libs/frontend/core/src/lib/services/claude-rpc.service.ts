@@ -126,6 +126,12 @@ const UNLICENSED_ALLOWED_METHODS: readonly string[] = [
   'license:setKey',
   'command:execute',
   'settings:import',
+  // Read-only config endpoints needed to render the welcome/license shell.
+  // Both return user preferences only — no AI feature surface — so safe to
+  // expose pre-license. Without these, AutopilotStateService and
+  // ModelStateService log RPC-blocked errors during webview bootstrap.
+  'config:autopilot-get',
+  'config:models-list',
 ] as const;
 
 @Injectable({ providedIn: 'root' })
