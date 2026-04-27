@@ -17,7 +17,9 @@ export type AdminModelKey =
   | 'failed-webhooks'
   | 'trial-reminders'
   | 'session-requests'
-  | 'admin-audit-log';
+  | 'admin-audit-log'
+  | 'marketing-campaigns'
+  | 'marketing-campaign-templates';
 
 export interface AdminModelConfig {
   /** Prisma delegate name (the lower-case client property, e.g. prisma.user) */
@@ -28,7 +30,9 @@ export interface AdminModelConfig {
     | 'failedWebhook'
     | 'trialReminder'
     | 'sessionRequest'
-    | 'adminAuditLog';
+    | 'adminAuditLog'
+    | 'marketingCampaign'
+    | 'marketingCampaignTemplate';
   /** Columns shown on the list page */
   listFields: string[];
   /** Text-searchable string fields (contains, insensitive) */
@@ -190,6 +194,43 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
     sortableFields: ['createdAt', 'action', 'actorEmail'],
     editableFields: [],
     readOnly: true,
+    defaultSortBy: 'createdAt',
+  },
+  'marketing-campaigns': {
+    prismaModel: 'marketingCampaign',
+    listFields: [
+      'id',
+      'name',
+      'subject',
+      'segment',
+      'recipientCount',
+      'sentCount',
+      'bouncedCount',
+      'complainedCount',
+      'createdBy',
+      'createdAt',
+      'completedAt',
+    ],
+    searchFields: ['name', 'subject', 'segment', 'createdBy'],
+    sortableFields: ['createdAt', 'completedAt', 'sentCount', 'recipientCount'],
+    editableFields: [],
+    readOnly: true,
+    defaultSortBy: 'createdAt',
+  },
+  'marketing-campaign-templates': {
+    prismaModel: 'marketingCampaignTemplate',
+    listFields: [
+      'id',
+      'name',
+      'subject',
+      'variables',
+      'createdAt',
+      'updatedAt',
+    ],
+    searchFields: ['name', 'subject'],
+    sortableFields: ['createdAt', 'updatedAt', 'name'],
+    editableFields: ['name', 'subject', 'htmlBody'],
+    readOnly: false,
     defaultSortBy: 'createdAt',
   },
 };
