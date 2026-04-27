@@ -310,23 +310,44 @@ tagging to verify the published artifact will actually run.
 
 ### Cutting a release
 
-1. Bump `version` in `apps/ptah-cli/package.json` on a release branch.
-2. Run `nx run ptah-cli:publish:dry-run` to validate.
-3. Open a PR and merge to `main`.
-4. From `main`, tag the merge commit and push:
-   ```bash
-   git tag cli-v0.1.0
-   git push origin cli-v0.1.0
-   ```
-5. The `publish-cli` workflow runs lint/typecheck/test/build, verifies
-   the tag matches the package.json version, runs a dry-run, then
-   publishes with provenance.
+The `publish-cli` workflow has three trigger paths. Pick the one that
+matches what you want.
+
+**Path A — push to `release/cli` (auto-bump, recommended):**
+
+```bash
+git checkout -B release/cli origin/main
+git push -f origin release/cli
+```
+
+The workflow auto-bumps the patch version, publishes, tags
+`cli-v<new>`, and opens a `chore(release): cli vX.Y.Z` PR back to
+`main`. Merge that PR to keep `main` in sync. This is the same
+pattern as `publish-extension.yml`.
+
+**Path B — manual dispatch (choose bump type):**
+
+GitHub UI → Actions → **Publish CLI** → Run workflow → pick
+`patch`/`minor`/`major`. Toggle `dry-run` to validate the full
+pipeline without publishing.
+
+**Path C — explicit tag (escape hatch):**
+
+```bash
+# Bump version in apps/ptah-cli/package.json, commit to main first.
+git tag cli-v0.2.0
+git push origin cli-v0.2.0
+```
+
+The workflow refuses to publish if the tag does not match the
+committed `package.json` version.
 
 ### Required GitHub secrets
 
-| Secret      | Purpose                                                                                                                                                                            |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NPM_TOKEN` | Granular access token for the `@hive-academy` scope, write on `@hive-academy/ptah-cli`, 2FA bypass for automation enabled. Set in repo Settings → Secrets and variables → Actions. |
+| Secret          | Purpose                                                                                                                                                                                |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NPM_TOKEN`     | Granular access token for the `@hive-academy` scope, write on `@hive-academy/ptah-cli`, 2FA bypass for automation enabled. Set in repo Settings → Secrets and variables → Actions.     |
+| `RELEASE_TOKEN` | PAT with `repo` + `workflow` scopes. Used to push the auto-generated `chore/bump-cli-v*` branch and open the version-bump PR back to `main` (already used by `publish-extension.yml`). |
 
 ### Provenance verification
 
