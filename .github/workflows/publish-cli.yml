@@ -1,51 +1,62 @@
 # Publish Ptah CLI to npm
 #
-# Trigger: pushing a git tag matching `cli-v*` (e.g. cli-v0.1.0).
-#
-# The tag is the source of truth for the published version. The workflow
-# checks that the tag and the apps/ptah-cli/package.json version agree
-# before it publishes — refuses to publish if they don't match.
+# Triggers (mirrors publish-extension.yml):
+#   1. Push to release/cli              → auto-bump patch, tag, publish, PR-back to main
+#   2. workflow_dispatch                → choose patch/minor/major + dry-run toggle
+#   3. Push of a tag matching cli-v*    → publish at the tagged version (manual escape hatch)
 #
 # Pipeline:
-#   1. checkout + node 22 (with npm registry-url so NPM_TOKEN authenticates)
+#   1. checkout + node 22 (registry-url so NPM_TOKEN authenticates)
 #   2. cache-aware npm ci (rollup linux binary workaround)
-#   3. quality gates: lint + typecheck + test scoped to ptah-cli
-#   4. build: nx build ptah-cli (esbuild + asset copy)
-#   5. verify dist version matches the tag
-#   6. npm publish --dry-run (final sanity check)
-#   7. npm publish --provenance --access public  (only if all the above pass)
+#   3. resolve target version (tag-driven OR bump-driven)
+#   4. quality gates: nx lint + typecheck + test scoped to ptah-cli
+#   5. nx build ptah-cli
+#   6. verify dist version matches the resolved version
+#   7. npm publish --dry-run
+#   8. npm publish --provenance --access public  (skipped on dry-run dispatch)
+#   9. for branch/dispatch flows: tag, push tag, open chore(release) PR to main
 #
 # Provenance attestation requires `id-token: write` and a public repo,
-# both satisfied here. After publish, the package metadata at
-# https://registry.npmjs.org/@hive-academy/ptah-cli will include a
-# `_attestations` field linking back to this workflow run.
+# both satisfied here.
 #
 # Required secrets:
-#   NPM_TOKEN — Granular access token for @hive-academy scope, with
-#               read/write on @hive-academy/ptah-cli and 2FA-bypass for
-#               automation enabled.
+#   NPM_TOKEN     — Granular access token for @hive-academy scope
+#   RELEASE_TOKEN — PAT with repo + workflow scope, used to push to a
+#                   chore/ branch and open a PR back to main
 
 name: Publish CLI
 
 on:
   push:
+    branches:
+      - release/cli
     tags:
       - 'cli-v*'
   workflow_dispatch:
     inputs:
+      bump:
+        description: 'Version bump type (ignored when triggered by tag)'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
       dry-run:
         description: 'Skip the real publish (dry-run only)'
         required: false
         type: boolean
-        default: true
+        default: false
 
 concurrency:
   group: publish-cli
   cancel-in-progress: false
 
 permissions:
-  contents: read
-  id-token: write # Required for npm provenance attestation
+  contents: write
+  pull-requests: write
+  id-token: write
 
 env:
   NODE_VERSION: 22
@@ -54,15 +65,22 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Skip the chore(release): bump commits to prevent self-trigger loops
+    if: >-
+      github.event_name != 'push' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      !startsWith(github.event.head_commit.message, 'chore(release):')
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
 
-      # Cache node_modules — skips npm ci on cache hit
       - name: Cache node_modules
         id: cache-modules
         uses: actions/cache@v4
@@ -72,31 +90,60 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-modules.outputs.cache-hit != 'true'
-        # Workaround for npm/cli#4828: package-lock.json generated on Windows
-        # omits Linux rollup platform binaries. Install them explicitly.
         run: |
           npm ci
           npm install @rollup/rollup-linux-x64-gnu --no-save --force
 
-      - name: Resolve tag and version
-        id: meta
+      - name: Configure git
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            TAG_REF="${GITHUB_REF##refs/tags/}"
-            TAG_VERSION="${TAG_REF#cli-v}"
-          else
-            TAG_VERSION=""
-          fi
-          PKG_VERSION=$(node -p "require('./apps/ptah-cli/package.json').version")
-          echo "tag_version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
-          echo "pkg_version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Tag version: '$TAG_VERSION' / package.json version: '$PKG_VERSION'"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Verify tag matches package.json version
-        if: github.event_name == 'push'
+      - name: Resolve target version
+        id: version
         run: |
-          if [[ "${{ steps.meta.outputs.tag_version }}" != "${{ steps.meta.outputs.pkg_version }}" ]]; then
-            echo "::error::Tag version (${{ steps.meta.outputs.tag_version }}) does not match apps/ptah-cli/package.json version (${{ steps.meta.outputs.pkg_version }}). Bump the package.json version on a release branch and tag from there."
+          OLD_VERSION=$(node -p "require('./apps/ptah-cli/package.json').version")
+          MODE=""
+          NEW_VERSION=""
+
+          if [[ "${{ github.event_name }}" == "push" && "$GITHUB_REF" == refs/tags/cli-v* ]]; then
+            # Tag-driven: tag IS the version, package.json must already match
+            MODE="tag"
+            NEW_VERSION="${GITHUB_REF##refs/tags/cli-v}"
+            if [[ "$OLD_VERSION" != "$NEW_VERSION" ]]; then
+              echo "::error::Tag version ($NEW_VERSION) does not match apps/ptah-cli/package.json ($OLD_VERSION). For tag-driven publishes, bump the file first, commit, then tag."
+              exit 1
+            fi
+          else
+            # Branch push or workflow_dispatch: bump and write back
+            MODE="bump"
+            BUMP_TYPE="${{ github.event.inputs.bump || 'patch' }}"
+            NEW_VERSION=$(node -e "
+              const [major, minor, patch] = '${OLD_VERSION}'.split('.').map(Number);
+              const bump = '${BUMP_TYPE}';
+              if (bump === 'major') console.log(\`\${major+1}.0.0\`);
+              else if (bump === 'minor') console.log(\`\${major}.\${minor+1}.0\`);
+              else console.log(\`\${major}.\${minor}.\${patch+1}\`);
+            ")
+            node -e "
+              const fs = require('fs');
+              const pkg = JSON.parse(fs.readFileSync('apps/ptah-cli/package.json', 'utf8'));
+              pkg.version = '${NEW_VERSION}';
+              fs.writeFileSync('apps/ptah-cli/package.json', JSON.stringify(pkg, null, 2) + '\n');
+            "
+            echo "Bumped $OLD_VERSION -> $NEW_VERSION ($BUMP_TYPE)"
+          fi
+
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "old_version=$OLD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=cli-v$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check tag does not already exist
+        if: steps.version.outputs.mode == 'bump'
+        run: |
+          if git ls-remote --tags origin "refs/tags/${{ steps.version.outputs.tag }}" | grep -q .; then
+            echo "::error::Tag ${{ steps.version.outputs.tag }} already exists. Bump again or delete the existing tag."
             exit 1
           fi
 
@@ -122,8 +169,8 @@ jobs:
             fi
           done
           DIST_VERSION=$(node -p "require('./dist/apps/ptah-cli/package.json').version")
-          if [[ "$DIST_VERSION" != "${{ steps.meta.outputs.pkg_version }}" ]]; then
-            echo "::error::Dist version ($DIST_VERSION) does not match package.json (${{ steps.meta.outputs.pkg_version }})"
+          if [[ "$DIST_VERSION" != "${{ steps.version.outputs.new_version }}" ]]; then
+            echo "::error::Dist version ($DIST_VERSION) does not match resolved version (${{ steps.version.outputs.new_version }})"
             exit 1
           fi
 
@@ -132,20 +179,48 @@ jobs:
         run: npm publish --dry-run --access public
 
       - name: Publish to npm
-        if: github.event_name == 'push' || github.event.inputs.dry-run != 'true'
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.dry-run != 'true'
         working-directory: dist/apps/ptah-cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance
 
+      - name: Tag and open version-bump PR to main
+        if: >-
+          steps.version.outputs.mode == 'bump' &&
+          (github.event_name != 'workflow_dispatch' || github.event.inputs.dry-run != 'true')
+        env:
+          HUSKY: '0'
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.new_version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          BRANCH="chore/bump-cli-v${VERSION}"
+
+          cp apps/ptah-cli/package.json /tmp/bumped-cli-package.json
+
+          git fetch origin main
+          git checkout -b "$BRANCH" origin/main
+
+          cp /tmp/bumped-cli-package.json apps/ptah-cli/package.json
+          git add apps/ptah-cli/package.json
+          git commit --no-verify -m "chore(release): cli v${VERSION}"
+
+          git tag -a "$TAG" -m "Ptah CLI v${VERSION}"
+
+          git push origin "$BRANCH" --tags
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): cli v${VERSION}" \
+            --body "Auto-generated version bump after publishing @hive-academy/ptah-cli@${VERSION} to npm."
+
       - name: Summary
         run: |
-          echo "### Ptah CLI publish — ${{ steps.meta.outputs.pkg_version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Ptah CLI publish — ${{ steps.version.outputs.new_version }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            echo "- Tag: \`${GITHUB_REF##refs/tags/}\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Published: \`@hive-academy/ptah-cli@${{ steps.meta.outputs.pkg_version }}\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Verify: \`npm view @hive-academy/ptah-cli@${{ steps.meta.outputs.pkg_version }}\`" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "- Manual dispatch (dry-run=${{ github.event.inputs.dry-run }})" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          echo "- Mode: \`${{ steps.version.outputs.mode }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Old: \`${{ steps.version.outputs.old_version }}\` → New: \`${{ steps.version.outputs.new_version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: \`${{ steps.version.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Verify: \`npm view @hive-academy/ptah-cli@${{ steps.version.outputs.new_version }}\`" >> "$GITHUB_STEP_SUMMARY"
