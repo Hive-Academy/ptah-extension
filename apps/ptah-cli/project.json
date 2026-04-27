@@ -126,6 +126,22 @@
         "jestConfig": "apps/ptah-cli/jest.config.cjs",
         "passWithNoTests": true
       }
+    },
+    "publish:dry-run": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "dist/apps/ptah-cli",
+        "command": "npm publish --dry-run --access public"
+      }
+    },
+    "publish": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "dist/apps/ptah-cli",
+        "command": "npm publish --access public --provenance"
+      }
     }
   }
 }
