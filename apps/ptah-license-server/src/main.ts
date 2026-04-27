@@ -18,6 +18,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
+import * as bodyParser from 'body-parser';
 import { AppModule } from './app/app.module';
 import cookieParser = require('cookie-parser');
 
@@ -52,6 +53,10 @@ async function bootstrap() {
   // Used by WorkOS OAuth flow to store state parameter in HTTP-only cookies
   app.use(cookieParser());
 
+  // TASK_2025_292: Scoped raw body parser for Resend webhooks to enable signature verification.
+  // Must be applied BEFORE global pipes. We use '*/*' to capture the raw bytes.
+  app.use('/webhooks/resend', bodyParser.raw({ type: '*/*' }));
+
   // Configure global ValidationPipe for DTO validation
   // - whitelist: strips properties not in DTO (prevents mass assignment)
   // - forbidNonWhitelisted: throws error for unknown properties
@@ -84,7 +89,12 @@ async function bootstrap() {
     // Exclude webhook routes from the global prefix
     // Paddle webhooks expect: POST /webhooks/paddle (not /api/webhooks/paddle)
     // Note: NestJS 11+ uses path-to-regexp v8 which requires named parameters
-    exclude: ['webhooks/paddle', 'webhooks/paddle/{*path}'],
+    exclude: [
+      'webhooks/paddle',
+      'webhooks/paddle/{*path}',
+      'webhooks/resend',
+      'webhooks/resend/{*path}',
+    ],
   });
 
   // Flush Sentry events on graceful shutdown (SIGTERM from Docker)

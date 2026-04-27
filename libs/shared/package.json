@@ -5,9 +5,21 @@
   "type": "commonjs",
   "main": "./index.cjs",
   "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.cjs"
+    },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "default": "./src/testing/index.ts"
+    }
+  },
   "dependencies": {
     "uuid": "^11.1.0",
     "zod": "^4.1.12",
-    "jsonrepair": "^3.13.1"
+    "jsonrepair": "^3.13.1",
+    "reflect-metadata": "^0.2.2",
+    "tsyringe": "^4.10.0"
   }
 }

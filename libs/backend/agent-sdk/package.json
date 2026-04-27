@@ -7,12 +7,18 @@
   "types": "./index.d.ts",
   "dependencies": {
     "@ptah-extension/shared": "0.0.1",
+    "@ptah-extension/platform-core": "0.0.1",
     "@ptah-extension/vscode-core": "0.0.1",
     "axios": "^1.15.0",
     "tsyringe": "^4.10.0",
-    "@types/vscode": "^1.103.0",
     "zod": "^4.1.12",
-    "@ptah-extension/llm-abstraction": "0.0.1",
-    "@anthropic-ai/claude-agent-sdk": "^0.2.81"
+    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
+    "eventemitter3": "^5.0.1",
+    "cross-spawn": "^7.0.6",
+    "which": "^6.0.1",
+    "@openai/codex-sdk": "^0.104.0",
+    "uuid": "^11.1.0",
+    "@types/vscode": "^1.103.0",
+    "@github/copilot-sdk": "^0.1.25"
   }
 }

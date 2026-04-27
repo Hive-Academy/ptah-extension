@@ -3,7 +3,7 @@
  * TASK_2025_157: Branded AgentId, status enum, process tracking types
  */
 import { v4 as uuidv4 } from 'uuid';
-import type { FlatStreamEventUnion } from './execution-node.types';
+import type { FlatStreamEventUnion } from './execution';
 
 // ========================================
 // Branded AgentId Type

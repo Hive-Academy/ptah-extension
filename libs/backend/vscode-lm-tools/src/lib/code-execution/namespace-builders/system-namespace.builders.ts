@@ -354,9 +354,12 @@ function resolveWorkspacePath(
   // Normalize path separators to forward slashes
   const normalizedPath = filePath.replace(/\\/g, '/');
 
-  // Reject absolute paths (drive letters, UNC paths, Unix absolute)
-  // Uses Node.js path.isAbsolute() which handles all platform cases
-  if (path.isAbsolute(normalizedPath)) {
+  // Reject absolute paths (drive letters, UNC paths, Unix absolute).
+  // path.isAbsolute() is platform-dependent and doesn't recognize Windows
+  // drive letters or UNC paths on POSIX hosts, so check explicitly.
+  const isWindowsDriveAbsolute = /^[a-zA-Z]:[/\\]/.test(filePath);
+  const isUncPath = /^[/\\]{2}/.test(filePath);
+  if (path.isAbsolute(normalizedPath) || isWindowsDriveAbsolute || isUncPath) {
     throw new Error(
       'Absolute paths are not allowed. Use workspace-relative paths only.',
     );
@@ -418,14 +421,21 @@ export function buildFilesNamespace(
     },
     list: async (directory: string) => {
       const resolvedPath = resolveWorkspacePath(directory, workspaceProvider);
-      // Check if directory exists before listing
+      // Stat the path so we can distinguish "missing" from "wrong type".
+      let stat;
       try {
-        const stat = await fileSystemProvider.stat(resolvedPath);
-        if (stat.type !== FileType.Directory) {
-          throw new Error(`Path is not a directory: ${resolvedPath}`);
+        stat = await fileSystemProvider.stat(resolvedPath);
+      } catch (error) {
+        // ENOTDIR can surface from stat() on some platforms when an
+        // intermediate path component is a file. Treat it as wrong-type.
+        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        if (code === 'ENOTDIR') {
+          throw new Error(`Not a directory: ${resolvedPath}`);
         }
-      } catch {
         throw new Error(`Directory not found: ${resolvedPath}`);
+      }
+      if (stat.type !== FileType.Directory) {
+        throw new Error(`Not a directory: ${resolvedPath}`);
       }
       const entries = await fileSystemProvider.readDirectory(resolvedPath);
       return entries.map((entry) => ({

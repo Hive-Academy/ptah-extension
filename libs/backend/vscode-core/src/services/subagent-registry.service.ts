@@ -1,5 +1,5 @@
 /**
- * Subagent Registry Service
+ * Subagent Registry Service (coordinator — Wave C7a, TASK_2025_291)
  *
  * TASK_2025_103: Subagent Resumption Feature
  *
@@ -7,12 +7,18 @@
  * resumption of interrupted subagent executions. Tracks subagents from
  * SubagentStart hook through completion or interruption.
  *
- * Key responsibilities:
+ * TASK_2025_291 Wave C7a: This class is now a thin coordinator. Persistence
+ * primitives (the in-memory Map, cleared/pending sets, TTL expiration, lazy
+ * cleanup) live in {@link SubagentStateStore}. History-based replay
+ * registration lives in {@link SubagentHistoryRegistrar}. The public surface
+ * of this class is unchanged.
+ *
+ * Key responsibilities (coordinator):
  * - Register subagents when SubagentStart hook fires
  * - Update status when SubagentStop hook fires (completed)
  * - Mark all running subagents as interrupted when session aborts
  * - Query resumable (interrupted, non-expired) subagents
- * - Automatic TTL cleanup (24 hours) to prevent memory leaks
+ * - Automatic TTL cleanup (24 hours) to prevent memory leaks (delegated)
  *
  * Integration points:
  * - SubagentHookHandler: calls register() and update()
@@ -29,9 +35,9 @@ import type {
   SubagentRecord,
   SubagentStatus,
   FlatStreamEventUnion,
-  AgentStartEvent,
-  ToolResultEvent,
 } from '@ptah-extension/shared';
+import { SubagentStateStore } from './subagent-registry/subagent-state-store';
+import { SubagentHistoryRegistrar } from './subagent-registry/subagent-history-registrar';
 
 /**
  * Input for registering a new subagent (status is set automatically)
@@ -42,7 +48,7 @@ export type SubagentRegistration = Omit<
 >;
 
 /**
- * Subagent Registry Service Implementation
+ * Subagent Registry Service Implementation (coordinator)
  *
  * In-memory Map-based storage with lazy TTL cleanup.
  * Records are keyed by toolCallId for O(1) lookup.
@@ -61,57 +67,15 @@ export type SubagentRegistration = Omit<
  */
 @injectable()
 export class SubagentRegistryService {
-  /**
-   * In-memory registry keyed by toolCallId
-   */
-  private readonly registry = new Map<string, SubagentRecord>();
-
-  /**
-   * TASK_2025_213 (Bug 1): Tracks toolCallIds that have been injected into
-   * context and removed from the registry. Prevents registerFromHistoryEvents()
-   * from re-registering these agents on session reload, breaking the cycle:
-   * inject context -> remove from registry -> reload session -> re-register -> inject again.
-   *
-   * TASK_2025_264: Changed from Set<string> to Map<string, number> where value
-   * is the timestamp when the ID was added. Entries older than TTL_MS are pruned
-   * during the lazy cleanup sweep to prevent unbounded growth.
-   *
-   * Typical size: 0-5 entries per extension session. Cleared on clear().
-   */
-  private readonly clearedToolCallIds = new Map<string, number>();
-
-  /**
-   * TASK_2025_217: Tracks toolCallIds that have been detected as background
-   * tasks by SdkMessageTransformer (run_in_background: true in Task input)
-   * BEFORE the SubagentStart hook fires. This bridges the race condition
-   * where the agent starts executing tools before the background_agent_started
-   * stream event sets isBackground on the registry record.
-   *
-   * Flow: SdkMessageTransformer.detectBackground() → markPendingBackground()
-   *       → SubagentHookHandler.register() checks this Set → isBackground: true
-   */
-  private readonly pendingBackgroundToolCallIds = new Set<string>();
-
-  /**
-   * TTL for subagent records: 24 hours
-   * After this time, records are automatically cleaned up
-   */
-  private static readonly TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-  /**
-   * Cleanup runs at most once per this interval
-   */
-  private static readonly CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-
-  /**
-   * Timestamp of last cleanup run
-   */
-  private lastCleanupAt = 0;
+  private readonly store: SubagentStateStore;
+  private readonly historyRegistrar: SubagentHistoryRegistrar;
 
   constructor(
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
   ) {
+    this.store = new SubagentStateStore(logger);
+    this.historyRegistrar = new SubagentHistoryRegistrar(this.store, logger);
     this.logger.debug(
       '[SubagentRegistryService.constructor] Service initialized',
     );
@@ -124,33 +88,18 @@ export class SubagentRegistryService {
    * in the registry keyed by toolCallId.
    *
    * @param registration - Subagent data from SubagentStart hook
-   *
-   * @example
-   * ```typescript
-   * registry.register({
-   *   toolCallId: 'toolu_abc123',
-   *   sessionId: 'sub-session-uuid',
-   *   agentType: 'software-architect',
-   *   startedAt: Date.now(),
-   *   parentSessionId: 'parent-session-uuid',
-   *   agentId: 'adcecb2',
-   * });
-   * ```
    */
   register(registration: SubagentRegistration): void {
     // Run lazy cleanup periodically
-    this.lazyCleanup();
+    this.store.lazyCleanup();
 
     // TASK_2025_217: Check if this toolCallId was pre-marked as background
     // by SdkMessageTransformer (detected run_in_background: true in Task input).
     // This eliminates the race condition where the agent starts executing tools
     // before the background_agent_started stream event arrives.
-    const isPendingBackground = this.pendingBackgroundToolCallIds.has(
+    const isPendingBackground = this.store.consumePendingBackground(
       registration.toolCallId,
     );
-    if (isPendingBackground) {
-      this.pendingBackgroundToolCallIds.delete(registration.toolCallId);
-    }
 
     const record: SubagentRecord = {
       ...registration,
@@ -163,7 +112,7 @@ export class SubagentRegistryService {
       }),
     };
 
-    this.registry.set(registration.toolCallId, record);
+    this.store.set(registration.toolCallId, record);
 
     this.logger.info('[SubagentRegistryService.register] Subagent registered', {
       toolCallId: registration.toolCallId,
@@ -171,7 +120,7 @@ export class SubagentRegistryService {
       agentType: registration.agentType,
       agentId: registration.agentId,
       parentSessionId: registration.parentSessionId,
-      registrySize: this.registry.size,
+      registrySize: this.store.size,
     });
   }
 
@@ -186,18 +135,6 @@ export class SubagentRegistryService {
    *
    * @param toolCallId - The subagent's toolCallId
    * @param updates - Fields to update (status, interruptedAt)
-   *
-   * @example
-   * ```typescript
-   * // Mark as completed (deletes record immediately)
-   * registry.update('toolu_abc123', { status: 'completed' });
-   *
-   * // Mark as interrupted (keeps record for resume)
-   * registry.update('toolu_abc123', {
-   *   status: 'interrupted',
-   *   interruptedAt: Date.now()
-   * });
-   * ```
    */
   update(
     toolCallId: string,
@@ -214,7 +151,7 @@ export class SubagentRegistryService {
       >
     >,
   ): void {
-    const record = this.registry.get(toolCallId);
+    const record = this.store.getRaw(toolCallId);
     if (!record) {
       this.logger.debug(
         '[SubagentRegistryService.update] Subagent not found by toolCallId — caller should use getToolCallIdByAgentId() fallback',
@@ -229,7 +166,7 @@ export class SubagentRegistryService {
       updates.status === 'completed' ||
       updates.status === 'background_completed'
     ) {
-      this.registry.delete(toolCallId);
+      this.store.delete(toolCallId);
       this.logger.debug(
         '[SubagentRegistryService.update] Subagent completed and removed',
         {
@@ -281,27 +218,19 @@ export class SubagentRegistryService {
    *
    * @param toolCallId - The subagent's toolCallId
    * @returns SubagentRecord or null
-   *
-   * @example
-   * ```typescript
-   * const record = registry.get('toolu_abc123');
-   * if (record && record.status === 'interrupted') {
-   *   // Can resume this subagent
-   * }
-   * ```
    */
   get(toolCallId: string): SubagentRecord | null {
     // Run lazy cleanup periodically
-    this.lazyCleanup();
+    this.store.lazyCleanup();
 
-    const record = this.registry.get(toolCallId);
+    const record = this.store.getRaw(toolCallId);
     if (!record) {
       return null;
     }
 
     // Check if expired
-    if (this.isExpired(record)) {
-      this.registry.delete(toolCallId);
+    if (this.store.isExpired(record)) {
+      this.store.delete(toolCallId);
       this.logger.debug(
         '[SubagentRegistryService.get] Record expired, removed',
         {
@@ -319,29 +248,21 @@ export class SubagentRegistryService {
    * Get all resumable subagents (status='interrupted', within TTL).
    *
    * Returns subagents that can be resumed via SDK's resume parameter.
-   *
-   * @returns Array of resumable SubagentRecords
-   *
-   * @example
-   * ```typescript
-   * const resumable = registry.getResumable();
-   * console.log(`${resumable.length} agents can be resumed`);
-   * ```
    */
   getResumable(): SubagentRecord[] {
     // Run lazy cleanup periodically
-    this.lazyCleanup();
+    this.store.lazyCleanup();
 
     const resumable: SubagentRecord[] = [];
 
-    for (const record of this.registry.values()) {
-      if (record.status === 'interrupted' && !this.isExpired(record)) {
+    for (const record of this.store.values()) {
+      if (record.status === 'interrupted' && !this.store.isExpired(record)) {
         resumable.push(record);
       }
     }
 
     this.logger.debug('[SubagentRegistryService.getResumable] Query result', {
-      totalRecords: this.registry.size,
+      totalRecords: this.store.size,
       resumableCount: resumable.length,
     });
 
@@ -360,8 +281,8 @@ export class SubagentRegistryService {
   getBackgroundAgents(parentSessionId?: string): SubagentRecord[] {
     const background: SubagentRecord[] = [];
 
-    for (const record of this.registry.values()) {
-      if (record.status === 'background' && !this.isExpired(record)) {
+    for (const record of this.store.values()) {
+      if (record.status === 'background' && !this.store.isExpired(record)) {
         if (!parentSessionId || record.parentSessionId === parentSessionId) {
           background.push(record);
         }
@@ -376,11 +297,6 @@ export class SubagentRegistryService {
    *
    * @param parentSessionId - Filter by parent session
    * @returns Array of resumable SubagentRecords for the session
-   *
-   * @example
-   * ```typescript
-   * const sessionResumable = registry.getResumableBySession('session-uuid');
-   * ```
    */
   getResumableBySession(parentSessionId: string): SubagentRecord[] {
     return this.getResumable().filter(
@@ -396,17 +312,11 @@ export class SubagentRegistryService {
    *
    * @param parentSessionId - The parent session ID to query
    * @returns Array of running SubagentRecords (excludes background agents)
-   *
-   * @example
-   * ```typescript
-   * const running = registry.getRunningBySession('session-uuid');
-   * console.log(`${running.length} agents would be interrupted`);
-   * ```
    */
   getRunningBySession(parentSessionId: string): SubagentRecord[] {
     const running: SubagentRecord[] = [];
 
-    for (const record of this.registry.values()) {
+    for (const record of this.store.values()) {
       if (
         record.parentSessionId === parentSessionId &&
         record.status === 'running' &&
@@ -420,7 +330,7 @@ export class SubagentRegistryService {
       '[SubagentRegistryService] getRunningBySession query result',
       {
         parentSessionId,
-        totalRecords: this.registry.size,
+        totalRecords: this.store.size,
         runningCount: running.length,
       },
     );
@@ -436,20 +346,12 @@ export class SubagentRegistryService {
    * SubagentStop hook doesn't fire on abort.
    *
    * @param parentSessionId - The parent session ID that was aborted
-   *
-   * @example
-   * ```typescript
-   * // In SessionLifecycleManager.endSession():
-   * if (session.aborted) {
-   *   this.subagentRegistry.markAllInterrupted(sessionId);
-   * }
-   * ```
    */
   markAllInterrupted(parentSessionId: string): void {
     const interruptedAt = Date.now();
     let interruptedCount = 0;
 
-    for (const record of this.registry.values()) {
+    for (const record of this.store.values()) {
       if (
         record.parentSessionId === parentSessionId &&
         record.status === 'running' &&
@@ -494,7 +396,7 @@ export class SubagentRegistryService {
   resolveParentSessionId(tabId: string, realSessionId: string): void {
     let updatedCount = 0;
 
-    for (const record of this.registry.values()) {
+    for (const record of this.store.values()) {
       if (record.parentSessionId === tabId) {
         (record as { parentSessionId: string }).parentSessionId = realSessionId;
         updatedCount++;
@@ -528,7 +430,7 @@ export class SubagentRegistryService {
   getToolCallIdByAgentId(agentId: string): string | null {
     let fallback: string | null = null;
 
-    for (const [toolCallId, record] of this.registry) {
+    for (const [toolCallId, record] of this.store.entries()) {
       if (record.agentId === agentId) {
         // Prefer running agents (most relevant for in-flight permission denies)
         if (record.status === 'running') {
@@ -551,15 +453,9 @@ export class SubagentRegistryService {
    * or when cleanup is needed.
    *
    * @param toolCallId - The subagent's toolCallId to remove
-   *
-   * @example
-   * ```typescript
-   * // After successful resume
-   * registry.remove('toolu_abc123');
-   * ```
    */
   remove(toolCallId: string): void {
-    const deleted = this.registry.delete(toolCallId);
+    const deleted = this.store.delete(toolCallId);
     if (deleted) {
       this.logger.debug('[SubagentRegistryService.remove] Subagent removed', {
         toolCallId,
@@ -576,10 +472,10 @@ export class SubagentRegistryService {
    * @param toolCallId - The Task tool_use ID that will run in background
    */
   markPendingBackground(toolCallId: string): void {
-    this.pendingBackgroundToolCallIds.add(toolCallId);
+    this.store.markPendingBackground(toolCallId);
     this.logger.debug(
       '[SubagentRegistryService.markPendingBackground] Marked toolCallId as pending background',
-      { toolCallId, pendingCount: this.pendingBackgroundToolCallIds.size },
+      { toolCallId, pendingCount: this.store.pendingBackgroundCount },
     );
   }
 
@@ -591,10 +487,10 @@ export class SubagentRegistryService {
    * @param toolCallId - The toolCallId that was injected into context
    */
   markAsInjected(toolCallId: string): void {
-    this.clearedToolCallIds.set(toolCallId, Date.now());
+    this.store.markInjected(toolCallId);
     this.logger.debug(
       '[SubagentRegistryService.markAsInjected] Marked toolCallId as injected',
-      { toolCallId, clearedMapSize: this.clearedToolCallIds.size },
+      { toolCallId, clearedMapSize: this.store.clearedCount },
     );
   }
 
@@ -606,7 +502,7 @@ export class SubagentRegistryService {
    * @returns true if the toolCallId was previously injected
    */
   wasInjected(toolCallId: string): boolean {
-    return this.clearedToolCallIds.has(toolCallId);
+    return this.store.wasInjected(toolCallId);
   }
 
   /**
@@ -615,24 +511,18 @@ export class SubagentRegistryService {
    * Called when a session is permanently deleted (not just aborted).
    *
    * @param parentSessionId - The parent session ID to remove subagents for
-   *
-   * @example
-   * ```typescript
-   * // In session deletion handler
-   * registry.removeBySessionId('session-uuid');
-   * ```
    */
   removeBySessionId(parentSessionId: string): void {
     const toRemove: string[] = [];
 
-    for (const [toolCallId, record] of this.registry) {
+    for (const [toolCallId, record] of this.store.entries()) {
       if (record.parentSessionId === parentSessionId) {
         toRemove.push(toolCallId);
       }
     }
 
     for (const toolCallId of toRemove) {
-      this.registry.delete(toolCallId);
+      this.store.delete(toolCallId);
     }
 
     if (toRemove.length > 0) {
@@ -652,100 +542,17 @@ export class SubagentRegistryService {
    * @returns Number of records in registry
    */
   get size(): number {
-    return this.registry.size;
+    return this.store.size;
   }
 
   /**
    * Clear all records (for testing/cleanup).
    */
   clear(): void {
-    this.registry.clear();
-    this.clearedToolCallIds.clear();
-    this.pendingBackgroundToolCallIds.clear();
+    this.store.clear();
     this.logger.debug('[SubagentRegistryService.clear] Registry cleared', {
       clearedToolCallIdsAlsoCleared: true,
     });
-  }
-
-  /**
-   * Check if a record is expired (older than TTL).
-   *
-   * @param record - The record to check
-   * @returns true if expired
-   */
-  private isExpired(record: SubagentRecord): boolean {
-    // TASK_2025_217: Background agents are exempt from TTL cleanup —
-    // they can run for extended periods and must remain in the registry
-    // for permission auto-approval to work correctly.
-    if (record.isBackground || record.status === 'background') {
-      return false;
-    }
-    const age = Date.now() - record.startedAt;
-    return age > SubagentRegistryService.TTL_MS;
-  }
-
-  /**
-   * Lazy TTL cleanup - runs at most once per CLEANUP_INTERVAL_MS.
-   *
-   * Pattern: Lazy cleanup on access (not timer-based) to avoid
-   * memory leaks from orphaned timers if service is never disposed.
-   */
-  private lazyCleanup(): void {
-    const now = Date.now();
-    if (
-      now - this.lastCleanupAt <
-      SubagentRegistryService.CLEANUP_INTERVAL_MS
-    ) {
-      return; // Too soon since last cleanup
-    }
-
-    this.lastCleanupAt = now;
-    this.cleanupExpired();
-  }
-
-  /**
-   * Remove all expired records from the registry and clearedToolCallIds map.
-   */
-  private cleanupExpired(): void {
-    const toRemove: string[] = [];
-
-    for (const [toolCallId, record] of this.registry) {
-      if (this.isExpired(record)) {
-        toRemove.push(toolCallId);
-      }
-    }
-
-    for (const toolCallId of toRemove) {
-      this.registry.delete(toolCallId);
-    }
-
-    // TASK_2025_264: Also prune expired entries from clearedToolCallIds.
-    // Uses the same TTL_MS (24h) as the registry records.
-    const now = Date.now();
-    const clearedToRemove: string[] = [];
-    for (const [toolCallId, timestamp] of this.clearedToolCallIds) {
-      if (now - timestamp > SubagentRegistryService.TTL_MS) {
-        clearedToRemove.push(toolCallId);
-      }
-    }
-    for (const toolCallId of clearedToRemove) {
-      this.clearedToolCallIds.delete(toolCallId);
-    }
-
-    const totalRemoved = toRemove.length + clearedToRemove.length;
-    if (totalRemoved === 0) {
-      return;
-    }
-
-    this.logger.info(
-      '[SubagentRegistryService.cleanupExpired] Expired records removed',
-      {
-        registryRemoved: toRemove.length,
-        clearedIdsRemoved: clearedToRemove.length,
-        remainingRegistry: this.registry.size,
-        remainingClearedIds: this.clearedToolCallIds.size,
-      },
-    );
   }
 
   // ============================================================================
@@ -755,188 +562,18 @@ export class SubagentRegistryService {
   /**
    * Register incomplete/interrupted agents from loaded session history.
    *
-   * TASK_2025_109: When loading a session from JSONL history (cold load),
-   * SDK hooks don't fire, so the registry is empty. This method parses
-   * history events to detect agents that started but never completed,
-   * and registers them as 'interrupted' for potential resumption.
-   *
-   * Algorithm:
-   * 1. Find all agent_start events (indicates agent spawned)
-   * 2. Find all tool_result events (indicates tool completed)
-   * 3. For each agent_start, check if there's a tool_result with same toolCallId
-   * 4. If no tool_result found, agent is interrupted - register it
+   * Delegates to {@link SubagentHistoryRegistrar}; see its docs for the
+   * algorithm. The public signature, return value, and log messages are
+   * unchanged.
    *
    * @param events - Array of FlatStreamEventUnion from session history
    * @param parentSessionId - The parent session ID these events belong to
    * @returns Number of interrupted agents registered
-   *
-   * @example
-   * ```typescript
-   * const { events } = await historyReader.readSessionHistory(sessionId, workspacePath);
-   * const registeredCount = subagentRegistry.registerFromHistoryEvents(events, sessionId);
-   * console.log(`Registered ${registeredCount} interrupted agents from history`);
-   * ```
    */
   registerFromHistoryEvents(
     events: FlatStreamEventUnion[],
     parentSessionId: string,
   ): number {
-    // Run lazy cleanup periodically
-    this.lazyCleanup();
-
-    // Step 1: Collect all agent_start events
-    const agentStartEvents: AgentStartEvent[] = events.filter(
-      (e): e is AgentStartEvent => e.eventType === 'agent_start',
-    );
-
-    if (agentStartEvents.length === 0) {
-      this.logger.debug(
-        '[SubagentRegistryService.registerFromHistoryEvents] No agent_start events found',
-        { parentSessionId, eventCount: events.length },
-      );
-      return 0;
-    }
-
-    // Step 2: Collect all tool_result toolCallIds for quick lookup
-    const completedToolCallIds = new Set<string>(
-      events
-        .filter((e): e is ToolResultEvent => e.eventType === 'tool_result')
-        .map((e) => e.toolCallId),
-    );
-
-    // Step 2b: Build superseded set — when the same agentId was spawned multiple
-    // times (initial + resume(s)), any earlier toolCallId that has a later successful
-    // resume is "superseded" and should NOT appear as interrupted.
-    // Algorithm: group toolCallIds by agentId, if ANY has a tool_result, all OTHERS
-    // without a tool_result are superseded (not truly interrupted — they were retried).
-    const agentIdToToolCallIds = new Map<string, string[]>();
-    for (const agentStart of agentStartEvents) {
-      if (!agentStart.agentId) continue;
-      const existing = agentIdToToolCallIds.get(agentStart.agentId) ?? [];
-      existing.push(agentStart.toolCallId);
-      agentIdToToolCallIds.set(agentStart.agentId, existing);
-    }
-
-    const supersededToolCallIds = new Set<string>();
-    for (const [agentId, toolCallIds] of agentIdToToolCallIds) {
-      if (toolCallIds.length <= 1) continue;
-
-      const hasCompleted = toolCallIds.some((tcId) =>
-        completedToolCallIds.has(tcId),
-      );
-      if (hasCompleted) {
-        // All non-completed toolCallIds for this agent are superseded
-        for (const tcId of toolCallIds) {
-          if (!completedToolCallIds.has(tcId)) {
-            supersededToolCallIds.add(tcId);
-            this.logger.debug(
-              '[SubagentRegistryService.registerFromHistoryEvents] Marking toolCallId as superseded',
-              {
-                toolCallId: tcId,
-                agentId,
-                reason: 'agent has a completed resume',
-              },
-            );
-          }
-        }
-      }
-    }
-
-    // Step 3: Find agent_start events without corresponding tool_result
-    let registeredCount = 0;
-
-    for (const agentStart of agentStartEvents) {
-      const { toolCallId, agentType, agentId, sessionId, timestamp } =
-        agentStart;
-
-      // Skip if already registered (avoid duplicates on multiple loads)
-      if (this.registry.has(toolCallId)) {
-        this.logger.debug(
-          '[SubagentRegistryService.registerFromHistoryEvents] Agent already registered, skipping',
-          { toolCallId, agentType },
-        );
-        continue;
-      }
-
-      // TASK_2025_213 (Bug 1): Skip agents whose context was already injected
-      // and removed from the registry. This breaks the re-registration cycle:
-      // inject context -> remove from registry -> reload session -> re-register -> inject again
-      if (this.clearedToolCallIds.has(toolCallId)) {
-        this.logger.debug(
-          '[SubagentRegistryService.registerFromHistoryEvents] Agent already injected into context, skipping',
-          { toolCallId, agentType },
-        );
-        continue;
-      }
-
-      // Check if agent completed (has tool_result)
-      if (completedToolCallIds.has(toolCallId)) {
-        this.logger.debug(
-          '[SubagentRegistryService.registerFromHistoryEvents] Agent completed, skipping',
-          { toolCallId, agentType },
-        );
-        continue;
-      }
-
-      // Skip superseded agents (earlier interrupted attempts that were successfully resumed later)
-      if (supersededToolCallIds.has(toolCallId)) {
-        this.logger.debug(
-          '[SubagentRegistryService.registerFromHistoryEvents] Agent superseded by successful resume, skipping',
-          { toolCallId, agentType, agentId },
-        );
-        continue;
-      }
-
-      // Agent started but never completed - register as interrupted
-      // Skip agents without a real agentId — without it, the SDK can't find
-      // the subagent's transcript file for resumption. The toolCallId fallback
-      // (e.g., "YT1Fw2p") doesn't match any file on disk.
-      if (!agentId) {
-        this.logger.debug(
-          '[SubagentRegistryService.registerFromHistoryEvents] Skipping agent without agentId (no transcript for resume)',
-          { toolCallId, agentType },
-        );
-        continue;
-      }
-
-      const record: SubagentRecord = {
-        toolCallId,
-        sessionId: sessionId, // Parent session ID (from event context, not subagent's own)
-        agentType: agentType,
-        status: 'interrupted' as SubagentStatus,
-        startedAt: timestamp,
-        interruptedAt: timestamp, // Use start time as approximate interrupt time
-        parentSessionId,
-        agentId, // Real agent ID from correlated agent file (e.g., "a329b32")
-      };
-
-      this.registry.set(toolCallId, record);
-      registeredCount++;
-
-      this.logger.debug(
-        '[SubagentRegistryService.registerFromHistoryEvents] Registered interrupted agent',
-        {
-          toolCallId,
-          agentType,
-          agentId: record.agentId,
-          parentSessionId,
-        },
-      );
-    }
-
-    if (registeredCount > 0) {
-      this.logger.info(
-        '[SubagentRegistryService.registerFromHistoryEvents] Registered interrupted agents from history',
-        {
-          parentSessionId,
-          registeredCount,
-          totalAgentStarts: agentStartEvents.length,
-          completedCount: agentStartEvents.length - registeredCount,
-          registrySize: this.registry.size,
-        },
-      );
-    }
-
-    return registeredCount;
+    return this.historyRegistrar.register(events, parentSessionId);
   }
 }

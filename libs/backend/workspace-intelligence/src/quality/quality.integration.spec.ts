@@ -208,7 +208,7 @@ describe('Quality Assessment Pipeline Integration', () => {
   });
 
   describe('Full Pipeline: Detection to Guidance', () => {
-    it('should detect anti-patterns and generate guidance for problematic files', () => {
+    it('should detect anti-patterns and generate guidance for problematic files', async () => {
       // Arrange: Create sampled files from fixtures
       const sampledFiles: SampledFile[] = Object.entries(TEST_FIXTURES)
         .filter(([name]) => name.endsWith('.ts'))
@@ -221,7 +221,7 @@ describe('Quality Assessment Pipeline Integration', () => {
 
       // Act: Detect patterns
       const antiPatterns =
-        antiPatternService.detectPatternsInFiles(sampledFiles);
+        await antiPatternService.detectPatternsInFiles(sampledFiles);
 
       // Assert: Patterns detected
       expect(antiPatterns.length).toBeGreaterThan(0);
@@ -234,7 +234,7 @@ describe('Quality Assessment Pipeline Integration', () => {
       expect(patternTypes).toContain('arch-too-many-imports');
     });
 
-    it('should calculate quality score accurately', () => {
+    it('should calculate quality score accurately', async () => {
       // Arrange
       const sampledFiles: SampledFile[] = Object.entries(TEST_FIXTURES)
         .filter(([name]) => name.endsWith('.ts'))
@@ -247,10 +247,10 @@ describe('Quality Assessment Pipeline Integration', () => {
 
       // Act
       const antiPatterns =
-        antiPatternService.detectPatternsInFiles(sampledFiles);
+        await antiPatternService.detectPatternsInFiles(sampledFiles);
       const score = antiPatternService.calculateScore(
         antiPatterns,
-        sampledFiles.length
+        sampledFiles.length,
       );
 
       // Assert: Score should reflect issues
@@ -261,7 +261,7 @@ describe('Quality Assessment Pipeline Integration', () => {
       expect(score).toBeLessThan(80);
     });
 
-    it('should generate prescriptive guidance from assessment', () => {
+    it('should generate prescriptive guidance from assessment', async () => {
       // Arrange
       const sampledFiles: SampledFile[] = Object.entries(TEST_FIXTURES)
         .filter(([name]) => name.endsWith('.ts'))
@@ -273,10 +273,10 @@ describe('Quality Assessment Pipeline Integration', () => {
         }));
 
       const antiPatterns =
-        antiPatternService.detectPatternsInFiles(sampledFiles);
+        await antiPatternService.detectPatternsInFiles(sampledFiles);
       const score = antiPatternService.calculateScore(
         antiPatterns,
-        sampledFiles.length
+        sampledFiles.length,
       );
 
       const assessment: QualityAssessment = {
@@ -308,14 +308,14 @@ describe('Quality Assessment Pipeline Integration', () => {
 
       // Verify recommendations address detected issues
       const categories = guidance.recommendations.map((r) =>
-        r.category.toLowerCase()
+        r.category.toLowerCase(),
       );
       expect(
-        categories.some((c) => c.includes('typescript') || c.includes('error'))
+        categories.some((c) => c.includes('typescript') || c.includes('error')),
       ).toBe(true);
     });
 
-    it('should handle clean codebase correctly', () => {
+    it('should handle clean codebase correctly', async () => {
       // Arrange: Only clean file
       const sampledFiles: SampledFile[] = [
         {
@@ -328,7 +328,7 @@ describe('Quality Assessment Pipeline Integration', () => {
 
       // Act
       const antiPatterns =
-        antiPatternService.detectPatternsInFiles(sampledFiles);
+        await antiPatternService.detectPatternsInFiles(sampledFiles);
       const score = antiPatternService.calculateScore(antiPatterns, 1);
 
       // Assert
@@ -338,9 +338,9 @@ describe('Quality Assessment Pipeline Integration', () => {
   });
 
   describe('Edge Cases', () => {
-    it('should handle empty file list', () => {
+    it('should handle empty file list', async () => {
       // Act
-      const antiPatterns = antiPatternService.detectPatternsInFiles([]);
+      const antiPatterns = await antiPatternService.detectPatternsInFiles([]);
       const score = antiPatternService.calculateScore([], 0);
 
       // Assert
@@ -348,10 +348,10 @@ describe('Quality Assessment Pipeline Integration', () => {
       expect(score).toBe(100);
     });
 
-    it('should handle config-only workspace gracefully', () => {
+    it('should handle config-only workspace gracefully', async () => {
       // Arrange: Files that shouldn't be analyzed (wrong extensions)
       const configFiles: SampledFile[] = Object.entries(
-        CONFIG_ONLY_FIXTURES
+        CONFIG_ONLY_FIXTURES,
       ).map(([name, content]) => ({
         path: name,
         content,
@@ -361,10 +361,10 @@ describe('Quality Assessment Pipeline Integration', () => {
 
       // Act: JSON files won't match TypeScript rules
       const antiPatterns =
-        antiPatternService.detectPatternsInFiles(configFiles);
+        await antiPatternService.detectPatternsInFiles(configFiles);
       const score = antiPatternService.calculateScore(
         antiPatterns,
-        configFiles.length
+        configFiles.length,
       );
 
       // Assert: No patterns for non-source files
@@ -372,7 +372,7 @@ describe('Quality Assessment Pipeline Integration', () => {
       expect(score).toBe(100);
     });
 
-    it('should handle files with mixed extensions', () => {
+    it('should handle files with mixed extensions', async () => {
       // Arrange
       const mixedFiles: SampledFile[] = [
         {
@@ -396,14 +396,15 @@ describe('Quality Assessment Pipeline Integration', () => {
       ];
 
       // Act
-      const antiPatterns = antiPatternService.detectPatternsInFiles(mixedFiles);
+      const antiPatterns =
+        await antiPatternService.detectPatternsInFiles(mixedFiles);
 
       // Assert: Only TypeScript file should have patterns detected
       expect(antiPatterns.length).toBe(1);
       expect(antiPatterns[0].type).toBe('typescript-explicit-any');
     });
 
-    it('should handle very large files within reasonable limits', () => {
+    it('should handle very large files within reasonable limits', async () => {
       // Arrange: Generate a large file
       const largeContent = Array(600).fill('const x = 1;').join('\n');
       const largeFile: SampledFile = {
@@ -414,19 +415,19 @@ describe('Quality Assessment Pipeline Integration', () => {
       };
 
       // Act
-      const antiPatterns = antiPatternService.detectPatternsInFiles([
+      const antiPatterns = await antiPatternService.detectPatternsInFiles([
         largeFile,
       ]);
 
       // Assert: Should detect arch-file-too-large
       expect(antiPatterns.some((p) => p.type === 'arch-file-too-large')).toBe(
-        true
+        true,
       );
     });
   });
 
   describe('Pattern Frequency Aggregation', () => {
-    it('should correctly aggregate same pattern across multiple files', () => {
+    it('should correctly aggregate same pattern across multiple files', async () => {
       // Arrange: Multiple files with same issue
       const files: SampledFile[] = [
         {
@@ -450,17 +451,18 @@ describe('Quality Assessment Pipeline Integration', () => {
       ];
 
       // Act
-      const antiPatterns = antiPatternService.detectPatternsInFiles(files);
+      const antiPatterns =
+        await antiPatternService.detectPatternsInFiles(files);
 
       // Assert: All occurrences aggregated into one entry
       const anyPatterns = antiPatterns.filter(
-        (p) => p.type === 'typescript-explicit-any'
+        (p) => p.type === 'typescript-explicit-any',
       );
       expect(anyPatterns.length).toBe(1);
       expect(anyPatterns[0].frequency).toBe(3);
     });
 
-    it('should track affected files in aggregated message', () => {
+    it('should track affected files in aggregated message', async () => {
       // Arrange
       const files: SampledFile[] = [
         {
@@ -478,7 +480,8 @@ describe('Quality Assessment Pipeline Integration', () => {
       ];
 
       // Act
-      const antiPatterns = antiPatternService.detectPatternsInFiles(files);
+      const antiPatterns =
+        await antiPatternService.detectPatternsInFiles(files);
 
       // Assert
       expect(antiPatterns[0].message).toContain('2 files');
@@ -522,7 +525,7 @@ describe('Quality Assessment Pipeline Integration', () => {
       const guidance = guidanceService.generateGuidance(
         assessment,
         context,
-        250 // Very small budget
+        250, // Very small budget
       );
 
       // Assert
@@ -567,7 +570,7 @@ describe('Quality Assessment Pipeline Integration', () => {
       const guidance = guidanceService.generateGuidance(
         assessment,
         context,
-        50 // Tiny budget
+        50, // Tiny budget
       );
 
       // Assert: Still has at least one recommendation
@@ -615,7 +618,7 @@ describe('Quality Assessment Pipeline Integration', () => {
 
       const rulesAfter = registry.getRules();
       const anyRuleAfter = rulesAfter.find(
-        (r) => r.id === 'typescript-explicit-any'
+        (r) => r.id === 'typescript-explicit-any',
       );
 
       expect(anyRuleAfter).toBeDefined();
@@ -623,7 +626,7 @@ describe('Quality Assessment Pipeline Integration', () => {
   });
 
   describe('Performance', () => {
-    it('should complete analysis in reasonable time', () => {
+    it('should complete analysis in reasonable time', async () => {
       // Arrange
       const sampledFiles: SampledFile[] = Object.entries(TEST_FIXTURES)
         .filter(([name]) => name.endsWith('.ts'))
@@ -638,10 +641,10 @@ describe('Quality Assessment Pipeline Integration', () => {
 
       // Act
       const antiPatterns =
-        antiPatternService.detectPatternsInFiles(sampledFiles);
+        await antiPatternService.detectPatternsInFiles(sampledFiles);
       const score = antiPatternService.calculateScore(
         antiPatterns,
-        sampledFiles.length
+        sampledFiles.length,
       );
 
       const assessment: QualityAssessment = {
@@ -671,7 +674,7 @@ describe('Quality Assessment Pipeline Integration', () => {
       expect(duration).toBeLessThan(1000); // Less than 1 second
     });
 
-    it('should handle batch of 50 files within performance target', () => {
+    it('should handle batch of 50 files within performance target', async () => {
       // Arrange: Create 50 files
       const files: SampledFile[] = Array(50)
         .fill(null)
@@ -690,7 +693,8 @@ describe('Quality Assessment Pipeline Integration', () => {
       const startTime = Date.now();
 
       // Act
-      const antiPatterns = antiPatternService.detectPatternsInFiles(files);
+      const antiPatterns =
+        await antiPatternService.detectPatternsInFiles(files);
       antiPatternService.calculateScore(antiPatterns, files.length);
 
       const duration = Date.now() - startTime;

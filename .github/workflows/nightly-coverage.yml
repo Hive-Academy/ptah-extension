@@ -1,0 +1,72 @@
+name: Nightly Coverage
+
+# TASK_2025_294 W8.B1 — full workspace coverage sweep on a nightly cron.
+# Complements the PR-scoped `nx affected -t test --coverage` check in
+# `ci.yml` by exercising every testable project each day, so the ratchet
+# thresholds stay honest even for projects with few affected commits.
+
+on:
+  schedule:
+    # 02:00 UTC daily
+    - cron: '0 2 * * *'
+  # Manual trigger for ad-hoc full-coverage runs.
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  NODE_VERSION: 22
+  NX_TUI: false
+
+jobs:
+  run-many-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          filter: tree:0
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        # Workaround for npm/cli#4828: package-lock.json generated on
+        # Windows omits Linux rollup platform binaries.
+        run: |
+          npm ci
+          npm install @rollup/rollup-linux-x64-gnu --no-save --force
+
+      - name: Cache Prisma client
+        id: cache-prisma
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.prisma
+          key: prisma-${{ runner.os }}-${{ hashFiles('apps/ptah-license-server/prisma/schema.prisma') }}
+
+      - name: Generate Prisma client
+        if: steps.cache-prisma.outputs.cache-hit != 'true'
+        run: npx nx run ptah-license-server:prisma:generate
+
+      - name: Run all project tests with coverage
+        run: npx nx run-many -t test --all --coverage --parallel=3
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-coverage
+          path: coverage
+          retention-days: 14

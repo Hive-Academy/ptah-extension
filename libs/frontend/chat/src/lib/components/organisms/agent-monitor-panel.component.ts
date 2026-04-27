@@ -33,8 +33,10 @@ import { LucideAngularModule, X, Trash2, ShieldAlert } from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { AgentPermissionRequest } from '@ptah-extension/shared';
-import { AgentMonitorStore } from '../../services/agent-monitor.store';
-import type { MonitoredAgent } from '../../services/agent-monitor.store';
+import {
+  AgentMonitorStore,
+  type MonitoredAgent,
+} from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import { AgentCardComponent } from '../molecules/agent-card/agent-card.component';
 

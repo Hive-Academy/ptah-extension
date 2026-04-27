@@ -22,6 +22,14 @@ export class CanvasStore {
   private readonly tabManager = inject(TabManagerService);
   private readonly layoutService = inject(CanvasLayoutService);
 
+  /**
+   * Maximum number of tiles the orchestra canvas allows simultaneously.
+   *
+   * Caps the layout at a 3x3 grid — `CanvasLayoutService` switches to that
+   * arrangement at the largest breakpoint, and Gridstack's column packing
+   * stays readable up to nine tiles before tiles get too small to host a
+   * usable chat surface.
+   */
   static readonly MAX_TILES = 9;
 
   private readonly _tiles = signal<CanvasTile[]>([]);

@@ -585,7 +585,8 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     const filePath = this.editorService.activeFilePath();
     if (!filePath) return '';
     const normalized = filePath.replace(/\\/g, '/');
-    return 'file:///' + normalized;
+    const encoded = normalized.split('/').map(encodeURIComponent).join('/');
+    return 'file:///' + encoded;
   });
 
   /**

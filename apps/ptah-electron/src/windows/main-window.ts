@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, clipboard, screen } from 'electron';
+import { BrowserWindow, Menu, screen } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { IStateStorage } from '@ptah-extension/platform-core';

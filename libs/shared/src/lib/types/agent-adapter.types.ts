@@ -1,17 +1,13 @@
 /**
- * IAgentAdapter - Unified contract across multiple agent runtimes.
+ * IAgentAdapter - Unified contract for the agent runtime.
  *
- * Superset interface that both SdkAgentAdapter (Claude SDK, in-process)
- * and DeepAgentAdapter (LangChain deep-agents, in-process) implement.
- * A runtime selector picks which concrete adapter handles each session.
- *
- * Methods not supported by a given runtime MUST throw an Error with
- * message starting with "Not supported on <runtime> runtime." so the
- * RPC layer can surface a user-friendly error.
+ * Implemented by SdkAgentAdapter (Claude Agent SDK, in-process).
+ * Methods that fail at runtime MUST throw an Error so the RPC layer
+ * can surface a user-friendly error.
  */
 import type { IAIProvider, AISessionConfig } from './ai-provider.types';
 import type { SessionId } from './branded.types';
-import type { FlatStreamEventUnion } from './execution-node.types';
+import type { FlatStreamEventUnion } from './execution';
 
 /**
  * Callback signatures — mirrored from agent-sdk's SdkAgentAdapter public API.
@@ -104,17 +100,12 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
   tabId?: string;
-  /** New user message to send as part of this resumed turn.
-   *  Runtimes that handle the prompt inside resumeSession() (e.g. deep-agent)
-   *  should set a flag so the caller's sendMessageToSession() is skipped. */
+  /** New user message to send as part of this resumed turn. */
   prompt?: string;
 }
 
 /**
  * Configuration for slash command execution.
- * Intentionally loose (`Record<string, unknown>`-style) because different
- * runtimes handle these fields differently. Claude SDK runtime uses all of
- * them; deep-agent runtime will reject the call entirely.
  */
 export interface SlashCommandRunConfig {
   sessionConfig?: AISessionConfig;
@@ -126,8 +117,7 @@ export interface SlashCommandRunConfig {
 }
 
 /**
- * Model info returned by adapters. Intentionally thin — a superset that
- * works for both SDK `ModelInfo` and LangChain-style model listings.
+ * Model info returned by the adapter.
  */
 export interface AgentModelInfo {
   readonly value: string;
@@ -138,9 +128,8 @@ export interface AgentModelInfo {
 /**
  * Unified agent adapter contract.
  *
- * This is the superset of public methods on SdkAgentAdapter. Runtimes that
- * cannot support a specific method (e.g. deep-agent has no slash commands)
- * MUST throw a runtime-specific Error rather than silently no-op.
+ * Defines the public methods of SdkAgentAdapter. Methods that fail at
+ * runtime MUST throw an Error rather than silently no-op.
  */
 export interface IAgentAdapter extends IAIProvider {
   /** Pre-warm any heavy SDK modules (no-op if nothing to pre-load). */

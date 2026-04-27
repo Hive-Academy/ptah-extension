@@ -43,7 +43,7 @@ export class MessageNormalizer {
     if (Array.isArray(message.content)) {
       return {
         contentBlocks: message.content.map((block) =>
-          this.normalizeContentBlock(block)
+          this.normalizeContentBlock(block),
         ),
       };
     }
@@ -99,7 +99,9 @@ export class MessageNormalizer {
       return {
         type: 'tool_result',
         tool_use_id: String(obj['tool_use_id'] || ''),
-        content: String(obj['content'] || ''),
+        content: Array.isArray(obj['content'])
+          ? (obj['content'] as ToolResultContentBlock['content'])
+          : String(obj['content'] ?? ''),
         is_error: Boolean(obj['is_error']),
       } as ToolResultContentBlock;
     }
@@ -115,7 +117,7 @@ export class MessageNormalizer {
    * Validate contentBlocks structure (defensive check)
    */
   static isValidContentBlocks(
-    contentBlocks: unknown
+    contentBlocks: unknown,
   ): contentBlocks is ContentBlock[] {
     if (!Array.isArray(contentBlocks)) {
       return false;
@@ -126,7 +128,7 @@ export class MessageNormalizer {
         block &&
         typeof block === 'object' &&
         'type' in block &&
-        typeof block.type === 'string'
+        typeof block.type === 'string',
     );
   }
 }

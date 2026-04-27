@@ -1,21 +1,42 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { WelcomeComponent } from './welcome.component';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
+import { WizardRpcService } from '../services/wizard-rpc.service';
 
-describe.skip('WelcomeComponent', () => {
+/**
+ * WelcomeComponent tests.
+ *
+ * The component now supports a dual-mode flow (existing analyses + new
+ * project bootstrap), injecting both the state facade and the RPC service.
+ * These tests assert component creation, the two entry-point handlers, and
+ * the state transitions they trigger.
+ */
+describe('WelcomeComponent', () => {
   let component: WelcomeComponent;
   let fixture: ComponentFixture<WelcomeComponent>;
   let mockStateService: Partial<SetupWizardStateService>;
+  let mockRpcService: Partial<WizardRpcService>;
 
   beforeEach(async () => {
     mockStateService = {
       setCurrentStep: jest.fn(),
-    };
+      setWizardPath: jest.fn(),
+      setSavedAnalyses: jest.fn(),
+      savedAnalyses: signal([]).asReadonly(),
+    } as unknown as Partial<SetupWizardStateService>;
+
+    mockRpcService = {
+      listAnalyses: jest.fn().mockResolvedValue([]),
+      loadAnalysis: jest.fn(),
+      recommendAgents: jest.fn(),
+    } as unknown as Partial<WizardRpcService>;
 
     await TestBed.configureTestingModule({
       imports: [WelcomeComponent],
       providers: [
         { provide: SetupWizardStateService, useValue: mockStateService },
+        { provide: WizardRpcService, useValue: mockRpcService },
       ],
     }).compileComponents();
 
@@ -28,55 +49,23 @@ describe.skip('WelcomeComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  describe('Initial State', () => {
-    it('should display welcome heading', () => {
-      const heading = fixture.nativeElement.querySelector('h1');
-      expect(heading.textContent).toContain(
-        "Let's Personalize Your Ptah Experience"
-      );
-    });
-
-    it('should display estimated time', () => {
-      const text = fixture.nativeElement.textContent;
-      expect(text).toContain('Estimated time: 2-4 minutes');
-    });
-
-    it('should display start button', () => {
-      const button = fixture.nativeElement.querySelector('button');
-      expect(button).toBeTruthy();
-      expect(button.textContent).toContain('Start Setup');
-    });
-  });
-
-  describe('Start Setup', () => {
-    it('should transition to scan step when start button clicked', () => {
-      const button = fixture.nativeElement.querySelector('button');
-      button.click();
-
-      expect(mockStateService.setCurrentStep).toHaveBeenCalledWith('scan');
-    });
-
-    it('should transition to scan step via onStartSetup', () => {
+  describe('Start Setup (existing project)', () => {
+    it('should set wizardPath to existing and advance to scan step', () => {
       component['onStartSetup']();
 
+      expect(mockStateService.setWizardPath).toHaveBeenCalledWith('existing');
       expect(mockStateService.setCurrentStep).toHaveBeenCalledWith('scan');
     });
   });
 
-  describe('Accessibility', () => {
-    it('should have proper heading hierarchy', () => {
-      const h1 = fixture.nativeElement.querySelector('h1');
-      expect(h1).toBeTruthy();
-    });
+  describe('Start Setup (new project)', () => {
+    it('should set wizardPath to new and advance to project-type step', () => {
+      component['onStartNewProject']();
 
-    it('should have accessible button with aria-label', () => {
-      const button = fixture.nativeElement.querySelector('button');
-      expect(button.getAttribute('aria-label')).toBe('Start wizard setup');
-    });
-
-    it('should have accessible button text', () => {
-      const button = fixture.nativeElement.querySelector('button');
-      expect(button.textContent.trim()).toBeTruthy();
+      expect(mockStateService.setWizardPath).toHaveBeenCalledWith('new');
+      expect(mockStateService.setCurrentStep).toHaveBeenCalledWith(
+        'project-type',
+      );
     });
   });
 });

@@ -80,8 +80,10 @@ export class EmailService {
     to: string;
     subject: string;
     html: string;
+    headers?: Record<string, string>;
+    tags?: Array<{ name: string; value: string }>;
   }): Promise<void> {
-    const { to, subject, html } = params;
+    const { to, subject, html, headers, tags } = params;
 
     const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
     const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
@@ -91,6 +93,8 @@ export class EmailService {
       to: [to],
       subject,
       html,
+      headers,
+      tags,
     };
 
     this.logger.log(`Sending custom email to ${to}: ${subject}`);
@@ -136,6 +140,8 @@ export class EmailService {
       subject: string;
       html: string;
       replyTo?: string;
+      headers?: Record<string, string>;
+      tags?: Array<{ name: string; value: string }>;
     },
     attempts: number,
   ): Promise<void> {

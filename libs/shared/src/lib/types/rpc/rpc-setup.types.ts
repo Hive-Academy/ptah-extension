@@ -4,10 +4,7 @@
  * Types for setup-status:*, setup-wizard:*, wizard:*, enhancedPrompts:*
  */
 
-import type {
-  ProjectAnalysisResult,
-  AgentRecommendation,
-} from '../setup-wizard.types';
+import type { ProjectAnalysisResult, AgentRecommendation } from '../wizard';
 import type {
   NewProjectType,
   QuestionGroup,

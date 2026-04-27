@@ -33,6 +33,15 @@ files:
 # The Codex SDK resolves platform-specific binaries via require.resolve(),
 # but binaries inside app.asar cannot be spawned as executables.
 # asarUnpack places them under app.asar.unpacked/ where they are executable.
+#
+# ESM-in-ASAR fix: @github/copilot-sdk is pure ESM and imports
+# "vscode-jsonrpc/node.js" (CJS, no exports map). Electron's ESM loader
+# inside ASAR cannot determine CJS/ESM module type without a real FS path
+# for package boundary detection. Unpack all three packages so Node resolves
+# them on the real filesystem (app.asar.unpacked/) instead of ASAR virtual FS.
+#   - vscode-jsonrpc: CJS target of the failing ESM import
+#   - @github/copilot-sdk: ESM importer using import.meta.resolve()
+#   - @github/copilot: CLI binary spawned as subprocess (like codex)
 asarUnpack:
   - 'node_modules/@openai/codex-win32-x64/**'
   - 'node_modules/@openai/codex-win32-arm64/**'
@@ -40,6 +49,9 @@ asarUnpack:
   - 'node_modules/@openai/codex-linux-arm64/**'
   - 'node_modules/@openai/codex-darwin-x64/**'
   - 'node_modules/@openai/codex-darwin-arm64/**'
+  - 'node_modules/vscode-jsonrpc/**'
+  - 'node_modules/@github/copilot-sdk/**'
+  - 'node_modules/@github/copilot/**'
 
 extraResources:
   - from: 'renderer'

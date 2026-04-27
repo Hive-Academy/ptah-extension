@@ -25,12 +25,13 @@ import type {
   ModelPricing,
 } from '@ptah-extension/shared';
 import { updatePricingMap } from '@ptah-extension/shared';
+import { SdkError } from './errors';
 import {
   getAnthropicProvider,
   ANTHROPIC_DIRECT_PROVIDER_ID,
   DEFAULT_PROVIDER_ID,
   type AnthropicProvider,
-} from './helpers/anthropic-provider-registry';
+} from './providers/_shared/provider-registry';
 import { TIER_ENV_VAR_MAP } from './helpers/sdk-model-service';
 import { SDK_TOKENS } from './di/tokens';
 
@@ -186,7 +187,7 @@ export class ProviderModelsService {
 
     const provider = getAnthropicProvider(providerId);
     if (!provider) {
-      throw new Error(`Unknown provider: ${providerId}`);
+      throw new SdkError(`Unknown provider: ${providerId}`);
     }
 
     // Path 1: Has API endpoint AND key → try dynamic first
@@ -281,7 +282,7 @@ export class ProviderModelsService {
     }
 
     if (!apiKey) {
-      throw new Error(
+      throw new SdkError(
         `${provider.name} API key not configured. Please add your key in Settings.`,
       );
     }
@@ -304,7 +305,7 @@ export class ProviderModelsService {
       );
 
       if (!data.data || !Array.isArray(data.data)) {
-        throw new Error(`Invalid response format from ${provider.name} API`);
+        throw new SdkError(`Invalid response format from ${provider.name} API`);
       }
 
       // Transform to our model format and extract pricing
@@ -332,11 +333,11 @@ export class ProviderModelsService {
     } catch (error) {
       if (axios.isAxiosError(error) && error.response) {
         if (error.response.status === 401 || error.response.status === 403) {
-          throw new Error(
+          throw new SdkError(
             `${provider.name} API key is invalid or expired. Please delete your key and re-enter a valid one.`,
           );
         }
-        throw new Error(
+        throw new SdkError(
           `${provider.name} API error: ${error.response.status} ${error.response.statusText}`,
         );
       }

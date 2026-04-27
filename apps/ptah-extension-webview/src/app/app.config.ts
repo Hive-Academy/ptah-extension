@@ -4,9 +4,7 @@ import {
   provideZoneChangeDetection,
   ErrorHandler,
 } from '@angular/core';
-import { provideMarkdown, MARKED_EXTENSIONS, SANITIZE } from 'ngx-markdown';
 import { provideMonacoEditor } from 'ngx-monaco-editor-v2';
-import DOMPurify from 'dompurify';
 import {
   VSCodeService,
   provideVSCodeService,
@@ -27,66 +25,21 @@ import {
   AgentMonitorMessageHandler,
   ChatStore,
   WorkspaceCoordinatorService,
+  provideModelRefreshControl,
 } from '@ptah-extension/chat';
-import { WizardViewComponent } from '@ptah-extension/setup-wizard';
+import {
+  WizardViewComponent,
+  provideWizardInternalState,
+} from '@ptah-extension/setup-wizard';
+import { provideEditorInternalState } from '@ptah-extension/editor';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import {
   HarnessBuilderViewComponent,
   SetupHubComponent,
 } from '@ptah-extension/harness-builder';
-import { getMarkedExtensions } from './marked-extensions';
+import { provideMarkdownRendering } from '@ptah-extension/markdown';
 // Removed Material animations import - using pure VS Code design system
 // REMOVED: Angular Router imports - incompatible with VS Code webviews
-
-/**
- * Permissive DOMPurify sanitizer for AI-generated markdown content.
- *
- * Blocks only actual XSS vectors (script injection, event handlers, javascript: URIs)
- * while preserving all legitimate HTML that AI agents commonly produce:
- * - Code blocks, tables, lists, headings, links, images
- * - SVG diagrams, details/summary, kbd, abbr, mark
- * - data-* attributes, class, id, style (safe subset)
- * - Custom elements from marked extensions (callout cards, code headers, etc.)
- */
-function createPermissiveSanitizer(): (html: string) => string {
-  return (html: string) =>
-    DOMPurify.sanitize(html, {
-      // Block dangerous tags only — allow everything else
-      FORBID_TAGS: [
-        'script',
-        'iframe',
-        'object',
-        'embed',
-        'form',
-        'input',
-        'textarea',
-        'select',
-        'button',
-      ],
-      // Block event handlers and dangerous attributes only
-      FORBID_ATTR: [
-        'onerror',
-        'onload',
-        'onclick',
-        'onmouseover',
-        'onfocus',
-        'onblur',
-        'onsubmit',
-        'onchange',
-        'oninput',
-        'onkeydown',
-        'onkeyup',
-        'onkeypress',
-      ],
-      // Allow data-* attributes (used by marked extensions)
-      ALLOW_DATA_ATTR: true,
-      // Allow ARIA attributes for accessibility
-      ALLOW_ARIA_ATTR: true,
-      // Allow safe URI protocols
-      ALLOWED_URI_REGEXP:
-        /^(?:(?:https?|mailto|tel|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
-    });
-}
 
 // Custom error handler for webview-specific issues
 class WebviewErrorHandler implements ErrorHandler {
@@ -172,6 +125,31 @@ export const appConfig: ApplicationConfig = {
     },
     // Setup hub component: breaks circular dependency between chat and harness-builder.
     { provide: SETUP_HUB_COMPONENT, useValue: SetupHubComponent },
+    // TASK_2026_106 Phase 3: `provideStreamingControl()` removed. The
+    // STREAMING_CONTROL inversion was the source of the NG0200 cycle —
+    // token inversion + a useExisting impl that injected the consumer back
+    // formed the same runtime cycle the import inversion was meant to
+    // prevent. The router (`@ptah-extension/chat-routing/StreamRouter`)
+    // now owns cleanup, reacting to `TabManagerService.closedTab` via
+    // `effect()`. No DI registration needed — `StreamRouter` is
+    // `providedIn: 'root'` and self-wires through the chat-message-handler
+    // import chain.
+    // ModelRefreshControl: inverted-dependency contract that lets
+    // TabManagerService (in @ptah-extension/chat-state, type:data-access)
+    // refresh the available-models list after createTab() without statically
+    // importing ModelStateService from @ptah-extension/core (type:core),
+    // which Nx module-boundary rules forbid for type:data-access libs.
+    // TASK_2026_105 Wave G2 Phase 2.
+    ...provideModelRefreshControl(),
+    // WizardInternalState: inverted-dependency contract that lets external
+    // consumers read/write wizard signals without statically importing
+    // SetupWizardStateService (which would re-form a cycle with the
+    // in-process wizard helpers).
+    // TASK_2026_103 Wave F1.
+    ...provideWizardInternalState(),
+    // EditorInternalState: same pattern, applied to EditorService.
+    // TASK_2026_103 Wave F3.
+    ...provideEditorInternalState(),
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',
@@ -182,7 +160,12 @@ export const appConfig: ApplicationConfig = {
         // and explicit { type: 'classic' } to ensure importScripts() works.
         const monacoVsUrl = new URL('./assets/monaco/vs', window.location.href)
           .href;
-        (self as any).MonacoEnvironment = {
+        const monacoSelf = self as typeof self & {
+          MonacoEnvironment?: {
+            getWorker: (moduleId: string, label: string) => Worker;
+          };
+        };
+        monacoSelf.MonacoEnvironment = {
           getWorker: (_moduleId: string, _label: string) => {
             const workerUrl = `${monacoVsUrl}/base/worker/workerMain.js`;
             const js = `self.MonacoEnvironment = { baseUrl: '${monacoVsUrl}/' };\nimportScripts('${workerUrl}');`;
@@ -197,13 +180,6 @@ export const appConfig: ApplicationConfig = {
     }),
     // Markdown rendering for chat messages (required for ngx-markdown)
     // Includes custom extensions for callout cards and collapsible code blocks
-    provideMarkdown({
-      sanitize: { provide: SANITIZE, useFactory: createPermissiveSanitizer },
-      markedExtensions: getMarkedExtensions().map((ext) => ({
-        provide: MARKED_EXTENSIONS,
-        useValue: ext,
-        multi: true,
-      })),
-    }),
+    provideMarkdownRendering({ extensions: 'full' }),
   ],
 };

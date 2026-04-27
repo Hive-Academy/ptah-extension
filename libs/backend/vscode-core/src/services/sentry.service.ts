@@ -92,7 +92,15 @@ export class SentryService {
     if (!this.initialized) return;
 
     const Sentry = require('@sentry/node') as typeof import('@sentry/node');
+    await Sentry.flush(timeoutMs);
+  }
+
+  async shutdown(timeoutMs = 2000): Promise<void> {
+    if (!this.initialized) return;
+
+    const Sentry = require('@sentry/node') as typeof import('@sentry/node');
     await Sentry.close(timeoutMs);
+    this.initialized = false;
   }
 
   isInitialized(): boolean {

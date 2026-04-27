@@ -60,7 +60,9 @@ import {
           aria-label="Footer navigation"
         >
           <a
-            routerLink="/docs"
+            href="https://docs.ptah.live"
+            target="_blank"
+            rel="noopener noreferrer"
             class="text-base-content/70 hover:text-secondary transition-colors"
             aria-label="View documentation"
           >

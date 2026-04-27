@@ -1,0 +1,13 @@
+{
+  "name": "@ptah-extension/webview-e2e-harness",
+  "version": "0.0.1",
+  "description": "Playwright-based E2E test harness for the Ptah Angular webview SPA. Provides postMessage bridge stubbing, CSP-permissive routing, fixture server, and Playwright test fixtures.",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "peerDependencies": {
+    "@playwright/test": "^1.50.0"
+  },
+  "sideEffects": false
+}

@@ -2,6 +2,8 @@ name: CI
 
 on:
   pull_request:
+    branches:
+      - main
     paths-ignore:
       - '**/*.md'
       - 'docs/**'
@@ -26,7 +28,7 @@ env:
 jobs:
   main:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     # Skip if PR was closed/merged, or if commit message is a version bump
     if: |
       (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') &&
@@ -51,11 +53,13 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-modules.outputs.cache-hit != 'true'
-        # Workaround for npm/cli#4828: package-lock.json generated on Windows
-        # omits Linux rollup platform binaries. Install them explicitly.
-        run: |
-          npm ci
-          npm install @rollup/rollup-linux-x64-gnu --no-save --force
+        run: npm ci
+
+      # Always run — cached node_modules may be missing Linux platform
+      # binaries (npm/cli#4828: package-lock.json generated on Windows omits
+      # them). Without unrs-resolver, jest can't resolve preset paths.
+      - name: Install Linux platform binaries
+        run: npm install @rollup/rollup-linux-x64-gnu @unrs/resolver-binding-linux-x64-gnu --no-save --force
 
       # Cache Prisma generated client
       - name: Cache Prisma client
@@ -73,5 +77,12 @@ jobs:
         uses: nrwl/nx-set-shas@v4
         with:
           main-branch-name: main
+
+      # Required coverage gate (TASK_2025_294 W8.B1). Per-project
+      # `coverageThreshold` stanzas in each `jest.config.ts` are ratcheted
+      # to the current baseline rounded down to the nearest 5. A drop below
+      # the floor fails the job; specs are free to increase coverage.
+      - name: Run affected tests with coverage
+        run: npx nx affected -t test --coverage --parallel=3
 
       - run: npx nx affected -t build --exclude=infra-test

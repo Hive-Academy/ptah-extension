@@ -6,9 +6,8 @@ import {
   DestroyRef,
   NgZone,
 } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
+import { VSCodeService, rpcCall } from '@ptah-extension/core';
 import type { TerminalTab } from '../types/terminal.types';
-import { rpcCall } from './rpc-call.util';
 
 /**
  * Per-workspace terminal state snapshot.

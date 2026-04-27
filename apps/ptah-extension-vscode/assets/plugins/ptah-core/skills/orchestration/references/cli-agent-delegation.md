@@ -410,15 +410,9 @@ ptah_agent_spawn {
 
 ### team-leader
 
-**Delegate**: Parallel file verification, batch implementation via CLI devs
+**Does NOT delegate.** Team-leader is strictly advisory — it NEVER calls `ptah_agent_spawn` or `Task(...)`. It records per-batch `Recommended Executor` + `Execution Mode` in `tasks.md`, and the **main orchestrator** spawns CLI agents or sub-agents based on those recommendations.
 
-```
-# Spawn CLI devs for independent batch tasks
-ptah_agent_spawn {
-  task: "Verify that all files listed below exist and are non-empty: [file list]. Report any missing files.",
-  cli: "gemini"
-}
-```
+If team-leader needs parallel verification or batch implementation fan-out, it sets `Execution Mode: parallel` on the relevant batch and names the CLI as the `Recommended Executor`; the orchestrator executes the fan-out.
 
 ### backend-developer
 
@@ -551,5 +545,5 @@ CLI agents should NOT be used for:
 - **SKILL.md**: CLI Agent Delegation Mode activation, Checkpoint 0.1, prompt injection
 - **agent-catalog.md**: Per-agent delegation capabilities and prompt injection template
 - **strategies.md**: CLI delegation opportunities per strategy phase
-- **team-leader-modes.md**: CLI-enhanced MODE 2 for parallel batch implementation
+- **team-leader-modes.md**: Advisory executor recommendations that the orchestrator executes (team-leader never spawns)
 - **checkpoints.md**: Checkpoint 0.1 (CLI Agent Discovery) template

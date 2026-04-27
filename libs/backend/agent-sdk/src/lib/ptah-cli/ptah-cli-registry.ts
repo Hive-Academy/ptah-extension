@@ -32,8 +32,9 @@ import {
   TOKENS,
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
-import type { SdkHandle } from '@ptah-extension/llm-abstraction';
+import type { SdkHandle } from '../cli-agents/cli-adapters';
 import { SDK_TOKENS } from '../di/tokens';
+import { SdkError } from '../errors';
 import type { SdkModuleLoader } from '../helpers/sdk-module-loader';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { SdkPermissionHandler } from '../sdk-permission-handler';
@@ -48,8 +49,8 @@ import {
   getProviderAuthEnvVar,
   seedStaticModelPricing,
   type AnthropicProvider,
-} from '../helpers/anthropic-provider-registry';
-import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../local-provider';
+} from '../providers/_shared/provider-registry';
+import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local';
 import { buildSafeEnv } from '../helpers/build-safe-env';
 import { TIER_TO_MODEL_ID, type ModelTier } from '../helpers/sdk-model-service';
 import type { Options } from '../types/sdk-types/claude-sdk.types';
@@ -178,7 +179,7 @@ export class PtahCliRegistry {
     await this.configPersistence.ensureMigrated();
     const provider = getAnthropicProvider(providerId);
     if (!provider) {
-      throw new Error(`Unknown provider: ${providerId}`);
+      throw new SdkError(`Unknown provider: ${providerId}`);
     }
 
     const id = generateAgentId();
@@ -242,7 +243,7 @@ export class PtahCliRegistry {
     const configs = this.configPersistence.loadConfigs();
     const index = configs.findIndex((c) => c.id === id);
     if (index === -1) {
-      throw new Error(`Agent not found: ${id}`);
+      throw new SdkError(`Agent not found: ${id}`);
     }
 
     const existing = configs[index];

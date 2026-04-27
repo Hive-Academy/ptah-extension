@@ -19,12 +19,14 @@ import {
   ChevronRight,
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution/execution-node.component';
-import { TypingCursorComponent } from '../atoms/typing-cursor.component';
-import { StreamingQuotesComponent } from '../atoms/streaming-quotes.component';
-import { CopyButtonComponent } from '../atoms/copy-button.component';
-import { TokenBadgeComponent } from '../atoms/token-badge.component';
-import { CostBadgeComponent } from '../atoms/cost-badge.component';
-import { DurationBadgeComponent } from '../atoms/duration-badge.component';
+import {
+  TypingCursorComponent,
+  StreamingQuotesComponent,
+  CopyButtonComponent,
+  TokenBadgeComponent,
+  CostBadgeComponent,
+  DurationBadgeComponent,
+} from '@ptah-extension/chat-ui';
 import type {
   ExecutionChatMessage,
   PermissionRequest,

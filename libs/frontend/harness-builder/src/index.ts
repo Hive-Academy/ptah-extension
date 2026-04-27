@@ -7,4 +7,3 @@ export { HarnessStreamingService } from './lib/services/harness-streaming.servic
 export { HarnessBuilderViewComponent } from './lib/components/harness-builder-view.component';
 export { SetupHubComponent } from './lib/components/setup-hub.component';
 export { HarnessConfigPreviewComponent } from './lib/components/harness-config-preview.component';
-export { ConfigCardComponent } from './lib/components/atoms/config-card.component';

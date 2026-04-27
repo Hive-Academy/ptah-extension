@@ -43,7 +43,7 @@ import {
 
 describe('Angular Rules', () => {
   describe('improperChangeDetectionRule', () => {
-    it('should detect @Component without OnPush', () => {
+    it('should detect @Component without OnPush', async () => {
       const content = `
 import { Component } from '@angular/core';
 
@@ -55,9 +55,9 @@ export class ListComponent {
   items = [];
 }
 `;
-      const matches = improperChangeDetectionRule.detect(
+      const matches = await improperChangeDetectionRule.detect(
         content,
-        'list.component.ts'
+        'list.component.ts',
       );
 
       expect(matches.length).toBeGreaterThanOrEqual(1);
@@ -65,7 +65,7 @@ export class ListComponent {
       expect(matches[0].metadata?.['reason']).toBe('missing-onpush');
     });
 
-    it('should detect manual detectChanges() calls', () => {
+    it('should detect manual detectChanges() calls', async () => {
       const content = `
 import { Component, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 
@@ -82,18 +82,18 @@ export class ListComponent {
   }
 }
 `;
-      const matches = improperChangeDetectionRule.detect(
+      const matches = await improperChangeDetectionRule.detect(
         content,
-        'list.component.ts'
+        'list.component.ts',
       );
 
       const detectChangesMatch = matches.find(
-        (m) => m.metadata?.['reason'] === 'manual-detect-changes'
+        (m) => m.metadata?.['reason'] === 'manual-detect-changes',
       );
       expect(detectChangesMatch).toBeDefined();
     });
 
-    it('should NOT detect @Component with OnPush and no detectChanges', () => {
+    it('should NOT detect @Component with OnPush and no detectChanges', async () => {
       const content = `
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 
@@ -106,15 +106,15 @@ export class CardComponent {
   title = 'Hello';
 }
 `;
-      const matches = improperChangeDetectionRule.detect(
+      const matches = await improperChangeDetectionRule.detect(
         content,
-        'card.component.ts'
+        'card.component.ts',
       );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect files without @Component', () => {
+    it('should NOT detect files without @Component', async () => {
       const content = `
 import { Injectable } from '@angular/core';
 
@@ -123,9 +123,9 @@ export class DataService {
   getData() { return []; }
 }
 `;
-      const matches = improperChangeDetectionRule.detect(
+      const matches = await improperChangeDetectionRule.detect(
         content,
-        'data.service.ts'
+        'data.service.ts',
       );
 
       expect(matches.length).toBe(0);
@@ -133,7 +133,7 @@ export class DataService {
   });
 
   describe('subscriptionLeakRule', () => {
-    it('should detect .subscribe() without cleanup in component', () => {
+    it('should detect .subscribe() without cleanup in component', async () => {
       const content = `
 import { Component, OnInit } from '@angular/core';
 import { DataService } from './data.service';
@@ -152,14 +152,17 @@ export class ListComponent implements OnInit {
   }
 }
 `;
-      const matches = subscriptionLeakRule.detect(content, 'list.component.ts');
+      const matches = await subscriptionLeakRule.detect(
+        content,
+        'list.component.ts',
+      );
 
       expect(matches.length).toBe(1);
       expect(matches[0].type).toBe('angular-subscription-leak');
       expect(matches[0].metadata?.['subscribeCount']).toBe(1);
     });
 
-    it('should NOT detect subscribe with takeUntilDestroyed', () => {
+    it('should NOT detect subscribe with takeUntilDestroyed', async () => {
       const content = `
 import { Component, inject, DestroyRef } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -176,12 +179,15 @@ export class ListComponent {
   }
 }
 `;
-      const matches = subscriptionLeakRule.detect(content, 'list.component.ts');
+      const matches = await subscriptionLeakRule.detect(
+        content,
+        'list.component.ts',
+      );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect subscribe with ngOnDestroy and unsubscribe', () => {
+    it('should NOT detect subscribe with ngOnDestroy and unsubscribe', async () => {
       const content = `
 import { Component, OnInit, OnDestroy } from '@angular/core';
 
@@ -201,12 +207,15 @@ export class ListComponent implements OnInit, OnDestroy {
   }
 }
 `;
-      const matches = subscriptionLeakRule.detect(content, 'list.component.ts');
+      const matches = await subscriptionLeakRule.detect(
+        content,
+        'list.component.ts',
+      );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect files without @Component', () => {
+    it('should NOT detect files without @Component', async () => {
       const content = `
 import { Injectable } from '@angular/core';
 
@@ -217,29 +226,32 @@ export class DataService {
   }
 }
 `;
-      const matches = subscriptionLeakRule.detect(content, 'data.service.ts');
+      const matches = await subscriptionLeakRule.detect(
+        content,
+        'data.service.ts',
+      );
 
       expect(matches.length).toBe(0);
     });
   });
 
   describe('circularDependencyRule', () => {
-    it('should detect forwardRef usage', () => {
+    it('should detect forwardRef usage', async () => {
       const content = `
 import { Inject, forwardRef } from '@angular/core';
 
 constructor(@Inject(forwardRef(() => ParentService)) private parent: ParentService) {}
 `;
-      const matches = circularDependencyRule.detect(
+      const matches = await circularDependencyRule.detect(
         content,
-        'child.service.ts'
+        'child.service.ts',
       );
 
       expect(matches.length).toBe(1);
       expect(matches[0].type).toBe('angular-circular-dependency');
     });
 
-    it('should detect multiple forwardRef usages', () => {
+    it('should detect multiple forwardRef usages', async () => {
       const content = `
 import { Inject, forwardRef } from '@angular/core';
 
@@ -248,15 +260,15 @@ constructor(
   @Inject(forwardRef(() => ServiceB)) private b: ServiceB
 ) {}
 `;
-      const matches = circularDependencyRule.detect(
+      const matches = await circularDependencyRule.detect(
         content,
-        'combined.service.ts'
+        'combined.service.ts',
       );
 
       expect(matches.length).toBe(2);
     });
 
-    it('should NOT detect files without forwardRef', () => {
+    it('should NOT detect files without forwardRef', async () => {
       const content = `
 import { Injectable } from '@angular/core';
 
@@ -265,9 +277,9 @@ export class CleanService {
   constructor(private dep: DependencyService) {}
 }
 `;
-      const matches = circularDependencyRule.detect(
+      const matches = await circularDependencyRule.detect(
         content,
-        'clean.service.ts'
+        'clean.service.ts',
       );
 
       expect(matches.length).toBe(0);
@@ -275,7 +287,7 @@ export class CleanService {
   });
 
   describe('angularLargeComponentRule', () => {
-    it('should detect component with >500 lines', () => {
+    it('should detect component with >500 lines', async () => {
       const header = `
 import { Component } from '@angular/core';
 
@@ -288,9 +300,9 @@ export class LargeComponent {
       const body = Array(500).fill('  line = "filler";').join('\n');
       const content = header + body + '\n}';
 
-      const matches = angularLargeComponentRule.detect(
+      const matches = await angularLargeComponentRule.detect(
         content,
-        'large.component.ts'
+        'large.component.ts',
       );
 
       expect(matches.length).toBe(1);
@@ -298,7 +310,7 @@ export class LargeComponent {
       expect(matches[0].metadata?.['lineCount']).toBeGreaterThan(500);
     });
 
-    it('should NOT detect component with <=500 lines', () => {
+    it('should NOT detect component with <=500 lines', async () => {
       const content = `
 import { Component } from '@angular/core';
 
@@ -310,15 +322,15 @@ export class SmallComponent {
   title = 'Hello';
 }
 `;
-      const matches = angularLargeComponentRule.detect(
+      const matches = await angularLargeComponentRule.detect(
         content,
-        'small.component.ts'
+        'small.component.ts',
       );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect large non-component files', () => {
+    it('should NOT detect large non-component files', async () => {
       const body = Array(600).fill('  line = "filler";').join('\n');
       const content = `
 import { Injectable } from '@angular/core';
@@ -328,9 +340,9 @@ export class LargeService {
 ${body}
 }
 `;
-      const matches = angularLargeComponentRule.detect(
+      const matches = await angularLargeComponentRule.detect(
         content,
-        'large.service.ts'
+        'large.service.ts',
       );
 
       expect(matches.length).toBe(0);
@@ -338,7 +350,7 @@ ${body}
   });
 
   describe('missingTrackByRule', () => {
-    it('should detect *ngFor without trackBy', () => {
+    it('should detect *ngFor without trackBy', async () => {
       const content = `
 @Component({
   template: \`
@@ -347,14 +359,17 @@ ${body}
 })
 export class ListComponent {}
 `;
-      const matches = missingTrackByRule.detect(content, 'list.component.ts');
+      const matches = await missingTrackByRule.detect(
+        content,
+        'list.component.ts',
+      );
 
       expect(matches.length).toBe(1);
       expect(matches[0].type).toBe('angular-missing-trackby');
       expect(matches[0].metadata?.['directive']).toBe('*ngFor');
     });
 
-    it('should detect @for without track', () => {
+    it('should detect @for without track', async () => {
       const content = `
 @Component({
   template: \`
@@ -365,13 +380,16 @@ export class ListComponent {}
 })
 export class ListComponent {}
 `;
-      const matches = missingTrackByRule.detect(content, 'list.component.ts');
+      const matches = await missingTrackByRule.detect(
+        content,
+        'list.component.ts',
+      );
 
       expect(matches.length).toBe(1);
       expect(matches[0].metadata?.['directive']).toBe('@for');
     });
 
-    it('should NOT detect *ngFor with trackBy', () => {
+    it('should NOT detect *ngFor with trackBy', async () => {
       const content = `
 @Component({
   template: \`
@@ -382,12 +400,15 @@ export class ListComponent {
   trackItem(index: number, item: Item) { return item.id; }
 }
 `;
-      const matches = missingTrackByRule.detect(content, 'list.component.ts');
+      const matches = await missingTrackByRule.detect(
+        content,
+        'list.component.ts',
+      );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect @for with track', () => {
+    it('should NOT detect @for with track', async () => {
       const content = `
 @Component({
   template: \`
@@ -398,13 +419,16 @@ export class ListComponent {
 })
 export class ListComponent {}
 `;
-      const matches = missingTrackByRule.detect(content, 'list.component.ts');
+      const matches = await missingTrackByRule.detect(
+        content,
+        'list.component.ts',
+      );
 
       expect(matches.length).toBe(0);
     });
   });
 
-  it('angularRules should contain all 5 rules', () => {
+  it('angularRules should contain all 5 rules', async () => {
     expect(angularRules).toHaveLength(5);
   });
 });
@@ -415,7 +439,7 @@ export class ListComponent {}
 
 describe('NestJS Rules', () => {
   describe('missingDecoratorRule', () => {
-    it('should detect NestJS class without @Injectable()', () => {
+    it('should detect NestJS class without @Injectable()', async () => {
       const content = `
 import { HttpService } from '@nestjs/common';
 
@@ -427,14 +451,17 @@ export class UserService {
   }
 }
 `;
-      const matches = missingDecoratorRule.detect(content, 'user.service.ts');
+      const matches = await missingDecoratorRule.detect(
+        content,
+        'user.service.ts',
+      );
 
       expect(matches.length).toBe(1);
       expect(matches[0].type).toBe('nestjs-missing-decorator');
       expect(matches[0].metadata?.['className']).toBe('UserService');
     });
 
-    it('should NOT detect class with @Injectable()', () => {
+    it('should NOT detect class with @Injectable()', async () => {
       const content = `
 import { Injectable, HttpService } from '@nestjs/common';
 
@@ -447,12 +474,15 @@ export class UserService {
   }
 }
 `;
-      const matches = missingDecoratorRule.detect(content, 'user.service.ts');
+      const matches = await missingDecoratorRule.detect(
+        content,
+        'user.service.ts',
+      );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect class with @Controller()', () => {
+    it('should NOT detect class with @Controller()', async () => {
       const content = `
 import { Controller, Get } from '@nestjs/common';
 
@@ -462,15 +492,15 @@ export class UserController {
   getUsers() { return []; }
 }
 `;
-      const matches = missingDecoratorRule.detect(
+      const matches = await missingDecoratorRule.detect(
         content,
-        'user.controller.ts'
+        'user.controller.ts',
       );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect non-NestJS files', () => {
+    it('should NOT detect non-NestJS files', async () => {
       const content = `
 import { something } from './utils';
 
@@ -478,14 +508,14 @@ export class UtilityHelper {
   doWork() { return true; }
 }
 `;
-      const matches = missingDecoratorRule.detect(content, 'helper.ts');
+      const matches = await missingDecoratorRule.detect(content, 'helper.ts');
 
       expect(matches.length).toBe(0);
     });
   });
 
   describe('controllerLogicRule', () => {
-    it('should detect controller method with >20 lines', () => {
+    it('should detect controller method with >20 lines', async () => {
       const methodBody = Array(22).fill('    const x = 1;').join('\n');
       const content = `
 import { Controller, Get } from '@nestjs/common';
@@ -498,14 +528,17 @@ ${methodBody}
   }
 }
 `;
-      const matches = controllerLogicRule.detect(content, 'user.controller.ts');
+      const matches = await controllerLogicRule.detect(
+        content,
+        'user.controller.ts',
+      );
 
       expect(matches.length).toBe(1);
       expect(matches[0].type).toBe('nestjs-controller-logic');
       expect(matches[0].metadata?.['lineCount']).toBeGreaterThan(20);
     });
 
-    it('should NOT detect short controller methods', () => {
+    it('should NOT detect short controller methods', async () => {
       const content = `
 import { Controller, Get } from '@nestjs/common';
 
@@ -522,12 +555,15 @@ export class UserController {
   }
 }
 `;
-      const matches = controllerLogicRule.detect(content, 'user.controller.ts');
+      const matches = await controllerLogicRule.detect(
+        content,
+        'user.controller.ts',
+      );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect non-controller files', () => {
+    it('should NOT detect non-controller files', async () => {
       const methodBody = Array(25).fill('    const x = 1;').join('\n');
       const content = `
 import { Injectable } from '@nestjs/common';
@@ -539,65 +575,68 @@ ${methodBody}
   }
 }
 `;
-      const matches = controllerLogicRule.detect(content, 'user.service.ts');
+      const matches = await controllerLogicRule.detect(
+        content,
+        'user.service.ts',
+      );
 
       expect(matches.length).toBe(0);
     });
   });
 
   describe('unsafeRepositoryRule', () => {
-    it('should detect template literal in query()', () => {
+    it('should detect template literal in query()', async () => {
       const content = `
 async findUser(userId: string) {
   return this.db.query(\`SELECT * FROM users WHERE id = \${userId}\`);
 }
 `;
-      const matches = unsafeRepositoryRule.detect(
+      const matches = await unsafeRepositoryRule.detect(
         content,
-        'user.repository.ts'
+        'user.repository.ts',
       );
 
       expect(matches.length).toBe(1);
       expect(matches[0].type).toBe('nestjs-unsafe-repository');
     });
 
-    it('should detect template literal in execute()', () => {
+    it('should detect template literal in execute()', async () => {
       const content = `
 async deleteUser(userId: string) {
   return this.db.execute(\`DELETE FROM users WHERE id = \${userId}\`);
 }
 `;
-      const matches = unsafeRepositoryRule.detect(
+      const matches = await unsafeRepositoryRule.detect(
         content,
-        'user.repository.ts'
+        'user.repository.ts',
       );
 
       expect(matches.length).toBe(1);
     });
 
-    it('should NOT detect parameterized queries', () => {
+    it('should NOT detect parameterized queries', async () => {
       const content = `
 async findUser(userId: string) {
   return this.db.query('SELECT * FROM users WHERE id = $1', [userId]);
 }
 `;
-      const matches = unsafeRepositoryRule.detect(
+      const matches = await unsafeRepositoryRule.detect(
         content,
-        'user.repository.ts'
+        'user.repository.ts',
       );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect ORM method calls', () => {
+    it('should NOT detect ORM method calls', async () => {
       const content = `
 async findUser(userId: string) {
   return this.userRepo.findOne({ where: { id: userId } });
 }
 `;
-      const matches = unsafeRepositoryRule.detect(
+      const matches = await unsafeRepositoryRule.detect(
         content,
-        'user.repository.ts'
+        'user.repository.ts',
       );
 
       expect(matches.length).toBe(0);
@@ -605,7 +644,7 @@ async findUser(userId: string) {
   });
 
   describe('missingGuardRule', () => {
-    it('should detect @Post without @UseGuards', () => {
+    it('should detect @Post without @UseGuards', async () => {
       const content = `
 import { Controller, Post, Body } from '@nestjs/common';
 
@@ -617,13 +656,16 @@ export class UserController {
   }
 }
 `;
-      const matches = missingGuardRule.detect(content, 'user.controller.ts');
+      const matches = await missingGuardRule.detect(
+        content,
+        'user.controller.ts',
+      );
 
       expect(matches.length).toBe(1);
       expect(matches[0].type).toBe('nestjs-missing-guard');
     });
 
-    it('should detect @Delete without @UseGuards', () => {
+    it('should detect @Delete without @UseGuards', async () => {
       const content = `
 import { Controller, Delete, Param } from '@nestjs/common';
 
@@ -635,12 +677,15 @@ export class UserController {
   }
 }
 `;
-      const matches = missingGuardRule.detect(content, 'user.controller.ts');
+      const matches = await missingGuardRule.detect(
+        content,
+        'user.controller.ts',
+      );
 
       expect(matches.length).toBe(1);
     });
 
-    it('should NOT detect when class-level @UseGuards is present', () => {
+    it('should NOT detect when class-level @UseGuards is present', async () => {
       const content = `
 import { Controller, Post, UseGuards } from '@nestjs/common';
 import { AuthGuard } from './auth.guard';
@@ -654,12 +699,15 @@ export class UserController {
   }
 }
 `;
-      const matches = missingGuardRule.detect(content, 'user.controller.ts');
+      const matches = await missingGuardRule.detect(
+        content,
+        'user.controller.ts',
+      );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect when method-level @UseGuards is present', () => {
+    it('should NOT detect when method-level @UseGuards is present', async () => {
       const content = `
 import { Controller, Post, UseGuards } from '@nestjs/common';
 
@@ -672,14 +720,17 @@ export class UserController {
   }
 }
 `;
-      const matches = missingGuardRule.detect(content, 'user.controller.ts');
+      const matches = await missingGuardRule.detect(
+        content,
+        'user.controller.ts',
+      );
 
       expect(matches.length).toBe(0);
     });
   });
 
   describe('circularModuleRule', () => {
-    it('should detect forwardRef in module imports', () => {
+    it('should detect forwardRef in module imports', async () => {
       const content = `
 import { Module, forwardRef } from '@nestjs/common';
 
@@ -690,13 +741,16 @@ import { Module, forwardRef } from '@nestjs/common';
 })
 export class UserModule {}
 `;
-      const matches = circularModuleRule.detect(content, 'user.module.ts');
+      const matches = await circularModuleRule.detect(
+        content,
+        'user.module.ts',
+      );
 
       expect(matches.length).toBe(1);
       expect(matches[0].type).toBe('nestjs-circular-module');
     });
 
-    it('should NOT detect modules without forwardRef', () => {
+    it('should NOT detect modules without forwardRef', async () => {
       const content = `
 import { Module } from '@nestjs/common';
 
@@ -707,12 +761,15 @@ import { Module } from '@nestjs/common';
 })
 export class UserModule {}
 `;
-      const matches = circularModuleRule.detect(content, 'user.module.ts');
+      const matches = await circularModuleRule.detect(
+        content,
+        'user.module.ts',
+      );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect forwardRef outside imports', () => {
+    it('should NOT detect forwardRef outside imports', async () => {
       const content = `
 import { Module, forwardRef } from '@nestjs/common';
 
@@ -728,14 +785,17 @@ import { Module, forwardRef } from '@nestjs/common';
 })
 export class UserModule {}
 `;
-      const matches = circularModuleRule.detect(content, 'user.module.ts');
+      const matches = await circularModuleRule.detect(
+        content,
+        'user.module.ts',
+      );
 
       // The regex only matches forwardRef inside the imports array
       expect(matches.length).toBe(0);
     });
   });
 
-  it('nestjsRules should contain all 5 rules', () => {
+  it('nestjsRules should contain all 5 rules', async () => {
     expect(nestjsRules).toHaveLength(5);
   });
 });
@@ -746,7 +806,7 @@ export class UserModule {}
 
 describe('React Rules', () => {
   describe('missingKeyRule', () => {
-    it('should detect .map() returning JSX without key', () => {
+    it('should detect .map() returning JSX without key', async () => {
       const content = `
 function UserList({ users }) {
   return (
@@ -756,13 +816,13 @@ function UserList({ users }) {
   );
 }
 `;
-      const matches = missingKeyRule.detect(content, 'UserList.tsx');
+      const matches = await missingKeyRule.detect(content, 'UserList.tsx');
 
       expect(matches.length).toBe(1);
       expect(matches[0].type).toBe('react-missing-key');
     });
 
-    it('should NOT detect .map() with key prop', () => {
+    it('should NOT detect .map() with key prop', async () => {
       const content = `
 function UserList({ users }) {
   return (
@@ -772,12 +832,12 @@ function UserList({ users }) {
   );
 }
 `;
-      const matches = missingKeyRule.detect(content, 'UserList.tsx');
+      const matches = await missingKeyRule.detect(content, 'UserList.tsx');
 
       expect(matches.length).toBe(0);
     });
 
-    it('should detect .map() with parenthesized arrow returning JSX', () => {
+    it('should detect .map() with parenthesized arrow returning JSX', async () => {
       const content = `
 function ItemGrid({ items }) {
   return (
@@ -787,25 +847,25 @@ function ItemGrid({ items }) {
   );
 }
 `;
-      const matches = missingKeyRule.detect(content, 'ItemGrid.tsx');
+      const matches = await missingKeyRule.detect(content, 'ItemGrid.tsx');
 
       expect(matches.length).toBe(1);
     });
 
-    it('should NOT detect .map() returning non-JSX', () => {
+    it('should NOT detect .map() returning non-JSX', async () => {
       const content = `
 function getNames(users) {
   return users.map(user => user.name);
 }
 `;
-      const matches = missingKeyRule.detect(content, 'utils.tsx');
+      const matches = await missingKeyRule.detect(content, 'utils.tsx');
 
       expect(matches.length).toBe(0);
     });
   });
 
   describe('directStateMutationRule', () => {
-    it('should detect this.state.property = value', () => {
+    it('should detect this.state.property = value', async () => {
       const content = `
 class Counter extends React.Component {
   increment() {
@@ -813,13 +873,16 @@ class Counter extends React.Component {
   }
 }
 `;
-      const matches = directStateMutationRule.detect(content, 'Counter.tsx');
+      const matches = await directStateMutationRule.detect(
+        content,
+        'Counter.tsx',
+      );
 
       expect(matches.length).toBe(1);
       expect(matches[0].type).toBe('react-direct-state-mutation');
     });
 
-    it('should detect multiple state mutations', () => {
+    it('should detect multiple state mutations', async () => {
       const content = `
 class Form extends React.Component {
   update() {
@@ -828,12 +891,12 @@ class Form extends React.Component {
   }
 }
 `;
-      const matches = directStateMutationRule.detect(content, 'Form.tsx');
+      const matches = await directStateMutationRule.detect(content, 'Form.tsx');
 
       expect(matches.length).toBe(2);
     });
 
-    it('should NOT detect this.setState()', () => {
+    it('should NOT detect this.setState()', async () => {
       const content = `
 class Counter extends React.Component {
   increment() {
@@ -841,12 +904,15 @@ class Counter extends React.Component {
   }
 }
 `;
-      const matches = directStateMutationRule.detect(content, 'Counter.tsx');
+      const matches = await directStateMutationRule.detect(
+        content,
+        'Counter.tsx',
+      );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect regular object property assignment', () => {
+    it('should NOT detect regular object property assignment', async () => {
       const content = `
 class UserService {
   update(data) {
@@ -855,14 +921,17 @@ class UserService {
   }
 }
 `;
-      const matches = directStateMutationRule.detect(content, 'UserService.ts');
+      const matches = await directStateMutationRule.detect(
+        content,
+        'UserService.ts',
+      );
 
       expect(matches.length).toBe(0);
     });
   });
 
   describe('useEffectDependenciesRule', () => {
-    it('should detect useEffect with [] deps referencing props', () => {
+    it('should detect useEffect with [] deps referencing props', async () => {
       const content = `
 function UserProfile({ userId }) {
   useEffect(() => {
@@ -870,9 +939,9 @@ function UserProfile({ userId }) {
   }, []);
 }
 `;
-      const matches = useEffectDependenciesRule.detect(
+      const matches = await useEffectDependenciesRule.detect(
         content,
-        'UserProfile.tsx'
+        'UserProfile.tsx',
       );
 
       expect(matches.length).toBe(1);
@@ -880,7 +949,7 @@ function UserProfile({ userId }) {
       expect(matches[0].metadata?.['referencesProps']).toBe(true);
     });
 
-    it('should detect useEffect with [] deps referencing state', () => {
+    it('should detect useEffect with [] deps referencing state', async () => {
       const content = `
 function Counter() {
   const [count, setCount] = useState(0);
@@ -890,13 +959,16 @@ function Counter() {
   }, []);
 }
 `;
-      const matches = useEffectDependenciesRule.detect(content, 'Counter.tsx');
+      const matches = await useEffectDependenciesRule.detect(
+        content,
+        'Counter.tsx',
+      );
 
       expect(matches.length).toBe(1);
       expect(matches[0].metadata?.['referencesState']).toBe(true);
     });
 
-    it('should NOT detect useEffect with proper dependencies', () => {
+    it('should NOT detect useEffect with proper dependencies', async () => {
       const content = `
 function UserProfile({ userId }) {
   useEffect(() => {
@@ -904,15 +976,15 @@ function UserProfile({ userId }) {
   }, [userId]);
 }
 `;
-      const matches = useEffectDependenciesRule.detect(
+      const matches = await useEffectDependenciesRule.detect(
         content,
-        'UserProfile.tsx'
+        'UserProfile.tsx',
       );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect useEffect with [] deps not referencing props/state', () => {
+    it('should NOT detect useEffect with [] deps not referencing props/state', async () => {
       const content = `
 function App() {
   useEffect(() => {
@@ -922,14 +994,17 @@ function App() {
   }, []);
 }
 `;
-      const matches = useEffectDependenciesRule.detect(content, 'App.tsx');
+      const matches = await useEffectDependenciesRule.detect(
+        content,
+        'App.tsx',
+      );
 
       expect(matches.length).toBe(0);
     });
   });
 
   describe('reactLargeComponentRule', () => {
-    it('should detect React component file with >300 lines', () => {
+    it('should detect React component file with >300 lines', async () => {
       const header = `
 import React from 'react';
 
@@ -947,14 +1022,17 @@ export default Dashboard;
 `;
       const content = header + body + footer;
 
-      const matches = reactLargeComponentRule.detect(content, 'Dashboard.tsx');
+      const matches = await reactLargeComponentRule.detect(
+        content,
+        'Dashboard.tsx',
+      );
 
       expect(matches.length).toBe(1);
       expect(matches[0].type).toBe('react-large-component');
       expect(matches[0].metadata?.['lineCount']).toBeGreaterThan(300);
     });
 
-    it('should NOT detect small React component', () => {
+    it('should NOT detect small React component', async () => {
       const content = `
 import React from 'react';
 
@@ -968,23 +1046,29 @@ function Button({ onClick, children }) {
 
 export default Button;
 `;
-      const matches = reactLargeComponentRule.detect(content, 'Button.tsx');
+      const matches = await reactLargeComponentRule.detect(
+        content,
+        'Button.tsx',
+      );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect large non-component TSX file', () => {
+    it('should NOT detect large non-component TSX file', async () => {
       const body = Array(400).fill('  const x = 1;').join('\n');
       const content = `
 // Utility file with no React component
 ${body}
 `;
-      const matches = reactLargeComponentRule.detect(content, 'utils.tsx');
+      const matches = await reactLargeComponentRule.detect(
+        content,
+        'utils.tsx',
+      );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should detect class component with >300 lines', () => {
+    it('should detect class component with >300 lines', async () => {
       const header = `
 import React, { Component } from 'react';
 
@@ -1004,9 +1088,9 @@ export default BigComponent;
 `;
       const content = header + body + footer;
 
-      const matches = reactLargeComponentRule.detect(
+      const matches = await reactLargeComponentRule.detect(
         content,
-        'BigComponent.tsx'
+        'BigComponent.tsx',
       );
 
       expect(matches.length).toBe(1);
@@ -1014,7 +1098,7 @@ export default BigComponent;
   });
 
   describe('inlineFunctionPropRule', () => {
-    it('should detect inline arrow function prop', () => {
+    it('should detect inline arrow function prop', async () => {
       const content = `
 function UserList({ users, onSelect }) {
   return (
@@ -1026,13 +1110,16 @@ function UserList({ users, onSelect }) {
   );
 }
 `;
-      const matches = inlineFunctionPropRule.detect(content, 'UserList.tsx');
+      const matches = await inlineFunctionPropRule.detect(
+        content,
+        'UserList.tsx',
+      );
 
       expect(matches.length).toBeGreaterThanOrEqual(1);
       expect(matches[0].type).toBe('react-inline-function-prop');
     });
 
-    it('should detect multiple inline function props', () => {
+    it('should detect multiple inline function props', async () => {
       const content = `
 <Form
   onSubmit={(e) => handleSubmit(e)}
@@ -1041,33 +1128,36 @@ function UserList({ users, onSelect }) {
 />
 `;
       // The first two match our pattern, the third has () which matches too
-      const matches = inlineFunctionPropRule.detect(content, 'Form.tsx');
+      const matches = await inlineFunctionPropRule.detect(content, 'Form.tsx');
 
       expect(matches.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('should NOT detect named function reference props', () => {
+    it('should NOT detect named function reference props', async () => {
       const content = `
 function UserList({ onSelect }) {
   return <UserItem onClick={handleClick} onHover={handleHover} />;
 }
 `;
-      const matches = inlineFunctionPropRule.detect(content, 'UserList.tsx');
+      const matches = await inlineFunctionPropRule.detect(
+        content,
+        'UserList.tsx',
+      );
 
       expect(matches.length).toBe(0);
     });
 
-    it('should NOT detect non-function props', () => {
+    it('should NOT detect non-function props', async () => {
       const content = `
 <Component title="hello" count={42} active={true} data={items} />
 `;
-      const matches = inlineFunctionPropRule.detect(content, 'Test.tsx');
+      const matches = await inlineFunctionPropRule.detect(content, 'Test.tsx');
 
       expect(matches.length).toBe(0);
     });
   });
 
-  it('reactRules should contain all 5 rules', () => {
+  it('reactRules should contain all 5 rules', async () => {
     expect(reactRules).toHaveLength(5);
   });
 });
@@ -1084,11 +1174,11 @@ describe('RuleRegistry Integration - Framework Rules', () => {
   });
 
   describe('ALL_RULES', () => {
-    it('should contain 25 total rules (10 existing + 15 new)', () => {
+    it('should contain 25 total rules (10 existing + 15 new)', async () => {
       expect(ALL_RULES.length).toBe(25);
     });
 
-    it('should contain all 7 categories', () => {
+    it('should contain all 7 categories', async () => {
       const categories = new Set(ALL_RULES.map((r) => r.category));
 
       expect(categories.has('typescript')).toBe(true);
@@ -1100,14 +1190,14 @@ describe('RuleRegistry Integration - Framework Rules', () => {
       expect(categories.has('react')).toBe(true);
     });
 
-    it('should have unique rule IDs across all 25 rules', () => {
+    it('should have unique rule IDs across all 25 rules', async () => {
       const ids = ALL_RULES.map((r) => r.id);
       const uniqueIds = new Set(ids);
 
       expect(uniqueIds.size).toBe(25);
     });
 
-    it('should have all rules enabled by default', () => {
+    it('should have all rules enabled by default', async () => {
       ALL_RULES.forEach((rule) => {
         expect(rule.enabledByDefault).toBe(true);
       });
@@ -1115,7 +1205,7 @@ describe('RuleRegistry Integration - Framework Rules', () => {
   });
 
   describe('getRulesByCategory for new categories', () => {
-    it('should return 5 angular rules', () => {
+    it('should return 5 angular rules', async () => {
       const rules = registry.getRulesByCategory('angular');
 
       expect(rules.length).toBe(5);
@@ -1124,7 +1214,7 @@ describe('RuleRegistry Integration - Framework Rules', () => {
       });
     });
 
-    it('should return 5 nestjs rules', () => {
+    it('should return 5 nestjs rules', async () => {
       const rules = registry.getRulesByCategory('nestjs');
 
       expect(rules.length).toBe(5);
@@ -1133,7 +1223,7 @@ describe('RuleRegistry Integration - Framework Rules', () => {
       });
     });
 
-    it('should return 5 react rules', () => {
+    it('should return 5 react rules', async () => {
       const rules = registry.getRulesByCategory('react');
 
       expect(rules.length).toBe(5);
@@ -1144,7 +1234,7 @@ describe('RuleRegistry Integration - Framework Rules', () => {
   });
 
   describe('getRulesForExtension for new file types', () => {
-    it('should return React rules for .tsx files', () => {
+    it('should return React rules for .tsx files', async () => {
       const rules = registry.getRulesForExtension('.tsx');
 
       // .tsx should match: typescript rules (3) + architecture rules (3) + some react rules + some angular
@@ -1152,14 +1242,14 @@ describe('RuleRegistry Integration - Framework Rules', () => {
       expect(reactRulesInTsx.length).toBeGreaterThanOrEqual(3);
     });
 
-    it('should return React rules for .jsx files', () => {
+    it('should return React rules for .jsx files', async () => {
       const rules = registry.getRulesForExtension('.jsx');
 
       const reactRulesInJsx = rules.filter((r) => r.category === 'react');
       expect(reactRulesInJsx.length).toBeGreaterThanOrEqual(3);
     });
 
-    it('should return Angular and NestJS rules for .ts files', () => {
+    it('should return Angular and NestJS rules for .ts files', async () => {
       const rules = registry.getRulesForExtension('.ts');
 
       const angularRulesInTs = rules.filter((r) => r.category === 'angular');
@@ -1169,7 +1259,7 @@ describe('RuleRegistry Integration - Framework Rules', () => {
       expect(nestjsRulesInTs.length).toBe(5);
     });
 
-    it('should return Angular trackBy rule for .html files', () => {
+    it('should return Angular trackBy rule for .html files', async () => {
       const rules = registry.getRulesForExtension('.html');
 
       expect(rules.length).toBeGreaterThanOrEqual(1);

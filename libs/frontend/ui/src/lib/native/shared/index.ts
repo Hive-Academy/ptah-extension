@@ -18,3 +18,9 @@ export {
   KeyboardNavigationService,
   type KeyboardNavigationConfig,
 } from './keyboard-navigation.service';
+
+// Shared overlay offsets
+export {
+  DEFAULT_OVERLAY_OFFSET,
+  AUTOCOMPLETE_OVERLAY_OFFSET,
+} from './floating-offsets';

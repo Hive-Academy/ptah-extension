@@ -12,81 +12,202 @@
  * Autocomplete Components:
  * - FileTagComponent - Compact file chip with removal
  * - UnifiedSuggestionsDropdownComponent - @ and / autocomplete dropdown
+ *
+ * TASK_2026_105 wave G4: Most atoms and many molecules now live in
+ * @ptah-extension/chat-ui. Re-exports below are kept for backward
+ * compatibility — prefer importing directly from @ptah-extension/chat-ui
+ * in new code.
  */
 
 // ============================================================================
 // ATOMS - Basic building blocks
 // ============================================================================
-export * from './atoms/markdown-block.component';
-export * from './atoms/status-badge.component';
-export * from './atoms/token-badge.component';
-export * from './atoms/cost-badge.component';
-export * from './atoms/duration-badge.component';
-export * from './atoms/streaming-text-reveal.component';
-export * from './atoms/typing-cursor.component';
-export * from './atoms/theme-toggle.component';
+/**
+ * @deprecated Re-exported from @ptah-extension/markdown for backward
+ * compatibility. Import directly from @ptah-extension/markdown in new code.
+ */
+export { MarkdownBlockComponent } from '@ptah-extension/markdown';
+
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export {
+  CopyButtonComponent,
+  CostBadgeComponent,
+  DurationBadgeComponent,
+  ElectronResizeHandleComponent,
+  ErrorAlertComponent,
+  ExpandableContentComponent,
+  FilePathLinkComponent,
+  SidebarTabComponent,
+  StatusBadgeComponent,
+  StreamingQuotesComponent,
+  StreamingTextRevealComponent,
+  ThemeToggleComponent,
+  TokenBadgeComponent,
+  ToolIconComponent,
+  TypingCursorComponent,
+} from '@ptah-extension/chat-ui';
 export * from './atoms/resize-handle.component';
-export * from './atoms/electron-resize-handle.component';
 
 // ============================================================================
 // MOLECULES - Standalone (ungrouped)
 // ============================================================================
-export * from './molecules/thinking-block.component';
-export * from './molecules/agent-summary.component';
-export { QuestionCardComponent } from './molecules/question-card.component';
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export {
+  AgentSummaryComponent,
+  QuestionCardComponent,
+  ThinkingBlockComponent,
+} from '@ptah-extension/chat-ui';
+
+// ============================================================================
+// MOLECULES - Agent Card
+// ============================================================================
+export * from './molecules/agent-card/agent-card.component';
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export {
+  AgentCardOutputComponent,
+  AgentCardPermissionComponent,
+} from '@ptah-extension/chat-ui';
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
 
 // ============================================================================
 // MOLECULES - Tool Execution
 // ============================================================================
 export * from './molecules/tool-execution/tool-call-item.component';
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export {
+  CodeOutputComponent,
+  DiffDisplayComponent,
+  TodoListDisplayComponent,
+  ToolCallHeaderComponent,
+  ToolInputDisplayComponent,
+  ToolOutputDisplayComponent,
+} from '@ptah-extension/chat-ui';
 
 // ============================================================================
 // MOLECULES - Permissions
 // ============================================================================
-export * from './molecules/permissions/permission-badge.component';
-export * from './molecules/permissions/deny-message-popover.component';
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export {
+  DenyMessagePopoverComponent,
+  PermissionBadgeComponent,
+  PermissionRequestCardComponent,
+} from '@ptah-extension/chat-ui';
 
 // ============================================================================
 // MOLECULES - Chat Input
 // ============================================================================
 export * from './molecules/chat-input/chat-input.component';
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export {
+  AgentSelectorComponent,
+  AutopilotPopoverComponent,
+} from '@ptah-extension/chat-ui';
 
 // ============================================================================
 // MOLECULES - Session
 // ============================================================================
-export * from './molecules/session/session-cost-summary.component';
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export {
+  SessionCostSummaryComponent,
+  SessionStatsSummaryComponent,
+  TabItemComponent,
+} from '@ptah-extension/chat-ui';
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export type { LiveModelStats, ModelUsageEntry } from '@ptah-extension/chat-ui';
 
 // ============================================================================
 // MOLECULES - Trial & Billing
 // ============================================================================
-export * from './molecules/trial-billing/trial-banner.component';
-export * from './molecules/trial-billing/trial-ended-modal.component';
-export * from './molecules/trial-billing/community-upgrade-banner.component';
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export {
+  TrialBannerComponent,
+  TrialEndedModalComponent,
+  CommunityUpgradeBannerComponent,
+} from '@ptah-extension/chat-ui';
 
 // ============================================================================
 // MOLECULES - Notifications
 // ============================================================================
-export * from './molecules/notifications/notification-bell.component';
-export * from './molecules/notifications/compaction-notification.component';
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export {
+  NotificationBellComponent,
+  CompactionNotificationComponent,
+} from '@ptah-extension/chat-ui';
 
 // ============================================================================
 // MOLECULES - Setup & Plugins
 // ============================================================================
-export * from './molecules/setup-plugins/setup-status-widget.component';
-export * from './molecules/setup-plugins/plugin-status-widget.component';
-export * from './molecules/setup-plugins/plugin-browser-modal.component';
-export * from './molecules/setup-plugins/skill-sh-browser.component';
-export * from './molecules/setup-plugins/mcp-directory-browser.component';
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export {
+  SetupStatusWidgetComponent,
+  PluginStatusWidgetComponent,
+  PluginBrowserModalComponent,
+  PromptSuggestionsComponent,
+  SkillShBrowserComponent,
+  McpDirectoryBrowserComponent,
+} from '@ptah-extension/chat-ui';
 
 // ============================================================================
 // MOLECULES - Compact Session
 // ============================================================================
 export * from './molecules/compact-session/compact-session-card.component';
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export {
+  CompactSessionActivityComponent,
+  CompactSessionHeaderComponent,
+  CompactSessionInputComponent,
+  CompactSessionStatsComponent,
+  CompactSessionTextComponent,
+} from '@ptah-extension/chat-ui';
 
 // ============================================================================
-// MOLECULES - Agent Card (WIP - separate refactor)
+// UTILITIES
 // ============================================================================
-export * from './molecules/agent-card/agent-card.component';
+/**
+ * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
+ * @ptah-extension/chat-ui in new code.
+ */
+export { generateAgentColor } from '@ptah-extension/chat-ui';
 
 // ============================================================================
 // ORGANISMS - Execution

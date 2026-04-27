@@ -18,7 +18,8 @@ import type {
   LlmListProviderModelsParams,
   LlmListProviderModelsResponse,
 } from '@ptah-extension/shared';
-import type { IModelDiscovery } from '../platform-abstractions';
+import type { IModelDiscovery } from '@ptah-extension/platform-core';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /** Secret storage key prefix for provider API keys */
 const API_KEY_PREFIX = 'ptah.apiKey';
@@ -67,6 +68,18 @@ const STATUS_PROVIDERS = ['anthropic', 'openrouter'];
  */
 @injectable()
 export class LlmRpcHandlers {
+  static readonly METHODS = [
+    'llm:getProviderStatus',
+    'llm:setApiKey',
+    'llm:removeApiKey',
+    'llm:getDefaultProvider',
+    'llm:setDefaultProvider',
+    'llm:setDefaultModel',
+    'llm:validateApiKeyFormat',
+    'llm:listVsCodeModels',
+    'llm:listProviderModels',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
