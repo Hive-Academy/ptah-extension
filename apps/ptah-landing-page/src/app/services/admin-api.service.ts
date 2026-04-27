@@ -16,7 +16,9 @@ export type AdminModelKey =
   | 'failed-webhooks'
   | 'trial-reminders'
   | 'session-requests'
-  | 'admin-audit-log';
+  | 'admin-audit-log'
+  | 'marketing-campaigns'
+  | 'marketing-campaign-templates';
 
 export interface AdminListQuery {
   page?: number;
@@ -98,6 +100,59 @@ export interface IssueComplimentaryLicenseResponse {
   emailError?: string;
   warning?: 'LICENSE_EMAIL_FAILED';
   auditLogId: string;
+}
+
+export interface MarketingSegmentCounts {
+  total: number;
+  optedIn: number;
+}
+
+export interface MarketingSegmentsResponse {
+  all: MarketingSegmentCounts;
+  proActive: MarketingSegmentCounts;
+  communityActive: MarketingSegmentCounts;
+  trialing: MarketingSegmentCounts;
+  subscriptionPastDue: MarketingSegmentCounts;
+}
+
+export type MarketingSegmentKey =
+  | 'all'
+  | 'proActive'
+  | 'communityActive'
+  | 'trialing'
+  | 'subscriptionPastDue';
+
+export interface SaveTemplateRequest {
+  name: string;
+  subject: string;
+  htmlBody: string;
+  variables?: string[];
+}
+
+export interface MarketingTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  htmlBody: string;
+  variables: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SendCampaignRequest {
+  name: string;
+  templateId?: string;
+  subject?: string;
+  htmlBody?: string;
+  segment?: MarketingSegmentKey;
+  userIds?: string[];
+}
+
+export interface SendCampaignResponse {
+  campaignId: string;
+  recipientCount: number;
+  skippedCount: number;
+  status: 'in_progress';
 }
 
 /**
@@ -204,6 +259,30 @@ export class AdminApiService {
   ): Observable<IssueComplimentaryLicenseResponse> {
     return this.http.post<IssueComplimentaryLicenseResponse>(
       `${this.base}/licenses/complimentary`,
+      body,
+    );
+  }
+
+  public getMarketingSegments(): Observable<MarketingSegmentsResponse> {
+    return this.http.get<MarketingSegmentsResponse>(
+      `${this.base}/marketing/segments`,
+    );
+  }
+
+  public saveTemplate(
+    body: SaveTemplateRequest,
+  ): Observable<MarketingTemplate> {
+    return this.http.post<MarketingTemplate>(
+      `${this.base}/marketing/templates`,
+      body,
+    );
+  }
+
+  public sendCampaign(
+    body: SendCampaignRequest,
+  ): Observable<SendCampaignResponse> {
+    return this.http.post<SendCampaignResponse>(
+      `${this.base}/marketing/send`,
       body,
     );
   }
