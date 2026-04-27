@@ -13,7 +13,11 @@
 import type { DependencyContainer } from 'tsyringe';
 
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  GitInfoService,
+  type Logger,
+} from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 
 // Shared RPC handler classes (TASK_2025_203 Batch 5: all shared handlers).
@@ -39,6 +43,10 @@ import {
   LlmRpcHandlers,
   WebSearchRpcHandlers,
   HarnessRpcHandlers,
+  McpDirectoryRpcHandlers,
+  GitRpcHandlers,
+  registerHarnessServices,
+  registerChatServices,
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific RPC handler classes (TASK_2025_203 Batch 5).
@@ -47,7 +55,6 @@ import {
 // SkillsShRpcHandlers, and LayoutRpcHandlers were re-added.
 // TASK_2025_291 Wave C6: Electron prefix dropped from class and file names.
 import {
-  WorkspaceRpcHandlers,
   EditorRpcHandlers,
   FileRpcHandlers,
   ConfigExtendedRpcHandlers,
@@ -56,11 +63,9 @@ import {
   AgentRpcHandlers,
   SkillsShRpcHandlers,
   LayoutRpcHandlers,
-  GitRpcHandlers,
   TerminalRpcHandlers,
 } from '../services/rpc/handlers';
 
-import { GitInfoService } from '../services/git-info.service';
 import { PtyManagerService } from '../services/pty-manager.service';
 import { ELECTRON_TOKENS } from './electron-tokens';
 import { ElectronRpcMethodRegistrationService } from '../services/rpc/rpc-method-registration.service';
@@ -82,6 +87,21 @@ export function registerPhase4Handlers(
   container: DependencyContainer,
   logger: Logger,
 ): void {
+  // ========================================
+  // PHASE 4.0: Pre-handler service tokens (Wave C7d/C7e sub-services).
+  // ========================================
+  // ChatRpcHandlers (4.1) and HarnessRpcHandlers (4.1) declare constructor
+  // injections against CHAT_TOKENS.* and HARNESS_TOKENS.* respectively.
+  // tsyringe walks those decorators when the orchestrator service
+  // (ElectronRpcMethodRegistrationService) is resolved later in
+  // wireRuntime — at that point every chat/harness token MUST already
+  // be registered, otherwise resolution throws
+  //   "Attempted to resolve unregistered dependency token: ChatPtahCliService".
+  // Registering both groups here (before the handler classes themselves)
+  // keeps tsyringe's lazy resolution chain valid without re-ordering main.ts.
+  registerHarnessServices(container);
+  registerChatServices(container);
+
   // ========================================
   // PHASE 4.1: Shared RPC Handler Classes (TASK_2025_203 Batch 5, TASK_2025_209, TASK_2025_241)
   // ========================================
@@ -154,6 +174,21 @@ export function registerPhase4Handlers(
   // Harness Setup Builder RPC handlers.
   container.registerSingleton(HarnessRpcHandlers);
 
+  // TASK_2026_104 Batch 6a: MCP Directory handlers lifted to shared library.
+  // Electron now exposes mcpDirectory:* (parity with VS Code).
+  container.registerSingleton(McpDirectoryRpcHandlers);
+
+  // TASK_2026_104 Sub-batch B5b: GitInfoService + GitRpcHandlers lifted to
+  // shared libraries. The service registration must happen here (not inside the
+  // shared register helper) because each app owns its own logger instance.
+  // GitRpcHandlers is resolved automatically via SHARED_HANDLERS — no local
+  // registerSingleton call is needed.
+  const gitInfoService = new GitInfoService(logger);
+  container.register(TOKENS.GIT_INFO_SERVICE, {
+    useValue: gitInfoService,
+  });
+  container.registerSingleton(GitRpcHandlers);
+
   logger.info(
     '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
     {
@@ -176,6 +211,9 @@ export function registerPhase4Handlers(
         'LlmRpcHandlers',
         'WebSearchRpcHandlers',
         'HarnessRpcHandlers',
+        'McpDirectoryRpcHandlers',
+        'GitRpcHandlers',
+        'WorkspaceRpcHandlers',
       ],
     },
   );
@@ -183,7 +221,6 @@ export function registerPhase4Handlers(
   // ========================================
   // PHASE 4.2: Electron-specific RPC Handler Classes (TASK_2025_203 Batch 5)
   // ========================================
-  container.registerSingleton(WorkspaceRpcHandlers);
   // EditorRpcHandlers requires container for lazy resolution.
   container.register(EditorRpcHandlers, {
     useFactory: (c) =>
@@ -214,12 +251,9 @@ export function registerPhase4Handlers(
   container.registerSingleton(SkillsShRpcHandlers);
   container.registerSingleton(LayoutRpcHandlers);
 
-  // GitInfoService (TASK_2025_227): Plain class instantiated with logger.
-  const gitInfoService = new GitInfoService(logger);
-  container.register(ELECTRON_TOKENS.GIT_INFO_SERVICE, {
-    useValue: gitInfoService,
-  });
-  container.registerSingleton(GitRpcHandlers);
+  // TASK_2026_104 Sub-batch B5b: GitInfoService + GitRpcHandlers were lifted
+  // to shared libraries. Service registration moved to Phase 4.1 above so the
+  // shared GitRpcHandlers (now in SHARED_HANDLERS) can resolve TOKENS.GIT_INFO_SERVICE.
 
   // PtyManagerService (TASK_2025_227): Terminal PTY session management.
   const ptyManagerService = new PtyManagerService(logger);
@@ -235,7 +269,6 @@ export function registerPhase4Handlers(
     '[Electron DI] Electron-specific RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
     {
       handlers: [
-        'WorkspaceRpcHandlers',
         'EditorRpcHandlers',
         'FileRpcHandlers',
         'ConfigExtendedRpcHandlers',
@@ -244,7 +277,6 @@ export function registerPhase4Handlers(
         'AgentRpcHandlers',
         'SkillsShRpcHandlers',
         'LayoutRpcHandlers',
-        'GitRpcHandlers',
         'TerminalRpcHandlers',
       ],
     },

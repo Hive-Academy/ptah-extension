@@ -99,5 +99,31 @@ export function runUserInteractionContract(
         setup.provider.writeToClipboard('hello'),
       ).resolves.toBeUndefined();
     });
+
+    it('openOAuthUrl returns { opened, code? } shape without userCode', async () => {
+      const result = await setup.provider.openOAuthUrl({
+        provider: 'copilot',
+        verificationUri: 'https://github.com/login/device',
+      });
+      expect(result).toBeDefined();
+      expect(typeof result.opened).toBe('boolean');
+      // `code` is optional; if present it must be a string
+      if (result.code !== undefined) {
+        expect(typeof result.code).toBe('string');
+      }
+    });
+
+    it('openOAuthUrl returns { opened, code? } shape with userCode', async () => {
+      const result = await setup.provider.openOAuthUrl({
+        provider: 'copilot',
+        verificationUri: 'https://github.com/login/device',
+        userCode: 'ABCD-1234',
+      });
+      expect(result).toBeDefined();
+      expect(typeof result.opened).toBe('boolean');
+      if (result.code !== undefined) {
+        expect(typeof result.code).toBe('string');
+      }
+    });
   });
 }

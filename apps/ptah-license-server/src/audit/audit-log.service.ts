@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { Prisma } from '../generated-prisma-client/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { WriteAuditLogParams } from './audit-log.types';
@@ -26,7 +26,7 @@ import type { WriteAuditLogParams } from './audit-log.types';
 export class AuditLogService {
   private readonly logger = new Logger(AuditLogService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   /**
    * Persist one audit row. Returns the created row's id.

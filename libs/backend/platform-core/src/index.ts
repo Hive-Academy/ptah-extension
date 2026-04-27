@@ -23,6 +23,7 @@ export type { IFileSystemProvider } from './interfaces/file-system-provider.inte
 export type { IStateStorage } from './interfaces/state-storage.interface';
 export type { ISecretStorage } from './interfaces/secret-storage.interface';
 export type { IWorkspaceProvider } from './interfaces/workspace-provider.interface';
+export type { IWorkspaceLifecycleProvider } from './interfaces/workspace-lifecycle.interface';
 export type { IUserInteraction } from './interfaces/user-interaction.interface';
 export type { IOutputChannel } from './interfaces/output-channel.interface';
 export type { ICommandRegistry } from './interfaces/command-registry.interface';

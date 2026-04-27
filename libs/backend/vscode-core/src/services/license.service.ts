@@ -28,7 +28,6 @@ import { LicenseStateBroadcaster } from './license/license-state-broadcaster';
 import type {
   LicenseStatus,
   LicenseEvents,
-  LicenseTierValue,
   PreviousUserContext,
 } from './license/license-types';
 

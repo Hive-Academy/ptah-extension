@@ -253,6 +253,11 @@ export class CodeExecutionMCP implements IDisposable {
    * Prevents stale entries pointing to a dead server.
    */
   private unregisterFromMcpJson(): void {
+    // If the service was never registered, skip the disk read entirely.
+    // Avoids unnecessary fs.readFileSync on shutdown when
+    // ensureRegisteredForSubagents() never ran (e.g., free-tier sessions).
+    if (!this.registeredInMcpJson) return;
+
     const mcpJsonPath = this.getMcpJsonPath();
     if (!mcpJsonPath) return;
 
@@ -269,6 +274,7 @@ export class CodeExecutionMCP implements IDisposable {
       config['mcpServers'] = servers;
 
       fs.writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
+      this.registeredInMcpJson = false;
       this.logger.info(
         '[CodeExecutionMCP] Unregistered ptah from .mcp.json',
         'CodeExecutionMCP',

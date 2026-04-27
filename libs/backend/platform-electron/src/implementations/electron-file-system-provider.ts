@@ -99,7 +99,10 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
     }
     await fs.cp(source, destination, {
       recursive: true,
-      force: options?.overwrite,
+      // Node >= 20 rejects `force: undefined` with a TypeError — the field
+      // must be a strict boolean. Default to `false` so "no overwrite" is
+      // expressed explicitly in the call into fs.cp.
+      force: options?.overwrite ?? false,
     });
   }
 

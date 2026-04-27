@@ -81,4 +81,46 @@ export interface IUserInteraction {
    * Replaces: vscode.env.clipboard.writeText()
    */
   writeToClipboard(text: string): Promise<void>;
+
+  /**
+   * Surface an OAuth verification URL + device code to the user / connected client.
+   *
+   * - VS Code & Electron: opens the URL in the system browser (delegates to openExternal),
+   *   optionally shows a clipboard toast with the user code.
+   * - CLI (headless): emits a JSON-RPC `oauth.url.open` request to the connected client
+   *   and waits for the response. Falls back to printing the URL to stderr when no
+   *   JSON-RPC peer is attached.
+   *
+   * Returns the optional code echoed back by the client (CLI only) and whether the URL
+   * was opened. Implementations MUST NOT block longer than ~5 seconds for the round-trip.
+   */
+  openOAuthUrl(params: {
+    provider: 'copilot' | 'codex' | 'claude' | string;
+    verificationUri: string;
+    userCode?: string;
+  }): Promise<{ opened: boolean; code?: string }>;
+
+  /**
+   * Open a native folder/file picker. Optional — only platforms with a real
+   * desktop UI (Electron, VS Code) implement this. Headless / CLI hosts should
+   * leave this undefined; callers must handle the absent case.
+   *
+   * Returns an array of selected absolute paths (single-element when
+   * `properties.openDirectory` is used without `multiSelections`), or an empty
+   * array when the user cancels.
+   *
+   * TASK_2026_104 Sub-batch B5a: Added so the lifted `WorkspaceRpcHandlers`
+   * can request a directory without `import('electron')`.
+   */
+  showOpenDialog?(options: {
+    title?: string;
+    defaultPath?: string;
+    properties?: Array<
+      | 'openFile'
+      | 'openDirectory'
+      | 'multiSelections'
+      | 'showHiddenFiles'
+      | 'createDirectory'
+    >;
+  }): Promise<string[]>;
 }

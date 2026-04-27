@@ -64,10 +64,6 @@ const mockedCopyFileSync = fs.copyFileSync as jest.MockedFunction<
 const mockedRenameSync = fs.renameSync as jest.MockedFunction<
   typeof fs.renameSync
 >;
-const mockedMkdirSync = fs.mkdirSync as jest.MockedFunction<
-  typeof fs.mkdirSync
->;
-
 const ORIGINAL_PLATFORM = process.platform;
 function setPlatform(value: NodeJS.Platform): void {
   Object.defineProperty(process, 'platform', {

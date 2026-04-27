@@ -1,6 +1,7 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import { FileTreeNode } from '../models/file-tree.model';
+import type { EditorTab } from './editor/editor-tab.types';
 import {
   EditorInternalState,
   EditorWorkspaceState,
@@ -11,19 +12,10 @@ import { EditorTabsHelper } from './editor/editor-tabs';
 import { EditorFileOpsHelper } from './editor/editor-file-ops';
 import { EditorDiffSplitHelper } from './editor/editor-diff-split';
 
-/** Represents an open editor tab */
-export interface EditorTab {
-  filePath: string;
-  fileName: string;
-  content: string;
-  isDirty: boolean;
-  /** Whether this tab shows a diff view instead of a regular editor */
-  isDiff?: boolean;
-  /** Original (HEAD) content for diff tabs */
-  originalContent?: string;
-  /** Relative path within the workspace for diff tabs */
-  diffRelativePath?: string;
-}
+// Re-exported so existing consumers (`from '@ptah-extension/editor'`)
+// keep resolving without changes. Wave F3 (TASK_2026_103) moved the
+// declaration to a sibling file to break the cycle with editor helpers.
+export type { EditorTab } from './editor/editor-tab.types';
 
 /**
  * EditorService — coordinator that owns editor signals and delegates to
@@ -370,6 +362,15 @@ export class EditorService {
     if (!this._activeWorkspacePath) return undefined;
     return this._workspaceEditorState.get(this._activeWorkspacePath)
       ?.cursorPosition;
+  }
+
+  /**
+   * Wave F3 (TASK_2026_103): expose the internal-state handle for the
+   * `EDITOR_INTERNAL_STATE` provider. Caller MUST be `provideEditorInternalState`
+   * — components and other services should use the public surface above.
+   */
+  getInternalState(): EditorInternalState {
+    return this.internalState;
   }
 
   // ============================================================================

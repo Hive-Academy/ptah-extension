@@ -300,6 +300,11 @@ export const MODEL_DISCOVERY = Symbol.for('ModelDiscovery');
 // ========================================
 export const WORKSPACE_CONTEXT_MANAGER = Symbol.for('WorkspaceContextManager');
 
+// ========================================
+// Git Info Service (TASK_2026_104 Sub-batch B5b — lifted from electron-tokens)
+// ========================================
+export const GIT_INFO_SERVICE = Symbol.for('GitInfoService');
+
 /**
  * TOKENS constant for convenient access to all DI tokens
  * Provides a single source of truth for all dependency injection symbols
@@ -471,6 +476,11 @@ export const TOKENS = {
   // Workspace Context Management (TASK_2025_208)
   // ========================================
   WORKSPACE_CONTEXT_MANAGER,
+
+  // ========================================
+  // Git Info Service (TASK_2026_104 Sub-batch B5b)
+  // ========================================
+  GIT_INFO_SERVICE,
 } as const;
 
 /**

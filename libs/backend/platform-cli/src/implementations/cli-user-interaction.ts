@@ -21,8 +21,11 @@ import type {
 } from '@ptah-extension/platform-core';
 import { createEvent } from '@ptah-extension/platform-core';
 import { spawn } from 'child_process';
+import type { IOAuthUrlOpener } from '../interfaces/oauth-url-opener.interface';
 
 export class CliUserInteraction implements IUserInteraction {
+  constructor(private readonly oauthOpener: IOAuthUrlOpener | null = null) {}
+
   async openExternal(url: string): Promise<boolean> {
     // Validate URL scheme to prevent arbitrary command execution
     try {
@@ -50,6 +53,21 @@ export class CliUserInteraction implements IUserInteraction {
       child.on('close', (code) => resolve(code === 0));
       child.on('error', () => resolve(false));
     });
+  }
+
+  async openOAuthUrl(params: {
+    provider: 'copilot' | 'codex' | 'claude' | string;
+    verificationUri: string;
+    userCode?: string;
+  }): Promise<{ opened: boolean; code?: string }> {
+    // Headless CLI must NEVER spawn a local browser unsolicited.
+    // Delegate to the injected opener (JSON-RPC peer or stderr fallback).
+    // If no opener is configured, return { opened: false } so the caller can
+    // fall back to its own messaging strategy.
+    if (this.oauthOpener) {
+      return this.oauthOpener.openOAuthUrl(params);
+    }
+    return { opened: false };
   }
 
   async writeToClipboard(text: string): Promise<void> {
@@ -120,8 +138,10 @@ export class CliUserInteraction implements IUserInteraction {
   }
 
   async showInputBox(_options?: InputBoxOptions): Promise<string | undefined> {
-    // v1 stub: return empty string (will be upgraded to TUI in Batch 6)
-    return '';
+    // v1 stub: return undefined (equivalent to "cancelled") until the TUI in
+    // Batch 6 wires a real prompt. Returning '' would masquerade as a valid
+    // user input and break callers that branch on undefined = cancellation.
+    return undefined;
   }
 
   async withProgress<T>(

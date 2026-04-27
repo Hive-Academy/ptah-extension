@@ -298,10 +298,12 @@ export async function wireRuntime(
     try {
       const { GitWatcherService } =
         await import('../services/git-watcher.service');
+      // TASK_2026_104 Sub-batch B5b: GitInfoService now lives in
+      // `@ptah-extension/vscode-core` and is registered under TOKENS.GIT_INFO_SERVICE.
       const gitInfoSvc = container.resolve(
-        ELECTRON_TOKENS.GIT_INFO_SERVICE,
+        TOKENS.GIT_INFO_SERVICE,
       ) as InstanceType<
-        typeof import('../services/git-info.service').GitInfoService
+        typeof import('@ptah-extension/vscode-core').GitInfoService
       >;
       const webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER) as {
         broadcastMessage: (type: string, payload: unknown) => Promise<void>;

@@ -50,6 +50,22 @@ import type {
 
 @injectable()
 export class AgentRpcHandlers {
+  /**
+   * Method names registered against the global `RpcHandler`. Order matches
+   * `register()` invocation order. Asserted in the CLI parity spec
+   * (`apps/ptah-cli/src/services/rpc/handlers/cli-agent-rpc.handlers.spec.ts`)
+   * to keep CLI and Electron in lockstep — TASK_2026_104 Sub-batch B7.
+   */
+  static readonly METHODS = [
+    'agent:getConfig',
+    'agent:setConfig',
+    'agent:detectClis',
+    'agent:listCliModels',
+    'agent:permissionResponse',
+    'agent:stop',
+    'agent:resumeCliSession',
+  ] as const;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

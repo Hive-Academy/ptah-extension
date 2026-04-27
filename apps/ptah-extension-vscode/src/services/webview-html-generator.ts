@@ -140,9 +140,6 @@ export class WebviewHtmlGenerator {
     );
     const appDistPathUri = vscode.Uri.file(appDistPath);
 
-    // Create base URI for assets - CRITICAL for proper asset loading
-    const baseUri = webview.asWebviewUri(appDistPathUri);
-
     // Read the actual Angular-generated index.html
     const indexPath = path.join(appDistPath, 'index.html');
 

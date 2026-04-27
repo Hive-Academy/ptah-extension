@@ -23,6 +23,7 @@ import type {
   PluginConfigState,
   PluginSkillEntry,
 } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for plugin configuration operations.
@@ -39,6 +40,13 @@ import type {
  */
 @injectable()
 export class PluginRpcHandlers {
+  static readonly METHODS = [
+    'plugins:list-available',
+    'plugins:get-config',
+    'plugins:save-config',
+    'plugins:list-skills',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

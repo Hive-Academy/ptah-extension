@@ -80,6 +80,13 @@ export async function bootstrapElectron(
           ? dialog.showMessageBox(targetWin, opts)
           : dialog.showMessageBox(opts);
       },
+      showOpenDialog: (win: unknown, options: unknown) => {
+        const opts = options as Electron.OpenDialogOptions;
+        const targetWin = win instanceof BrowserWindow ? win : getMainWindow();
+        return targetWin
+          ? dialog.showOpenDialog(targetWin, opts)
+          : dialog.showOpenDialog(opts);
+      },
     },
     getWindow: () => {
       const win = getMainWindow();

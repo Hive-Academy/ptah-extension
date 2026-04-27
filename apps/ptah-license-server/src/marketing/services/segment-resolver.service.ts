@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export type SegmentKey =
@@ -15,7 +15,7 @@ export interface SegmentCount {
 
 @Injectable()
 export class SegmentResolverService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   /**
    * Resolve a segment or list of userIds into a unique set of opted-in user IDs.

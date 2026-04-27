@@ -69,9 +69,9 @@
     "electron:build:dev": "nx build-dev ptah-electron",
     "electron:package": "nx package ptah-electron",
     "electron:rebuild": "electron-rebuild -f -w node-pty",
-    "tui:build": "nx build ptah-tui",
-    "tui:dev": "nx dev ptah-tui",
-    "tui:serve": "nx build ptah-tui && node dist/apps/ptah-tui/main.mjs"
+    "cli:build": "nx build ptah-cli",
+    "cli:dev": "nx dev ptah-cli",
+    "cli:serve": "nx build ptah-cli && node dist/apps/ptah-cli/main.mjs"
   },
   "private": true,
   "dependencies": {
@@ -115,6 +115,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cli-highlight": "^2.1.11",
+    "commander": "^14.0.1",
     "cookie-parser": "^1.4.7",
     "cross-spawn": "^7.0.6",
     "dompurify": "^3.3.3",
@@ -186,6 +187,7 @@
     "@nx/node": "22.6.5",
     "@nx/web": "22.6.5",
     "@nx/workspace": "22.6.5",
+    "@playwright/test": "^1.50.0",
     "@schematics/angular": "21.2.7",
     "@types/chrome-remote-interface": "^0.33.0",
     "@types/cookie-parser": "^1.4.8",

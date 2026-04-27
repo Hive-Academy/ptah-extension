@@ -26,7 +26,7 @@ jest.mock('./generation-prompts', () => ({
   buildFallbackGuidance: jest
     .fn()
     .mockReturnValue(
-      '## Project Context\nMock project context\n\n## Framework Guidelines\nMock guidelines\n\n## Coding Standards\nMock standards\n\n## Architecture Notes\nMock notes'
+      '## Project Context\nMock project context\n\n## Framework Guidelines\nMock guidelines\n\n## Coding Standards\nMock standards\n\n## Architecture Notes\nMock notes',
     ),
   buildQualityContextPrompt: jest.fn().mockReturnValue('mock quality context'),
 }));
@@ -104,7 +104,7 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     agent = new PromptDesignerAgent(
       ...([mockLogger] as unknown as ConstructorParameters<
         typeof PromptDesignerAgent
-      >)
+      >),
     );
   });
 
@@ -113,7 +113,7 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     // Restore the default mock return value for buildGenerationUserPrompt
     // since per-test overrides via mockImplementation persist after clearAllMocks
     generationPrompts.buildGenerationUserPrompt.mockReturnValue(
-      'mock user prompt'
+      'mock user prompt',
     );
   });
 
@@ -123,9 +123,9 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     const result = await agent.generateGuidance(baseInput);
 
     expect(result).not.toBeNull();
-    expect((result as Record<string, unknown>).usedFallback).toBe(true);
-    expect((result as Record<string, unknown>).fallbackReason).toBe(
-      'LLM service not available'
+    expect((result as Record<string, unknown>)['usedFallback']).toBe(true);
+    expect((result as Record<string, unknown>)['fallbackReason']).toBe(
+      'LLM service not available',
     );
   });
 
@@ -140,9 +140,9 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     const result = await agent.generateGuidance(baseInput);
 
     expect(result).not.toBeNull();
-    expect((result as Record<string, unknown>).usedFallback).toBe(true);
-    expect((result as Record<string, unknown>).fallbackReason).toBe(
-      'Rate limit exceeded'
+    expect((result as Record<string, unknown>)['usedFallback']).toBe(true);
+    expect((result as Record<string, unknown>)['fallbackReason']).toBe(
+      'Rate limit exceeded',
     );
   });
 
@@ -153,10 +153,13 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     await agent.generateGuidance(baseInput, onProgress);
 
     const fallbackCall = onProgress.mock.calls.find(
-      ([progress]: [PromptGenerationProgress]) => progress.status === 'fallback'
+      ([progress]: [PromptGenerationProgress]) =>
+        progress.status === 'fallback',
     );
     expect(fallbackCall).toBeDefined();
-    expect((fallbackCall as unknown[])[0].status).toBe('fallback');
+    expect((fallbackCall as [PromptGenerationProgress])[0].status).toBe(
+      'fallback',
+    );
   });
 
   it('should emit fallback progress status when generation throws', async () => {
@@ -169,10 +172,13 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     await agent.generateGuidance(baseInput, onProgress);
 
     const fallbackCall = onProgress.mock.calls.find(
-      ([progress]: [PromptGenerationProgress]) => progress.status === 'fallback'
+      ([progress]: [PromptGenerationProgress]) =>
+        progress.status === 'fallback',
     );
     expect(fallbackCall).toBeDefined();
-    expect((fallbackCall as unknown[])[0].status).toBe('fallback');
+    expect((fallbackCall as [PromptGenerationProgress])[0].status).toBe(
+      'fallback',
+    );
   });
 
   it('should NOT set usedFallback when LLM succeeds', async () => {
@@ -191,8 +197,10 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     const result = await agent.generateGuidance(baseInput);
 
     expect(result).not.toBeNull();
-    expect((result as Record<string, unknown>).usedFallback).toBeUndefined();
-    expect((result as Record<string, unknown>).fallbackReason).toBeUndefined();
+    expect((result as Record<string, unknown>)['usedFallback']).toBeUndefined();
+    expect(
+      (result as Record<string, unknown>)['fallbackReason'],
+    ).toBeUndefined();
   });
 
   it('should include the error message in fallbackReason when generation errors', async () => {
@@ -204,9 +212,9 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     const result = await agent.generateGuidance(baseInput);
 
     expect(result).not.toBeNull();
-    expect((result as Record<string, unknown>).usedFallback).toBe(true);
-    expect((result as Record<string, unknown>).fallbackReason).toBe(
-      specificError
+    expect((result as Record<string, unknown>)['usedFallback']).toBe(true);
+    expect((result as Record<string, unknown>)['fallbackReason']).toBe(
+      specificError,
     );
   });
 
@@ -219,7 +227,7 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     await agent.generateGuidance(baseInput, onProgress);
 
     const errorCalls = onProgress.mock.calls.filter(
-      ([progress]: [PromptGenerationProgress]) => progress.status === 'error'
+      ([progress]: [PromptGenerationProgress]) => progress.status === 'error',
     );
     expect(errorCalls).toHaveLength(0);
   });
@@ -229,10 +237,10 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     // internally and return null, generateGuidance returns null (not a fallback)
     mockLlmService.hasProvider.mockReturnValue(true);
     mockLlmService.getStructuredCompletion.mockRejectedValue(
-      new Error('Rate limit exceeded')
+      new Error('Rate limit exceeded'),
     );
     mockLlmService.getCompletion.mockRejectedValue(
-      new Error('Rate limit exceeded')
+      new Error('Rate limit exceeded'),
     );
 
     const result = await agent.generateGuidance(baseInput);

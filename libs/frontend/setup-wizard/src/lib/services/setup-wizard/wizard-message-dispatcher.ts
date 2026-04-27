@@ -15,7 +15,7 @@ import type {
   AnalysisResults,
   CompletionData,
   ErrorState,
-} from '../setup-wizard-state.service';
+} from '../setup-wizard-state.types';
 
 /**
  * Callbacks the message dispatcher invokes for specific wizard events.

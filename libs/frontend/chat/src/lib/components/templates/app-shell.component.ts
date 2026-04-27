@@ -1,4 +1,4 @@
-import {
+﻿import {
   Component,
   computed,
   inject,
@@ -29,18 +29,23 @@ import {
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
-import { TrialEndedModalComponent } from '../molecules/trial-billing/trial-ended-modal.component';
+import {
+  TrialEndedModalComponent,
+  SidebarTabComponent,
+  ThemeToggleComponent,
+  NotificationBellComponent,
+} from '@ptah-extension/chat-ui';
 import { SettingsComponent } from '../../settings/settings.component';
 import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
-import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
-import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
 import { SessionAnalyticsDashboardViewComponent } from '@ptah-extension/dashboard';
 import { ChatStore } from '../../services/chat.store';
-import { AgentMonitorStore } from '../../services/agent-monitor.store';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
-import { TabManagerService } from '../../services/tab-manager.service';
+import {
+  ConfirmationDialogService,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import { SessionDisplayUtils } from '../../services/session-display-utils.service';
 import {
   AppStateManager,
@@ -52,7 +57,6 @@ import {
   SETUP_HUB_COMPONENT,
 } from '@ptah-extension/core';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
-import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
 import type { ViewType } from '@ptah-extension/core';
 
 /**
@@ -143,14 +147,14 @@ export class AppShellComponent {
   );
 
   /**
-   * WizardViewComponent provided via DI token — breaks circular dependency between chat and setup-wizard.
+   * WizardViewComponent provided via DI token â€” breaks circular dependency between chat and setup-wizard.
    * Provided by the application bootstrapper (app.config.ts) so chat never imports setup-wizard directly.
    */
   readonly wizardComponent =
     inject(WIZARD_VIEW_COMPONENT, { optional: true }) ?? null;
 
   /**
-   * OrchestraCanvasComponent provided via DI token — breaks circular dependency between chat and canvas.
+   * OrchestraCanvasComponent provided via DI token â€” breaks circular dependency between chat and canvas.
    * canvas imports from chat (TabManagerService), so chat cannot import canvas directly.
    * Provided by the application bootstrapper (app.config.ts).
    */
@@ -158,14 +162,14 @@ export class AppShellComponent {
     inject(ORCHESTRA_CANVAS_COMPONENT, { optional: true }) ?? null;
 
   /**
-   * HarnessBuilderViewComponent provided via DI token — breaks circular dependency.
+   * HarnessBuilderViewComponent provided via DI token â€” breaks circular dependency.
    * Provided by the application bootstrapper (app.config.ts).
    */
   readonly harnessBuilderComponent =
     inject(HARNESS_BUILDER_COMPONENT, { optional: true }) ?? null;
 
   /**
-   * SetupHubComponent provided via DI token — breaks circular dependency.
+   * SetupHubComponent provided via DI token â€” breaks circular dependency.
    * Provided by the application bootstrapper (app.config.ts).
    */
   readonly setupHubComponent =
@@ -369,7 +373,7 @@ export class AppShellComponent {
 
     const activeTab = this.tabManager.activeTab();
 
-    // Block pop-out during streaming — events would be orphaned
+    // Block pop-out during streaming â€” events would be orphaned
     if (activeTab?.status === 'streaming' || activeTab?.status === 'resuming') {
       console.warn('[AppShell] Cannot pop out during streaming/resuming');
       return;
@@ -390,7 +394,7 @@ export class AppShellComponent {
         ],
       });
 
-      // Force-close the tab in the sidebar (no confirmation — session is being transferred)
+      // Force-close the tab in the sidebar (no confirmation â€” session is being transferred)
       if (activeTab && sessionId) {
         this.tabManager.forceCloseTab(activeTab.id);
       }
@@ -528,7 +532,7 @@ export class AppShellComponent {
     event.stopPropagation();
     this.editingSessionId.set(session.id);
     this.editingSessionName.set(session.name || '');
-    // Programmatic focus — HTML autofocus doesn't work on dynamically rendered elements
+    // Programmatic focus â€” HTML autofocus doesn't work on dynamically rendered elements
     setTimeout(() => this.editSessionInput()?.nativeElement.focus(), 0);
   }
 
@@ -576,7 +580,7 @@ export class AppShellComponent {
         // Update open tab name and title if this session has one
         const tab = this.tabManager.findTabBySessionId(session.id);
         if (tab) {
-          this.tabManager.updateTab(tab.id, { name: newName, title: newName });
+          this.tabManager.setNameAndTitle(tab.id, newName, newName);
         }
       } else {
         console.error(

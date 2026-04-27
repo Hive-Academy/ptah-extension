@@ -29,11 +29,11 @@ import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron'
 import {
   TOKENS,
   registerVsCodeCorePlatformAgnostic,
+  WorkspaceContextManager,
+  WorkspaceAwareStateStorage,
   type Logger,
 } from '@ptah-extension/vscode-core';
-
-import { WorkspaceContextManager } from '../services/workspace-context-manager';
-import { WorkspaceAwareStateStorage } from '../services/workspace-aware-state-storage';
+import { ElectronStateStorage } from '@ptah-extension/platform-electron';
 
 /**
  * Phase 1: Register logger-adjacent infrastructure services and environment shims.
@@ -254,6 +254,8 @@ export function registerPhase1Infra(
   );
   const workspaceAwareStorage = new WorkspaceAwareStateStorage(
     defaultWorkspaceStoragePath,
+    (storageDirPath) =>
+      new ElectronStateStorage(storageDirPath, 'workspace-state.json'),
   );
 
   // Override Phase 0's WORKSPACE_STATE_STORAGE with the workspace-aware proxy

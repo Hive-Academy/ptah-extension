@@ -34,11 +34,12 @@ describe('AstAnalysisService', () => {
       parse: jest.fn(),
     } as unknown as jest.Mocked<TreeSitterParserService>;
 
-    // Default mock implementations - return empty arrays for all queries
-    mockParserService.queryFunctions.mockReturnValue(Result.ok([]));
-    mockParserService.queryClasses.mockReturnValue(Result.ok([]));
-    mockParserService.queryImports.mockReturnValue(Result.ok([]));
-    mockParserService.queryExports.mockReturnValue(Result.ok([]));
+    // Default mock implementations - return empty arrays for all queries.
+    // Query* methods return Promise<Result<...>>, so use mockResolvedValue.
+    mockParserService.queryFunctions.mockResolvedValue(Result.ok([]));
+    mockParserService.queryClasses.mockResolvedValue(Result.ok([]));
+    mockParserService.queryImports.mockResolvedValue(Result.ok([]));
+    mockParserService.queryExports.mockResolvedValue(Result.ok([]));
 
     // Create service with mock logger and parser service
     service = new AstAnalysisService(mockLogger, mockParserService);
@@ -79,10 +80,10 @@ describe('AstAnalysisService', () => {
       await service.analyzeAst(mockAst, 'example.ts');
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('analyzeAst')
+        expect.stringContaining('analyzeAst'),
       );
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('example.ts')
+        expect.stringContaining('example.ts'),
       );
     });
 
@@ -164,7 +165,7 @@ describe('AstAnalysisService', () => {
       await service.analyzeAst(mockAst, testPath);
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining(testPath)
+        expect.stringContaining(testPath),
       );
     });
   });
@@ -248,8 +249,8 @@ describe('AstAnalysisService', () => {
   });
 
   describe('Query-based analysis via analyzeSource', () => {
-    it('should return empty insights when all queries return empty', () => {
-      const result = service.analyzeSource('const x = 1;', 'typescript');
+    it('should return empty insights when all queries return empty', async () => {
+      const result = await service.analyzeSource('const x = 1;', 'typescript');
 
       expect(result.isOk()).toBe(true);
       expect(result.value?.functions).toEqual([]);
@@ -257,7 +258,7 @@ describe('AstAnalysisService', () => {
       expect(result.value?.imports).toEqual([]);
     });
 
-    it('should extract functions from query matches', () => {
+    it('should extract functions from query matches', async () => {
       const mockFunctionMatches: QueryMatch[] = [
         {
           pattern: 0,
@@ -287,13 +288,13 @@ describe('AstAnalysisService', () => {
         },
       ];
 
-      mockParserService.queryFunctions.mockReturnValue(
-        Result.ok(mockFunctionMatches)
+      mockParserService.queryFunctions.mockResolvedValue(
+        Result.ok(mockFunctionMatches),
       );
 
-      const result = service.analyzeSource(
+      const result = await service.analyzeSource(
         'function myFunction(a, b) {}',
-        'typescript'
+        'typescript',
       );
 
       expect(result.isOk()).toBe(true);
@@ -302,7 +303,7 @@ describe('AstAnalysisService', () => {
       expect(result.value?.functions[0].parameters).toEqual(['a', 'b']);
     });
 
-    it('should extract classes from query matches', () => {
+    it('should extract classes from query matches', async () => {
       const mockClassMatches: QueryMatch[] = [
         {
           pattern: 0,
@@ -325,18 +326,21 @@ describe('AstAnalysisService', () => {
         },
       ];
 
-      mockParserService.queryClasses.mockReturnValue(
-        Result.ok(mockClassMatches)
+      mockParserService.queryClasses.mockResolvedValue(
+        Result.ok(mockClassMatches),
       );
 
-      const result = service.analyzeSource('class MyClass {}', 'typescript');
+      const result = await service.analyzeSource(
+        'class MyClass {}',
+        'typescript',
+      );
 
       expect(result.isOk()).toBe(true);
       expect(result.value?.classes).toHaveLength(1);
       expect(result.value?.classes[0].name).toBe('MyClass');
     });
 
-    it('should extract imports from query matches', () => {
+    it('should extract imports from query matches', async () => {
       const mockImportMatches: QueryMatch[] = [
         {
           pattern: 0,
@@ -359,13 +363,13 @@ describe('AstAnalysisService', () => {
         },
       ];
 
-      mockParserService.queryImports.mockReturnValue(
-        Result.ok(mockImportMatches)
+      mockParserService.queryImports.mockResolvedValue(
+        Result.ok(mockImportMatches),
       );
 
-      const result = service.analyzeSource(
+      const result = await service.analyzeSource(
         "import _ from 'lodash';",
-        'typescript'
+        'typescript',
       );
 
       expect(result.isOk()).toBe(true);
@@ -374,7 +378,7 @@ describe('AstAnalysisService', () => {
       expect(result.value?.imports[0].isDefault).toBe(true);
     });
 
-    it('should extract exports from query matches', () => {
+    it('should extract exports from query matches', async () => {
       const mockExportMatches: QueryMatch[] = [
         {
           pattern: 0,
@@ -390,13 +394,13 @@ describe('AstAnalysisService', () => {
         },
       ];
 
-      mockParserService.queryExports.mockReturnValue(
-        Result.ok(mockExportMatches)
+      mockParserService.queryExports.mockResolvedValue(
+        Result.ok(mockExportMatches),
       );
 
-      const result = service.analyzeSource(
+      const result = await service.analyzeSource(
         'export function myFunction() {}',
-        'typescript'
+        'typescript',
       );
 
       expect(result.isOk()).toBe(true);
@@ -405,14 +409,14 @@ describe('AstAnalysisService', () => {
       expect(result.value?.exports?.[0].kind).toBe('function');
     });
 
-    it('should handle query errors gracefully', () => {
-      mockParserService.queryFunctions.mockReturnValue(
-        Result.err(new Error('Query failed'))
+    it('should handle query errors gracefully', async () => {
+      mockParserService.queryFunctions.mockResolvedValue(
+        Result.err(new Error('Query failed')),
       );
 
-      const result = service.analyzeSource(
+      const result = await service.analyzeSource(
         'function broken() {}',
-        'typescript'
+        'typescript',
       );
 
       // Should still succeed with empty functions array when query fails
@@ -420,11 +424,11 @@ describe('AstAnalysisService', () => {
       expect(result.value?.functions).toEqual([]);
     });
 
-    it('should log debug info about analysis', () => {
-      service.analyzeSource('const x = 1;', 'typescript', 'test.ts');
+    it('should log debug info about analysis', async () => {
+      await service.analyzeSource('const x = 1;', 'typescript', 'test.ts');
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('analyzeSource')
+        expect.stringContaining('analyzeSource'),
       );
     });
   });

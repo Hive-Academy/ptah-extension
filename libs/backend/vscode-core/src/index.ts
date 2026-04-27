@@ -132,6 +132,16 @@ export type {
   SentryErrorContext,
 } from './services/sentry.service';
 
+// Git Info Service (TASK_2026_104 Sub-batch B5b — lifted from ptah-electron app)
+export { GitInfoService } from './services/git-info.service';
+
+// Workspace Context Manager + Workspace-Aware State Storage
+// (TASK_2026_104 Sub-batch B5a — lifted from ptah-electron app so the
+// shared WorkspaceRpcHandlers can be served by all hosts.)
+export { WorkspaceContextManager } from './services/workspace-context-manager';
+export { WorkspaceAwareStateStorage } from './services/workspace-aware-state-storage';
+export type { StateStorageFactory } from './services/workspace-aware-state-storage';
+
 // Platform Abstraction Interfaces (TASK_2025_203)
 // Defined in @ptah-extension/rpc-handlers (import directly from there)
 // NOT re-exported here to avoid circular dependency:

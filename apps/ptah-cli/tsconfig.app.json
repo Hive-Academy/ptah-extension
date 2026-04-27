@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+    "outDir": "../../dist/out-tsc",
+    "types": ["node"],
+    "jsx": "react-jsx",
+    "experimentalDecorators": true,
+    "esModuleInterop": true,
+    "strict": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["**/*.spec.ts", "**/*.spec.tsx", "src/test-utils/**"]
+}

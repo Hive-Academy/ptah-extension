@@ -1,7 +1,7 @@
-import type { WritableSignal } from '@angular/core';
+import { InjectionToken, type WritableSignal } from '@angular/core';
 import type { VSCodeService } from '@ptah-extension/core';
 import type { FileTreeNode } from '../../models/file-tree.model';
-import type { EditorTab } from '../editor.service';
+import type { EditorTab } from './editor-tab.types';
 
 /**
  * Internal per-workspace editor state cache.
@@ -52,6 +52,25 @@ export interface EditorInternalState {
   showError(message: string): void;
   clearError(): void;
 }
+
+/**
+ * DI token for {@link EditorInternalState}.
+ *
+ * TASK_2026_103 Wave F3: Mirrors F1's `WIZARD_INTERNAL_STATE` and B1's
+ * `STREAMING_CONTROL` patterns. The coordinator (`EditorService`)
+ * constructs the writable-signal map and exposes it through this token
+ * via `provideEditorInternalState()` so external consumers can read or
+ * mutate editor state without depending on the coordinator class — that
+ * import direction is what previously formed the cycle with the
+ * in-process editor helpers.
+ *
+ * Helpers that live inside this library are still constructed by the
+ * coordinator via plain `new` and receive the state through their
+ * constructor — so they do NOT inject this token.
+ */
+export const EDITOR_INTERNAL_STATE = new InjectionToken<EditorInternalState>(
+  'EDITOR_INTERNAL_STATE',
+);
 
 /** Recognised image extensions — image files render via file:// URLs, no RPC content load needed. */
 export const IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([

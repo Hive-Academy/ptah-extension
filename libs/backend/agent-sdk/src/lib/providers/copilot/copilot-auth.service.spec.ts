@@ -43,6 +43,8 @@ jest.mock('./copilot-file-auth', () => ({
 
 jest.mock('./copilot-device-code-auth', () => ({
   executeDeviceCodeFlow: jest.fn(),
+  requestDeviceCode: jest.fn(),
+  pollForAccessToken: jest.fn(),
 }));
 
 import axios, { AxiosError } from 'axios';
@@ -107,6 +109,31 @@ const mockedExecuteDeviceCodeFlow =
   deviceAuth.executeDeviceCodeFlow as jest.MockedFunction<
     typeof deviceAuth.executeDeviceCodeFlow
   >;
+const mockedRequestDeviceCode =
+  deviceAuth.requestDeviceCode as jest.MockedFunction<
+    typeof deviceAuth.requestDeviceCode
+  >;
+const mockedPollForAccessToken =
+  deviceAuth.pollForAccessToken as jest.MockedFunction<
+    typeof deviceAuth.pollForAccessToken
+  >;
+
+/**
+ * Build a canonical fixture device-code response so begin/poll specs don't
+ * have to re-state the shape every time.
+ */
+function makeDeviceCodeFixture(
+  overrides: Partial<deviceAuth.DeviceCodeResponse> = {},
+): deviceAuth.DeviceCodeResponse {
+  return {
+    device_code: 'D1',
+    user_code: 'U1',
+    verification_uri: 'https://github.com/login/device',
+    expires_in: 600,
+    interval: 5,
+    ...overrides,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Lightweight IPlatformInfo stub. No factory exists in platform-core/testing
@@ -213,6 +240,8 @@ describe('CopilotAuthService', () => {
     mockedReadCopilotToken.mockReset();
     mockedWriteCopilotToken.mockReset();
     mockedExecuteDeviceCodeFlow.mockReset();
+    mockedRequestDeviceCode.mockReset();
+    mockedPollForAccessToken.mockReset();
   });
 
   afterEach(() => {
@@ -233,7 +262,8 @@ describe('CopilotAuthService', () => {
       await expect(service.login()).resolves.toBe(true);
 
       expect(mockedReadCopilotToken).toHaveBeenCalledTimes(1);
-      expect(mockedExecuteDeviceCodeFlow).not.toHaveBeenCalled();
+      expect(mockedRequestDeviceCode).not.toHaveBeenCalled();
+      expect(mockedPollForAccessToken).not.toHaveBeenCalled();
       expect(mockedWriteCopilotToken).not.toHaveBeenCalled();
     });
 
@@ -256,19 +286,32 @@ describe('CopilotAuthService', () => {
 
     it('falls back to device code flow and persists the new token on success', async () => {
       mockedReadCopilotToken.mockResolvedValueOnce(null); // no file token
-      mockedExecuteDeviceCodeFlow.mockResolvedValueOnce('gho_device_token');
+      mockedRequestDeviceCode.mockResolvedValueOnce(
+        makeDeviceCodeFixture({
+          device_code: 'D-device',
+          user_code: 'USER-123',
+          verification_uri: 'https://github.com/login/device',
+        }),
+      );
+      mockedPollForAccessToken.mockResolvedValueOnce('gho_device_token');
       mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
       mockedWriteCopilotToken.mockResolvedValueOnce(undefined);
 
       const { service, userInteraction } = makeService();
       await expect(service.login()).resolves.toBe(true);
 
-      expect(mockedExecuteDeviceCodeFlow).toHaveBeenCalledTimes(1);
+      expect(mockedRequestDeviceCode).toHaveBeenCalledTimes(1);
+      expect(mockedPollForAccessToken).toHaveBeenCalledWith(
+        'D-device',
+        expect.any(String),
+        expect.objectContaining({
+          intervalMs: 5_000,
+          timeoutMs: 5 * 60 * 1000,
+        }),
+      );
       // Token persisted after successful exchange so next launch restores silently.
       expect(mockedWriteCopilotToken).toHaveBeenCalledWith('gho_device_token');
-      // onUserCode callback hooks into clipboard + message + openExternal.
-      const callbacks = mockedExecuteDeviceCodeFlow.mock.calls[0][1];
-      await callbacks.onUserCode('USER-123', 'https://github.com/login/device');
+      // login() surfaces the user code via clipboard + info message + browser.
       expect(userInteraction.writeToClipboard).toHaveBeenCalledWith('USER-123');
       expect(userInteraction.showInformationMessage).toHaveBeenCalledWith(
         expect.stringContaining('USER-123'),
@@ -281,7 +324,8 @@ describe('CopilotAuthService', () => {
 
     it('uses the configured client ID when one is set in workspace config', async () => {
       mockedReadCopilotToken.mockResolvedValueOnce(null);
-      mockedExecuteDeviceCodeFlow.mockResolvedValueOnce(null); // user aborted
+      mockedRequestDeviceCode.mockResolvedValueOnce(makeDeviceCodeFixture());
+      mockedPollForAccessToken.mockResolvedValueOnce(null); // user aborted
 
       const { service } = makeService({
         config: {
@@ -290,30 +334,33 @@ describe('CopilotAuthService', () => {
       });
       await service.login();
 
-      expect(mockedExecuteDeviceCodeFlow).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.any(Object),
+      expect(mockedRequestDeviceCode).toHaveBeenCalledWith(
         'Iv1.custom-enterprise',
+      );
+      expect(mockedPollForAccessToken).toHaveBeenCalledWith(
+        expect.any(String),
+        'Iv1.custom-enterprise',
+        expect.any(Object),
       );
     });
 
     it('falls back to the well-known Copilot client ID when unconfigured', async () => {
       mockedReadCopilotToken.mockResolvedValueOnce(null);
-      mockedExecuteDeviceCodeFlow.mockResolvedValueOnce(null);
+      mockedRequestDeviceCode.mockResolvedValueOnce(makeDeviceCodeFixture());
+      mockedPollForAccessToken.mockResolvedValueOnce(null);
 
       const { service } = makeService();
       await service.login();
 
-      expect(mockedExecuteDeviceCodeFlow).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.any(Object),
+      expect(mockedRequestDeviceCode).toHaveBeenCalledWith(
         'Iv1.b507a08c87ecfe98',
       );
     });
 
     it('swallows persistence failures and still reports success (best-effort)', async () => {
       mockedReadCopilotToken.mockResolvedValueOnce(null);
-      mockedExecuteDeviceCodeFlow.mockResolvedValueOnce('gho_device');
+      mockedRequestDeviceCode.mockResolvedValueOnce(makeDeviceCodeFixture());
+      mockedPollForAccessToken.mockResolvedValueOnce('gho_device');
       mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
       mockedWriteCopilotToken.mockRejectedValueOnce(new Error('disk full'));
 
@@ -326,7 +373,8 @@ describe('CopilotAuthService', () => {
 
     it('returns false when device code flow returns null (user cancelled)', async () => {
       mockedReadCopilotToken.mockResolvedValueOnce(null);
-      mockedExecuteDeviceCodeFlow.mockResolvedValueOnce(null);
+      mockedRequestDeviceCode.mockResolvedValueOnce(makeDeviceCodeFixture());
+      mockedPollForAccessToken.mockResolvedValueOnce(null);
 
       const { service } = makeService();
       await expect(service.login()).resolves.toBe(false);
@@ -337,7 +385,8 @@ describe('CopilotAuthService', () => {
       mockedReadCopilotToken.mockResolvedValueOnce('gho_file_token');
       mockedAxios.get.mockRejectedValueOnce(new Error('network meltdown'));
       // Second fallback read (device code path). We don't want it to succeed.
-      mockedExecuteDeviceCodeFlow.mockResolvedValueOnce(null);
+      mockedRequestDeviceCode.mockResolvedValueOnce(makeDeviceCodeFixture());
+      mockedPollForAccessToken.mockResolvedValueOnce(null);
 
       const { service, logger } = makeService();
       await expect(service.login()).resolves.toBe(false);
@@ -413,7 +462,8 @@ describe('CopilotAuthService', () => {
       mockedAxios.get.mockRejectedValueOnce(
         makeAxiosError(401, { message: 'bad credentials' }),
       );
-      mockedExecuteDeviceCodeFlow.mockResolvedValueOnce(null);
+      mockedRequestDeviceCode.mockResolvedValueOnce(makeDeviceCodeFixture());
+      mockedPollForAccessToken.mockResolvedValueOnce(null);
 
       const { service, logger } = makeService();
       await service.login();
@@ -431,7 +481,8 @@ describe('CopilotAuthService', () => {
       mockedAxios.get.mockRejectedValueOnce(
         makeAxiosError(403, { message: 'forbidden' }),
       );
-      mockedExecuteDeviceCodeFlow.mockResolvedValueOnce(null);
+      mockedRequestDeviceCode.mockResolvedValueOnce(makeDeviceCodeFixture());
+      mockedPollForAccessToken.mockResolvedValueOnce(null);
 
       const { service, logger } = makeService();
       await service.login();
@@ -446,7 +497,8 @@ describe('CopilotAuthService', () => {
       mockedAxios.get.mockResolvedValueOnce({
         data: { token: '', expires_at: 0 },
       } as AxiosLikeResponse<CopilotTokenResponse>);
-      mockedExecuteDeviceCodeFlow.mockResolvedValueOnce(null);
+      mockedRequestDeviceCode.mockResolvedValueOnce(makeDeviceCodeFixture());
+      mockedPollForAccessToken.mockResolvedValueOnce(null);
 
       const { service, logger } = makeService();
       await service.login();
@@ -700,6 +752,220 @@ describe('CopilotAuthService', () => {
 
       await service.logout();
       expect(mockedAxios.get).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Headless device-code API: beginLogin() / pollLogin() / cancelLogin()
+  // (TASK_2026_104 B8a)
+  // -------------------------------------------------------------------------
+
+  describe('beginLogin() / pollLogin() / cancelLogin()', () => {
+    it('beginLogin returns the device-code metadata in the documented shape', async () => {
+      mockedRequestDeviceCode.mockResolvedValueOnce(
+        makeDeviceCodeFixture({
+          device_code: 'D1',
+          user_code: 'U1',
+          verification_uri: 'https://x.example.com',
+          interval: 5,
+          expires_in: 600,
+        }),
+      );
+
+      const { service } = makeService();
+      const info = await service.beginLogin();
+
+      expect(info).toEqual({
+        deviceCode: 'D1',
+        userCode: 'U1',
+        verificationUri: 'https://x.example.com',
+        interval: 5,
+        expiresIn: 600,
+      });
+      expect(mockedRequestDeviceCode).toHaveBeenCalledWith(
+        'Iv1.b507a08c87ecfe98',
+      );
+    });
+
+    it('pollLogin happy path: polls, exchanges, and persists the token', async () => {
+      mockedRequestDeviceCode.mockResolvedValueOnce(
+        makeDeviceCodeFixture({ device_code: 'D-happy' }),
+      );
+      mockedPollForAccessToken.mockResolvedValueOnce('access_token_value');
+      mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
+      mockedWriteCopilotToken.mockResolvedValueOnce(undefined);
+
+      const { service } = makeService();
+      const { deviceCode } = await service.beginLogin();
+
+      await expect(service.pollLogin(deviceCode)).resolves.toBe(true);
+
+      expect(mockedPollForAccessToken).toHaveBeenCalledWith(
+        'D-happy',
+        'Iv1.b507a08c87ecfe98',
+        expect.objectContaining({
+          intervalMs: 5_000,
+          timeoutMs: 5 * 60 * 1000,
+          signal: expect.any(AbortSignal),
+        }),
+      );
+      expect(mockedWriteCopilotToken).toHaveBeenCalledWith(
+        'access_token_value',
+      );
+      // Auth state populated.
+      const state = await service.getAuthState();
+      expect(state?.bearerToken).toBe('tid_abcdef1234');
+    });
+
+    it('pollLogin returns false on 5-min timeout without persisting any token', async () => {
+      mockedRequestDeviceCode.mockResolvedValueOnce(
+        makeDeviceCodeFixture({ device_code: 'D-timeout' }),
+      );
+      mockedPollForAccessToken.mockResolvedValueOnce(null); // timed out
+
+      const { service } = makeService();
+      const { deviceCode } = await service.beginLogin();
+
+      await expect(service.pollLogin(deviceCode)).resolves.toBe(false);
+
+      expect(mockedWriteCopilotToken).not.toHaveBeenCalled();
+      // No exchange call either.
+      expect(mockedAxios.get).not.toHaveBeenCalled();
+    });
+
+    it('pollLogin honours the explicit timeoutMs override', async () => {
+      mockedRequestDeviceCode.mockResolvedValueOnce(
+        makeDeviceCodeFixture({ device_code: 'D-custom-timeout' }),
+      );
+      mockedPollForAccessToken.mockResolvedValueOnce(null);
+
+      const { service } = makeService();
+      const { deviceCode } = await service.beginLogin();
+      await service.pollLogin(deviceCode, { timeoutMs: 60_000 });
+
+      expect(mockedPollForAccessToken).toHaveBeenCalledWith(
+        'D-custom-timeout',
+        expect.any(String),
+        expect.objectContaining({ timeoutMs: 60_000 }),
+      );
+    });
+
+    it('cancelLogin aborts the in-flight pollLogin and stops further axios calls', async () => {
+      mockedRequestDeviceCode.mockResolvedValueOnce(
+        makeDeviceCodeFixture({ device_code: 'D-cancel' }),
+      );
+      // Implementation: capture the AbortSignal passed in and resolve `null`
+      // when the signal fires. This proves the wiring (cancelLogin →
+      // entry.abortController.abort() → signal seen by pollForAccessToken).
+      let capturedSignal: AbortSignal | undefined;
+      mockedPollForAccessToken.mockImplementationOnce(
+        async (_dc, _cid, opts) => {
+          capturedSignal = opts?.signal;
+          return new Promise<string | null>((resolve) => {
+            opts?.signal?.addEventListener('abort', () => resolve(null), {
+              once: true,
+            });
+          });
+        },
+      );
+
+      const { service } = makeService();
+      const { deviceCode } = await service.beginLogin();
+      const pollPromise = service.pollLogin(deviceCode);
+
+      // Trigger cancel; the captured signal must abort and the poll resolve.
+      service.cancelLogin(deviceCode);
+
+      await expect(pollPromise).resolves.toBe(false);
+      expect(capturedSignal?.aborted).toBe(true);
+      expect(mockedAxios.get).not.toHaveBeenCalled();
+      expect(mockedWriteCopilotToken).not.toHaveBeenCalled();
+    });
+
+    it('cancelLogin is a no-op for unknown deviceCodes', async () => {
+      const { service, logger } = makeService();
+      // Should not throw.
+      service.cancelLogin('unknown-device-code');
+      // No info log about cancellation either (the entry didn't exist).
+      const cancelLogs = logger.info.mock.calls
+        .map((args) => String(args[0] ?? ''))
+        .filter((line) => line.includes('Cancelled in-flight device-code'));
+      expect(cancelLogs).toHaveLength(0);
+    });
+
+    it('pollLogin returns false when called with an unknown deviceCode', async () => {
+      const { service } = makeService();
+      await expect(service.pollLogin('never-began')).resolves.toBe(false);
+      expect(mockedPollForAccessToken).not.toHaveBeenCalled();
+    });
+
+    it('two concurrent beginLogin flows produce distinct deviceCodes and poll independently', async () => {
+      mockedRequestDeviceCode
+        .mockResolvedValueOnce(
+          makeDeviceCodeFixture({ device_code: 'D-A', user_code: 'UA' }),
+        )
+        .mockResolvedValueOnce(
+          makeDeviceCodeFixture({ device_code: 'D-B', user_code: 'UB' }),
+        );
+
+      // First poll succeeds; second is cancelled while in flight.
+      mockedPollForAccessToken
+        .mockResolvedValueOnce('gho_A')
+        .mockImplementationOnce(async (_dc, _cid, opts) => {
+          return new Promise<string | null>((resolve) => {
+            opts?.signal?.addEventListener('abort', () => resolve(null), {
+              once: true,
+            });
+          });
+        });
+
+      // Exchange + persist for flow A.
+      mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
+      mockedWriteCopilotToken.mockResolvedValueOnce(undefined);
+
+      const { service } = makeService();
+      const a = await service.beginLogin();
+      const b = await service.beginLogin();
+      expect(a.deviceCode).toBe('D-A');
+      expect(b.deviceCode).toBe('D-B');
+      expect(a.deviceCode).not.toBe(b.deviceCode);
+
+      const pollA = service.pollLogin(a.deviceCode);
+      const pollB = service.pollLogin(b.deviceCode);
+
+      // Cancel only B while A is allowed to complete.
+      service.cancelLogin(b.deviceCode);
+
+      await expect(pollA).resolves.toBe(true);
+      await expect(pollB).resolves.toBe(false);
+    });
+
+    it('legacy login() preserves the webview UX: clipboard + info message + browser open', async () => {
+      // No file token → device-code path drives the new begin/poll surface
+      // internally; the IUserInteraction wiring lives in login() itself.
+      mockedReadCopilotToken.mockResolvedValueOnce(null);
+      mockedRequestDeviceCode.mockResolvedValueOnce(
+        makeDeviceCodeFixture({
+          device_code: 'D-ux',
+          user_code: 'UX-CODE',
+          verification_uri: 'https://github.com/login/device',
+        }),
+      );
+      mockedPollForAccessToken.mockResolvedValueOnce('gho_ux_token');
+      mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
+      mockedWriteCopilotToken.mockResolvedValueOnce(undefined);
+
+      const { service, userInteraction } = makeService();
+      await expect(service.login()).resolves.toBe(true);
+
+      expect(userInteraction.writeToClipboard).toHaveBeenCalledWith('UX-CODE');
+      expect(userInteraction.showInformationMessage).toHaveBeenCalledWith(
+        expect.stringContaining('UX-CODE'),
+        'OK',
+      );
+      expect(userInteraction.openExternal).toHaveBeenCalledWith(
+        'https://github.com/login/device',
+      );
     });
   });
 });

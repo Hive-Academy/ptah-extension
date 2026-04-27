@@ -102,6 +102,11 @@ function createScriptedDialog(): ScriptedDialog {
       const response = queue.shift() ?? 0;
       return { response };
     },
+    async showOpenDialog(_win, _options) {
+      // Default stub — tests that need to script a dialog response can override
+      // via dependency injection. B8c does not exercise this path.
+      return { canceled: true, filePaths: [] };
+    },
     enqueueResponse(index: number) {
       queue.push(index);
     },
@@ -310,5 +315,54 @@ describe('ElectronUserInteraction — Electron-specific behaviour', () => {
     await expect(
       noWin.showQuickPick([{ label: 'x' }]),
     ).resolves.toBeUndefined();
+  });
+
+  it('openOAuthUrl delegates to shell.openExternal and returns opened=true', async () => {
+    const result = await provider.openOAuthUrl({
+      provider: 'copilot',
+      verificationUri: 'https://github.com/login/device',
+    });
+    expect(shell.openExternal).toHaveBeenCalledWith(
+      'https://github.com/login/device',
+    );
+    expect(result).toEqual({ opened: true, code: undefined });
+  });
+
+  it('openOAuthUrl with userCode writes to clipboard and shows info dialog', async () => {
+    const result = await provider.openOAuthUrl({
+      provider: 'copilot',
+      verificationUri: 'https://github.com/login/device',
+      userCode: 'WXYZ-9999',
+    });
+    expect(shell.writeToClipboard).toHaveBeenCalledWith('WXYZ-9999');
+    expect(dialog.lastOptions?.type).toBe('info');
+    expect(result).toEqual({ opened: true, code: undefined });
+  });
+
+  it('openOAuthUrl returns opened=false when no shell is wired', async () => {
+    const noShell = new ElectronUserInteraction(dialog, () => window, ipcMain);
+    const result = await noShell.openOAuthUrl({
+      provider: 'copilot',
+      verificationUri: 'https://github.com/login/device',
+    });
+    expect(result).toEqual({ opened: false, code: undefined });
+  });
+
+  it('openOAuthUrl returns opened=false when shell.openExternal rejects', async () => {
+    const failingShell: ElectronShellApi = {
+      openExternal: jest.fn().mockRejectedValue(new Error('nope')),
+      writeToClipboard: jest.fn().mockReturnValue(undefined),
+    };
+    const p = new ElectronUserInteraction(
+      dialog,
+      () => window,
+      ipcMain,
+      failingShell,
+    );
+    const result = await p.openOAuthUrl({
+      provider: 'copilot',
+      verificationUri: 'https://github.com/login/device',
+    });
+    expect(result.opened).toBe(false);
   });
 });

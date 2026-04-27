@@ -5,7 +5,7 @@ import 'zone.js';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { App } from './app/app';
 import { appConfig } from './app/app.config';
-import { getRpcClient } from '@ptah-extension/editor';
+import { getRpcClient } from '@ptah-extension/core';
 
 // Type declaration for window globals injected by VS Code
 declare global {

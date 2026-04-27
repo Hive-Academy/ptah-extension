@@ -14,6 +14,7 @@ import {
   ContextGetAllFilesParams,
   ContextGetFileSuggestionsParams,
 } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 interface ContextOrchestrationService {
   getAllFiles(params: ContextGetAllFilesParams): Promise<unknown>;
@@ -25,6 +26,11 @@ interface ContextOrchestrationService {
  */
 @injectable()
 export class ContextRpcHandlers {
+  static readonly METHODS = [
+    'context:getAllFiles',
+    'context:getFileSuggestions',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

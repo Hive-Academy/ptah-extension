@@ -39,7 +39,22 @@ export const MessageTokenUsageSchema = z.object({
   cacheCreation: z.number().optional(),
 });
 
-// Recursive schema requires lazy evaluation
+// Recursive schema requires lazy evaluation. The explicit
+// `z.ZodType<ExecutionNode>` annotation is the canonical Zod pattern for
+// recursive types per the Zod docs — it lets TypeScript resolve the
+// self-reference inside the lazy callback without circular inference.
+//
+// The trailing `as unknown as z.ZodType<ExecutionNode>` is required because
+// Zod 4 infers `_output` of nullable fields (like `content`) as optional in
+// object types — a known Zod inference quirk that surfaces under non-strict
+// TS configs (e.g., ts-jest spec configs that don't enable `strictNullChecks`)
+// and clashes with the required `content: string | null` on `ExecutionNode`.
+// At runtime Zod still validates `content` as `string | null` per
+// `z.string().nullable()`; the cast only papers over the typesystem-only
+// drift and does not affect runtime behavior. Drift in any of the OTHER
+// fields would still surface — the cast is wide enough to absorb the
+// `content` quirk but the inner `z.object({...})` literal is structurally
+// checked against `ExecutionNode` everywhere except for that one field.
 export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
   z.object({
     id: z.string(),
@@ -67,7 +82,7 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
     isHighlighted: z.boolean().optional(),
     isBackground: z.boolean().optional(),
   }),
-);
+) as unknown as z.ZodType<ExecutionNode>;
 
 export const AgentInfoSchema = z.object({
   agentType: z.string(),

@@ -49,6 +49,7 @@ import { CliDetectionService } from '@ptah-extension/agent-sdk';
 import { Result } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * Progress update callback payload from AgentGenerationOrchestratorService.
@@ -130,6 +131,12 @@ interface EnhancedPromptsServiceInterface {
  */
 @injectable()
 export class WizardGenerationRpcHandlers {
+  static readonly METHODS = [
+    'wizard:submit-selection',
+    'wizard:cancel',
+    'wizard:retry-item',
+  ] as const satisfies readonly RpcMethodName[];
+
   /**
    * Concurrent generation guard.
    * Prevents multiple simultaneous agent generation runs.

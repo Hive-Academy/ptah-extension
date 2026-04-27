@@ -739,7 +739,7 @@ describe('SessionRpcHandlers', () => {
       const h = makeHarness();
       // Stats reader returns a canonical ok shape for every session id.
       h.historyReader.readSessionHistory.mockImplementation(
-        async (sessionId: string) =>
+        async (_sessionId: string) =>
           ({
             events: [],
             stats: {

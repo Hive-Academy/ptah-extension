@@ -23,6 +23,18 @@
       "@ptah-extension/agent-sdk": ["libs/backend/agent-sdk/src/index.ts"],
       "@ptah-extension/canvas": ["libs/frontend/canvas/src/index.ts"],
       "@ptah-extension/chat": ["libs/frontend/chat/src/index.ts"],
+      "@ptah-extension/chat-types": ["libs/frontend/chat-types/src/index.ts"],
+      "@ptah-extension/chat-state": ["libs/frontend/chat-state/src/index.ts"],
+      "@ptah-extension/chat-execution-tree": [
+        "libs/frontend/chat-execution-tree/src/index.ts"
+      ],
+      "@ptah-extension/chat-routing": [
+        "libs/frontend/chat-routing/src/index.ts"
+      ],
+      "@ptah-extension/chat-streaming": [
+        "libs/frontend/chat-streaming/src/index.ts"
+      ],
+      "@ptah-extension/chat-ui": ["libs/frontend/chat-ui/src/index.ts"],
       "@ptah-extension/core": ["libs/frontend/core/src/index.ts"],
       "@ptah-extension/core/testing": [
         "libs/frontend/core/src/testing/index.ts"
@@ -53,12 +65,16 @@
       "@ptah-extension/harness-builder": [
         "libs/frontend/harness-builder/src/index.ts"
       ],
+      "@ptah-extension/markdown": ["libs/frontend/markdown/src/index.ts"],
       "@ptah-extension/setup-wizard": [
         "libs/frontend/setup-wizard/src/index.ts"
       ],
       "@ptah-extension/shared": ["libs/shared/src/index.ts"],
       "@ptah-extension/shared/testing": ["libs/shared/src/testing/index.ts"],
       "@ptah-extension/ui": ["libs/frontend/ui/src/index.ts"],
+      "@ptah-extension/webview-e2e-harness": [
+        "libs/frontend/webview-e2e-harness/src/index.ts"
+      ],
       "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
       "@ptah-extension/vscode-core/testing": [
         "libs/backend/vscode-core/src/testing/index.ts"

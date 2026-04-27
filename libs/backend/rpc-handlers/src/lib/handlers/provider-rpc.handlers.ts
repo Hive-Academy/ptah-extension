@@ -53,12 +53,20 @@ import {
   getModelContextWindow,
 } from '@ptah-extension/shared';
 import type { AuthEnv } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for provider model operations
  */
 @injectable()
 export class ProviderRpcHandlers {
+  static readonly METHODS = [
+    'provider:listModels',
+    'provider:setModelTier',
+    'provider:getModelTiers',
+    'provider:clearModelTier',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

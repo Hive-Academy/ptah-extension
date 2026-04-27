@@ -1,31 +1,46 @@
-import { computed, inject, Injectable, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
-import { type StreamingState } from '@ptah-extension/chat';
-import {
+import { type StreamingState } from '@ptah-extension/chat-types';
+import type {
+  AgentPackInfoDto,
   AgentRecommendation,
-  AnalysisPhase,
   AnalysisStreamPayload,
-  GenerationStreamPayload,
-  ProjectAnalysisResult,
-  SavedAnalysisMetadata,
-} from '@ptah-extension/shared';
-import type { AgentPackInfoDto } from '@ptah-extension/shared';
-import type {
-  EnhancedPromptsSummary,
-  MultiPhaseAnalysisResponse,
-} from '@ptah-extension/shared';
-import type {
-  NewProjectType,
-  QuestionGroup,
-  DiscoveryAnswers,
-  MasterPlan,
   AnswerValue,
+  DiscoveryAnswers,
+  EnhancedPromptsSummary,
+  GenerationStreamPayload,
+  MasterPlan,
+  MultiPhaseAnalysisResponse,
+  NewProjectType,
+  ProjectAnalysisResult,
+  QuestionGroup,
+  SavedAnalysisMetadata,
 } from '@ptah-extension/shared';
 import { WizardStreamAccumulator } from './setup-wizard/wizard-stream-accumulator';
 import { WizardMessageDispatcher } from './setup-wizard/wizard-message-dispatcher';
 import { WizardPhaseAnalysis } from './setup-wizard/wizard-phase-analysis';
 import { WizardPhaseGeneration } from './setup-wizard/wizard-phase-generation';
+import { WizardFlowState } from './setup-wizard/wizard-flow-state';
+import { WizardScanState } from './setup-wizard/wizard-scan-state';
+import { WizardAnalysisState } from './setup-wizard/wizard-analysis-state';
+import { WizardGenerationState } from './setup-wizard/wizard-generation-state';
+import { WizardCommunityPacksState } from './setup-wizard/wizard-community-packs-state';
+import { WizardComputeds } from './setup-wizard/wizard-computeds';
 import type { WizardInternalState } from './setup-wizard/wizard-internal-state';
+import type {
+  AgentSelection,
+  AnalysisResults,
+  CompletionData,
+  EnhancedPromptsWizardStatus,
+  ErrorState,
+  GenerationProgress,
+  PhaseStreamingEntry,
+  ProjectContext,
+  ScanProgress,
+  SkillGenerationProgressItem,
+  WizardPath,
+  WizardStep,
+} from './setup-wizard-state.types';
 
 // Re-export shared types for backward compatibility with existing consumers
 export type {
@@ -38,152 +53,24 @@ export type {
   TestCoverageEstimate,
 } from '@ptah-extension/shared';
 
-/**
- * Wizard step identifiers matching the 7-step setup flow
- * Includes premium-check step for license verification before wizard access
- */
-export type WizardStep =
-  | 'premium-check'
-  | 'welcome'
-  | 'scan'
-  | 'analysis'
-  | 'selection'
-  | 'enhance'
-  | 'generation'
-  | 'completion'
-  // New project path
-  | 'project-type'
-  | 'discovery'
-  | 'plan-generation'
-  | 'plan-review';
-
-/**
- * Wizard path discriminator.
- * 'existing' = analyze existing project, 'new' = start new project, null = not yet chosen.
- */
-export type WizardPath = 'existing' | 'new' | null;
-
-/**
- * Project context detected during workspace scan
- */
-export interface ProjectContext {
-  type: string;
-  techStack: string[];
-  architecture?: string;
-  isMonorepo: boolean;
-  monorepoType?: string;
-  packageCount?: number;
-}
-
-/**
- * Agent selection with relevance scoring
- */
-export interface AgentSelection {
-  id: string;
-  name: string;
-  selected: boolean;
-  score: number;
-  reason: string;
-  autoInclude: boolean;
-}
-
-/**
- * Generation progress tracking
- */
-export interface GenerationProgress {
-  phase: 'analysis' | 'selection' | 'customization' | 'rendering' | 'complete';
-  percentComplete: number;
-  filesScanned?: number;
-  totalFiles?: number;
-  detections?: string[];
-  agents?: AgentProgress[];
-  currentAgent?: string;
-}
-
-export interface AgentProgress {
-  id: string;
-  name: string;
-  status: 'pending' | 'in-progress' | 'complete' | 'error';
-  currentTask?: string;
-  duration?: number;
-  customizationSummary?: string;
-  errorMessage?: string;
-}
-
-/**
- * Scan progress tracking.
- * Extended with agentic analysis fields for phase stepper and reasoning display.
- */
-export interface ScanProgress {
-  filesScanned: number;
-  totalFiles: number;
-  detections: string[];
-  /** Current analysis phase (agentic analysis only) */
-  currentPhase?: AnalysisPhase;
-  /** Human-readable label for the current phase (agentic analysis only) */
-  phaseLabel?: string;
-  /** Agent reasoning/activity description (agentic analysis only) */
-  agentReasoning?: string;
-  /** List of completed phase identifiers (agentic analysis only) */
-  completedPhases?: AnalysisPhase[];
-}
-
-/**
- * Analysis results payload
- */
-export interface AnalysisResults {
-  projectContext: ProjectContext;
-}
-
-/**
- * Completion data payload
- */
-export interface CompletionData {
-  success: boolean;
-  generatedCount: number;
-  duration?: number;
-  errors?: string[];
-  warnings?: string[];
-  enhancedPromptsUsed?: boolean;
-}
-
-/**
- * Error state
- */
-export interface ErrorState {
-  message: string;
-  details?: string;
-}
-
-/**
- * Generation progress item.
- * Tracks progress of individual items during agent generation.
- */
-export interface SkillGenerationProgressItem {
-  /** Unique item identifier */
-  id: string;
-  /** Display name */
-  name: string;
-  /** Item type: agent or enhanced-prompt */
-  type: 'agent' | 'enhanced-prompt';
-  /** Current status */
-  status: 'pending' | 'in-progress' | 'complete' | 'error';
-  /** Progress percentage 0-100 (optional) */
-  progress?: number;
-  /** Error message if status is 'error' */
-  errorMessage?: string;
-}
-
-/**
- * Enhanced Prompts generation status for the wizard.
- * Tracks the state of Enhanced Prompts generation during setup.
- */
-export type EnhancedPromptsWizardStatus =
-  | 'idle'
-  | 'generating'
-  | 'complete'
-  | 'error'
-  | 'skipped';
+// Wizard state types (12 declarations) extracted to a sibling file in Wave C7h
+// to keep the coordinator under the 800-LOC ceiling. Re-exported here so that
+// existing consumer imports (`from '.../setup-wizard-state.service'`) continue
+// to resolve unchanged.
+export type {
+  WizardStep,
+  WizardPath,
+  ProjectContext,
+  AgentSelection,
+  GenerationProgress,
+  AgentProgress,
+  ScanProgress,
+  AnalysisResults,
+  CompletionData,
+  ErrorState,
+  SkillGenerationProgressItem,
+  EnhancedPromptsWizardStatus,
+} from './setup-wizard-state.types';
 
 /**
  * SetupWizardStateService
@@ -194,6 +81,15 @@ export type EnhancedPromptsWizardStatus =
  *
  * Pattern: Signal-based state (no RxJS BehaviorSubject)
  * Zoneless Compatible: Yes (pure signal-based reactivity)
+ *
+ * Architecture (Wave C7b + C7h):
+ * - This coordinator owns ALL writable signals (signal identity preserved
+ *   for `asReadonly()` consumers).
+ * - State mutation logic is delegated to 9 plain-class helpers under
+ *   `./setup-wizard/`. Helpers receive the writable signals via the
+ *   shared {@link WizardInternalState} handle.
+ * - Public surface (35 readonly signals + 20 computeds + ~50 methods) is
+ *   preserved byte-identical for the 11 component consumers.
  */
 @Injectable({
   providedIn: 'root',
@@ -201,625 +97,227 @@ export type EnhancedPromptsWizardStatus =
 export class SetupWizardStateService {
   private readonly vscodeService = inject(VSCodeService);
 
-  /**
-   * Track whether message listener is registered.
-   * Prevents duplicate registration for root-level service.
-   */
+  /** Per-coordinator-instance gate preventing duplicate listener registration. */
   private isMessageListenerRegistered = false;
 
-  // === State Signals ===
+  // === Private Writable Signals ===
+  // All signals live on the coordinator so signal IDENTITY is preserved for
+  // `asReadonly()` consumers. C7b/C7h helpers mutate these via the shared
+  // `WizardInternalState` handle (see constructor). Public docs for each
+  // signal live alongside its `public readonly X = ...asReadonly()` projection
+  // below.
 
-  /**
-   * Private writable signal for current wizard step (6 steps total)
-   */
+  // Core flow
   private readonly currentStepSignal = signal<WizardStep>('welcome');
-
-  /**
-   * Private writable signal for detected project context from workspace scan
-   */
   private readonly projectContextSignal = signal<ProjectContext | null>(null);
-
-  /**
-   * Private writable signal for available agents with selection state
-   */
   private readonly availableAgentsSignal = signal<AgentSelection[]>([]);
-
-  /**
-   * Private writable signal for current generation progress (null when not generating)
-   */
   private readonly generationProgressSignal = signal<GenerationProgress | null>(
     null,
   );
-
-  /**
-   * Private writable signal for scan progress tracking (null when not scanning)
-   */
   private readonly scanProgressSignal = signal<ScanProgress | null>(null);
-
-  /**
-   * Private writable signal for analysis stream messages (live transcript).
-   * Accumulates AnalysisStreamPayload messages during agentic analysis.
-   */
   private readonly analysisStreamSignal = signal<AnalysisStreamPayload[]>([]);
-
-  /**
-   * Private writable signal for per-phase StreamingState maps.
-   * Keyed by phase messageId (e.g., 'wizard-phase-project-profile').
-   * Each StreamingState accumulates FlatStreamEventUnion events for ExecutionNode rendering.
-   * TASK_2025_229
-   */
+  // TASK_2025_229 / Wave F2: per-phase StreamingState entries keyed by phase
+  // messageId. Stored as an immutable list so Angular's reference-equality
+  // change detection always sees a new array on update; the byId computed
+  // below provides O(1) lookup for the rare consumer that needs it.
   private readonly phaseStreamingStatesSignal = signal<
-    Map<string, StreamingState>
-  >(new Map());
-
-  /**
-   * Private writable signal for generation stream messages (live transcript).
-   * Accumulates GenerationStreamPayload messages during content generation.
-   */
+    readonly PhaseStreamingEntry[]
+  >([]);
+  private readonly phaseStreamingStatesByIdSignal = computed(() => {
+    const m = new Map<string, StreamingState>();
+    for (const entry of this.phaseStreamingStatesSignal()) {
+      m.set(entry.phaseKey, entry.state);
+    }
+    return m;
+  });
   private readonly generationStreamSignal = signal<GenerationStreamPayload[]>(
     [],
   );
-
-  /**
-   * Private writable signal for enhance stream messages (live transcript).
-   * Accumulates AnalysisStreamPayload messages during enhanced prompts generation.
-   */
   private readonly enhanceStreamSignal = signal<AnalysisStreamPayload[]>([]);
-
-  /**
-   * Private writable signal for analysis results (null until analysis complete)
-   */
   private readonly analysisResultsSignal = signal<AnalysisResults | null>(null);
-
-  /**
-   * Private writable signal for completion data (null until wizard complete)
-   */
   private readonly completionDataSignal = signal<CompletionData | null>(null);
-
-  /**
-   * Private writable signal for error state (null when no error)
-   */
   private readonly errorStateSignal = signal<ErrorState | null>(null);
 
-  // === Deep Analysis State Signals (TASK_2025_111) ===
-
-  /**
-   * Private writable signal for deep project analysis results.
-   * Contains comprehensive project insights from MCP-powered analysis.
-   */
+  // Deep Analysis (TASK_2025_111)
   private readonly deepAnalysisSignal = signal<ProjectAnalysisResult | null>(
     null,
   );
-
-  /**
-   * Private writable signal for agent recommendations.
-   * Contains scored recommendations for all 13 agents based on project analysis.
-   */
   private readonly recommendationsSignal = signal<AgentRecommendation[]>([]);
-
-  /**
-   * Private writable signal for generation progress.
-   * Tracks progress of agents during generation.
-   */
   private readonly skillGenerationProgressSignal = signal<
     SkillGenerationProgressItem[]
   >([]);
-
-  /**
-   * Private writable signal for selected agents map.
-   * Maps agentId to selection state (true = selected).
-   */
   private readonly selectedAgentsMapSignal = signal<Record<string, boolean>>(
     {},
   );
 
-  // === Fallback Warning State ===
-
-  /**
-   * Private writable signal for fallback warning message.
-   * Set when agentic analysis falls back to quick analysis mode.
-   * Displayed as a non-blocking warning in the scan progress UI.
-   */
+  // Fallback Warning + Enhanced Prompts
   private readonly fallbackWarningSignal = signal<string | null>(null);
-
-  // === Enhanced Prompts State Signals ===
-
-  /**
-   * Private writable signal for Enhanced Prompts generation status.
-   * Tracks whether Enhanced Prompts has been generated during wizard setup.
-   */
   private readonly enhancedPromptsStatusSignal =
     signal<EnhancedPromptsWizardStatus>('idle');
-
-  /**
-   * Private writable signal for Enhanced Prompts error message.
-   */
   private readonly enhancedPromptsErrorSignal = signal<string | null>(null);
-
-  /**
-   * Private writable signal for Enhanced Prompts detected stack.
-   * Populated after successful generation.
-   */
   private readonly enhancedPromptsDetectedStackSignal = signal<string[] | null>(
     null,
   );
-
-  /**
-   * Private writable signal for Enhanced Prompts generation summary.
-   * Contains section metadata (names, word counts) without actual content.
-   */
   private readonly enhancedPromptsSummarySignal =
     signal<EnhancedPromptsSummary | null>(null);
 
-  // === Multi-Phase Analysis State Signals (TASK_2025_154) ===
-
-  /**
-   * Private writable signal for current phase number in multi-phase analysis.
-   * 1-based index of the currently running phase.
-   */
+  // Multi-Phase Analysis (TASK_2025_154) — 1-based phase counters.
   private readonly _currentPhaseNumber = signal<number | null>(null);
-
-  /**
-   * Private writable signal for total number of phases in multi-phase analysis.
-   */
   private readonly _totalPhaseCount = signal<number | null>(null);
-
-  /**
-   * Private writable signal for per-phase status tracking.
-   * Each entry tracks a phase's id and its current status.
-   */
   private readonly _phaseStatuses = signal<
     Array<{ id: string; status: string }>
   >([]);
-
-  /**
-   * Private writable signal for multi-phase analysis result.
-   * Contains the full MultiPhaseAnalysisResponse when multi-phase pipeline was used.
-   */
   private readonly multiPhaseResultSignal =
     signal<MultiPhaseAnalysisResponse | null>(null);
 
-  // === Saved Analysis History State Signals ===
-
-  /**
-   * Private writable signal for saved analyses list (metadata only).
-   * Populated from backend via wizard:list-analyses RPC.
-   */
+  // Saved Analysis History
   private readonly savedAnalysesSignal = signal<SavedAnalysisMetadata[]>([]);
-
-  /**
-   * Private writable signal tracking whether current analysis was loaded from history.
-   * When true, the analysis was loaded (not scanned fresh).
-   */
   private readonly analysisLoadedFromHistorySignal = signal(false);
 
-  // === Community Agent Pack State (TASK_2025_258) ===
-
-  /**
-   * Private writable signal for available community agent packs.
-   * Populated from backend via wizard:list-agent-packs RPC.
-   */
+  // Community Agent Pack (TASK_2025_258)
   private readonly communityPacksSignal = signal<AgentPackInfoDto[]>([]);
-
-  /**
-   * Private writable signal for community packs loading state.
-   */
   private readonly communityPacksLoadingSignal = signal(false);
-
-  /**
-   * Private writable signal for per-agent install status.
-   * Key format: "{source}::{file}" for unique identification across packs.
-   */
+  // agentInstallStatus key format: "{source}::{file}".
   private readonly agentInstallStatusSignal = signal<
     Record<string, 'idle' | 'installing' | 'installed' | 'error'>
   >({});
-
-  /**
-   * Private writable signal for currently expanded pack source.
-   * Only one pack can be expanded at a time.
-   */
   private readonly expandedPackSourceSignal = signal<string | null>(null);
 
-  // === New Project State Signals ===
-
-  /**
-   * Private writable signal for wizard path (existing vs new project).
-   * null until the user chooses a path on the welcome screen.
-   */
+  // New Project Path
   private readonly wizardPathSignal = signal<WizardPath>(null);
-
-  /**
-   * Private writable signal for the selected new project type.
-   */
   private readonly newProjectTypeSignal = signal<NewProjectType | null>(null);
-
-  /**
-   * Private writable signal for discovery question groups.
-   * Populated from backend after project type selection.
-   */
   private readonly questionGroupsSignal = signal<QuestionGroup[]>([]);
-
-  /**
-   * Private writable signal for the currently displayed question group index.
-   */
   private readonly currentGroupIndexSignal = signal<number>(0);
-
-  /**
-   * Private writable signal for accumulated discovery answers.
-   * Keyed by question ID.
-   */
   private readonly discoveryAnswersSignal = signal<DiscoveryAnswers>({});
-
-  /**
-   * Private writable signal for the generated master plan.
-   */
   private readonly masterPlanSignal = signal<MasterPlan | null>(null);
-
-  /**
-   * Private writable signal for plan generation loading state.
-   */
   private readonly planGeneratingSignal = signal<boolean>(false);
-
   private readonly forceRegenerateSignal = signal<boolean>(false);
 
-  /**
-   * Public readonly signal for current wizard step
-   */
+  // === Public Readonly Projections ===
+  // One-line projections for each writable signal above. Per-field JSDoc was
+  // intentionally removed in Wave C7h to keep the coordinator under the LOC
+  // ceiling — field names + their declared types provide sufficient context.
+
+  // Core flow
   public readonly currentStep = this.currentStepSignal.asReadonly();
-
-  /**
-   * Public readonly signal for detected project context
-   */
   public readonly projectContext = this.projectContextSignal.asReadonly();
-
-  /**
-   * Public readonly signal for available agents
-   */
   public readonly availableAgents = this.availableAgentsSignal.asReadonly();
-
-  /**
-   * Public readonly signal for generation progress
-   */
   public readonly generationProgress =
     this.generationProgressSignal.asReadonly();
-
-  /**
-   * Public readonly signal for scan progress
-   */
   public readonly scanProgress = this.scanProgressSignal.asReadonly();
-
-  /**
-   * Public readonly signal for analysis stream messages.
-   * Used by AnalysisTranscriptComponent to display live agent transcript.
-   */
   public readonly analysisStream = this.analysisStreamSignal.asReadonly();
-
-  /**
-   * Public readonly signal for per-phase streaming states.
-   * Used by AnalysisTranscriptComponent to build ExecutionNode trees.
-   * TASK_2025_229
-   */
   public readonly phaseStreamingStates =
     this.phaseStreamingStatesSignal.asReadonly();
-
-  /**
-   * Public readonly signal for generation stream messages.
-   * Used by GenerationProgressComponent to display live agent transcript during content generation.
-   */
+  /** O(1) lookup by phaseKey. Derived from {@link phaseStreamingStates}. */
+  public readonly phaseStreamingStatesById =
+    this.phaseStreamingStatesByIdSignal;
   public readonly generationStream = this.generationStreamSignal.asReadonly();
-
-  /**
-   * Public readonly signal for enhance stream messages.
-   * Used by PromptEnhancementComponent to display live agent transcript during enhanced prompts generation.
-   */
   public readonly enhanceStream = this.enhanceStreamSignal.asReadonly();
-
-  /**
-   * Public readonly signal for analysis results
-   */
   public readonly analysisResults = this.analysisResultsSignal.asReadonly();
-
-  /**
-   * Public readonly signal for completion data
-   */
   public readonly completionData = this.completionDataSignal.asReadonly();
-
-  /**
-   * Public readonly signal for error state
-   */
   public readonly errorState = this.errorStateSignal.asReadonly();
 
-  // === Deep Analysis Public Signals (TASK_2025_111) ===
-
-  /**
-   * Public readonly signal for deep project analysis results.
-   * Use this to display architecture patterns, key files, and code health.
-   */
+  // Deep Analysis (TASK_2025_111)
   public readonly deepAnalysis = this.deepAnalysisSignal.asReadonly();
-
-  /**
-   * Public readonly signal for agent recommendations.
-   * Contains all 13 agents with relevance scores and matched criteria.
-   */
   public readonly recommendations = this.recommendationsSignal.asReadonly();
-
-  /**
-   * Public readonly signal for generation progress.
-   * Tracks individual progress of agents.
-   */
   public readonly skillGenerationProgress =
     this.skillGenerationProgressSignal.asReadonly();
-
-  /**
-   * Public readonly signal for selected agents map.
-   * Provides direct access to agent selection state.
-   */
   public readonly selectedAgentsMap = this.selectedAgentsMapSignal.asReadonly();
 
-  // === Fallback Warning Public Signal ===
-
-  /**
-   * Public readonly signal for fallback warning message.
-   * Non-null when agentic analysis fell back to quick analysis mode.
-   */
+  // Fallback Warning + Enhanced Prompts
   public readonly fallbackWarning = this.fallbackWarningSignal.asReadonly();
-
-  // === Enhanced Prompts Public Signals ===
-
-  /**
-   * Public readonly signal for Enhanced Prompts generation status.
-   */
   public readonly enhancedPromptsStatus =
     this.enhancedPromptsStatusSignal.asReadonly();
-
-  /**
-   * Public readonly signal for Enhanced Prompts error message.
-   */
   public readonly enhancedPromptsError =
     this.enhancedPromptsErrorSignal.asReadonly();
-
-  /**
-   * Public readonly signal for Enhanced Prompts detected stack labels.
-   */
   public readonly enhancedPromptsDetectedStack =
     this.enhancedPromptsDetectedStackSignal.asReadonly();
-
-  /**
-   * Public readonly signal for Enhanced Prompts generation summary.
-   * Contains section metadata (names, word counts) without actual content.
-   */
   public readonly enhancedPromptsSummary =
     this.enhancedPromptsSummarySignal.asReadonly();
 
-  // === Saved Analysis History Public Signals ===
-
-  /**
-   * Public readonly signal for saved analyses metadata.
-   * Used by the welcome component to display analysis history cards.
-   */
+  // Saved Analysis History
   public readonly savedAnalyses = this.savedAnalysesSignal.asReadonly();
-
-  /**
-   * Public readonly signal for whether the current analysis was loaded from history.
-   */
   public readonly analysisLoadedFromHistory =
     this.analysisLoadedFromHistorySignal.asReadonly();
 
-  // === Community Agent Pack Public Signals (TASK_2025_258) ===
-
-  /**
-   * Public readonly signal for available community agent packs.
-   */
+  // Community Agent Pack (TASK_2025_258)
   public readonly communityPacks = this.communityPacksSignal.asReadonly();
-
-  /**
-   * Public readonly signal for community packs loading state.
-   */
   public readonly communityPacksLoading =
     this.communityPacksLoadingSignal.asReadonly();
-
-  /**
-   * Public readonly signal for per-agent install status map.
-   */
   public readonly agentInstallStatus =
     this.agentInstallStatusSignal.asReadonly();
-
-  /**
-   * Public readonly signal for currently expanded pack source.
-   */
   public readonly expandedPackSource =
     this.expandedPackSourceSignal.asReadonly();
 
-  // === New Project Public Signals ===
-
-  /**
-   * Public readonly signal for wizard path (existing vs new project).
-   */
+  // New Project Path
   public readonly wizardPath = this.wizardPathSignal.asReadonly();
-
-  /**
-   * Public readonly signal for selected new project type.
-   */
   public readonly newProjectType = this.newProjectTypeSignal.asReadonly();
-
-  /**
-   * Public readonly signal for discovery question groups.
-   */
   public readonly questionGroups = this.questionGroupsSignal.asReadonly();
-
-  /**
-   * Public readonly signal for current question group index.
-   */
   public readonly currentGroupIndex = this.currentGroupIndexSignal.asReadonly();
-
-  /**
-   * Public readonly signal for accumulated discovery answers.
-   */
   public readonly discoveryAnswers = this.discoveryAnswersSignal.asReadonly();
-
-  /**
-   * Public readonly signal for the generated master plan.
-   */
   public readonly masterPlan = this.masterPlanSignal.asReadonly();
-
-  /**
-   * Public readonly signal for plan generation loading state.
-   */
   public readonly planGenerating = this.planGeneratingSignal.asReadonly();
-
   public readonly forceRegenerate = this.forceRegenerateSignal.asReadonly();
 
-  /**
-   * Computed signal for count of installed community agents.
-   */
-  public readonly installedCommunityAgentCount = computed(() => {
-    const statuses = this.agentInstallStatusSignal();
-    return Object.values(statuses).filter((s) => s === 'installed').length;
-  });
-
-  // === Multi-Phase Analysis Public Signals (TASK_2025_154) ===
-
-  /**
-   * Public readonly signal for current phase number (1-based).
-   */
+  // Multi-Phase Analysis (TASK_2025_154)
   public readonly currentPhaseNumber = this._currentPhaseNumber.asReadonly();
-
-  /**
-   * Public readonly signal for total number of phases.
-   */
   public readonly totalPhaseCount = this._totalPhaseCount.asReadonly();
-
-  /**
-   * Public readonly signal for per-phase status tracking.
-   */
   public readonly phaseStatuses = this._phaseStatuses.asReadonly();
-
-  /**
-   * Public readonly signal for multi-phase analysis result.
-   * Non-null when the wizard used the multi-phase pipeline.
-   */
   public readonly multiPhaseResult = this.multiPhaseResultSignal.asReadonly();
 
-  /**
-   * Computed signal indicating whether a multi-phase analysis is active.
-   * True when totalPhaseCount is set and greater than zero.
-   */
-  public readonly isMultiPhaseAnalysis = computed(
-    () =>
-      this._totalPhaseCount() !== null && (this._totalPhaseCount() ?? 0) > 0,
-  );
-
-  /**
-   * Computed signal indicating whether we have a completed multi-phase result.
-   */
-  public readonly hasMultiPhaseResult = computed(
-    () => this.multiPhaseResultSignal() !== null,
-  );
-
-  // === New Project Computed Signals ===
-
-  /**
-   * Computed signal for the currently displayed question group.
-   * Returns null if no groups are loaded or index is out of bounds.
-   */
-  public readonly currentQuestionGroup = computed(() => {
-    const groups = this.questionGroupsSignal();
-    const index = this.currentGroupIndexSignal();
-    return groups[index] ?? null;
-  });
-
-  /**
-   * Computed signal indicating whether all required questions in the current group are answered.
-   */
-  public readonly currentGroupComplete = computed(() => {
-    const group = this.currentQuestionGroup();
-    if (!group) return false;
-    const answers = this.discoveryAnswersSignal();
-    return group.questions
-      .filter((q) => q.required)
-      .every((q) => {
-        const answer = answers[q.id];
-        if (answer === undefined || answer === null) return false;
-        if (Array.isArray(answer))
-          return answer.length >= (q.minSelections ?? 1);
-        return String(answer).trim().length > 0;
-      });
-  });
-
-  /**
-   * Computed signal indicating whether the current group is the last in the sequence.
-   */
-  public readonly isLastGroup = computed(() => {
-    const groups = this.questionGroupsSignal();
-    return this.currentGroupIndexSignal() >= groups.length - 1;
-  });
-
-  /**
-   * Computed signal for the active wizard step configuration based on the chosen path.
-   * Returns different step sequences and labels for 'existing' vs 'new' project paths.
-   */
-  public readonly activeStepConfig = computed<{
-    steps: WizardStep[];
-    labels: string[];
-  }>(() => {
-    const path = this.wizardPathSignal();
-    if (path === 'new') {
-      return {
-        steps: [
-          'welcome',
-          'project-type',
-          'discovery',
-          'plan-generation',
-          'plan-review',
-          'selection',
-          'generation',
-          'completion',
-        ],
-        labels: [
-          'Welcome',
-          'Type',
-          'Discovery',
-          'Planning',
-          'Review',
-          'Select',
-          'Generate',
-          'Complete',
-        ],
-      };
-    }
-    return {
-      steps: [
-        'welcome',
-        'scan',
-        'analysis',
-        'selection',
-        'generation',
-        'enhance',
-        'completion',
-      ],
-      labels: [
-        'Welcome',
-        'Scan',
-        'Analysis',
-        'Select',
-        'Generate',
-        'Enhance',
-        'Complete',
-      ],
-    };
-  });
-
   // ============================================================================
-  // HELPER COMPOSITION (Wave C7b split)
+  // HELPER COMPOSITION (Wave C7b + C7h split)
   // ============================================================================
 
+  // C7b helpers — message-handling pipeline
   private readonly streamAccumulator: WizardStreamAccumulator;
   private readonly phaseAnalysis: WizardPhaseAnalysis;
   private readonly phaseGeneration: WizardPhaseGeneration;
   private readonly messageDispatcher: WizardMessageDispatcher;
 
+  /**
+   * Wave F1 (TASK_2026_103): the {@link WizardInternalState} handle the
+   * coordinator constructs for its in-process helpers. Exposed so
+   * `provideWizardInternalState()` can bind it to the
+   * `WIZARD_INTERNAL_STATE` DI token for external consumers without
+   * re-importing the coordinator class (which would re-form a cycle).
+   */
+  private internalState!: WizardInternalState;
+
+  // C7h helpers — state-mutation surface
+  private readonly flowState: WizardFlowState;
+  private readonly scanState: WizardScanState;
+  private readonly analysisState: WizardAnalysisState;
+  private readonly generationState: WizardGenerationState;
+  private readonly communityPacksState: WizardCommunityPacksState;
+
+  // C7h: derived (computed) signals — see ./setup-wizard/wizard-computeds.ts
+  private readonly computeds: WizardComputeds;
+
+  // === Public Computed Signals (delegated to WizardComputeds) ===
+  // Signal IDENTITY is preserved: each delegate exposes the SAME `Signal`
+  // instance constructed inside the helper, so Angular's reactive root tracking
+  // sees a single signal across coordinator + helper.
+  public readonly installedCommunityAgentCount: WizardComputeds['installedCommunityAgentCount'];
+  public readonly isMultiPhaseAnalysis: WizardComputeds['isMultiPhaseAnalysis'];
+  public readonly hasMultiPhaseResult: WizardComputeds['hasMultiPhaseResult'];
+  public readonly currentQuestionGroup: WizardComputeds['currentQuestionGroup'];
+  public readonly currentGroupComplete: WizardComputeds['currentGroupComplete'];
+  public readonly isLastGroup: WizardComputeds['isLastGroup'];
+  public readonly activeStepConfig: WizardComputeds['activeStepConfig'];
+  public readonly selectedCount: WizardComputeds['selectedCount'];
+  public readonly canProceed: WizardComputeds['canProceed'];
+  public readonly percentComplete: WizardComputeds['percentComplete'];
+  public readonly stepIndex: WizardComputeds['stepIndex'];
+  public readonly recommendedAgents: WizardComputeds['recommendedAgents'];
+  public readonly totalGenerationItems: WizardComputeds['totalGenerationItems'];
+  public readonly generationCompletionPercentage: WizardComputeds['generationCompletionPercentage'];
+  public readonly isGenerationComplete: WizardComputeds['isGenerationComplete'];
+  public readonly failedGenerationItems: WizardComputeds['failedGenerationItems'];
+
   public constructor() {
-    const internalState: WizardInternalState = {
+    this.internalState = {
+      // C7b core flow
       projectContext: this.projectContextSignal,
       availableAgents: this.availableAgentsSignal,
       generationProgress: this.generationProgressSignal,
@@ -844,17 +342,45 @@ export class SetupWizardStateService {
           this.currentStepSignal.set('enhance');
         }
       },
+      // C7h: wizard step + new-project flow
+      currentStep: this.currentStepSignal,
+      wizardPath: this.wizardPathSignal,
+      newProjectType: this.newProjectTypeSignal,
+      questionGroups: this.questionGroupsSignal,
+      currentGroupIndex: this.currentGroupIndexSignal,
+      discoveryAnswers: this.discoveryAnswersSignal,
+      masterPlan: this.masterPlanSignal,
+      planGenerating: this.planGeneratingSignal,
+      forceRegenerate: this.forceRegenerateSignal,
+      // C7h: deep analysis + recommendations + selection + history
+      deepAnalysis: this.deepAnalysisSignal,
+      recommendations: this.recommendationsSignal,
+      selectedAgentsMap: this.selectedAgentsMapSignal,
+      multiPhaseResult: this.multiPhaseResultSignal,
+      savedAnalyses: this.savedAnalysesSignal,
+      analysisLoadedFromHistory: this.analysisLoadedFromHistorySignal,
+      // C7h: enhanced prompts
+      enhancedPromptsStatus: this.enhancedPromptsStatusSignal,
+      enhancedPromptsError: this.enhancedPromptsErrorSignal,
+      enhancedPromptsDetectedStack: this.enhancedPromptsDetectedStackSignal,
+      enhancedPromptsSummary: this.enhancedPromptsSummarySignal,
+      // C7h: community packs (TASK_2025_258)
+      communityPacks: this.communityPacksSignal,
+      communityPacksLoading: this.communityPacksLoadingSignal,
+      agentInstallStatus: this.agentInstallStatusSignal,
+      expandedPackSource: this.expandedPackSourceSignal,
     };
 
+    // C7b helpers
     this.streamAccumulator = new WizardStreamAccumulator(
       this.phaseStreamingStatesSignal,
     );
     this.phaseAnalysis = new WizardPhaseAnalysis(
-      internalState,
+      this.internalState,
       this.streamAccumulator,
     );
     this.phaseGeneration = new WizardPhaseGeneration(
-      internalState,
+      this.internalState,
       this.streamAccumulator,
     );
 
@@ -881,7 +407,46 @@ export class SetupWizardStateService {
       this.errorStateSignal,
     );
 
+    // C7h helpers — state-mutation surface
+    this.flowState = new WizardFlowState(this.internalState);
+    this.scanState = new WizardScanState(this.internalState);
+    this.analysisState = new WizardAnalysisState(this.internalState);
+    this.generationState = new WizardGenerationState(this.internalState);
+    this.communityPacksState = new WizardCommunityPacksState(
+      this.internalState,
+    );
+
+    // C7h: derived signals — delegated 1:1 (same Signal instance)
+    this.computeds = new WizardComputeds(this.internalState);
+    this.installedCommunityAgentCount =
+      this.computeds.installedCommunityAgentCount;
+    this.isMultiPhaseAnalysis = this.computeds.isMultiPhaseAnalysis;
+    this.hasMultiPhaseResult = this.computeds.hasMultiPhaseResult;
+    this.currentQuestionGroup = this.computeds.currentQuestionGroup;
+    this.currentGroupComplete = this.computeds.currentGroupComplete;
+    this.isLastGroup = this.computeds.isLastGroup;
+    this.activeStepConfig = this.computeds.activeStepConfig;
+    this.selectedCount = this.computeds.selectedCount;
+    this.canProceed = this.computeds.canProceed;
+    this.percentComplete = this.computeds.percentComplete;
+    this.stepIndex = this.computeds.stepIndex;
+    this.recommendedAgents = this.computeds.recommendedAgents;
+    this.totalGenerationItems = this.computeds.totalGenerationItems;
+    this.generationCompletionPercentage =
+      this.computeds.generationCompletionPercentage;
+    this.isGenerationComplete = this.computeds.isGenerationComplete;
+    this.failedGenerationItems = this.computeds.failedGenerationItems;
+
     this.ensureMessageListenerRegistered();
+  }
+
+  /**
+   * Wave F1 (TASK_2026_103): expose the internal-state handle for the
+   * `WIZARD_INTERNAL_STATE` provider. Caller MUST be `provideWizardInternalState`
+   * — components and other services should use the dedicated public surface.
+   */
+  public getInternalState(): WizardInternalState {
+    return this.internalState;
   }
 
   /**
@@ -893,145 +458,6 @@ export class SetupWizardStateService {
     this.messageDispatcher.ensureRegistered();
     this.isMessageListenerRegistered = true;
   }
-
-  // === Computed Signals ===
-
-  /**
-   * Selected agents count (for display)
-   */
-  public readonly selectedCount = computed(() => {
-    return this.availableAgentsSignal().filter((a) => a.selected).length;
-  });
-
-  /**
-   * Can proceed to next step (validation logic)
-   */
-  public readonly canProceed = computed(() => {
-    const step = this.currentStepSignal();
-    switch (step) {
-      case 'premium-check':
-        return false; // Cannot proceed until license verified
-      case 'welcome':
-        return true; // Always can start
-      case 'scan':
-        return false; // Cannot proceed during scan
-      case 'analysis':
-        return this.projectContextSignal() !== null; // Need project context
-      case 'selection':
-        return this.selectedCount() > 0; // Need at least one agent
-      case 'enhance':
-        return false; // Enhance step manages its own Continue button
-      case 'generation':
-        return false; // Cannot proceed during generation
-      case 'completion':
-        return true; // Wizard complete
-      // New project path steps
-      case 'project-type':
-        return this.newProjectTypeSignal() !== null;
-      case 'discovery':
-        return this.currentGroupComplete();
-      case 'plan-generation':
-        return false; // Cannot proceed during plan generation
-      case 'plan-review':
-        return this.masterPlanSignal() !== null;
-      default:
-        return false;
-    }
-  });
-
-  /**
-   * Overall wizard completion percentage (0-100)
-   */
-  public readonly percentComplete = computed(() => {
-    const step = this.currentStepSignal();
-    const progress = this.generationProgressSignal();
-
-    // Base progress from step progression
-    const stepProgress: Record<WizardStep, number> = {
-      'premium-check': 0,
-      welcome: 5,
-      scan: 20,
-      analysis: 35,
-      selection: 50,
-      generation: progress?.percentComplete ?? 55,
-      enhance: 85,
-      completion: 100,
-      // New project path steps
-      'project-type': 15,
-      discovery: 30,
-      'plan-generation': 45,
-      'plan-review': 55,
-    };
-
-    return stepProgress[step];
-  });
-
-  /**
-   * Current step index (0-based) for the UI progress indicator.
-   * Excludes 'premium-check' since that step is not displayed in the stepper.
-   * Uses activeStepConfig to support both existing and new project paths.
-   */
-  public readonly stepIndex = computed(() => {
-    const step = this.currentStepSignal();
-    const config = this.activeStepConfig();
-    return config.steps.indexOf(step);
-  });
-
-  // === Deep Analysis Computed Signals (TASK_2025_111) ===
-
-  /**
-   * Computed signal for recommended agents (score >= 75).
-   * Returns agents that are highly relevant to the project.
-   */
-  public readonly recommendedAgents = computed(() => {
-    return this.recommendationsSignal().filter(
-      (recommendation) => recommendation.relevanceScore >= 75,
-    );
-  });
-
-  /**
-   * Computed signal for total generation items count.
-   * Counts selected agents only.
-   */
-  public readonly totalGenerationItems = computed(() => {
-    const selectedAgents = this.selectedAgentsMapSignal();
-    return Object.values(selectedAgents).filter(Boolean).length;
-  });
-
-  /**
-   * Computed signal for generation completion percentage.
-   * Based on skill generation progress items.
-   */
-  public readonly generationCompletionPercentage = computed(() => {
-    const items = this.skillGenerationProgressSignal();
-    if (items.length === 0) return 0;
-
-    const completedCount = items.filter(
-      (item) => item.status === 'complete',
-    ).length;
-    return Math.round((completedCount / items.length) * 100);
-  });
-
-  /**
-   * Computed signal indicating if all generation items are complete.
-   */
-  public readonly isGenerationComplete = computed(() => {
-    const items = this.skillGenerationProgressSignal();
-    if (items.length === 0) return false;
-
-    return items.every(
-      (item) => item.status === 'complete' || item.status === 'error',
-    );
-  });
-
-  /**
-   * Computed signal for generation items with errors.
-   */
-  public readonly failedGenerationItems = computed(() => {
-    return this.skillGenerationProgressSignal().filter(
-      (item) => item.status === 'error',
-    );
-  });
 
   // === Prerequisite-Based Navigation (Persistent Analysis History) ===
 
@@ -1060,432 +486,205 @@ export class SetupWizardStateService {
     }
   }
 
-  // === State Mutations ===
+  // === State Mutations (delegated to C7h sub-helpers) ===
+  // Per-method JSDoc lives on the helper classes under ./setup-wizard/.
+  // Coordinator methods are thin 1-line passthroughs; method names + signatures
+  // are preserved byte-identical for the 11 component consumers.
 
-  /**
-   * Set current wizard step
-   */
   public setCurrentStep(step: WizardStep): void {
-    this.currentStepSignal.set(step);
+    this.flowState.setCurrentStep(step);
   }
 
-  /**
-   * Update project context from scan results
-   */
   public setProjectContext(context: ProjectContext): void {
-    this.projectContextSignal.set(context);
+    this.scanState.setProjectContext(context);
   }
 
-  /**
-   * Set available agents (from backend)
-   */
   public setAvailableAgents(agents: AgentSelection[]): void {
-    this.availableAgentsSignal.set(agents);
+    this.scanState.setAvailableAgents(agents);
   }
 
-  /**
-   * Toggle agent selection
-   */
   public toggleAgentSelection(agentId: string): void {
-    this.availableAgentsSignal.update((agents) =>
-      agents.map((agent) =>
-        agent.id === agentId ? { ...agent, selected: !agent.selected } : agent,
-      ),
-    );
+    this.scanState.toggleAgentSelection(agentId);
   }
 
-  /**
-   * Update generation progress
-   */
   public updateGenerationProgress(progress: GenerationProgress): void {
-    this.generationProgressSignal.set(progress);
+    this.generationState.updateGenerationProgress(progress);
   }
 
   /**
-   * Reset wizard state (for restart)
+   * Reset wizard state (for restart).
+   *
+   * Orchestrates the cross-cutting reset by invoking each sub-helper's
+   * `reset()` slice plus `phaseGeneration.resetPassState()` plus 5
+   * direct-set calls for signals owned by C7b helpers that don't expose
+   * a `reset()` method (analysisStream, phaseStreamingStates,
+   * generationStream, enhanceStream, scanProgress).
+   *
+   * The set of signals reset here is byte-equivalent to the original
+   * 47-LOC body at lines 1107–1153 (pre-C7h). Source order is not
+   * strictly preserved because the helper-level groupings interleave —
+   * however all `.set()` calls are independent and computeds re-run only
+   * after all sets complete, so final state is identical.
+   *
+   * Note: `savedAnalyses` is intentionally NOT reset (kept intact across
+   * wizard restarts — see `WizardAnalysisState.reset()` JSDoc).
    */
   public reset(): void {
-    this.currentStepSignal.set('welcome');
-    this.projectContextSignal.set(null);
-    this.availableAgentsSignal.set([]);
-    this.generationProgressSignal.set(null);
+    this.flowState.reset();
+    this.scanState.reset();
+    this.analysisState.reset();
+    this.generationState.reset();
+    this.communityPacksState.reset();
+    this.phaseGeneration.resetPassState();
+
+    // Direct-set: signals owned by C7b helpers without reset() methods.
     this.scanProgressSignal.set(null);
     this.analysisStreamSignal.set([]);
-    this.phaseStreamingStatesSignal.set(new Map()); // TASK_2025_229: Clear streaming states
+    this.phaseStreamingStatesSignal.set([]); // TASK_2025_229 / Wave F2
     this.generationStreamSignal.set([]);
     this.enhanceStreamSignal.set([]);
-    this.analysisResultsSignal.set(null);
-    this.completionDataSignal.set(null);
-    this.errorStateSignal.set(null);
-    this.fallbackWarningSignal.set(null);
-    this.phaseGeneration.resetPassState();
-    // Reset deep analysis state (TASK_2025_111)
-    this.deepAnalysisSignal.set(null);
-    this.recommendationsSignal.set([]);
-    this.skillGenerationProgressSignal.set([]);
-    this.selectedAgentsMapSignal.set({});
-    // Reset Enhanced Prompts state
-    this.enhancedPromptsStatusSignal.set('idle');
-    this.enhancedPromptsErrorSignal.set(null);
-    this.enhancedPromptsDetectedStackSignal.set(null);
-    this.enhancedPromptsSummarySignal.set(null);
-    // Reset multi-phase analysis state (TASK_2025_154)
-    this._currentPhaseNumber.set(null);
-    this._totalPhaseCount.set(null);
-    this._phaseStatuses.set([]);
-    this.multiPhaseResultSignal.set(null);
-    // Reset analysis history state (keep savedAnalyses list intact)
-    this.analysisLoadedFromHistorySignal.set(false);
-    // Reset community agent pack state (TASK_2025_258)
-    this.communityPacksSignal.set([]);
-    this.communityPacksLoadingSignal.set(false);
-    this.agentInstallStatusSignal.set({});
-    this.expandedPackSourceSignal.set(null);
-    // Reset new project state
-    this.wizardPathSignal.set(null);
-    this.newProjectTypeSignal.set(null);
-    this.questionGroupsSignal.set([]);
-    this.currentGroupIndexSignal.set(0);
-    this.discoveryAnswersSignal.set({});
-    this.masterPlanSignal.set(null);
-    this.planGeneratingSignal.set(false);
-    this.forceRegenerateSignal.set(false);
   }
 
   // === Community Agent Pack State Mutations (TASK_2025_258) ===
 
-  /**
-   * Set available community agent packs.
-   * Called after fetching pack manifests from backend.
-   *
-   * @param packs - Array of community agent pack info DTOs
-   */
   public setCommunityPacks(packs: AgentPackInfoDto[]): void {
-    this.communityPacksSignal.set(packs);
+    this.communityPacksState.setCommunityPacks(packs);
   }
 
-  /**
-   * Set community packs loading state.
-   *
-   * @param loading - Whether packs are currently being fetched
-   */
   public setCommunityPacksLoading(loading: boolean): void {
-    this.communityPacksLoadingSignal.set(loading);
+    this.communityPacksState.setCommunityPacksLoading(loading);
   }
 
-  /**
-   * Set install status for a specific agent.
-   * Key format: "{source}::{file}" for unique identification across packs.
-   *
-   * @param key - Unique key identifying the agent ({source}::{file})
-   * @param status - Current install status
-   */
   public setAgentInstallStatus(
     key: string,
     status: 'idle' | 'installing' | 'installed' | 'error',
   ): void {
-    this.agentInstallStatusSignal.update((map) => ({
-      ...map,
-      [key]: status,
-    }));
+    this.communityPacksState.setAgentInstallStatus(key, status);
   }
 
-  /**
-   * Toggle expanded pack source.
-   * Collapses if the same source is already expanded, otherwise expands.
-   *
-   * @param source - Pack source URL to toggle
-   */
   public toggleExpandedPack(source: string): void {
-    this.expandedPackSourceSignal.update((current) =>
-      current === source ? null : source,
-    );
+    this.communityPacksState.toggleExpandedPack(source);
   }
 
   // === New Project State Mutations ===
 
-  /**
-   * Set the wizard path (existing vs new project).
-   * Called when the user chooses a path on the welcome screen.
-   */
   public setWizardPath(path: WizardPath): void {
-    this.wizardPathSignal.set(path);
+    this.flowState.setWizardPath(path);
   }
 
-  /**
-   * Set the selected new project type.
-   * Called when the user picks a project type (e.g., full-saas, angular-app).
-   */
   public setNewProjectType(type: NewProjectType): void {
-    this.newProjectTypeSignal.set(type);
+    this.flowState.setNewProjectType(type);
   }
 
-  /**
-   * Set discovery question groups from the backend.
-   * Resets the current group index to 0 and clears any stale discovery answers
-   * (e.g., from a previously selected project type).
-   */
   public setQuestionGroups(groups: QuestionGroup[]): void {
-    this.questionGroupsSignal.set(groups);
-    this.currentGroupIndexSignal.set(0);
-    this.discoveryAnswersSignal.set({});
+    this.flowState.setQuestionGroups(groups);
   }
 
-  /**
-   * Set a single discovery answer by question ID.
-   * Immutably updates the answers map.
-   */
   public setDiscoveryAnswer(questionId: string, value: AnswerValue): void {
-    this.discoveryAnswersSignal.update((answers) => ({
-      ...answers,
-      [questionId]: value,
-    }));
+    this.flowState.setDiscoveryAnswer(questionId, value);
   }
 
-  /**
-   * Advance to the next question group.
-   * No-op if already on the last group.
-   */
   public nextQuestionGroup(): void {
-    const groups = this.questionGroupsSignal();
-    const current = this.currentGroupIndexSignal();
-    if (current < groups.length - 1) {
-      this.currentGroupIndexSignal.set(current + 1);
-    }
+    this.flowState.nextQuestionGroup();
   }
 
-  /**
-   * Go back to the previous question group.
-   * No-op if already on the first group.
-   */
   public previousQuestionGroup(): void {
-    const current = this.currentGroupIndexSignal();
-    if (current > 0) {
-      this.currentGroupIndexSignal.set(current - 1);
-    }
+    this.flowState.previousQuestionGroup();
   }
 
-  /**
-   * Set the generated master plan.
-   * Called when plan generation completes successfully, or null to clear it.
-   */
   public setMasterPlan(plan: MasterPlan | null): void {
-    this.masterPlanSignal.set(plan);
+    this.flowState.setMasterPlan(plan);
   }
 
-  /**
-   * Set the plan generation loading state.
-   */
   public setPlanGenerating(generating: boolean): void {
-    this.planGeneratingSignal.set(generating);
+    this.flowState.setPlanGenerating(generating);
   }
 
   public setForceRegenerate(force: boolean): void {
-    this.forceRegenerateSignal.set(force);
+    this.flowState.setForceRegenerate(force);
   }
 
   // === Deep Analysis State Mutations (TASK_2025_111) ===
 
-  /**
-   * Set deep project analysis results.
-   * Called after MCP-powered analysis completes.
-   *
-   * @param analysis - Comprehensive project analysis from backend
-   */
   public setDeepAnalysis(analysis: ProjectAnalysisResult): void {
-    this.deepAnalysisSignal.set(analysis);
+    this.analysisState.setDeepAnalysis(analysis);
   }
 
-  /**
-   * Set agent recommendations from deep analysis.
-   * Auto-selects agents with relevance score >= 80.
-   *
-   * @param recommendations - Array of agent recommendations with scores
-   */
   public setRecommendations(recommendations: AgentRecommendation[]): void {
-    this.recommendationsSignal.set(recommendations);
-
-    // Auto-select agents with score >= 80 (highly recommended)
-    const autoSelected: Record<string, boolean> = {};
-    for (const rec of recommendations) {
-      autoSelected[rec.agentId] = rec.relevanceScore >= 80;
-    }
-    this.selectedAgentsMapSignal.set(autoSelected);
+    this.analysisState.setRecommendations(recommendations);
   }
 
-  /**
-   * Toggle agent selection in the recommendations map.
-   *
-   * @param agentId - Agent identifier to toggle
-   */
   public toggleAgentRecommendationSelection(agentId: string): void {
-    this.selectedAgentsMapSignal.update((selected) => ({
-      ...selected,
-      [agentId]: !selected[agentId],
-    }));
+    this.analysisState.toggleAgentRecommendationSelection(agentId);
   }
 
-  /**
-   * Set multiple agent selections at once.
-   *
-   * @param selections - Map of agentId to selection state
-   */
   public setAgentSelections(selections: Record<string, boolean>): void {
-    this.selectedAgentsMapSignal.set(selections);
+    this.analysisState.setAgentSelections(selections);
   }
 
-  /**
-   * Select all recommended agents (score >= 75).
-   */
   public selectAllRecommended(): void {
-    this.selectedAgentsMapSignal.update((selected) => {
-      const updated = { ...selected };
-      for (const rec of this.recommendationsSignal()) {
-        if (rec.recommended) {
-          updated[rec.agentId] = true;
-        }
-      }
-      return updated;
-    });
+    this.analysisState.selectAllRecommended();
   }
 
-  /**
-   * Deselect all agents.
-   */
   public deselectAllAgents(): void {
-    this.selectedAgentsMapSignal.update((selected) => {
-      const updated = { ...selected };
-      for (const key of Object.keys(updated)) {
-        updated[key] = false;
-      }
-      return updated;
-    });
+    this.analysisState.deselectAllAgents();
   }
 
-  // === Fallback Warning State Mutation ===
+  // === Fallback Warning + Enhanced Prompts ===
 
-  /**
-   * Set or clear the fallback warning message.
-   * Called when agentic analysis falls back to quick analysis mode.
-   */
   public setFallbackWarning(warning: string | null): void {
-    this.fallbackWarningSignal.set(warning);
+    this.scanState.setFallbackWarning(warning);
   }
 
-  // === Enhanced Prompts State Mutations ===
-
-  /**
-   * Set Enhanced Prompts generation status.
-   */
   public setEnhancedPromptsStatus(status: EnhancedPromptsWizardStatus): void {
-    this.enhancedPromptsStatusSignal.set(status);
+    this.scanState.setEnhancedPromptsStatus(status);
   }
 
-  /**
-   * Set Enhanced Prompts error message.
-   */
   public setEnhancedPromptsError(error: string | null): void {
-    this.enhancedPromptsErrorSignal.set(error);
+    this.scanState.setEnhancedPromptsError(error);
   }
 
-  /**
-   * Set Enhanced Prompts detected stack for display.
-   */
   public setEnhancedPromptsDetectedStack(stack: string[] | null): void {
-    this.enhancedPromptsDetectedStackSignal.set(stack);
+    this.scanState.setEnhancedPromptsDetectedStack(stack);
   }
 
-  /**
-   * Set Enhanced Prompts generation summary.
-   * Contains section metadata without actual prompt content (IP protection).
-   */
   public setEnhancedPromptsSummary(
     summary: EnhancedPromptsSummary | null,
   ): void {
-    this.enhancedPromptsSummarySignal.set(summary);
+    this.scanState.setEnhancedPromptsSummary(summary);
   }
 
-  // === Multi-Phase Result State Mutation ===
+  // === Multi-Phase Result + Saved Analysis History ===
 
-  /**
-   * Set multi-phase analysis result.
-   * Called when wizard:deep-analyze returns a MultiPhaseAnalysisResponse.
-   */
   public setMultiPhaseResult(result: MultiPhaseAnalysisResponse): void {
-    this.multiPhaseResultSignal.set(result);
+    this.analysisState.setMultiPhaseResult(result);
   }
 
-  // === Saved Analysis History State Mutations ===
-
-  /**
-   * Set saved analyses list from backend.
-   * Called when the welcome component fetches the list.
-   */
   public setSavedAnalyses(analyses: SavedAnalysisMetadata[]): void {
-    this.savedAnalysesSignal.set(analyses);
+    this.analysisState.setSavedAnalyses(analyses);
   }
 
-  /**
-   * Load a saved multi-phase analysis into state.
-   * Sets multiPhaseResult and marks as loaded from history.
-   * Does NOT set recommendations — caller should fetch them separately
-   * via recommendAgents() after loading.
-   *
-   * @param multiPhase - Multi-phase analysis response
-   */
   public loadSavedAnalysis(multiPhase: MultiPhaseAnalysisResponse): void {
-    this.multiPhaseResultSignal.set(multiPhase);
-    this.analysisLoadedFromHistorySignal.set(true);
-
-    // Set projectContext from slug for backward compatibility
-    const projectType = multiPhase.manifest.slug
-      .replace(/-/g, ' ')
-      .replace(/\b\w/g, (c) => c.toUpperCase());
-    this.projectContextSignal.set({
-      type: projectType,
-      techStack: [],
-      isMonorepo: false,
-    });
+    this.analysisState.loadSavedAnalysis(multiPhase);
   }
 
-  /**
-   * Set skill generation progress items.
-   * Called when generation begins with initial item list.
-   *
-   * @param items - Array of generation progress items
-   */
+  // === Skill Generation Progress ===
+
   public setSkillGenerationProgress(
     items: SkillGenerationProgressItem[],
   ): void {
-    this.skillGenerationProgressSignal.set(items);
+    this.generationState.setSkillGenerationProgress(items);
   }
 
-  /**
-   * Update a single skill generation progress item.
-   *
-   * @param itemId - Item identifier to update
-   * @param update - Partial update to apply
-   */
   public updateSkillGenerationItem(
     itemId: string,
     update: Partial<SkillGenerationProgressItem>,
   ): void {
-    this.skillGenerationProgressSignal.update((items) =>
-      items.map((item) => (item.id === itemId ? { ...item, ...update } : item)),
-    );
+    this.generationState.updateSkillGenerationItem(itemId, update);
   }
 
-  /**
-   * Reset a failed generation item for retry.
-   *
-   * @param itemId - Item identifier to reset
-   */
   public retryGenerationItem(itemId: string): void {
-    this.updateSkillGenerationItem(itemId, {
-      status: 'pending',
-      progress: 0,
-      errorMessage: undefined,
-    });
+    this.generationState.retryGenerationItem(itemId);
   }
 
   /**

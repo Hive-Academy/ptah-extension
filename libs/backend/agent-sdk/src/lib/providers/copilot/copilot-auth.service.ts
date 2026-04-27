@@ -32,13 +32,15 @@ import type {
 import type {
   ICopilotAuthService,
   CopilotAuthState,
+  CopilotDeviceLoginInfo,
+  CopilotPollLoginOptions,
   CopilotTokenResponse,
 } from './copilot-provider.types';
 import { SdkError } from '../../errors';
 import { readCopilotToken, writeCopilotToken } from './copilot-file-auth';
 import {
-  executeDeviceCodeFlow,
-  type DeviceCodeCallbacks,
+  pollForAccessToken,
+  requestDeviceCode,
 } from './copilot-device-code-auth';
 
 /** Token refresh buffer: refresh 5 minutes before actual expiry */
@@ -67,6 +69,27 @@ const DEFAULT_TOKEN_EXCHANGE_URL =
  */
 const DEFAULT_COPILOT_CLIENT_ID = 'Iv1.b507a08c87ecfe98';
 
+/** Default polling timeout for {@link CopilotAuthService.pollLogin} (5 min). */
+const DEFAULT_POLL_LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** Auto-prune in-flight device-code entries after this many milliseconds. */
+const PENDING_LOGIN_PRUNE_MS = 10 * 60 * 1000;
+
+/**
+ * In-flight device-code login entry tracked by {@link CopilotAuthService}.
+ * Keyed by `deviceCode` so multiple concurrent login flows are independent.
+ */
+interface PendingLoginEntry {
+  /** GitHub OAuth client ID used to request this device code. */
+  clientId: string;
+  /** Server-recommended polling interval in seconds (used as the default). */
+  intervalSeconds: number;
+  /** Aborted when {@link CopilotAuthService.cancelLogin} fires for this entry. */
+  abortController: AbortController;
+  /** Timer that auto-prunes the entry if the caller never polls. */
+  pruneTimer: ReturnType<typeof setTimeout>;
+}
+
 /**
  * Safely describes a token for logging — never exposes the full value.
  * Returns format: "length=42, prefix=ghp_abc1..."
@@ -85,6 +108,14 @@ export class CopilotAuthService implements ICopilotAuthService {
 
   /** Lazily resolved extension version for User-Agent headers */
   private extensionVersion: string | null = null;
+
+  /**
+   * In-flight device-code login flows keyed by `deviceCode`. Populated by
+   * {@link beginLogin}, drained by {@link pollLogin} or {@link cancelLogin},
+   * and auto-pruned after {@link PENDING_LOGIN_PRUNE_MS} so a forgotten
+   * device code never leaks an AbortController + timer.
+   */
+  private readonly pendingLogins = new Map<string, PendingLoginEntry>();
 
   constructor(
     @inject(TOKENS.LOGGER) protected readonly logger: Logger,
@@ -138,38 +169,64 @@ export class CopilotAuthService implements ICopilotAuthService {
         return true;
       }
 
-      // Strategy 2: GitHub Device Code flow
+      // Strategy 2: GitHub Device Code flow.
+      //
+      // TASK_2026_104 B8a: this path is now expressed as
+      //   beginLogin() → surface user code via IUserInteraction → pollLogin()
+      // so the headless CLI can drive the same primitives via JSON-RPC.
+      // Webview UX is preserved verbatim — clipboard write, info message
+      // with the device code, and openExternal still fire from this method.
       this.logger.info(
         '[CopilotAuth] Starting GitHub device code OAuth flow...',
       );
-      const deviceToken = await this.executeDeviceCodeLogin();
-      if (!deviceToken) {
-        return false;
-      }
 
-      const exchanged = await this.exchangeToken(deviceToken);
-      if (exchanged) {
-        // Persist token to disk so the user doesn't need to re-authenticate
-        // on app restart (especially important for Electron users).
-        // writeCopilotToken is best-effort — failure is logged but doesn't
-        // break the auth flow.
-        try {
-          await writeCopilotToken(deviceToken);
-          this.logger.info(
-            '[CopilotAuth] Device code token persisted to hosts.json',
-          );
-        } catch (persistError) {
-          this.logger.warn(
-            `[CopilotAuth] Failed to persist device code token: ${persistError instanceof Error ? persistError.message : String(persistError)}`,
-          );
-        }
-      }
-      return exchanged;
+      const deviceLogin = await this.beginLogin();
+      await this.surfaceDeviceCodeToUser(
+        deviceLogin.userCode,
+        deviceLogin.verificationUri,
+      );
+      return await this.pollLogin(deviceLogin.deviceCode);
     } catch (error) {
       this.logger.error(
         `[CopilotAuth] Login failed: ${error instanceof Error ? error.message : String(error)}`,
       );
       return false;
+    }
+  }
+
+  /**
+   * Show the device code to the end user via the platform-agnostic
+   * IUserInteraction surface: copy the code to the clipboard, surface a
+   * dialog containing the code + verification URL, and try to open the URL
+   * in the default browser.
+   *
+   * Extracted so {@link login} (the legacy webview path) can call it between
+   * {@link beginLogin} and {@link pollLogin} without leaking
+   * IUserInteraction details into the headless `pollLogin` API.
+   */
+  private async surfaceDeviceCodeToUser(
+    userCode: string,
+    verificationUri: string,
+  ): Promise<void> {
+    // Copy device code to clipboard — best-effort.
+    try {
+      await this.userInteraction.writeToClipboard(userCode);
+      this.logger.info('[CopilotAuth] Device code copied to clipboard');
+    } catch {
+      // Clipboard write is best-effort
+    }
+
+    // Show dialog with the code (in case clipboard didn't work).
+    void this.userInteraction.showInformationMessage(
+      `Code "${userCode}" copied to clipboard.\nPaste it at ${verificationUri} to complete authentication.`,
+      'OK',
+    );
+
+    // Open the verification URL in the default browser — best-effort.
+    try {
+      await this.userInteraction.openExternal(verificationUri);
+    } catch {
+      // Browser open is best-effort — user can navigate manually
     }
   }
 
@@ -224,13 +281,14 @@ export class CopilotAuthService implements ICopilotAuthService {
   }
 
   /**
-   * Execute the device code login flow, displaying the user code
-   * via the platform-agnostic IUserInteraction service.
+   * Resolve the GitHub OAuth App client ID for the device-code flow.
    *
-   * Uses the well-known GitHub Copilot client ID by default.
-   * Can be overridden via settings for enterprise GitHub instances.
+   * Reads the workspace `provider.github-copilot.clientId` override and
+   * falls back to the well-known GitHub Copilot client ID. Used by both
+   * {@link beginLogin} and {@link login} so the headless and webview paths
+   * stay in lockstep with respect to enterprise overrides.
    */
-  private async executeDeviceCodeLogin(): Promise<string | null> {
+  private resolveClientId(): string {
     const configured =
       this.workspaceProvider.getConfiguration<string>(
         'ptah',
@@ -238,34 +296,167 @@ export class CopilotAuthService implements ICopilotAuthService {
         '',
       ) ?? '';
 
-    const clientId = configured || DEFAULT_COPILOT_CLIENT_ID;
+    return configured || DEFAULT_COPILOT_CLIENT_ID;
+  }
 
-    const callbacks: DeviceCodeCallbacks = {
-      onUserCode: async (userCode, verificationUri) => {
-        // Copy device code to clipboard and open browser for the user
-        try {
-          await this.userInteraction.writeToClipboard(userCode);
-          this.logger.info('[CopilotAuth] Device code copied to clipboard');
-        } catch {
-          // Clipboard write is best-effort
-        }
+  // ---------------------------------------------------------------------------
+  // Headless device-code API (TASK_2026_104 B8a)
+  // ---------------------------------------------------------------------------
 
-        // Show dialog with the code (in case clipboard didn't work)
-        void this.userInteraction.showInformationMessage(
-          `Code "${userCode}" copied to clipboard.\nPaste it at ${verificationUri} to complete authentication.`,
-          'OK',
+  /**
+   * Step 1 of the headless device-code flow. Requests a fresh device code
+   * from GitHub, registers an in-flight entry keyed by `deviceCode`, and
+   * returns the metadata the caller needs to surface to the end user.
+   *
+   * Concurrent calls produce independent entries with distinct device codes.
+   * Entries are auto-pruned after {@link PENDING_LOGIN_PRUNE_MS} so a caller
+   * that never polls cannot leak the AbortController + timer.
+   */
+  async beginLogin(): Promise<CopilotDeviceLoginInfo> {
+    const clientId = this.resolveClientId();
+    this.logger.info(
+      '[CopilotAuth] Requesting GitHub device code (headless API)...',
+    );
+
+    const response = await requestDeviceCode(clientId);
+    const abortController = new AbortController();
+    const pruneTimer = setTimeout(() => {
+      const entry = this.pendingLogins.get(response.device_code);
+      if (entry) {
+        entry.abortController.abort();
+        this.pendingLogins.delete(response.device_code);
+        this.logger.warn(
+          '[CopilotAuth] Pruned stale pending device-code login (10 min elapsed without poll completion)',
         );
+      }
+    }, PENDING_LOGIN_PRUNE_MS);
+    // Allow the process to exit naturally even if a prune timer is still
+    // pending (Node-only; no-op in browser-like envs).
+    if (typeof (pruneTimer as { unref?: () => void }).unref === 'function') {
+      (pruneTimer as { unref: () => void }).unref();
+    }
 
-        // Open the verification URL in the default browser
-        try {
-          await this.userInteraction.openExternal(verificationUri);
-        } catch {
-          // Browser open is best-effort — user can navigate manually
-        }
-      },
+    this.pendingLogins.set(response.device_code, {
+      clientId,
+      intervalSeconds: response.interval,
+      abortController,
+      pruneTimer,
+    });
+
+    return {
+      deviceCode: response.device_code,
+      userCode: response.user_code,
+      verificationUri: response.verification_uri,
+      interval: response.interval,
+      expiresIn: response.expires_in,
     };
+  }
 
-    return executeDeviceCodeFlow(this.logger, callbacks, clientId);
+  /**
+   * Step 2 of the headless device-code flow. Polls GitHub for the access
+   * token associated with `deviceCode`, exchanges it for a Copilot bearer
+   * token on success, and persists the GitHub token to disk so subsequent
+   * launches restore silently.
+   *
+   * Returns `false` (without throwing) for every non-success outcome:
+   * unknown `deviceCode`, polling timeout, abort, user denial, or exchange
+   * failure. The pending entry is always removed before returning.
+   */
+  async pollLogin(
+    deviceCode: string,
+    opts: CopilotPollLoginOptions = {},
+  ): Promise<boolean> {
+    const entry = this.pendingLogins.get(deviceCode);
+    if (!entry) {
+      this.logger.warn(
+        '[CopilotAuth] pollLogin called with unknown deviceCode — beginLogin must run first or the flow was already cancelled',
+      );
+      return false;
+    }
+
+    const intervalSeconds = opts.intervalSeconds ?? entry.intervalSeconds;
+    const intervalMs = Math.max(intervalSeconds, 1) * 1000;
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_POLL_LOGIN_TIMEOUT_MS;
+
+    // External signal (e.g. CLI SIGINT handler) wired to the entry's
+    // controller so cancelLogin and the external signal both halt polling.
+    const externalSignal = opts.signal;
+    const onExternalAbort = (): void => entry.abortController.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        entry.abortController.abort();
+      } else {
+        externalSignal.addEventListener('abort', onExternalAbort, {
+          once: true,
+        });
+      }
+    }
+
+    try {
+      const githubToken = await pollForAccessToken(deviceCode, entry.clientId, {
+        intervalMs,
+        timeoutMs,
+        signal: entry.abortController.signal,
+        logger: this.logger,
+      });
+
+      if (!githubToken) {
+        // Cancelled, expired, denied, timed out, or unknown error — already
+        // logged by pollForAccessToken when applicable.
+        return false;
+      }
+
+      const exchanged = await this.exchangeToken(githubToken);
+      if (!exchanged) {
+        return false;
+      }
+
+      // Persist the GitHub token so the next launch can restore silently.
+      // writeCopilotToken is best-effort — failure is logged but doesn't
+      // break the auth flow.
+      try {
+        await writeCopilotToken(githubToken);
+        this.logger.info(
+          '[CopilotAuth] Device code token persisted to hosts.json',
+        );
+      } catch (persistError) {
+        this.logger.warn(
+          `[CopilotAuth] Failed to persist device code token: ${persistError instanceof Error ? persistError.message : String(persistError)}`,
+        );
+      }
+
+      return true;
+    } finally {
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onExternalAbort);
+      }
+      this.removePendingLogin(deviceCode);
+    }
+  }
+
+  /**
+   * Cancel an in-flight {@link pollLogin} for the given device code. Aborts
+   * the polling AbortController (so the awaiting promise resolves with
+   * `false`) and removes the pending entry. No-op for unknown device codes.
+   */
+  cancelLogin(deviceCode: string): void {
+    const entry = this.pendingLogins.get(deviceCode);
+    if (!entry) {
+      return;
+    }
+    entry.abortController.abort();
+    this.removePendingLogin(deviceCode);
+    this.logger.info(
+      '[CopilotAuth] Cancelled in-flight device-code login (headless API)',
+    );
+  }
+
+  /** Drop a pending entry and clear its prune timer. */
+  private removePendingLogin(deviceCode: string): void {
+    const entry = this.pendingLogins.get(deviceCode);
+    if (!entry) return;
+    clearTimeout(entry.pruneTimer);
+    this.pendingLogins.delete(deviceCode);
   }
 
   /**

@@ -48,12 +48,6 @@ function parentDir(path: string): string {
   return idx <= 0 ? '' : posix.slice(0, idx);
 }
 
-function basename(path: string): string {
-  const posix = path.replace(/\\/g, '/');
-  const idx = posix.lastIndexOf('/');
-  return idx < 0 ? posix : posix.slice(idx + 1);
-}
-
 function enoent(path: string): Error {
   const err = new Error(`ENOENT: no such file or directory, '${path}'`);
   (err as Error & { code?: string }).code = 'ENOENT';

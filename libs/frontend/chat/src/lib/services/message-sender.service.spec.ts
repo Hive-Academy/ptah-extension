@@ -1,5 +1,5 @@
-/**
- * MessageSenderService specs — mediator that routes send/continue based on
+﻿/**
+ * MessageSenderService specs â€” mediator that routes send/continue based on
  * whether the target tab already has a claudeSessionId.
  *
  * Coverage focuses on:
@@ -14,7 +14,7 @@
  *   - tabId option scopes to a non-active tab (canvas tile isolation)
  *
  * The full continueConversation path involves SessionManager state machine +
- * backend resume semantics — out of scope for this unit spec; covered by the
+ * backend resume semantics â€” out of scope for this unit spec; covered by the
  * chat flow integration tests.
  */
 
@@ -28,10 +28,11 @@ import {
   VSCodeService,
 } from '@ptah-extension/core';
 import { MessageSenderService } from './message-sender.service';
-import { TabManagerService } from './tab-manager.service';
-import { SessionManager } from './session-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import { SessionManager } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
-import type { TabState } from './chat.types';
+import type { TabState } from '@ptah-extension/chat-types';
+import type { ExecutionChatMessage } from '@ptah-extension/shared';
 
 function makeTab(overrides: Partial<TabState> = {}): TabState {
   return {
@@ -55,11 +56,19 @@ describe('MessageSenderService', () => {
     tabs: ReturnType<typeof computed<TabState[]>>;
     activeTabId: ReturnType<typeof computed<string | null>>;
     activeTab: ReturnType<typeof computed<TabState | null>>;
-    updateTab: jest.Mock;
     createTab: jest.Mock;
     switchTab: jest.Mock;
     markTabStreaming: jest.Mock;
     markTabIdle: jest.Mock;
+    // TASK_2026_103 Wave E2: AbortController plumbing for tab-close â†’ stream-cancel.
+    createAbortController: jest.Mock;
+    applyNewConversationStreaming: jest.Mock;
+    appendUserMessageAndResetStreaming: jest.Mock;
+    markLoaded: jest.Mock;
+    markStreaming: jest.Mock;
+    markResuming: jest.Mock;
+    detachSessionAndMarkLoaded: jest.Mock;
+    setMessages: jest.Mock;
   };
   let sessionManager: jest.Mocked<
     Pick<
@@ -79,23 +88,57 @@ describe('MessageSenderService', () => {
     tabsSignal = signal<TabState[]>([makeTab({ id: 'tab-1' })]);
     activeTabIdSignal = signal<string | null>('tab-1');
 
+    const applyPatch = (tabId: string, patch: Partial<TabState>): void => {
+      tabsSignal.update((tabs) =>
+        tabs.map((t) =>
+          t.id === tabId ? ({ ...t, ...patch } as TabState) : t,
+        ),
+      );
+    };
+
     tabManager = {
       tabs: computed(() => tabsSignal()),
       activeTabId: computed(() => activeTabIdSignal()),
       activeTab: computed(
         () => tabsSignal().find((t) => t.id === activeTabIdSignal()) ?? null,
       ),
-      updateTab: jest.fn((tabId: string, patch: Partial<TabState>) => {
-        tabsSignal.update((tabs) =>
-          tabs.map((t) =>
-            t.id === tabId ? ({ ...t, ...patch } as TabState) : t,
-          ),
-        );
-      }),
       createTab: jest.fn(() => 'tab-new'),
       switchTab: jest.fn(),
       markTabStreaming: jest.fn(),
       markTabIdle: jest.fn(),
+      // TASK_2026_103 Wave E2: stub returns a real AbortSignal so the
+      // wireAbortDispatch listener can attach without throwing.
+      createAbortController: jest.fn(() => new AbortController().signal),
+      applyNewConversationStreaming: jest.fn((tabId: string, name: string) =>
+        applyPatch(tabId, {
+          name,
+          title: name,
+          status: 'streaming',
+        } as Partial<TabState>),
+      ),
+      appendUserMessageAndResetStreaming: jest.fn(
+        (tabId: string, messages: ExecutionChatMessage[]) =>
+          applyPatch(tabId, {
+            messages,
+            currentMessageId: null,
+            streamingState: null,
+          }),
+      ),
+      markLoaded: jest.fn((tabId: string) =>
+        applyPatch(tabId, { status: 'loaded' }),
+      ),
+      markStreaming: jest.fn((tabId: string) =>
+        applyPatch(tabId, { status: 'streaming' }),
+      ),
+      markResuming: jest.fn((tabId: string) =>
+        applyPatch(tabId, { status: 'resuming' }),
+      ),
+      detachSessionAndMarkLoaded: jest.fn((tabId: string) =>
+        applyPatch(tabId, { claudeSessionId: null, status: 'loaded' }),
+      ),
+      setMessages: jest.fn((tabId: string, messages: ExecutionChatMessage[]) =>
+        applyPatch(tabId, { messages }),
+      ),
     };
 
     sessionManager = {
@@ -173,6 +216,8 @@ describe('MessageSenderService', () => {
       expect(rpcCall).toHaveBeenCalledWith(
         'chat:start',
         expect.objectContaining({ prompt: 'hello' }),
+        // TASK_2026_103 Wave E2: third arg is RpcCallOptions with abort signal.
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
 
@@ -234,6 +279,8 @@ describe('MessageSenderService', () => {
       expect(rpcCall).toHaveBeenCalledWith(
         'chat:start',
         expect.objectContaining({ prompt: 'x' }),
+        // TASK_2026_103 Wave E2: third arg is RpcCallOptions with abort signal.
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
   });
@@ -260,6 +307,8 @@ describe('MessageSenderService', () => {
             effort: 'high',
           }),
         }),
+        // TASK_2026_103 Wave E2: third arg is RpcCallOptions with abort signal.
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
 
@@ -268,38 +317,31 @@ describe('MessageSenderService', () => {
       const prompt = 'Explain the new module boundaries in the monorepo';
       await service.send(prompt);
 
-      const naming = tabManager.updateTab.mock.calls
-        .map((c) => c[1])
-        .find(
-          (p): p is { name: string; title: string } =>
-            typeof (p as { name?: unknown }).name === 'string',
-        );
-      expect(naming!.name).toBe(prompt.substring(0, 50).trim());
+      expect(tabManager.applyNewConversationStreaming).toHaveBeenCalledWith(
+        'tab-1',
+        prompt.substring(0, 50).trim(),
+      );
     });
 
     it('appends a user message with the raw content and files', async () => {
       rpcCall.mockResolvedValue({ success: true });
       await service.send('hello', { files: ['a.ts', 'b.ts'] });
 
-      const messagesPatch = tabManager.updateTab.mock.calls
-        .map((c) => c[1])
-        .find((p) => Array.isArray((p as { messages?: unknown }).messages)) as {
-        messages: Array<{ role: string; rawContent: string; files?: string[] }>;
-      };
-      expect(messagesPatch.messages[0].role).toBe('user');
-      expect(messagesPatch.messages[0].rawContent).toBe('hello');
-      expect(messagesPatch.messages[0].files).toEqual(['a.ts', 'b.ts']);
+      expect(
+        tabManager.appendUserMessageAndResetStreaming,
+      ).toHaveBeenCalledTimes(1);
+      const [, msgs] = tabManager.appendUserMessageAndResetStreaming.mock
+        .calls[0] as [string, ExecutionChatMessage[]];
+      expect(msgs[0].role).toBe('user');
+      expect(msgs[0].rawContent).toBe('hello');
+      expect((msgs[0] as { files?: string[] }).files).toEqual(['a.ts', 'b.ts']);
     });
 
     it('on RPC failure marks the tab loaded and calls failSession', async () => {
       rpcCall.mockResolvedValue({ success: false, error: 'nope' });
       await service.send('hello');
       expect(sessionManager.failSession).toHaveBeenCalled();
-      const lastStatusPatch = tabManager.updateTab.mock.calls
-        .slice()
-        .reverse()
-        .find((c) => (c[1] as { status?: unknown }).status === 'loaded');
-      expect(lastStatusPatch).toBeDefined();
+      expect(tabManager.markLoaded).toHaveBeenCalledWith('tab-1');
     });
 
     it('warns and returns early when no workspace is available', async () => {

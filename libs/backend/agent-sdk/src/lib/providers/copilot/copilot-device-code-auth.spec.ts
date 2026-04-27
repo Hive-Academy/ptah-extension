@@ -40,6 +40,8 @@ import {
 } from '@ptah-extension/shared/testing';
 import {
   executeDeviceCodeFlow,
+  pollForAccessToken,
+  requestDeviceCode,
   type DeviceCodeCallbacks,
   type DeviceCodeResponse,
 } from './copilot-device-code-auth';
@@ -66,16 +68,6 @@ function asLogger(mock: MockLogger): Logger {
  */
 async function advanceByAsync(ms: number): Promise<void> {
   await jest.advanceTimersByTimeAsync(ms);
-}
-
-/**
- * Flush the microtask queue without advancing time. Use this after starting
- * the flow so the initial `await axios.post(...)` for the device-code
- * request resolves before we start ticking the polling interval.
- */
-async function flushMicrotasks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
 }
 
 // ---------------------------------------------------------------------------
@@ -454,5 +446,195 @@ describe('executeDeviceCodeFlow', () => {
         ),
       ).rejects.toThrow('github down');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// requestDeviceCode — TASK_2026_104 B8a split. Standalone POST to the device
+// code endpoint, no polling, no callbacks. The CLI calls this directly so the
+// resulting deviceCode + userCode + verificationUri can be surfaced over
+// JSON-RPC instead of through IUserInteraction.
+// ---------------------------------------------------------------------------
+
+describe('requestDeviceCode', () => {
+  beforeEach(() => {
+    mockedAxios.post = jest.fn() as AxiosPostMock;
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('posts client_id + scope=copilot and returns the parsed payload', async () => {
+    mockedAxios.post.mockResolvedValueOnce(makeDeviceCodeResponse());
+
+    const result = await requestDeviceCode(CLIENT_ID_FIXTURE);
+
+    expect(result).toEqual({
+      device_code: 'device-abc',
+      user_code: 'USER-CODE',
+      verification_uri: 'https://github.com/login/device',
+      expires_in: 900,
+      interval: 5,
+    });
+
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      DEVICE_CODE_URL,
+      expect.any(URLSearchParams),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Accept: 'application/json' }),
+        timeout: 15_000,
+      }),
+    );
+
+    const body = mockedAxios.post.mock.calls[0][1] as URLSearchParams;
+    expect(body.get('client_id')).toBe(CLIENT_ID_FIXTURE);
+    expect(body.get('scope')).toBe('copilot');
+  });
+
+  it('propagates network errors so the caller can attach structured logging', async () => {
+    mockedAxios.post.mockRejectedValueOnce(new Error('github down'));
+
+    await expect(requestDeviceCode(CLIENT_ID_FIXTURE)).rejects.toThrow(
+      'github down',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pollForAccessToken — TASK_2026_104 B8a split. Polls the GitHub
+// /login/oauth/access_token endpoint until the user completes browser auth
+// or the configured timeout / abort signal fires.
+// ---------------------------------------------------------------------------
+
+describe('pollForAccessToken', () => {
+  let clock: FrozenClock;
+
+  beforeEach(() => {
+    clock = freezeTime('2026-01-01T00:00:00Z');
+    mockedAxios.post = jest.fn() as AxiosPostMock;
+  });
+
+  afterEach(() => {
+    clock.restore();
+    jest.clearAllMocks();
+  });
+
+  it('returns the access_token on the first successful poll', async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: { access_token: 'gho_happy' },
+    });
+
+    const flow = pollForAccessToken('device-abc', CLIENT_ID_FIXTURE, {
+      intervalMs: 5_000,
+    });
+    await advanceByAsync(5_000);
+
+    await expect(flow).resolves.toBe('gho_happy');
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+
+    const body = mockedAxios.post.mock.calls[0][1] as URLSearchParams;
+    expect(body.get('client_id')).toBe(CLIENT_ID_FIXTURE);
+    expect(body.get('device_code')).toBe('device-abc');
+    expect(body.get('grant_type')).toBe(
+      'urn:ietf:params:oauth:grant-type:device_code',
+    );
+  });
+
+  it('continues polling silently on authorization_pending', async () => {
+    mockedAxios.post
+      .mockResolvedValueOnce({ data: { error: 'authorization_pending' } })
+      .mockResolvedValueOnce({ data: { error: 'authorization_pending' } })
+      .mockResolvedValueOnce({ data: { access_token: 'gho_finally' } });
+
+    const flow = pollForAccessToken('device-abc', CLIENT_ID_FIXTURE, {
+      intervalMs: 5_000,
+    });
+
+    await advanceByAsync(5_000);
+    await advanceByAsync(5_000);
+    await advanceByAsync(5_000);
+
+    await expect(flow).resolves.toBe('gho_finally');
+    expect(mockedAxios.post).toHaveBeenCalledTimes(3);
+  });
+
+  it('honours slow_down by adding 5s to the polling interval', async () => {
+    mockedAxios.post
+      .mockResolvedValueOnce({ data: { error: 'slow_down' } })
+      .mockResolvedValueOnce({ data: { access_token: 'gho_after_slow' } });
+
+    const flow = pollForAccessToken('device-abc', CLIENT_ID_FIXTURE, {
+      intervalMs: 5_000,
+    });
+
+    // First poll fires at 5s.
+    await advanceByAsync(5_000);
+    await Promise.resolve();
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+
+    // Next poll should NOT fire before 10s (5s base + 5s slow_down increment).
+    await advanceByAsync(9_999);
+    await Promise.resolve();
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+
+    await advanceByAsync(1);
+    await expect(flow).resolves.toBe('gho_after_slow');
+    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns null when the timeoutMs budget is exhausted', async () => {
+    // Always pending — never returns a token.
+    mockedAxios.post.mockResolvedValue({
+      data: { error: 'authorization_pending' },
+    });
+
+    const flow = pollForAccessToken('device-abc', CLIENT_ID_FIXTURE, {
+      intervalMs: 5_000,
+      timeoutMs: 12_000, // ~2 polls fit before timeout
+    });
+
+    // Run far past the budget so the loop exits cleanly.
+    await advanceByAsync(20_000);
+
+    await expect(flow).resolves.toBeNull();
+  });
+
+  it('resolves null when the AbortSignal fires before the next poll', async () => {
+    // First poll says pending, second poll would succeed — but we abort first.
+    mockedAxios.post
+      .mockResolvedValueOnce({ data: { error: 'authorization_pending' } })
+      .mockResolvedValue({ data: { access_token: 'gho_should_not_arrive' } });
+
+    const controller = new AbortController();
+    const flow = pollForAccessToken('device-abc', CLIENT_ID_FIXTURE, {
+      intervalMs: 5_000,
+      signal: controller.signal,
+    });
+
+    // Tick once so the first poll fires (still pending).
+    await advanceByAsync(5_000);
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+
+    // Abort while the poll loop is in its next interval wait.
+    controller.abort();
+
+    await expect(flow).resolves.toBeNull();
+    // No further axios calls fired after the abort.
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves null immediately when given a pre-aborted signal', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const flow = pollForAccessToken('device-abc', CLIENT_ID_FIXTURE, {
+      intervalMs: 5_000,
+      signal: controller.signal,
+    });
+
+    await expect(flow).resolves.toBeNull();
+    expect(mockedAxios.post).not.toHaveBeenCalled();
   });
 });

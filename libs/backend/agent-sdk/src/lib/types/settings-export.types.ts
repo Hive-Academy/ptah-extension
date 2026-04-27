@@ -153,7 +153,7 @@ export interface PtahSettingsExport {
   exportedAt: string;
 
   /** Which platform produced this export */
-  source: 'vscode' | 'electron';
+  source: 'vscode' | 'electron' | 'cli';
 
   /** License key (ptah.licenseKey) — may be absent if not configured */
   licenseKey?: string;

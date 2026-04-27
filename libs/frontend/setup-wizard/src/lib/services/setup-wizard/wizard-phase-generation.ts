@@ -4,7 +4,7 @@ import type {
   GenerationStreamPayload,
   WizardErrorPayload,
 } from '@ptah-extension/shared';
-import type { CompletionData, ErrorState } from '../setup-wizard-state.service';
+import type { CompletionData, ErrorState } from '../setup-wizard-state.types';
 import type { WizardInternalState } from './wizard-internal-state';
 import type { WizardStreamAccumulator } from './wizard-stream-accumulator';
 

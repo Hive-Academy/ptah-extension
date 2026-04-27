@@ -9,7 +9,7 @@ import { PopoverComponent } from './popover.component';
   standalone: true,
   imports: [PopoverComponent],
   template: `
-    <lib-popover
+    <ptah-popover
       [isOpen]="isOpen()"
       [position]="position()"
       [hasBackdrop]="hasBackdrop()"
@@ -23,7 +23,7 @@ import { PopoverComponent } from './popover.component';
         <button id="first-btn">First Button</button>
         <button id="second-btn">Second Button</button>
       </div>
-    </lib-popover>
+    </ptah-popover>
   `,
 })
 class TestHostComponent {
@@ -187,7 +187,7 @@ describe('PopoverComponent', () => {
 
       const backdrop = document.querySelector('.cdk-overlay-backdrop');
       expect(
-        backdrop?.classList.contains('cdk-overlay-transparent-backdrop')
+        backdrop?.classList.contains('cdk-overlay-transparent-backdrop'),
       ).toBe(true);
     });
 
@@ -199,7 +199,7 @@ describe('PopoverComponent', () => {
 
       const backdrop = document.querySelector('.cdk-overlay-backdrop');
       expect(backdrop?.classList.contains('cdk-overlay-dark-backdrop')).toBe(
-        true
+        true,
       );
     });
   });
@@ -214,7 +214,7 @@ describe('PopoverComponent', () => {
 
       // Find popover panel and dispatch Escape key event
       const popoverPanel = document.querySelector(
-        '.popover-panel'
+        '.popover-panel',
       ) as HTMLElement;
       expect(popoverPanel).toBeTruthy();
 

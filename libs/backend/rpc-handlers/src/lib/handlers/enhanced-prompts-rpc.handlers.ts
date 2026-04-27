@@ -51,6 +51,7 @@ import type {
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { ISaveDialogProvider } from '@ptah-extension/platform-core';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for Enhanced Prompts operations
@@ -81,6 +82,15 @@ interface WebviewBroadcaster {
 
 @injectable()
 export class EnhancedPromptsRpcHandlers {
+  static readonly METHODS = [
+    'enhancedPrompts:getStatus',
+    'enhancedPrompts:runWizard',
+    'enhancedPrompts:setEnabled',
+    'enhancedPrompts:regenerate',
+    'enhancedPrompts:getPromptContent',
+    'enhancedPrompts:download',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

@@ -1,5 +1,5 @@
+import { rpcCall } from '@ptah-extension/core';
 import type { FileTreeNode } from '../../models/file-tree.model';
-import { rpcCall } from '../rpc-call.util';
 import type {
   EditorInternalState,
   EditorWorkspaceState,
