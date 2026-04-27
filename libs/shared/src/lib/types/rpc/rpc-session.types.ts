@@ -6,7 +6,7 @@
  */
 
 import type { SessionId } from '../branded.types';
-import type { ChatSessionSummary } from '../execution-node.types';
+import type { ChatSessionSummary } from '../execution';
 
 // ============================================================
 // Session RPC Types

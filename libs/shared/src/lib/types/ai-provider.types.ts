@@ -3,10 +3,8 @@
  * Supports Claude CLI and VS Code LM API with consistent interfaces
  */
 
-// Browser-compatible stream type
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Readable = any; // In browser context, will be replaced with appropriate stream type
 import { SessionId, CorrelationId } from './branded.types';
+import type { FlatStreamEventUnion } from './execution';
 
 /**
  * Supported AI Provider IDs
@@ -226,13 +224,13 @@ export interface IAIProvider {
       files?: readonly string[];
       /** Inline images (pasted/dropped) to include with the initial message */
       images?: ReadonlyArray<{ data: string; mediaType: string }>;
-    }
-  ): Promise<Readable>;
+    },
+  ): Promise<AsyncIterable<FlatStreamEventUnion>>;
   endSession(sessionId: SessionId): void;
   sendMessageToSession(
     sessionId: SessionId,
     content: string,
-    options?: AIMessageOptions
+    options?: AIMessageOptions,
   ): Promise<void>;
 
   /**
@@ -287,7 +285,7 @@ export interface IProviderManager {
    */
   on(
     event: 'provider-switched' | 'provider-error' | 'provider-health-changed',
-    listener: (data: unknown) => void
+    listener: (data: unknown) => void,
   ): void;
   off(event: string, listener: (data: unknown) => void): void;
 }

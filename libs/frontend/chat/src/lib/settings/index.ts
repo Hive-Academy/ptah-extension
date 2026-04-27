@@ -12,7 +12,6 @@ export { ProviderModelSelectorComponent } from './auth/provider-model-selector.c
 export { LicenseStatusCardComponent } from './license/license-status-card.component';
 export { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 export { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
-export { RuntimeSelectorComponent } from './runtime-selector.component';
 export { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 export { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 export { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';

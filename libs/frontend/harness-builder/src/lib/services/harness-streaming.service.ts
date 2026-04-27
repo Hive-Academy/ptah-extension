@@ -38,10 +38,19 @@ export class HarnessStreamingService implements OnDestroy {
         this.state.startStreaming(payload.operationId);
       }
 
-      // Delegate accumulation to state service
-      this.state.accumulateFlatEvent(payload.event);
+      // TASK_2026_107 Phase 4: route through StreamRouter via the surface
+      // façade instead of the deleted hand-rolled accumulator. The façade
+      // lazy-mints the surface on first event for a given operationId,
+      // so the harness backend doesn't need to emit a discrete "start"
+      // message before the first stream payload.
+      this.state.routeOperationEvent(payload.operationId, payload.event);
     } else if (message.type === 'harness:flat-stream-complete') {
       const payload = message.payload as HarnessFlatStreamCompletePayload;
+      // TASK_2026_107 Phase 4: tear down the per-operation surface routing.
+      // Accumulated streaming state is intentionally retained so the
+      // execution tree continues to render after completion (cleared on
+      // resetStreamingState / reset).
+      this.state.unregisterOperationSurface(payload.operationId);
       this._completionResult.set(payload);
       this.state.stopStreaming();
     }

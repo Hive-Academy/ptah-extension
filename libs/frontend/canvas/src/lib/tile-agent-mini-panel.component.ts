@@ -18,7 +18,10 @@ import {
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { LucideAngularModule, ShieldAlert } from 'lucide-angular';
-import { AgentMonitorStore, type MonitoredAgent } from '@ptah-extension/chat';
+import {
+  AgentMonitorStore,
+  type MonitoredAgent,
+} from '@ptah-extension/chat-streaming';
 import { VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { AgentPermissionRequest } from '@ptah-extension/shared';

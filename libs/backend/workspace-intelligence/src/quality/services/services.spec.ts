@@ -67,85 +67,85 @@ describe('AntiPatternDetectionService', () => {
   });
 
   describe('detectPatterns', () => {
-    it('should detect explicit any type in TypeScript file', () => {
+    it('should detect explicit any type in TypeScript file', async () => {
       const content = `
 function processData(data: any) {
   return data;
 }
 `;
-      const patterns = service.detectPatterns(content, 'src/service.ts');
+      const patterns = await service.detectPatterns(content, 'src/service.ts');
 
       expect(patterns.length).toBeGreaterThan(0);
       expect(patterns.some((p) => p.type === 'typescript-explicit-any')).toBe(
-        true
+        true,
       );
     });
 
-    it('should detect @ts-ignore comment', () => {
+    it('should detect @ts-ignore comment', async () => {
       const content = `
 // @ts-ignore
 const invalid = badCode();
 `;
-      const patterns = service.detectPatterns(content, 'src/hack.ts');
+      const patterns = await service.detectPatterns(content, 'src/hack.ts');
 
       expect(patterns.some((p) => p.type === 'typescript-ts-ignore')).toBe(
-        true
+        true,
       );
     });
 
-    it('should detect empty catch block', () => {
+    it('should detect empty catch block', async () => {
       const content = `
 try {
   riskyOperation();
 } catch (e) { }
 `;
-      const patterns = service.detectPatterns(content, 'src/handler.ts');
+      const patterns = await service.detectPatterns(content, 'src/handler.ts');
 
       expect(patterns.some((p) => p.type === 'error-empty-catch')).toBe(true);
     });
 
-    it('should return empty array for clean code', () => {
+    it('should return empty array for clean code', async () => {
       const content = `
 function greet(name: string): string {
   return \`Hello, \${name}!\`;
 }
 `;
-      const patterns = service.detectPatterns(content, 'src/greet.ts');
+      const patterns = await service.detectPatterns(content, 'src/greet.ts');
 
       expect(patterns.length).toBe(0);
     });
 
-    it('should return empty array for unsupported file extension', () => {
+    it('should return empty array for unsupported file extension', async () => {
       const content = `
 def process(data):
     return data
 `;
-      const patterns = service.detectPatterns(content, 'src/script.py');
+      const patterns = await service.detectPatterns(content, 'src/script.py');
 
       expect(patterns.length).toBe(0);
     });
 
-    it('should return empty array for file without extension', () => {
+    it('should return empty array for file without extension', async () => {
       const content = 'some content';
-      const patterns = service.detectPatterns(content, 'Dockerfile');
+      const patterns = await service.detectPatterns(content, 'Dockerfile');
 
       expect(patterns.length).toBe(0);
     });
 
-    it('should include suggestion for each detected pattern', () => {
+    it('should include suggestion for each detected pattern', async () => {
       const content = `const data: any = null;`;
-      const patterns = service.detectPatterns(content, 'src/file.ts');
+      const patterns = await service.detectPatterns(content, 'src/file.ts');
 
       expect(patterns.length).toBe(1);
       expect(patterns[0].suggestion).toBeDefined();
       expect(patterns[0].suggestion.length).toBeGreaterThan(0);
     });
 
-    it('should include correct location information', () => {
+    it('should include correct location information', async () => {
       const content = `const x = 1;
 const data: any = null;
 const y = 2;`;
-      const patterns = service.detectPatterns(content, 'src/file.ts');
+      const patterns = await service.detectPatterns(content, 'src/file.ts');
 
       expect(patterns[0].location.file).toBe('src/file.ts');
       expect(patterns[0].location.line).toBe(2);
@@ -153,7 +153,7 @@ const y = 2;`;
   });
 
   describe('detectPatternsInFiles', () => {
-    it('should aggregate patterns across multiple files', () => {
+    it('should aggregate patterns across multiple files', async () => {
       const files: SampledFile[] = [
         {
           path: 'src/file1.ts',
@@ -175,19 +175,19 @@ const y = 2;`;
         },
       ];
 
-      const patterns = service.detectPatternsInFiles(files);
+      const patterns = await service.detectPatternsInFiles(files);
 
       expect(patterns.length).toBe(1); // All same type aggregated
       expect(patterns[0].frequency).toBe(3);
     });
 
-    it('should return empty array for empty file list', () => {
-      const patterns = service.detectPatternsInFiles([]);
+    it('should return empty array for empty file list', async () => {
+      const patterns = await service.detectPatternsInFiles([]);
 
       expect(patterns.length).toBe(0);
     });
 
-    it('should return empty array for files with no patterns', () => {
+    it('should return empty array for files with no patterns', async () => {
       const files: SampledFile[] = [
         {
           path: 'src/clean.ts',
@@ -197,12 +197,12 @@ const y = 2;`;
         },
       ];
 
-      const patterns = service.detectPatternsInFiles(files);
+      const patterns = await service.detectPatternsInFiles(files);
 
       expect(patterns.length).toBe(0);
     });
 
-    it('should sort patterns by frequency descending', () => {
+    it('should sort patterns by frequency descending', async () => {
       const files: SampledFile[] = [
         {
           path: 'src/file1.ts',
@@ -224,15 +224,15 @@ const y = 2;`;
         },
       ];
 
-      const patterns = service.detectPatternsInFiles(files);
+      const patterns = await service.detectPatternsInFiles(files);
 
       // any appears twice, ts-ignore once
       expect(patterns[0].frequency).toBeGreaterThanOrEqual(
-        patterns[patterns.length - 1].frequency
+        patterns[patterns.length - 1].frequency,
       );
     });
 
-    it('should build aggregated message with file count', () => {
+    it('should build aggregated message with file count', async () => {
       const files: SampledFile[] = [
         {
           path: 'src/file1.ts',
@@ -248,7 +248,7 @@ const y = 2;`;
         },
       ];
 
-      const patterns = service.detectPatternsInFiles(files);
+      const patterns = await service.detectPatternsInFiles(files);
 
       expect(patterns[0].message).toContain('2 occurrences');
       expect(patterns[0].message).toContain('2 files');
@@ -425,7 +425,7 @@ describe('CodeQualityAssessmentService', () => {
       mockFileSystem,
       mockRelevanceScorer,
       mockAntiPatternDetector,
-      mockFileHashCache as never
+      mockFileHashCache as never,
     );
   });
 
@@ -674,8 +674,8 @@ describe('CodeQualityAssessmentService', () => {
         },
       ];
 
-      mockAntiPatternDetector.detectPatternsInFiles.mockReturnValue(
-        mockPatterns
+      mockAntiPatternDetector.detectPatternsInFiles.mockResolvedValue(
+        mockPatterns,
       );
       mockAntiPatternDetector.calculateScore.mockReturnValue(85);
 
@@ -721,8 +721,8 @@ describe('CodeQualityAssessmentService', () => {
         },
       ];
 
-      mockAntiPatternDetector.detectPatternsInFiles.mockReturnValue(
-        mockPatterns
+      mockAntiPatternDetector.detectPatternsInFiles.mockResolvedValue(
+        mockPatterns,
       );
       mockAntiPatternDetector.calculateScore.mockReturnValue(75);
 
@@ -731,7 +731,9 @@ describe('CodeQualityAssessmentService', () => {
 
       expect(assessment.gaps.length).toBeGreaterThan(0);
       expect(
-        assessment.gaps.some((g) => g.area.toLowerCase().includes('typescript'))
+        assessment.gaps.some((g) =>
+          g.area.toLowerCase().includes('typescript'),
+        ),
       ).toBe(true);
     });
 
@@ -755,10 +757,10 @@ describe('CodeQualityAssessmentService', () => {
       mockIndexer.indexWorkspace.mockResolvedValue(mockFileIndex);
 
       mockFileSystem.readFile.mockResolvedValue(
-        'function clean(): string { return "ok"; }'
+        'function clean(): string { return "ok"; }',
       );
       mockRelevanceScorer.getTopFiles.mockReturnValue([]);
-      mockAntiPatternDetector.detectPatternsInFiles.mockReturnValue([]);
+      mockAntiPatternDetector.detectPatternsInFiles.mockResolvedValue([]);
       mockAntiPatternDetector.calculateScore.mockReturnValue(100);
 
       const workspacePath = 'D:\\test\\project';
@@ -859,7 +861,7 @@ describe('PrescriptiveGuidanceService', () => {
       const guidance = service.generateGuidance(
         assessment,
         mockContext,
-        200 // Very small budget
+        200, // Very small budget
       );
 
       expect(guidance.wasTruncated).toBe(true);
@@ -899,7 +901,7 @@ describe('PrescriptiveGuidanceService', () => {
       // Higher frequency warning * 2 (weight) = 20, error * 3 (weight) * 2 = 6
       // So warning should be first
       expect(guidance.recommendations[0].category.toLowerCase()).toContain(
-        'typescript'
+        'typescript',
       );
     });
 
@@ -927,7 +929,7 @@ describe('PrescriptiveGuidanceService', () => {
 
       expect(guidance.recommendations[0].exampleFiles).toBeDefined();
       expect(guidance.recommendations[0].exampleFiles?.length).toBeGreaterThan(
-        0
+        0,
       );
     });
 
@@ -956,7 +958,7 @@ describe('PrescriptiveGuidanceService', () => {
       expect(guidance.summary).toContain('45/100');
       expect(
         guidance.summary.toLowerCase().includes('needs improvement') ||
-          guidance.summary.toLowerCase().includes('poor')
+          guidance.summary.toLowerCase().includes('poor'),
       ).toBe(true);
     });
 
@@ -978,11 +980,11 @@ describe('PrescriptiveGuidanceService', () => {
 
       const guidance = service.generateGuidance(
         assessment,
-        contextWithFramework
+        contextWithFramework,
       );
 
       expect(
-        guidance.recommendations.some((r) => r.issue.includes('advanced'))
+        guidance.recommendations.some((r) => r.issue.includes('advanced')),
       ).toBe(true);
     });
   });
@@ -1036,7 +1038,7 @@ describe('ProjectIntelligenceService', () => {
       mockMonorepoDetector,
       mockDependencyAnalyzer,
       mockQualityAssessment,
-      mockGuidanceService
+      mockGuidanceService,
     );
   });
 
@@ -1098,7 +1100,7 @@ describe('ProjectIntelligenceService', () => {
 
     it('should return minimal intelligence on error', async () => {
       mockProjectDetector.detectProjectType.mockRejectedValue(
-        new Error('Detection failed')
+        new Error('Detection failed'),
       );
 
       const workspacePath = 'D:\\test\\project';
@@ -1113,10 +1115,10 @@ describe('ProjectIntelligenceService', () => {
   describe('getWorkspaceContext', () => {
     it('should build context from detection services', async () => {
       mockProjectDetector.detectProjectType.mockResolvedValue(
-        ProjectType.Angular
+        ProjectType.Angular,
       );
       mockFrameworkDetector.detectFrameworks.mockResolvedValue(
-        new Map([['D:\\test', Framework.Angular]])
+        new Map([['D:\\test', Framework.Angular]]),
       );
       mockMonorepoDetector.detectMonorepo.mockResolvedValue({
         isMonorepo: true,
@@ -1139,7 +1141,7 @@ describe('ProjectIntelligenceService', () => {
 
     it('should return minimal context on error', async () => {
       mockProjectDetector.detectProjectType.mockRejectedValue(
-        new Error('Failed')
+        new Error('Failed'),
       );
 
       const workspacePath = 'D:\\test\\project';

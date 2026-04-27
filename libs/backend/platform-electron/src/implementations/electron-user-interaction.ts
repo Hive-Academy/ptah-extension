@@ -34,6 +34,20 @@ export interface ElectronDialogApi {
       title?: string;
     },
   ): Promise<{ response: number }>;
+  showOpenDialog(
+    window: ElectronBrowserWindowApi | null,
+    options: {
+      title?: string;
+      defaultPath?: string;
+      properties?: Array<
+        | 'openFile'
+        | 'openDirectory'
+        | 'multiSelections'
+        | 'showHiddenFiles'
+        | 'createDirectory'
+      >;
+    },
+  ): Promise<{ canceled: boolean; filePaths: string[] }>;
 }
 
 /** Minimal BrowserWindow interface for IPC communication */
@@ -84,6 +98,38 @@ export class ElectronUserInteraction implements IUserInteraction {
   async writeToClipboard(text: string): Promise<void> {
     if (!this.shellApi) return;
     await this.shellApi.writeToClipboard(text);
+  }
+
+  async openOAuthUrl(params: {
+    provider: 'copilot' | 'codex' | 'claude' | string;
+    verificationUri: string;
+    userCode?: string;
+  }): Promise<{ opened: boolean; code?: string }> {
+    let opened = false;
+    if (this.shellApi) {
+      try {
+        await this.shellApi.openExternal(params.verificationUri);
+        opened = true;
+      } catch {
+        opened = false;
+      }
+    }
+    if (params.userCode) {
+      if (this.shellApi) {
+        try {
+          await this.shellApi.writeToClipboard(params.userCode);
+        } catch {
+          /* clipboard failure is non-fatal */
+        }
+      }
+      const win = this.getWindow();
+      void this.dialog.showMessageBox(win, {
+        type: 'info',
+        message: `Device code: ${params.userCode} (copied to clipboard). Paste at ${params.verificationUri}.`,
+        buttons: ['OK'],
+      });
+    }
+    return { opened, code: undefined };
   }
 
   async showErrorMessage(
@@ -177,6 +223,23 @@ export class ElectronUserInteraction implements IUserInteraction {
         responseChannel: channel,
       });
     });
+  }
+
+  async showOpenDialog(options: {
+    title?: string;
+    defaultPath?: string;
+    properties?: Array<
+      | 'openFile'
+      | 'openDirectory'
+      | 'multiSelections'
+      | 'showHiddenFiles'
+      | 'createDirectory'
+    >;
+  }): Promise<string[]> {
+    const win = this.getWindow();
+    const result = await this.dialog.showOpenDialog(win, options);
+    if (result.canceled) return [];
+    return result.filePaths;
   }
 
   async withProgress<T>(

@@ -24,6 +24,7 @@ import {
   EffortLevel,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
+import { SdkError } from '../errors';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
@@ -47,14 +48,38 @@ import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
-} from './anthropic-provider-registry';
+} from '../providers/_shared/provider-registry';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
-import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
-import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
-import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../openrouter-provider/openrouter-provider.types';
-import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../local-provider/local-provider.types';
+import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../providers/copilot/copilot-provider.types';
+import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../providers/codex/codex-provider.types';
+import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../providers/openrouter/openrouter-provider.types';
+import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local/local-provider.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT } from '../constants';
+
+/**
+ * Detect obvious upstream provider error signatures in a stderr chunk.
+ *
+ * The SDK sometimes logs HTTP / API errors to stderr without forwarding them
+ * through the message stream, which causes the UI to hang. These patterns
+ * cover the common cases we've seen from Anthropic-compatible providers
+ * (Moonshot, Z.AI, OpenRouter) — HTTP status codes, Anthropic error type
+ * strings, and common auth/model keywords.
+ */
+function isUpstreamProviderError(stderrChunk: string): boolean {
+  const lower = stderrChunk.toLowerCase();
+  return (
+    /\b(401|403|404|429|5\d\d)\b/.test(stderrChunk) ||
+    lower.includes('model_not_found') ||
+    lower.includes('invalid_request_error') ||
+    lower.includes('authentication_error') ||
+    lower.includes('permission_error') ||
+    lower.includes('not_found_error') ||
+    lower.includes('rate_limit_error') ||
+    lower.includes('overloaded_error') ||
+    lower.includes('api_error')
+  );
+}
 
 /**
  * Build model identity clarification prompt for third-party providers
@@ -313,6 +338,17 @@ export interface QueryOptionsInput {
    * the CI runner path at bundle time.
    */
   pathToClaudeCodeExecutable?: string;
+  /**
+   * Optional callback invoked when the SDK's stderr stream contains an
+   * obvious upstream provider error (HTTP 4xx, model_not_found,
+   * invalid_request_error, authentication failures). The callee is
+   * responsible for surfacing the error to the UI — typically by aborting
+   * the query's AbortController with a descriptive Error, which then
+   * causes the stream iterator to throw. Without this hook, stderr-only
+   * errors (e.g., Moonshot returning model_not_found for an unsupported
+   * tier mapping) can leave the UI hanging with no response.
+   */
+  onProviderError?: (message: string) => void;
 }
 
 /**
@@ -444,11 +480,12 @@ export class SdkQueryOptionsBuilder {
       pluginPaths,
       permissionMode = 'default',
       pathToClaudeCodeExecutable,
+      onProviderError,
     } = input;
 
     // Model is required - SDK sets default in config at startup
     if (!sessionConfig?.model) {
-      throw new Error('Model not provided - ensure SDK is initialized');
+      throw new SdkError('Model not provided - ensure SDK is initialized');
     }
 
     // Resolve bare tier names ('opus', 'sonnet', 'haiku') to full model IDs.
@@ -456,7 +493,7 @@ export class SdkQueryOptionsBuilder {
     // bare tier names cause "can't access model named opus" errors.
     const model = this.modelService.resolveModelId(sessionConfig.model);
     if (!sessionConfig?.projectPath) {
-      throw new Error(
+      throw new SdkError(
         'projectPath is required — cannot start an SDK session without a workspace folder. ' +
           'Callers must resolve workspace path from IWorkspaceProvider before reaching here.',
       );
@@ -608,7 +645,12 @@ export class SdkQueryOptionsBuilder {
           })(),
         } as Record<string, string | undefined>,
         // Capture stderr — the SDK writes debug/info/warn/error to stderr;
-        // parse the level and route to the appropriate logger method
+        // parse the level and route to the appropriate logger method.
+        // When stderr carries an upstream provider error (HTTP 4xx,
+        // model_not_found, invalid_request_error, etc.) the SDK sometimes
+        // fails to forward it through the message stream, leaving the UI
+        // spinning. Detect those signatures and notify the caller via
+        // onProviderError so it can abort the query with a clear message.
         stderr: (data: string) => {
           if (data.includes('[ERROR]')) {
             this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
@@ -616,6 +658,17 @@ export class SdkQueryOptionsBuilder {
             this.logger.warn(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
           } else {
             this.logger.debug(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
+          }
+
+          if (onProviderError && isUpstreamProviderError(data)) {
+            try {
+              onProviderError(data);
+            } catch (hookErr) {
+              this.logger.warn(
+                '[SdkQueryOptionsBuilder] onProviderError hook threw',
+                hookErr instanceof Error ? hookErr : new Error(String(hookErr)),
+              );
+            }
           }
         },
         hooks,
@@ -691,7 +744,7 @@ export class SdkQueryOptionsBuilder {
         hasBaseUrl: false,
         hasAuthToken: !!authToken,
       });
-      throw new Error(message);
+      throw new SdkError(message);
     }
   }
 

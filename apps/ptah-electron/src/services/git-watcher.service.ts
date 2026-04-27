@@ -18,9 +18,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
 import type { GitInfoResult } from '@ptah-extension/shared';
-import type { GitInfoService } from './git-info.service';
 
 /** Message type used for pushing git status to the renderer. */
 const GIT_STATUS_UPDATE = 'git:status-update';

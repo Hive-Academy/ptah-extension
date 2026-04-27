@@ -23,6 +23,7 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
+import { SdkError } from './errors';
 import type { CliSessionReference } from '@ptah-extension/shared';
 
 /**
@@ -282,7 +283,7 @@ export class SessionMetadataStore {
     return this.enqueueWrite(async () => {
       const metadata = await this.get(sessionId);
       if (!metadata) {
-        throw new Error(`Parent session not found: ${sessionId}`);
+        throw new SdkError(`Parent session not found: ${sessionId}`);
       }
 
       const existing = metadata.cliSessions ?? [];

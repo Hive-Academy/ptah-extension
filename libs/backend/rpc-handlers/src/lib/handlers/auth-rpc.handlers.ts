@@ -10,7 +10,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { z } from 'zod';
 import {
   Logger,
   RpcHandler,
@@ -22,7 +21,7 @@ import type { SentryService } from '@ptah-extension/vscode-core';
 import type {
   IPlatformCommands,
   IPlatformAuthProvider,
-} from '../platform-abstractions';
+} from '@ptah-extension/platform-core';
 import {
   SdkAgentAdapter,
   SDK_TOKENS,
@@ -41,12 +40,26 @@ import {
   AuthGetAuthStatusParams,
   AuthGetAuthStatusResponse,
 } from '@ptah-extension/shared';
+import { AuthSettingsSchema } from './auth-rpc.schema';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for authentication operations
  */
 @injectable()
 export class AuthRpcHandlers {
+  static readonly METHODS = [
+    'auth:getHealth',
+    'auth:getAuthStatus',
+    'auth:saveSettings',
+    'auth:testConnection',
+    'auth:copilotLogin',
+    'auth:copilotLogout',
+    'auth:copilotStatus',
+    'auth:codexLogin',
+    'auth:getApiKeyStatus',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -84,6 +97,7 @@ export class AuthRpcHandlers {
     this.registerCopilotLogout();
     this.registerCopilotStatus();
     this.registerCodexLogin();
+    this.registerGetApiKeyStatus();
 
     this.logger.debug('Auth RPC handlers registered', {
       methods: [
@@ -95,6 +109,7 @@ export class AuthRpcHandlers {
         'auth:copilotLogout',
         'auth:copilotStatus',
         'auth:codexLogin',
+        'auth:getApiKeyStatus',
       ],
     });
   }
@@ -294,17 +309,6 @@ export class AuthRpcHandlers {
    * auth:saveSettings - Save authentication settings
    */
   private registerSaveSettings(): void {
-    const AuthSettingsSchema = z.object({
-      authMethod: z.enum(['apiKey', 'claudeCli', 'thirdParty']),
-      anthropicApiKey: z.string().optional(),
-      providerApiKey: z.string().optional(),
-      // TASK_2025_129 Batch 3: Selected Anthropic-compatible provider
-      // Validated against known provider IDs from the registry
-      anthropicProviderId: z
-        .enum(ANTHROPIC_PROVIDERS.map((p) => p.id) as [string, ...string[]])
-        .optional(),
-    });
-
     this.rpcHandler.registerMethod<
       unknown,
       { success: boolean; error?: string }
@@ -599,6 +603,55 @@ export class AuthRpcHandlers {
           { errorSource: 'AuthRpcHandlers.registerCopilotStatus' },
         );
         return { authenticated: false };
+      }
+    });
+  }
+
+  /**
+   * auth:getApiKeyStatus - List all providers with their key presence
+   *
+   * TASK_2026_104 Batch B8b: Lifted from
+   * `apps/ptah-electron/src/services/rpc/handlers/config-extended-rpc.handlers.ts`
+   * so all three apps (VS Code, Electron, CLI) consume it via
+   * `registerAllRpcHandlers()`. Body is a verbatim port; the only mechanical
+   * change is `container.resolve<...>(...)` → `this.<field>` (constructor-injected).
+   */
+  private registerGetApiKeyStatus(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      {
+        providers: Array<{
+          provider: string;
+          displayName: string;
+          hasApiKey: boolean;
+          isDefault: boolean;
+        }>;
+      }
+    >('auth:getApiKeyStatus', async () => {
+      try {
+        const activeProvider = this.configManager.getWithDefault<string>(
+          'anthropicProviderId',
+          DEFAULT_PROVIDER_ID,
+        );
+        const providers = await Promise.all(
+          ANTHROPIC_PROVIDERS.map(async (p) => ({
+            provider: p.id,
+            displayName: p.name,
+            hasApiKey: await this.authSecretsService.hasProviderKey(p.id),
+            isDefault: p.id === activeProvider,
+          })),
+        );
+        return { providers };
+      } catch (error) {
+        this.logger.error(
+          'RPC: auth:getApiKeyStatus failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerGetApiKeyStatus' },
+        );
+        return { providers: [] };
       }
     });
   }

@@ -4,6 +4,7 @@ import {
   ExecutionContext,
   UnauthorizedException,
   Logger,
+  Inject,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
@@ -13,7 +14,7 @@ export class ResendWebhookGuard implements CanActivate {
   private readonly logger = new Logger(ResendWebhookGuard.name);
   private readonly secret: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(@Inject(ConfigService) private readonly config: ConfigService) {
     let secret = this.config.get<string>('RESEND_WEBHOOK_SECRET') || '';
     if (secret.startsWith('whsec_')) {
       secret = secret.substring(6);

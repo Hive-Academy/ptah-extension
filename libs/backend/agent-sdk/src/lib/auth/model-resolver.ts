@@ -161,16 +161,14 @@ export class ModelResolver {
       return modelId;
     }
 
-    // Local provider (Ollama, LM Studio) — free inference, use zero-cost pricing
-    if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
-      return 'local';
-    }
-
-    // Third-party provider — resolve via tier override to get real model
+    // Price by the RESOLVED model name — never by proxy URL.
+    // Forcing all localhost traffic to free 'local' pricing hid real cost for
+    // users running a LiteLLM/similar proxy on 127.0.0.1 that forwarded to
+    // paid upstream models. Genuinely free local inference (Ollama, LM Studio)
+    // should be expressed via an explicit tier override that maps to a zero-
+    // cost entry in the pricing map.
     const resolved = this.resolve(modelId, env);
 
-    // If unresolved (no tier override set), log for visibility — pricing map
-    // fallback in findModelPricing() will handle it
     if (resolved === modelId) {
       this.logger.debug(
         `[ModelResolver] resolveForPricing: no tier override for '${modelId}' on third-party provider — pricing map will use fallback`,

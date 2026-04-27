@@ -6,7 +6,7 @@
 
 import type { SessionId } from '../branded.types';
 import type { ThinkingConfig, EffortLevel } from '../ai-provider.types';
-import type { FlatStreamEventUnion } from '../execution-node.types';
+import type { FlatStreamEventUnion } from '../execution';
 
 // ============================================================
 // Chat RPC Types

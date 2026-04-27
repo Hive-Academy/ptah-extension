@@ -101,9 +101,17 @@ const PRO_ONLY_METHOD_PREFIXES = [
   'setup-wizard:', // setup_wizard feature
   'wizard:', // setup_wizard feature (deep-analyze, recommend-agents)
   'enhancedPrompts:', // TASK_2025_137: Enhanced Prompts (Pro-only intelligent prompt generation)
-  'agent:', // TASK_2025_157: Agent orchestration (Pro-only headless CLI agents)
   'ptahCli:', // TASK_2025_170: Ptah CLI agent management (Pro-only)
 ] as const;
+
+/**
+ * Explicit allowlist of Pro-only agent:* methods.
+ *
+ * The coarse `agent:` prefix gate was removed because `agent:permissionResponse`
+ * must work for Community users during tool permission dialogs. Only truly
+ * Pro-only agent methods belong in this list.
+ */
+const PRO_ONLY_METHODS: readonly string[] = [] as const;
 
 /**
  * RPC methods that bypass license check entirely (TASK_2025_124)
@@ -471,6 +479,9 @@ export class RpcHandler {
    * @returns True if method requires Pro tier
    */
   private isProOnlyMethod(method: string): boolean {
-    return PRO_ONLY_METHOD_PREFIXES.some((prefix) => method.startsWith(prefix));
+    if (PRO_ONLY_METHOD_PREFIXES.some((prefix) => method.startsWith(prefix))) {
+      return true;
+    }
+    return PRO_ONLY_METHODS.includes(method);
   }
 }

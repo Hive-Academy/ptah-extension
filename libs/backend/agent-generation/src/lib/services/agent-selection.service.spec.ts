@@ -6,6 +6,28 @@
  */
 
 import 'reflect-metadata';
+
+// Mock workspace-intelligence to avoid transitive vscode / import.meta dependency
+jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  ProjectType: {
+    Node: 'node',
+    React: 'react',
+    Python: 'python',
+    General: 'general',
+  },
+  Framework: {
+    Express: 'express',
+    Angular: 'angular',
+    Django: 'django',
+    React: 'react',
+    NextJS: 'nextjs',
+  },
+  MonorepoType: {
+    Nx: 'nx',
+    Lerna: 'lerna',
+  },
+}));
+
 import { Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import {
@@ -53,7 +75,7 @@ describe('AgentSelectionService', () => {
   // ========================================
 
   function createMockTemplate(
-    overrides: Partial<AgentTemplate> = {}
+    overrides: Partial<AgentTemplate> = {},
   ): AgentTemplate {
     return {
       id: 'test-template',
@@ -74,7 +96,7 @@ describe('AgentSelectionService', () => {
   }
 
   function createMockProjectContext(
-    overrides: Partial<AgentProjectContext> = {}
+    overrides: Partial<AgentProjectContext> = {},
   ): AgentProjectContext {
     return {
       projectType: ProjectType.Node,
@@ -150,7 +172,7 @@ describe('AgentSelectionService', () => {
       ];
 
       mockTemplateStorage.loadAllTemplates.mockResolvedValue(
-        Result.ok(templates)
+        Result.ok(templates),
       );
 
       const context = createMockProjectContext();
@@ -186,7 +208,7 @@ describe('AgentSelectionService', () => {
       ];
 
       mockTemplateStorage.loadAllTemplates.mockResolvedValue(
-        Result.ok(templates)
+        Result.ok(templates),
       );
 
       const context = createMockProjectContext({
@@ -208,7 +230,7 @@ describe('AgentSelectionService', () => {
       ];
 
       mockTemplateStorage.loadAllTemplates.mockResolvedValue(
-        Result.ok(templates)
+        Result.ok(templates),
       );
 
       const context = createMockProjectContext();
@@ -222,7 +244,7 @@ describe('AgentSelectionService', () => {
 
     it('should handle template storage errors', async () => {
       mockTemplateStorage.loadAllTemplates.mockResolvedValue(
-        Result.err(new Error('Storage failure'))
+        Result.err(new Error('Storage failure')),
       );
 
       const context = createMockProjectContext();
@@ -232,7 +254,7 @@ describe('AgentSelectionService', () => {
       expect(result.isErr()).toBe(true);
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Failed to load templates',
-        expect.any(Error)
+        expect.any(Error),
       );
     });
 
@@ -246,7 +268,7 @@ describe('AgentSelectionService', () => {
       expect(result.isOk()).toBe(true);
       expect(result.value!).toEqual([]);
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        'No templates available for selection'
+        'No templates available for selection',
       );
     });
 
@@ -256,7 +278,7 @@ describe('AgentSelectionService', () => {
       ];
 
       mockTemplateStorage.loadAllTemplates.mockResolvedValue(
-        Result.ok(templates)
+        Result.ok(templates),
       );
 
       const context = createMockProjectContext({
@@ -279,7 +301,7 @@ describe('AgentSelectionService', () => {
       const templates = [createMockTemplate({ id: 'test-agent' })];
 
       mockTemplateStorage.loadAllTemplates.mockResolvedValue(
-        Result.ok(templates)
+        Result.ok(templates),
       );
 
       const context = createMockProjectContext({
@@ -297,7 +319,7 @@ describe('AgentSelectionService', () => {
       const templates = [createMockTemplate({ id: 'test-agent' })];
 
       mockTemplateStorage.loadAllTemplates.mockResolvedValue(
-        Result.ok(templates)
+        Result.ok(templates),
       );
 
       const context = createMockProjectContext({
@@ -315,7 +337,7 @@ describe('AgentSelectionService', () => {
       const templates = [createMockTemplate({ id: 'test-agent' })];
 
       mockTemplateStorage.loadAllTemplates.mockResolvedValue(
-        Result.ok(templates)
+        Result.ok(templates),
       );
 
       const context = createMockProjectContext({
@@ -333,7 +355,7 @@ describe('AgentSelectionService', () => {
       const templates = [createMockTemplate({ id: 'test-agent' })];
 
       mockTemplateStorage.loadAllTemplates.mockResolvedValue(
-        Result.ok(templates)
+        Result.ok(templates),
       );
 
       const context = createMockProjectContext({
@@ -366,7 +388,7 @@ describe('AgentSelectionService', () => {
       ];
 
       mockTemplateStorage.loadAllTemplates.mockResolvedValue(
-        Result.ok(templates)
+        Result.ok(templates),
       );
 
       const context = createMockProjectContext();
@@ -378,7 +400,7 @@ describe('AgentSelectionService', () => {
         expect.objectContaining({
           totalTemplates: 2,
           selectedCount: 2,
-        })
+        }),
       );
     });
   });

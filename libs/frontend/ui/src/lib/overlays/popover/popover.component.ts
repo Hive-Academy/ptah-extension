@@ -1,6 +1,7 @@
 import { A11yModule, FocusTrap, FocusTrapFactory } from '@angular/cdk/a11y';
 import { ConnectedPosition, OverlayModule } from '@angular/cdk/overlay';
 import {
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   inject,
@@ -45,6 +46,7 @@ import { POPOVER_POSITION_MAP } from '../shared/overlay-positions';
 @Component({
   selector: 'ptah-popover',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [OverlayModule, A11yModule],
   template: `
     <div cdkOverlayOrigin #trigger="cdkOverlayOrigin">

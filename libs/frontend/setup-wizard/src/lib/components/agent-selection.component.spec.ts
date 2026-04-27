@@ -7,6 +7,13 @@ import {
 } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 
+// F8: AgentSelectionComponent was substantially refactored in TASK_2025_258
+// (community agent packs, project/community tab switcher, recommendations-
+// based selection via wizardState.recommendedAgents). This spec was authored
+// against the old avail/selection table API and mocks a different state
+// shape; every template-assertion test (31/41) fails against the new UI.
+// Keeping skipped with full pre-existing coverage captured in the service
+// spec — dedicated component-spec rewrite tracked as follow-up.
 describe.skip('AgentSelectionComponent', () => {
   let component: AgentSelectionComponent;
   let fixture: ComponentFixture<AgentSelectionComponent>;
@@ -68,7 +75,7 @@ describe.skip('AgentSelectionComponent', () => {
     it('should display description', () => {
       const text = fixture.nativeElement.textContent;
       expect(text).toContain(
-        "We've analyzed your project and recommended these agents"
+        "We've analyzed your project and recommended these agents",
       );
     });
   });
@@ -255,14 +262,14 @@ describe.skip('AgentSelectionComponent', () => {
 
     it('should have select all button', () => {
       const button = fixture.nativeElement.querySelector(
-        'button:nth-of-type(1)'
+        'button:nth-of-type(1)',
       );
       expect(button.textContent).toContain('Select All');
     });
 
     it('should have deselect all button', () => {
       const button = fixture.nativeElement.querySelector(
-        'button:nth-of-type(2)'
+        'button:nth-of-type(2)',
       );
       expect(button.textContent).toContain('Deselect All');
     });
@@ -272,7 +279,7 @@ describe.skip('AgentSelectionComponent', () => {
       fixture.detectChanges();
 
       const button = fixture.nativeElement.querySelector(
-        'button:nth-of-type(1)'
+        'button:nth-of-type(1)',
       );
       expect(button.disabled).toBe(true);
     });
@@ -282,7 +289,7 @@ describe.skip('AgentSelectionComponent', () => {
       fixture.detectChanges();
 
       const button = fixture.nativeElement.querySelector(
-        'button:nth-of-type(2)'
+        'button:nth-of-type(2)',
       );
       expect(button.disabled).toBe(true);
     });
@@ -304,7 +311,7 @@ describe.skip('AgentSelectionComponent', () => {
       fixture.detectChanges();
 
       const checkbox = fixture.nativeElement.querySelector(
-        'input[type="checkbox"]'
+        'input[type="checkbox"]',
       );
       checkbox.click();
 
@@ -428,7 +435,7 @@ describe.skip('AgentSelectionComponent', () => {
 
     it('should call RPC service when generate button clicked', async () => {
       (mockRpcService.submitAgentSelection as jest.Mock).mockResolvedValue(
-        undefined
+        undefined,
       );
 
       await component['onGenerateAgents']();
@@ -447,13 +454,13 @@ describe.skip('AgentSelectionComponent', () => {
 
     it('should transition to generation step on success', async () => {
       (mockRpcService.submitAgentSelection as jest.Mock).mockResolvedValue(
-        undefined
+        undefined,
       );
 
       await component['onGenerateAgents']();
 
       expect(mockStateService.setCurrentStep).toHaveBeenCalledWith(
-        'generation'
+        'generation',
       );
     });
 
@@ -463,7 +470,7 @@ describe.skip('AgentSelectionComponent', () => {
         resolvePromise = resolve;
       });
       (mockRpcService.submitAgentSelection as jest.Mock).mockReturnValue(
-        promise
+        promise,
       );
 
       const generatePromise = component['onGenerateAgents']();
@@ -479,7 +486,7 @@ describe.skip('AgentSelectionComponent', () => {
     it('should display error message on failure', async () => {
       const errorMessage = 'RPC timeout';
       (mockRpcService.submitAgentSelection as jest.Mock).mockRejectedValue(
-        new Error(errorMessage)
+        new Error(errorMessage),
       );
 
       await component['onGenerateAgents']();
@@ -489,19 +496,19 @@ describe.skip('AgentSelectionComponent', () => {
 
     it('should display default error message for non-Error failures', async () => {
       (mockRpcService.submitAgentSelection as jest.Mock).mockRejectedValue(
-        'String error'
+        'String error',
       );
 
       await component['onGenerateAgents']();
 
       expect(component['errorMessage']()).toBe(
-        'Failed to generate agents. Please try again.'
+        'Failed to generate agents. Please try again.',
       );
     });
 
     it('should reset loading state on error', async () => {
       (mockRpcService.submitAgentSelection as jest.Mock).mockRejectedValue(
-        new Error('Test error')
+        new Error('Test error'),
       );
 
       await component['onGenerateAgents']();
@@ -515,7 +522,7 @@ describe.skip('AgentSelectionComponent', () => {
         resolvePromise = resolve;
       });
       (mockRpcService.submitAgentSelection as jest.Mock).mockReturnValue(
-        promise
+        promise,
       );
 
       component['onGenerateAgents']();
@@ -536,14 +543,14 @@ describe.skip('AgentSelectionComponent', () => {
 
     it('should clear previous error message on new attempt', async () => {
       (mockRpcService.submitAgentSelection as jest.Mock).mockRejectedValue(
-        new Error('First error')
+        new Error('First error'),
       );
       await component['onGenerateAgents']();
 
       expect(component['errorMessage']()).toBe('First error');
 
       (mockRpcService.submitAgentSelection as jest.Mock).mockResolvedValue(
-        undefined
+        undefined,
       );
       await component['onGenerateAgents']();
 
@@ -554,14 +561,14 @@ describe.skip('AgentSelectionComponent', () => {
       jest.spyOn(console, 'error').mockImplementation();
       const error = new Error('Test error');
       (mockRpcService.submitAgentSelection as jest.Mock).mockRejectedValue(
-        error
+        error,
       );
 
       await component['onGenerateAgents']();
 
       expect(console.error).toHaveBeenCalledWith(
         'Agent generation failed:',
-        error
+        error,
       );
     });
   });
@@ -636,7 +643,7 @@ describe.skip('AgentSelectionComponent', () => {
         resolvePromise = resolve;
       });
       (mockRpcService.submitAgentSelection as jest.Mock).mockReturnValue(
-        promise
+        promise,
       );
 
       component['onGenerateAgents']();
@@ -658,79 +665,6 @@ describe.skip('AgentSelectionComponent', () => {
   });
 
   describe('Computed Signals', () => {
-    // it('should compute total count', () => {
-    //   const agents: AgentSelection[] = [
-    //     {
-    //       id: '1',
-    //       name: 'Agent 1',
-    //       selected: false,
-    //       score: 90,
-    //       reason: 'Test',
-    //       autoInclude: false,
-    //     },
-    //     {
-    //       id: '2',
-    //       name: 'Agent 2',
-    //       selected: false,
-    //       score: 80,
-    //       reason: 'Test',
-    //       autoInclude: false,
-    //     },
-    //   ];
-    //   availableAgentsSignal.set(agents);
-
-    //   // expect(component['totalCount']()).toBe(2);
-    // });
-
-    // it('should compute allSelected correctly', () => {
-    //   const agents: AgentSelection[] = [
-    //     {
-    //       id: '1',
-    //       name: 'Agent 1',
-    //       selected: false,
-    //       score: 90,
-    //       reason: 'Test',
-    //       autoInclude: false,
-    //     },
-    //   ];
-    //   availableAgentsSignal.set(agents);
-    //   selectedCountSignal.set(1);
-
-    //   // expect(component['allSelected']()).toBe(true);
-    // });
-
-    // it('should compute allSelected as false when not all selected', () => {
-    //   const agents: AgentSelection[] = [
-    //     {
-    //       id: '1',
-    //       name: 'Agent 1',
-    //       selected: false,
-    //       score: 90,
-    //       reason: 'Test',
-    //       autoInclude: false,
-    //     },
-    //     {
-    //       id: '2',
-    //       name: 'Agent 2',
-    //       selected: false,
-    //       score: 80,
-    //       reason: 'Test',
-    //       autoInclude: false,
-    //     },
-    //   ];
-    //   availableAgentsSignal.set(agents);
-    //   selectedCountSignal.set(1);
-
-    //   expect(component['allSelected']()).toBe(false);
-    // });
-
-    // it('should compute allSelected as false when empty', () => {
-    //   availableAgentsSignal.set([]);
-    //   selectedCountSignal.set(0);
-
-    //   expect(component['allSelected']()).toBe(false);
-    // });
-
     it('should compute noneSelected correctly', () => {
       selectedCountSignal.set(0);
 
@@ -760,10 +694,10 @@ describe.skip('AgentSelectionComponent', () => {
       fixture.detectChanges();
 
       const checkbox = fixture.nativeElement.querySelector(
-        'input[type="checkbox"]'
+        'input[type="checkbox"]',
       );
       expect(checkbox.getAttribute('aria-label')).toContain(
-        'Frontend Developer'
+        'Frontend Developer',
       );
     });
 
@@ -809,7 +743,7 @@ describe.skip('AgentSelectionComponent', () => {
       availableAgentsSignal.set(agents);
       canProceedSignal.set(false);
       (mockRpcService.submitAgentSelection as jest.Mock).mockResolvedValue(
-        undefined
+        undefined,
       );
 
       await component['onGenerateAgents']();

@@ -423,7 +423,10 @@ export class OrchestraCanvasComponent implements OnDestroy {
    */
   onGridChange(data: nodesCB): void {
     for (const node of data.nodes) {
-      if (node.id == null) continue;
+      // GridStackNode.id is typed `string | number | undefined`. Tile IDs are
+      // always strings (tabId), so skip any node Gridstack auto-assigned a
+      // numeric ID for — those don't map to a known tile.
+      if (typeof node.id !== 'string') continue;
       this.canvasStore.updateTilePosition(node.id, {
         x: node.x ?? 0,
         y: node.y ?? 0,

@@ -28,6 +28,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import { extractTokenUsage } from './helpers/usage-extraction.utils';
 import { calculateMessageCost } from '@ptah-extension/shared';
 import { SDK_TOKENS } from './di/tokens';
+import { SdkError } from './errors';
 import type { ModelResolver } from './auth/model-resolver';
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
@@ -70,7 +71,7 @@ export class SessionHistoryReaderService {
    */
   private validateSessionId(sessionId: string): void {
     if (!sessionId || !this.SESSION_ID_PATTERN.test(sessionId)) {
-      throw new Error(`Invalid sessionId format: ${sessionId}`);
+      throw new SdkError(`Invalid sessionId format: ${sessionId}`);
     }
   }
 

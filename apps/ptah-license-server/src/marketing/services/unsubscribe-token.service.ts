@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
@@ -22,8 +22,8 @@ export class UnsubscribeTokenService implements OnModuleInit {
   private readonly VERSION = 1;
 
   constructor(
-    private readonly configService: ConfigService,
-    private readonly jwtService: JwtService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    @Inject(JwtService) private readonly jwtService: JwtService,
   ) {
     this.secret =
       this.configService.get<string>('UNSUBSCRIBE_TOKEN_SECRET') || '';

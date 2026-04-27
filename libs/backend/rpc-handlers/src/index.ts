@@ -32,12 +32,30 @@ export {
   WebSearchRpcHandlers,
   // Harness Setup Builder handlers
   HarnessRpcHandlers,
+  // MCP Server Directory handlers (TASK_2026_104 Batch 6a)
+  McpDirectoryRpcHandlers,
+  // Git handlers (TASK_2026_104 Sub-batch B5b)
+  GitRpcHandlers,
+  // Workspace handlers (TASK_2026_104 Sub-batch B5a)
+  WorkspaceRpcHandlers,
 } from './lib/handlers';
 
 // Platform abstraction interfaces (TASK_2025_203 Batch 2)
+// Moved to @ptah-extension/platform-core in Wave C8 (TASK_2025_291).
+// Re-exported here for backwards-compat; prefer importing from platform-core directly.
 export type {
   IPlatformCommands,
   IPlatformAuthProvider,
   ISaveDialogProvider,
   IModelDiscovery,
-} from './lib/platform-abstractions';
+} from '@ptah-extension/platform-core';
+
+// Registration helpers (TASK_2025_291 Wave C4b)
+export * from './lib/register-all';
+export * from './lib/verify-and-report';
+
+// Harness sub-service DI tokens + registration helper (TASK_2025_291 Wave C7d)
+export { HARNESS_TOKENS, registerHarnessServices } from './lib/harness';
+
+// Chat sub-service DI tokens + registration helper (TASK_2025_291 Wave C7e)
+export { CHAT_TOKENS, registerChatServices } from './lib/chat';

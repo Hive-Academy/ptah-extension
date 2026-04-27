@@ -175,28 +175,28 @@ describe('MessageValidationService', () => {
       const result = service.validate('!');
 
       expect(result.valid).toBe(false);
-      expect(result.reason).toContain('alphanumeric');
+      expect(result.reason).toContain('letter or number');
     });
 
     it('should reject punctuation-only content (multiple symbols)', () => {
       const result = service.validate('!!!???...');
 
       expect(result.valid).toBe(false);
-      expect(result.reason).toContain('alphanumeric');
+      expect(result.reason).toContain('letter or number');
     });
 
     it('should reject emoji-only content', () => {
       const result = service.validate('😀😃😄');
 
       expect(result.valid).toBe(false);
-      expect(result.reason).toContain('alphanumeric');
+      expect(result.reason).toContain('letter or number');
     });
 
     it('should reject special characters only', () => {
       const result = service.validate('@#$%^&*()');
 
       expect(result.valid).toBe(false);
-      expect(result.reason).toContain('alphanumeric');
+      expect(result.reason).toContain('letter or number');
     });
 
     it('should accept content with letters', () => {
@@ -339,11 +339,13 @@ describe('MessageValidationService', () => {
       expect(revalidation.valid).toBe(true);
     });
 
-    it('should handle Unicode characters', () => {
+    it('should accept Unicode letters (Japanese)', () => {
+      // Unicode-aware validation: \p{L} matches letters in any script,
+      // so Japanese characters satisfy the "letter or number" rule.
       const result = service.validate('こんにちは世界'); // Japanese
 
-      expect(result.valid).toBe(false); // No alphanumeric (a-z, A-Z, 0-9)
-      expect(result.reason).toContain('alphanumeric');
+      expect(result.valid).toBe(true);
+      expect(result.reason).toBeUndefined();
     });
 
     it('should accept content with Unicode and alphanumeric', () => {
@@ -356,7 +358,7 @@ describe('MessageValidationService', () => {
       const result = service.validate('\u200B'); // Zero-width space
 
       expect(result.valid).toBe(false);
-      expect(result.reason).toContain('alphanumeric');
+      expect(result.reason).toContain('letter or number');
     });
   });
 });

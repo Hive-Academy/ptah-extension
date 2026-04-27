@@ -99,7 +99,6 @@ The **agent-sdk library** provides official Claude Agent SDK integration for Pta
 ### Helper Services
 
 - `helpers/attachment-processor.service.ts` - File attachment processing
-- `helpers/image-converter.service.ts` - Image to base64 conversion
 
 ### History Services (TASK_2025_106)
 
@@ -304,22 +303,6 @@ const processedAttachments = await processor.processAttachments([{ type: 'file',
 // [{ content: 'export const app = ...', type: 'text' }]
 ```
 
-### Image Conversion
-
-```typescript
-import { ImageConverterService } from '@ptah-extension/agent-sdk';
-
-const imageConverter = new ImageConverterService(logger);
-
-// Convert image file to base64
-const base64 = await imageConverter.convertImageToBase64('/screenshot.png');
-// Returns: 'iVBORw0KGgo...'
-
-// Detect MIME type
-const mimeType = imageConverter.getMimeType('/screenshot.png');
-// Returns: 'image/png'
-```
-
 ### Stream Transformation
 
 ```typescript
@@ -349,7 +332,6 @@ for await (const chunk of ptahChunks) {
    ```
 
 2. **Performance characteristics**:
-
    - 10x faster than CLI-based integration
    - Native TypeScript execution (no subprocess overhead)
    - Direct SDK streaming (no stdout parsing)
@@ -394,7 +376,6 @@ for await (const chunk of ptahChunks) {
    ```
 
 2. **Transformer handles all message types**:
-
    - User messages → SDK queries
    - SDK events → Ptah chunks
    - Attachments → SDK attachment format
@@ -620,7 +601,6 @@ nx test agent-sdk --testFile=sdk-agent-adapter.spec.ts
   - `attachment-processor.service.ts`
   - `auth-manager.ts`
   - `config-watcher.ts`
-  - `image-converter.service.ts`
   - `session-lifecycle-manager.ts`
   - `stream-transformer.ts`
   - `usage-extraction.utils.ts`
@@ -643,17 +623,14 @@ nx test agent-sdk --testFile=sdk-agent-adapter.spec.ts
 ### Files Deleted
 
 1. **`sdk-session-storage.ts`** (313 lines) - Replaced by SessionMetadataStore
-
    - Old: Full message storage with in-memory cache
    - New: Lightweight metadata only (SDK handles message persistence)
 
 2. **`helpers/user-message-stream-factory.ts`** (129 lines) - Inlined into SdkAgentAdapter
-
    - Old: Factory class for creating user message streams
    - New: Private method `createUserMessageStream()` in SdkAgentAdapter
 
 3. **`helpers/sdk-query-builder.ts`** (172 lines) - Inlined into SdkAgentAdapter
-
    - Old: Separate builder class for SDK query construction
    - New: Private method `buildQueryOptions()` in SdkAgentAdapter
 
@@ -827,7 +804,7 @@ class SessionHistoryReaderService {
   // Returns events for UI rendering + aggregated stats
   readSessionHistory(
     sessionId: string,
-    workspacePath: string
+    workspacePath: string,
   ): Promise<{
     events: FlatStreamEventUnion[];
     stats: { totalCost; tokens; messageCount } | null;
@@ -836,7 +813,7 @@ class SessionHistoryReaderService {
   // Returns simple message objects (for RPC)
   readHistoryAsMessages(
     sessionId: string,
-    workspacePath: string
+    workspacePath: string,
   ): Promise<
     {
       id: string;

@@ -5,6 +5,10 @@ description: Extend Ptah with curated plugins — agents, skills, templates, and
 
 Plugins are the primary extension mechanism for Ptah. Each plugin bundles a coordinated set of **agents**, **skills**, **templates**, and **slash commands** that target a specific stack, workflow, or domain — Angular frontend patterns, Nx SaaS scaffolding, React composition, core orchestration, and more.
 
+<video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
+  <source src="/assets/videos/plugins.mp4" type="video/mp4" />
+</video>
+
 ## Why plugins?
 
 Out of the box Ptah ships with a lean set of defaults. Plugins let you opt into richer, opinionated capabilities without inflating the base install:

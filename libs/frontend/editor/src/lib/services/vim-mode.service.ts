@@ -1,6 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
-import { rpcCall } from './rpc-call.util';
+import { VSCodeService, rpcCall } from '@ptah-extension/core';
 
 /**
  * Global type extension for MonacoVim loaded via UMD script.

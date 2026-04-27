@@ -5,7 +5,7 @@
  * totals across all messages in a chat session.
  */
 
-import { ExecutionChatMessage } from '../types/execution-node.types';
+import { ExecutionChatMessage } from '../types/execution';
 
 /**
  * Session totals calculated from messages
@@ -55,7 +55,7 @@ export interface SessionTotals {
  * ```
  */
 export function calculateSessionTotals(
-  messages: readonly ExecutionChatMessage[]
+  messages: readonly ExecutionChatMessage[],
 ): SessionTotals {
   let totalTokensInput = 0;
   let totalTokensOutput = 0;

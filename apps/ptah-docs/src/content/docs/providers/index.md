@@ -9,6 +9,10 @@ sidebar:
 
 Ptah is multi-provider by design. You configure the AI services you want to use, Ptah routes chat traffic, sub-agent spawns, and tool calls across them, and a single unified cost ledger shows you what each turn cost — no matter which backend served it.
 
+<video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
+  <source src="/assets/videos/providers.mp4" type="video/mp4" />
+</video>
+
 **You bring your own keys.** Ptah never proxies your traffic through a service we control. Your API keys stay on your machine.
 
 ## Supported providers
