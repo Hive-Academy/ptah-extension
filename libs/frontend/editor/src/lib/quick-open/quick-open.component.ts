@@ -12,8 +12,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule, Search, FileText } from 'lucide-angular';
-import { VSCodeService } from '@ptah-extension/core';
-import { rpcCall } from '../services/rpc-call.util';
+import { VSCodeService, rpcCall } from '@ptah-extension/core';
 
 /**
  * QuickOpenComponent - File picker modal (Ctrl+P / Cmd+P).

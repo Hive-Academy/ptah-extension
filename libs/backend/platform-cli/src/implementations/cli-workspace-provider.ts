@@ -15,7 +15,10 @@
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IWorkspaceLifecycleProvider,
+} from '@ptah-extension/platform-core';
 import type {
   IEvent,
   ConfigurationChangeEvent,
@@ -27,7 +30,9 @@ import {
   FILE_BASED_SETTINGS_DEFAULTS,
 } from '@ptah-extension/platform-core';
 
-export class CliWorkspaceProvider implements IWorkspaceProvider {
+export class CliWorkspaceProvider
+  implements IWorkspaceProvider, IWorkspaceLifecycleProvider
+{
   public readonly onDidChangeConfiguration: IEvent<ConfigurationChangeEvent>;
   public readonly onDidChangeWorkspaceFolders: IEvent<void>;
 
@@ -37,6 +42,7 @@ export class CliWorkspaceProvider implements IWorkspaceProvider {
   private readonly fileSettings: PtahFileSettingsManager;
 
   private folders: string[] = [];
+  private activeFolder: string | undefined;
   private config: Record<string, Record<string, unknown>> = {};
   private readonly configFilePath: string;
 
@@ -61,6 +67,7 @@ export class CliWorkspaceProvider implements IWorkspaceProvider {
       ? path.resolve(workspacePath)
       : process.cwd();
     this.folders = [resolvedWorkspace];
+    this.activeFolder = resolvedWorkspace;
   }
 
   getWorkspaceFolders(): string[] {
@@ -69,10 +76,10 @@ export class CliWorkspaceProvider implements IWorkspaceProvider {
 
   /**
    * Get the primary workspace root path.
-   * For CLI, this is always the first (and typically only) folder.
+   * Returns the active folder if set, otherwise falls back to the first folder.
    */
   getWorkspaceRoot(): string | undefined {
-    return this.folders[0];
+    return this.activeFolder ?? this.folders[0];
   }
 
   getConfiguration<T>(
@@ -132,8 +139,96 @@ export class CliWorkspaceProvider implements IWorkspaceProvider {
    * Fires onDidChangeWorkspaceFolders event.
    */
   setWorkspaceFolders(folders: string[]): void {
-    this.folders = folders.map((f) => path.resolve(f));
+    // Only resolve relative paths — absolute inputs are preserved verbatim so
+    // POSIX fixtures like `/root` round-trip correctly on Windows. On Windows
+    // `path.resolve('/root')` would prepend the current drive letter and
+    // silently mangle an already-absolute POSIX path. The Electron impl
+    // stores the seed verbatim too; this aligns both impls.
+    this.folders = folders.map((f) =>
+      path.isAbsolute(f) ? f : path.resolve(f),
+    );
+    // Update activeFolder if the current active is no longer in the list
+    if (
+      this.activeFolder &&
+      !this.folders.some(
+        (f) => path.resolve(f) === path.resolve(this.activeFolder!), // eslint-disable-line @typescript-eslint/no-non-null-assertion
+      )
+    ) {
+      this.activeFolder = this.folders[0];
+    }
     this.fireFoldersChange(undefined as unknown as void);
+  }
+
+  /**
+   * Add a folder to the workspace. Deduplicates by resolved path.
+   * Fires onDidChangeWorkspaceFolders event if the folder was actually added.
+   *
+   * TASK_2026_104 Sub-batch B5a
+   */
+  addFolder(folderPath: string): void {
+    const resolved = path.resolve(folderPath);
+    const alreadyExists = this.folders.some(
+      (existing) => path.resolve(existing) === resolved,
+    );
+    if (alreadyExists) {
+      return;
+    }
+    this.folders.push(resolved);
+    if (this.folders.length === 1) {
+      this.activeFolder = resolved;
+    }
+    this.fireFoldersChange(undefined as unknown as void);
+  }
+
+  /**
+   * Remove a folder from the workspace.
+   * If the removed folder was the active folder, promotes the first remaining
+   * folder (or undefined if none remain).
+   * Fires onDidChangeWorkspaceFolders event if the folder was actually removed.
+   *
+   * TASK_2026_104 Sub-batch B5a
+   */
+  removeFolder(folderPath: string): void {
+    const resolved = path.resolve(folderPath);
+    const index = this.folders.findIndex(
+      (existing) => path.resolve(existing) === resolved,
+    );
+    if (index === -1) {
+      return;
+    }
+    this.folders.splice(index, 1);
+    if (this.activeFolder && path.resolve(this.activeFolder) === resolved) {
+      this.activeFolder = this.folders[0] ?? undefined;
+    }
+    this.fireFoldersChange(undefined as unknown as void);
+  }
+
+  /**
+   * Set the active (primary) workspace folder.
+   * The path must already exist in the folders array; no-ops for unknown paths.
+   * Fires onDidChangeWorkspaceFolders event on success.
+   *
+   * TASK_2026_104 Sub-batch B5a
+   */
+  setActiveFolder(folderPath: string): void {
+    const resolved = path.resolve(folderPath);
+    const exists = this.folders.some(
+      (existing) => path.resolve(existing) === resolved,
+    );
+    if (!exists) {
+      return;
+    }
+    this.activeFolder = resolved;
+    this.fireFoldersChange(undefined as unknown as void);
+  }
+
+  /**
+   * Get the currently active workspace folder.
+   *
+   * TASK_2026_104 Sub-batch B5a
+   */
+  getActiveFolder(): string | undefined {
+    return this.activeFolder;
   }
 
   private loadConfigSync(): void {

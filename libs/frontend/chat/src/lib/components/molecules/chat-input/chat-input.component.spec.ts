@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unit tests for ChatInputComponent - Event handler logic
  *
  * Tests the @ trigger autocomplete race condition fix (TASK_2025_163):
@@ -13,11 +13,50 @@
  * to verify the race condition fix without needing full template rendering.
  */
 
+// Stub ngx-markdown BEFORE importing the component under test. The component
+// imports from `@ptah-extension/chat-ui` whose barrel transitively pulls
+// `ngx-markdown` (an ESM-only bundle that Jest cannot parse out of the box).
+import {
+  Component,
+  Input,
+  NgModule,
+  ChangeDetectionStrategy,
+} from '@angular/core';
+jest.mock('ngx-markdown', () => {
+  @Component({
+    // eslint-disable-next-line @angular-eslint/component-selector
+    selector: 'markdown',
+    standalone: true,
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    template: `<div data-test="markdown-stub">{{ data }}</div>`,
+  })
+  class MarkdownStubComponent {
+    @Input() data: string | null | undefined = '';
+  }
+
+  @NgModule({
+    imports: [MarkdownStubComponent],
+    exports: [MarkdownStubComponent],
+  })
+  class MarkdownModule {}
+
+  return {
+    MarkdownModule,
+    MarkdownComponent: MarkdownStubComponent,
+    provideMarkdown: () => [],
+    MARKED_OPTIONS: 'MARKED_OPTIONS',
+    CLIPBOARD_OPTIONS: 'CLIPBOARD_OPTIONS',
+    MARKED_EXTENSIONS: 'MARKED_EXTENSIONS',
+    MERMAID_OPTIONS: 'MERMAID_OPTIONS',
+    SANITIZE: 'SANITIZE',
+  };
+});
+
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { ChatInputComponent } from './chat-input.component';
 import { ChatStore } from '../../../services/chat.store';
-import { TabManagerService } from '../../../services/tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { FilePickerService } from '../../../services/file-picker.service';
 import {
   AutopilotStateService,
@@ -55,6 +94,10 @@ describe('ChatInputComponent', () => {
     searchFiles: jest.fn().mockReturnValue([]),
     ensureFilesLoaded: jest.fn().mockResolvedValue(undefined),
     workspaceFiles: signal([]),
+    // Remote server-side search API (added after initial spec authored)
+    searchFilesRemote: jest.fn(),
+    clearRemoteResults: jest.fn(),
+    remoteResults: signal([]),
   };
 
   const mockCommandDiscovery = {
@@ -429,10 +472,10 @@ describe('ChatInputComponent', () => {
 
       await component.handleSend();
 
+      // sendOrQueueMessage now takes an options object (files/images/tabId)
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         '/ptah-core:orchestrate Create TASK_2025_004',
-        [],
-        undefined,
+        { files: undefined, images: undefined, tabId: undefined },
       );
     });
 
@@ -446,8 +489,7 @@ describe('ChatInputComponent', () => {
 
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         '/orchestrate:Create TASK_2025_004',
-        [],
-        undefined,
+        { files: undefined, images: undefined, tabId: undefined },
       );
     });
 
@@ -459,8 +501,7 @@ describe('ChatInputComponent', () => {
 
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         'Hello, world!',
-        [],
-        undefined,
+        { files: undefined, images: undefined, tabId: undefined },
       );
     });
 
@@ -472,8 +513,7 @@ describe('ChatInputComponent', () => {
 
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         '/compact',
-        [],
-        undefined,
+        { files: undefined, images: undefined, tabId: undefined },
       );
     });
 
@@ -485,8 +525,7 @@ describe('ChatInputComponent', () => {
 
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
         '/ptah-core:review-code file.ts',
-        [],
-        undefined,
+        { files: undefined, images: undefined, tabId: undefined },
       );
     });
   });
@@ -498,14 +537,14 @@ describe('ChatInputComponent', () => {
   describe('Regression: Race condition scenario (TASK_2025_163)', () => {
     it('should maintain correct query through activation -> typing -> debounce cycle', () => {
       // Simulate the exact bug scenario:
-      // 1. User types "@" → atActivated fires immediately with query=""
-      // 2. User types "p" → atQueryChanged fires with "p"
-      // 3. User types "o" → atQueryChanged fires with "po"
-      // 4. User types "r" → atQueryChanged fires with "por"
-      // 5. User types "t" → atQueryChanged fires with "port"
-      // 6. User types "a" → atQueryChanged fires with "porta"
-      // 7. User types "l" → atQueryChanged fires with "portal"
-      // 8. 150ms later → atTriggered fires with stale query (could be "p" or "")
+      // 1. User types "@" â†’ atActivated fires immediately with query=""
+      // 2. User types "p" â†’ atQueryChanged fires with "p"
+      // 3. User types "o" â†’ atQueryChanged fires with "po"
+      // 4. User types "r" â†’ atQueryChanged fires with "por"
+      // 5. User types "t" â†’ atQueryChanged fires with "port"
+      // 6. User types "a" â†’ atQueryChanged fires with "porta"
+      // 7. User types "l" â†’ atQueryChanged fires with "portal"
+      // 8. 150ms later â†’ atTriggered fires with stale query (could be "p" or "")
       //    BUG: Previously this overwrote _currentQuery with stale value
       //    FIX: handleAtTriggered no longer sets _currentQuery
 

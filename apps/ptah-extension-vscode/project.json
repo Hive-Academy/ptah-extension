@@ -169,6 +169,14 @@
     "lint": {
       "executor": "@nx/eslint:lint"
     },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "apps/ptah-extension-vscode/jest.config.ts",
+        "passWithNoTests": true
+      }
+    },
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {

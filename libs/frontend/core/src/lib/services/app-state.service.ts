@@ -257,19 +257,6 @@ export class AppStateManager implements MessageHandler {
     }
   }
 
-  /** Open a view as a tab pill and switch to it. Respects canSwitchViews() guard. */
-  openView(view: ViewType): void {
-    if (this.canSwitchViews()) {
-      view = this.normalizeView(view);
-      this._openViews.update((views) => {
-        const next = new Set(views);
-        next.add(view);
-        return next;
-      });
-      this._currentView.set(view);
-    }
-  }
-
   /** Close a view tab pill. Chat can never be closed. Falls back to chat if closing the active view. */
   closeView(view: ViewType): void {
     if (view === 'chat') return;

@@ -16,11 +16,11 @@ const path = require('path');
 
 const SOURCE = path.resolve(
   __dirname,
-  '../../../dist/apps/ptah-extension-webview/browser'
+  '../../../dist/apps/ptah-extension-webview/browser',
 );
 const DEST = path.resolve(
   __dirname,
-  '../../../dist/apps/ptah-electron/renderer'
+  '../../../dist/apps/ptah-electron/renderer',
 );
 
 // 1. Clean destination
@@ -36,7 +36,49 @@ if (!fs.existsSync(SOURCE)) {
   process.exit(1);
 }
 
-fs.cpSync(SOURCE, DEST, { recursive: true });
+// Walk SOURCE manually so broken symlinks (occasionally produced by npm's
+// _cacache for monaco-editor's min/vs/basic-languages on Linux runners) are
+// skipped rather than aborting the whole copy with a C++ filesystem_error.
+function copyRecursive(src, dst) {
+  let entries;
+  try {
+    entries = fs.readdirSync(src, { withFileTypes: true });
+  } catch (err) {
+    if (err.code === 'ENOENT' || err.code === 'ENOTDIR') {
+      console.warn(
+        `[copy-renderer] Skipping unreadable dir: ${src} (${err.code})`,
+      );
+      return;
+    }
+    throw err;
+  }
+  fs.mkdirSync(dst, { recursive: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const dstPath = path.join(dst, entry.name);
+    if (entry.isSymbolicLink()) {
+      // Follow the link; if target is missing, skip rather than abort.
+      let stat;
+      try {
+        stat = fs.statSync(srcPath);
+      } catch {
+        console.warn(`[copy-renderer] Skipping broken symlink: ${srcPath}`);
+        continue;
+      }
+      if (stat.isDirectory()) {
+        copyRecursive(srcPath, dstPath);
+      } else {
+        fs.copyFileSync(srcPath, dstPath);
+      }
+    } else if (entry.isDirectory()) {
+      copyRecursive(srcPath, dstPath);
+    } else {
+      fs.copyFileSync(srcPath, dstPath);
+    }
+  }
+}
+
+copyRecursive(SOURCE, DEST);
 console.log(`[copy-renderer] Copied ${SOURCE} -> ${DEST}`);
 
 // 3. Patch index.html for file:// protocol
@@ -52,7 +94,7 @@ if (patched !== html) {
   console.log('[copy-renderer] Patched index.html: base href="/" -> "./"');
 } else {
   console.log(
-    '[copy-renderer] index.html base href already correct or not found'
+    '[copy-renderer] index.html base href already correct or not found',
   );
 }
 

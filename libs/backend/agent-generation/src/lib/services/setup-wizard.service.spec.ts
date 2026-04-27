@@ -1,590 +1,355 @@
 /**
- * Setup Wizard Service Tests
+ * Setup Wizard Service (Facade) Unit Tests
  *
- * Comprehensive test suite for SetupWizardService covering:
- * - Webview creation and lifecycle
- * - Wizard step transitions (all 6 steps)
- * - Session state tracking
- * - Cancellation and resume workflows
- * - RPC message handling (mocked)
- * - Error cases and edge conditions
+ * Covers the thin facade API introduced in TASK_2025_115:
+ *  - launchWizard(workspacePath)
+ *  - cancelWizard(sessionId, saveProgress)
+ *  - getCurrentSession()
  *
- * @module @ptah-extension/agent-generation/services/tests
+ * Old postMessage handlers, step-machine, and session management have been
+ * removed from this service. The Angular SPA now communicates via RPC
+ * handlers — those live (and are tested) elsewhere.
  */
 
 import 'reflect-metadata';
-import * as vscode from 'vscode';
+import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+
+// Mock vscode-core to avoid VS Code dependency
+jest.mock('@ptah-extension/vscode-core', () => ({
+  Logger: jest.fn(),
+  TOKENS: {
+    LOGGER: Symbol.for('Logger'),
+    SENTRY_SERVICE: Symbol.for('SentryService'),
+    PLATFORM_COMMANDS: Symbol.for('PlatformCommands'),
+  },
+}));
+
+import { Result, MESSAGE_TYPES } from '@ptah-extension/shared';
 import { SetupWizardService } from './setup-wizard.service';
-import { WebviewManager } from '@ptah-extension/vscode-core';
-import { Logger } from '@ptah-extension/vscode-core';
-import { WizardState } from '../types/wizard.types';
+import type { WizardWebviewLifecycleService } from './wizard';
 
-// Mock dependencies
-jest.mock('@ptah-extension/vscode-core');
+// -----------------------------------------------------------------------------
+// Mock interfaces — only methods actually used by SetupWizardService
+// -----------------------------------------------------------------------------
 
-// SKIPPED: Pre-existing test failure - SetupWizardService constructor signature
-// changed in TASK_2025_115 (facade refactor). Tests need full rewrite to mock
-// the new child services (WizardWebviewLifecycleService, WizardSessionManagerService,
-// WizardStepMachineService, DeepProjectAnalysisService).
-describe.skip('SetupWizardService', () => {
+interface MockLogger {
+  debug: jest.Mock;
+  info: jest.Mock;
+  warn: jest.Mock;
+  error: jest.Mock;
+}
+
+interface MockPanel {
+  reveal: jest.Mock;
+}
+
+interface MockWebviewLifecycle {
+  getPanel: jest.Mock;
+  createWizardPanel: jest.Mock;
+  disposeWebview: jest.Mock;
+}
+
+interface MockPlatformCommands {
+  reloadWindow: jest.Mock;
+}
+
+interface MockSentryService {
+  initialize: jest.Mock;
+  captureException: jest.Mock;
+  captureMessage: jest.Mock;
+  addBreadcrumb: jest.Mock;
+  flush: jest.Mock;
+  shutdown: jest.Mock;
+  isInitialized: jest.Mock;
+}
+
+// -----------------------------------------------------------------------------
+// Suite
+// -----------------------------------------------------------------------------
+
+describe('SetupWizardService (facade)', () => {
   let service: SetupWizardService;
-  let mockWebviewManager: jest.Mocked<WebviewManager>;
-  let mockContext: jest.Mocked<vscode.ExtensionContext>;
-  let mockLogger: jest.Mocked<Logger>;
-  let mockWorkspaceState: Map<string, unknown>;
+  let mockLogger: MockLogger;
+  let mockWebviewLifecycle: MockWebviewLifecycle;
+  let mockPlatformCommands: MockPlatformCommands;
+  let mockSentryService: MockSentryService;
+  let mockPanel: MockPanel;
+
+  const WORKSPACE_PATH = '/workspace/test-project';
 
   beforeEach(() => {
-    // Create mock webview manager
-    mockWebviewManager = {
-      createWebviewPanel: jest.fn(),
-      getWebviewPanel: jest.fn(),
-      disposeWebview: jest.fn(),
-      sendMessage: jest.fn(),
-    } as unknown as jest.Mocked<WebviewManager>;
+    jest.clearAllMocks();
 
-    // Create mock workspace state
-    mockWorkspaceState = new Map<string, unknown>();
-
-    // Create mock extension context
-    mockContext = {
-      workspaceState: {
-        get: jest.fn((key: string) => mockWorkspaceState.get(key)),
-        update: jest.fn((key: string, value: unknown) => {
-          mockWorkspaceState.set(key, value);
-          return Promise.resolve();
-        }),
-      },
-    } as unknown as jest.Mocked<vscode.ExtensionContext>;
-
-    // Create mock logger
     mockLogger = {
       debug: jest.fn(),
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
-    } as unknown as jest.Mocked<Logger>;
+    };
 
-    // Create service instance
-    // @ts-expect-error - Constructor signature changed in TASK_2025_115 facade refactor; entire suite is skipped
+    mockPanel = {
+      reveal: jest.fn(),
+    };
+
+    mockWebviewLifecycle = {
+      getPanel: jest.fn(() => undefined) as unknown as jest.Mock,
+      createWizardPanel: jest.fn(async () => mockPanel) as unknown as jest.Mock,
+      disposeWebview: jest.fn(),
+    };
+
+    mockPlatformCommands = {
+      reloadWindow: jest.fn(async () => undefined) as unknown as jest.Mock,
+    };
+
+    mockSentryService = {
+      initialize: jest.fn(),
+      captureException: jest.fn(),
+      captureMessage: jest.fn(),
+      addBreadcrumb: jest.fn(),
+      flush: jest.fn(),
+      shutdown: jest.fn(),
+      isInitialized: jest.fn(),
+    };
+
     service = new SetupWizardService(
-      mockWebviewManager,
-      mockContext,
-      mockLogger
+      mockLogger as never,
+      mockWebviewLifecycle as unknown as WizardWebviewLifecycleService,
+      mockPlatformCommands as never,
+      mockSentryService as never,
     );
   });
 
-  afterEach(() => {
-    jest.clearAllMocks();
-    mockWorkspaceState.clear();
-  });
+  // ---------------------------------------------------------------------------
+  // launchWizard
+  // ---------------------------------------------------------------------------
 
   describe('launchWizard', () => {
-    const workspaceUri = {
-      fsPath: '/test/workspace',
-    } as vscode.Uri;
+    it('should return error when workspace path is empty', async () => {
+      const result = await service.launchWizard('');
 
-    it('should create webview panel and initialize wizard session', async () => {
-      // Arrange
-      const mockPanel = {} as vscode.WebviewPanel;
-      mockWebviewManager.createWebviewPanel.mockReturnValue(mockPanel);
-
-      // Act
-      const result = await service.launchWizard(workspaceUri);
-
-      // Assert
-      expect(result.isOk()).toBe(true);
-      expect(mockWebviewManager.createWebviewPanel).toHaveBeenCalledWith({
-        viewType: 'ptah.setupWizard',
-        title: 'Ptah Setup Wizard',
-        showOptions: {
-          viewColumn: 1,
-          preserveFocus: false,
-        },
-        options: {
-          enableScripts: true,
-          retainContextWhenHidden: true,
-        },
-      });
-
-      // Verify session created
-      const session = service.getCurrentSession();
-      expect(session).toBeDefined();
-      expect(session?.workspaceRoot).toBe('/test/workspace');
-      expect(session?.currentStep).toBe('welcome');
-    });
-
-    it('should reveal existing wizard panel if already active for same workspace', async () => {
-      // Arrange
-      const mockPanel = {
-        reveal: jest.fn(),
-      } as unknown as vscode.WebviewPanel;
-      mockWebviewManager.createWebviewPanel.mockReturnValue(mockPanel);
-      mockWebviewManager.getWebviewPanel.mockReturnValue(mockPanel);
-
-      // Launch wizard first time
-      await service.launchWizard(workspaceUri);
-
-      // Act - Launch again for same workspace
-      const result = await service.launchWizard(workspaceUri);
-
-      // Assert
-      expect(result.isOk()).toBe(true);
-      expect(mockPanel.reveal).toHaveBeenCalled();
-      expect(mockWebviewManager.createWebviewPanel).toHaveBeenCalledTimes(1); // Only called once
-    });
-
-    it('should return error if webview creation fails', async () => {
-      // Arrange
-      mockWebviewManager.createWebviewPanel.mockImplementation(() => {
-        throw new Error('Webview creation failed');
-      });
-
-      // Act
-      const result = await service.launchWizard(workspaceUri);
-
-      // Assert
       expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('Wizard launch failed');
-      expect(mockLogger.error).toHaveBeenCalled();
+      expect(result.error?.message).toBe('No workspace folder open');
+      expect(mockWebviewLifecycle.createWizardPanel).not.toHaveBeenCalled();
+    });
+
+    it('should return error when workspace path is whitespace only', async () => {
+      const result = await service.launchWizard('   ');
+
+      expect(result.isErr()).toBe(true);
+      expect(result.error?.message).toBe('No workspace folder open');
+      expect(mockWebviewLifecycle.createWizardPanel).not.toHaveBeenCalled();
+    });
+
+    it('should create a new wizard panel when none exists', async () => {
+      const result = await service.launchWizard(WORKSPACE_PATH);
+
+      expect(result.isOk()).toBe(true);
+      expect(mockWebviewLifecycle.getPanel).toHaveBeenCalledWith(
+        'ptah.setupWizard',
+      );
+      expect(mockWebviewLifecycle.createWizardPanel).toHaveBeenCalledWith(
+        'Ptah Setup Wizard',
+        'ptah.setupWizard',
+        expect.arrayContaining([expect.any(Function)]),
+      );
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'Wizard launched successfully',
+      );
+    });
+
+    it('should reveal existing panel instead of creating a new one', async () => {
+      mockWebviewLifecycle.getPanel.mockReturnValue(mockPanel);
+
+      const result = await service.launchWizard(WORKSPACE_PATH);
+
+      expect(result.isOk()).toBe(true);
+      expect(mockPanel.reveal).toHaveBeenCalledTimes(1);
+      expect(mockWebviewLifecycle.createWizardPanel).not.toHaveBeenCalled();
+    });
+
+    it('should return error when createWizardPanel returns null', async () => {
+      (mockWebviewLifecycle.createWizardPanel as jest.Mock).mockImplementation(
+        async () => null,
+      );
+
+      const result = await service.launchWizard(WORKSPACE_PATH);
+
+      expect(result.isErr()).toBe(true);
+      expect(result.error?.message).toContain(
+        'Failed to create wizard webview panel',
+      );
+    });
+
+    it('should wrap thrown errors and capture to Sentry', async () => {
+      const boom = new Error('panel creation blew up');
+      (mockWebviewLifecycle.createWizardPanel as jest.Mock).mockImplementation(
+        async () => {
+          throw boom;
+        },
+      );
+
+      const result = await service.launchWizard(WORKSPACE_PATH);
+
+      expect(result.isErr()).toBe(true);
+      expect(result.error?.message).toBe(
+        'Wizard launch failed: panel creation blew up',
+      );
+      expect(mockSentryService.captureException).toHaveBeenCalledWith(
+        boom,
+        expect.objectContaining({
+          errorSource: 'SetupWizardService.launchWizard',
+        }),
+      );
+    });
+
+    it('should reload window when wizard-complete message received', async () => {
+      let capturedHandler:
+        | ((msg: unknown) => boolean | Promise<boolean>)
+        | undefined;
+      mockWebviewLifecycle.createWizardPanel.mockImplementation(
+        (..._args: unknown[]) => {
+          const handlers = _args[2] as Array<
+            (msg: unknown) => boolean | Promise<boolean>
+          >;
+          capturedHandler = handlers[0];
+          return Promise.resolve(mockPanel);
+        },
+      );
+
+      await service.launchWizard(WORKSPACE_PATH);
+
+      expect(capturedHandler).toBeDefined();
+      const handled = await capturedHandler!({
+        type: MESSAGE_TYPES.SETUP_WIZARD_COMPLETE,
+      });
+
+      expect(handled).toBe(true);
+      expect(mockWebviewLifecycle.disposeWebview).toHaveBeenCalledWith(
+        'ptah.setupWizard',
+      );
+      expect(mockPlatformCommands.reloadWindow).toHaveBeenCalledTimes(1);
+    });
+
+    it('should ignore unrelated messages in the handler', async () => {
+      let capturedHandler:
+        | ((msg: unknown) => boolean | Promise<boolean>)
+        | undefined;
+      mockWebviewLifecycle.createWizardPanel.mockImplementation(
+        (..._args: unknown[]) => {
+          const handlers = _args[2] as Array<
+            (msg: unknown) => boolean | Promise<boolean>
+          >;
+          capturedHandler = handlers[0];
+          return Promise.resolve(mockPanel);
+        },
+      );
+
+      await service.launchWizard(WORKSPACE_PATH);
+
+      const handled = await capturedHandler!({ type: 'some.other.message' });
+
+      expect(handled).toBe(false);
+      expect(mockPlatformCommands.reloadWindow).not.toHaveBeenCalled();
+    });
+
+    it('should swallow concurrent launches', async () => {
+      // First call resolves on the next microtask tick
+      let resolveCreate: (p: unknown) => void = () => undefined;
+      mockWebviewLifecycle.createWizardPanel.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveCreate = resolve;
+          }),
+      );
+
+      const first = service.launchWizard(WORKSPACE_PATH);
+      const second = service.launchWizard(WORKSPACE_PATH);
+
+      // Second call should short-circuit with Ok and a warn log while
+      // first is still pending.
+      const secondResult = await second;
+      expect(secondResult.isOk()).toBe(true);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Wizard launch already in progress'),
+      );
+
+      // Now let the first one finish
+      resolveCreate(mockPanel);
+      const firstResult = await first;
+      expect(firstResult.isOk()).toBe(true);
+
+      // Only the first launch should have actually created a panel
+      expect(mockWebviewLifecycle.createWizardPanel).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('handleStep Transition', () => {
-    const workspaceUri = { fsPath: '/test/workspace' } as vscode.Uri;
-
-    beforeEach(async () => {
-      // Set up active wizard session
-      mockWebviewManager.createWebviewPanel.mockReturnValue(
-        {} as vscode.WebviewPanel
-      );
-      await service.launchWizard(workspaceUri);
-    });
-
-    it('should transition from welcome to scan', async () => {
-      // Arrange
-      const session = service.getCurrentSession()!;
-
-      // Act
-      const result = await service.handleStepTransition(
-        session.id,
-        'welcome',
-        {}
-      );
-
-      // Assert
-      expect(result.isOk()).toBe(true);
-      expect(result.value).toBe('scan');
-      expect(service.getCurrentSession()?.currentStep).toBe('scan');
-    });
-
-    it('should transition from scan to review with project context', async () => {
-      // Arrange
-      const session = service.getCurrentSession()!;
-      // Manually set step to scan
-      await service.handleStepTransition(session.id, 'welcome', {});
-
-      const projectContext = {
-        projectType: 'Node.js',
-        frameworks: ['Express', 'NestJS'],
-        techStack: ['TypeScript'],
-      };
-
-      // Act
-      const result = await service.handleStepTransition(session.id, 'scan', {
-        projectContext,
-      });
-
-      // Assert
-      expect(result.isOk()).toBe(true);
-      expect(result.value).toBe('review');
-      expect(service.getCurrentSession()?.projectContext).toEqual(
-        projectContext
-      );
-    });
-
-    it('should transition from review to select', async () => {
-      // Arrange
-      const session = service.getCurrentSession()!;
-      await service.handleStepTransition(session.id, 'welcome', {});
-      await service.handleStepTransition(session.id, 'scan', {});
-
-      // Act
-      const result = await service.handleStepTransition(session.id, 'review', {
-        confirmed: true,
-      });
-
-      // Assert
-      expect(result.isOk()).toBe(true);
-      expect(result.value).toBe('select');
-    });
-
-    it('should transition from select to generate with agent selection', async () => {
-      // Arrange
-      const session = service.getCurrentSession()!;
-      await service.handleStepTransition(session.id, 'welcome', {});
-      await service.handleStepTransition(session.id, 'scan', {});
-      await service.handleStepTransition(session.id, 'review', {});
-
-      const selectedAgentIds = ['backend-developer', 'frontend-developer'];
-
-      // Act
-      const result = await service.handleStepTransition(session.id, 'select', {
-        selectedAgentIds,
-      });
-
-      // Assert
-      expect(result.isOk()).toBe(true);
-      expect(result.value).toBe('generate');
-      expect(service.getCurrentSession()?.selectedAgentIds).toEqual(
-        selectedAgentIds
-      );
-    });
-
-    it('should transition from generate to complete with generation summary', async () => {
-      // Arrange
-      const session = service.getCurrentSession()!;
-      await service.handleStepTransition(session.id, 'welcome', {});
-      await service.handleStepTransition(session.id, 'scan', {});
-      await service.handleStepTransition(session.id, 'review', {});
-      await service.handleStepTransition(session.id, 'select', {
-        selectedAgentIds: ['backend-developer'],
-      });
-
-      const generationSummary = {
-        totalAgents: 1,
-        successful: 1,
-        failed: 0,
-        durationMs: 5000,
-        warnings: [],
-      };
-
-      // Act
-      const result = await service.handleStepTransition(
-        session.id,
-        'generate',
-        { generationSummary }
-      );
-
-      // Assert
-      expect(result.isOk()).toBe(true);
-      expect(result.value).toBe('complete');
-      expect(service.getCurrentSession()?.generationSummary).toEqual(
-        generationSummary
-      );
-    });
-
-    it('should return error for invalid session ID', async () => {
-      // Act
-      const result = await service.handleStepTransition(
-        'invalid-session-id',
-        'welcome',
-        {}
-      );
-
-      // Assert
-      expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('Invalid or expired');
-    });
-
-    it('should return error for step mismatch', async () => {
-      // Arrange
-      const session = service.getCurrentSession()!;
-      // Session is on 'welcome', but we try to transition from 'scan'
-
-      // Act
-      const result = await service.handleStepTransition(session.id, 'scan', {});
-
-      // Assert
-      expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('Step mismatch');
-    });
-  });
+  // ---------------------------------------------------------------------------
+  // cancelWizard
+  // ---------------------------------------------------------------------------
 
   describe('cancelWizard', () => {
-    const workspaceUri = { fsPath: '/test/workspace' } as vscode.Uri;
+    it('should dispose the webview and return Ok', async () => {
+      const result = await service.cancelWizard('session-123', false);
 
-    beforeEach(async () => {
-      mockWebviewManager.createWebviewPanel.mockReturnValue(
-        {} as vscode.WebviewPanel
+      expect(result.isOk()).toBe(true);
+      expect(mockWebviewLifecycle.disposeWebview).toHaveBeenCalledWith(
+        'ptah.setupWizard',
       );
-      await service.launchWizard(workspaceUri);
     });
 
-    it('should cancel wizard and dispose webview', async () => {
-      // Arrange
-      const session = service.getCurrentSession()!;
+    it('should dispose the webview even when saveProgress is true', async () => {
+      const result = await service.cancelWizard('session-123', true);
 
-      // Act
-      const result = await service.cancelWizard(session.id, false);
-
-      // Assert
       expect(result.isOk()).toBe(true);
-      expect(mockWebviewManager.disposeWebview).toHaveBeenCalledWith(
-        'ptah.setupWizard'
+      expect(mockWebviewLifecycle.disposeWebview).toHaveBeenCalledWith(
+        'ptah.setupWizard',
       );
+    });
+
+    it('should wrap thrown errors and capture to Sentry', async () => {
+      const boom = new Error('dispose went wrong');
+      mockWebviewLifecycle.disposeWebview.mockImplementation(() => {
+        throw boom;
+      });
+
+      const result = await service.cancelWizard('session-123', false);
+
+      expect(result.isErr()).toBe(true);
+      expect(result.error?.message).toBe(
+        'Wizard cancellation failed: dispose went wrong',
+      );
+      expect(mockSentryService.captureException).toHaveBeenCalledWith(
+        boom,
+        expect.objectContaining({
+          errorSource: 'SetupWizardService.cancelWizard',
+        }),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // getCurrentSession
+  // ---------------------------------------------------------------------------
+
+  describe('getCurrentSession', () => {
+    it('should always return null (facade no longer tracks sessions)', () => {
       expect(service.getCurrentSession()).toBeNull();
     });
-
-    it('should save session state when saveProgress is true', async () => {
-      // Arrange
-      const session = service.getCurrentSession()!;
-      await service.handleStepTransition(session.id, 'welcome', {});
-      await service.handleStepTransition(session.id, 'scan', {
-        projectContext: {
-          projectType: 'Node.js',
-          frameworks: ['Express'],
-          techStack: ['TypeScript'],
-        },
-      });
-
-      // Act
-      const result = await service.cancelWizard(session.id, true);
-
-      // Assert
-      expect(result.isOk()).toBe(true);
-      expect(mockContext.workspaceState.update).toHaveBeenCalledWith(
-        'wizard-session-state',
-        expect.objectContaining({
-          sessionId: session.id,
-          currentStep: 'review',
-          workspaceRoot: '/test/workspace',
-        })
-      );
-    });
-
-    it('should return error for invalid session ID', async () => {
-      // Act
-      const result = await service.cancelWizard('invalid-session-id', false);
-
-      // Assert
-      expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('Invalid or expired');
-    });
   });
 
-  describe('resumeWizard', () => {
-    const workspaceRoot = '/test/workspace';
+  // ---------------------------------------------------------------------------
+  // Sanity check: ensure Result type is used, not a POJO
+  // ---------------------------------------------------------------------------
 
-    it('should resume wizard from saved state', async () => {
-      // Arrange
-      const savedState: WizardState = {
-        sessionId: 'test-session-123',
-        currentStep: 'review',
-        workspaceRoot,
-        lastActivity: new Date(),
-        projectContext: {
-          projectType: 'Node.js',
-          frameworks: ['Express'],
-          techStack: ['TypeScript'],
-        },
-        selectedAgentIds: undefined,
-      };
-      mockWorkspaceState.set('wizard-session-state', savedState);
-      mockWebviewManager.createWebviewPanel.mockReturnValue(
-        {} as vscode.WebviewPanel
-      );
-
-      // Act
-      const result = await service.resumeWizard({
-        sessionId: 'test-session-123',
-        workspaceRoot,
-      });
-
-      // Assert
-      expect(result.isOk()).toBe(true);
-      expect(result.value?.id).toBe('test-session-123');
-      expect(result.value?.currentStep).toBe('review');
-      expect(result.value?.projectContext).toEqual(savedState.projectContext);
-      expect(mockWebviewManager.createWebviewPanel).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'Ptah Setup Wizard (Resumed)',
-        })
-      );
+  describe('Result integration', () => {
+    it('launchWizard returns a Result-like object', async () => {
+      const result = await service.launchWizard(WORKSPACE_PATH);
+      expect(typeof result.isOk).toBe('function');
+      expect(typeof result.isErr).toBe('function');
     });
 
-    it('should return error if no saved state found', async () => {
-      // Act
-      const result = await service.resumeWizard({
-        sessionId: 'test-session-123',
-        workspaceRoot,
-      });
-
-      // Assert
-      expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('No saved wizard session');
-    });
-
-    it('should return error if session ID mismatch', async () => {
-      // Arrange
-      const savedState: WizardState = {
-        sessionId: 'different-session-id',
-        currentStep: 'review',
-        workspaceRoot,
-        lastActivity: new Date(),
-      };
-      mockWorkspaceState.set('wizard-session-state', savedState);
-
-      // Act
-      const result = await service.resumeWizard({
-        sessionId: 'test-session-123',
-        workspaceRoot,
-      });
-
-      // Assert
-      expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('Session ID mismatch');
-    });
-
-    it('should return error if session expired (>24 hours)', async () => {
-      // Arrange
-      const expiredDate = new Date();
-      expiredDate.setHours(expiredDate.getHours() - 25); // 25 hours ago
-
-      const savedState: WizardState = {
-        sessionId: 'test-session-123',
-        currentStep: 'review',
-        workspaceRoot,
-        lastActivity: expiredDate,
-      };
-      mockWorkspaceState.set('wizard-session-state', savedState);
-
-      // Act
-      const result = await service.resumeWizard({
-        sessionId: 'test-session-123',
-        workspaceRoot,
-      });
-
-      // Assert
-      expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('expired or invalid');
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        'Wizard session expired',
-        expect.any(Object)
-      );
-    });
-  });
-
-  describe('handleAgentSelectionUpdate', () => {
-    const workspaceUri = { fsPath: '/test/workspace' } as vscode.Uri;
-
-    beforeEach(async () => {
-      mockWebviewManager.createWebviewPanel.mockReturnValue(
-        {} as vscode.WebviewPanel
-      );
-      await service.launchWizard(workspaceUri);
-    });
-
-    it('should update agent selection in session', async () => {
-      // Arrange
-      const session = service.getCurrentSession()!;
-      const selectedAgentIds = ['backend-developer', 'frontend-developer'];
-
-      // Act
-      const result = await service.handleAgentSelectionUpdate({
-        sessionId: session.id,
-        selectedAgentIds,
-      });
-
-      // Assert
-      expect(result.isOk()).toBe(true);
-      expect(service.getCurrentSession()?.selectedAgentIds).toEqual(
-        selectedAgentIds
-      );
-    });
-
-    it('should return error if selection is empty', async () => {
-      // Arrange
-      const session = service.getCurrentSession()!;
-
-      // Act
-      const result = await service.handleAgentSelectionUpdate({
-        sessionId: session.id,
-        selectedAgentIds: [],
-      });
-
-      // Assert
-      expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('cannot be empty');
-    });
-
-    it('should return error for invalid session ID', async () => {
-      // Act
-      const result = await service.handleAgentSelectionUpdate({
-        sessionId: 'invalid-session-id',
-        selectedAgentIds: ['backend-developer'],
-      });
-
-      // Assert
-      expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('Invalid or expired');
-    });
-  });
-
-  describe('get CurrentSession', () => {
-    it('should return null when no active session', () => {
-      // Act
-      const session = service.getCurrentSession();
-
-      // Assert
-      expect(session).toBeNull();
-    });
-
-    it('should return current session when wizard is active', async () => {
-      // Arrange
-      const workspaceUri = { fsPath: '/test/workspace' } as vscode.Uri;
-      mockWebviewManager.createWebviewPanel.mockReturnValue(
-        {} as vscode.WebviewPanel
-      );
-      await service.launchWizard(workspaceUri);
-
-      // Act
-      const session = service.getCurrentSession();
-
-      // Assert
-      expect(session).toBeDefined();
-      expect(session?.workspaceRoot).toBe('/test/workspace');
-    });
-  });
-
-  describe('Edge Cases', () => {
-    it('should handle multiple cancel attempts gracefully', async () => {
-      // Arrange
-      const workspaceUri = { fsPath: '/test/workspace' } as vscode.Uri;
-      mockWebviewManager.createWebviewPanel.mockReturnValue(
-        {} as vscode.WebviewPanel
-      );
-      await service.launchWizard(workspaceUri);
-      const session = service.getCurrentSession()!;
-
-      // Act - Cancel twice
-      const result1 = await service.cancelWizard(session.id, false);
-      const result2 = await service.cancelWizard(session.id, false);
-
-      // Assert
-      expect(result1.isOk()).toBe(true);
-      expect(result2.isErr()).toBe(true); // Second cancel should fail (session already gone)
-    });
-
-    it('should handle wizard launch for different workspaces sequentially', async () => {
-      // Arrange
-      const workspace1 = { fsPath: '/test/workspace1' } as vscode.Uri;
-      const workspace2 = { fsPath: '/test/workspace2' } as vscode.Uri;
-      mockWebviewManager.createWebviewPanel.mockReturnValue(
-        {} as vscode.WebviewPanel
-      );
-
-      // Act - Launch for workspace1
-      await service.launchWizard(workspace1);
-      const session1 = service.getCurrentSession()!;
-
-      // Launch for workspace2 (should cancel workspace1)
-      await service.launchWizard(workspace2);
-      const session2 = service.getCurrentSession()!;
-
-      // Assert
-      expect(session2.workspaceRoot).toBe('/test/workspace2');
-      expect(session2.id).not.toBe(session1.id);
-      expect(mockContext.workspaceState.update).toHaveBeenCalled(); // session1 was saved
+    it('Result import is available', () => {
+      expect(Result).toBeDefined();
     });
   });
 });

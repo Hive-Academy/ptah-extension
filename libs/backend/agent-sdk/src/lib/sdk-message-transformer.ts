@@ -56,17 +56,14 @@ import {
   isCompactBoundary,
   isLocalCommandOutput,
 } from './types/sdk-types/claude-sdk.types';
+import {
+  generateEventId,
+  isSkillOrMetaContent,
+  userMessageHasToolResult,
+} from './message-transform/message-transform-helpers';
 
 // Re-export isResultMessage for backward compatibility with stream-transformer.ts
 export { isResultMessage as isSDKResultMessage };
-
-/**
- * Generate unique event ID
- * Format: evt_{timestamp}_{random}
- */
-function generateEventId(): string {
-  return `evt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-}
 
 /**
  * SdkMessageTransformer - Transforms SDK messages to flat stream events
@@ -212,7 +209,7 @@ export class SdkMessageTransformer {
         // (transformUserToFlatEvents returns tool_result events before reaching here).
         if (this.activeSkillToolUseIds.size > 0) {
           // Check if this user message contains tool_result blocks — those are legitimate
-          const hasToolResult = this.userMessageHasToolResult(sdkMessage);
+          const hasToolResult = userMessageHasToolResult(sdkMessage);
           if (!hasToolResult) {
             this.logger.info(
               '[SdkMessageTransformer] Skipping user message during active Skill tool execution (skill content injection)',
@@ -223,7 +220,7 @@ export class SdkMessageTransformer {
         }
 
         // LAYER 4: Content-based detection as last resort.
-        if (this.isSkillOrMetaContent(sdkMessage)) {
+        if (isSkillOrMetaContent(sdkMessage)) {
           this.logger.info(
             '[SdkMessageTransformer] Skipping user message detected as skill/meta content by pattern',
           );
@@ -1179,102 +1176,8 @@ export class SdkMessageTransformer {
     return events;
   }
 
-  /**
-   * Detect skill/meta content by message patterns when isSynthetic/isMeta flags are missing.
-   *
-   * The Claude Agent SDK injects various meta messages (skill content, reminders,
-   * plan files, memory, etc.) with isMeta=true internally, which gets mapped to
-   * isSynthetic=true on emitted SDKUserMessage. This method is a FALLBACK for
-   * when both flags are missing (e.g., serialization edge cases).
-   *
-   * Known SDK meta content markers:
-   * - <skill-format>true</skill-format>  (skill loading metadata tag)
-   * - <command-message>  (command/skill invocation tag)
-   * - "Base directory for this skill:"  (legacy skill injection prefix)
-   * - sourceToolUseID property  (Skill tool injected messages - legacy)
-   * - YAML frontmatter with name:/description: (skill .md file content)
-   */
-  private isSkillOrMetaContent(sdkMessage: SDKUserMessage): boolean {
-    // Check sourceToolUseID — Skill tool injects messages with sourceToolUseID like "Skill_0"
-    const sourceToolUseId = (sdkMessage as unknown as Record<string, unknown>)[
-      'sourceToolUseID'
-    ] as string | undefined;
-    if (sourceToolUseId && typeof sourceToolUseId === 'string') {
-      // Any message injected by the Skill tool is meta content
-      return true;
-    }
-
-    // Extract text content for pattern matching
-    const content = sdkMessage.message?.content;
-    if (!content) return false;
-
-    let textContent = '';
-    if (typeof content === 'string') {
-      textContent = content;
-    } else if (Array.isArray(content)) {
-      textContent = content
-        .filter(
-          (block): block is { type: 'text'; text: string } =>
-            typeof block === 'object' &&
-            block !== null &&
-            'type' in block &&
-            block.type === 'text' &&
-            'text' in block,
-        )
-        .map((block) => block.text)
-        .join('\n');
-    }
-
-    if (!textContent) return false;
-
-    // Check for SDK meta content markers
-    // These tags are injected by the SDK and should never appear in user input
-    if (textContent.includes('<skill-format>true</skill-format>')) return true;
-    if (textContent.includes('<command-message>')) return true;
-    if (textContent.includes('<command-name>')) return true;
-    if (textContent.startsWith('Base directory for this skill:')) return true;
-
-    // Check for invoked_skills pattern (SDK injects these with isMeta during resume)
-    if (
-      textContent.startsWith(
-        'The following skills were invoked in this session',
-      )
-    )
-      return true;
-
-    // Check for plan_file_reference pattern
-    if (textContent.startsWith('A plan file exists from plan mode at:'))
-      return true;
-
-    // Check for YAML frontmatter with skill metadata (skill .md file content)
-    // Skill files start with ---\nname: ...\ndescription: ...
-    if (
-      textContent.startsWith('---\n') &&
-      textContent.includes('\nname:') &&
-      textContent.includes('\ndescription:')
-    )
-      return true;
-
-    return false;
-  }
-
-  /**
-   * Check if a user message contains tool_result content blocks.
-   * Tool results are legitimate responses to tool_use and should NOT be filtered,
-   * even during active Skill execution.
-   */
-  private userMessageHasToolResult(sdkMessage: SDKUserMessage): boolean {
-    const content = sdkMessage.message?.content;
-    if (!Array.isArray(content)) return false;
-
-    return content.some(
-      (block) =>
-        typeof block === 'object' &&
-        block !== null &&
-        'type' in block &&
-        block.type === 'tool_result',
-    );
-  }
+  // isSkillOrMetaContent and userMessageHasToolResult moved to
+  // ./message-transform/message-transform-helpers.ts (TASK_2025_291 Wave C7a).
 
   /**
    * Clear streaming state - called for reset scenarios

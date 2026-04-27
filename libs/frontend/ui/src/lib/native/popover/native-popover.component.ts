@@ -44,7 +44,7 @@ import {
   OnDestroy,
 } from '@angular/core';
 import { Placement } from '@floating-ui/dom';
-import { FloatingUIService } from '../shared';
+import { DEFAULT_OVERLAY_OFFSET, FloatingUIService } from '../shared';
 
 /**
  * Native popover component using Floating UI for positioning.
@@ -124,9 +124,9 @@ export class NativePopoverComponent implements OnDestroy {
 
   /**
    * Offset distance from trigger element in pixels.
-   * @default 8
+   * @default DEFAULT_OVERLAY_OFFSET
    */
-  readonly offset = input<number>(8);
+  readonly offset = input<number>(DEFAULT_OVERLAY_OFFSET);
 
   /**
    * Whether to show a backdrop.

@@ -305,7 +305,27 @@ async function handleToolsCall(
   const params = request.params as
     | { name: string; arguments?: Record<string, unknown> }
     | undefined;
-  const { name, arguments: args } = params!;
+
+  // Per JSON-RPC 2.0: missing/invalid params must return -32602 Invalid params,
+  // not -32603 Internal error. Validate before destructure so a TypeError from
+  // unwrapping `undefined` does not get caught by the outer handler and
+  // translated into a generic internal error.
+  if (params === null || params === undefined) {
+    return createErrorResponse(
+      request.id,
+      -32602,
+      'Invalid params: tools/call requires a params object with a "name" field',
+    );
+  }
+  if (typeof params.name !== 'string' || params.name.length === 0) {
+    return createErrorResponse(
+      request.id,
+      -32602,
+      'Invalid params: tools/call requires a non-empty "name" string',
+    );
+  }
+
+  const { name, arguments: args } = params;
 
   // Individual first-class tools — direct API calls, no sandbox
   const individualResult = await handleIndividualTool(

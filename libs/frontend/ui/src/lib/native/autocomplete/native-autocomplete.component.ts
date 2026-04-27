@@ -46,7 +46,11 @@ import {
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { NativeOptionComponent } from '../option/native-option.component';
-import { FloatingUIService, KeyboardNavigationService } from '../shared';
+import {
+  AUTOCOMPLETE_OVERLAY_OFFSET,
+  FloatingUIService,
+  KeyboardNavigationService,
+} from '../shared';
 
 /**
  * Native autocomplete component using Floating UI and signal-based navigation.
@@ -287,7 +291,7 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
     if (origin && panel) {
       await this.floatingUI.position(origin, panel, {
         placement: 'bottom-start',
-        offset: 4,
+        offset: AUTOCOMPLETE_OVERLAY_OFFSET,
         flip: true,
         shift: true,
       });

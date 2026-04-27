@@ -18,6 +18,7 @@ import {
   uninstallServer,
   listInstalledServers,
 } from '../mcp-config-io.utils';
+import { SdkError } from '../../../errors';
 
 export class VscodeMcpInstaller implements IMcpServerInstaller {
   readonly target = 'vscode' as const;
@@ -71,7 +72,7 @@ export class VscodeMcpInstaller implements IMcpServerInstaller {
 
   getConfigPath(workspaceRoot?: string): string {
     if (!workspaceRoot)
-      throw new Error('VS Code MCP installer requires a workspace root');
+      throw new SdkError('VS Code MCP installer requires a workspace root');
     return path.join(workspaceRoot, '.vscode', 'mcp.json');
   }
 }

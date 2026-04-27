@@ -1,5 +1,9 @@
 import { Injectable, inject } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
+import {
+  VSCodeService,
+  rpcCall,
+  type RpcCallResult,
+} from '@ptah-extension/core';
 import type {
   GitStageResult,
   GitUnstageResult,
@@ -7,7 +11,6 @@ import type {
   GitCommitResult,
   GitShowFileResult,
 } from '@ptah-extension/shared';
-import { rpcCall, type RpcCallResult } from './rpc-call.util';
 
 /**
  * SourceControlService - Frontend RPC wrapper for git source control operations.

@@ -406,6 +406,11 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   }
 
   private async createSession(): Promise<void> {
+    // Snapshot pending options BEFORE cleanup() — cleanup resets
+    // _pendingOptions, which would otherwise drop options that
+    // configureSession() set immediately before the first createSession().
+    const pendingOptions: BrowserSessionOptions = { ...this._pendingOptions };
+
     // Clean up any stale state from a crashed session (auto-reconnect)
     await this.cleanup();
 
@@ -417,10 +422,10 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
       );
     }
 
-    // Consume pending session options (agent-controlled headless + viewport)
-    this._headless = this._pendingOptions.headless ?? false;
-    this._viewport = this._pendingOptions.viewport
-      ? { ...this._pendingOptions.viewport }
+    // Consume the snapshotted options (agent-controlled headless + viewport)
+    this._headless = pendingOptions.headless ?? false;
+    this._viewport = pendingOptions.viewport
+      ? { ...pendingOptions.viewport }
       : { ...DEFAULT_VIEWPORT };
     this._pendingOptions = {};
 

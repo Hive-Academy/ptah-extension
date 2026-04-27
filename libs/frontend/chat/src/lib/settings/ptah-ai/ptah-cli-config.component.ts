@@ -1,4 +1,4 @@
-import {
+﻿import {
   Component,
   inject,
   ChangeDetectionStrategy,
@@ -27,7 +27,7 @@ import {
   Github,
 } from 'lucide-angular';
 import { ClaudeRpcService, PtahCliStateService } from '@ptah-extension/core';
-import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
+import { ConfirmationDialogService } from '@ptah-extension/chat-state';
 import { ProviderModelSelectorComponent } from '../auth/provider-model-selector.component';
 import type { PtahCliSummary } from '@ptah-extension/shared';
 
@@ -50,7 +50,7 @@ const COPILOT_OAUTH_SENTINEL = 'copilot-oauth';
 /** Sentinel for local providers that don't need an API key (TASK_2025_282) */
 const LOCAL_PROVIDER_SENTINEL = 'ollama';
 
-/** Provider IDs that use authType: 'none' — no API key required (TASK_2025_282) */
+/** Provider IDs that use authType: 'none' â€” no API key required (TASK_2025_282) */
 const LOCAL_PROVIDER_IDS = new Set(['ollama', 'ollama-cloud', 'lm-studio']);
 
 const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
@@ -244,11 +244,11 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
           @if (isLocalProvider(newAgentProvider())) {
             <div class="text-xs text-base-content/60 mt-2 px-1">
               @if (newAgentProvider() === 'ollama-cloud') {
-                No API key needed — run
+                No API key needed â€” run
                 <code class="text-xs">ollama signin</code> to authenticate with
                 Ollama Cloud.
               } @else {
-                No API key needed — make sure Ollama is running locally.
+                No API key needed â€” make sure Ollama is running locally.
               }
             </div>
           }
@@ -560,7 +560,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
         <div class="modal-box bg-base-100 max-w-lg">
           <div class="flex items-center justify-between mb-3">
             <h3 class="text-sm font-medium">
-              Model Mapping — {{ modelMappingAgent()?.name }}
+              Model Mapping â€” {{ modelMappingAgent()?.name }}
             </h3>
             <button
               class="btn btn-ghost btn-xs btn-square"
@@ -671,14 +671,14 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
     const hasName = this.newAgentName().trim().length > 0;
     const hasProvider = this.newAgentProvider().length > 0;
 
-    // GitHub Copilot uses OAuth — no API key needed, but must be connected
+    // GitHub Copilot uses OAuth â€” no API key needed, but must be connected
     if (this.newAgentProvider() === 'github-copilot') {
       return (
         hasName && hasProvider && this.copilotLoginStatus() === 'connected'
       );
     }
 
-    // Local providers (Ollama, LM Studio) — no API key needed (TASK_2025_282)
+    // Local providers (Ollama, LM Studio) â€” no API key needed (TASK_2025_282)
     if (LOCAL_PROVIDER_IDS.has(this.newAgentProvider())) {
       return hasName && hasProvider;
     }

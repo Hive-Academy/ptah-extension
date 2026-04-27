@@ -44,6 +44,32 @@ export interface AdminBulkEmailResponse {
   failed: Array<{ userId: string; error: string }>;
 }
 
+export interface DeletionPreviewResponse {
+  userId: string;
+  email: string;
+  cascaded: {
+    subscriptions: number;
+    licenses: number;
+    trialReminders: number;
+    sessionRequests: number;
+  };
+  hasActivePaidSubscription: boolean;
+  activePaddleSubscriptionId?: string;
+  isAdminSelf: boolean;
+}
+
+export interface DeleteUserResponse {
+  deleted: boolean;
+  user: { id: string; email: string };
+  cascaded: {
+    subscriptions: number;
+    licenses: number;
+    trialReminders: number;
+    sessionRequests: number;
+  };
+  auditLogId: string;
+}
+
 /**
  * AdminApiService - Thin HTTP client for `/api/v1/admin/*`
  *
@@ -118,6 +144,24 @@ export class AdminApiService {
     return this.http.post<AdminBulkEmailResponse>(
       `${this.base}/users/bulk-email`,
       payload,
+    );
+  }
+
+  public getUserDeletionPreview(
+    userId: string,
+  ): Observable<DeletionPreviewResponse> {
+    return this.http.get<DeletionPreviewResponse>(
+      `${this.base}/users/${userId}/deletion-preview`,
+    );
+  }
+
+  public deleteUser(
+    userId: string,
+    body: { confirmEmail: string; acknowledgePaidSubscription?: boolean },
+  ): Observable<DeleteUserResponse> {
+    return this.http.delete<DeleteUserResponse>(
+      `${this.base}/users/${userId}`,
+      { body },
     );
   }
 }

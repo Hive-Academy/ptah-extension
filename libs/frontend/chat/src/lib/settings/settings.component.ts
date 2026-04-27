@@ -26,15 +26,16 @@ import { LicenseStatusCardComponent } from './license/license-status-card.compon
 import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
-import { RuntimeSelectorComponent } from './runtime-selector.component';
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
-import { PluginStatusWidgetComponent } from '../components/molecules/setup-plugins/plugin-status-widget.component';
-import { PluginBrowserModalComponent } from '../components/molecules/setup-plugins/plugin-browser-modal.component';
-import { SetupStatusWidgetComponent } from '../components/molecules/setup-plugins/setup-status-widget.component';
-import { SkillShBrowserComponent } from '../components/molecules/setup-plugins/skill-sh-browser.component';
-import { McpDirectoryBrowserComponent } from '../components/molecules/setup-plugins/mcp-directory-browser.component';
+import {
+  PluginStatusWidgetComponent,
+  PluginBrowserModalComponent,
+  SetupStatusWidgetComponent,
+  SkillShBrowserComponent,
+  McpDirectoryBrowserComponent,
+} from '@ptah-extension/chat-ui';
 import {
   AppStateManager,
   ClaudeRpcService,
@@ -72,7 +73,6 @@ import { ChatStore } from '../services/chat.store';
     EnhancedPromptsConfigComponent,
     VscodeLmConfigComponent,
     McpPortConfigComponent,
-    RuntimeSelectorComponent,
     AgentOrchestrationConfigComponent,
     PtahCliConfigComponent,
     WebSearchConfigComponent,

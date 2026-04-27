@@ -16,6 +16,27 @@ import type {
 import { AgentSelection } from './setup-wizard-state.service';
 
 /**
+ * Centralized RPC timeout budget for wizard backend calls. The values
+ * are chosen against the worst-case duration of the backing handler:
+ *
+ * - LIST: small directory reads / curated pack listings.
+ * - PACK_INSTALL: download + write of a community agent pack.
+ * - SHORT_LLM: bounded LLM completion (≤ a minute of model latency).
+ * - GENERATION: full agent generation across selections.
+ * - PLAN_GENERATION: master-plan synthesis from discovery answers.
+ * - DEEP_ANALYSIS: end-to-end agentic workspace analysis (1h + buffer).
+ */
+const WIZARD_RPC_TIMEOUTS = {
+  LIST_MS: 10_000,
+  PACK_LIST_MS: 30_000,
+  SHORT_LLM_MS: 60_000,
+  PLAN_GENERATION_MS: 120_000,
+  GENERATION_MS: 300_000,
+  PACK_INSTALL_MS: 60_000,
+  DEEP_ANALYSIS_MS: 3_660_000,
+} as const;
+
+/**
  * Agent selection acknowledgment response from backend.
  */
 export interface AgentSelectionResponse {
@@ -90,7 +111,7 @@ export class WizardRpcService {
         analysisDir,
         model: this.modelState.currentModel() || undefined,
       },
-      { timeout: 300_000 },
+      { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
     );
 
     if (result.isSuccess()) {
@@ -164,7 +185,7 @@ export class WizardRpcService {
     const result = await this.rpcService.call(
       'wizard:deep-analyze',
       { model: this.modelState.currentModel() || undefined },
-      { timeout: 3_660_000 }, // 1 hour + 1 minute buffer
+      { timeout: WIZARD_RPC_TIMEOUTS.DEEP_ANALYSIS_MS },
     );
     if (result.isSuccess() && result.data) {
       return result.data as MultiPhaseAnalysisResponse;
@@ -186,7 +207,7 @@ export class WizardRpcService {
     const result = await this.rpcService.call(
       'wizard:recommend-agents',
       payload,
-      { timeout: 60000 },
+      { timeout: WIZARD_RPC_TIMEOUTS.SHORT_LLM_MS },
     );
     if (result.isSuccess() && result.data) {
       return result.data as AgentRecommendation[];
@@ -215,7 +236,7 @@ export class WizardRpcService {
         ...(analysisDir ? { analysisDir } : {}),
         model: this.modelState.currentModel() || undefined,
       },
-      { timeout: 300_000 }, // 5 minutes: LLM generation via SDK
+      { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
     );
 
     if (result.isSuccess() && result.data) {
@@ -293,7 +314,7 @@ export class WizardRpcService {
     const result = await this.rpcService.call(
       'enhancedPrompts:regenerate',
       { workspacePath, force: true },
-      { timeout: 300_000 },
+      { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
     );
 
     if (result.isSuccess() && result.data) {
@@ -368,7 +389,7 @@ export class WizardRpcService {
     const result = await this.rpcService.call(
       'wizard:list-analyses',
       {},
-      { timeout: 10_000 },
+      { timeout: WIZARD_RPC_TIMEOUTS.LIST_MS },
     );
 
     if (result.isSuccess() && result.data) {
@@ -391,7 +412,7 @@ export class WizardRpcService {
     const result = await this.rpcService.call(
       'wizard:load-analysis',
       { filename },
-      { timeout: 10_000 },
+      { timeout: WIZARD_RPC_TIMEOUTS.LIST_MS },
     );
 
     if (result.isSuccess() && result.data) {
@@ -413,7 +434,7 @@ export class WizardRpcService {
     const result = await this.rpcService.call(
       'wizard:list-agent-packs',
       {},
-      { timeout: 30_000 },
+      { timeout: WIZARD_RPC_TIMEOUTS.PACK_LIST_MS },
     );
 
     if (result.isSuccess() && result.data) {
@@ -438,7 +459,7 @@ export class WizardRpcService {
     const result = await this.rpcService.call(
       'wizard:install-pack-agents',
       { source, agentFiles },
-      { timeout: 60_000 },
+      { timeout: WIZARD_RPC_TIMEOUTS.PACK_INSTALL_MS },
     );
 
     if (result.isSuccess() && result.data) {
@@ -493,7 +514,7 @@ export class WizardRpcService {
     const result = await this.rpcService.call(
       'wizard:new-project-submit-answers',
       { projectType, answers, projectName, force },
-      { timeout: 120000 },
+      { timeout: WIZARD_RPC_TIMEOUTS.PLAN_GENERATION_MS },
     );
     if (!result.isSuccess()) {
       throw new Error(result.error || 'Failed to generate plan');

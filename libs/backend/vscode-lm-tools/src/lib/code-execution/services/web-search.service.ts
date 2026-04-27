@@ -96,7 +96,7 @@ export class WebSearchService {
     const apiKey = await this.deps.secretStorage.get(
       secretKeyForProvider(providerName),
     );
-    if (!apiKey) {
+    if (apiKey == null) {
       throw new Error(
         `No API key configured for ${providerName}. ` +
           `Configure it in Ptah Settings > Web Search.`,

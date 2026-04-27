@@ -1,8 +1,13 @@
-import { computed, Injectable, signal } from '@angular/core';
+import { computed, inject, Injectable, signal } from '@angular/core';
 import {
   createEmptyStreamingState,
   type StreamingState,
-} from '@ptah-extension/chat';
+} from '@ptah-extension/chat-types';
+import { SurfaceId } from '@ptah-extension/chat-state';
+import {
+  StreamRouter,
+  StreamingSurfaceRegistry,
+} from '@ptah-extension/chat-routing';
 import type {
   AvailableAgent,
   FlatStreamEventUnion,
@@ -23,8 +28,50 @@ import type {
   HarnessConversationMessage,
 } from '@ptah-extension/shared';
 
+/**
+ * Façade exposed to {@link HarnessStreamingService} so it can route flat
+ * events through the canonical streaming pipeline without holding a
+ * reference to the entire {@link HarnessBuilderStateService}.
+ *
+ * TASK_2026_107 Phase 4: replaces the deleted hand-rolled flat-event
+ * accumulator switch.
+ *
+ * - `registerOperationSurface` — idempotent lazy mint of a SurfaceId for
+ *   an operationId
+ * - `routeOperationEvent` — forwards a flat event to
+ *   `StreamRouter.routeStreamEventForSurface` (lazy-mints the surface
+ *   if not already registered). If a second `operationId` arrives while
+ *   another is in flight, emits a `harness.surface.concurrent-operation`
+ *   structured warning and overwrites (single-operation assumption per
+ *   spec §6 R3 — concurrent-build support is explicitly out of scope).
+ * - `unregisterOperationSurface` — closes the routing binding for a
+ *   single operation (called on `harness:flat-stream-complete`).
+ * - `unregisterAllOperationSurfaces` — closes every active routing
+ *   binding but KEEPS the accumulated `_streamingState` visible so the
+ *   execution tree continues to render after the build completes.
+ * - `resetOperationSurfaces` — full teardown: closes routing AND clears
+ *   the accumulated streaming state (called on
+ *   `HarnessBuilderStateService.reset()` and
+ *   `resetStreamingState()`).
+ */
+export interface HarnessSurfaceFacade {
+  registerOperationSurface(operationId: string): SurfaceId;
+  unregisterOperationSurface(operationId: string): void;
+  surfaceForOperation(operationId: string): SurfaceId | null;
+  routeOperationEvent(operationId: string, event: FlatStreamEventUnion): void;
+  unregisterAllOperationSurfaces(): void;
+  resetOperationSurfaces(): void;
+}
+
 @Injectable({ providedIn: 'root' })
-export class HarnessBuilderStateService {
+export class HarnessBuilderStateService implements HarnessSurfaceFacade {
+  // TASK_2026_107 Phase 4: surface routing dependencies. Harness registers
+  // a SurfaceId per operationId so its stream events flow through the
+  // canonical pipeline (dedup, batching, BackgroundAgentStore, AgentMonitor,
+  // session binding).
+  private readonly streamRouter = inject(StreamRouter);
+  private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
+
   // ─── Core state ─────────────────────────────────────────
 
   private readonly _config = signal<Partial<HarnessConfig>>({});
@@ -63,6 +110,21 @@ export class HarnessBuilderStateService {
   );
   private readonly _isStreaming = signal(false);
   private readonly _currentOperationId = signal<string | null>(null);
+
+  // TASK_2026_107 Phase 4: surface registration state.
+  //
+  // Surfaces are minted lazily on the first stream event for a given
+  // operationId (the harness backend embeds operationId in the stream
+  // payload). The Map below holds the SurfaceId for each active
+  // operationId.
+  //
+  // Single-operation assumption (spec §6 R3): today `_streamingState` is
+  // a single signal, not a per-operation Map. The surface adapter for
+  // every active operation reads/writes the same `_streamingState`. If a
+  // second `operationId` arrives mid-build, `routeOperationEvent` emits
+  // a `harness.surface.concurrent-operation` structured warning and
+  // overwrites — concurrent-build support is explicitly out of scope.
+  private readonly _operationSurfaces = new Map<string, SurfaceId>();
 
   // ─── Public readonly accessors ──────────────────────────
 
@@ -304,125 +366,137 @@ export class HarnessBuilderStateService {
 
   // ─── Streaming methods ──────────────────────────────────
 
-  public accumulateFlatEvent(event: FlatStreamEventUnion): void {
-    this._streamingState.update((prev) => {
-      // Clone StreamingState -- never mutate the previous reference.
-      // This ensures Angular signal consumers detect changes correctly.
-      const state: StreamingState = {
-        events: new Map(prev.events),
-        messageEventIds: [...prev.messageEventIds],
-        toolCallMap: new Map(prev.toolCallMap),
-        textAccumulators: new Map(prev.textAccumulators),
-        toolInputAccumulators: new Map(prev.toolInputAccumulators),
-        agentSummaryAccumulators: new Map(prev.agentSummaryAccumulators),
-        agentContentBlocksMap: new Map(prev.agentContentBlocksMap),
-        currentMessageId: prev.currentMessageId,
-        currentTokenUsage: prev.currentTokenUsage,
-        eventsByMessage: new Map(prev.eventsByMessage),
-        pendingStats: prev.pendingStats,
-      };
+  // ===========================================================================
+  // TASK_2026_107 Phase 4 — Surface routing (replaces hand-rolled
+  // flat-event accumulator switch).
+  //
+  // Harness operations participate in the canonical chat streaming pipeline by
+  // registering a `SurfaceId` per `operationId`. The SurfaceId is bound to a
+  // fresh ConversationId via StreamRouter, and the accumulator-core mutates
+  // the `_streamingState` signal exposed via the surface adapter's
+  // `getState`/`setState`. Single-operation assumption (spec §6 R3) — see the
+  // `_operationSurfaces` JSDoc above.
+  // ===========================================================================
 
-      // Store event by ID
-      state.events.set(event.id, event);
+  /**
+   * Mint (or return existing) SurfaceId for an operation. Idempotent —
+   * repeat calls for the same `operationId` return the same SurfaceId.
+   * Synchronously binds via `StreamRouter.onSurfaceCreated` and registers
+   * the surface adapter with `StreamingSurfaceRegistry` BEFORE this method
+   * returns, so the very next `routeStreamEventForSurface` call has a live
+   * adapter to resolve (Phase 2 discovery #3 — registration must precede
+   * the first event).
+   *
+   * The adapter's `getState()` returns the current `_streamingState()`
+   * signal value; `setState(next)` writes via `_streamingState.set(next)`
+   * (only fires on `compaction_complete`, where the accumulator hands back
+   * a brand-new state object reference).
+   */
+  public registerOperationSurface(operationId: string): SurfaceId {
+    const existing = this._operationSurfaces.get(operationId);
+    if (existing) return existing;
 
-      // Index by messageId
-      const messageEvents = [
-        ...(state.eventsByMessage.get(event.messageId) ?? []),
-        event,
-      ];
-      state.eventsByMessage.set(event.messageId, messageEvents);
+    const surfaceId = SurfaceId.create();
+    this._operationSurfaces.set(operationId, surfaceId);
 
-      // Handle event-type-specific accumulation
-      switch (event.eventType) {
-        case 'message_start':
-          if (!state.messageEventIds.includes(event.messageId)) {
-            state.messageEventIds.push(event.messageId);
-          }
-          state.currentMessageId = event.messageId;
-          break;
+    this.streamRouter.onSurfaceCreated(surfaceId);
+    this.surfaceRegistry.register(
+      surfaceId,
+      () => this._streamingState(),
+      (next) => {
+        // setState fires when the accumulator-core hands back a
+        // `replacementState` (currently only on compaction_complete).
+        this._streamingState.set(next);
+      },
+    );
 
-        case 'text_delta': {
-          if (!state.messageEventIds.includes(event.messageId)) {
-            state.messageEventIds.push(event.messageId);
-          }
-          const textKey = `${event.messageId}-block-${event.blockIndex}`;
-          const existing = state.textAccumulators.get(textKey) ?? '';
-          state.textAccumulators.set(textKey, existing + event.delta);
-          break;
-        }
+    return surfaceId;
+  }
 
-        case 'thinking_start':
-          // Store the event -- tree builder needs it to create thinking nodes
-          break;
+  /**
+   * Tear down a single operation surface. Calls `StreamRouter.onSurfaceClosed`
+   * (which handles unregistering the adapter from `StreamingSurfaceRegistry`
+   * — see Phase 2 discovery #1: do NOT call surfaceRegistry.unregister here)
+   * and removes the operation Map entry.
+   *
+   * The accumulated `_streamingState` is intentionally retained so the
+   * execution tree keeps rendering after the build completes — only the
+   * routing/registry state is torn down.
+   */
+  public unregisterOperationSurface(operationId: string): void {
+    const surfaceId = this._operationSurfaces.get(operationId);
+    if (!surfaceId) return;
 
-        case 'thinking_delta': {
-          const thinkKey = `${event.messageId}-thinking-${event.blockIndex}`;
-          const existingThink = state.textAccumulators.get(thinkKey) ?? '';
-          state.textAccumulators.set(thinkKey, existingThink + event.delta);
-          break;
-        }
+    // Phase 2 discovery #1: onSurfaceClosed handles surfaceRegistry.unregister
+    // internally; calling it ourselves first would race residual events into
+    // the void.
+    this.streamRouter.onSurfaceClosed(surfaceId);
+    this._operationSurfaces.delete(operationId);
+  }
 
-        case 'tool_start': {
-          const toolChildren = [
-            ...(state.toolCallMap.get(event.toolCallId) ?? []),
-            event.id,
-          ];
-          state.toolCallMap.set(event.toolCallId, toolChildren);
-          break;
-        }
+  /** Lookup helper. Returns the SurfaceId for `operationId` or null. */
+  public surfaceForOperation(operationId: string): SurfaceId | null {
+    return this._operationSurfaces.get(operationId) ?? null;
+  }
 
-        case 'tool_delta': {
-          const inputKey = `${event.toolCallId}-input`;
-          const existingInput = state.toolInputAccumulators.get(inputKey) ?? '';
-          state.toolInputAccumulators.set(
-            inputKey,
-            existingInput + event.delta,
-          );
-          const deltaToolChildren = [
-            ...(state.toolCallMap.get(event.toolCallId) ?? []),
-            event.id,
-          ];
-          state.toolCallMap.set(event.toolCallId, deltaToolChildren);
-          break;
-        }
+  /**
+   * Route a flat event for an operation through the canonical streaming
+   * pipeline. Lazy-mints the surface if `operationId` hasn't been seen yet
+   * (covers the stream-arrives-before-explicit-startStreaming ordering —
+   * the harness backend doesn't emit a discrete "operation start" message,
+   * just begins streaming).
+   *
+   * Single-operation assumption (spec §6 R3): if a second `operationId`
+   * arrives while another surface is in flight, emit the
+   * `harness.surface.concurrent-operation` structured warning and
+   * proceed (overwrite). Concurrent-build support is out of scope today.
+   */
+  public routeOperationEvent(
+    operationId: string,
+    event: FlatStreamEventUnion,
+  ): void {
+    // Single-operation guard: detect a second operationId arriving while a
+    // different one is already registered. Warn, do not block.
+    const existingKeys = Array.from(this._operationSurfaces.keys());
+    const otherInFlight = existingKeys.find((key) => key !== operationId);
+    if (otherInFlight && !this._operationSurfaces.has(operationId)) {
+      console.warn(
+        '[HarnessBuilderStateService] harness.surface.concurrent-operation',
+        {
+          incomingOperationId: operationId,
+          inFlightOperationId: otherInFlight,
+          message:
+            'Concurrent harness operations are not supported. The new ' +
+            'operation will overwrite the in-flight streaming state. ' +
+            '(spec §6 R3 — single-operation assumption)',
+        },
+      );
+    }
 
-        case 'tool_result': {
-          const resultToolChildren = [
-            ...(state.toolCallMap.get(event.toolCallId) ?? []),
-            event.id,
-          ];
-          state.toolCallMap.set(event.toolCallId, resultToolChildren);
-          break;
-        }
+    const surfaceId = this.registerOperationSurface(operationId);
+    this.streamRouter.routeStreamEventForSurface(event, surfaceId);
+  }
 
-        case 'message_complete':
-          state.currentMessageId = null;
-          break;
+  /**
+   * Close routing for every active operation surface but PRESERVE the
+   * accumulated `_streamingState` so the execution tree continues to
+   * render after the build completes.
+   */
+  public unregisterAllOperationSurfaces(): void {
+    const operationIds = Array.from(this._operationSurfaces.keys());
+    for (const operationId of operationIds) {
+      this.unregisterOperationSurface(operationId);
+    }
+  }
 
-        // Events not needed for harness execution visualization
-        case 'message_delta':
-        case 'signature_delta':
-        case 'agent_start':
-        case 'compaction_start':
-        case 'compaction_complete':
-        case 'background_agent_started':
-        case 'background_agent_progress':
-        case 'background_agent_completed':
-        case 'background_agent_stopped':
-          break;
-
-        default: {
-          // Unknown event type — log and skip to avoid silent data loss
-          console.warn(
-            '[HarnessBuilderStateService] Unknown flat stream event type:',
-            (event as { eventType: string }).eventType,
-          );
-          break;
-        }
-      }
-
-      return state;
-    });
+  /**
+   * Full teardown: close routing for every operation AND clear the
+   * accumulated streaming state. Called on `resetStreamingState()` and
+   * `reset()`.
+   */
+  public resetOperationSurfaces(): void {
+    this.unregisterAllOperationSurfaces();
+    this._streamingState.set(createEmptyStreamingState());
   }
 
   public startStreaming(operationId: string): void {
@@ -436,7 +510,10 @@ export class HarnessBuilderStateService {
   }
 
   public resetStreamingState(): void {
-    this._streamingState.set(createEmptyStreamingState());
+    // TASK_2026_107 Phase 4: tear down every surface registration AND wipe
+    // accumulated state. resetOperationSurfaces() handles both
+    // (router cleanup + _streamingState clear).
+    this.resetOperationSurfaces();
     this._isStreaming.set(false);
     this._currentOperationId.set(null);
   }
@@ -457,7 +534,9 @@ export class HarnessBuilderStateService {
     this._intentInput.set('');
     this._conversationMessages.set([]);
     this._isConfigComplete.set(false);
-    this._streamingState.set(createEmptyStreamingState());
+    // TASK_2026_107 Phase 4: tear down every surface registration AND wipe
+    // accumulated streaming state. resetOperationSurfaces() handles both.
+    this.resetOperationSurfaces();
     this._isStreaming.set(false);
     this._currentOperationId.set(null);
   }

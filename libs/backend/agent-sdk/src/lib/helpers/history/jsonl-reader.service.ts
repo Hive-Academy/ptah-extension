@@ -23,6 +23,7 @@ import type {
   SessionHistoryMessage,
   AgentSessionData,
 } from './history.types';
+import { SdkError } from '../../errors';
 
 /**
  * Service for reading JSONL session files.
@@ -91,7 +92,7 @@ export class JsonlReaderService {
     const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
     const normalizedEscaped = normalize(escapedPath);
     const normalizedMatch = dirs.find(
-      (d) => normalize(d) === normalizedEscaped
+      (d) => normalize(d) === normalizedEscaped,
     );
     if (normalizedMatch) {
       return path.join(projectsDir, normalizedMatch);
@@ -103,7 +104,7 @@ export class JsonlReaderService {
     const partialMatch = dirs.find(
       (d) =>
         d.toLowerCase().includes(workspaceName.toLowerCase()) ||
-        normalize(d).includes(normalizedWorkspaceName)
+        normalize(d).includes(normalizedWorkspaceName),
     );
     if (partialMatch) {
       return path.join(projectsDir, partialMatch);
@@ -116,7 +117,7 @@ export class JsonlReaderService {
         escapedPath,
         lowerEscaped,
         workspaceName,
-      }
+      },
     );
 
     return null;
@@ -141,10 +142,10 @@ export class JsonlReaderService {
       const limitMB = Math.round(this.MAX_SESSION_FILE_SIZE / 1024 / 1024);
       this.logger.warn(
         `[JsonlReader] Session file exceeds size limit: ${stats.size} bytes`,
-        { filePath, sizeMB, limitMB }
+        { filePath, sizeMB, limitMB },
       );
-      throw new Error(
-        `Session file too large (${sizeMB}MB). Max: ${limitMB}MB`
+      throw new SdkError(
+        `Session file too large (${sizeMB}MB). Max: ${limitMB}MB`,
       );
     }
 
@@ -186,7 +187,7 @@ export class JsonlReaderService {
    * @returns Converted session history message
    */
   private convertToSessionHistoryMessage(
-    line: JsonlMessageLine
+    line: JsonlMessageLine,
   ): SessionHistoryMessage {
     return {
       type: (line.type ||
@@ -222,7 +223,7 @@ export class JsonlReaderService {
    */
   async loadAgentSessions(
     sessionsDir: string,
-    parentSessionId: string
+    parentSessionId: string,
   ): Promise<AgentSessionData[]> {
     const agentSessions: AgentSessionData[] = [];
 
@@ -234,7 +235,7 @@ export class JsonlReaderService {
     try {
       const subagentFiles = await fs.readdir(subagentsDir);
       const agentFiles = subagentFiles.filter(
-        (f) => f.startsWith('agent-') && f.endsWith('.jsonl')
+        (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
       );
       for (const file of agentFiles) {
         agentFilePaths.push({
@@ -251,7 +252,7 @@ export class JsonlReaderService {
       try {
         const files = await fs.readdir(sessionsDir);
         const agentFiles = files.filter(
-          (f) => f.startsWith('agent-') && f.endsWith('.jsonl')
+          (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
         );
         for (const file of agentFiles) {
           agentFilePaths.push({
@@ -282,7 +283,7 @@ export class JsonlReaderService {
         // For nested layout, all files in the session's subagents dir belong to it.
         // For legacy layout, check sessionId in first message.
         const isNested = filePath.includes(
-          path.join(parentSessionId, 'subagents')
+          path.join(parentSessionId, 'subagents'),
         );
         const firstMsg = messages[0];
 

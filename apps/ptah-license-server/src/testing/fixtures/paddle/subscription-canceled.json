@@ -1,0 +1,58 @@
+{
+  "event_id": "evt_01h000000000000000000000x1",
+  "event_type": "subscription.canceled",
+  "occurred_at": "2026-04-24T11:00:00.000000Z",
+  "notification_id": "ntf_01h000000000000000000000n3",
+  "data": {
+    "id": "sub_01h000000000000000000000s1",
+    "status": "canceled",
+    "customer_id": "ctm_01h000000000000000000000c1",
+    "address_id": "add_01h000000000000000000000a1",
+    "business_id": null,
+    "currency_code": "USD",
+    "created_at": "2026-04-24T10:00:00.000000Z",
+    "updated_at": "2026-04-24T11:00:00.000000Z",
+    "started_at": "2026-04-24T10:00:00Z",
+    "first_billed_at": "2026-04-24T10:05:00Z",
+    "next_billed_at": null,
+    "paused_at": null,
+    "canceled_at": "2026-04-24T11:00:00Z",
+    "collection_mode": "automatic",
+    "billing_details": null,
+    "current_billing_period": {
+      "starts_at": "2026-04-24T10:00:00Z",
+      "ends_at": "2026-05-24T10:00:00Z"
+    },
+    "billing_cycle": { "interval": "month", "frequency": 1 },
+    "scheduled_change": null,
+    "items": [
+      {
+        "status": "canceled",
+        "quantity": 1,
+        "recurring": true,
+        "created_at": "2026-04-24T10:00:00Z",
+        "updated_at": "2026-04-24T11:00:00Z",
+        "previously_billed_at": "2026-04-24T10:05:00Z",
+        "next_billed_at": null,
+        "trial_dates": null,
+        "price": {
+          "id": "pri_01h000000000000000000000p1",
+          "description": "Ptah Pro Monthly",
+          "product_id": "pro_01h000000000000000000000pr",
+          "billing_cycle": { "interval": "month", "frequency": 1 },
+          "trial_period": { "interval": "day", "frequency": 14 },
+          "tax_mode": "account_setting",
+          "unit_price": { "amount": "900", "currency_code": "USD" },
+          "unit_price_overrides": [],
+          "custom_data": null,
+          "status": "active",
+          "quantity": { "minimum": 1, "maximum": 100 }
+        }
+      }
+    ],
+    "custom_data": null,
+    "management_urls": null,
+    "discount": null,
+    "import_meta": null
+  }
+}

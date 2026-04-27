@@ -42,6 +42,7 @@ import { ITemplateStorageService } from '../interfaces/template-storage.interfac
 import { IContentGenerationService } from '../interfaces/content-generation.interface';
 import { resolveProjectType } from './wizard/analysis-schema';
 import { IAgentFileWriterService } from '../interfaces/agent-file-writer.interface';
+import { IOutputValidationService } from '../interfaces/output-validation.interface';
 import {
   AgentProjectContext,
   AgentTemplate,
@@ -224,6 +225,8 @@ export class AgentGenerationOrchestratorService {
     private readonly multiCliWriter: MultiCliAgentWriterService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(AGENT_GENERATION_TOKENS.OUTPUT_VALIDATION_SERVICE)
+    private readonly outputValidation: IOutputValidationService,
   ) {
     this.logger.debug('AgentGenerationOrchestratorService initialized');
   }
@@ -828,6 +831,44 @@ export class AgentGenerationOrchestratorService {
             llmDescription,
           );
 
+          // Validate generated content before writing to disk. Critical safety
+          // issues (malicious patterns, sensitive data) block the write; lower
+          // severity issues are surfaced as warnings but don't abort.
+          const validationResult = await this.outputValidation.validate(
+            finalContent,
+            context,
+          );
+          if (validationResult.isErr()) {
+            this.logger.warn(
+              `Validation error for ${agentId}: ${validationResult.error!.message}`,
+            );
+            warnings?.push(
+              `Validation error for ${agentId}: ${validationResult.error!.message}`,
+            );
+            continue;
+          }
+          const validation = validationResult.value!;
+          if (!validation.isValid) {
+            const criticalIssues = validation.issues
+              .filter((i) => i.severity === 'error')
+              .map((i) => i.message)
+              .join('; ');
+            this.logger.warn(
+              `Generated content for ${agentId} failed validation (score ${validation.score}): ${criticalIssues}`,
+            );
+            warnings?.push(
+              `Skipped ${agentId}: content failed validation — ${criticalIssues}`,
+            );
+            continue;
+          }
+          if (validation.issues.length > 0) {
+            for (const issue of validation.issues) {
+              if (issue.severity === 'warning') {
+                warnings?.push(`[${agentId}] ${issue.message}`);
+              }
+            }
+          }
+
           // Construct GeneratedAgent object with absolute workspace path.
           // Using context.rootPath (workspace URI) ensures files are written
           // to the user's workspace, NOT process.cwd() (VS Code install dir).
@@ -1052,10 +1093,11 @@ export class AgentGenerationOrchestratorService {
    * Filters dependencies that match known build tool patterns.
    * @private
    */
-  private detectBuildTools(projectInfo: ProjectInfo): string[] {
+  private detectBuildTools(projectInfo: ProjectInfo | undefined): string[] {
+    if (!projectInfo) return [];
     const allDeps = [
-      ...projectInfo.dependencies,
-      ...projectInfo.devDependencies,
+      ...(projectInfo.dependencies ?? []),
+      ...(projectInfo.devDependencies ?? []),
     ];
 
     // Pattern-based detection — matches dependency names containing these substrings

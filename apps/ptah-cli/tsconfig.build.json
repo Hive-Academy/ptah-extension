@@ -1,0 +1,29 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "paths": {
+      "vscode": ["apps/ptah-cli/src/shims/vscode-shim.ts"],
+      "@ptah-extension/agent-generation": [
+        "libs/backend/agent-generation/src/index.ts"
+      ],
+      "@ptah-extension/agent-sdk": ["libs/backend/agent-sdk/src/index.ts"],
+      "@ptah-extension/platform-core": [
+        "libs/backend/platform-core/src/index.ts"
+      ],
+      "@ptah-extension/platform-cli": [
+        "libs/backend/platform-cli/src/index.ts"
+      ],
+      "@ptah-extension/rpc-handlers": [
+        "libs/backend/rpc-handlers/src/index.ts"
+      ],
+      "@ptah-extension/shared": ["libs/shared/src/index.ts"],
+      "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
+      "@ptah-extension/vscode-lm-tools": [
+        "libs/backend/vscode-lm-tools/src/index.ts"
+      ],
+      "@ptah-extension/workspace-intelligence": [
+        "libs/backend/workspace-intelligence/src/index.ts"
+      ]
+    }
+  }
+}

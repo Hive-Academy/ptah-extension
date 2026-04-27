@@ -142,9 +142,7 @@ const DEFAULT_STRENGTHS: Record<string, string> = {
  * ```
  */
 @injectable()
-export class CodeQualityAssessmentService
-  implements ICodeQualityAssessmentService
-{
+export class CodeQualityAssessmentService implements ICodeQualityAssessmentService {
   /**
    * Creates a new CodeQualityAssessmentService.
    *
@@ -166,7 +164,7 @@ export class CodeQualityAssessmentService
     @inject(TOKENS.ANTI_PATTERN_DETECTION_SERVICE)
     private readonly antiPatternDetector: IAntiPatternDetectionService,
     @inject(TOKENS.FILE_HASH_CACHE_SERVICE)
-    private readonly fileHashCache: IFileHashCacheService
+    private readonly fileHashCache: IFileHashCacheService,
   ) {
     this.logger.debug('CodeQualityAssessmentService initialized');
   }
@@ -198,7 +196,7 @@ export class CodeQualityAssessmentService
    */
   async assessQuality(
     workspacePath: string,
-    config?: Partial<SamplingConfig>
+    config?: Partial<SamplingConfig>,
   ): Promise<QualityAssessment> {
     const startTime = Date.now();
 
@@ -226,13 +224,15 @@ export class CodeQualityAssessmentService
     }
 
     // Detect anti-patterns across sampled files
+    // TASK_2025_291 B2: detectPatternsInFiles is now async because some rules
+    // (e.g. `functionTooLargeRule`) rely on tree-sitter AST analysis.
     const antiPatterns =
-      this.antiPatternDetector.detectPatternsInFiles(sampledFiles);
+      await this.antiPatternDetector.detectPatternsInFiles(sampledFiles);
 
     // Calculate quality score
     const score = this.antiPatternDetector.calculateScore(
       antiPatterns,
-      sampledFiles.length
+      sampledFiles.length,
     );
 
     // Identify quality gaps from patterns
@@ -294,7 +294,7 @@ export class CodeQualityAssessmentService
    */
   async sampleFiles(
     workspacePath: string,
-    config: SamplingConfig
+    config: SamplingConfig,
   ): Promise<SampledFile[]> {
     this.logger.debug('Starting file sampling', {
       workspacePath: workspacePath,
@@ -378,7 +378,7 @@ export class CodeQualityAssessmentService
    */
   async assessQualityIncremental(
     workspacePath: string,
-    config?: Partial<SamplingConfig>
+    config?: Partial<SamplingConfig>,
   ): Promise<QualityAssessment> {
     const startTime = Date.now();
 
@@ -440,12 +440,13 @@ export class CodeQualityAssessmentService
         if (hasAsync) {
           filePatterns = await asyncDetector.detectPatternsAsync(
             file.content,
-            file.path
+            file.path,
           );
         } else {
-          filePatterns = this.antiPatternDetector.detectPatterns(
+          // TASK_2025_291 B2: detectPatterns is now async.
+          filePatterns = await this.antiPatternDetector.detectPatterns(
             file.content,
-            file.path
+            file.path,
           );
         }
 
@@ -463,7 +464,7 @@ export class CodeQualityAssessmentService
     // Calculate quality score from merged patterns
     const score = this.antiPatternDetector.calculateScore(
       allPatterns,
-      sampledFiles.length
+      sampledFiles.length,
     );
 
     // Identify gaps and strengths
@@ -574,7 +575,7 @@ export class CodeQualityAssessmentService
   private isSourceFile(file: IndexedFile): boolean {
     // Check extension
     const hasSourceExtension = SOURCE_EXTENSIONS.some((ext) =>
-      file.relativePath.toLowerCase().endsWith(ext)
+      file.relativePath.toLowerCase().endsWith(ext),
     );
 
     if (!hasSourceExtension) {
@@ -583,7 +584,7 @@ export class CodeQualityAssessmentService
 
     // Exclude test files
     const isTestFile = TEST_FILE_PATTERNS.some((pattern) =>
-      file.relativePath.toLowerCase().includes(pattern)
+      file.relativePath.toLowerCase().includes(pattern),
     );
 
     if (isTestFile) {
@@ -592,7 +593,7 @@ export class CodeQualityAssessmentService
 
     // Exclude declaration files
     const isDeclarationFile = DECLARATION_FILE_PATTERNS.some((pattern) =>
-      file.relativePath.toLowerCase().includes(pattern)
+      file.relativePath.toLowerCase().includes(pattern),
     );
 
     if (isDeclarationFile) {
@@ -611,15 +612,15 @@ export class CodeQualityAssessmentService
    */
   private selectFilesIntelligently(
     files: IndexedFile[],
-    config: SamplingConfig
+    config: SamplingConfig,
   ): IndexedFile[] {
     const selected = new Set<IndexedFile>();
 
     // 1. Select entry points first
     const entryPoints = files.filter((file) =>
       ENTRY_POINT_PATTERNS.some((pattern) =>
-        file.relativePath.toLowerCase().endsWith(pattern)
-      )
+        file.relativePath.toLowerCase().endsWith(pattern),
+      ),
     );
 
     for (const file of entryPoints.slice(0, config.entryPointCount)) {
@@ -638,7 +639,7 @@ export class CodeQualityAssessmentService
     const rankedFiles = this.relevanceScorer.getTopFiles(
       remainingFiles,
       priorityQuery,
-      config.highRelevanceCount + config.randomCount // Get more to allow for random selection
+      config.highRelevanceCount + config.randomCount, // Get more to allow for random selection
     );
 
     // Add high-relevance files
@@ -717,10 +718,10 @@ export class CodeQualityAssessmentService
 
       // Find the most frequent pattern in this category for description
       const categoryPatterns = antiPatterns.filter((p) =>
-        p.type.startsWith(category)
+        p.type.startsWith(category),
       );
       const topPattern = categoryPatterns.sort(
-        (a, b) => b.frequency - a.frequency
+        (a, b) => b.frequency - a.frequency,
       )[0];
 
       gaps.push({
@@ -755,7 +756,7 @@ export class CodeQualityAssessmentService
    */
   private determineGapPriority(
     occurrences: number,
-    patterns: AntiPattern[]
+    patterns: AntiPattern[],
   ): QualityGapPriority {
     // Check for any error-severity patterns
     const hasErrors = patterns.some((p) => p.severity === 'error');
@@ -779,7 +780,7 @@ export class CodeQualityAssessmentService
 
     // Get categories with issues
     const categoriesWithIssues = new Set(
-      antiPatterns.map((p) => p.type.split('-')[0])
+      antiPatterns.map((p) => p.type.split('-')[0]),
     );
 
     // Add strengths for categories without issues

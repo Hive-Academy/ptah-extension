@@ -14,10 +14,13 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
+import {
   SessionMetadataStore,
   SDK_TOKENS,
   SessionHistoryReaderService,
-  DeepAgentHistoryReaderService,
 } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
@@ -35,6 +38,7 @@ import {
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for session operations (SDK-based)
@@ -46,6 +50,16 @@ import * as os from 'os';
  */
 @injectable()
 export class SessionRpcHandlers {
+  static readonly METHODS = [
+    'session:list',
+    'session:load',
+    'session:delete',
+    'session:rename',
+    'session:validate',
+    'session:cli-sessions',
+    'session:stats-batch',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -53,11 +67,26 @@ export class SessionRpcHandlers {
     private readonly metadataStore: SessionMetadataStore,
     @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
     private readonly historyReader: SessionHistoryReaderService,
-    @inject(SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER)
-    private readonly deepAgentHistoryReader: DeepAgentHistoryReaderService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
+
+  /**
+   * Verify that a workspacePath supplied by the frontend is one of the
+   * currently open workspace folders. Prevents the webview from reading or
+   * operating on arbitrary paths outside the active workspace.
+   */
+  private isAuthorizedWorkspace(workspacePath: string): boolean {
+    if (!workspacePath) return false;
+    const folders = this.workspaceProvider.getWorkspaceFolders();
+    if (!folders || folders.length === 0) return false;
+    const normalize = (p: string) =>
+      path.resolve(p).replace(/\\/g, '/').toLowerCase();
+    const target = normalize(workspacePath);
+    return folders.some((f) => normalize(f) === target);
+  }
 
   /**
    * Register all session RPC methods
@@ -99,6 +128,14 @@ export class SessionRpcHandlers {
             limit,
             offset,
           });
+
+          if (!this.isAuthorizedWorkspace(workspacePath)) {
+            this.logger.warn(
+              'RPC: session:list rejected — workspacePath outside active workspace',
+              { workspacePath },
+            );
+            throw new Error('workspace-not-authorized');
+          }
 
           // Get session metadata for workspace
           const allSessions =
@@ -325,34 +362,7 @@ export class SessionRpcHandlers {
     sessionId: string,
     workspacePath: string,
   ): Promise<void> {
-    // Handle deep agent sessions separately — they use a directory, not a single file
-    if (this.deepAgentHistoryReader.hasSession(sessionId, workspacePath)) {
-      const threadDir = path.join(
-        workspacePath,
-        '.ptah',
-        'deep-agent-sessions',
-        sessionId,
-      );
-      try {
-        await fs.rm(threadDir, { recursive: true, force: true });
-        this.logger.info(
-          'RPC: session:delete - deleted deep agent session directory',
-          { sessionId, threadDir },
-        );
-      } catch (err) {
-        this.logger.warn(
-          'RPC: session:delete - failed to delete deep agent session directory',
-          {
-            sessionId,
-            threadDir,
-            error: err instanceof Error ? err.message : String(err),
-          },
-        );
-      }
-      return;
-    }
-
-    const sessionFilePath = await this.findJsonlSessionFile(
+    const sessionFilePath = await this.findSessionFile(
       sessionId,
       workspacePath,
     );
@@ -479,6 +489,14 @@ export class SessionRpcHandlers {
             workspacePath,
           });
 
+          if (!this.isAuthorizedWorkspace(workspacePath)) {
+            this.logger.warn(
+              'RPC: session:validate rejected — workspacePath outside active workspace',
+              { workspacePath },
+            );
+            return { exists: false };
+          }
+
           const filePath = await this.findSessionFile(
             sessionId as string,
             workspacePath,
@@ -582,20 +600,10 @@ export class SessionRpcHandlers {
         const results = await Promise.allSettled(
           batch.map(async (sessionId) => {
             try {
-              // Check deep agent sessions first, then fall back to JSONL
-              const isDeepAgent = this.deepAgentHistoryReader.hasSession(
+              const { stats } = await this.historyReader.readSessionHistory(
                 sessionId,
                 workspacePath,
               );
-              const { stats } = isDeepAgent
-                ? await this.deepAgentHistoryReader.readSessionHistory(
-                    sessionId,
-                    workspacePath,
-                  )
-                : await this.historyReader.readSessionHistory(
-                    sessionId,
-                    workspacePath,
-                  );
 
               // Get CLI agent types from metadata (gemini, codex, copilot, ptah-cli)
               const metadata = await this.metadataStore.get(sessionId);
@@ -696,35 +704,11 @@ export class SessionRpcHandlers {
   }
 
   /**
-   * Find the session file on disk — checks both Claude SDK JSONL files
-   * and deep agent checkpoint directories.
+   * Find the Claude SDK JSONL session file on disk.
    *
    * Claude SDK sessions: ~/.claude/projects/{workspace}/{sessionId}.jsonl
-   * Deep agent sessions: {workspacePath}/.ptah/deep-agent-sessions/{sessionId}/metadata.json
    */
   private async findSessionFile(
-    sessionId: string,
-    workspacePath: string,
-  ): Promise<string | null> {
-    // 1. Check Claude SDK JSONL files
-    const jsonlPath = await this.findJsonlSessionFile(sessionId, workspacePath);
-    if (jsonlPath) return jsonlPath;
-
-    // 2. Fallback: check deep agent checkpoint directory
-    if (this.deepAgentHistoryReader.hasSession(sessionId, workspacePath)) {
-      return path.join(
-        workspacePath,
-        '.ptah',
-        'deep-agent-sessions',
-        sessionId,
-        'metadata.json',
-      );
-    }
-
-    return null;
-  }
-
-  private async findJsonlSessionFile(
     sessionId: string,
     workspacePath: string,
   ): Promise<string | null> {

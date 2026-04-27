@@ -1,6 +1,6 @@
-import { Component, inject } from '@angular/core';
+﻿import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
-import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
+import { ConfirmationDialogService } from '@ptah-extension/chat-state';
 
 /**
  * ConfirmationDialogComponent - DaisyUI modal for confirmations
@@ -51,6 +51,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
       </form>
     </dialog>
   `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ConfirmationDialogComponent {
   protected readonly dialogService = inject(ConfirmationDialogService);

@@ -40,7 +40,7 @@ describe('OptionComponent', () => {
       fixture.componentRef.setInput('value', 'test-value');
       fixture.detectChanges();
 
-      expect(component.isActive).toBe(false);
+      expect(component.isActive()).toBe(false);
     });
 
     it('should render with correct optionId', () => {
@@ -61,7 +61,7 @@ describe('OptionComponent', () => {
 
       component.setActiveStyles();
 
-      expect(component.isActive).toBe(true);
+      expect(component.isActive()).toBe(true);
     });
 
     it('should apply bg-primary class when active', () => {
@@ -111,11 +111,11 @@ describe('OptionComponent', () => {
       fixture.detectChanges();
 
       component.setActiveStyles();
-      expect(component.isActive).toBe(true);
+      expect(component.isActive()).toBe(true);
 
       component.setInactiveStyles();
 
-      expect(component.isActive).toBe(false);
+      expect(component.isActive()).toBe(false);
     });
 
     it('should remove bg-primary class when inactive', () => {
@@ -239,7 +239,7 @@ describe('OptionComponent', () => {
       }
 
       const objectFixture = TestBed.createComponent(
-        OptionComponent<TestObject>
+        OptionComponent<TestObject>,
       );
       const objectComponent = objectFixture.componentInstance;
       const testObject: TestObject = { id: '1', name: 'Test' };
@@ -323,7 +323,7 @@ describe('OptionComponent', () => {
       const hostElement = debugElement.nativeElement as HTMLElement;
       expect(hostElement.classList.contains('bg-primary')).toBe(true);
       expect(hostElement.getAttribute('aria-selected')).toBe('true');
-      expect(component.isActive).toBe(true);
+      expect(component.isActive()).toBe(true);
 
       // Simulate keyboard navigation moving to another option
       component.setInactiveStyles();
@@ -331,7 +331,7 @@ describe('OptionComponent', () => {
 
       expect(hostElement.classList.contains('bg-primary')).toBe(false);
       expect(hostElement.getAttribute('aria-selected')).toBe('false');
-      expect(component.isActive).toBe(false);
+      expect(component.isActive()).toBe(false);
     });
   });
 });

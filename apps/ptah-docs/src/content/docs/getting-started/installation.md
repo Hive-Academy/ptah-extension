@@ -5,6 +5,10 @@ description: Download and install the Ptah Electron desktop app on Windows, macO
 
 Ptah is distributed as a native desktop app for Windows, macOS, and Linux. This page covers system requirements, where to download installers, and per-platform installation steps.
 
+<video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
+  <source src="/assets/videos/install.mp4" type="video/mp4" />
+</video>
+
 ## System requirements
 
 | Platform | Minimum version                                     | Recommended   |

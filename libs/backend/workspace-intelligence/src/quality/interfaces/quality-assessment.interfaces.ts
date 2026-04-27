@@ -74,7 +74,7 @@ export interface ICodeQualityAssessmentService {
    */
   assessQuality(
     workspacePath: string,
-    config?: Partial<SamplingConfig>
+    config?: Partial<SamplingConfig>,
   ): Promise<QualityAssessment>;
 
   /**
@@ -97,7 +97,7 @@ export interface ICodeQualityAssessmentService {
    */
   sampleFiles(
     workspacePath: string,
-    config: SamplingConfig
+    config: SamplingConfig,
   ): Promise<SampledFile[]>;
 }
 
@@ -117,17 +117,21 @@ export interface IAntiPatternDetectionService {
    * Runs all applicable rules for the file type and returns
    * detected anti-patterns with locations and suggestions.
    *
+   * TASK_2025_291 B2: now async because some rules (e.g. `functionTooLargeRule`)
+   * perform tree-sitter AST analysis. Sync rules are still fully supported —
+   * they are transparently awaited.
+   *
    * @param content - File content to analyze
    * @param filePath - Relative file path (used for extension detection and location)
-   * @returns Array of detected anti-patterns
+   * @returns Promise resolving to array of detected anti-patterns
    *
    * @example
    * ```typescript
-   * const patterns = service.detectPatterns(fileContent, 'src/user.service.ts');
+   * const patterns = await service.detectPatterns(fileContent, 'src/user.service.ts');
    * patterns.forEach(p => console.log(`${p.type}: ${p.message}`));
    * ```
    */
-  detectPatterns(content: string, filePath: string): AntiPattern[];
+  detectPatterns(content: string, filePath: string): Promise<AntiPattern[]>;
 
   /**
    * Detect anti-patterns across multiple files with frequency aggregation.
@@ -136,16 +140,16 @@ export interface IAntiPatternDetectionService {
    * tracking frequency of each pattern type across the codebase.
    *
    * @param files - Array of sampled files to analyze
-   * @returns Aggregated anti-patterns with frequency counts
+   * @returns Promise resolving to aggregated anti-patterns with frequency counts
    *
    * @example
    * ```typescript
-   * const patterns = service.detectPatternsInFiles(sampledFiles);
+   * const patterns = await service.detectPatternsInFiles(sampledFiles);
    * const topIssue = patterns.sort((a, b) => b.frequency - a.frequency)[0];
    * console.log(`Most common: ${topIssue.type} (${topIssue.frequency} occurrences)`);
    * ```
    */
-  detectPatternsInFiles(files: SampledFile[]): AntiPattern[];
+  detectPatternsInFiles(files: SampledFile[]): Promise<AntiPattern[]>;
 
   /**
    * Calculate a quality score from detected anti-patterns.
@@ -286,7 +290,7 @@ export interface IPrescriptiveGuidanceService {
   generateGuidance(
     assessment: QualityAssessment,
     context: WorkspaceContext,
-    tokenBudget?: number
+    tokenBudget?: number,
   ): PrescriptiveGuidance;
 }
 

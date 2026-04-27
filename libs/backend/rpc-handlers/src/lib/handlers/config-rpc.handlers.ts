@@ -14,6 +14,7 @@ import {
   RpcHandler,
   TOKENS,
   ConfigManager,
+  FeatureGateService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import {
@@ -40,12 +41,23 @@ import {
   getModelPricingDescription,
   type EffortLevel,
 } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for configuration operations
  */
 @injectable()
 export class ConfigRpcHandlers {
+  static readonly METHODS = [
+    'config:model-switch',
+    'config:model-get',
+    'config:autopilot-toggle',
+    'config:autopilot-get',
+    'config:models-list',
+    'config:effort-get',
+    'config:effort-set',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -61,6 +73,8 @@ export class ConfigRpcHandlers {
     private readonly modelResolver: ModelResolver,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(TOKENS.FEATURE_GATE_SERVICE)
+    private readonly featureGate: FeatureGateService,
   ) {}
 
   /**
@@ -257,8 +271,15 @@ export class ConfigRpcHandlers {
           sessionId,
         });
 
-        // Warn if YOLO mode is enabled (dangerous operation)
+        // YOLO mode is a Pro-tier feature — it bypasses all permission prompts,
+        // which is a high-risk operation we only unlock for paid users.
         if (enabled && permissionLevel === 'yolo') {
+          const isPro = await this.featureGate.isProTier();
+          if (!isPro) {
+            throw new Error(
+              'YOLO mode requires a Pro subscription. Upgrade to enable unattended execution.',
+            );
+          }
           this.logger.warn(
             'YOLO mode enabled - DANGEROUS: All permission prompts will be skipped',
             { enabled, permissionLevel },
@@ -422,7 +443,19 @@ export class ConfigRpcHandlers {
           }> = [];
 
           for (const m of sdkModels) {
-            const tier = this.modelResolver.detectTier(m.value);
+            let tier = this.modelResolver.detectTier(m.value);
+
+            // If detectTier() returns undefined, m.value is a resolved provider model ID
+            // (e.g. 'google/gemma-4-26b-a4b-it:free') from a stale cache where
+            // applyTierMapping() already ran. Reverse-look up the tier from tierOverrides.
+            if (!tier && tierOverrides) {
+              const match = Object.entries(tierOverrides).find(
+                ([, v]) => v === m.value,
+              );
+              if (match) {
+                tier = match[0] as 'opus' | 'sonnet' | 'haiku';
+              }
+            }
 
             const providerModelId =
               tierOverrides && tier ? (tierOverrides[tier] ?? null) : null;

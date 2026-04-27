@@ -101,7 +101,7 @@ export class CliFileSystemProvider implements IFileSystemProvider {
     }
     await fs.cp(source, destination, {
       recursive: true,
-      force: options?.overwrite,
+      force: options?.overwrite ?? false,
     });
   }
 
@@ -123,26 +123,46 @@ export class CliFileSystemProvider implements IFileSystemProvider {
   }
 
   createFileWatcher(pattern: string): IFileWatcher {
-    const chokidar = require('chokidar');
-    const watcher = chokidar.watch(pattern, {
-      ignoreInitial: true,
-      persistent: true,
-    });
-
     const [onDidChange, fireChange] = createEvent<string>();
     const [onDidCreate, fireCreate] = createEvent<string>();
     const [onDidDelete, fireDelete] = createEvent<string>();
 
-    watcher.on('change', (filePath: string) => fireChange(filePath));
-    watcher.on('add', (filePath: string) => fireCreate(filePath));
-    watcher.on('unlink', (filePath: string) => fireDelete(filePath));
+    let underlying: { close(): Promise<void> | void } | undefined;
+    let disposed = false;
+
+    // chokidar@>=4 is ESM-only, so a sync `require('chokidar')` blows up under
+    // a CJS runtime (ts-jest default + VSIX bundles). Dynamic-import the module
+    // and wire emitters once it resolves. Events fired before setup completes
+    // are lost by design; callers that need a primed watcher should await a
+    // filesystem event after construction.
+    void (async () => {
+      const mod = (await import('chokidar')) as {
+        watch: (
+          pattern: string,
+          options: { ignoreInitial: boolean; persistent: boolean },
+        ) => {
+          on(event: string, handler: (filePath: string) => void): unknown;
+          close(): Promise<void> | void;
+        };
+      };
+      if (disposed) return;
+      const watcher = mod.watch(pattern, {
+        ignoreInitial: true,
+        persistent: true,
+      });
+      watcher.on('change', (filePath) => fireChange(filePath));
+      watcher.on('add', (filePath) => fireCreate(filePath));
+      watcher.on('unlink', (filePath) => fireDelete(filePath));
+      underlying = watcher;
+    })();
 
     return {
       onDidChange,
       onDidCreate,
       onDidDelete,
       dispose() {
-        watcher.close();
+        disposed = true;
+        if (underlying) void underlying.close();
       },
     };
   }

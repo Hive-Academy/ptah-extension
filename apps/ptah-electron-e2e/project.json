@@ -1,0 +1,46 @@
+{
+  "name": "ptah-electron-e2e",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/ptah-electron-e2e/src",
+  "tags": ["scope:e2e", "type:e2e"],
+  "implicitDependencies": ["ptah-electron"],
+  "targets": {
+    "e2e": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        { "target": "build-dev", "projects": ["ptah-electron"] },
+        { "target": "copy-renderer", "projects": ["ptah-electron"] }
+      ],
+      "options": {
+        "cwd": "apps/ptah-electron-e2e",
+        "command": "npx playwright test --config=playwright.config.ts"
+      },
+      "configurations": {
+        "ci": {
+          "command": "npx playwright test --config=playwright.config.ts --reporter=list"
+        }
+      }
+    },
+    "e2e:nightly": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        { "target": "build-dev", "projects": ["ptah-electron"] },
+        { "target": "copy-renderer", "projects": ["ptah-electron"] }
+      ],
+      "options": {
+        "cwd": "apps/ptah-electron-e2e",
+        "command": "npx playwright test --config=playwright.config.ts --grep @nightly"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project apps/ptah-electron-e2e/tsconfig.spec.json"
+      }
+    }
+  }
+}

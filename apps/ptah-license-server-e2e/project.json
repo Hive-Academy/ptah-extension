@@ -10,8 +10,7 @@
       "options": {
         "jestConfig": "apps/ptah-license-server-e2e/jest.config.cts",
         "passWithNoTests": true
-      },
-      "dependsOn": ["ptah-license-server:build", "ptah-license-server:serve"]
+      }
     }
   }
 }

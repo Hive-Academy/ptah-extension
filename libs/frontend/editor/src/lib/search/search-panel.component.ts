@@ -17,8 +17,7 @@ import {
   ChevronRight,
   ChevronDown,
 } from 'lucide-angular';
-import { VSCodeService } from '@ptah-extension/core';
-import { rpcCall } from '../services/rpc-call.util';
+import { VSCodeService, rpcCall } from '@ptah-extension/core';
 import type {
   SearchFileResult,
   SearchInFilesResult,
