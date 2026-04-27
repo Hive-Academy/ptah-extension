@@ -63,6 +63,26 @@
             "glob": "package.json",
             "input": "apps/ptah-cli",
             "output": "."
+          },
+          {
+            "glob": "README.md",
+            "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "docs/jsonrpc-schema.md",
+            "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "docs/migration.md",
+            "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "LICENSE.md",
+            "input": ".",
+            "output": "."
           }
         ]
       },
