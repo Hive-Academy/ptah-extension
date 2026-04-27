@@ -1,0 +1,151 @@
+# Publish Ptah CLI to npm
+#
+# Trigger: pushing a git tag matching `cli-v*` (e.g. cli-v0.1.0).
+#
+# The tag is the source of truth for the published version. The workflow
+# checks that the tag and the apps/ptah-cli/package.json version agree
+# before it publishes — refuses to publish if they don't match.
+#
+# Pipeline:
+#   1. checkout + node 22 (with npm registry-url so NPM_TOKEN authenticates)
+#   2. cache-aware npm ci (rollup linux binary workaround)
+#   3. quality gates: lint + typecheck + test scoped to ptah-cli
+#   4. build: nx build ptah-cli (esbuild + asset copy)
+#   5. verify dist version matches the tag
+#   6. npm publish --dry-run (final sanity check)
+#   7. npm publish --provenance --access public  (only if all the above pass)
+#
+# Provenance attestation requires `id-token: write` and a public repo,
+# both satisfied here. After publish, the package metadata at
+# https://registry.npmjs.org/@hive-academy/ptah-cli will include a
+# `_attestations` field linking back to this workflow run.
+#
+# Required secrets:
+#   NPM_TOKEN — Granular access token for @hive-academy scope, with
+#               read/write on @hive-academy/ptah-cli and 2FA-bypass for
+#               automation enabled.
+
+name: Publish CLI
+
+on:
+  push:
+    tags:
+      - 'cli-v*'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Skip the real publish (dry-run only)'
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-cli
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # Required for npm provenance attestation
+
+env:
+  NODE_VERSION: 22
+  NX_TUI: 'false'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+
+      # Cache node_modules — skips npm ci on cache hit
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        # Workaround for npm/cli#4828: package-lock.json generated on Windows
+        # omits Linux rollup platform binaries. Install them explicitly.
+        run: |
+          npm ci
+          npm install @rollup/rollup-linux-x64-gnu --no-save --force
+
+      - name: Resolve tag and version
+        id: meta
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG_REF="${GITHUB_REF##refs/tags/}"
+            TAG_VERSION="${TAG_REF#cli-v}"
+          else
+            TAG_VERSION=""
+          fi
+          PKG_VERSION=$(node -p "require('./apps/ptah-cli/package.json').version")
+          echo "tag_version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+          echo "pkg_version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Tag version: '$TAG_VERSION' / package.json version: '$PKG_VERSION'"
+
+      - name: Verify tag matches package.json version
+        if: github.event_name == 'push'
+        run: |
+          if [[ "${{ steps.meta.outputs.tag_version }}" != "${{ steps.meta.outputs.pkg_version }}" ]]; then
+            echo "::error::Tag version (${{ steps.meta.outputs.tag_version }}) does not match apps/ptah-cli/package.json version (${{ steps.meta.outputs.pkg_version }}). Bump the package.json version on a release branch and tag from there."
+            exit 1
+          fi
+
+      - name: Lint
+        run: npx nx lint ptah-cli
+
+      - name: Typecheck
+        run: npx nx typecheck ptah-cli
+
+      - name: Test
+        run: npx nx test ptah-cli
+
+      - name: Build
+        run: npx nx build ptah-cli
+
+      - name: Verify dist contents
+        run: |
+          DIST=dist/apps/ptah-cli
+          for f in main.mjs package.json README.md LICENSE.md docs/jsonrpc-schema.md docs/migration.md; do
+            if [[ ! -f "$DIST/$f" ]]; then
+              echo "::error::Missing dist file: $DIST/$f"
+              exit 1
+            fi
+          done
+          DIST_VERSION=$(node -p "require('./dist/apps/ptah-cli/package.json').version")
+          if [[ "$DIST_VERSION" != "${{ steps.meta.outputs.pkg_version }}" ]]; then
+            echo "::error::Dist version ($DIST_VERSION) does not match package.json (${{ steps.meta.outputs.pkg_version }})"
+            exit 1
+          fi
+
+      - name: Publish dry-run
+        working-directory: dist/apps/ptah-cli
+        run: npm publish --dry-run --access public
+
+      - name: Publish to npm
+        if: github.event_name == 'push' || github.event.inputs.dry-run != 'true'
+        working-directory: dist/apps/ptah-cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
+
+      - name: Summary
+        run: |
+          echo "### Ptah CLI publish — ${{ steps.meta.outputs.pkg_version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "- Tag: \`${GITHUB_REF##refs/tags/}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Published: \`@hive-academy/ptah-cli@${{ steps.meta.outputs.pkg_version }}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Verify: \`npm view @hive-academy/ptah-cli@${{ steps.meta.outputs.pkg_version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Manual dispatch (dry-run=${{ github.event.inputs.dry-run }})" >> "$GITHUB_STEP_SUMMARY"
+          fi
