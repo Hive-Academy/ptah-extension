@@ -5,6 +5,10 @@ description: Ptah's local MCP server, Code Execution, and dynamic port managemen
 
 Ptah runs a **local MCP server** inside the desktop app. It is the bridge that exposes the `ptah_*` tool family to any connected model — and it's how **Code Execution** (the secure sandboxed runtime) is made available to providers that support MCP.
 
+<video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
+  <source src="/assets/videos/ptah-mcp-server.mp4" type="video/mp4" />
+</video>
+
 ## What it does
 
 - Serves the entire `ptah_*` tool catalog — workspace analysis, diagnostics, browser automation, git worktrees, agent spawning, etc.

@@ -11,6 +11,9 @@ import {
   inject,
   afterNextRender,
 } from '@angular/core';
+import type * as monaco from 'monaco-editor';
+
+type MonacoApi = typeof monaco;
 
 /**
  * DiffViewComponent - Direct Monaco diff editor for side-by-side file comparison.
@@ -42,9 +45,9 @@ export class DiffViewComponent implements OnDestroy {
   private readonly editorContainer =
     viewChild.required<ElementRef<HTMLElement>>('editorContainer');
 
-  private editor: any = null;
-  private originalModel: any = null;
-  private modifiedModel: any = null;
+  private editor: monaco.editor.IStandaloneDiffEditor | null = null;
+  private originalModel: monaco.editor.ITextModel | null = null;
+  private modifiedModel: monaco.editor.ITextModel | null = null;
   private resizeObserver: ResizeObserver | null = null;
 
   private readonly language = computed(() =>
@@ -74,16 +77,16 @@ export class DiffViewComponent implements OnDestroy {
   }
 
   private waitForMonacoAndCreate(): void {
-    const monaco = (window as any).monaco;
-    if (monaco) {
-      this.createEditor(monaco);
+    const monacoApi = (window as Window & { monaco?: MonacoApi }).monaco;
+    if (monacoApi) {
+      this.createEditor(monacoApi);
       return;
     }
     // Monaco not loaded yet — poll briefly (should be rare)
     let attempts = 0;
     const interval = setInterval(() => {
       attempts++;
-      const m = (window as any).monaco;
+      const m = (window as Window & { monaco?: MonacoApi }).monaco;
       if (m) {
         clearInterval(interval);
         this.createEditor(m);
@@ -93,17 +96,19 @@ export class DiffViewComponent implements OnDestroy {
     }, 100);
   }
 
-  private createEditor(monaco: any): void {
+  private createEditor(monacoApi: MonacoApi): void {
     const container = this.editorContainer().nativeElement;
     const lang = this.language();
     const original = this.originalContent();
     const modified = this.modifiedContent();
 
-    this.originalModel = monaco.editor.createModel(original, lang);
-    this.modifiedModel = monaco.editor.createModel(modified, lang);
+    const originalModel = monacoApi.editor.createModel(original, lang);
+    const modifiedModel = monacoApi.editor.createModel(modified, lang);
+    this.originalModel = originalModel;
+    this.modifiedModel = modifiedModel;
 
     this.ngZone.runOutsideAngular(() => {
-      this.editor = monaco.editor.createDiffEditor(container, {
+      const editor = monacoApi.editor.createDiffEditor(container, {
         theme: 'vs-dark',
         automaticLayout: false,
         readOnly: true,
@@ -118,10 +123,11 @@ export class DiffViewComponent implements OnDestroy {
           horizontalScrollbarSize: 8,
         },
       });
+      this.editor = editor;
 
-      this.editor.setModel({
-        original: this.originalModel,
-        modified: this.modifiedModel,
+      editor.setModel({
+        original: originalModel,
+        modified: modifiedModel,
       });
 
       this.resizeObserver = new ResizeObserver(() => {
@@ -132,17 +138,19 @@ export class DiffViewComponent implements OnDestroy {
   }
 
   private updateModels(original: string, modified: string, lang: string): void {
-    const monaco = (window as any).monaco;
-    if (!monaco) return;
+    const monacoApi = (window as Window & { monaco?: MonacoApi }).monaco;
+    if (!monacoApi) return;
 
     this.disposeModels();
 
-    this.originalModel = monaco.editor.createModel(original, lang);
-    this.modifiedModel = monaco.editor.createModel(modified, lang);
+    const originalModel = monacoApi.editor.createModel(original, lang);
+    const modifiedModel = monacoApi.editor.createModel(modified, lang);
+    this.originalModel = originalModel;
+    this.modifiedModel = modifiedModel;
 
-    this.editor.setModel({
-      original: this.originalModel,
-      modified: this.modifiedModel,
+    this.editor?.setModel({
+      original: originalModel,
+      modified: modifiedModel,
     });
   }
 

@@ -24,6 +24,11 @@ import {
   ElectronShellComponent,
 } from '@ptah-extension/chat';
 
+// TASK_2026_106 Phase 2 — eager instantiation of the shadow-mode router so
+// it observes stream events from the first one onward (no startup race
+// where early events bypass the router because nothing has injected it yet).
+import { StreamRouter } from '@ptah-extension/chat-routing';
+
 @Component({
   selector: 'ptah-root',
   imports: [AppShellComponent, ElectronShellComponent, LucideAngularModule],
@@ -42,6 +47,12 @@ export class App implements OnInit, OnDestroy {
   private readonly navigationService = inject(WebviewNavigationService);
   // private readonly providerService = inject(ProviderService); // DELETED - provider library removed in Phase 0
   // REMOVED: Router injection - using pure signal-based navigation
+
+  // TASK_2026_106 Phase 2 — eager StreamRouter instantiation. The router is
+  // providedIn: 'root' but consumers (ChatMessageHandler) inject it lazily;
+  // injecting here at the composition root forces it to exist before the
+  // first CHAT_CHUNK arrives, so shadow-mode observation has full coverage.
+  private readonly _streamRouter = inject(StreamRouter);
 
   // Platform detection: Electron desktop vs VS Code webview (set once at bootstrap, never changes)
   public readonly isElectron = signal(this.vscodeService.isElectron);

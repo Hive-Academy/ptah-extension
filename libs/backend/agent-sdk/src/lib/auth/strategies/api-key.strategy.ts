@@ -31,9 +31,9 @@ import {
   getProviderAuthEnvVar,
   seedStaticModelPricing,
   ANTHROPIC_DIRECT_PROVIDER_ID,
-} from '../../helpers/anthropic-provider-registry';
-import type { ITranslationProxy } from '../../openai-translation';
-import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../../openrouter-provider';
+} from '../../providers/_shared/provider-registry';
+import type { ITranslationProxy } from '../../providers/_shared/translation';
+import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../../providers/openrouter';
 
 /** Provider ID for OpenRouter — matches ANTHROPIC_PROVIDERS registry entry */
 const OPENROUTER_PROVIDER_ID = 'openrouter';

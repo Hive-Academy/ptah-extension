@@ -379,13 +379,14 @@ export class IpcBridge {
    * Only session lifecycle (terminal:create, terminal:kill) uses JSON RPC.
    */
   private setupTerminalHandlers(): void {
-    if (!this.ptyManager) return;
+    const ptyManager = this.ptyManager;
+    if (!ptyManager) return;
 
     // Renderer -> Main: terminal keyboard input
     ipcMain.on(
       'terminal:data-in',
       (_event: IpcMainEvent, id: string, data: string) => {
-        this.ptyManager!.write(id, data);
+        ptyManager.write(id, data);
       },
     );
 
@@ -393,12 +394,12 @@ export class IpcBridge {
     ipcMain.on(
       'terminal:resize',
       (_event: IpcMainEvent, id: string, cols: number, rows: number) => {
-        this.ptyManager!.resize(id, cols, rows);
+        ptyManager.resize(id, cols, rows);
       },
     );
 
     // Main -> Renderer: PTY output data
-    this.ptyManager.onData((id: string, data: string) => {
+    ptyManager.onData((id: string, data: string) => {
       const win = this.getWindow();
       if (win) {
         win.webContents.send('terminal:data-out', id, data);
@@ -406,7 +407,7 @@ export class IpcBridge {
     });
 
     // Main -> Renderer: PTY exit notification
-    this.ptyManager.onExit((id: string, exitCode: number) => {
+    ptyManager.onExit((id: string, exitCode: number) => {
       const win = this.getWindow();
       if (win) {
         win.webContents.send('terminal:exit', id, exitCode);

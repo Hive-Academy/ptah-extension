@@ -20,10 +20,10 @@ import type {
 } from '../auth-strategy.types';
 import { SDK_TOKENS } from '../../di/tokens';
 import type { ProviderModelsService } from '../../provider-models.service';
-import type { LocalModelTranslationProxy } from '../../local-provider/local-model-translation-proxy';
-import type { ICopilotTranslationProxy } from '../../copilot-provider/copilot-provider.types';
-import type { ITranslationProxy } from '../../openai-translation';
-import { LOCAL_PROXY_TOKEN_PLACEHOLDER } from '../../local-provider';
+import type { LocalModelTranslationProxy } from '../../providers/local/local-model-translation-proxy';
+import type { ICopilotTranslationProxy } from '../../providers/copilot/copilot-provider.types';
+import type { ITranslationProxy } from '../../providers/_shared/translation';
+import { LOCAL_PROXY_TOKEN_PLACEHOLDER } from '../../providers/local';
 
 @injectable()
 export class LocalProxyStrategy implements IAuthStrategy {

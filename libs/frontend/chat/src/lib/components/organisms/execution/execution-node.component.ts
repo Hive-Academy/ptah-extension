@@ -8,8 +8,10 @@ import {
 import { MarkdownModule } from 'ngx-markdown';
 import { LucideAngularModule, Info } from 'lucide-angular';
 import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
-import { AgentSummaryComponent } from '../../molecules/agent-summary.component';
-import { ThinkingBlockComponent } from '../../molecules/thinking-block.component';
+import {
+  AgentSummaryComponent,
+  ThinkingBlockComponent,
+} from '@ptah-extension/chat-ui';
 import { ToolCallItemComponent } from '../../molecules/tool-execution/tool-call-item.component';
 import type {
   ExecutionNode,
@@ -47,62 +49,92 @@ import type {
     ToolCallItemComponent,
   ],
   template: `
-    @switch (node().type) { @case ('text') { @if (isAgentSummaryContent()) {
-    <!-- Agent summary with XML-like format (function_calls, thinking, etc.) -->
-    <ptah-agent-summary [content]="node().content || ''" />
-    } @else {
-    <!-- Always render markdown for text nodes (live updates like ChatGPT/Claude web) -->
-    <div
-      class="prose prose-sm prose-invert max-w-none my-2 transition-opacity duration-300"
-    >
-      <markdown [data]="node().content || ''" />
-    </div>
-    } } @case ('thinking') {
-    <ptah-thinking-block [node]="node()" />
-    } @case ('tool') {
-    <ptah-tool-call-item
-      [node]="node()"
-      [permission]="getPermissionForTool()?.(node().toolCallId ?? '') ?? undefined"
-      (permissionResponded)="permissionResponded.emit($event)"
-    >
-      <!-- RECURSIVE: Render nested children (tool results, sub-tools) -->
-      @for (child of node().children; track child.id) {
-      <ptah-execution-node
-        [node]="child"
-        [isStreaming]="isStreaming()"
-        [getPermissionForTool]="getPermissionForTool()"
-        (permissionResponded)="permissionResponded.emit($event)"
-      />
+    @switch (node().type) {
+      @case ('text') {
+        @if (isAgentSummaryContent()) {
+          <!-- Agent summary with XML-like format (function_calls, thinking, etc.) -->
+          <ptah-agent-summary [content]="node().content || ''" />
+        } @else {
+          <!-- Always render markdown for text nodes (live updates like ChatGPT/Claude web) -->
+          <div
+            class="prose prose-sm prose-invert max-w-none my-2 transition-opacity duration-300"
+          >
+            <markdown [data]="node().content || ''" />
+          </div>
+        }
       }
-    </ptah-tool-call-item>
-    } @case ('agent') {
-    <!-- Use @defer to break circular dependency and lazy-load InlineAgentBubbleComponent -->
-    @defer {
-    <ptah-inline-agent-bubble
-      [node]="node()"
-      [getPermissionForTool]="getPermissionForTool()"
-      (permissionResponded)="permissionResponded.emit($event)"
-    />
-    } @placeholder {
-    <div class="flex items-center gap-2 text-[10px] text-base-content/40 py-2">
-      <span>Loading agent...</span>
-    </div>
-    } } @case ('message') {
-    <!-- Message node unwraps to its children -->
-    @for (child of node().children; track child.id) {
-    <ptah-execution-node
-      [node]="child"
-      [isStreaming]="isStreaming()"
-      [getPermissionForTool]="getPermissionForTool()"
-      (permissionResponded)="permissionResponded.emit($event)"
-    />
-    } } @case ('system') {
-    <!-- System messages (session init, etc.) -->
-    <div class="alert alert-info my-2 text-xs">
-      <lucide-angular [img]="InfoIcon" class="w-4 h-4" />
-      <span>{{ node().content }}</span>
-    </div>
-    } }
+      @case ('thinking') {
+        <ptah-thinking-block [node]="node()" />
+      }
+      @case ('tool') {
+        <ptah-tool-call-item
+          [node]="node()"
+          [permission]="
+            getPermissionForTool()?.(node().toolCallId ?? '') ?? undefined
+          "
+          (permissionResponded)="permissionResponded.emit($event)"
+        >
+          <!-- RECURSIVE: Render nested children (tool results, sub-tools) -->
+          @for (child of node().children; track child.id) {
+            <ptah-execution-node
+              [node]="child"
+              [isStreaming]="isStreaming()"
+              [getPermissionForTool]="getPermissionForTool()"
+              (permissionResponded)="permissionResponded.emit($event)"
+            />
+          }
+        </ptah-tool-call-item>
+      }
+      @case ('agent') {
+        <!--
+      TASK_2026_103 wave B2: pass nodeTemplate so the bubble can render its
+      children recursively without importing ExecutionNodeComponent. The
+      ng-template below stamps a fresh ptah-execution-node per child node,
+      preserving the previous recursive behavior exactly. @defer is retained
+      to keep the bubble lazy-loaded.
+    -->
+        @defer {
+          <ptah-inline-agent-bubble
+            [node]="node()"
+            [getPermissionForTool]="getPermissionForTool()"
+            [nodeTemplate]="bubbleChildTemplate"
+            (permissionResponded)="permissionResponded.emit($event)"
+          />
+        } @placeholder {
+          <div
+            class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
+          >
+            <span>Loading agent...</span>
+          </div>
+        }
+        <ng-template #bubbleChildTemplate let-child>
+          <ptah-execution-node
+            [node]="child"
+            [isStreaming]="isStreaming()"
+            [getPermissionForTool]="getPermissionForTool()"
+            (permissionResponded)="permissionResponded.emit($event)"
+          />
+        </ng-template>
+      }
+      @case ('message') {
+        <!-- Message node unwraps to its children -->
+        @for (child of node().children; track child.id) {
+          <ptah-execution-node
+            [node]="child"
+            [isStreaming]="isStreaming()"
+            [getPermissionForTool]="getPermissionForTool()"
+            (permissionResponded)="permissionResponded.emit($event)"
+          />
+        }
+      }
+      @case ('system') {
+        <!-- System messages (session init, etc.) -->
+        <div class="alert alert-info my-2 text-xs">
+          <lucide-angular [img]="InfoIcon" class="w-4 h-4" />
+          <span>{{ node().content }}</span>
+        </div>
+      }
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

@@ -1,4 +1,11 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EventsService } from '../../events/events.service';
 import { PLANS, getPlanConfig, PlanName } from '../../config/plans.config';
@@ -7,6 +14,35 @@ import {
   getTrialDurationDays,
 } from '../../config/trial.config';
 import { randomBytes, createPrivateKey, sign, KeyObject } from 'crypto';
+import { Prisma, License } from '../../generated-prisma-client/client';
+import { AuditLogService } from '../../audit/audit-log.service';
+import { EmailService } from '../../email/services/email.service';
+import {
+  ComplimentaryDurationPreset,
+  IssueComplimentaryLicenseDto,
+} from '../dto/issue-complimentary-license.dto';
+
+/**
+ * Actor metadata for admin-initiated mutations (TASK_2025_292).
+ * Sourced from `req.user.email` / `req.ip` / `req.headers['user-agent']` by
+ * the controller — kept as a plain interface so the service stays free of
+ * express typings.
+ */
+export interface AdminActor {
+  email: string;
+  ip?: string;
+  userAgent?: string;
+}
+
+/**
+ * Result of `createComplimentaryLicense`. `warning` is populated when the
+ * license persisted successfully but the post-create email delivery failed
+ * (R-spec §6.3: email is best-effort, must not roll back the license).
+ */
+export interface ComplimentaryLicenseResult {
+  license: License;
+  warning?: { code: 'LICENSE_EMAIL_FAILED'; error: string };
+}
 
 /**
  * License Tier type for TASK_2025_128: Freemium Model
@@ -94,6 +130,8 @@ export class LicenseService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(EventsService) private readonly eventsService: EventsService,
+    @Inject(AuditLogService) private readonly auditLog: AuditLogService,
+    @Inject(EmailService) private readonly emailService: EmailService,
   ) {}
 
   /**
@@ -693,5 +731,218 @@ export class LicenseService {
   private generateLicenseKey(): string {
     const random = randomBytes(32).toString('hex'); // 32 bytes = 64 hex chars
     return `ptah_lic_${random}`;
+  }
+
+  /**
+   * Compute the `expiresAt` for a complimentary license given a preset + optional
+   * custom date. Throws `BadRequestException` on invalid input so the controller
+   * returns a 400 with a precise error code.
+   */
+  private computeComplimentaryExpiresAt(
+    preset: ComplimentaryDurationPreset,
+    customExpiresAt: string | undefined,
+    now: Date,
+  ): Date | null {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    switch (preset) {
+      case '30d':
+        return new Date(now.getTime() + 30 * DAY_MS);
+      case '1y':
+        return new Date(now.getTime() + 365 * DAY_MS);
+      case '5y':
+        return new Date(now.getTime() + 5 * 365 * DAY_MS);
+      case 'never':
+        return null;
+      case 'custom': {
+        if (!customExpiresAt) {
+          throw new BadRequestException({
+            code: 'INVALID_CUSTOM_DATE',
+            message: 'customExpiresAt is required when durationPreset = custom',
+          });
+        }
+        const parsed = new Date(customExpiresAt);
+        if (
+          Number.isNaN(parsed.getTime()) ||
+          parsed.getTime() <= now.getTime()
+        ) {
+          throw new BadRequestException({
+            code: 'INVALID_CUSTOM_DATE',
+            message:
+              'customExpiresAt must be a valid ISO-8601 date in the future',
+          });
+        }
+        return parsed;
+      }
+      default: {
+        // Exhaustiveness guard — DTO validator should prevent this branch.
+        const exhaustive: never = preset;
+        throw new BadRequestException(
+          `Unsupported durationPreset: ${String(exhaustive)}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Issue a complimentary (admin-gifted) license.
+   *
+   * TASK_2025_292 §6.3 — DIFFERS from `createLicense` in several critical ways
+   * the spec calls out explicitly:
+   *  - MUST NOT revoke existing active licenses (R1). Comp licenses stack
+   *    on top of paid ones when the admin explicitly opts in via
+   *    `stackOnTopOfPaid: true`; otherwise a 409 is returned so the admin
+   *    can make the decision consciously.
+   *  - Persists `source: 'complimentary'` so MRR dashboards can filter it out.
+   *  - Writes an `admin_audit_log` row in the same transaction as the
+   *    license create (atomicity — the audit trail must match reality).
+   *  - Email delivery is best-effort: a failed send returns a warning but
+   *    DOES NOT roll back the license.
+   *  - Retries up to 3 times on licenseKey P2002 collisions (vanishingly
+   *    rare with 256-bit entropy, but deterministic tests want it covered).
+   */
+  async createComplimentaryLicense(
+    dto: IssueComplimentaryLicenseDto,
+    actor: AdminActor,
+  ): Promise<ComplimentaryLicenseResult> {
+    const now = new Date();
+
+    // Step 1: Resolve user — 404 if missing (AC §4.2).
+    const user = await this.prisma.user.findUnique({
+      where: { id: dto.userId },
+    });
+    if (!user) {
+      throw new NotFoundException({
+        code: 'USER_NOT_FOUND',
+        message: `User ${dto.userId} not found`,
+      });
+    }
+
+    // Step 2: Compute expiration (may throw 400 INVALID_CUSTOM_DATE).
+    const expiresAt = this.computeComplimentaryExpiresAt(
+      dto.durationPreset,
+      dto.customExpiresAt,
+      now,
+    );
+
+    // Step 3: Conflict check — block unless caller explicitly stacks.
+    // We ONLY care about non-complimentary actives (paddle/manual). Stacking
+    // two complimentary licenses is fine and has no business implication.
+    if (dto.stackOnTopOfPaid !== true) {
+      const conflict = await this.prisma.license.findFirst({
+        where: {
+          userId: user.id,
+          status: 'active',
+          source: { not: 'complimentary' },
+        },
+        select: {
+          id: true,
+          plan: true,
+          source: true,
+          expiresAt: true,
+          createdAt: true,
+        },
+      });
+      if (conflict) {
+        throw new ConflictException({
+          code: 'EXISTING_ACTIVE_LICENSE',
+          message:
+            'User has an existing active non-complimentary license. Pass stackOnTopOfPaid=true to override.',
+          existingLicense: conflict,
+        });
+      }
+    }
+
+    // Step 4: Create in a transaction w/ up to 3 retries on P2002 (unique
+    // violation on license_key). Audit log + license create share the tx so
+    // either both commit or both roll back.
+    const maxAttempts = 3;
+    let lastError: unknown = null;
+    let createdLicense: License | null = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const licenseKey = this.generateLicenseKey();
+      try {
+        createdLicense = await this.prisma.$transaction(async (tx) => {
+          await this.auditLog.write({
+            tx,
+            actorEmail: actor.email,
+            action: 'license.complimentary.issue',
+            targetType: 'License',
+            metadata: {
+              userId: user.id,
+              userEmail: user.email,
+              durationPreset: dto.durationPreset,
+              expiresAt: expiresAt ? expiresAt.toISOString() : null,
+              reason: dto.reason,
+              plan: dto.plan,
+              stacked: dto.stackOnTopOfPaid === true,
+            },
+            ipAddress: actor.ip,
+            userAgent: actor.userAgent,
+          });
+
+          return tx.license.create({
+            data: {
+              licenseKey,
+              userId: user.id,
+              plan: dto.plan,
+              status: 'active',
+              source: 'complimentary',
+              expiresAt,
+              createdBy: actor.email,
+            },
+          });
+        });
+        break; // Success — exit retry loop.
+      } catch (err) {
+        lastError = err;
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002' &&
+          attempt < maxAttempts
+        ) {
+          this.logger.warn(
+            `License key collision on attempt ${attempt}/${maxAttempts}, retrying`,
+          );
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (!createdLicense) {
+      // Defensive — only reachable if all 3 attempts hit P2002.
+      throw lastError instanceof Error
+        ? lastError
+        : new Error('Failed to create complimentary license after retries');
+    }
+
+    this.logger.log(
+      `Complimentary license ${createdLicense.id} issued to ${user.email} by ${actor.email} (preset=${dto.durationPreset}, stacked=${dto.stackOnTopOfPaid === true})`,
+    );
+
+    // Step 5: Best-effort email. Failure DOES NOT roll back the license —
+    // we've already committed audit + license in the transaction above.
+    if (dto.sendEmail !== false) {
+      try {
+        await this.emailService.sendLicenseKey({
+          email: user.email,
+          licenseKey: createdLicense.licenseKey,
+          plan: dto.plan,
+          expiresAt: createdLicense.expiresAt,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          `Complimentary license ${createdLicense.id} persisted but email failed: ${message}`,
+        );
+        return {
+          license: createdLicense,
+          warning: { code: 'LICENSE_EMAIL_FAILED', error: message },
+        };
+      }
+    }
+
+    return { license: createdLicense };
   }
 }

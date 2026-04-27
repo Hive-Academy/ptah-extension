@@ -18,6 +18,20 @@
           <span class="font-mono text-xs opacity-60">{{ recordId }}</span>
         }
       </div>
+
+      @if (model() === 'users' && id(); as userId) {
+        @if (record(); as rec) {
+          <button type="button" class="btn btn-error btn-outline btn-sm" (click)="deleteUserModal()?.open()">
+            Delete User
+          </button>
+
+          <app-delete-user-modal
+            [userId]="userId"
+            [userEmail]="$any(rec).email"
+            (deleted)="onUserDeleted()"
+          />
+        }
+      }
     </header>
 
     @if (loading()) {

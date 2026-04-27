@@ -21,6 +21,18 @@ import {
  */
 export interface RpcCallOptions {
   timeout?: number; // milliseconds, default: 30000
+  /**
+   * Optional AbortSignal — when fired, the pending call is dropped and the
+   * promise resolves with `success=false, error='RPC aborted: <method>'`.
+   *
+   * TASK_2026_103 Wave E2: drives the chat tab-close → stream-cancel flow.
+   * The webview-side timeout/lookup remains the source of truth for response
+   * correlation; aborting here only releases the caller's awaited promise.
+   * The matching backend cancellation (e.g. `chat:abort`) MUST be issued
+   * separately by the caller — this signal does NOT itself stop the
+   * extension-host work.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -114,6 +126,12 @@ const UNLICENSED_ALLOWED_METHODS: readonly string[] = [
   'license:setKey',
   'command:execute',
   'settings:import',
+  // Read-only config endpoints needed to render the welcome/license shell.
+  // Both return user preferences only — no AI feature surface — so safe to
+  // expose pre-license. Without these, AutopilotStateService and
+  // ModelStateService log RPC-blocked errors during webview bootstrap.
+  'config:autopilot-get',
+  'config:models-list',
 ] as const;
 
 @Injectable({ providedIn: 'root' })
@@ -187,8 +205,48 @@ export class ClaudeRpcService implements MessageHandler {
 
     const correlationId = CorrelationId.create();
     const timeout = options?.timeout ?? 30000;
+    const signal = options?.signal;
+
+    // TASK_2026_103 Wave E2: short-circuit if caller pre-aborted.
+    if (signal?.aborted) {
+      return new RpcResult<RpcMethodResult<T>>(
+        false,
+        undefined,
+        `RPC aborted: ${method}`,
+      );
+    }
 
     return new Promise<RpcResult<RpcMethodResult<T>>>((resolve) => {
+      // Mutable abort-listener handle so the resolver/timeout closures can
+      // detach it on completion. Wrapped in a single-property object so it
+      // can be rebinding-free (`const`) per ESLint prefer-const, while still
+      // allowing the inner property to be cleared after detach.
+      const abortRef: { listener: (() => void) | null } = { listener: null };
+
+      const detachAbortListener = (): void => {
+        if (signal && abortRef.listener) {
+          signal.removeEventListener('abort', abortRef.listener);
+          abortRef.listener = null;
+        }
+      };
+
+      // Set timeout to prevent hanging calls. Declared first so the resolver
+      // and abort listener can both clear it.
+      const timer = setTimeout(() => {
+        if (this.pendingCalls.has(correlationId)) {
+          this.pendingCalls.delete(correlationId);
+          detachAbortListener();
+          console.error(`[ClaudeRpcService] RPC timeout for method: ${method}`);
+          resolve(
+            new RpcResult<RpcMethodResult<T>>(
+              false,
+              undefined,
+              `RPC timeout: ${method}`,
+            ),
+          );
+        }
+      }, timeout);
+
       // Store resolver for this correlation ID.
       // The map stores callbacks as RpcResponse<unknown> for type erasure;
       // at call-site we know the concrete type so the cast is safe.
@@ -197,6 +255,7 @@ export class ClaudeRpcService implements MessageHandler {
       ) => {
         this.pendingCalls.delete(correlationId);
         clearTimeout(timer);
+        detachAbortListener();
         // Normalize error: backend may send string or { message: string }
         const errorStr = this.normalizeError(response.error);
         // TASK_2025_124: Pass errorCode for license-related errors
@@ -210,20 +269,25 @@ export class ClaudeRpcService implements MessageHandler {
         );
       }) as (response: RpcResponse<unknown>) => void);
 
-      // Set timeout to prevent hanging calls
-      const timer = setTimeout(() => {
-        if (this.pendingCalls.has(correlationId)) {
-          this.pendingCalls.delete(correlationId);
-          console.error(`[ClaudeRpcService] RPC timeout for method: ${method}`);
-          resolve(
-            new RpcResult<RpcMethodResult<T>>(
-              false,
-              undefined,
-              `RPC timeout: ${method}`,
-            ),
-          );
-        }
-      }, timeout);
+      // TASK_2026_103 Wave E2: bridge AbortSignal → promise resolution.
+      // We only release the caller's promise; backend cancellation must be
+      // issued separately (e.g. via chat:abort RPC).
+      if (signal) {
+        abortRef.listener = () => {
+          if (this.pendingCalls.has(correlationId)) {
+            this.pendingCalls.delete(correlationId);
+            clearTimeout(timer);
+            resolve(
+              new RpcResult<RpcMethodResult<T>>(
+                false,
+                undefined,
+                `RPC aborted: ${method}`,
+              ),
+            );
+          }
+        };
+        signal.addEventListener('abort', abortRef.listener, { once: true });
+      }
 
       // Send RPC call to backend
       this.postRpcMessage({

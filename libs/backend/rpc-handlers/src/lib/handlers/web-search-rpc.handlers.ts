@@ -24,22 +24,23 @@ import type {
   WebSearchProviderType,
   IWebSearchProvider,
 } from '@ptah-extension/vscode-lm-tools';
-
-/** Secret key pattern for web search API keys */
-const SECRET_KEY_PREFIX = 'ptah.webSearch.apiKey';
-
-/** Valid provider names */
-const VALID_PROVIDERS: ReadonlySet<string> = new Set([
-  'tavily',
-  'serper',
-  'exa',
-]);
+import { SECRET_KEY_PREFIX, VALID_PROVIDERS } from './web-search-rpc.schema';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for web search settings management
  */
 @injectable()
 export class WebSearchRpcHandlers {
+  static readonly METHODS = [
+    'webSearch:getApiKeyStatus',
+    'webSearch:setApiKey',
+    'webSearch:deleteApiKey',
+    'webSearch:test',
+    'webSearch:getConfig',
+    'webSearch:setConfig',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -202,7 +203,7 @@ export class WebSearchRpcHandlers {
 
         // Use Promise.race for a 10-second timeout, clearing the timer afterward
         const searchPromise = adapter.search('test', 1);
-        let timeoutId: ReturnType<typeof setTimeout>;
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
         const timeoutPromise = new Promise<never>((_, reject) => {
           timeoutId = setTimeout(
             () => reject(new Error('Search test timed out after 10 seconds')),
@@ -213,7 +214,9 @@ export class WebSearchRpcHandlers {
         try {
           await Promise.race([searchPromise, timeoutPromise]);
         } finally {
-          clearTimeout(timeoutId!);
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+          }
         }
 
         this.logger.info('Web search test succeeded', { provider });

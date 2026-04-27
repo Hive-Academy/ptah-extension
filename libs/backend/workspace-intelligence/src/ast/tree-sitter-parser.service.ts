@@ -1,10 +1,9 @@
-import * as path from 'path';
-import { fileURLToPath } from 'url';
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { SupportedLanguage, LANGUAGE_QUERIES_MAP } from './tree-sitter.config';
 import { GenericAstNode } from './ast.types';
+import { resolveWasmPath } from './wasm-bundle-dir';
 import {
   Parser,
   Language,
@@ -62,42 +61,6 @@ export interface QueryMatch {
   pattern: number;
   /** All captures in this match */
   captures: QueryCapture[];
-}
-
-// --- WASM Path Resolution ---
-
-/**
- * Resolves the directory containing the bundled output.
- *
- * In the final ESM bundle, the esbuild banner injects:
- *   `import { createRequire } from 'module'; const require = createRequire(import.meta.url);`
- * This makes `import.meta.url` available at module scope. TypeScript rejects it
- * during library compilation (CJS target) with TS1470. We use @ts-ignore to suppress
- * because this file is compiled by two different tsconfigs (library CJS build triggers
- * the error; app ESM esbuild step does not), and @ts-expect-error fails when no error.
- *
- * Fallback: In plain CJS execution (e.g. Jest tests), `import.meta` is undefined
- * and would throw. The try/catch falls back to `__dirname` which is always defined
- * in CommonJS. Note: `__dirname` is NOT defined in true ESM, so this fallback
- * only works in CJS test environments.
- */
-let BUNDLE_DIR: string;
-try {
-  // import.meta.url is available at runtime in the ESM bundle (esbuild banner provides it).
-  // In CJS (e.g. Jest), import.meta is undefined and throws, caught by the fallback below.
-  // Using @ts-ignore (not @ts-expect-error) because this file is compiled by TWO different
-  // tsconfigs: the library build (CJS target, triggers TS1470) and the app esbuild step
-  // (ESM target, no error). @ts-expect-error would fail in whichever context has no error.
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore TS1470: import.meta not allowed in CJS output. Safe: the final ESM bundle provides it.
-  BUNDLE_DIR = path.dirname(fileURLToPath(import.meta.url));
-} catch {
-  // Fallback for plain CJS execution (e.g. Jest tests)
-  BUNDLE_DIR = __dirname;
-}
-
-function resolveWasmPath(filename: string): string {
-  return path.join(BUNDLE_DIR, 'wasm', filename);
 }
 
 // --- Service Implementation ---

@@ -1,4 +1,4 @@
-import {
+﻿import {
   Component,
   ChangeDetectionStrategy,
   input,
@@ -13,13 +13,15 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-angular';
-import { CompactSessionHeaderComponent } from './compact-session-header.component';
-import { CompactSessionStatsComponent } from './compact-session-stats.component';
-import { CompactSessionActivityComponent } from './compact-session-activity.component';
-import { CompactSessionInputComponent } from './compact-session-input.component';
-import type { TabState } from '../../../services/chat.types';
+import {
+  CompactSessionHeaderComponent,
+  CompactSessionStatsComponent,
+  CompactSessionActivityComponent,
+  CompactSessionInputComponent,
+} from '@ptah-extension/chat-ui';
+import type { TabState } from '@ptah-extension/chat-types';
 import { ChatStore } from '../../../services/chat.store';
-import { TabManagerService } from '../../../services/tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   PermissionResponse,
   AskUserQuestionResponse,
@@ -35,7 +37,7 @@ import type {
  * - Text: truncated latest assistant output
  * - Input: mini textarea for quick follow-ups
  *
- * Separate component tree from the full chat view — does NOT use
+ * Separate component tree from the full chat view â€” does NOT use
  * MessageBubble, ExecutionNode, or any chat-view internal components.
  *
  * Complexity Level: 3 (Organism-level composition with state coordination)

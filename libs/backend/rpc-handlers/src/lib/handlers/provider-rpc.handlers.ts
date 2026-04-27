@@ -12,7 +12,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { z } from 'zod';
 import {
   Logger,
   RpcHandler,
@@ -20,8 +19,14 @@ import {
   ConfigManager,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import {
+  ProviderListModelsSchema,
+  ProviderSetModelTierSchema,
+  ProviderGetModelTiersSchema,
+  ProviderClearModelTierSchema,
+} from './provider-rpc.schema';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import type { IModelDiscovery } from '../platform-abstractions';
+import type { IModelDiscovery } from '@ptah-extension/platform-core';
 import {
   ProviderModelsService,
   SdkAgentAdapter,
@@ -33,7 +38,7 @@ import {
   CODEX_PROVIDER_ENTRY,
   OllamaModelDiscoveryService,
 } from '@ptah-extension/agent-sdk';
-import { CliDetectionService } from '@ptah-extension/llm-abstraction';
+import { CliDetectionService } from '@ptah-extension/agent-sdk';
 import {
   ProviderListModelsParams,
   ProviderListModelsResult,
@@ -48,12 +53,20 @@ import {
   getModelContextWindow,
 } from '@ptah-extension/shared';
 import type { AuthEnv } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for provider model operations
  */
 @injectable()
 export class ProviderRpcHandlers {
+  static readonly METHODS = [
+    'provider:listModels',
+    'provider:setModelTier',
+    'provider:getModelTiers',
+    'provider:clearModelTier',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -348,16 +361,11 @@ export class ProviderRpcHandlers {
    *   dynamic fetchers before the registry lookup, so this works without a registry entry.
    */
   private registerListModels(): void {
-    const ListModelsSchema = z.object({
-      toolUseOnly: z.boolean().optional(),
-      providerId: z.string().optional(),
-    });
-
     this.rpcHandler.registerMethod<
       ProviderListModelsParams,
       ProviderListModelsResult
     >('provider:listModels', async (params) => {
-      const validated = ListModelsSchema.parse(params);
+      const validated = ProviderListModelsSchema.parse(params);
       const providerId = this.resolveProviderId(validated.providerId);
 
       try {
@@ -441,18 +449,12 @@ export class ProviderRpcHandlers {
    * provider:setModelTier - Set model for a tier (Sonnet/Opus/Haiku)
    */
   private registerSetModelTier(): void {
-    const SetModelTierSchema = z.object({
-      tier: z.enum(['sonnet', 'opus', 'haiku']),
-      modelId: z.string().min(1),
-      providerId: z.string().optional(),
-    });
-
     this.rpcHandler.registerMethod<
       ProviderSetModelTierParams,
       ProviderSetModelTierResult
     >('provider:setModelTier', async (params) => {
       try {
-        const validated = SetModelTierSchema.parse(params);
+        const validated = ProviderSetModelTierSchema.parse(params);
         const providerId = this.resolveProviderId(validated.providerId);
 
         this.logger.debug('RPC: provider:setModelTier called', {
@@ -466,6 +468,10 @@ export class ProviderRpcHandlers {
           validated.tier,
           validated.modelId,
         );
+
+        // Clear SDK model cache so the next config:models-list call re-fetches
+        // models with the updated tier env vars applied.
+        this.sdkAdapter.clearModelCache();
 
         this.logger.info('RPC: provider:setModelTier completed', {
           providerId,
@@ -495,16 +501,12 @@ export class ProviderRpcHandlers {
    * provider:getModelTiers - Get current tier mappings
    */
   private registerGetModelTiers(): void {
-    const GetModelTiersSchema = z.object({
-      providerId: z.string().optional(),
-    });
-
     this.rpcHandler.registerMethod<
       ProviderGetModelTiersParams,
       ProviderGetModelTiersResult
     >('provider:getModelTiers', async (params) => {
       try {
-        const validated = GetModelTiersSchema.parse(params ?? {});
+        const validated = ProviderGetModelTiersSchema.parse(params ?? {});
         const providerId = this.resolveProviderId(validated.providerId);
 
         this.logger.debug('RPC: provider:getModelTiers called', { providerId });
@@ -535,17 +537,12 @@ export class ProviderRpcHandlers {
    * provider:clearModelTier - Clear a tier override (reset to default)
    */
   private registerClearModelTier(): void {
-    const ClearModelTierSchema = z.object({
-      tier: z.enum(['sonnet', 'opus', 'haiku']),
-      providerId: z.string().optional(),
-    });
-
     this.rpcHandler.registerMethod<
       ProviderClearModelTierParams,
       ProviderClearModelTierResult
     >('provider:clearModelTier', async (params) => {
       try {
-        const validated = ClearModelTierSchema.parse(params);
+        const validated = ProviderClearModelTierSchema.parse(params);
         const providerId = this.resolveProviderId(validated.providerId);
 
         this.logger.debug('RPC: provider:clearModelTier called', {
@@ -554,6 +551,10 @@ export class ProviderRpcHandlers {
         });
 
         await this.providerModels.clearModelTier(providerId, validated.tier);
+
+        // Clear SDK model cache so the next config:models-list call re-fetches
+        // models without the removed tier override.
+        this.sdkAdapter.clearModelCache();
 
         this.logger.info('RPC: provider:clearModelTier completed', {
           providerId,

@@ -38,8 +38,9 @@ export class ElectronOutputManagerAdapter {
    * In Electron we reuse the default log-file-backed channel.
    */
   createOutputChannel(config: { name: string }): IOutputChannel {
-    if (this.channels.has(config.name)) {
-      return this.channels.get(config.name)!;
+    const existing = this.channels.get(config.name);
+    if (existing) {
+      return existing;
     }
     // Reuse the default channel for all "channels" in Electron
     // (we only have one log output destination)
@@ -163,7 +164,7 @@ export class ElectronLoggerAdapter {
 
   error(
     message: string | Error,
-    errorOrContext?: Error | Record<string, unknown>
+    errorOrContext?: Error | Record<string, unknown>,
   ): void {
     let actualMessage: string;
     let actualError: Error | undefined;
@@ -204,30 +205,30 @@ export class ElectronLoggerAdapter {
     if (context.service) {
       this.outputManager.write(
         ElectronLoggerAdapter.CHANNEL_NAME,
-        `  Service: ${context.service}`
+        `  Service: ${context.service}`,
       );
     }
 
     if (context.operation) {
       this.outputManager.write(
         ElectronLoggerAdapter.CHANNEL_NAME,
-        `  Operation: ${context.operation}`
+        `  Operation: ${context.operation}`,
       );
     }
 
     if (context.error) {
       this.outputManager.write(
         ElectronLoggerAdapter.CHANNEL_NAME,
-        `  Error: ${context.error.message}`
+        `  Error: ${context.error.message}`,
       );
       if (context.error.stack) {
         this.outputManager.write(
           ElectronLoggerAdapter.CHANNEL_NAME,
-          `  Stack trace:`
+          `  Stack trace:`,
         );
         this.outputManager.write(
           ElectronLoggerAdapter.CHANNEL_NAME,
-          context.error.stack
+          context.error.stack,
         );
       }
     }

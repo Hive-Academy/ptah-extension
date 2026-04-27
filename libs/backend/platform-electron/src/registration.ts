@@ -129,12 +129,19 @@ export function registerPlatformElectronServices(
     ),
   });
 
-  // Workspace Provider
+  // Workspace Provider — same instance dual-registered under both
+  // WORKSPACE_PROVIDER (read-only) and WORKSPACE_LIFECYCLE_PROVIDER (mutations)
+  // so the lifted WorkspaceRpcHandlers can request lifecycle methods via a
+  // typed second injection rather than casting to a concrete class.
+  const electronWorkspaceProvider = new ElectronWorkspaceProvider(
+    options.userDataPath,
+    options.initialFolders,
+  );
   container.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
-    useValue: new ElectronWorkspaceProvider(
-      options.userDataPath,
-      options.initialFolders,
-    ),
+    useValue: electronWorkspaceProvider,
+  });
+  container.register(PLATFORM_TOKENS.WORKSPACE_LIFECYCLE_PROVIDER, {
+    useValue: electronWorkspaceProvider,
   });
 
   // User Interaction

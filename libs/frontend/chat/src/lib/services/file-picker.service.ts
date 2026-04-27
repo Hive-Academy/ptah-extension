@@ -1,4 +1,4 @@
-import { Injectable, signal, computed, inject, Injector } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 
 /**
@@ -57,7 +57,6 @@ export interface FileSuggestion {
 })
 export class FilePickerService {
   // === ANGULAR 20 PATTERN: Injected services ===
-  private readonly injector = inject(Injector);
   private readonly rpcService = inject(ClaudeRpcService);
 
   // === ANGULAR 20 PATTERN: Private signals for internal state ===

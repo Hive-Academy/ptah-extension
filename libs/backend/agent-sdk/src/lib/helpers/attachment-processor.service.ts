@@ -1,5 +1,9 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  MAX_IMAGE_SIZE_BYTES,
+  resolveImageMediaType,
+} from '@ptah-extension/shared';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import {
@@ -25,7 +29,8 @@ type UserMessageContentBlock =
  */
 @injectable()
 export class AttachmentProcessorService {
-  private readonly MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+  /** Anthropic per-image size cap; shared constant keeps backend/frontend in sync. */
+  private readonly MAX_IMAGE_SIZE = MAX_IMAGE_SIZE_BYTES;
 
   /**
    * TASK_2025_096: Hybrid file attachment approach
@@ -56,7 +61,7 @@ export class AttachmentProcessorService {
    */
   hasImages(files: readonly string[]): boolean {
     return files.some((file) =>
-      this.SUPPORTED_IMAGES.has(path.extname(file).toLowerCase())
+      this.SUPPORTED_IMAGES.has(path.extname(file).toLowerCase()),
     );
   }
 
@@ -71,7 +76,7 @@ export class AttachmentProcessorService {
    * <system-reminder> tags from the user bubble display.
    */
   async processAttachments(
-    files: readonly string[]
+    files: readonly string[],
   ): Promise<UserMessageContentBlock[]> {
     const blocks: UserMessageContentBlock[] = [];
     const folderPaths: string[] = [];
@@ -92,7 +97,7 @@ export class AttachmentProcessorService {
         const ext = path.extname(file).toLowerCase();
 
         if (this.SUPPORTED_IMAGES.has(ext)) {
-          const imageBlock = await this.processImage(file, stats.size, ext);
+          const imageBlock = await this.processImage(file, stats.size);
           if (imageBlock) blocks.push(imageBlock);
         } else {
           // Treat everything else as text (with size check)
@@ -111,7 +116,7 @@ export class AttachmentProcessorService {
       } catch (error) {
         this.logger.warn(
           `[AttachmentProcessor] Failed to process file: ${file}`,
-          error as Error
+          error as Error,
         );
       }
     }
@@ -119,7 +124,7 @@ export class AttachmentProcessorService {
     // Append a single consolidated <system-reminder> for all referenced attachments
     const systemReminder = this.buildAttachmentReminder(
       folderPaths,
-      referencedFilePaths
+      referencedFilePaths,
     );
     if (systemReminder) {
       blocks.push(systemReminder);
@@ -136,7 +141,7 @@ export class AttachmentProcessorService {
    */
   private processFolderReference(folderPath: string): UserMessageContentBlock {
     this.logger.debug(
-      `[AttachmentProcessor] Processing folder reference: ${folderPath}`
+      `[AttachmentProcessor] Processing folder reference: ${folderPath}`,
     );
 
     return {
@@ -148,11 +153,10 @@ export class AttachmentProcessorService {
   private async processImage(
     filePath: string,
     size: number,
-    ext: string
   ): Promise<UserMessageContentBlock | null> {
     if (size > this.MAX_IMAGE_SIZE) {
       this.logger.warn(
-        `[AttachmentProcessor] Image too large (>5MB): ${filePath}`
+        `[AttachmentProcessor] Image too large (>5MB): ${filePath}`,
       );
       return null;
     }
@@ -160,7 +164,16 @@ export class AttachmentProcessorService {
     try {
       const buffer = await fs.readFile(filePath);
       const base64 = buffer.toString('base64');
-      const mediaType = this.getMediaType(ext);
+      // Sniff magic bytes rather than trusting the extension — the Anthropic
+      // API rejects anything outside jpeg/png/gif/webp, and files on disk can
+      // be mislabeled (e.g. .jpg extension on a WebP payload).
+      const mediaType = resolveImageMediaType(undefined, base64);
+      if (mediaType === null) {
+        this.logger.warn(
+          `[AttachmentProcessor] Skipping image with unrecognized magic bytes: ${filePath}`,
+        );
+        return null;
+      }
 
       return {
         type: 'image',
@@ -173,7 +186,7 @@ export class AttachmentProcessorService {
     } catch (error) {
       this.logger.error(
         `[AttachmentProcessor] Error reading image: ${filePath}`,
-        error as Error
+        error as Error,
       );
       return null;
     }
@@ -186,14 +199,14 @@ export class AttachmentProcessorService {
    */
   private async processTextFile(
     filePath: string,
-    size: number
+    size: number,
   ): Promise<UserMessageContentBlock | null> {
     // For files exceeding absolute max, use path reference (Claude can still read with offset/limit)
     if (size > this.MAX_TEXT_FILE_SIZE) {
       this.logger.info(
         `[AttachmentProcessor] Large file (>${
           this.MAX_TEXT_FILE_SIZE / 1024
-        }KB), using path reference: ${filePath}`
+        }KB), using path reference: ${filePath}`,
       );
       return this.processFileReference(filePath, size);
     }
@@ -203,7 +216,7 @@ export class AttachmentProcessorService {
       this.logger.debug(
         `[AttachmentProcessor] File >= ${
           this.SMALL_FILE_THRESHOLD / 1024
-        }KB, using path reference: ${filePath}`
+        }KB, using path reference: ${filePath}`,
       );
       return this.processFileReference(filePath, size);
     }
@@ -214,7 +227,7 @@ export class AttachmentProcessorService {
       const buffer = await fs.readFile(filePath);
       if (buffer.includes(0)) {
         this.logger.warn(
-          `[AttachmentProcessor] Skipping binary file (null bytes detected): ${filePath}`
+          `[AttachmentProcessor] Skipping binary file (null bytes detected): ${filePath}`,
         );
         return null;
       }
@@ -223,8 +236,8 @@ export class AttachmentProcessorService {
 
       this.logger.debug(
         `[AttachmentProcessor] Small file (${(size / 1024).toFixed(
-          1
-        )}KB), embedding content: ${filePath}`
+          1,
+        )}KB), embedding content: ${filePath}`,
       );
 
       // XML wrapping for clear context
@@ -237,7 +250,7 @@ export class AttachmentProcessorService {
     } catch (error) {
       this.logger.error(
         `[AttachmentProcessor] Error reading text file: ${filePath}`,
-        error as Error
+        error as Error,
       );
       return null;
     }
@@ -251,7 +264,7 @@ export class AttachmentProcessorService {
    */
   private processFileReference(
     filePath: string,
-    size: number
+    size: number,
   ): UserMessageContentBlock {
     const sizeKB = (size / 1024).toFixed(1);
     const ext = path.extname(filePath).toLowerCase();
@@ -270,7 +283,7 @@ export class AttachmentProcessorService {
    */
   private buildAttachmentReminder(
     folderPaths: string[],
-    referencedFilePaths: string[]
+    referencedFilePaths: string[],
   ): UserMessageContentBlock | null {
     if (folderPaths.length === 0 && referencedFilePaths.length === 0) {
       return null;
@@ -280,7 +293,7 @@ export class AttachmentProcessorService {
 
     if (folderPaths.length > 0) {
       lines.push(
-        'The above folders are attached for reference. Use Glob to list files and Read to examine contents as needed.'
+        'The above folders are attached for reference. Use Glob to list files and Read to examine contents as needed.',
       );
       for (const fp of folderPaths) {
         lines.push(`Example: Glob pattern "${fp}/**/*" to see all files.`);
@@ -289,10 +302,10 @@ export class AttachmentProcessorService {
 
     if (referencedFilePaths.length > 0) {
       lines.push(
-        'The above files are attached for reference. Use the Read tool to examine their contents when needed.'
+        'The above files are attached for reference. Use the Read tool to examine their contents when needed.',
       );
       lines.push(
-        'You can read specific sections using offset and limit parameters for large files.'
+        'You can read specific sections using offset and limit parameters for large files.',
       );
     }
 
@@ -300,21 +313,5 @@ export class AttachmentProcessorService {
       type: 'text',
       text: `<system-reminder>\n${lines.join('\n')}\n</system-reminder>`,
     };
-  }
-
-  private getMediaType(ext: string): string {
-    switch (ext) {
-      case '.jpg':
-      case '.jpeg':
-        return 'image/jpeg';
-      case '.png':
-        return 'image/png';
-      case '.gif':
-        return 'image/gif';
-      case '.webp':
-        return 'image/webp';
-      default:
-        return 'image/jpeg';
-    }
   }
 }

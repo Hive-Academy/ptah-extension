@@ -82,6 +82,9 @@ export const tsIgnoreRule: AntiPatternRule = createRegexRule({
   category: 'typescript',
   fileExtensions: ['.ts', '.tsx'],
   pattern: /@ts-ignore|@ts-nocheck/g,
+  // This rule's subject IS a comment — run against raw source so the B3
+  // comment-stripper doesn't blank the directive before we can see it.
+  matchInCommentsAndStrings: true,
   suggestionTemplate:
     'Fix the underlying type error instead of suppressing it. ' +
     'If suppression is necessary, use @ts-expect-error with a reason comment.',

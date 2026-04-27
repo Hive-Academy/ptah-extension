@@ -884,6 +884,7 @@ export interface DependenciesNamespace {
     edgeCount: number;
     unresolvedCount: number;
     builtAt: number;
+    error?: string;
   }>;
 
   /**

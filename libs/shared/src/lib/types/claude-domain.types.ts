@@ -5,7 +5,7 @@
 
 import { z } from 'zod';
 import { SessionId } from './branded.types';
-import { ContentBlock } from './message.types';
+import { ContentBlock } from './messages';
 
 /**
  * Tool Event Types - For event bus communication

@@ -203,8 +203,12 @@ function resolveWorkspacePath(
   // Normalize path separators to forward slashes
   const normalizedPath = filePath.replace(/\\/g, '/');
 
-  // Reject absolute paths (drive letters, UNC paths, Unix absolute)
-  if (path.isAbsolute(normalizedPath)) {
+  // Reject absolute paths (drive letters, UNC paths, Unix absolute).
+  // path.isAbsolute() is platform-dependent and doesn't recognize Windows
+  // drive letters or UNC paths on POSIX hosts, so check explicitly.
+  const isWindowsDriveAbsolute = /^[a-zA-Z]:[/\\]/.test(filePath);
+  const isUncPath = /^[/\\]{2}/.test(filePath);
+  if (path.isAbsolute(normalizedPath) || isWindowsDriveAbsolute || isUncPath) {
     throw new Error(
       'Absolute paths are not allowed. Use workspace-relative paths only.',
     );

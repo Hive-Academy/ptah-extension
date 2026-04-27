@@ -7,6 +7,10 @@ description: How Ptah coordinates an orchestrator, senior leads, and CLI helpers
 
 Ptah doesn't throw one model at every problem. It uses a **three-tier orchestration model** that mirrors how a real engineering team splits work: a coordinator at the top, specialists in the middle, and a pool of parallel helpers at the bottom.
 
+<video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
+  <source src="/assets/videos/cli-agent-orchestration.mp4" type="video/mp4" />
+</video>
+
 ![Orchestration hierarchy](/screenshots/agents-orchestration.png)
 
 ## The three tiers

@@ -22,7 +22,7 @@ import type { GitWorktreeInfo } from '../types/rpc/rpc-git.types';
  */
 export function parseWorktreeList(output: string): GitWorktreeInfo[] {
   const worktrees: GitWorktreeInfo[] = [];
-  const blocks = output.trim().split('\n\n');
+  const blocks = output.replace(/\r\n/g, '\n').trim().split('\n\n');
 
   for (const block of blocks) {
     if (!block.trim()) continue;

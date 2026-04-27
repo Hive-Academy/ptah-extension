@@ -46,7 +46,7 @@ export class SettingsExportService {
    * @returns A complete, versioned export object ready for JSON serialization
    */
   async collectSettings(
-    source: 'vscode' | 'electron',
+    source: 'vscode' | 'electron' | 'cli',
   ): Promise<PtahSettingsExport> {
     this.logger.info('[SettingsExport] Collecting settings', { source });
 

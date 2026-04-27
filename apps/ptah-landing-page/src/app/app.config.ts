@@ -7,7 +7,7 @@ import {
 } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { provideGsap } from '@hive-academy/angular-gsap';
-import { provideMarkdown } from 'ngx-markdown';
+import { provideMarkdownRendering } from '@ptah-extension/markdown';
 import { environment } from '../environments/environment';
 import { routes } from './app.routes';
 import { providePaddleConfig } from './config/paddle.config';
@@ -32,7 +32,7 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
     // Markdown rendering for chat messages (required by ExecutionNodeComponent from @ptah-extension/chat)
-    provideMarkdown(),
+    provideMarkdownRendering({ extensions: 'basic' }),
     // Paddle checkout configuration with DI token (Pro plan only - Community is free)
     providePaddleConfig({
       environment: environment.paddle.environment,

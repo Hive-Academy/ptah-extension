@@ -70,7 +70,12 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
       await this.ensureSession();
       this.resetInactivityTimer();
 
-      const win = this.window!;
+      const win = this.window;
+      if (!win) {
+        throw new Error(
+          'ElectronBrowserCapabilities.navigate: BrowserWindow is null after ensureSession()',
+        );
+      }
 
       if (waitForLoad) {
         await new Promise<void>((resolve, reject) => {

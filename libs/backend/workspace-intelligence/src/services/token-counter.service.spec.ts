@@ -1,36 +1,23 @@
 /**
  * Token Counter Service Tests
+ *
+ * Tests the LRU caching and delegation behavior of TokenCounterService.
+ * Native token-counting behavior (vscode.lm, gpt-tokenizer) is covered by
+ * ITokenCounter contract tests in platform-vscode and platform-electron.
  */
 
 import 'reflect-metadata'; // Required for tsyringe
+import { createMockTokenCounter } from '@ptah-extension/platform-core/testing';
+import type { MockTokenCounter } from '@ptah-extension/platform-core/testing';
 import { TokenCounterService } from './token-counter.service';
-import * as vscode from 'vscode';
-
-// Mock language model type
-interface MockLanguageModel {
-  countTokens: jest.Mock<Promise<number>, [string]>;
-  maxInputTokens: number;
-}
-
-// Mock VS Code module
-jest.mock('vscode', () => ({
-  lm: {
-    selectChatModels: jest.fn(),
-  },
-}));
 
 describe('TokenCounterService', () => {
   let service: TokenCounterService;
-  let mockSelectChatModels: jest.MockedFunction<
-    typeof vscode.lm.selectChatModels
-  >;
+  let mockTokenCounter: MockTokenCounter;
 
   beforeEach(() => {
-    service = new TokenCounterService();
-    mockSelectChatModels = vscode.lm.selectChatModels as jest.MockedFunction<
-      typeof vscode.lm.selectChatModels
-    >;
-    jest.clearAllMocks();
+    mockTokenCounter = createMockTokenCounter({ maxInputTokens: 8000 });
+    service = new TokenCounterService(mockTokenCounter);
   });
 
   afterEach(() => {
@@ -38,183 +25,113 @@ describe('TokenCounterService', () => {
   });
 
   describe('countTokens', () => {
-    it('should use native API when available', async () => {
-      // Arrange
-      const mockModel: MockLanguageModel = {
-        countTokens: jest.fn().mockResolvedValue(100),
-        maxInputTokens: 8000,
-      };
-      mockSelectChatModels.mockResolvedValue([
-        mockModel as unknown as vscode.LanguageModelChat,
-      ]);
+    it('should delegate to the injected ITokenCounter', async () => {
+      mockTokenCounter.countTokens.mockResolvedValueOnce(100);
 
-      // Act
       const count = await service.countTokens('test text');
 
-      // Assert
       expect(count).toBe(100);
-      expect(mockModel.countTokens).toHaveBeenCalledWith('test text');
-      expect(mockSelectChatModels).toHaveBeenCalledWith({ vendor: 'copilot' });
+      expect(mockTokenCounter.countTokens).toHaveBeenCalledWith('test text');
     });
 
-    it('should fall back to estimation when API unavailable', async () => {
-      // Arrange
-      mockSelectChatModels.mockResolvedValue([]);
+    it('should propagate whatever value the token counter returns', async () => {
+      mockTokenCounter.countTokens.mockResolvedValueOnce(1);
 
-      // Act
-      const count = await service.countTokens('test'); // 4 chars ≈ 1 token
+      const count = await service.countTokens('test');
 
-      // Assert
       expect(count).toBe(1);
     });
 
-    it('should fall back to estimation on API error', async () => {
-      // Arrange
-      mockSelectChatModels.mockRejectedValue(new Error('API Error'));
+    it('should surface token counter rejections', async () => {
+      mockTokenCounter.countTokens.mockRejectedValueOnce(
+        new Error('API Error'),
+      );
 
-      // Act
-      const count = await service.countTokens('testing'); // 7 chars ≈ 2 tokens
-
-      // Assert
-      expect(count).toBe(2);
+      await expect(service.countTokens('testing')).rejects.toThrow('API Error');
     });
 
     it('should cache token counts when cache key provided', async () => {
-      // Arrange
-      const mockModel: MockLanguageModel = {
-        countTokens: jest.fn().mockResolvedValue(50),
-        maxInputTokens: 8000,
-      };
-      mockSelectChatModels.mockResolvedValue([
-        mockModel as unknown as vscode.LanguageModelChat,
-      ]);
+      mockTokenCounter.countTokens.mockResolvedValue(50);
 
-      // Act
       const count1 = await service.countTokens('test text', 'key1');
       const count2 = await service.countTokens('different text', 'key1');
 
-      // Assert
       expect(count1).toBe(50);
       expect(count2).toBe(50); // Same cached value
-      expect(mockModel.countTokens).toHaveBeenCalledTimes(1); // Only called once
+      expect(mockTokenCounter.countTokens).toHaveBeenCalledTimes(1);
     });
 
     it('should not cache when no cache key provided', async () => {
-      // Arrange
-      const mockModel: MockLanguageModel = {
-        countTokens: jest.fn().mockResolvedValue(50),
-        maxInputTokens: 8000,
-      };
-      mockSelectChatModels.mockResolvedValue([
-        mockModel as unknown as vscode.LanguageModelChat,
-      ]);
+      mockTokenCounter.countTokens.mockResolvedValue(50);
 
-      // Act
       await service.countTokens('test text');
       await service.countTokens('test text');
 
-      // Assert
-      expect(mockModel.countTokens).toHaveBeenCalledTimes(2); // Called twice, no caching
+      expect(mockTokenCounter.countTokens).toHaveBeenCalledTimes(2);
     });
 
-    it('should estimate tokens conservatively', async () => {
-      // Arrange
-      mockSelectChatModels.mockResolvedValue([]);
+    it('should forward distinct inputs without cache key to the counter', async () => {
+      mockTokenCounter.countTokens
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(2);
 
-      // Act
-      const count1 = await service.countTokens('a'); // 1 char = 1 token
-      const count2 = await service.countTokens('abcd'); // 4 chars = 1 token
-      const count3 = await service.countTokens('abcde'); // 5 chars = 2 tokens (ceil)
+      const count1 = await service.countTokens('a');
+      const count2 = await service.countTokens('abcd');
+      const count3 = await service.countTokens('abcde');
 
-      // Assert
       expect(count1).toBe(1);
       expect(count2).toBe(1);
       expect(count3).toBe(2);
+      expect(mockTokenCounter.countTokens).toHaveBeenCalledTimes(3);
     });
   });
 
   describe('getMaxInputTokens', () => {
-    it('should return max input tokens from model', async () => {
-      // Arrange
-      const mockModel: MockLanguageModel = {
-        countTokens: jest.fn(),
-        maxInputTokens: 8000,
-      };
-      mockSelectChatModels.mockResolvedValue([
-        mockModel as unknown as vscode.LanguageModelChat,
-      ]);
-
-      // Act
+    it('should return max input tokens from the injected counter', async () => {
       const maxTokens = await service.getMaxInputTokens();
 
-      // Assert
       expect(maxTokens).toBe(8000);
+      expect(mockTokenCounter.getMaxInputTokens).toHaveBeenCalled();
     });
 
-    it('should return null when no models available', async () => {
-      // Arrange
-      mockSelectChatModels.mockResolvedValue([]);
+    it('should return null when counter reports unavailable', async () => {
+      mockTokenCounter.getMaxInputTokens.mockResolvedValueOnce(null);
 
-      // Act
       const maxTokens = await service.getMaxInputTokens();
 
-      // Assert
       expect(maxTokens).toBeNull();
     });
 
-    it('should return null on API error', async () => {
-      // Arrange
-      mockSelectChatModels.mockRejectedValue(new Error('API Error'));
+    it('should surface counter rejections', async () => {
+      mockTokenCounter.getMaxInputTokens.mockRejectedValueOnce(
+        new Error('API Error'),
+      );
 
-      // Act
-      const maxTokens = await service.getMaxInputTokens();
-
-      // Assert
-      expect(maxTokens).toBeNull();
+      await expect(service.getMaxInputTokens()).rejects.toThrow('API Error');
     });
   });
 
   describe('cache management', () => {
     it('should clear cache on clearCache call', async () => {
-      // Arrange
-      const mockModel: MockLanguageModel = {
-        countTokens: jest.fn().mockResolvedValue(50),
-        maxInputTokens: 8000,
-      };
-      mockSelectChatModels.mockResolvedValue([
-        mockModel as unknown as vscode.LanguageModelChat,
-      ]);
+      mockTokenCounter.countTokens.mockResolvedValue(50);
       await service.countTokens('test', 'key1');
 
-      // Act
       service.clearCache();
       await service.countTokens('test', 'key1');
 
-      // Assert
-      expect(mockModel.countTokens).toHaveBeenCalledTimes(2); // Called twice after cache clear
+      expect(mockTokenCounter.countTokens).toHaveBeenCalledTimes(2);
     });
 
     it('should dispose service and clear cache', async () => {
-      // Arrange
-      const mockModel: MockLanguageModel = {
-        countTokens: jest.fn().mockResolvedValue(50),
-        maxInputTokens: 8000,
-      };
-      mockSelectChatModels.mockResolvedValue([
-        mockModel as unknown as vscode.LanguageModelChat,
-      ]);
+      mockTokenCounter.countTokens.mockResolvedValue(50);
       await service.countTokens('test', 'key1');
 
-      // Act
       service.dispose();
-      service = new TokenCounterService(); // New instance
-      mockSelectChatModels.mockResolvedValue([
-        mockModel as unknown as vscode.LanguageModelChat,
-      ]);
+      service = new TokenCounterService(mockTokenCounter);
       await service.countTokens('test', 'key1');
 
-      // Assert
-      expect(mockModel.countTokens).toHaveBeenCalledTimes(2); // Called twice, cache cleared on dispose
+      expect(mockTokenCounter.countTokens).toHaveBeenCalledTimes(2);
     });
   });
 });
