@@ -53,3 +53,77 @@
   min-height: 0;
   overflow: hidden;
 }
+
+/* ==========================================================================
+   Layout-shift-free enter/leave animations.
+   Used via Angular 21 native [animate.enter]="className" / [animate.leave]="className".
+   Keyframes intentionally avoid height/width animation — use opacity + transform
+   (compositor-only) to prevent layout thrash and scroll-anchor disruption.
+   ========================================================================== */
+
+@keyframes ptahFadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ptahFadeSlideOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes ptahFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ptahFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.banner-enter {
+  animation: ptahFadeSlideIn 180ms ease-out both;
+}
+
+.banner-leave {
+  animation: ptahFadeSlideOut 140ms ease-in both;
+}
+
+.fade-enter {
+  animation: ptahFadeIn 180ms ease-out both;
+}
+
+.fade-leave {
+  animation: ptahFadeOut 140ms ease-in both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .banner-enter,
+  .banner-leave,
+  .fade-enter,
+  .fade-leave,
+  .input-collapse-wrapper {
+    animation: none !important;
+    transition: none !important;
+  }
+}

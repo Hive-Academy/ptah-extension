@@ -31,7 +31,9 @@ import {
   CostBadgeComponent,
   TokenBadgeComponent,
   DurationBadgeComponent,
-  generateAgentColor,
+  generateAgentColorOklch,
+  formatOklch,
+  isThemeFallbackColor,
 } from '@ptah-extension/chat-ui';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type {
@@ -41,6 +43,7 @@ import type {
 } from '@ptah-extension/shared';
 import { NgClass, NgTemplateOutlet } from '@angular/common';
 import { formatModelDisplayName } from '@ptah-extension/shared';
+import { AutoAnimateDirective } from '../../../directives/auto-animate.directive';
 
 /**
  * InlineAgentBubbleComponent - Unified agent rendering for both streaming and replay
@@ -67,6 +70,7 @@ import { formatModelDisplayName } from '@ptah-extension/shared';
     DurationBadgeComponent,
     NgClass,
     NgTemplateOutlet,
+    AutoAnimateDirective,
   ],
   template: `
     <!-- TASK_2025_109: Enhanced styling for interrupted agents -->
@@ -193,68 +197,79 @@ import { formatModelDisplayName } from '@ptah-extension/shared';
         </button>
       }
 
-      <!-- Collapsible Content: INTERLEAVED TIMELINE (text + tools in order) -->
-      @if (!isCollapsed()) {
-        <div
-          #contentContainer
-          class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
-        >
-          <!-- TASK_2025_102 FIX: summaryContent is now rendered as a text child node
+      <!-- Collapsible Content: INTERLEAVED TIMELINE (text + tools in order).
+           Uses CSS grid 0fr/1fr rows transition for smooth height collapse
+           without measuring in JS. Inner container handles the actual scroll
+           and child animations via auto-animate. -->
+      <div
+        class="agent-collapse-wrapper"
+        [class.agent-collapsed]="isCollapsed()"
+      >
+        <div class="agent-collapse-inner">
+          <div
+            #contentContainer
+            class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
+            [auto-animate]
+          >
+            <!-- TASK_2025_102 FIX: summaryContent is now rendered as a text child node
              instead of a separate block. This ensures agent text is properly
              interleaved with tool calls in chronological order. -->
-          @if (hasChildren()) {
-            <!--
+            @if (hasChildren()) {
+              <!--
               TASK_2026_103 wave B2: recursive child rendering is delegated to
               a parent-supplied TemplateRef to break the file-import cycle
               between this component and ExecutionNodeComponent. The parent
               (ExecutionNodeComponent itself) provides the template via the
               nodeTemplate input; we just stamp it once per child.
             -->
-            @for (child of node().children; track child.id) {
-              <ng-container
-                [ngTemplateOutlet]="nodeTemplate() ?? null"
-                [ngTemplateOutletContext]="{ $implicit: child }"
-              />
-            }
-            @if (isStreaming()) {
-              <div
-                class="flex items-center gap-1 text-[10px] text-base-content/40 mt-2"
-              >
-                <lucide-angular
-                  [img]="LoaderIcon"
-                  class="w-3 h-3 animate-spin"
+              @for (child of node().children; track child.id) {
+                <ng-container
+                  [ngTemplateOutlet]="nodeTemplate() ?? null"
+                  [ngTemplateOutletContext]="{ $implicit: child }"
                 />
-                <span>Agent working</span>
-                <ptah-typing-cursor colorClass="text-base-content/40" />
-              </div>
-            }
-          } @else {
-            <!-- No children yet -->
-            @if (isStreaming()) {
-              <div
-                class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
-              >
-                <lucide-angular
-                  [img]="LoaderIcon"
-                  class="w-3 h-3 animate-spin"
-                />
-                <span>Starting agent execution</span>
-                <ptah-typing-cursor colorClass="text-base-content/40" />
-              </div>
+              }
+              @if (isStreaming()) {
+                <div
+                  class="flex items-center gap-1 text-[10px] text-base-content/40 mt-2"
+                >
+                  <lucide-angular
+                    [img]="LoaderIcon"
+                    class="w-3 h-3 animate-spin"
+                  />
+                  <span>Agent working</span>
+                  <ptah-typing-cursor colorClass="text-base-content/40" />
+                </div>
+              }
             } @else {
-              <div class="text-[10px] text-base-content/40 py-2">
-                No execution data
-              </div>
+              <!-- No children yet -->
+              @if (isStreaming()) {
+                <div
+                  class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
+                >
+                  <lucide-angular
+                    [img]="LoaderIcon"
+                    class="w-3 h-3 animate-spin"
+                  />
+                  <span>Starting agent execution</span>
+                  <ptah-typing-cursor colorClass="text-base-content/40" />
+                </div>
+              } @else {
+                <div class="text-[10px] text-base-content/40 py-2">
+                  No execution data
+                </div>
+              }
             }
-          }
+          </div>
         </div>
-      }
+      </div>
 
       <!-- Agent Stats Footer (shown when stats available and not streaming) -->
       @if (hasStats() && !isStreaming()) {
         <div
           class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content/70 rounded-b-lg"
           [style.background-color]="footerBgColor()"
+          animate.enter="agent-fade-in"
+          animate.leave="agent-fade-out"
         >
           @if (modelDisplayName()) {
             <span
@@ -294,11 +309,58 @@ import { formatModelDisplayName } from '@ptah-extension/shared';
           border-color: oklch(var(--in) / 0.15);
         }
       }
+
+      /* Grid-rows collapse pattern: animate height without measuring in JS.
+         Wrapper transitions grid-template-rows from 1fr → 0fr; inner has
+         min-height: 0 + overflow: hidden so the child clips smoothly. */
+      .agent-collapse-wrapper {
+        display: grid;
+        grid-template-rows: 1fr;
+        transition: grid-template-rows 220ms ease-out;
+      }
+      .agent-collapse-wrapper.agent-collapsed {
+        grid-template-rows: 0fr;
+      }
+      .agent-collapse-inner {
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      @keyframes agentFadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      @keyframes agentFadeOut {
+        from {
+          opacity: 1;
+        }
+        to {
+          opacity: 0;
+        }
+      }
+      :host ::ng-deep .agent-fade-in {
+        animation: agentFadeIn 160ms ease-out both;
+      }
+      :host ::ng-deep .agent-fade-out {
+        animation: agentFadeOut 120ms ease-in both;
+      }
+
       @media (prefers-reduced-motion: reduce) {
         :host ::ng-deep .streaming-border-glow {
           animation: none;
           box-shadow: 0 0 4px 1px oklch(var(--in) / 0.15);
           border-color: oklch(var(--in) / 0.3);
+        }
+        .agent-collapse-wrapper {
+          transition: none !important;
+        }
+        :host ::ng-deep .agent-fade-in,
+        :host ::ng-deep .agent-fade-out {
+          animation: none !important;
         }
       }
     `,
@@ -529,26 +591,29 @@ export class InlineAgentBubbleComponent {
   // TASK_2025_109: isResumable computed removed - Resume button no longer needed
   // Subagent resumption is now handled via context injection in chat:continue RPC.
 
-  // Computed: agent color based on type
-  // Built-in Claude agents get fixed oklch colors for theme consistency
-  // Custom agents get dynamically generated colors based on name hash
-  readonly agentColor = computed(() =>
-    generateAgentColor(this.node().agentType || ''),
+  // Structured agent color { l, c, h } — preferred internal representation.
+  // Built-in Claude agents get fixed oklch values for theme consistency;
+  // custom agents get a hashed hue. Empty/falsy types yield a sentinel that
+  // routes to the `oklch(var(--bc) / α)` theme-aware fallback in formatOklch.
+  readonly agentColorOklch = computed(() =>
+    generateAgentColorOklch(this.node().agentType || ''),
   );
 
+  // CSS string for the main agent color (used for border, avatar, etc.).
+  readonly agentColor = computed(() => formatOklch(this.agentColorOklch()));
+
   /**
-   * Computed: footer background color — a subtle tint derived from agentColor().
-   * Converts the oklch agent color to a low-opacity version for the stats footer.
+   * Computed: footer background color — a subtle 10%-alpha tint derived
+   * directly from the structured agent color (no string round-tripping).
+   * For the theme-aware sentinel we drop to a 5% `oklch(var(--bc) / 0.05)`
+   * fallback so we don't fabricate l/c/h that would mis-render.
    */
   readonly footerBgColor = computed(() => {
-    const color = this.agentColor();
-    // Extract oklch values and return at 10% opacity for a subtle tint
-    const match = color.match(/oklch\(([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\)/);
-    if (match) {
-      return `oklch(${match[1]} ${match[2]} ${match[3]} / 0.1)`;
+    const color = this.agentColorOklch();
+    if (isThemeFallbackColor(color)) {
+      return 'oklch(var(--bc) / 0.05)';
     }
-    // Fallback for theme-aware colors like oklch(var(--bc) / 0.5)
-    return 'oklch(var(--bc) / 0.05)';
+    return formatOklch(color, 0.1);
   });
 
   // Computed: agent initial letter

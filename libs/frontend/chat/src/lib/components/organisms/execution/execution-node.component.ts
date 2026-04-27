@@ -13,6 +13,7 @@ import {
   ThinkingBlockComponent,
 } from '@ptah-extension/chat-ui';
 import { ToolCallItemComponent } from '../../molecules/tool-execution/tool-call-item.component';
+import { AutoAnimateDirective } from '../../../directives/auto-animate.directive';
 import type {
   ExecutionNode,
   PermissionRequest,
@@ -47,17 +48,21 @@ import type {
     AgentSummaryComponent,
     ThinkingBlockComponent,
     ToolCallItemComponent,
+    AutoAnimateDirective,
   ],
   template: `
     @switch (node().type) {
       @case ('text') {
+        <!-- Wrap each branch in fade-in keyframe so flipping between
+             agent-summary and markdown cross-fades instead of popping. -->
         @if (isAgentSummaryContent()) {
-          <!-- Agent summary with XML-like format (function_calls, thinking, etc.) -->
-          <ptah-agent-summary [content]="node().content || ''" />
+          <div class="exec-text-branch" animate.enter="exec-fade-in">
+            <ptah-agent-summary [content]="node().content || ''" />
+          </div>
         } @else {
-          <!-- Always render markdown for text nodes (live updates like ChatGPT/Claude web) -->
           <div
-            class="prose prose-sm prose-invert max-w-none my-2 transition-opacity duration-300"
+            class="prose prose-sm prose-invert max-w-none my-2 exec-text-branch"
+            animate.enter="exec-fade-in"
           >
             <markdown [data]="node().content || ''" />
           </div>
@@ -75,14 +80,16 @@ import type {
           (permissionResponded)="permissionResponded.emit($event)"
         >
           <!-- RECURSIVE: Render nested children (tool results, sub-tools) -->
-          @for (child of node().children; track child.id) {
-            <ptah-execution-node
-              [node]="child"
-              [isStreaming]="isStreaming()"
-              [getPermissionForTool]="getPermissionForTool()"
-              (permissionResponded)="permissionResponded.emit($event)"
-            />
-          }
+          <div [auto-animate] class="exec-children">
+            @for (child of node().children; track child.id) {
+              <ptah-execution-node
+                [node]="child"
+                [isStreaming]="isStreaming()"
+                [getPermissionForTool]="getPermissionForTool()"
+                (permissionResponded)="permissionResponded.emit($event)"
+              />
+            }
+          </div>
         </ptah-tool-call-item>
       }
       @case ('agent') {
@@ -94,15 +101,19 @@ import type {
       to keep the bubble lazy-loaded.
     -->
         @defer {
-          <ptah-inline-agent-bubble
-            [node]="node()"
-            [getPermissionForTool]="getPermissionForTool()"
-            [nodeTemplate]="bubbleChildTemplate"
-            (permissionResponded)="permissionResponded.emit($event)"
-          />
+          <div animate.enter="exec-fade-in">
+            <ptah-inline-agent-bubble
+              [node]="node()"
+              [getPermissionForTool]="getPermissionForTool()"
+              [nodeTemplate]="bubbleChildTemplate"
+              (permissionResponded)="permissionResponded.emit($event)"
+            />
+          </div>
         } @placeholder {
+          <!-- Placeholder height matches the loaded bubble's collapsed
+               header (~2.5rem) so the swap-in doesn't jolt siblings. -->
           <div
-            class="flex items-center gap-2 text-[10px] text-base-content/40 py-2"
+            class="flex items-center gap-2 text-[10px] text-base-content/40 py-2 px-3 my-3 border-l-2 border-base-300/50 rounded-lg bg-base-200/30 exec-defer-placeholder"
           >
             <span>Loading agent...</span>
           </div>
@@ -118,14 +129,16 @@ import type {
       }
       @case ('message') {
         <!-- Message node unwraps to its children -->
-        @for (child of node().children; track child.id) {
-          <ptah-execution-node
-            [node]="child"
-            [isStreaming]="isStreaming()"
-            [getPermissionForTool]="getPermissionForTool()"
-            (permissionResponded)="permissionResponded.emit($event)"
-          />
-        }
+        <div [auto-animate] class="exec-children">
+          @for (child of node().children; track child.id) {
+            <ptah-execution-node
+              [node]="child"
+              [isStreaming]="isStreaming()"
+              [getPermissionForTool]="getPermissionForTool()"
+              (permissionResponded)="permissionResponded.emit($event)"
+            />
+          }
+        </div>
       }
       @case ('system') {
         <!-- System messages (session init, etc.) -->
@@ -136,6 +149,43 @@ import type {
       }
     }
   `,
+  styles: [
+    `
+      :host {
+        display: block;
+      }
+
+      .exec-children {
+        display: flex;
+        flex-direction: column;
+      }
+
+      @keyframes execFadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      .exec-fade-in {
+        animation: execFadeIn 180ms ease-out both;
+      }
+
+      .exec-defer-placeholder {
+        min-height: 2.5rem;
+        animation: execFadeIn 140ms ease-out both;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .exec-fade-in,
+        .exec-defer-placeholder {
+          animation: none !important;
+        }
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExecutionNodeComponent {

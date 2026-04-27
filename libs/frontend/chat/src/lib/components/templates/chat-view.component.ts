@@ -34,6 +34,7 @@ import {
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
+import { AutoAnimateDirective } from '../../directives/auto-animate.directive';
 import { ChatStore } from '../../services/chat.store';
 import {
   AgentMonitorStore,
@@ -53,6 +54,10 @@ import {
   ExecutionChatMessage,
 } from '@ptah-extension/shared';
 import type { SubagentRecord } from '@ptah-extension/shared';
+
+/** Shared empty Set instance to keep `streamingMessageIds()` referentially
+ *  stable when no message is streaming (avoids unnecessary template re-evals). */
+const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 
 /**
  * ChatViewComponent - Main chat view with message list and Egyptian themed welcome
@@ -92,6 +97,7 @@ import type { SubagentRecord } from '@ptah-extension/shared';
     CompactionNotificationComponent,
     SidebarTabComponent,
     CompactSessionCardComponent,
+    AutoAnimateDirective,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -524,6 +530,42 @@ export class ChatViewComponent {
         }),
       }),
     );
+  });
+
+  /**
+   * Unified message list: resolved (finalized) messages + currently-streaming
+   * trees, rendered through a SINGLE `@for` block in the template.
+   *
+   * Why unified: the streaming-tree id and the eventual finalized-message id
+   * are the same value (`MessageFinalizationService` sets
+   * `treeNodeId = finalTree[0]?.id`). When the finalization handler swaps the
+   * streaming tree for a finalized message, the id is preserved — Angular's
+   * `track msg.id` reuses the same `<ptah-message-bubble>` instance across the
+   * transition, so streaming → finalized is an in-place mutation rather than a
+   * remove-from-list + add-to-list remount. This eliminates the dramatic DOM
+   * destroy/create that previously caused layout shift, scroll-anchor
+   * disruption, and content-visibility flashes.
+   *
+   * Streaming entries are tagged via the `isStreaming` flag derived from
+   * `resolvedIsStreaming()` AND identity (only the live trees are streaming;
+   * historical messages are not).
+   */
+  readonly allMessages = computed((): readonly ExecutionChatMessage[] => {
+    const finalized = this.resolvedMessages();
+    const streaming = this.streamingMessages();
+    if (streaming.length === 0) return finalized;
+    return [...finalized, ...streaming];
+  });
+
+  /**
+   * Set of message ids that are currently being streamed (live trees, not yet
+   * finalized). Used by the template to flip `isStreaming` per-bubble inside
+   * the unified `@for` loop.
+   */
+  readonly streamingMessageIds = computed((): ReadonlySet<string> => {
+    const streaming = this.streamingMessages();
+    if (streaming.length === 0) return EMPTY_STRING_SET;
+    return new Set(streaming.map((m) => m.id));
   });
 
   constructor() {

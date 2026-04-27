@@ -1,5 +1,13 @@
 :host {
   display: block;
+}
+
+/* Only finalized historical bubbles get content-visibility virtualization.
+   The active streaming bubble (no data-finalized) and any non-finalized
+   bubble must render fully — `content-visibility: auto` reserves an
+   `contain-intrinsic-size` placeholder that mismatches the real growing
+   height during streaming, producing visible layout shift. */
+:host([data-finalized='true']) {
   content-visibility: auto;
   contain-intrinsic-size: auto 80px;
 }
@@ -7,6 +15,66 @@
 :host(.is-streaming) {
   content-visibility: visible;
   contain-intrinsic-size: auto none;
+}
+
+/* ---------------------------------------------------------------------------
+   Smooth collapse/expand of the bubble body using CSS grid `0fr/1fr` rows.
+   Animates height implicitly without measuring in JS — same pattern as the
+   chat-view input collapse wrapper. The `inner` element provides the
+   `min-height: 0; overflow: hidden` clipping so children can be tall.
+   --------------------------------------------------------------------------- */
+
+:host ::ng-deep .bubble-collapse-wrapper {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 220ms ease-out;
+}
+
+:host ::ng-deep .bubble-collapse-wrapper.bubble-collapsed {
+  grid-template-rows: 0fr;
+}
+
+:host ::ng-deep .bubble-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Per-bubble fade keyframes (badges/footer enter/leave). Kept local so
+   they coexist with the global chat-view animations without leaking. */
+@keyframes bubbleFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes bubbleFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+:host ::ng-deep .bubble-fade-enter {
+  animation: bubbleFadeIn 160ms ease-out both;
+}
+
+:host ::ng-deep .bubble-fade-leave {
+  animation: bubbleFadeOut 120ms ease-in both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :host ::ng-deep .bubble-collapse-wrapper {
+    transition: none !important;
+  }
+  :host ::ng-deep .bubble-fade-enter,
+  :host ::ng-deep .bubble-fade-leave {
+    animation: none !important;
+  }
 }
 
 /* ==========================================================================
@@ -51,7 +119,10 @@
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
-/* --- Code blocks: elevated card within the bubble --- */
+/* --- Code blocks: elevated card within the bubble ---
+   `min-height` reserves vertical space so an empty `<pre>` rendered by the
+   markdown parser before its first content delta arrives doesn't pop from 0
+   to its eventual height when the first line streams in. */
 :host ::ng-deep markdown pre {
   background-color: oklch(var(--b1) / 0.7);
   border: 1px solid oklch(var(--bc) / 0.06);
@@ -60,6 +131,7 @@
   overflow-x: auto;
   margin: 0.75em 0;
   box-shadow: inset 0 1px 3px oklch(var(--b1) / 0.3);
+  min-height: 2.4em;
 }
 
 :host ::ng-deep markdown pre code {
@@ -266,11 +338,28 @@
   background-color: oklch(var(--bc) / 0.03);
 }
 
-/* --- Images within bubbles --- */
+/* --- Images within bubbles ---
+   Sizing kept simple — `max-width: 100%` + `height: auto` lets the browser
+   honor any explicit `width`/`height` attributes on the rendered <img> for
+   intrinsic aspect-ratio reservation. We previously had an
+   `aspect-ratio: attr(width) / attr(height)` rule, but the typed `attr()`
+   syntax is not yet shipping in current evergreen browsers — the rule was
+   silently dead and removed. Images without explicit dimensions get a
+   conservative 16:9 box so the bubble height stays stable while the image
+   network response is in flight. */
 :host ::ng-deep markdown img {
   border-radius: 0.375rem;
   margin: 0.5em 0;
   max-width: 100%;
+  height: auto;
+}
+
+/* Fallback for images without explicit width/height attributes — reserve a
+   conservative 16:9 box. Once the image loads, the browser uses the
+   intrinsic dimensions for layout. */
+:host ::ng-deep markdown img:not([width]),
+:host ::ng-deep markdown img:not([height]) {
+  aspect-ratio: 16 / 9;
 }
 
 /* ==========================================================================

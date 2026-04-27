@@ -87,34 +87,46 @@
         }
       }
 
-      <!-- Collapsible Content: Full ExecutionNode tree or markdown -->
-      @if (!isCollapsed()) {
-        @if (message().streamingState) {
-          <!-- ExecutionNode recursive tree with streaming state -->
-          <ptah-execution-node
-            [node]="message().streamingState!"
-            [isStreaming]="isStreaming()"
-            [getPermissionForTool]="getPermissionForTool"
-            (permissionResponded)="onPermissionResponse($event)"
-          />
-        } @else {
-          <!-- Fallback text content -->
-          <markdown
-            [data]="message().rawContent || ''"
-            class="prose prose-sm max-w-none"
-          />
-          @if (isStreaming()) {
-            <ptah-typing-cursor colorClass="text-base-content/70" />
+      <!-- Collapsible Content: Full ExecutionNode tree or markdown.
+           Uses a CSS grid `grid-template-rows: 0fr / 1fr` transition so the
+           expand/collapse animates smoothly without measuring height in JS and
+           without an abrupt @if swap. -->
+      <div
+        class="bubble-collapse-wrapper"
+        [class.bubble-collapsed]="isCollapsed()"
+      >
+        <div class="bubble-collapse-inner">
+          @if (message().streamingState) {
+            <!-- ExecutionNode recursive tree with streaming state -->
+            <ptah-execution-node
+              [node]="message().streamingState!"
+              [isStreaming]="isStreaming()"
+              [getPermissionForTool]="getPermissionForTool"
+              (permissionResponded)="onPermissionResponse($event)"
+            />
+          } @else {
+            <!-- Fallback text content -->
+            <markdown
+              [data]="message().rawContent || ''"
+              class="prose prose-sm max-w-none"
+            />
+            @if (isStreaming()) {
+              <ptah-typing-cursor colorClass="text-base-content/70" />
+            }
           }
-        }
-      }
+        </div>
+      </div>
 
       <!-- Collapsed state: show cost/duration badges inline (only when data exists) -->
       @if (
         isCollapsed() && hasCollapsedFooterData() && messageSummary();
         as summary
       ) {
-        <div class="flex gap-1.5 items-center text-base-content/70 py-0.5">
+        <div
+          class="flex gap-1.5 items-center text-base-content/70 py-0.5"
+          animate.enter="bubble-fade-enter"
+          animate.leave="bubble-fade-leave"
+        >
           @if (summary.cost !== undefined && summary.cost > 0) {
             <ptah-cost-badge [cost]="summary.cost" />
           }
@@ -140,7 +152,11 @@
         message().cost !== undefined ||
         message().duration !== undefined
       ) {
-        <div class="flex gap-1.5 items-center text-base-content/70">
+        <div
+          class="flex gap-1.5 items-center text-base-content/70"
+          animate.enter="bubble-fade-enter"
+          animate.leave="bubble-fade-leave"
+        >
           @if (message().tokens) {
             <ptah-token-badge
               [count]="message().tokens!.input + message().tokens!.output"

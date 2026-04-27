@@ -69,6 +69,12 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[class.is-streaming]': 'isStreaming()',
+    // `data-finalized` gates `content-visibility: auto` in CSS so it only
+    // applies to historical/finalized bubbles. The active streaming bubble
+    // must NEVER have `content-visibility: auto` — its intrinsic-size guess
+    // mismatches the rapidly growing real height, causing layout shift each
+    // time the bubble crosses the viewport boundary.
+    '[attr.data-finalized]': '!isStreaming()',
   },
 })
 export class MessageBubbleComponent {

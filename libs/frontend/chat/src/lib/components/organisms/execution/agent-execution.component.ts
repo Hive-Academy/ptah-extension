@@ -1,6 +1,7 @@
 import {
   Component,
   input,
+  output,
   signal,
   computed,
   ChangeDetectionStrategy,
@@ -19,7 +20,13 @@ import {
   TypingCursorComponent,
 } from '@ptah-extension/chat-ui';
 import { ExecutionNodeComponent } from './execution-node.component';
-import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
+import { AutoAnimateDirective } from '../../../directives/auto-animate.directive';
+import type {
+  ExecutionNode,
+  AgentInfo,
+  PermissionRequest,
+  PermissionResponse,
+} from '@ptah-extension/shared';
 
 /**
  * AgentExecutionComponent - Dual-section agent bubble with Summary + Execution
@@ -52,6 +59,7 @@ import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
     AgentSummaryComponent,
     ExecutionNodeComponent,
     TypingCursorComponent,
+    AutoAnimateDirective,
   ],
   template: `
     <div class="flex flex-col gap-2">
@@ -84,27 +92,37 @@ import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
             </span>
           </button>
 
-          <!-- Summary Content -->
-          @if (!summaryCollapsed()) {
-            <div class="px-2.5 py-2 max-h-64 overflow-y-auto">
-              @if (agentInfo().summaryContent) {
-                <ptah-agent-summary [content]="agentInfo().summaryContent!" />
-                @if (isStreaming()) {
-                  <ptah-typing-cursor colorClass="text-base-content/50" />
+          <!-- Summary Content (grid-rows collapse for smooth height anim) -->
+          <div
+            class="ae-collapse-wrapper"
+            [class.ae-collapsed]="summaryCollapsed()"
+          >
+            <div class="ae-collapse-inner">
+              <div class="px-2.5 py-2 max-h-64 overflow-y-auto">
+                @if (agentInfo().summaryContent) {
+                  <div animate.enter="ae-fade-in">
+                    <ptah-agent-summary
+                      [content]="agentInfo().summaryContent!"
+                    />
+                    @if (isStreaming()) {
+                      <ptah-typing-cursor colorClass="text-base-content/50" />
+                    }
+                  </div>
+                } @else {
+                  <div
+                    class="flex items-center gap-2 text-[11px] text-base-content/40 italic"
+                    animate.enter="ae-fade-in"
+                  >
+                    <lucide-angular
+                      [img]="LoaderIcon"
+                      class="w-3 h-3 animate-spin"
+                    />
+                    <span>Loading summary...</span>
+                  </div>
                 }
-              } @else {
-                <div
-                  class="flex items-center gap-2 text-[11px] text-base-content/40 italic"
-                >
-                  <lucide-angular
-                    [img]="LoaderIcon"
-                    class="w-3 h-3 animate-spin"
-                  />
-                  <span>Loading summary...</span>
-                </div>
-              }
+              </div>
             </div>
-          }
+          </div>
         </div>
       }
 
@@ -145,32 +163,40 @@ import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
             }
           </button>
 
-          <!-- Execution Content -->
-          @if (!executionCollapsed()) {
-            <div class="px-2.5 py-2 max-h-96 overflow-y-auto">
-              @if (hasExecutionNodes()) {
-                @for (
-                  child of executionTree()?.children || [];
-                  track child.id
-                ) {
-                  <ptah-execution-node
-                    [node]="child"
-                    [isStreaming]="isStreaming()"
-                  />
+          <!-- Execution Content (grid-rows collapse for smooth height anim) -->
+          <div
+            class="ae-collapse-wrapper"
+            [class.ae-collapsed]="executionCollapsed()"
+          >
+            <div class="ae-collapse-inner">
+              <div class="px-2.5 py-2 max-h-96 overflow-y-auto" [auto-animate]>
+                @if (hasExecutionNodes()) {
+                  @for (
+                    child of executionTree()?.children || [];
+                    track child.id
+                  ) {
+                    <ptah-execution-node
+                      [node]="child"
+                      [isStreaming]="isStreaming()"
+                      [getPermissionForTool]="getPermissionForTool()"
+                      (permissionResponded)="permissionResponded.emit($event)"
+                    />
+                  }
+                } @else {
+                  <div
+                    class="flex items-center gap-2 text-[11px] text-base-content/40 italic"
+                    animate.enter="ae-fade-in"
+                  >
+                    <lucide-angular
+                      [img]="LoaderIcon"
+                      class="w-3 h-3 animate-spin"
+                    />
+                    <span>Loading execution details...</span>
+                  </div>
                 }
-              } @else {
-                <div
-                  class="flex items-center gap-2 text-[11px] text-base-content/40 italic"
-                >
-                  <lucide-angular
-                    [img]="LoaderIcon"
-                    class="w-3 h-3 animate-spin"
-                  />
-                  <span>Loading execution details...</span>
-                </div>
-              }
+              </div>
             </div>
-          }
+          </div>
         </div>
       }
 
@@ -211,11 +237,73 @@ import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
       }
     </div>
   `,
+  styles: [
+    `
+      :host {
+        display: block;
+      }
+
+      /* Grid-rows collapse pattern: animates height without JS measurement.
+         Same pattern as message-bubble + inline-agent-bubble. */
+      .ae-collapse-wrapper {
+        display: grid;
+        grid-template-rows: 1fr;
+        transition: grid-template-rows 220ms ease-out;
+      }
+      .ae-collapse-wrapper.ae-collapsed {
+        grid-template-rows: 0fr;
+      }
+      .ae-collapse-inner {
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      @keyframes aeFadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      :host ::ng-deep .ae-fade-in {
+        animation: aeFadeIn 160ms ease-out both;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .ae-collapse-wrapper {
+          transition: none !important;
+        }
+        :host ::ng-deep .ae-fade-in {
+          animation: none !important;
+        }
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentExecutionComponent {
   readonly agentInfo = input.required<AgentInfo>();
   readonly executionTree = input.required<ExecutionNode | null>();
+
+  /**
+   * Permission lookup function forwarded from parent.
+   * Optional — when not bound, child tool cards render without permission
+   * affordances (same fallback path as inline-agent-bubble). Mirrors the
+   * shape declared on `InlineAgentBubbleComponent` and `ExecutionNodeComponent`
+   * so this wrapper is a transparent forwarder for the permission flow.
+   */
+  readonly getPermissionForTool = input<
+    ((toolCallId: string) => PermissionRequest | null) | undefined
+  >();
+
+  /**
+   * Emits when user responds to a permission request bubbling up from a
+   * nested tool-call node. Parents that don't bind this output simply drop
+   * the event, but tools rendered through this path will no longer silently
+   * lose the permission flow when forwarding IS wired up.
+   */
+  readonly permissionResponded = output<PermissionResponse>();
 
   // Icons
   readonly FileTextIcon = FileText;
