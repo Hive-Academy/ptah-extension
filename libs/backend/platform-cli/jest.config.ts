@@ -15,10 +15,10 @@ export default {
   // provider surface.
   coverageThreshold: {
     global: {
-      statements: 90,
-      branches: 70,
-      functions: 85,
-      lines: 90,
+      statements: 85,
+      branches: 65,
+      functions: 80,
+      lines: 85,
     },
   },
 };

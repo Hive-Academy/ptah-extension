@@ -205,7 +205,7 @@ async function runExport(
       const sideEffectPath = result?.filePath;
       if (
         sideEffectPath &&
-        path.resolve(sideEffectPath) !== path.resolve(outPath)
+        path.resolve(globals.cwd, sideEffectPath) !== outPath
       ) {
         await unlink(sideEffectPath);
       }
