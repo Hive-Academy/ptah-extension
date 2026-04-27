@@ -148,9 +148,11 @@ params)` for in-process RPC
   `lint`, `test`. The `external[]` list reflects the post-cleanup
   dependency set (no `react`, `ink*`, `@inkjs/ui`, `cli-highlight`,
   `marked-terminal`).
-- `package.json` — declares `bin: { ptah: ./main.mjs }` and
-  `name: '@ptah-extension/ptah-cli'` (will be flipped to
-  `@ptah-extensions/cli` for the public npm publish)
+- `package.json` — declares `bin: { ptah: main.mjs }` and
+  `name: '@hive-academy/ptah-cli'`. Lists the 22 runtime
+  `dependencies` that the esbuild bundle externalizes (anything in
+  `project.json` `external[]` that the bundle actually imports must be
+  declared as a runtime dep — verified against the produced `main.mjs`).
 - `jest.config.cjs` — Jest config (`displayName: 'ptah-cli'`)
 
 ## Architecture
@@ -273,8 +275,89 @@ the dist directory (or publishing `@ptah-extensions/cli`) yields a
 2. **banner**: esbuild injects `createRequire`, `__filename`, and
    `__dirname` shims so CommonJS interop and `__dirname`-style path
    resolution still work in the ESM output.
-3. **package.json copy**: the CLI `package.json` is copied alongside the
-   bundle to declare the `ptah` bin entry.
+3. **asset copy**: `package.json`, `README.md`, `LICENSE.md`, and the
+   two docs (`docs/jsonrpc-schema.md`, `docs/migration.md`) are copied
+   into `dist/apps/ptah-cli/` so the dist directory is a self-contained
+   npm publish root.
+
+## Publishing to npm
+
+The CLI is published as `@hive-academy/ptah-cli` to the public npm
+registry. Distribution is gated by the
+[`publish-cli` workflow](../../.github/workflows/publish-cli.yml),
+triggered by pushing a git tag matching `cli-v*`.
+
+### Local dry-run (no registry contact)
+
+```bash
+nx run ptah-cli:publish:dry-run
+```
+
+This depends on `build`, then runs `npm publish --dry-run --access
+public` from `dist/apps/ptah-cli/`. Reports the file list, tarball
+size, and integrity hash.
+
+### Local end-to-end smoke (no registry contact)
+
+```bash
+bash scripts/test-publish-cli.sh
+```
+
+Builds, packs the tarball, installs it into a clean `mktemp -d`
+prefix, then runs `ptah --version`, `ptah --help`, and
+`ptah agent list --human` against the installed copy. Use this before
+tagging to verify the published artifact will actually run.
+
+### Cutting a release
+
+1. Bump `version` in `apps/ptah-cli/package.json` on a release branch.
+2. Run `nx run ptah-cli:publish:dry-run` to validate.
+3. Open a PR and merge to `main`.
+4. From `main`, tag the merge commit and push:
+   ```bash
+   git tag cli-v0.1.0
+   git push origin cli-v0.1.0
+   ```
+5. The `publish-cli` workflow runs lint/typecheck/test/build, verifies
+   the tag matches the package.json version, runs a dry-run, then
+   publishes with provenance.
+
+### Required GitHub secrets
+
+| Secret      | Purpose                                                                                                                                                                            |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NPM_TOKEN` | Granular access token for the `@hive-academy` scope, write on `@hive-academy/ptah-cli`, 2FA bypass for automation enabled. Set in repo Settings → Secrets and variables → Actions. |
+
+### Provenance verification
+
+After the workflow publishes, verify the attestation:
+
+```bash
+npm view @hive-academy/ptah-cli --json | jq '.dist.attestations'
+```
+
+The `predicate.buildDefinition.externalParameters.workflow` field
+should resolve to this repository's `publish-cli.yml`, signed by
+GitHub's OIDC issuer.
+
+### Local registry test (verdaccio)
+
+For a fully isolated end-to-end test without using the real npm
+registry:
+
+```bash
+# In a separate terminal:
+npx verdaccio                                # runs at http://localhost:4873
+
+# In the repo:
+nx build ptah-cli
+cd dist/apps/ptah-cli
+npm publish --registry http://localhost:4873 --access public
+
+# In a clean tmp dir:
+npm install -g @hive-academy/ptah-cli --registry http://localhost:4873
+ptah --version
+```
 
 ## CLI-specific Concerns
 
