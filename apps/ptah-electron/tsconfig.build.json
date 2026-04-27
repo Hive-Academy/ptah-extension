@@ -10,12 +10,6 @@
       "@ptah-extension/deep-agent-sdk": [
         "libs/backend/deep-agent-sdk/src/index.ts"
       ],
-      "@ptah-extension/llm-abstraction": [
-        "libs/backend/llm-abstraction/src/index.ts"
-      ],
-      "@ptah-extension/llm-abstraction/vscode-lm": [
-        "libs/backend/llm-abstraction/src/vscode-lm.ts"
-      ],
       "@ptah-extension/platform-core": [
         "libs/backend/platform-core/src/index.ts"
       ],
@@ -26,9 +20,6 @@
         "libs/backend/rpc-handlers/src/index.ts"
       ],
       "@ptah-extension/shared": ["libs/shared/src/index.ts"],
-      "@ptah-extension/template-generation": [
-        "libs/backend/template-generation/src/index.ts"
-      ],
       "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
       "@ptah-extension/vscode-lm-tools": [
         "libs/backend/vscode-lm-tools/src/index.ts"

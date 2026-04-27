@@ -40,6 +40,7 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { AuthEnv } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
+import { SdkError } from '../errors';
 import { SdkModuleLoader } from '../helpers/sdk-module-loader';
 import {
   SdkModelService,
@@ -52,7 +53,7 @@ import { CompactionHookHandler } from '../helpers/compaction-hook-handler';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
-} from '../helpers/anthropic-provider-registry';
+} from '../providers/_shared/provider-registry';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import type {
   Options as SdkQueryOptions,
@@ -224,7 +225,7 @@ export class InternalQueryService {
   private verifyHealth(): void {
     const health = this.sdkAdapter.getHealth();
     if (health.status !== 'available') {
-      throw new Error(
+      throw new SdkError(
         `SDK not available (status: ${health.status}). ${
           health.errorMessage || ''
         }`,

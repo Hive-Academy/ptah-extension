@@ -5,21 +5,26 @@
  * Shared handlers are imported directly from @ptah-extension/rpc-handlers
  * by the orchestrator and DI container.
  *
- * TASK_2025_203 Batch 5: Electron RPC handler extraction
- * TASK_2025_209: Removed ElectronLlmRpcHandlers (unified into shared LlmRpcHandlers),
- *   ElectronChatExtendedRpcHandlers (unified into shared ChatRpcHandlers)
- * Re-added ElectronAgentRpcHandlers, ElectronSkillsShRpcHandlers, ElectronLayoutRpcHandlers
- * with proper Electron-specific implementations.
+ * TASK_2025_203 Batch 5: Electron RPC handler extraction.
+ * TASK_2025_209: Removed the Electron-prefixed LlmRpcHandlers and
+ *   ChatExtendedRpcHandlers (both unified into the shared versions in
+ *   libs/backend/rpc-handlers). Re-added electron-specific AgentRpcHandlers,
+ *   SkillsShRpcHandlers, and LayoutRpcHandlers.
+ * TASK_2025_291 Wave C6: dropped the redundant `Electron` prefix from file
+ *   and class names; folder location already disambiguates from the vscode
+ *   app's handlers and from the shared library.
  */
 
-export { ElectronWorkspaceRpcHandlers } from './electron-workspace-rpc.handlers';
-export { ElectronEditorRpcHandlers } from './electron-editor-rpc.handlers';
-export { ElectronFileRpcHandlers } from './electron-file-rpc.handlers';
-export { ElectronConfigExtendedRpcHandlers } from './electron-config-extended-rpc.handlers';
-export { ElectronCommandRpcHandlers } from './electron-command-rpc.handlers';
-export { ElectronSettingsRpcHandlers } from './electron-settings-rpc.handlers';
-export { ElectronAgentRpcHandlers } from './electron-agent-rpc.handlers';
-export { ElectronSkillsShRpcHandlers } from './electron-skills-sh-rpc.handlers';
-export { ElectronLayoutRpcHandlers } from './electron-layout-rpc.handlers';
-export { ElectronGitRpcHandlers } from './electron-git-rpc.handlers';
-export { ElectronTerminalRpcHandlers } from './electron-terminal-rpc.handlers';
+// TASK_2026_104 Sub-batch B5a: WorkspaceRpcHandlers lifted to
+// `@ptah-extension/rpc-handlers` SHARED_HANDLERS. No longer Electron-local.
+export { EditorRpcHandlers } from './editor-rpc.handlers';
+export { FileRpcHandlers } from './file-rpc.handlers';
+export { ConfigExtendedRpcHandlers } from './config-extended-rpc.handlers';
+export { CommandRpcHandlers } from './command-rpc.handlers';
+export { SettingsRpcHandlers } from './settings-rpc.handlers';
+export { AgentRpcHandlers } from './agent-rpc.handlers';
+export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
+export { LayoutRpcHandlers } from './layout-rpc.handlers';
+// TASK_2026_104 Sub-batch B5b: GitRpcHandlers lifted to
+// `@ptah-extension/rpc-handlers` SHARED_HANDLERS. No longer Electron-local.
+export { TerminalRpcHandlers } from './terminal-rpc.handlers';

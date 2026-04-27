@@ -21,7 +21,7 @@
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { CdkDrag, CdkDragMove } from '@angular/cdk/drag-drop';
 import { PanelResizeService } from '../../services/panel-resize.service';
-import { RESIZE_HANDLE_STYLES } from './resize-handle.styles';
+import { RESIZE_HANDLE_STYLES } from '@ptah-extension/chat-ui';
 
 @Component({
   selector: 'ptah-resize-handle',

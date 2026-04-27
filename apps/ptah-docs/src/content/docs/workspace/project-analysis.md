@@ -7,6 +7,10 @@ description: How Ptah scans your workspace to detect stack, patterns, quality, a
 
 When you open a workspace, Ptah runs a **multi-phase project analysis**. The result is a structured snapshot of your codebase that every agent can reference without re-scanning.
 
+<video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
+  <source src="/assets/videos/setup-wizard-analysis.mp4" type="video/mp4" />
+</video>
+
 Analysis is incremental — after the first full scan, subsequent runs only re-examine what changed since the last analysis timestamp.
 
 ## Phases

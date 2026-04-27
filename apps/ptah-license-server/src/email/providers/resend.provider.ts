@@ -15,6 +15,9 @@ export interface ResendMailService {
       to: string[];
       subject: string;
       html: string;
+      replyTo?: string;
+      headers?: Record<string, string>;
+      tags?: Array<{ name: string; value: string }>;
     }): Promise<{
       data: { id: string } | null;
       error: { message: string } | null;

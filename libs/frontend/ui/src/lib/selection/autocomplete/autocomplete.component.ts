@@ -1,4 +1,5 @@
 import {
+  ChangeDetectionStrategy,
   Component,
   input,
   output,
@@ -53,6 +54,7 @@ import { AUTOCOMPLETE_POSITIONS } from '../../overlays/shared/overlay-positions'
 @Component({
   selector: 'ptah-autocomplete',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [OverlayModule, OptionComponent, NgTemplateOutlet],
   template: `
     <div cdkOverlayOrigin #inputOrigin="cdkOverlayOrigin">
@@ -76,50 +78,55 @@ import { AUTOCOMPLETE_POSITIONS } from '../../overlays/shared/overlay-positions'
       >
         <!-- Header -->
         @if (headerTitle()) {
-        <div class="px-3 py-2 border-b border-base-300">
-          <span
-            class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
-          >
-            {{ headerTitle() }}
-          </span>
-        </div>
+          <div class="px-3 py-2 border-b border-base-300">
+            <span
+              class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
+            >
+              {{ headerTitle() }}
+            </span>
+          </div>
         }
 
         <!-- Loading State -->
         @if (isLoading()) {
-        <div class="flex items-center justify-center gap-3 p-4">
-          <span class="loading loading-spinner loading-sm"></span>
-          <span class="text-sm text-base-content/70">Loading...</span>
-        </div>
+          <div class="flex items-center justify-center gap-3 p-4">
+            <span class="loading loading-spinner loading-sm"></span>
+            <span class="text-sm text-base-content/70">Loading...</span>
+          </div>
         }
 
         <!-- Empty State -->
         @else if (suggestions().length === 0) {
-        <div class="flex items-center justify-center p-4">
-          <span class="text-sm text-base-content/60">{{ emptyMessage() }}</span>
-        </div>
+          <div class="flex items-center justify-center p-4">
+            <span class="text-sm text-base-content/60">{{
+              emptyMessage()
+            }}</span>
+          </div>
         }
 
         <!-- Suggestions List -->
         @else {
-        <div class="flex flex-col overflow-y-auto overflow-x-hidden p-1">
-          @for ( suggestion of suggestions(); track trackBy()($index,
-          suggestion); let i = $index ) {
-          <ptah-option
-            [optionId]="'suggestion-' + i"
-            [value]="suggestion"
-            (selected)="handleSelection($event)"
-            (hovered)="handleHover(i)"
-          >
-            <ng-container
-              *ngTemplateOutlet="
-                suggestionTemplate();
-                context: { $implicit: suggestion }
-              "
-            />
-          </ptah-option>
-          }
-        </div>
+          <div class="flex flex-col overflow-y-auto overflow-x-hidden p-1">
+            @for (
+              suggestion of suggestions();
+              track trackBy()($index, suggestion);
+              let i = $index
+            ) {
+              <ptah-option
+                [optionId]="'suggestion-' + i"
+                [value]="suggestion"
+                (selected)="handleSelection($event)"
+                (hovered)="handleHover(i)"
+              >
+                <ng-container
+                  *ngTemplateOutlet="
+                    suggestionTemplate();
+                    context: { $implicit: suggestion }
+                  "
+                />
+              </ptah-option>
+            }
+          </div>
         }
       </div>
     </ng-template>
@@ -138,7 +145,7 @@ export class AutocompleteComponent<T = unknown>
   readonly ariaLabel = input('Suggestions');
   readonly emptyMessage = input('No matches found');
   readonly trackBy = input<(index: number, item: T) => unknown>(
-    (i: number) => i
+    (i: number) => i,
   );
   readonly suggestionTemplate = input.required<TemplateRef<{ $implicit: T }>>();
 
@@ -153,6 +160,11 @@ export class AutocompleteComponent<T = unknown>
   private keyManager: ActiveDescendantKeyManager<OptionComponent<T>> | null =
     null;
 
+  // Tracks the last option count seen by the init effect so that we only
+  // reset the active item when the suggestion set actually changes size,
+  // not on every re-evaluation of the viewChildren signal.
+  private lastOptionCount = 0;
+
   // Active option ID for aria-activedescendant
   private readonly _activeOptionId = signal<string | null>(null);
   readonly activeOptionId = this._activeOptionId.asReadonly();
@@ -165,8 +177,11 @@ export class AutocompleteComponent<T = unknown>
     // This handles both initial render AND subsequent suggestion changes
     effect(() => {
       const options = this.optionComponents();
+      const count = options.length;
+      const previousCount = this.lastOptionCount;
+      this.lastOptionCount = count;
 
-      if (options.length === 0) {
+      if (count === 0) {
         // Destroy keyManager when no options to prevent stale references
         if (this.keyManager) {
           this.keyManager.destroy();
@@ -176,16 +191,21 @@ export class AutocompleteComponent<T = unknown>
         return;
       }
 
-      // Create/update keyManager when options exist
-      if (options.length > 0) {
-        if (this.keyManager) {
-          // Key manager exists - just reset to first item
-          this.keyManager.setFirstItemActive();
-          this.updateActiveOptionId();
-        } else {
-          // First time options are available - initialize key manager
-          this.initKeyManager();
-        }
+      // Only act when the option set actually changes size. Without this
+      // guard every detectChanges pass that re-evaluates viewChildren
+      // would reset the active item to index 0, clobbering hover /
+      // arrow-key selections the parent may have just applied.
+      if (count === previousCount && this.keyManager) {
+        return;
+      }
+
+      if (this.keyManager) {
+        // Option count changed (new suggestions) - reset to first item
+        this.keyManager.setFirstItemActive();
+        this.updateActiveOptionId();
+      } else {
+        // First time options are available - initialize key manager
+        this.initKeyManager();
       }
     });
   }

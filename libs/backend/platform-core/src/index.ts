@@ -23,6 +23,7 @@ export type { IFileSystemProvider } from './interfaces/file-system-provider.inte
 export type { IStateStorage } from './interfaces/state-storage.interface';
 export type { ISecretStorage } from './interfaces/secret-storage.interface';
 export type { IWorkspaceProvider } from './interfaces/workspace-provider.interface';
+export type { IWorkspaceLifecycleProvider } from './interfaces/workspace-lifecycle.interface';
 export type { IUserInteraction } from './interfaces/user-interaction.interface';
 export type { IOutputChannel } from './interfaces/output-channel.interface';
 export type { ICommandRegistry } from './interfaces/command-registry.interface';
@@ -30,8 +31,16 @@ export type { IEditorProvider } from './interfaces/editor-provider.interface';
 export type { ITokenCounter } from './interfaces/token-counter.interface';
 export type { IDiagnosticsProvider } from './interfaces/diagnostics-provider.interface';
 
+// Platform abstractions (moved from @ptah-extension/rpc-handlers in C8)
+export type {
+  IPlatformCommands,
+  IPlatformAuthProvider,
+  ISaveDialogProvider,
+  IModelDiscovery,
+} from './interfaces/platform-abstractions.interface';
+
 // DI Tokens
-export { PLATFORM_TOKENS } from './tokens';
+export { PLATFORM_TOKENS } from './di';
 
 // Utilities
 export { createEvent } from './utils/event-emitter';

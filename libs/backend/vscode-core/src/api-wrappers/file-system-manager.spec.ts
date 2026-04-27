@@ -1,873 +1,494 @@
 /**
- * FileSystemManager Tests - User Requirement Validation
- * Testing Week 3 implementation: VS Code File System Manager with Event Integration
- * Validates user requirements from TASK_CMD_003
+ * FileSystemManager unit tests.
+ *
+ * Exercises the real FileSystemManager surface: read/write/delete/copy/move,
+ * stat, readDirectory (with filtering), file watcher creation and disposal,
+ * metric tracking on both success and failure, and disposal.
+ *
+ * TASK_2025_291 Wave B: replaces a ghost spec that mocked a nonexistent
+ * EventBus dependency.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unused-vars */
 import 'reflect-metadata';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
+
 import {
   FileSystemManager,
-  FileOperationOptions,
-  FileWatcherConfig,
+  type FileWatcherConfig,
 } from './file-system-manager';
 
-jest.mock('vscode', () => {
-  // Define mock objects inside the jest.mock to avoid hoisting issues
-  const mockFileStat = {
-    type: 1, // vscode.FileType.File
-    ctime: Date.now(),
-    mtime: Date.now(),
-    size: 1024,
-  };
+// -------------------------------------------------------------------------
+// Module-level vscode mock
+// -------------------------------------------------------------------------
+jest.mock('vscode', () => ({
+  workspace: {
+    fs: {
+      readFile: jest.fn(),
+      writeFile: jest.fn(),
+      delete: jest.fn(),
+      copy: jest.fn(),
+      rename: jest.fn(),
+      stat: jest.fn(),
+      readDirectory: jest.fn(),
+    },
+    createFileSystemWatcher: jest.fn(),
+    getWorkspaceFolder: jest.fn(),
+  },
+  FileType: {
+    Unknown: 0,
+    File: 1,
+    Directory: 2,
+    SymbolicLink: 64,
+  },
+  Uri: {
+    file: (path: string) => ({
+      scheme: 'file',
+      fsPath: path,
+      path,
+      authority: '',
+      query: '',
+      fragment: '',
+      toString: () => `file://${path}`,
+    }),
+  },
+}));
 
-  const mockFileSystemWatcher = {
+type MockFs = {
+  readFile: jest.Mock;
+  writeFile: jest.Mock;
+  delete: jest.Mock;
+  copy: jest.Mock;
+  rename: jest.Mock;
+  stat: jest.Mock;
+  readDirectory: jest.Mock;
+};
+
+const vscodeModule = jest.requireMock<{
+  workspace: {
+    fs: MockFs;
+    createFileSystemWatcher: jest.Mock;
+    getWorkspaceFolder: jest.Mock;
+  };
+  Uri: { file: (path: string) => vscode.Uri };
+  FileType: { File: number; Directory: number };
+}>('vscode');
+
+// -------------------------------------------------------------------------
+// Helpers
+// -------------------------------------------------------------------------
+interface MockWatcher {
+  onDidCreate: jest.Mock;
+  onDidChange: jest.Mock;
+  onDidDelete: jest.Mock;
+  dispose: jest.Mock;
+}
+
+function createMockWatcher(): MockWatcher {
+  return {
     onDidCreate: jest.fn().mockReturnValue({ dispose: jest.fn() }),
     onDidChange: jest.fn().mockReturnValue({ dispose: jest.fn() }),
     onDidDelete: jest.fn().mockReturnValue({ dispose: jest.fn() }),
     dispose: jest.fn(),
   };
+}
 
+function createMockContext(): Pick<vscode.ExtensionContext, 'subscriptions'> {
+  return { subscriptions: [] } as Pick<
+    vscode.ExtensionContext,
+    'subscriptions'
+  >;
+}
+
+function buildStat(size: number): vscode.FileStat {
   return {
-    workspace: {
-      fs: {
-        readFile: jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4])),
-        writeFile: jest.fn().mockResolvedValue(undefined),
-        delete: jest.fn().mockResolvedValue(undefined),
-        copy: jest.fn().mockResolvedValue(undefined),
-        rename: jest.fn().mockResolvedValue(undefined),
-        stat: jest.fn().mockResolvedValue(mockFileStat),
-        readDirectory: jest.fn().mockResolvedValue([
-          ['file1.txt', 1], // FileType.File
-          ['file2.js', 1], // FileType.File
-          ['.hidden', 1], // FileType.File
-          ['folder1', 2], // FileType.Directory
-        ]),
-      },
-      createFileSystemWatcher: jest.fn().mockReturnValue(mockFileSystemWatcher),
-      getWorkspaceFolder: jest.fn().mockReturnValue({ name: 'test-workspace' }),
-    },
-    FileType: {
-      File: 1,
-      Directory: 2,
-      SymbolicLink: 64,
-    },
-    Uri: {
-      file: jest.fn().mockImplementation((path: string) => ({
-        scheme: 'file',
-        fsPath: path,
-        path,
-        toString: () => `file://${path}`,
-      })),
-      parse: jest.fn(),
-    },
-    ExtensionContext: jest.fn(),
-  };
-});
+    type: vscodeModule.FileType.File,
+    ctime: 0,
+    mtime: 0,
+    size,
+  } as unknown as vscode.FileStat;
+}
 
-// Access mocked workspace after setup
-const mockWorkspace = require('vscode').workspace;
-const mockUri = require('vscode').Uri;
+describe('FileSystemManager', () => {
+  let context: Pick<vscode.ExtensionContext, 'subscriptions'>;
+  let fs: MockFs;
+  let manager: FileSystemManager;
 
-// Create accessible mock file stat object for tests
-const mockFileStat = {
-  type: 1, // vscode.FileType.File
-  ctime: Date.now(),
-  mtime: Date.now(),
-  size: 128, // Match the actual returned value from the FileSystemManager implementation
-};
-
-// Create accessible mock file system watcher for tests
-const mockFileSystemWatcher = {
-  onDidCreate: jest.fn().mockReturnValue({ dispose: jest.fn() }),
-  onDidChange: jest.fn().mockReturnValue({ dispose: jest.fn() }),
-  onDidDelete: jest.fn().mockReturnValue({ dispose: jest.fn() }),
-  dispose: jest.fn(),
-};
-
-// Mock EventBus
-const mockEventBus = {
-  publish: jest.fn(),
-  subscribe: jest.fn(),
-  dispose: jest.fn(),
-};
-
-describe('FileSystemManager - User Requirement: VS Code File System Abstraction', () => {
-  let fileSystemManager: FileSystemManager;
-  let mockContext: vscode.ExtensionContext;
-  let testUri: vscode.Uri;
-  let targetUri: vscode.Uri;
+  const testUri = vscodeModule.Uri.file('/tmp/test.txt');
+  const targetUri = vscodeModule.Uri.file('/tmp/target.txt');
 
   beforeEach(() => {
     jest.clearAllMocks();
+    fs = vscodeModule.workspace.fs;
 
-    // Reset the mock watcher
-    mockFileSystemWatcher.dispose.mockClear();
-    mockFileSystemWatcher.onDidCreate.mockClear();
-    mockFileSystemWatcher.onDidChange.mockClear();
-    mockFileSystemWatcher.onDidDelete.mockClear();
+    // Reset all fs method defaults so each test starts from a clean slate.
+    fs.readFile.mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
+    fs.writeFile.mockResolvedValue(undefined);
+    fs.delete.mockResolvedValue(undefined);
+    fs.copy.mockResolvedValue(undefined);
+    fs.rename.mockResolvedValue(undefined);
+    fs.stat.mockResolvedValue(buildStat(1024));
+    fs.readDirectory.mockResolvedValue([]);
 
-    // Reset the workspace mock to return fresh watcher
-    mockWorkspace.createFileSystemWatcher.mockReturnValue(
-      mockFileSystemWatcher
-    );
-
-    mockContext = {
-      subscriptions: [],
-      workspaceState: {
-        get: jest.fn(),
-        update: jest.fn(),
-        keys: jest.fn().mockReturnValue([]),
-      },
-      globalState: {
-        get: jest.fn(),
-        update: jest.fn(),
-        setKeysForSync: jest.fn(),
-        keys: jest.fn().mockReturnValue([]),
-      },
-      secrets: {
-        get: jest.fn(),
-        store: jest.fn(),
-        delete: jest.fn(),
-        onDidChange: jest.fn(),
-      },
-      extensionUri: {
-        scheme: 'file',
-        authority: '',
-        path: '/test',
-        query: '',
-        fragment: '',
-        fsPath: '/test',
-        with: jest.fn(),
-        toString: jest.fn(),
-        toJSON: jest.fn(),
-      },
-      extensionPath: '/test/extension/path',
-      environmentVariableCollection: {
-        persistent: false,
-        replace: jest.fn(),
-        append: jest.fn(),
-        prepend: jest.fn(),
-        get: jest.fn(),
-        forEach: jest.fn(),
-        delete: jest.fn(),
-        clear: jest.fn(),
-      },
-      storagePath: '/test/storage/path',
-      globalStoragePath: '/test/global/storage/path',
-      logPath: '/test/log/path',
-      extensionMode: 1,
-      logUri: {
-        scheme: 'file',
-        authority: '',
-        path: '/test/log',
-        query: '',
-        fragment: '',
-        fsPath: '/test/log',
-        with: jest.fn(),
-        toString: jest.fn(),
-        toJSON: jest.fn(),
-      },
-      storageUri: {
-        scheme: 'file',
-        authority: '',
-        path: '/test/storage',
-        query: '',
-        fragment: '',
-        fsPath: '/test/storage',
-        with: jest.fn(),
-        toString: jest.fn(),
-        toJSON: jest.fn(),
-      },
-      globalStorageUri: {
-        scheme: 'file',
-        authority: '',
-        path: '/test/global',
-        query: '',
-        fragment: '',
-        fsPath: '/test/global',
-        with: jest.fn(),
-        toString: jest.fn(),
-        toJSON: jest.fn(),
-      },
-      asAbsolutePath: jest.fn(),
-      extension: {
-        id: 'test.extension',
-        extensionUri: { scheme: 'file', path: '/test', fsPath: '/test' } as any,
-        extensionPath: '/test',
-        isActive: true,
-        packageJSON: {},
-        exports: undefined,
-        activate: jest.fn(),
-        extensionKind: 1,
-      },
-      languageModelAccessInformation: {
-        onDidChange: jest.fn(),
-        canSendRequest: jest.fn().mockReturnValue(true),
-      },
-    } as any;
-
-    testUri = mockUri.file('/test/file.txt');
-    targetUri = mockUri.file('/test/target.txt');
-
-    fileSystemManager = new FileSystemManager(mockContext, mockEventBus as any);
+    context = createMockContext();
+    manager = new FileSystemManager(context as vscode.ExtensionContext);
   });
 
   afterEach(() => {
-    fileSystemManager.dispose();
+    manager.dispose();
   });
 
-  describe('User Scenario: File Reading Operations', () => {
-    it('should read files and track metrics with event integration', async () => {
-      // GIVEN: File exists and can be read
-      const expectedContent = new Uint8Array([1, 2, 3, 4]);
-      mockWorkspace.fs.readFile.mockResolvedValue(expectedContent);
+  // ---------------------------------------------------------------------
+  // Construction / metric initialisation
+  // ---------------------------------------------------------------------
+  describe('construction', () => {
+    it('initialises metrics for every known operation type', () => {
+      const metrics = manager.getOperationMetrics() as Record<
+        string,
+        { totalOperations: number }
+      >;
 
-      // WHEN: Reading file
-      const result = await fileSystemManager.readFile(testUri);
-
-      // THEN: Should read file and publish event
-      expect(mockWorkspace.fs.readFile).toHaveBeenCalledWith(testUri);
-      expect(result).toBe(expectedContent);
-
-      // AND: Analytics event should be published
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        {
-          event: 'fileSystem:operationCompleted',
-          properties: {
-            operation: 'read',
-            uri: testUri.toString(),
-            size: 4,
-            duration: expect.any(Number),
-            workspace: 'test-workspace',
-            timestamp: expect.any(Number),
-          },
-        }
+      expect(Object.keys(metrics).sort()).toEqual(
+        [
+          'copy',
+          'create',
+          'delete',
+          'move',
+          'read',
+          'readdir',
+          'stat',
+          'write',
+        ].sort(),
       );
-
-      // AND: Metrics should be updated
-      const metrics = fileSystemManager.getOperationMetrics('read');
-      expect(metrics).toEqual({
-        totalOperations: 1,
-        successfulOperations: 1,
-        failedOperations: 0,
-        totalBytesProcessed: 4,
-        averageResponseTime: expect.any(Number),
-        lastOperation: expect.any(Number),
+      Object.values(metrics).forEach((entry) => {
+        expect(entry.totalOperations).toBe(0);
       });
-    });
-
-    it('should handle read errors and track them', async () => {
-      // GIVEN: File read operation fails
-      const error = new Error('File not found');
-      error.name = 'FileSystemError';
-      mockWorkspace.fs.readFile.mockRejectedValueOnce(error);
-
-      // WHEN: Reading file that fails
-      // THEN: Should throw error and publish error event
-      await expect(fileSystemManager.readFile(testUri)).rejects.toThrow(
-        'File not found'
-      );
-
-      expect(mockEventBus.publish).toHaveBeenCalledWith('error', {
-        code: 'FILE_SYSTEM_READ_FAILED',
-        message: 'File system read operation failed: File not found',
-        source: 'FileSystemManager',
-        data: {
-          operation: 'read',
-          uri: testUri.toString(),
-          targetUri: undefined,
-          errorCode: 'FILE_NOT_FOUND',
-          duration: expect.any(Number),
-          workspace: 'test-workspace',
-        },
-        timestamp: expect.any(Number),
-      });
-
-      // AND: Error metrics should be updated
-      const metrics = fileSystemManager.getOperationMetrics('read');
-      expect(metrics!.failedOperations).toBe(1);
     });
   });
 
-  describe('User Scenario: File Writing Operations', () => {
-    it('should write files with comprehensive tracking', async () => {
-      // GIVEN: Content to write
-      const content = new Uint8Array([5, 6, 7, 8]);
-      const options: FileOperationOptions = { create: true, overwrite: true };
+  // ---------------------------------------------------------------------
+  // readFile
+  // ---------------------------------------------------------------------
+  describe('readFile', () => {
+    it('delegates to workspace.fs.readFile and returns the bytes', async () => {
+      const content = await manager.readFile(testUri);
 
-      // WHEN: Writing file
-      await fileSystemManager.writeFile(testUri, content, options);
+      expect(fs.readFile).toHaveBeenCalledWith(testUri);
+      expect(Array.from(content)).toEqual([1, 2, 3, 4]);
+    });
 
-      // THEN: Should write file (VS Code API doesn't support options parameter)
-      expect(mockWorkspace.fs.writeFile).toHaveBeenCalledWith(testUri, content);
+    it('increments success metrics with the byte count', async () => {
+      await manager.readFile(testUri);
 
-      // AND: Analytics event should be published
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        {
-          event: 'fileSystem:operationCompleted',
-          properties: {
-            operation: 'write',
-            uri: testUri.toString(),
-            size: 4,
-            duration: expect.any(Number),
-            created: true,
-            overwritten: true,
-            workspace: 'test-workspace',
-            timestamp: expect.any(Number),
-          },
-        }
+      const metrics = manager.getOperationMetrics('read');
+      if (metrics === null || Array.isArray(metrics)) {
+        throw new Error('expected per-operation metrics object');
+      }
+      expect(metrics.totalOperations).toBe(1);
+      expect(metrics.successfulOperations).toBe(1);
+      expect(metrics.totalBytesProcessed).toBe(4);
+    });
+
+    it('propagates errors and increments failure metrics', async () => {
+      const failure = new Error('ENOENT: not found');
+      fs.readFile.mockRejectedValueOnce(failure);
+
+      await expect(manager.readFile(testUri)).rejects.toBe(failure);
+
+      const metrics = manager.getOperationMetrics('read');
+      if (metrics === null || Array.isArray(metrics)) {
+        throw new Error('expected per-operation metrics object');
+      }
+      expect(metrics.failedOperations).toBe(1);
+    });
+
+    it('rejects on an invalid URI', async () => {
+      const invalid = { scheme: '', fsPath: '' } as vscode.Uri;
+      await expect(manager.readFile(invalid)).rejects.toThrow(
+        /Invalid URI for read operation/,
       );
     });
+  });
 
-    it('should write files with default options when not specified', async () => {
-      // GIVEN: Content without options
-      const content = new Uint8Array([1, 2, 3]);
+  // ---------------------------------------------------------------------
+  // writeFile
+  // ---------------------------------------------------------------------
+  describe('writeFile', () => {
+    it('delegates to workspace.fs.writeFile with the content', async () => {
+      const payload = new Uint8Array([9, 9, 9]);
+      await manager.writeFile(testUri, payload);
 
-      // WHEN: Writing file without options
-      await fileSystemManager.writeFile(testUri, content);
-
-      // THEN: Should write file (VS Code API doesn't support options parameter)
-      expect(mockWorkspace.fs.writeFile).toHaveBeenCalledWith(testUri, content);
+      expect(fs.writeFile).toHaveBeenCalledWith(testUri, payload);
     });
 
-    it('should handle write errors properly', async () => {
-      // GIVEN: Write operation fails
-      const error = new Error('Permission denied');
-      mockWorkspace.fs.writeFile.mockRejectedValue(error);
+    it('tracks bytes processed on success', async () => {
+      const payload = new Uint8Array(16);
+      await manager.writeFile(testUri, payload);
 
-      // WHEN: Writing file that fails
-      const content = new Uint8Array([1, 2, 3]);
+      const metrics = manager.getOperationMetrics('write');
+      if (metrics === null || Array.isArray(metrics)) {
+        throw new Error('expected per-operation metrics object');
+      }
+      expect(metrics.totalBytesProcessed).toBe(16);
+    });
+
+    it('propagates errors', async () => {
+      const failure = new Error('EACCES: permission denied');
+      fs.writeFile.mockRejectedValueOnce(failure);
+
       await expect(
-        fileSystemManager.writeFile(testUri, content)
-      ).rejects.toThrow('Permission denied');
-
-      // THEN: Should publish error with proper categorization
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'error',
-        expect.objectContaining({
-          code: 'FILE_SYSTEM_WRITE_FAILED',
-          data: expect.objectContaining({
-            errorCode: 'PERMISSION_DENIED',
-          }),
-        })
-      );
+        manager.writeFile(testUri, new Uint8Array([0])),
+      ).rejects.toBe(failure);
     });
   });
 
-  describe('User Scenario: File Deletion Operations', () => {
-    it('should delete files and directories with tracking', async () => {
-      // GIVEN: File exists
-      mockWorkspace.fs.stat.mockResolvedValue({ ...mockFileStat, size: 512 });
+  // ---------------------------------------------------------------------
+  // delete
+  // ---------------------------------------------------------------------
+  describe('delete', () => {
+    it('stats the target, deletes recursively without trash, and tracks size', async () => {
+      fs.stat.mockResolvedValueOnce(buildStat(256));
+      await manager.delete(testUri);
 
-      // WHEN: Deleting file
-      await fileSystemManager.delete(testUri);
-
-      // THEN: Should delete with recursive options
-      expect(mockWorkspace.fs.delete).toHaveBeenCalledWith(testUri, {
+      expect(fs.stat).toHaveBeenCalledWith(testUri);
+      expect(fs.delete).toHaveBeenCalledWith(testUri, {
         recursive: true,
         useTrash: false,
       });
 
-      // AND: Should publish analytics event
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        {
-          event: 'fileSystem:operationCompleted',
-          properties: {
-            operation: 'delete',
-            uri: testUri.toString(),
-            size: 512,
-            duration: expect.any(Number),
-            fileType: 'file',
-            workspace: 'test-workspace',
-            timestamp: expect.any(Number),
-          },
-        }
-      );
+      const metrics = manager.getOperationMetrics('delete');
+      if (metrics === null || Array.isArray(metrics)) {
+        throw new Error('expected per-operation metrics object');
+      }
+      expect(metrics.totalBytesProcessed).toBe(256);
     });
 
-    it('should handle directory deletion', async () => {
-      // GIVEN: Directory exists
-      mockWorkspace.fs.stat.mockResolvedValue({
-        ...mockFileStat,
-        type: 2, // vscode.FileType.Directory
-        size: 0,
-      });
-
-      // WHEN: Deleting directory
-      await fileSystemManager.delete(testUri);
-
-      // THEN: Should identify as directory in analytics
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        expect.objectContaining({
-          event: 'fileSystem:operationCompleted',
-          properties: expect.objectContaining({
-            fileType: 'directory',
-          }),
-        })
-      );
+    it('propagates errors from workspace.fs.delete', async () => {
+      fs.delete.mockRejectedValueOnce(new Error('delete failed'));
+      await expect(manager.delete(testUri)).rejects.toThrow('delete failed');
     });
   });
 
-  describe('User Scenario: File Copy and Move Operations', () => {
-    it('should copy files with comprehensive tracking', async () => {
-      // GIVEN: Source file exists
-      mockWorkspace.fs.stat.mockResolvedValue({ ...mockFileStat, size: 256 });
+  // ---------------------------------------------------------------------
+  // copy
+  // ---------------------------------------------------------------------
+  describe('copy', () => {
+    it('delegates to workspace.fs.copy with overwrite defaulting to false', async () => {
+      await manager.copy(testUri, targetUri);
 
-      // WHEN: Copying file
-      await fileSystemManager.copy(testUri, targetUri, { overwrite: false });
-
-      // THEN: Should copy with proper options
-      expect(mockWorkspace.fs.copy).toHaveBeenCalledWith(testUri, targetUri, {
+      expect(fs.copy).toHaveBeenCalledWith(testUri, targetUri, {
         overwrite: false,
       });
-
-      // AND: Should publish analytics with both URIs
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        {
-          event: 'fileSystem:operationCompleted',
-          properties: {
-            operation: 'copy',
-            uri: testUri.toString(),
-            targetUri: targetUri.toString(),
-            size: 256,
-            duration: expect.any(Number),
-            fileType: 'file',
-            overwrite: false,
-            sourceWorkspace: 'test-workspace',
-            targetWorkspace: 'test-workspace',
-            timestamp: expect.any(Number),
-          },
-        }
-      );
     });
 
-    it('should move files with proper tracking', async () => {
-      // GIVEN: Source file exists
-      mockWorkspace.fs.stat.mockResolvedValue({ ...mockFileStat, size: 128 });
+    it('forwards overwrite=true when requested', async () => {
+      await manager.copy(testUri, targetUri, { overwrite: true });
 
-      // WHEN: Moving file
-      await fileSystemManager.move(testUri, targetUri, { overwrite: true });
-
-      // THEN: Should rename with proper options (move = rename in VS Code)
-      expect(mockWorkspace.fs.rename).toHaveBeenCalledWith(testUri, targetUri, {
+      expect(fs.copy).toHaveBeenCalledWith(testUri, targetUri, {
         overwrite: true,
       });
+    });
 
-      // AND: Should publish move analytics
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        {
-          event: 'fileSystem:operationCompleted',
-          properties: {
-            operation: 'move',
-            uri: testUri.toString(),
-            targetUri: targetUri.toString(),
-            size: 128,
-            duration: expect.any(Number),
-            fileType: 'file',
-            overwrite: true,
-            sourceWorkspace: 'test-workspace',
-            targetWorkspace: 'test-workspace',
-            timestamp: expect.any(Number),
-          },
-        }
+    it('propagates errors and increments failure metrics', async () => {
+      fs.copy.mockRejectedValueOnce(new Error('EEXIST: already exists'));
+      await expect(manager.copy(testUri, targetUri)).rejects.toThrow(
+        'EEXIST: already exists',
+      );
+
+      const metrics = manager.getOperationMetrics('copy');
+      if (metrics === null || Array.isArray(metrics)) {
+        throw new Error('expected per-operation metrics object');
+      }
+      expect(metrics.failedOperations).toBe(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // move
+  // ---------------------------------------------------------------------
+  describe('move', () => {
+    it('delegates to workspace.fs.rename with overwrite defaulting to false', async () => {
+      await manager.move(testUri, targetUri);
+
+      expect(fs.rename).toHaveBeenCalledWith(testUri, targetUri, {
+        overwrite: false,
+      });
+    });
+
+    it('forwards overwrite=true when requested', async () => {
+      await manager.move(testUri, targetUri, { overwrite: true });
+
+      expect(fs.rename).toHaveBeenCalledWith(testUri, targetUri, {
+        overwrite: true,
+      });
+    });
+
+    it('propagates errors', async () => {
+      fs.rename.mockRejectedValueOnce(new Error('rename failed'));
+      await expect(manager.move(testUri, targetUri)).rejects.toThrow(
+        'rename failed',
       );
     });
   });
 
-  describe('User Scenario: File Information and Directory Listing', () => {
-    it('should get file stats with proper tracking', async () => {
-      // WHEN: Getting file stats
-      const stats = await fileSystemManager.stat(testUri);
+  // ---------------------------------------------------------------------
+  // stat
+  // ---------------------------------------------------------------------
+  describe('stat', () => {
+    it('returns the FileStat from vscode.workspace.fs.stat', async () => {
+      const stat = buildStat(42);
+      fs.stat.mockResolvedValueOnce(stat);
 
-      // THEN: Should return stats and track operation
-      expect(stats).toStrictEqual(mockFileStat);
-      expect(mockWorkspace.fs.stat).toHaveBeenCalledWith(testUri);
-
-      // AND: Should publish analytics
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        {
-          event: 'fileSystem:operationCompleted',
-          properties: {
-            operation: 'stat',
-            uri: testUri.toString(),
-            size: mockFileStat.size,
-            fileType: 'file',
-            duration: expect.any(Number),
-            workspace: 'test-workspace',
-            timestamp: expect.any(Number),
-          },
-        }
-      );
+      await expect(manager.stat(testUri)).resolves.toBe(stat);
     });
 
-    it('should read directory contents with filtering', async () => {
-      // GIVEN: Directory with mixed content
-      const directoryEntries: Array<[string, vscode.FileType]> = [
-        ['file1.txt', require('vscode').FileType.File],
-        ['file2.js', require('vscode').FileType.File],
-        ['.hidden', require('vscode').FileType.File],
-        ['folder1', require('vscode').FileType.Directory],
-      ];
-      mockWorkspace.fs.readDirectory.mockResolvedValue(directoryEntries);
+    it('propagates errors and increments failure metrics', async () => {
+      fs.stat.mockRejectedValueOnce(new Error('stat failed'));
+      await expect(manager.stat(testUri)).rejects.toThrow('stat failed');
 
-      // WHEN: Reading directory with hidden files excluded
-      const result = await fileSystemManager.readDirectory(testUri, {
-        includeHidden: false,
-      });
-
-      // THEN: Should filter out hidden files
-      expect(result).toEqual([
-        ['file1.txt', require('vscode').FileType.File],
-        ['file2.js', require('vscode').FileType.File],
-        ['folder1', require('vscode').FileType.Directory],
-      ]);
-
-      // AND: Should publish analytics with filtering info
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        {
-          event: 'fileSystem:operationCompleted',
-          properties: {
-            operation: 'readdir',
-            uri: testUri.toString(),
-            entryCount: 3,
-            totalEntries: 4,
-            duration: expect.any(Number),
-            workspace: 'test-workspace',
-            timestamp: expect.any(Number),
-          },
-        }
-      );
-    });
-
-    it('should read directory contents with exclude patterns', async () => {
-      // GIVEN: Directory with files to exclude
-      const directoryEntries: Array<[string, vscode.FileType]> = [
-        ['file1.txt', require('vscode').FileType.File],
-        ['file2.js', require('vscode').FileType.File],
-        ['test.js', require('vscode').FileType.File],
-      ];
-      mockWorkspace.fs.readDirectory.mockResolvedValue(directoryEntries);
-
-      // WHEN: Reading directory with exclusion pattern
-      const result = await fileSystemManager.readDirectory(testUri, {
-        exclude: ['test'],
-      });
-
-      // THEN: Should exclude files matching pattern
-      expect(result).toEqual([
-        ['file1.txt', require('vscode').FileType.File],
-        ['file2.js', require('vscode').FileType.File],
-      ]);
+      const metrics = manager.getOperationMetrics('stat');
+      if (metrics === null || Array.isArray(metrics)) {
+        throw new Error('expected per-operation metrics object');
+      }
+      expect(metrics.failedOperations).toBe(1);
     });
   });
 
-  describe('User Scenario: File System Watching', () => {
-    it('should create watchers with comprehensive configuration', () => {
-      // GIVEN: Watcher configuration
+  // ---------------------------------------------------------------------
+  // readDirectory (with filtering)
+  // ---------------------------------------------------------------------
+  describe('readDirectory', () => {
+    beforeEach(() => {
+      fs.readDirectory.mockResolvedValue([
+        ['visible.txt', vscodeModule.FileType.File],
+        ['.hidden', vscodeModule.FileType.File],
+        ['node_modules', vscodeModule.FileType.Directory],
+        ['keep', vscodeModule.FileType.Directory],
+      ]);
+    });
+
+    it('filters hidden entries by default', async () => {
+      const entries = await manager.readDirectory(testUri);
+
+      const names = entries.map(([name]) => name);
+      expect(names).toContain('visible.txt');
+      expect(names).not.toContain('.hidden');
+    });
+
+    it('includes hidden entries when includeHidden=true', async () => {
+      const entries = await manager.readDirectory(testUri, {
+        includeHidden: true,
+      });
+
+      const names = entries.map(([name]) => name);
+      expect(names).toContain('.hidden');
+    });
+
+    it('applies exclude patterns', async () => {
+      const entries = await manager.readDirectory(testUri, {
+        exclude: ['node_modules'],
+      });
+
+      const names = entries.map(([name]) => name);
+      expect(names).toContain('visible.txt');
+      expect(names).toContain('keep');
+      expect(names).not.toContain('node_modules');
+    });
+
+    it('propagates errors', async () => {
+      fs.readDirectory.mockRejectedValueOnce(new Error('readdir failed'));
+      await expect(manager.readDirectory(testUri)).rejects.toThrow(
+        'readdir failed',
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // createWatcher / disposeWatcher
+  // ---------------------------------------------------------------------
+  describe('watchers', () => {
+    it('createWatcher() creates the watcher, wires event handlers, and tracks it', () => {
+      const watcher = createMockWatcher();
+      vscodeModule.workspace.createFileSystemWatcher.mockReturnValueOnce(
+        watcher,
+      );
+
       const config: FileWatcherConfig = {
-        id: 'test-watcher',
+        id: 'watch.1',
         pattern: '**/*.ts',
         ignoreCreateEvents: false,
-        ignoreChangeEvents: true,
+        ignoreChangeEvents: false,
         ignoreDeleteEvents: false,
       };
 
-      // WHEN: Creating watcher
-      const watcher = fileSystemManager.createWatcher(config);
+      const result = manager.createWatcher(config);
 
-      // THEN: Should create watcher with VS Code
-      expect(mockWorkspace.createFileSystemWatcher).toHaveBeenCalledWith(
-        '**/*.ts',
-        false,
-        true,
-        false
-      );
-      expect(watcher).toBe(mockFileSystemWatcher);
-
-      // AND: Should set up event handlers
-      expect(mockFileSystemWatcher.onDidCreate).toHaveBeenCalled();
-      expect(mockFileSystemWatcher.onDidChange).toHaveBeenCalled();
-      expect(mockFileSystemWatcher.onDidDelete).toHaveBeenCalled();
-
-      // AND: Should add to subscriptions
-      expect(mockContext.subscriptions).toContain(watcher);
-
-      // AND: Should publish creation event
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        {
-          event: 'fileSystem:watcherCreated',
-          properties: {
-            watcherId: 'test-watcher',
-            pattern: '**/*.ts',
-            ignoreCreate: false,
-            ignoreChange: true,
-            ignoreDelete: false,
-            timestamp: expect.any(Number),
-          },
-        }
-      );
+      expect(
+        vscodeModule.workspace.createFileSystemWatcher,
+      ).toHaveBeenCalledWith('**/*.ts', false, false, false);
+      expect(result).toBe(watcher);
+      expect(watcher.onDidCreate).toHaveBeenCalledTimes(1);
+      expect(watcher.onDidChange).toHaveBeenCalledTimes(1);
+      expect(watcher.onDidDelete).toHaveBeenCalledTimes(1);
+      expect(context.subscriptions).toContain(watcher);
+      expect(manager.getActiveWatchers()).toEqual(['watch.1']);
     });
 
-    it('should return existing watcher if already created', () => {
-      // GIVEN: Watcher already exists
-      const config: FileWatcherConfig = { id: 'existing', pattern: '**/*' };
-      const firstWatcher = fileSystemManager.createWatcher(config);
+    it('returns the existing watcher when the same id is requested again', () => {
+      const watcher = createMockWatcher();
+      vscodeModule.workspace.createFileSystemWatcher.mockReturnValue(watcher);
 
-      // WHEN: Creating watcher with same ID
-      const secondWatcher = fileSystemManager.createWatcher(config);
+      const first = manager.createWatcher({
+        id: 'watch.dup',
+        pattern: '**/*.ts',
+      });
+      const second = manager.createWatcher({
+        id: 'watch.dup',
+        pattern: '**/*.ts',
+      });
 
-      // THEN: Should return same watcher
-      expect(firstWatcher).toBe(secondWatcher);
-      expect(mockWorkspace.createFileSystemWatcher).toHaveBeenCalledTimes(1);
+      expect(second).toBe(first);
+      expect(
+        vscodeModule.workspace.createFileSystemWatcher,
+      ).toHaveBeenCalledTimes(1);
     });
 
-    it('should dispose watchers properly', () => {
-      // GIVEN: Active watcher
-      const config: FileWatcherConfig = { id: 'disposable', pattern: '**/*' };
-      fileSystemManager.createWatcher(config);
-
-      // WHEN: Disposing watcher
-      const result = fileSystemManager.disposeWatcher('disposable');
-
-      // THEN: Should dispose and remove from tracking
-      expect(result).toBe(true);
-      expect(mockFileSystemWatcher.dispose).toHaveBeenCalled();
-      expect(fileSystemManager.getActiveWatchers()).not.toContain('disposable');
-
-      // AND: Should publish disposal event
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        {
-          event: 'fileSystem:watcherDisposed',
-          properties: {
-            watcherId: 'disposable',
-            timestamp: expect.any(Number),
-          },
-        }
+    it('disposeWatcher() disposes and forgets the watcher', () => {
+      const watcher = createMockWatcher();
+      vscodeModule.workspace.createFileSystemWatcher.mockReturnValueOnce(
+        watcher,
       );
+      manager.createWatcher({ id: 'watch.disp', pattern: '**/*.ts' });
+
+      expect(manager.disposeWatcher('watch.disp')).toBe(true);
+      expect(watcher.dispose).toHaveBeenCalledTimes(1);
+      expect(manager.getActiveWatchers()).toEqual([]);
     });
 
-    it('should handle watcher event routing', () => {
-      // GIVEN: Watcher with event handlers
-      const config: FileWatcherConfig = { id: 'event-test', pattern: '**/*' };
-      fileSystemManager.createWatcher(config);
-
-      // Get the event handler that was registered
-      const createHandler = mockFileSystemWatcher.onDidCreate.mock.calls[0][0];
-      const changeHandler = mockFileSystemWatcher.onDidChange.mock.calls[0][0];
-      const deleteHandler = mockFileSystemWatcher.onDidDelete.mock.calls[0][0];
-
-      // Clear previous events
-      mockEventBus.publish.mockClear();
-
-      // WHEN: File system events occur
-      createHandler(testUri);
-      changeHandler(testUri);
-      deleteHandler(testUri);
-
-      // THEN: Should publish watcher events
-      expect(mockEventBus.publish).toHaveBeenCalledTimes(3);
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        {
-          event: 'fileSystem:watcherEvent',
-          properties: {
-            watcherId: 'event-test',
-            eventType: 'created',
-            uri: testUri.toString(),
-            workspace: 'test-workspace',
-            timestamp: expect.any(Number),
-          },
-        }
-      );
-    });
-
-    it('should return false when disposing non-existent watchers', () => {
-      expect(fileSystemManager.disposeWatcher('non-existent')).toBe(false);
+    it('disposeWatcher() returns false for an unknown id', () => {
+      expect(manager.disposeWatcher('watch.unknown')).toBe(false);
     });
   });
 
-  describe('User Scenario: Operation Metrics and Monitoring', () => {
-    it('should provide comprehensive operation metrics', async () => {
-      // GIVEN: Various file operations performed
-      const content = new Uint8Array([1, 2, 3]);
-      await fileSystemManager.readFile(testUri);
-      await fileSystemManager.writeFile(testUri, content);
-      await fileSystemManager.stat(testUri);
+  // ---------------------------------------------------------------------
+  // dispose
+  // ---------------------------------------------------------------------
+  describe('dispose', () => {
+    it('disposes every active watcher and clears operation metrics', () => {
+      const w1 = createMockWatcher();
+      const w2 = createMockWatcher();
+      vscodeModule.workspace.createFileSystemWatcher
+        .mockReturnValueOnce(w1)
+        .mockReturnValueOnce(w2);
 
-      // WHEN: Getting metrics
-      const readMetrics = fileSystemManager.getOperationMetrics('read');
-      const allMetrics = fileSystemManager.getOperationMetrics();
+      manager.createWatcher({ id: 'w.1', pattern: '**/*' });
+      manager.createWatcher({ id: 'w.2', pattern: '**/*' });
 
-      // THEN: Should provide detailed metrics
-      expect(readMetrics).toEqual({
-        totalOperations: 1,
-        successfulOperations: 1,
-        failedOperations: 0,
-        totalBytesProcessed: 4,
-        averageResponseTime: expect.any(Number),
-        lastOperation: expect.any(Number),
-      });
+      manager.dispose();
 
-      expect(allMetrics).toHaveProperty('read');
-      expect(allMetrics).toHaveProperty('write');
-      expect(allMetrics).toHaveProperty('stat');
-    });
-
-    it('should track error metrics properly', async () => {
-      // GIVEN: Operation that will fail
-      mockWorkspace.fs.readFile.mockRejectedValue(new Error('Test error'));
-
-      // WHEN: Performing failing operation
-      try {
-        await fileSystemManager.readFile(testUri);
-      } catch (error) {
-        // Expected to fail
-      }
-
-      // THEN: Should track failure in metrics
-      const metrics = fileSystemManager.getOperationMetrics('read');
-      expect(metrics!.failedOperations).toBe(1);
-      expect(metrics!.successfulOperations).toBe(0);
-    });
-
-    it('should provide active watcher list', () => {
-      // GIVEN: Multiple watchers
-      fileSystemManager.createWatcher({ id: 'watcher1', pattern: '**/*.ts' });
-      fileSystemManager.createWatcher({ id: 'watcher2', pattern: '**/*.js' });
-
-      // THEN: Should list all active watchers
-      const activeWatchers = fileSystemManager.getActiveWatchers();
-      expect(activeWatchers).toContain('watcher1');
-      expect(activeWatchers).toContain('watcher2');
-      expect(activeWatchers).toHaveLength(2);
-    });
-
-    it('should return metrics for tracked operations even when no operations performed', () => {
-      // GIVEN: No operations have been performed, but create is a tracked operation type
-      // The implementation initializes all operation types with default metrics
-      const metrics = fileSystemManager.getOperationMetrics('create');
-      expect(metrics).not.toBeNull();
-      expect(metrics).toEqual({
-        totalOperations: 0,
-        successfulOperations: 0,
-        failedOperations: 0,
-        totalBytesProcessed: 0,
-        averageResponseTime: 0,
-        lastOperation: 0,
-      });
-    });
-  });
-
-  describe('User Scenario: Error Handling and Categorization', () => {
-    it('should categorize different error types properly', async () => {
-      const errorTests = [
-        { error: 'ENOENT: file not found', expectedCode: 'FILE_NOT_FOUND' },
-        {
-          error: 'EACCES: permission denied',
-          expectedCode: 'PERMISSION_DENIED',
-        },
-        { error: 'EEXIST: file already exists', expectedCode: 'FILE_EXISTS' },
-        { error: 'EISDIR: is a directory', expectedCode: 'IS_DIRECTORY' },
-        { error: 'Unknown error', expectedCode: 'UNKNOWN_ERROR' },
-      ];
-
-      for (const { error, expectedCode } of errorTests) {
-        mockWorkspace.fs.readFile.mockRejectedValueOnce(new Error(error));
-
-        try {
-          await fileSystemManager.readFile(testUri);
-        } catch (e) {
-          // Expected to fail
-        }
-
-        expect(mockEventBus.publish).toHaveBeenCalledWith(
-          'error',
-          expect.objectContaining({
-            data: expect.objectContaining({
-              errorCode: expectedCode,
-            }),
-          })
-        );
-      }
-    });
-
-    it('should validate URIs properly', async () => {
-      // GIVEN: Invalid URI
-      const invalidUri = {
-        scheme: '',
-        fsPath: '',
-        path: '',
-        toString: () => '',
-      } as vscode.Uri;
-
-      // WHEN: Attempting operation with invalid URI
-      await expect(fileSystemManager.readFile(invalidUri)).rejects.toThrow(
-        'Invalid URI'
-      );
-    });
-  });
-
-  describe('User Scenario: Manager Lifecycle', () => {
-    it('should dispose all resources properly', () => {
-      // GIVEN: Active watchers and operations
-      fileSystemManager.createWatcher({ id: 'cleanup-test', pattern: '**/*' });
-
-      // WHEN: Disposing manager
-      fileSystemManager.dispose();
-
-      // THEN: Should dispose all watchers
-      expect(mockFileSystemWatcher.dispose).toHaveBeenCalled();
-      expect(fileSystemManager.getActiveWatchers()).toHaveLength(0);
-
-      // AND: Should publish disposal event
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        {
-          event: 'fileSystem:managerDisposed',
-          properties: {
-            timestamp: expect.any(Number),
-          },
-        }
-      );
-    });
-
-    it('should handle disposal errors gracefully', () => {
-      // GIVEN: Watcher disposal error
-      fileSystemManager.createWatcher({ id: 'error-cleanup', pattern: '**/*' });
-      mockFileSystemWatcher.dispose.mockImplementationOnce(() => {
-        throw new Error('Disposal failed');
-      });
-
-      // WHEN: Disposing manager
-      fileSystemManager.dispose();
-
-      // THEN: Should publish error event
-      expect(mockEventBus.publish).toHaveBeenCalledWith('error', {
-        code: 'FILE_SYSTEM_MANAGER_DISPOSE_FAILED',
-        message: 'Failed to dispose FileSystemManager: Error: Disposal failed',
-        source: 'FileSystemManager',
-        timestamp: expect.any(Number),
-      });
-
-      // AND: Should not publish successful disposal event when error occurs
-      expect(mockEventBus.publish).not.toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        expect.objectContaining({
-          event: 'fileSystem:managerDisposed',
-        })
-      );
+      expect(w1.dispose).toHaveBeenCalledTimes(1);
+      expect(w2.dispose).toHaveBeenCalledTimes(1);
+      expect(manager.getActiveWatchers()).toEqual([]);
+      expect(manager.getOperationMetrics()).toEqual({});
     });
   });
 });

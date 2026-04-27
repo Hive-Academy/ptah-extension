@@ -1,4 +1,4 @@
-import {
+﻿import {
   Component,
   inject,
   signal,
@@ -24,19 +24,28 @@ import {
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
-import { PermissionBadgeComponent } from '../molecules/permissions/permission-badge.component';
-import { QuestionCardComponent } from '../molecules/question-card.component';
+import {
+  PermissionBadgeComponent,
+  QuestionCardComponent,
+  SessionStatsSummaryComponent,
+  CompactionNotificationComponent,
+  SidebarTabComponent,
+} from '@ptah-extension/chat-ui';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
-import { SessionStatsSummaryComponent } from '../molecules/session/session-stats-summary.component';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
-import { CompactionNotificationComponent } from '../molecules/notifications/compaction-notification.component';
-import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { ChatStore } from '../../services/chat.store';
-import { AgentMonitorStore } from '../../services/agent-monitor.store';
+import {
+  AgentMonitorStore,
+  ExecutionTreeBuilderService,
+} from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
-import { TabManagerService } from '../../services/tab-manager.service';
-import { ExecutionTreeBuilderService } from '../../services/execution-tree-builder.service';
+import {
+  TabManagerService,
+  ConversationRegistry,
+  TabSessionBinding,
+  TabId,
+} from '@ptah-extension/chat-state';
 import { SESSION_CONTEXT } from '../../tokens/session-context.token';
 import { VSCodeService } from '@ptah-extension/core';
 import {
@@ -103,6 +112,13 @@ export class ChatViewComponent {
   });
   private readonly _tabManager = inject(TabManagerService);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
+
+  // TASK_2026_106 Phase 4c — compaction banner is now sourced from the
+  // ConversationRegistry so all tabs bound to a compacting conversation
+  // see the banner simultaneously (canvas-grid scenario). Falls back to
+  // legacy per-tab `isCompacting` flag for tabs not yet registered.
+  private readonly _conversationRegistry = inject(ConversationRegistry);
+  private readonly _tabSessionBinding = inject(TabSessionBinding);
 
   /** Lucide icon references for template binding */
   protected readonly BellIcon = Bell;
@@ -225,9 +241,9 @@ export class ChatViewComponent {
   private lastMessageCount = 0;
 
   /**
-   * Tracks previous streaming state to detect the streaming→idle transition.
+   * Tracks previous streaming state to detect the streamingâ†’idle transition.
    * When streaming ends (agent finishes), we force scroll-to-bottom regardless
-   * of userScrolledUp — the dramatic DOM change during finalization (streaming
+   * of userScrolledUp â€” the dramatic DOM change during finalization (streaming
    * DOM replaced with finalized DOM) can trigger layout-driven scroll events
    * that falsely set userScrolledUp=true.
    */
@@ -246,7 +262,7 @@ export class ChatViewComponent {
   private isRestoringScroll = false;
 
   /**
-   * Guard active during the streaming→finalized DOM transition.
+   * Guard active during the streamingâ†’finalized DOM transition.
    * Suppresses onScroll events and forces scheduleScroll to scroll regardless
    * of userScrolledUp. Prevents layout-driven scroll events from blocking
    * auto-scroll during the dramatic DOM swap (streaming elements destroyed,
@@ -383,9 +399,27 @@ export class ChatViewComponent {
   /**
    * Resolved isCompacting: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
    * Prevents compaction banner from showing on ALL canvas tiles when only one session compacts.
+   *
+   * TASK_2026_106 Phase 4c — sourced from `ConversationRegistry` via
+   * `TabSessionBinding`. Compaction is conversation-scoped, so every tab
+   * bound to the conversation sees the banner together (canvas-grid). Falls
+   * back to legacy per-tab `isCompacting` when the tab has no binding yet
+   * (e.g. before StreamRouter has hydrated, or the tab predates the bind).
    */
   readonly resolvedIsCompacting = computed(() => {
     const tab = this.resolvedTab();
+    const tabId = tab?.id ?? this._tabManager.activeTabId();
+    if (tabId) {
+      const convId = this._tabSessionBinding.conversationFor(tabId as TabId);
+      if (convId) {
+        const compactionState =
+          this._conversationRegistry.compactionStateFor(convId);
+        if (compactionState) {
+          return compactionState.inFlight;
+        }
+      }
+    }
+    // Legacy fallback: tab predates conversation registration, or no binding yet.
     return tab !== null
       ? (tab.isCompacting ?? false)
       : this.chatStore.isCompacting();
@@ -393,7 +427,7 @@ export class ChatViewComponent {
 
   /**
    * Resolved question requests: scoped to this tile's session in canvas mode.
-   * Prevents question cards from appearing in ALL tiles — only the session that
+   * Prevents question cards from appearing in ALL tiles â€” only the session that
    * triggered the question shows the card.
    *
    * Matches against BOTH the frontend tab UUID (resolvedTabId) AND the real SDK
@@ -512,7 +546,7 @@ export class ChatViewComponent {
         this.agentPanelOpen.set(true);
       }
 
-      // Reset explicit-close flag when all agents finish — next spawn will auto-open
+      // Reset explicit-close flag when all agents finish â€” next spawn will auto-open
       if (!hasRunning && !hasPendingPermission && agents.length > 0) {
         this._userExplicitlyClosed = false;
       }
@@ -659,7 +693,7 @@ export class ChatViewComponent {
   }
 
   /**
-   * Edit queued message — pushes content back to the input and clears the queue.
+   * Edit queued message â€” pushes content back to the input and clears the queue.
    * Uses restoreContentToInput so the user can modify and re-send.
    */
   editQueue(): void {
@@ -702,7 +736,7 @@ export class ChatViewComponent {
   }
 
   /**
-   * Handle "Resume All" — builds a single combined prompt for all interrupted agents
+   * Handle "Resume All" â€” builds a single combined prompt for all interrupted agents
    * and sends it as one message to the existing session.
    */
   handleResumeAllAgents(agents: SubagentRecord[]): void {

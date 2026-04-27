@@ -1,11 +1,13 @@
-import { Injectable, inject, Injector } from '@angular/core';
+﻿import { Injectable, inject, Injector } from '@angular/core';
 import {
   type IWorkspaceCoordinator,
   type ConfirmDialogOptions,
 } from '@ptah-extension/core';
 import { type SessionId } from '@ptah-extension/shared';
-import { TabManagerService } from './tab-manager.service';
-import { ConfirmationDialogService } from './confirmation-dialog.service';
+import {
+  ConfirmationDialogService,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 
 /**

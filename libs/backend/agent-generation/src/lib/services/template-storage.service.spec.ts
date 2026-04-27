@@ -40,9 +40,21 @@ interface MockLogger {
   dispose: jest.Mock;
 }
 
+// Mock SentryService interface (only methods used in tests)
+interface MockSentryService {
+  initialize: jest.Mock;
+  captureException: jest.Mock;
+  captureMessage: jest.Mock;
+  addBreadcrumb: jest.Mock;
+  flush: jest.Mock;
+  shutdown: jest.Mock;
+  isInitialized: jest.Mock;
+}
+
 describe('TemplateStorageService', () => {
   let service: TemplateStorageService;
   let mockLogger: MockLogger;
+  let mockSentry: MockSentryService;
 
   // Sample valid template content
   const validTemplateContent = `---
@@ -129,10 +141,22 @@ Core orchestration logic.
       dispose: jest.fn() as any,
     };
 
+    // Create mock SentryService
+    mockSentry = {
+      initialize: jest.fn() as any,
+      captureException: jest.fn() as any,
+      captureMessage: jest.fn() as any,
+      addBreadcrumb: jest.fn() as any,
+      flush: jest.fn() as any,
+      shutdown: jest.fn() as any,
+      isInitialized: jest.fn() as any,
+    };
+
     // Create service instance with test templates path
     service = new TemplateStorageService(
       mockLogger as any,
-      '/test/templates/agents'
+      mockSentry as any,
+      '/test/templates/agents',
     );
   });
 
@@ -196,7 +220,7 @@ Core orchestration logic.
       expect(result.value).toEqual([]);
       expect(mockLogger.warn).toHaveBeenCalledWith(
         'Templates directory does not exist',
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
@@ -212,7 +236,7 @@ Core orchestration logic.
       expect(result.value).toEqual([]);
       expect(mockLogger.warn).toHaveBeenCalledWith(
         'No template files found',
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
@@ -338,7 +362,7 @@ Content`;
       // Assert
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain(
-        'Failed to parse YAML frontmatter'
+        'Failed to parse YAML frontmatter',
       );
     });
 
@@ -385,7 +409,7 @@ Content`;
       // Assert
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain(
-        'Missing required field in applicabilityRules'
+        'Missing required field in applicabilityRules',
       );
     });
 
@@ -411,7 +435,7 @@ applicabilityRules:
       // Assert
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain(
-        'Template content cannot be empty'
+        'Template content cannot be empty',
       );
     });
   });
@@ -592,7 +616,7 @@ Content`;
       // Assert
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain(
-        'must be a number between 0 and 100'
+        'must be a number between 0 and 100',
       );
     });
 
@@ -618,7 +642,7 @@ Content`;
       // Assert
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain(
-        'alwaysInclude must be a boolean'
+        'alwaysInclude must be a boolean',
       );
     });
   });

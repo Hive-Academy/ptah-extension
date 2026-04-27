@@ -15,7 +15,7 @@ import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import type { ISaveDialogProvider } from '../platform-abstractions';
+import type { ISaveDialogProvider } from '@ptah-extension/platform-core';
 import type {
   QualityGetAssessmentParams,
   QualityGetAssessmentResult,
@@ -29,6 +29,7 @@ import type {
   IQualityHistoryService,
   IQualityExportService,
 } from '@ptah-extension/workspace-intelligence';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for quality dashboard operations
@@ -42,6 +43,12 @@ import type {
  */
 @injectable()
 export class QualityRpcHandlers {
+  static readonly METHODS = [
+    'quality:getAssessment',
+    'quality:getHistory',
+    'quality:export',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,

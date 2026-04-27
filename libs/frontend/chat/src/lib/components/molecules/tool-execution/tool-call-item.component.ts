@@ -8,10 +8,12 @@ import {
   ChangeDetectionStrategy,
   viewChild,
 } from '@angular/core';
-import { ToolCallHeaderComponent } from './tool-call-header.component';
-import { ToolInputDisplayComponent } from './tool-input-display.component';
-import { ToolOutputDisplayComponent } from './tool-output-display.component';
-import { PermissionRequestCardComponent } from '../permissions/permission-request-card.component';
+import {
+  ToolCallHeaderComponent,
+  ToolInputDisplayComponent,
+  ToolOutputDisplayComponent,
+  PermissionRequestCardComponent,
+} from '@ptah-extension/chat-ui';
 import type {
   ExecutionNode,
   PermissionRequest,

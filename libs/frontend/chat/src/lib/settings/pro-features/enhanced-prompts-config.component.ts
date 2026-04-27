@@ -15,7 +15,7 @@ import {
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type { EnhancedPromptsGetStatusResponse } from '@ptah-extension/shared';
-import { MarkdownBlockComponent } from '../../components/atoms/markdown-block.component';
+import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 
 /**
  * EnhancedPromptsConfigComponent - System prompt mode toggle, preset selection,

@@ -172,7 +172,7 @@ export class RuleRegistry {
    */
   configureRule(
     ruleId: AntiPatternType,
-    config: Partial<RuleConfiguration>
+    config: Partial<RuleConfiguration>,
   ): void {
     const existing = this.configurations.get(ruleId) || {};
     this.configurations.set(ruleId, { ...existing, ...config });
@@ -247,7 +247,7 @@ export class RuleRegistry {
    */
   getRulesForExtension(extension: string): AntiPatternRule[] {
     return this.getRules().filter((rule) =>
-      rule.fileExtensions.includes(extension)
+      rule.fileExtensions.includes(extension),
     );
   }
 
@@ -409,3 +409,6 @@ export {
   type RegexRuleConfig,
   type HeuristicRuleConfig,
 } from './rule-base';
+
+// Comment/string pre-processor (TASK_2025_291 B3)
+export { stripCommentsAndStrings } from './strip-comments-and-strings';

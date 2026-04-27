@@ -12,9 +12,30 @@
  */
 
 import 'reflect-metadata';
+
+// Mock workspace-intelligence to avoid transitive vscode / import.meta dependency
+jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  ProjectType: {
+    Node: 'node',
+    React: 'react',
+    Python: 'python',
+    General: 'general',
+  },
+  Framework: {
+    Express: 'express',
+    Angular: 'angular',
+    Django: 'django',
+    React: 'react',
+    NextJS: 'nextjs',
+  },
+  MonorepoType: {
+    Nx: 'nx',
+    Lerna: 'lerna',
+  },
+}));
+
 import { AgentCustomizationService } from './agent-customization.service';
 import { Logger } from '@ptah-extension/vscode-core';
-import { PtahAPIBuilder } from '@ptah-extension/vscode-lm-tools';
 import { Result } from '@ptah-extension/shared';
 import { IOutputValidationService } from '../interfaces/output-validation.interface';
 import { ITemplateStorageService } from '../interfaces/template-storage.interface';
@@ -29,12 +50,64 @@ import {
   MonorepoType,
 } from '@ptah-extension/workspace-intelligence';
 
+/**
+ * Local mock shape for InternalQueryService — we only use `execute()`.
+ */
+interface MockInternalQueryService {
+  execute: jest.Mock;
+}
+
+/**
+ * Build an async-iterable stream that emits a single `result` SDK message
+ * carrying the given text content.
+ */
+function makeSuccessStream(text: string): AsyncIterable<unknown> {
+  return {
+    [Symbol.asyncIterator]: async function* () {
+      yield {
+        type: 'result',
+        subtype: 'success',
+        content: [{ type: 'text', text }],
+      };
+    },
+  } as AsyncIterable<unknown>;
+}
+
+/**
+ * Build an async-iterable stream that throws when iterated — used to
+ * simulate LLM invocation errors.
+ */
+function makeFailingStream(error: Error): AsyncIterable<unknown> {
+  return {
+    [Symbol.asyncIterator]: async function* () {
+      throw error;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      yield undefined as never;
+    },
+  } as AsyncIterable<unknown>;
+}
+
+/**
+ * Extract the templateId from the `systemPromptAppend` string. The service
+ * builds it as:
+ *
+ *   You are customizing the "<topic>" section of the "<templateId>" agent template.
+ */
+function extractTemplateId(systemPromptAppend: string): string {
+  const matches = systemPromptAppend.match(/"([^"]+)"/g);
+  // matches[0] is the topic, matches[1] is the templateId
+  if (!matches || matches.length < 2) return '';
+  return matches[1].slice(1, -1);
+}
+
 describe('AgentCustomizationService', () => {
   let service: AgentCustomizationService;
-  let mockPtahApiBuilder: jest.Mocked<PtahAPIBuilder>;
+  let mockInternalQuery: MockInternalQueryService;
   let mockValidator: jest.Mocked<IOutputValidationService>;
   let mockTemplateStorage: jest.Mocked<ITemplateStorageService>;
   let mockLogger: jest.Mocked<Logger>;
+  // Legacy shim: preserves existing assertions that use
+  // `mockPtahApi.ai.invokeAgent` / `mockInvokeAgent`.
   let mockInvokeAgent: jest.Mock;
   let mockPtahApi: { ai: { invokeAgent: jest.Mock } };
 
@@ -94,7 +167,8 @@ describe('AgentCustomizationService', () => {
       error: jest.fn(),
     } as any;
 
-    // Mock PtahAPI - use separate mock function for proper typing
+    // Legacy shim: tests assert on `mockPtahApi.ai.invokeAgent(templatePath, task, model)`.
+    // We keep the same mock function and adapt it from the new InternalQueryService API.
     mockInvokeAgent = jest.fn();
     mockPtahApi = {
       ai: {
@@ -102,10 +176,34 @@ describe('AgentCustomizationService', () => {
       },
     };
 
-    // Mock PtahAPIBuilder
-    mockPtahApiBuilder = {
-      build: jest.fn().mockReturnValue(mockPtahApi),
-    } as any;
+    // InternalQueryService mock — adapts to the legacy `invokeAgent` shim so
+    // the 40+ existing assertions continue to work unchanged.
+    mockInternalQuery = {
+      execute: jest.fn(
+        async (params: {
+          model: string;
+          prompt: string;
+          systemPromptAppend: string;
+        }) => {
+          const templateId = extractTemplateId(params.systemPromptAppend);
+          const templatePath = `.claude/agents/${templateId}.md`;
+
+          // Call the legacy shim — this is where rejections / returned text
+          // flow through from test expectations.
+          const text = await mockInvokeAgent(
+            templatePath,
+            params.prompt,
+            params.model,
+          );
+
+          return {
+            stream: makeSuccessStream(typeof text === 'string' ? text : ''),
+            abort: jest.fn(),
+            close: jest.fn(),
+          };
+        },
+      ),
+    };
 
     // Mock OutputValidationService
     mockValidator = {
@@ -122,10 +220,10 @@ describe('AgentCustomizationService', () => {
 
     // Create service instance
     service = new AgentCustomizationService(
-      mockPtahApiBuilder,
+      mockInternalQuery as never,
       mockValidator,
       mockTemplateStorage,
-      mockLogger
+      mockLogger,
     );
   });
 
@@ -143,7 +241,7 @@ describe('AgentCustomizationService', () => {
           '- Use dependency injection\n- Follow SOLID principles';
 
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue(llmResponse);
         mockValidator.validate.mockResolvedValue(
@@ -151,14 +249,14 @@ describe('AgentCustomizationService', () => {
             isValid: true,
             issues: [],
             score: 95,
-          })
+          }),
         );
 
         // Act
         const result = await service.customizeSection(
           sectionTopic,
           templateId,
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -168,54 +266,54 @@ describe('AgentCustomizationService', () => {
         expect(mockPtahApi.ai.invokeAgent).toHaveBeenCalledWith(
           '.claude/agents/backend-developer.md',
           expect.stringContaining('Best Practices'),
-          'gpt-4o-mini'
+          'gpt-4o-mini',
         );
         expect(mockValidator.validate).toHaveBeenCalledTimes(1);
         expect(mockLogger.info).toHaveBeenCalledWith(
           'Section customization successful',
-          expect.objectContaining({ sectionTopic, score: 95 })
+          expect.objectContaining({ sectionTopic, score: 95 }),
         );
       });
 
       it('should pass project context to validation service', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('customized content');
         mockValidator.validate.mockResolvedValue(
-          Result.ok({ isValid: true, issues: [], score: 85 })
+          Result.ok({ isValid: true, issues: [], score: 85 }),
         );
 
         // Act
         await service.customizeSection(
           'Tech Stack',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
         expect(mockValidator.validate).toHaveBeenCalledWith(
           'customized content',
-          projectContext
+          projectContext,
         );
       });
 
       it('should include project context in customization task', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('content');
         mockValidator.validate.mockResolvedValue(
-          Result.ok({ isValid: true, issues: [], score: 80 })
+          Result.ok({ isValid: true, issues: [], score: 80 }),
         );
 
         // Act
         await service.customizeSection(
           'Architecture',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -232,17 +330,17 @@ describe('AgentCustomizationService', () => {
       it('should retry once on validation failure and succeed on second attempt', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent
           .mockResolvedValueOnce('invalid content v1')
           .mockResolvedValueOnce('valid content v2');
         mockValidator.validate
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 45 })
+            Result.ok({ isValid: false, issues: [], score: 45 }),
           )
           .mockResolvedValueOnce(
-            Result.ok({ isValid: true, issues: [], score: 75 })
+            Result.ok({ isValid: true, issues: [], score: 75 }),
           );
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
@@ -251,7 +349,7 @@ describe('AgentCustomizationService', () => {
         const result = await service.customizeSection(
           'Best Practices',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -265,7 +363,7 @@ describe('AgentCustomizationService', () => {
       it('should retry twice and succeed on third attempt', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent
           .mockResolvedValueOnce('invalid v1')
@@ -273,13 +371,13 @@ describe('AgentCustomizationService', () => {
           .mockResolvedValueOnce('valid v3');
         mockValidator.validate
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 40 })
+            Result.ok({ isValid: false, issues: [], score: 40 }),
           )
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 50 })
+            Result.ok({ isValid: false, issues: [], score: 50 }),
           )
           .mockResolvedValueOnce(
-            Result.ok({ isValid: true, issues: [], score: 80 })
+            Result.ok({ isValid: true, issues: [], score: 80 }),
           );
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
@@ -288,7 +386,7 @@ describe('AgentCustomizationService', () => {
         const result = await service.customizeSection(
           'Tech Stack',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -304,18 +402,18 @@ describe('AgentCustomizationService', () => {
       it('should use exponential backoff (3s → 6s)', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('content');
         mockValidator.validate
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 30 })
+            Result.ok({ isValid: false, issues: [], score: 30 }),
           )
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 40 })
+            Result.ok({ isValid: false, issues: [], score: 40 }),
           )
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 50 })
+            Result.ok({ isValid: false, issues: [], score: 50 }),
           );
 
         const delaySpy = jest
@@ -326,7 +424,7 @@ describe('AgentCustomizationService', () => {
         await service.customizeSection(
           'Architecture',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -337,15 +435,15 @@ describe('AgentCustomizationService', () => {
       it('should simplify task on retry attempts', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('content');
         mockValidator.validate
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 50 })
+            Result.ok({ isValid: false, issues: [], score: 50 }),
           )
           .mockResolvedValueOnce(
-            Result.ok({ isValid: true, issues: [], score: 75 })
+            Result.ok({ isValid: true, issues: [], score: 75 }),
           );
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
@@ -354,7 +452,7 @@ describe('AgentCustomizationService', () => {
         await service.customizeSection(
           'Best Practices',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -376,11 +474,11 @@ describe('AgentCustomizationService', () => {
       it.skip('should return empty string after 3 failed validation attempts', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('invalid content');
         mockValidator.validate.mockResolvedValue(
-          Result.ok({ isValid: false, issues: [], score: 35 })
+          Result.ok({ isValid: false, issues: [], score: 35 }),
         );
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
@@ -389,7 +487,7 @@ describe('AgentCustomizationService', () => {
         const result = await service.customizeSection(
           'Tech Stack',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -399,7 +497,7 @@ describe('AgentCustomizationService', () => {
         expect(mockValidator.validate).toHaveBeenCalledTimes(3);
         expect(mockLogger.warn).toHaveBeenCalledWith(
           'Max retries exhausted - validation failed',
-          expect.objectContaining({ sectionTopic: 'Tech Stack' })
+          expect.objectContaining({ sectionTopic: 'Tech Stack' }),
         );
       });
 
@@ -407,11 +505,11 @@ describe('AgentCustomizationService', () => {
       it.skip('should return empty string when validation service fails repeatedly', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('content');
         mockValidator.validate.mockResolvedValue(
-          Result.err(new Error('Validation service error'))
+          Result.err(new Error('Validation service error')),
         );
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
@@ -420,7 +518,7 @@ describe('AgentCustomizationService', () => {
         const result = await service.customizeSection(
           'Architecture',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -434,14 +532,14 @@ describe('AgentCustomizationService', () => {
       it('should return error when template not found', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.err(new Error('Template not found'))
+          Result.err(new Error('Template not found')),
         );
 
         // Act
         const result = await service.customizeSection(
           'Best Practices',
           'nonexistent-template',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -453,23 +551,27 @@ describe('AgentCustomizationService', () => {
       it('should return error when Ptah API initialization fails', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
-        mockPtahApiBuilder.build.mockImplementation(() => {
-          throw new Error('API initialization failed');
-        });
+        // Simulate the InternalQueryService failing to initialize / execute.
+        // The retry loop will catch this and exhaust after 3 attempts.
+        mockInternalQuery.execute.mockRejectedValue(
+          new Error('Ptah API initialization failed'),
+        );
+
+        jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
 
         // Act
         const result = await service.customizeSection(
           'Tech Stack',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
         expect(result.isErr()).toBe(true);
         expect(result.error!.message).toContain(
-          'Ptah API initialization failed'
+          'Ptah API initialization failed',
         );
         expect(mockPtahApi.ai.invokeAgent).not.toHaveBeenCalled();
       });
@@ -477,10 +579,10 @@ describe('AgentCustomizationService', () => {
       it('should retry on LLM invocation errors and return error after exhaustion', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockRejectedValue(
-          new Error('LLM API error')
+          new Error('LLM API error'),
         );
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
@@ -489,13 +591,13 @@ describe('AgentCustomizationService', () => {
         const result = await service.customizeSection(
           'Architecture',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
         expect(result.isErr()).toBe(true);
         expect(result.error!.message).toContain(
-          'LLM invocation failed after 3 attempts'
+          'LLM invocation failed after 3 attempts',
         );
         expect(mockPtahApi.ai.invokeAgent).toHaveBeenCalledTimes(3);
         expect((service as any).delay).toHaveBeenCalledTimes(2);
@@ -504,13 +606,13 @@ describe('AgentCustomizationService', () => {
       it('should handle LLM error on retry and succeed', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent
           .mockRejectedValueOnce(new Error('Network timeout'))
           .mockResolvedValueOnce('recovered content');
         mockValidator.validate.mockResolvedValue(
-          Result.ok({ isValid: true, issues: [], score: 85 })
+          Result.ok({ isValid: true, issues: [], score: 85 }),
         );
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
@@ -519,7 +621,7 @@ describe('AgentCustomizationService', () => {
         const result = await service.customizeSection(
           'Best Practices',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -533,18 +635,18 @@ describe('AgentCustomizationService', () => {
       it('should handle validation score exactly at threshold (70)', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('content');
         mockValidator.validate.mockResolvedValue(
-          Result.ok({ isValid: true, issues: [], score: 70 })
+          Result.ok({ isValid: true, issues: [], score: 70 }),
         );
 
         // Act
         const result = await service.customizeSection(
           'Tech Stack',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -557,11 +659,11 @@ describe('AgentCustomizationService', () => {
       it.skip('should handle validation score just below threshold (69)', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('low quality content');
         mockValidator.validate.mockResolvedValue(
-          Result.ok({ isValid: true, issues: [], score: 69 })
+          Result.ok({ isValid: true, issues: [], score: 69 }),
         );
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
@@ -570,7 +672,7 @@ describe('AgentCustomizationService', () => {
         const result = await service.customizeSection(
           'Architecture',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -583,11 +685,11 @@ describe('AgentCustomizationService', () => {
       it.skip('should handle empty LLM response', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('');
         mockValidator.validate.mockResolvedValue(
-          Result.ok({ isValid: false, issues: [], score: 0 })
+          Result.ok({ isValid: false, issues: [], score: 0 }),
         );
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
@@ -596,7 +698,7 @@ describe('AgentCustomizationService', () => {
         const result = await service.customizeSection(
           'Best Practices',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -632,14 +734,14 @@ describe('AgentCustomizationService', () => {
         ];
 
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent
           .mockResolvedValueOnce('bp content')
           .mockResolvedValueOnce('ts content')
           .mockResolvedValueOnce('arch content');
         mockValidator.validate.mockResolvedValue(
-          Result.ok({ isValid: true, issues: [], score: 85 })
+          Result.ok({ isValid: true, issues: [], score: 85 }),
         );
 
         // Act
@@ -683,11 +785,11 @@ describe('AgentCustomizationService', () => {
         ];
 
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('content');
         mockValidator.validate.mockResolvedValue(
-          Result.ok({ isValid: true, issues: [], score: 80 })
+          Result.ok({ isValid: true, issues: [], score: 80 }),
         );
 
         // Track concurrent execution
@@ -749,16 +851,16 @@ describe('AgentCustomizationService', () => {
         // Mock validation: success passes, fallback needs 3 failures to trigger fallback (MAX_RETRIES=2)
         mockValidator.validate
           .mockResolvedValueOnce(
-            Result.ok({ isValid: true, issues: [], score: 90 })
+            Result.ok({ isValid: true, issues: [], score: 90 }),
           ) // 'success' section - passes
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 40 })
+            Result.ok({ isValid: false, issues: [], score: 40 }),
           ) // 'fallback' section attempt 1
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 40 })
+            Result.ok({ isValid: false, issues: [], score: 40 }),
           ) // 'fallback' section attempt 2
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 40 })
+            Result.ok({ isValid: false, issues: [], score: 40 }),
           ); // 'fallback' section attempt 3 -> returns ''
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
@@ -795,11 +897,11 @@ describe('AgentCustomizationService', () => {
         ];
 
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('content');
         mockValidator.validate.mockResolvedValue(
-          Result.ok({ isValid: true, issues: [], score: 85 })
+          Result.ok({ isValid: true, issues: [], score: 85 }),
         );
 
         // Act
@@ -813,7 +915,7 @@ describe('AgentCustomizationService', () => {
             successful: 2,
             fallbacks: 0,
             failed: 0,
-          })
+          }),
         );
       });
 
@@ -852,16 +954,16 @@ describe('AgentCustomizationService', () => {
         // Mock validation: success for first section, repeated failures for fallback section (needs 3 failures for MAX_RETRIES=2)
         mockValidator.validate
           .mockResolvedValueOnce(
-            Result.ok({ isValid: true, issues: [], score: 85 })
+            Result.ok({ isValid: true, issues: [], score: 85 }),
           ) // 'success' section - passes
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 30 })
+            Result.ok({ isValid: false, issues: [], score: 30 }),
           ) // 'fallback' section attempt 1
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 30 })
+            Result.ok({ isValid: false, issues: [], score: 30 }),
           ) // 'fallback' section attempt 2
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 30 })
+            Result.ok({ isValid: false, issues: [], score: 30 }),
           ); // 'fallback' section attempt 3 -> fallback
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
@@ -877,7 +979,7 @@ describe('AgentCustomizationService', () => {
             successful: 1, // Only 'success'
             fallbacks: 1, // 'fallback' section
             failed: 1, // 'error' section
-          })
+          }),
         );
       });
     });
@@ -899,18 +1001,18 @@ describe('AgentCustomizationService', () => {
       it('should include all project context in full task', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('content');
         mockValidator.validate.mockResolvedValue(
-          Result.ok({ isValid: true, issues: [], score: 85 })
+          Result.ok({ isValid: true, issues: [], score: 85 }),
         );
 
         // Act
         await service.customizeSection(
           'Best Practices',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -926,15 +1028,15 @@ describe('AgentCustomizationService', () => {
       it('should create simplified task on retry', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('content');
         mockValidator.validate
           .mockResolvedValueOnce(
-            Result.ok({ isValid: false, issues: [], score: 50 })
+            Result.ok({ isValid: false, issues: [], score: 50 }),
           )
           .mockResolvedValueOnce(
-            Result.ok({ isValid: true, issues: [], score: 75 })
+            Result.ok({ isValid: true, issues: [], score: 75 }),
           );
 
         jest.spyOn(service as any, 'delay').mockResolvedValue(undefined);
@@ -943,7 +1045,7 @@ describe('AgentCustomizationService', () => {
         await service.customizeSection(
           'Tech Stack',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -958,18 +1060,18 @@ describe('AgentCustomizationService', () => {
       it('should convert template ID to .claude/agents path', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('content');
         mockValidator.validate.mockResolvedValue(
-          Result.ok({ isValid: true, issues: [], score: 85 })
+          Result.ok({ isValid: true, issues: [], score: 85 }),
         );
 
         // Act
         await service.customizeSection(
           'Best Practices',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert
@@ -982,11 +1084,11 @@ describe('AgentCustomizationService', () => {
       it('should use exponential backoff formula (3s * 2^attempt)', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
-          Result.ok(sampleTemplate)
+          Result.ok(sampleTemplate),
         );
         mockPtahApi.ai.invokeAgent.mockResolvedValue('content');
         mockValidator.validate.mockResolvedValue(
-          Result.ok({ isValid: false, issues: [], score: 40 })
+          Result.ok({ isValid: false, issues: [], score: 40 }),
         );
 
         const delaySpy = jest
@@ -997,7 +1099,7 @@ describe('AgentCustomizationService', () => {
         await service.customizeSection(
           'Architecture',
           'backend-developer',
-          projectContext
+          projectContext,
         );
 
         // Assert

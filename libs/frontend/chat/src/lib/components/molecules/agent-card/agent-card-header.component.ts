@@ -19,7 +19,7 @@ import {
   Play,
 } from 'lucide-angular';
 import { SlicePipe } from '@angular/common';
-import type { MonitoredAgent } from '../../../services/agent-monitor.store';
+import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 
 @Component({
   selector: 'ptah-agent-card-header',
@@ -60,48 +60,48 @@ import type { MonitoredAgent } from '../../../services/agent-monitor.store';
 
       <!-- Model badge -->
       @if (agent().model) {
-      <span
-        class="badge badge-sm badge-ghost font-mono text-[9px] text-base-content/50 flex-shrink-0"
-        [title]="'Model: ' + agent().model"
-      >
-        {{ agent().model }}
-      </span>
+        <span
+          class="badge badge-sm badge-ghost font-mono text-[9px] text-base-content/50 flex-shrink-0"
+          [title]="'Model: ' + agent().model"
+        >
+          {{ agent().model }}
+        </span>
       }
 
       <!-- Stop button (running agents only) -->
       @if (agent().status === 'running') {
-      <button
-        type="button"
-        class="btn btn-ghost btn-xs btn-square ml-auto flex-shrink-0"
-        [disabled]="isStopping()"
-        title="Stop agent"
-        (click)="stopAgent.emit($event)"
-        aria-label="Stop agent"
-      >
-        @if (isStopping()) {
-        <span class="loading loading-spinner loading-xs"></span>
-        } @else {
-        <lucide-angular [img]="SquareIcon" class="w-3 h-3 text-error" />
-        }
-      </button>
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs btn-square ml-auto flex-shrink-0"
+          [disabled]="isStopping()"
+          title="Stop agent"
+          (click)="stopAgent.emit($event)"
+          aria-label="Stop agent"
+        >
+          @if (isStopping()) {
+            <span class="loading loading-spinner loading-xs"></span>
+          } @else {
+            <lucide-angular [img]="SquareIcon" class="w-3 h-3 text-error" />
+          }
+        </button>
       }
 
       <!-- Resume button (non-running agents with cliSessionId) -->
       @if (agent().status !== 'running' && agent().cliSessionId) {
-      <button
-        type="button"
-        class="btn btn-ghost btn-xs btn-square ml-auto flex-shrink-0"
-        [disabled]="isResuming()"
-        title="Resume session"
-        (click)="resumeAgent.emit($event)"
-        aria-label="Resume agent session"
-      >
-        @if (isResuming()) {
-        <span class="loading loading-spinner loading-xs"></span>
-        } @else {
-        <lucide-angular [img]="PlayIcon" class="w-3 h-3 text-success" />
-        }
-      </button>
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs btn-square ml-auto flex-shrink-0"
+          [disabled]="isResuming()"
+          title="Resume session"
+          (click)="resumeAgent.emit($event)"
+          aria-label="Resume agent session"
+        >
+          @if (isResuming()) {
+            <span class="loading loading-spinner loading-xs"></span>
+          } @else {
+            <lucide-angular [img]="PlayIcon" class="w-3 h-3 text-success" />
+          }
+        </button>
       }
 
       <!-- Elapsed time -->
@@ -114,12 +114,12 @@ import type { MonitoredAgent } from '../../../services/agent-monitor.store';
 
       <!-- CLI Session ID badge (resume capability) -->
       @if (agent().cliSessionId) {
-      <span
-        class="badge badge-xs badge-ghost font-mono text-[9px] text-base-content/30 ml-1 flex-shrink-0"
-        [title]="'CLI Session: ' + agent().cliSessionId"
-      >
-        {{ agent().cliSessionId! | slice : 0 : 8 }}...
-      </span>
+        <span
+          class="badge badge-xs badge-ghost font-mono text-[9px] text-base-content/30 ml-1 flex-shrink-0"
+          [title]="'CLI Session: ' + agent().cliSessionId"
+        >
+          {{ agent().cliSessionId! | slice: 0 : 8 }}...
+        </span>
       }
     </button>
   `,

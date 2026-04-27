@@ -21,12 +21,25 @@ import { Injectable, inject } from '@angular/core';
 import { type MessageHandler } from '@ptah-extension/core';
 import { FlatStreamEventUnion, MESSAGE_TYPES } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
-import { AgentMonitorStore } from './agent-monitor.store';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { TabId } from '@ptah-extension/chat-state';
+import { StreamRouter } from '@ptah-extension/chat-routing';
 
 @Injectable({ providedIn: 'root' })
 export class ChatMessageHandler implements MessageHandler {
   private readonly chatStore = inject(ChatStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  /**
+   * TASK_2026_106 Phase 3 — authoritative StreamRouter.
+   *
+   * The router owns the routing graph (ConversationRegistry +
+   * TabSessionBinding) and reacts to TabManager's `closedTab` signal to
+   * perform per-session cleanup. The shadow-mode try/catch is gone — a
+   * router defect now needs to surface, not be silently swallowed.
+   * `chat.store.processStreamEvent` continues to drive the user-visible
+   * tree update (no behavior change for content rendering).
+   */
+  private readonly streamRouter = inject(StreamRouter);
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
@@ -91,6 +104,14 @@ export class ChatMessageHandler implements MessageHandler {
     };
 
     this.chatStore.processStreamEvent(event, tabId, sessionId);
+
+    // TASK_2026_106 Phase 3 — authoritative routing. The router maintains
+    // ConversationRegistry/TabSessionBinding so other consumers (Phase 4+
+    // banner UI, fan-out) can resolve session→conversation→tab[] mapping
+    // from a single source. Errors are NOT swallowed — a router defect
+    // needs to surface during testing.
+    const originTabId = tabId ? TabId.safeParse(tabId) : null;
+    this.streamRouter.routeStreamEvent(event, originTabId ?? undefined);
   }
 
   // CHAT_ERROR: Chat error signal
@@ -123,9 +144,17 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    this.chatStore.handlePermissionRequest(
-      payload as Parameters<typeof this.chatStore.handlePermissionRequest>[0],
-    );
+    const prompt = payload as Parameters<
+      typeof this.chatStore.handlePermissionRequest
+    >[0];
+    // 1. Append to PermissionHandler queue first so the prompt is in
+    //    `_permissionRequests` by the time the router tags target tabs.
+    this.chatStore.handlePermissionRequest(prompt);
+    // 2. TASK_2026_106 Phase 6a — compute fan-out target tabs and stash
+    //    them on the PermissionHandler so cancel-on-decision can broadcast
+    //    correctly. Router falls back to no-op when the prompt's session
+    //    isn't yet in the registry — global visibility kicks in.
+    this.streamRouter.routePermissionPrompt(prompt);
   }
 
   // AGENT_SUMMARY_CHUNK: Real-time agent summary streaming

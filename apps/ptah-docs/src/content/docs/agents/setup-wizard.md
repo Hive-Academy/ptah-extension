@@ -7,6 +7,10 @@ description: Generate a project-aware agent roster in four guided steps.
 
 The Agent Setup Wizard turns your workspace into a tuned team of AI agents. It analyzes your code, detects your stack, proposes specialists, and saves them into `.claude/agents/` — all in a few clicks.
 
+<video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
+  <source src="/assets/videos/setup-wizard-agent-generation.mp4" type="video/mp4" />
+</video>
+
 ![Setup wizard overview](/screenshots/agents-setup-wizard.png)
 
 ## When to run it

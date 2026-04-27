@@ -12,10 +12,23 @@ import {
   ErrorState,
 } from './setup-wizard-state.service';
 import { VSCodeService } from '@ptah-extension/core';
+import {
+  StreamRouter,
+  StreamingSurfaceRegistry,
+} from '@ptah-extension/chat-routing';
 
-describe.skip('SetupWizardStateService', () => {
+describe('SetupWizardStateService', () => {
   let service: SetupWizardStateService;
   let mockVSCodeService: Partial<VSCodeService>;
+  let mockStreamRouter: jest.Mocked<
+    Pick<
+      StreamRouter,
+      'onSurfaceCreated' | 'onSurfaceClosed' | 'routeStreamEventForSurface'
+    >
+  >;
+  let mockSurfaceRegistry: jest.Mocked<
+    Pick<StreamingSurfaceRegistry, 'register' | 'unregister' | 'getAdapter'>
+  >;
 
   beforeEach(() => {
     mockVSCodeService = {
@@ -32,10 +45,28 @@ describe.skip('SetupWizardStateService', () => {
       }),
     };
 
+    // TASK_2026_107 Phase 3: SetupWizardStateService now injects StreamRouter
+    // and StreamingSurfaceRegistry to route per-phase stream events through
+    // the canonical pipeline. Stub both to keep these tests focused on
+    // wizard-state behaviour without standing up the full chat-routing graph
+    // (TabManager + ConversationRegistry + permission/agent stores).
+    mockStreamRouter = {
+      onSurfaceCreated: jest.fn(),
+      onSurfaceClosed: jest.fn(),
+      routeStreamEventForSurface: jest.fn().mockReturnValue(null),
+    };
+    mockSurfaceRegistry = {
+      register: jest.fn(),
+      unregister: jest.fn(),
+      getAdapter: jest.fn().mockReturnValue(null),
+    };
+
     TestBed.configureTestingModule({
       providers: [
         SetupWizardStateService,
         { provide: VSCodeService, useValue: mockVSCodeService },
+        { provide: StreamRouter, useValue: mockStreamRouter },
+        { provide: StreamingSurfaceRegistry, useValue: mockSurfaceRegistry },
       ],
     });
 
@@ -278,7 +309,9 @@ describe.skip('SetupWizardStateService', () => {
         'generation',
         'completion',
       ];
-      const expected = [0, 20, 30, 40, 50, 100];
+      // stepProgress map from SetupWizardStateService: welcome=5, scan=20,
+      // analysis=35, selection=50, generation=55, completion=100.
+      const expected = [5, 20, 35, 50, 55, 100];
 
       steps.forEach((step, index) => {
         service.setCurrentStep(step);
@@ -307,7 +340,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:scan-progress', payload },
-        })
+        }),
       );
 
       expect(service.scanProgress()).toEqual(payload);
@@ -326,7 +359,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:analysis-complete', payload },
-        })
+        }),
       );
 
       expect(service.analysisResults()).toEqual(payload);
@@ -349,7 +382,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:available-agents', payload: { agents } },
-        })
+        }),
       );
 
       expect(service.availableAgents()).toEqual(agents);
@@ -367,7 +400,7 @@ describe.skip('SetupWizardStateService', () => {
             type: 'setup-wizard:generation-progress',
             payload: { progress },
           },
-        })
+        }),
       );
 
       expect(service.generationProgress()).toEqual(progress);
@@ -383,7 +416,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:generation-complete', payload },
-        })
+        }),
       );
 
       // Completion data should always be stored
@@ -393,7 +426,12 @@ describe.skip('SetupWizardStateService', () => {
       expect(service.currentStep()).toBe('welcome');
     });
 
-    it('should auto-transition to completion when on generation step', () => {
+    it('should auto-transition from generation to enhance step on complete', () => {
+      // After TASK_2025_149, the post-generation auto-transition hands off to
+      // the `enhance` step (Enhanced Prompts) rather than jumping straight to
+      // `completion`. The service's `setCurrentStepIfGeneration` helper fires
+      // on the generation-complete message only when the current step is
+      // 'generation'.
       service.setCurrentStep('generation');
 
       const payload: CompletionData = {
@@ -405,11 +443,11 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:generation-complete', payload },
-        })
+        }),
       );
 
       expect(service.completionData()).toEqual(payload);
-      expect(service.currentStep()).toBe('completion');
+      expect(service.currentStep()).toBe('enhance');
     });
 
     it('should handle error message', () => {
@@ -421,25 +459,26 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:error', payload },
-        })
+        }),
       );
 
       expect(service.errorState()).toEqual(payload);
     });
 
-    it('should ignore invalid messages', () => {
-      jest.spyOn(console, 'warn');
+    it('should ignore messages that are not wizard-shaped', () => {
+      // WizardMessageDispatcher validates the `type` discriminator but not
+      // payload shape (payloads are passed straight to the per-phase
+      // handlers). Messages without a `type` matching a wizard prefix are
+      // silently ignored — currentStep should remain unchanged.
+      const initialStep = service.currentStep();
 
       window.dispatchEvent(
         new MessageEvent('message', {
-          data: {
-            type: 'setup-wizard:scan-progress',
-            payload: { invalid: true },
-          },
-        })
+          data: { payload: { invalid: true } },
+        }),
       );
 
-      expect(console.warn).toHaveBeenCalled();
+      expect(service.currentStep()).toBe(initialStep);
     });
 
     it('should handle message processing errors', () => {
@@ -448,7 +487,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:scan-progress', payload: null },
-        })
+        }),
       );
 
       expect(service.errorState()).toBeTruthy();
@@ -460,7 +499,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'unknown:message', payload: {} },
-        })
+        }),
       );
 
       expect(service.currentStep()).toBe(initialStep);
@@ -472,7 +511,7 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { payload: {} },
-        })
+        }),
       );
 
       expect(service.currentStep()).toBe(initialStep);
@@ -490,10 +529,12 @@ describe.skip('SetupWizardStateService', () => {
       window.dispatchEvent(
         new MessageEvent('message', {
           data: { type: 'setup-wizard:scan-progress', payload },
-        })
+        }),
       );
 
-      expect(service.generationProgress()?.percentComplete).toBe(NaN);
+      // The service guards `totalFiles > 0` before computing the ratio, so
+      // a 0/0 scan-progress payload yields a clean `0` rather than NaN.
+      expect(service.generationProgress()?.percentComplete).toBe(0);
     });
 
     it('should handle toggling non-existent agent', () => {
@@ -532,11 +573,11 @@ describe.skip('SetupWizardStateService', () => {
                 'AI-powered analysis unavailable. Using quick analysis mode.',
             },
           },
-        })
+        }),
       );
 
       expect(service.fallbackWarning()).toBe(
-        'AI-powered analysis unavailable. Using quick analysis mode.'
+        'AI-powered analysis unavailable. Using quick analysis mode.',
       );
       expect(service.errorState()).toBeNull();
     });
@@ -552,7 +593,7 @@ describe.skip('SetupWizardStateService', () => {
               details: 'Stack trace details',
             },
           },
-        })
+        }),
       );
 
       expect(service.errorState()).toEqual({
@@ -571,7 +612,7 @@ describe.skip('SetupWizardStateService', () => {
               message: 'Some error without type',
             },
           },
-        })
+        }),
       );
 
       expect(service.errorState()).toEqual({
@@ -600,7 +641,8 @@ describe.skip('SetupWizardStateService', () => {
 
     it('should return correct percentComplete for enhance step', () => {
       service.setCurrentStep('enhance');
-      expect(service.percentComplete()).toBe(55);
+      // stepProgress: enhance=85 (post-generation but pre-completion)
+      expect(service.percentComplete()).toBe(85);
     });
 
     it('should return canProceed=false for enhance step', () => {
@@ -628,7 +670,7 @@ describe.skip('SetupWizardStateService', () => {
               enhancedPromptsUsed: true,
             },
           },
-        })
+        }),
       );
 
       const completionData = service.completionData();
@@ -648,7 +690,7 @@ describe.skip('SetupWizardStateService', () => {
               duration: 30000,
             },
           },
-        })
+        }),
       );
 
       const completionData = service.completionData();
@@ -668,12 +710,160 @@ describe.skip('SetupWizardStateService', () => {
               enhancedPromptsUsed: false,
             },
           },
-        })
+        }),
       );
 
       const completionData = service.completionData();
       expect(completionData).not.toBeNull();
       expect(completionData?.enhancedPromptsUsed).toBe(false);
+    });
+  });
+
+  // ===========================================================================
+  // TASK_2026_107 Phase 3 — Surface routing.
+  //
+  // Verifies the per-phase SurfaceId lifecycle: lazy registration, idempotent
+  // re-mint, sibling lookup, teardown semantics for both
+  // `unregisterAllPhaseSurfaces` (analysis-complete — keeps states visible)
+  // and `resetPhaseSurfaces` (full nuke — wipes states).
+  // ===========================================================================
+  describe('Phase Surface Routing (TASK_2026_107 Phase 3)', () => {
+    it('registerPhaseSurface mints a SurfaceId, binds via StreamRouter, and registers the adapter', () => {
+      const surfaceId = service.registerPhaseSurface('wizard-phase-discovery');
+
+      expect(typeof surfaceId).toBe('string');
+      expect(mockStreamRouter.onSurfaceCreated).toHaveBeenCalledTimes(1);
+      expect(mockStreamRouter.onSurfaceCreated).toHaveBeenCalledWith(surfaceId);
+      expect(mockSurfaceRegistry.register).toHaveBeenCalledTimes(1);
+      // The registry receives the surfaceId + getState/setState callbacks.
+      const [registeredId, getState, setState] =
+        mockSurfaceRegistry.register.mock.calls[0];
+      expect(registeredId).toBe(surfaceId);
+      expect(typeof getState).toBe('function');
+      expect(typeof setState).toBe('function');
+    });
+
+    it('registerPhaseSurface is idempotent — repeat call returns same SurfaceId', () => {
+      const first = service.registerPhaseSurface('wizard-phase-discovery');
+      const second = service.registerPhaseSurface('wizard-phase-discovery');
+
+      expect(second).toBe(first);
+      expect(mockStreamRouter.onSurfaceCreated).toHaveBeenCalledTimes(1);
+      expect(mockSurfaceRegistry.register).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaceForPhase returns the SurfaceId after register and null otherwise', () => {
+      expect(service.surfaceForPhase('wizard-phase-arch')).toBeNull();
+      const surfaceId = service.registerPhaseSurface('wizard-phase-arch');
+      expect(service.surfaceForPhase('wizard-phase-arch')).toBe(surfaceId);
+      expect(service.surfaceForPhase('wizard-phase-other')).toBeNull();
+    });
+
+    it('registerPhaseSurface seeds an empty StreamingState and surfaces it via phaseStreamingStates signal', () => {
+      service.registerPhaseSurface('wizard-phase-discovery');
+
+      const entries = service.phaseStreamingStates();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].phaseKey).toBe('wizard-phase-discovery');
+      expect(entries[0].state.events.size).toBe(0);
+    });
+
+    it('unregisterPhaseSurface calls StreamRouter.onSurfaceClosed and removes the surface mapping', () => {
+      const surfaceId = service.registerPhaseSurface('wizard-phase-discovery');
+
+      service.unregisterPhaseSurface('wizard-phase-discovery');
+
+      expect(mockStreamRouter.onSurfaceClosed).toHaveBeenCalledTimes(1);
+      expect(mockStreamRouter.onSurfaceClosed).toHaveBeenCalledWith(surfaceId);
+      expect(service.surfaceForPhase('wizard-phase-discovery')).toBeNull();
+      // Phase 2 discovery #1: the router's onSurfaceClosed handles
+      // surfaceRegistry.unregister internally — the wizard MUST NOT
+      // call surfaceRegistry.unregister itself (would race residual events).
+      expect(mockSurfaceRegistry.unregister).not.toHaveBeenCalled();
+    });
+
+    it('unregisterPhaseSurface is a no-op for unknown phaseKey', () => {
+      service.unregisterPhaseSurface('wizard-phase-never-seen');
+
+      expect(mockStreamRouter.onSurfaceClosed).not.toHaveBeenCalled();
+    });
+
+    it('unregisterAllPhaseSurfaces tears down routing for every phase but PRESERVES accumulated states', () => {
+      service.registerPhaseSurface('wizard-phase-discovery');
+      service.registerPhaseSurface('wizard-phase-arch');
+
+      // Pre-condition: both phases visible in the signal.
+      expect(service.phaseStreamingStates()).toHaveLength(2);
+
+      service.unregisterAllPhaseSurfaces();
+
+      expect(mockStreamRouter.onSurfaceClosed).toHaveBeenCalledTimes(2);
+      expect(service.surfaceForPhase('wizard-phase-discovery')).toBeNull();
+      expect(service.surfaceForPhase('wizard-phase-arch')).toBeNull();
+      // Accumulated states stay visible — the analysis-transcript continues
+      // to render completed phases after analysis-complete.
+      expect(service.phaseStreamingStates()).toHaveLength(2);
+    });
+
+    it('resetPhaseSurfaces tears down routing AND wipes accumulated states', () => {
+      service.registerPhaseSurface('wizard-phase-discovery');
+      service.registerPhaseSurface('wizard-phase-arch');
+      expect(service.phaseStreamingStates()).toHaveLength(2);
+
+      service.resetPhaseSurfaces();
+
+      expect(mockStreamRouter.onSurfaceClosed).toHaveBeenCalledTimes(2);
+      expect(service.phaseStreamingStates()).toHaveLength(0);
+      expect(service.surfaceForPhase('wizard-phase-discovery')).toBeNull();
+    });
+
+    it('routePhaseEvent lazy-mints a surface on first event for an unknown phaseKey', () => {
+      const fakeEvent = {
+        eventType: 'message_start',
+        messageId: 'wizard-phase-discovery',
+        sessionId: 'sess-1',
+      } as unknown as Parameters<SetupWizardStateService['routePhaseEvent']>[1];
+
+      service.routePhaseEvent('wizard-phase-discovery', fakeEvent);
+
+      expect(mockStreamRouter.onSurfaceCreated).toHaveBeenCalledTimes(1);
+      expect(mockStreamRouter.routeStreamEventForSurface).toHaveBeenCalledWith(
+        fakeEvent,
+        service.surfaceForPhase('wizard-phase-discovery'),
+      );
+    });
+
+    it('routePhaseEvent reuses the existing surface for repeat events on the same phaseKey', () => {
+      const evt1 = {
+        eventType: 'message_start',
+        messageId: 'wizard-phase-discovery',
+        sessionId: 'sess-1',
+      } as unknown as Parameters<SetupWizardStateService['routePhaseEvent']>[1];
+      const evt2 = {
+        eventType: 'text_delta',
+        messageId: 'wizard-phase-discovery',
+        sessionId: 'sess-1',
+        blockIndex: 0,
+        delta: 'hi',
+      } as unknown as Parameters<SetupWizardStateService['routePhaseEvent']>[1];
+
+      service.routePhaseEvent('wizard-phase-discovery', evt1);
+      service.routePhaseEvent('wizard-phase-discovery', evt2);
+
+      expect(mockStreamRouter.onSurfaceCreated).toHaveBeenCalledTimes(1);
+      expect(mockStreamRouter.routeStreamEventForSurface).toHaveBeenCalledTimes(
+        2,
+      );
+    });
+
+    it('reset() invokes resetPhaseSurfaces (full nuke on wizard restart)', () => {
+      service.registerPhaseSurface('wizard-phase-discovery');
+      expect(service.phaseStreamingStates()).toHaveLength(1);
+
+      service.reset();
+
+      expect(service.phaseStreamingStates()).toHaveLength(0);
+      expect(service.surfaceForPhase('wizard-phase-discovery')).toBeNull();
     });
   });
 });

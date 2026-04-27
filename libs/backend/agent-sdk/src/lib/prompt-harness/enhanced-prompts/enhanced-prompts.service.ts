@@ -46,7 +46,6 @@ import {
   EnhancedPromptsConfig,
   RegeneratePromptsRequest,
   RegeneratePromptsResponse,
-  createInitialEnhancedPromptsState,
   DEFAULT_ENHANCED_PROMPTS_CONFIG,
 } from './enhanced-prompts.types';
 import {
@@ -64,6 +63,7 @@ import {
   discoverPluginSkills,
   formatSkillsForPrompt,
 } from '../../helpers/plugin-skill-discovery';
+import { EnhancedPromptsStateStore } from './enhanced-prompts-state-store';
 
 /**
  * SDK configuration for internal query execution
@@ -145,11 +145,6 @@ interface WorkspaceAnalysisResult {
   languages: string[];
 }
 
-/**
- * Storage key for enhanced prompts state
- */
-const STATE_STORAGE_KEY = 'ptah.enhancedPrompts.state';
-
 const SERVICE_TAG = '[EnhancedPrompts]';
 
 /**
@@ -171,9 +166,10 @@ const GENERATION_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
 @injectable()
 export class EnhancedPromptsService {
   /**
-   * Map of workspace paths to their states (prevents stale state on workspace switch)
+   * Workspace-keyed state persistence (in-memory + globalState).
+   * TASK_2025_291 Wave C7a: extracted from this class into EnhancedPromptsStateStore.
    */
-  private stateByWorkspace = new Map<string, EnhancedPromptsState>();
+  private readonly stateStore: EnhancedPromptsStateStore;
 
   /**
    * Generation lock with timeout-based auto-release
@@ -204,6 +200,8 @@ export class EnhancedPromptsService {
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly config: ConfigManager,
   ) {
+    this.stateStore = new EnhancedPromptsStateStore(this.context);
+
     // Listen for cache invalidation events
     this.cacheService.onInvalidation((event) => {
       this.logger.info(
@@ -214,7 +212,7 @@ export class EnhancedPromptsService {
         },
       );
       // Mark workspace state as needing regeneration (but don't disable)
-      const state = this.stateByWorkspace.get(event.workspacePath);
+      const state = this.stateStore.peek(event.workspacePath);
       if (state) {
         state.configHash = null; // Mark as stale
       }
@@ -275,7 +273,7 @@ export class EnhancedPromptsService {
    * @returns Current status including enabled state and cache validity
    */
   async getStatus(workspacePath: string): Promise<EnhancedPromptsStatus> {
-    const state = await this.loadState(workspacePath);
+    const state = await this.stateStore.load(workspacePath);
 
     // Check if cache is still valid
     let cacheValid = false;
@@ -482,7 +480,7 @@ export class EnhancedPromptsService {
         workspacePath,
       };
 
-      await this.saveState(workspacePath, newState);
+      await this.stateStore.save(workspacePath, newState);
 
       // Step 8: Cache the output
       if (configHash) {
@@ -535,9 +533,9 @@ export class EnhancedPromptsService {
    * @param enabled - New enabled state
    */
   async setEnabled(workspacePath: string, enabled: boolean): Promise<void> {
-    const state = await this.loadState(workspacePath);
+    const state = await this.stateStore.load(workspacePath);
     state.enabled = enabled;
-    await this.saveState(workspacePath, state);
+    await this.stateStore.save(workspacePath, state);
 
     this.logger.info('EnhancedPromptsService: Toggled enabled state', {
       workspacePath,
@@ -628,7 +626,7 @@ export class EnhancedPromptsService {
   async getEnhancedPromptContent(
     workspacePath: string,
   ): Promise<string | null> {
-    const state = await this.loadState(workspacePath);
+    const state = await this.stateStore.load(workspacePath);
 
     // Return null if not enabled
     if (!state.enabled) {
@@ -677,7 +675,7 @@ export class EnhancedPromptsService {
    * @returns Whether Enhanced Prompts is enabled
    */
   async isEnabled(workspacePath: string): Promise<boolean> {
-    const state = await this.loadState(workspacePath);
+    const state = await this.stateStore.load(workspacePath);
     return state.enabled;
   }
 
@@ -695,7 +693,7 @@ export class EnhancedPromptsService {
   async getProjectGuidanceContent(
     workspacePath: string,
   ): Promise<string | null> {
-    const state = await this.loadState(workspacePath);
+    const state = await this.stateStore.load(workspacePath);
     if (!state.enabled || !state.generatedPrompt) return null;
 
     // Extract project-specific guidance (after the marker)
@@ -1021,68 +1019,8 @@ export class EnhancedPromptsService {
     }
   }
 
-  // ==========================================================================
-  // Private — State Management
-  // ==========================================================================
-
-  /**
-   * Load state from storage
-   */
-  private async loadState(
-    workspacePath: string,
-  ): Promise<EnhancedPromptsState> {
-    // Check in-memory cache first (using Map keyed by workspace path)
-    const cachedState = this.stateByWorkspace.get(workspacePath);
-    if (cachedState) {
-      return cachedState;
-    }
-
-    // Load from persistent storage
-    const storageKey = this.getStorageKey(workspacePath);
-    const stored =
-      this.context.globalState.get<EnhancedPromptsState>(storageKey);
-
-    if (stored) {
-      this.stateByWorkspace.set(workspacePath, stored);
-      return stored;
-    }
-
-    // Return initial state
-    const initial = createInitialEnhancedPromptsState(workspacePath);
-    this.stateByWorkspace.set(workspacePath, initial);
-    return initial;
-  }
-
-  /**
-   * Save state to storage
-   */
-  private async saveState(
-    workspacePath: string,
-    state: EnhancedPromptsState,
-  ): Promise<void> {
-    const storageKey = this.getStorageKey(workspacePath);
-    await this.context.globalState.update(storageKey, state);
-    this.stateByWorkspace.set(workspacePath, state);
-  }
-
-  /**
-   * Get storage key for workspace
-   *
-   * Uses base64url encoding of the workspace path to avoid hash collisions.
-   * Base64url replaces characters that are problematic in storage keys.
-   */
-  private getStorageKey(workspacePath: string): string {
-    // Use base64url encoding for collision-free storage keys
-    // This encodes the full path, eliminating hash collision risk
-    const encoded = Buffer.from(workspacePath, 'utf-8')
-      .toString('base64')
-      // Convert base64 to base64url (URL-safe, no padding)
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-
-    return `${STATE_STORAGE_KEY}.${encoded}`;
-  }
+  // State management (loadState/saveState/getStorageKey) moved to
+  // ./enhanced-prompts-state-store.ts (TASK_2025_291 Wave C7a).
 
   // ==========================================================================
   // Private — Stack Detection & Input Building

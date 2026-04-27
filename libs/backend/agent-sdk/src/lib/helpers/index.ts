@@ -79,18 +79,6 @@ export {
 // History module (TASK_2025_106)
 export * from './history';
 
-// Anthropic-compatible provider registry (TASK_2025_129 Batch 3)
-export {
-  ANTHROPIC_PROVIDERS,
-  DEFAULT_PROVIDER_ID,
-  ANTHROPIC_DIRECT_PROVIDER_ID,
-  getAnthropicProvider,
-  getProviderBaseUrl,
-  type AnthropicProvider,
-  type AnthropicProviderId,
-  type ProviderStaticModel,
-} from './anthropic-provider-registry';
-
 // Prompt constants (TASK_2025_135)
 export { PTAH_BEHAVIORAL_PROMPT } from './prompt-constants';
 

@@ -1,63 +1,36 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import { FileTreeNode } from '../models/file-tree.model';
-import { rpcCall } from './rpc-call.util';
+import type { EditorTab } from './editor/editor-tab.types';
+import {
+  EditorInternalState,
+  EditorWorkspaceState,
+  IMAGE_EXTENSIONS,
+} from './editor/editor-internal-state';
+import { EditorWorkspaceHelper } from './editor/editor-workspace';
+import { EditorTabsHelper } from './editor/editor-tabs';
+import { EditorFileOpsHelper } from './editor/editor-file-ops';
+import { EditorDiffSplitHelper } from './editor/editor-diff-split';
 
-/** Represents an open editor tab */
-export interface EditorTab {
-  filePath: string;
-  fileName: string;
-  content: string;
-  isDirty: boolean;
-  /** Whether this tab shows a diff view instead of a regular editor */
-  isDiff?: boolean;
-  /** Original (HEAD) content for diff tabs */
-  originalContent?: string;
-  /** Relative path within the workspace for diff tabs */
-  diffRelativePath?: string;
-}
-
-/**
- * Internal type for per-workspace editor state.
- * Stores all editor-related state that should be isolated between workspaces.
- */
-interface EditorWorkspaceState {
-  /** The workspace file tree */
-  fileTree: FileTreeNode[];
-  /** Path of the currently active/open file */
-  activeFilePath: string | undefined;
-  /** Content of the currently active file */
-  activeFileContent: string;
-  /** All open tabs */
-  openTabs: EditorTab[];
-  /** Scroll position for state restoration */
-  scrollPosition?: number;
-  /** Cursor position for state restoration */
-  cursorPosition?: { line: number; column: number };
-  /** Whether split editor pane is active */
-  splitActive?: boolean;
-  /** File path open in the split (right) pane */
-  splitFilePath?: string;
-  /** Content of the file in the split (right) pane */
-  splitFileContent?: string;
-}
+// Re-exported so existing consumers (`from '@ptah-extension/editor'`)
+// keep resolving without changes. Wave F3 (TASK_2026_103) moved the
+// declaration to a sibling file to break the cycle with editor helpers.
+export type { EditorTab } from './editor/editor-tab.types';
 
 /**
- * EditorService - Manages editor state and backend communication via RPC.
+ * EditorService — coordinator that owns editor signals and delegates to
+ * four helper classes split by concern:
+ *   - EditorWorkspaceHelper: workspace partitioning, file-tree load & watch
+ *   - EditorFileOpsHelper:   open / save / create / rename / delete / reveal
+ *   - EditorDiffSplitHelper: diff view + side-by-side split pane
+ *   - EditorTabsHelper:      tab open/close/switch/updateContent
  *
- * Complexity Level: 2 (Medium - signal-based state, RPC communication, workspace partitioning)
- * Patterns: Injectable service, signal-based reactive state, correlationId-based RPC
+ * The public API is identical to the pre-split service — component
+ * consumers need no changes. Signals live on the coordinator so their
+ * reference identity is preserved across the refactor.
  *
- * Responsibilities:
- * - File tree state management (partitioned by workspace - TASK_2025_208)
- * - Active file tracking (partitioned by workspace)
- * - File content loading via RPC (editor:openFile)
- * - File saving via RPC (editor:saveFile)
- * - File tree loading via RPC (editor:getFileTree)
- * - Workspace state save/restore on workspace switch
- *
- * Communication: Uses MESSAGE_TYPES.RPC_CALL / RPC_RESPONSE with correlationId
- * matching for reliable request-response pairing.
+ * Complexity Level: 2 (Medium - signal-based state, RPC communication,
+ * workspace partitioning). Wave C7b (TASK_2025_291) split.
  */
 @Injectable({
   providedIn: 'root',
@@ -78,23 +51,11 @@ export class EditorService {
     EditorWorkspaceState
   >();
 
-  /**
-   * Currently active workspace path. Null when no workspace is active.
-   */
+  /** Currently active workspace path. Null when no workspace is active. */
   private _activeWorkspacePath: string | null = null;
 
-  /** Counter for stale-response protection in loadFileTree(). */
-  private _loadFileTreeRequestId = 0;
-
-  /** Handler for backend file:tree-changed push events. */
-  private _treeMessageHandler: ((event: MessageEvent) => void) | null = null;
-
-  /** Debounce timer for frontend-side tree refresh coalescing. */
-  private _treeRefreshDebounceTimer: ReturnType<typeof setTimeout> | null =
-    null;
-
   // ============================================================================
-  // SIGNAL STATE
+  // SIGNAL STATE — owned by the coordinator (identity preserved across helpers)
   // ============================================================================
 
   private readonly _fileTree = signal<FileTreeNode[]>([]);
@@ -112,60 +73,37 @@ export class EditorService {
 
   /** The workspace file tree */
   readonly fileTree = this._fileTree.asReadonly();
-
   /** Path of the currently active/open file */
   readonly activeFilePath = this._activeFilePath.asReadonly();
-
   /** Content of the currently active file */
   readonly activeFileContent = this._activeFileContent.asReadonly();
-
   /** Whether a file operation is in progress */
   readonly isLoading = this._isLoading.asReadonly();
-
   /** Last error message, or null if no error */
   readonly error = this._error.asReadonly();
-
-  /** Target line to reveal in the active editor (one-shot: set then cleared after revealing) */
+  /** Target line to reveal (one-shot: cleared after revealing) */
   readonly targetLine = this._targetLine.asReadonly();
-
   /** All currently open editor tabs */
   readonly openTabs = this._openTabs.asReadonly();
-
-  /** Whether the split editor pane is active (side-by-side view). */
+  /** Whether the split editor pane is active. */
   readonly splitActive = this._splitActive.asReadonly();
-
-  /** File path open in the split (right) pane, or undefined when split is inactive. */
+  /** File path open in the split (right) pane. */
   readonly splitFilePath = this._splitFilePath.asReadonly();
-
   /** Content of the file in the split (right) pane. */
   readonly splitFileContent = this._splitFileContent.asReadonly();
-
-  /** Which editor pane currently has focus: 'left' (primary) or 'right' (split). */
+  /** Which pane has focus: 'left' (primary) or 'right' (split). */
   readonly focusedPane = this._focusedPane.asReadonly();
-
   /** Whether a file is currently open */
   readonly hasActiveFile = computed(() => this._activeFilePath() !== undefined);
-
-  private readonly IMAGE_EXTENSIONS = new Set([
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.gif',
-    '.bmp',
-    '.svg',
-    '.webp',
-    '.ico',
-    '.avif',
-  ]);
 
   readonly isActiveFileImage = computed(() => {
     const path = this._activeFilePath();
     if (!path) return false;
     const ext = path.substring(path.lastIndexOf('.')).toLowerCase();
-    return this.IMAGE_EXTENSIONS.has(ext);
+    return IMAGE_EXTENSIONS.has(ext);
   });
 
-  /** The active diff tab, or null if the active tab is not a diff view */
+  /** The active diff tab, or null if the active tab is not a diff view. */
   readonly activeDiffTab = computed(() => {
     const tabs = this._openTabs();
     const activePath = this._activeFilePath();
@@ -174,775 +112,225 @@ export class EditorService {
   });
 
   // ============================================================================
-  // WORKSPACE OPERATIONS (TASK_2025_208)
+  // HELPER COMPOSITION — constructed in constructor (forward refs resolve)
+  // ============================================================================
+
+  private readonly internalState: EditorInternalState;
+  private readonly tabsHelper: EditorTabsHelper;
+  private readonly diffSplitHelper: EditorDiffSplitHelper;
+  private readonly fileOpsHelper: EditorFileOpsHelper;
+  private readonly workspaceHelper: EditorWorkspaceHelper;
+
+  public constructor() {
+    this.internalState = {
+      vscodeService: this.vscodeService,
+      fileTree: this._fileTree,
+      activeFilePath: this._activeFilePath,
+      activeFileContent: this._activeFileContent,
+      openTabs: this._openTabs,
+      isLoading: this._isLoading,
+      targetLine: this._targetLine,
+      splitActive: this._splitActive,
+      splitFilePath: this._splitFilePath,
+      splitFileContent: this._splitFileContent,
+      focusedPane: this._focusedPane,
+      workspaceEditorState: this._workspaceEditorState,
+      getActiveWorkspacePath: (): string | null => this._activeWorkspacePath,
+      setActiveWorkspacePath: (path: string | null): void => {
+        this._activeWorkspacePath = path;
+      },
+      showError: (message: string): void => this.showError(message),
+      clearError: (): void => this.clearError(),
+    };
+
+    // Order matters: tabs first, then diffSplit (needs tabs), then fileOps
+    // (needs tabs), then workspace (needs fileOps + diffSplit). Callbacks
+    // referencing later helpers are arrow functions, so the reference is
+    // resolved lazily when the callback fires.
+    this.tabsHelper = new EditorTabsHelper(this.internalState, {
+      clearActiveFile: (): void => this.fileOpsHelper.clearActiveFile(),
+      closeSplit: (): void => this.diffSplitHelper.closeSplit(),
+    });
+
+    this.diffSplitHelper = new EditorDiffSplitHelper(
+      this.internalState,
+      this.tabsHelper,
+    );
+
+    this.fileOpsHelper = new EditorFileOpsHelper(
+      this.internalState,
+      this.tabsHelper,
+      {
+        loadFileTree: (rootPath?: string): Promise<void> =>
+          this.workspaceHelper.loadFileTree(rootPath),
+      },
+    );
+
+    this.workspaceHelper = new EditorWorkspaceHelper(this.internalState, {
+      handleFileContentChanged: (filePath: string): Promise<void> =>
+        this.fileOpsHelper.handleFileContentChanged(filePath),
+      closeSplit: (): void => this.diffSplitHelper.closeSplit(),
+    });
+  }
+
+  // ============================================================================
+  // WORKSPACE OPERATIONS (TASK_2025_208) — delegated to EditorWorkspaceHelper
   // ============================================================================
 
   /**
    * Switch the active workspace, saving current editor state and restoring target state.
-   *
-   * Flow:
-   * 1. Save current workspace's editor state (file tree, active file, content, cursor) to map
-   * 2. Load target workspace's state from map (if cached) or reset to defaults
-   * 3. If target workspace has no cached file tree, trigger loadFileTree() to fetch via RPC
-   *
-   * @param workspacePath - The workspace folder path to switch to
    */
   switchWorkspace(workspacePath: string): void {
-    // No-op if switching to already-active workspace
-    if (this._activeWorkspacePath === workspacePath) return;
-
-    // Step 1: Save current workspace state to map
-    this._saveCurrentWorkspaceState();
-
-    // Step 2: Update active workspace path
-    this._activeWorkspacePath = workspacePath;
-
-    // Step 3: Load target workspace state from cache or defaults
-    const cachedState = this._workspaceEditorState.get(workspacePath);
-
-    if (cachedState) {
-      // Restore cached state into signals
-      this._fileTree.set(cachedState.fileTree);
-      this._activeFilePath.set(cachedState.activeFilePath);
-      this._activeFileContent.set(cachedState.activeFileContent);
-      this._openTabs.set(cachedState.openTabs);
-
-      // Restore split pane state
-      this._splitActive.set(cachedState.splitActive ?? false);
-      this._splitFilePath.set(cachedState.splitFilePath);
-      this._splitFileContent.set(cachedState.splitFileContent ?? '');
-      if (!cachedState.splitActive) {
-        this._focusedPane.set('left');
-      }
-    } else {
-      // No cached state -- reset to empty defaults and trigger file tree load
-      this._fileTree.set([]);
-      this._activeFilePath.set(undefined);
-      this._activeFileContent.set('');
-      this._openTabs.set([]);
-      this._splitActive.set(false);
-      this._splitFilePath.set(undefined);
-      this._splitFileContent.set('');
-      this._focusedPane.set('left');
-
-      // Initialize empty state in map
-      this._workspaceEditorState.set(workspacePath, {
-        fileTree: [],
-        activeFilePath: undefined,
-        activeFileContent: '',
-        openTabs: [],
-      });
-
-      // Fetch file tree for the new workspace via RPC
-      this.loadFileTree(workspacePath);
-    }
+    this.workspaceHelper.switchWorkspace(workspacePath);
   }
 
-  /**
-   * Remove cached editor state for a workspace.
-   * Called when a workspace folder is removed from the layout.
-   *
-   * @param workspacePath - The workspace folder path to clean up
-   */
+  /** Remove cached editor state for a workspace. */
   removeWorkspaceState(workspacePath: string): void {
-    this._workspaceEditorState.delete(workspacePath);
-
-    // If the removed workspace was active, clear signals
-    if (this._activeWorkspacePath === workspacePath) {
-      this._activeWorkspacePath = null;
-      this._fileTree.set([]);
-      this._activeFilePath.set(undefined);
-      this._activeFileContent.set('');
-      this._openTabs.set([]);
-      this.closeSplit();
-    }
+    this.workspaceHelper.removeWorkspaceState(workspacePath);
   }
 
-  /**
-   * Get the currently active workspace path.
-   */
+  /** Get the currently active workspace path. */
   get activeWorkspacePath(): string | null {
     return this._activeWorkspacePath;
   }
 
   // ============================================================================
-  // FILE TREE WATCHING
+  // FILE TREE WATCHING — delegated to EditorWorkspaceHelper
   // ============================================================================
 
-  /**
-   * Start listening for file:tree-changed push events from the backend.
-   * When a structural change (file add/delete) is detected in the workspace,
-   * the backend pushes this event and we reload the file tree.
-   *
-   * Uses a frontend-side debounce (500ms) on top of the backend debounce (3s)
-   * to coalesce rapid events during bulk operations.
-   */
+  /** Start listening for file:tree-changed push events from the backend. */
   startFileTreeWatcher(): void {
-    if (this._treeMessageHandler) return;
-
-    this._treeMessageHandler = (event: MessageEvent) => {
-      const data = event.data;
-      if (data?.type === 'file:tree-changed') {
-        if (this._treeRefreshDebounceTimer) {
-          clearTimeout(this._treeRefreshDebounceTimer);
-        }
-        this._treeRefreshDebounceTimer = setTimeout(() => {
-          this._treeRefreshDebounceTimer = null;
-          this.loadFileTree();
-        }, 500);
-      }
-
-      if (data?.type === 'file:content-changed' && data?.data?.filePath) {
-        void this.handleFileContentChanged(data.data.filePath);
-      }
-    };
-    window.addEventListener('message', this._treeMessageHandler);
+    this.workspaceHelper.startFileTreeWatcher();
   }
 
-  /**
-   * Stop listening for file:tree-changed push events.
-   * Called when the editor panel is destroyed.
-   */
+  /** Stop listening for file:tree-changed push events. */
   stopFileTreeWatcher(): void {
-    if (this._treeMessageHandler) {
-      window.removeEventListener('message', this._treeMessageHandler);
-      this._treeMessageHandler = null;
-    }
-    if (this._treeRefreshDebounceTimer) {
-      clearTimeout(this._treeRefreshDebounceTimer);
-      this._treeRefreshDebounceTimer = null;
-    }
-  }
-
-  /**
-   * Handle a file:content-changed push event from the backend.
-   * Re-reads the file content if the file is open in a non-dirty tab.
-   */
-  private async handleFileContentChanged(filePath: string): Promise<void> {
-    const tabs = this._openTabs();
-    const tab = tabs.find((t) => t.filePath === filePath);
-    if (!tab || tab.isDirty) return;
-
-    const result = await rpcCall<{ content: string; filePath: string }>(
-      this.vscodeService,
-      'editor:openFile',
-      { filePath },
-    );
-
-    if (!result.success || !result.data) return;
-
-    const newContent = result.data.content ?? '';
-    if (newContent === tab.content) return;
-
-    this._openTabs.update((currentTabs) =>
-      currentTabs.map((t) =>
-        t.filePath === filePath ? { ...t, content: newContent } : t,
-      ),
-    );
-
-    if (this._activeFilePath() === filePath) {
-      this._activeFileContent.set(newContent);
-    }
-
-    this._updateCachedActiveFile(
-      this._activeFilePath()!,
-      this._activeFilePath() === filePath
-        ? newContent
-        : this._activeFileContent(),
-    );
-    this._syncTabsToCache();
+    this.workspaceHelper.stopFileTreeWatcher();
   }
 
   // ============================================================================
-  // FILE OPERATIONS
+  // FILE OPERATIONS — delegated to EditorFileOpsHelper / EditorWorkspaceHelper
   // ============================================================================
 
-  /**
-   * Load the file tree from the backend.
-   * Sends an RPC message to the main process to scan the workspace directory.
-   * @param rootPath - Optional explicit root path. If omitted, uses the active workspace path.
-   */
+  /** Load the file tree from the backend. */
   async loadFileTree(rootPath?: string): Promise<void> {
-    const targetWorkspace = rootPath || this._activeWorkspacePath;
-
-    // No workspace path available — nothing to load.
-    // Guard before incrementing requestId to avoid invalidating in-flight requests.
-    if (!targetWorkspace) return;
-
-    const requestId = ++this._loadFileTreeRequestId;
-
-    this._isLoading.set(true);
-    this.clearError();
-
-    try {
-      const result = await rpcCall<{ tree: FileTreeNode[] }>(
-        this.vscodeService,
-        'editor:getFileTree',
-        { rootPath: targetWorkspace },
-      );
-
-      // Stale-response guard: discard if a newer request was issued
-      // or if the active workspace changed since this request was fired
-      if (
-        this._loadFileTreeRequestId !== requestId ||
-        this._activeWorkspacePath !== targetWorkspace
-      ) {
-        return;
-      }
-
-      if (result.success && result.data) {
-        const tree = result.data.tree ?? [];
-        this._fileTree.set(tree);
-
-        // Update cached state for the target workspace
-        const cached = this._workspaceEditorState.get(targetWorkspace);
-        if (cached) {
-          cached.fileTree = tree;
-        }
-      } else {
-        this.showError(result.error ?? 'Failed to load file tree');
-      }
-    } finally {
-      // Only reset loading if this is still the active request
-      if (this._loadFileTreeRequestId === requestId) {
-        this._isLoading.set(false);
-      }
-    }
+    return this.workspaceHelper.loadFileTree(rootPath);
   }
 
-  /**
-   * Open a file by path. Sends an RPC message to load file content.
-   * Adds the file as a tab if not already open, and sets it as active.
-   */
+  /** Open a file by path. */
   async openFile(filePath: string): Promise<void> {
-    // Check if the file is already open in a tab
-    const existingTab = this._openTabs().find((t) => t.filePath === filePath);
-    if (existingTab) {
-      // Tab already open -- just switch to it without RPC
-      this._activeFilePath.set(filePath);
-      this._activeFileContent.set(existingTab.content);
-      this._updateCachedActiveFile(filePath, existingTab.content);
-      return;
-    }
-
-    this._activeFilePath.set(filePath);
-
-    // Image files don't need content loading — they're rendered via file:// URL
-    const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
-    if (this.IMAGE_EXTENSIONS.has(ext)) {
-      const fileName = this._extractFileName(filePath);
-      this._activeFileContent.set('');
-      this._openTabs.update((tabs) => [
-        ...tabs,
-        { filePath, fileName, content: '', isDirty: false },
-      ]);
-      this._updateCachedActiveFile(filePath, '');
-      this._syncTabsToCache();
-      return;
-    }
-
-    this._isLoading.set(true);
-    this.clearError();
-
-    const result = await rpcCall<{ content: string; filePath: string }>(
-      this.vscodeService,
-      'editor:openFile',
-      { filePath },
-    );
-
-    if (result.success && result.data) {
-      const content = result.data.content ?? '';
-      this._activeFileContent.set(content);
-
-      // Add new tab
-      const fileName = this._extractFileName(filePath);
-      this._openTabs.update((tabs) => [
-        ...tabs,
-        { filePath, fileName, content, isDirty: false },
-      ]);
-
-      // Update cached state if workspace is active
-      this._updateCachedActiveFile(filePath, content);
-      this._syncTabsToCache();
-    } else {
-      this.showError(result.error ?? 'Failed to open file');
-    }
-    this._isLoading.set(false);
+    return this.fileOpsHelper.openFile(filePath);
   }
 
-  /**
-   * Open a file and scroll to a specific line.
-   * Waits for the file to be opened (or tab switched), then sets the target line.
-   * The CodeEditorComponent watches targetLine via effect() and reveals it.
-   *
-   * @param filePath - Absolute path to the file to open
-   * @param line - 1-based line number to scroll to
-   */
+  /** Open a file and scroll to a specific line. */
   async openFileAtLine(filePath: string, line: number): Promise<void> {
     await this.openFile(filePath);
     this.revealLine(line);
   }
 
-  /**
-   * Set a target line for the editor to reveal.
-   * This is a one-shot signal: the CodeEditorComponent reads it, reveals the line,
-   * then calls clearTargetLine() to reset it.
-   */
+  /** Set a target line for the editor to reveal (one-shot signal). */
   revealLine(line: number): void {
     this._targetLine.set(line);
   }
 
-  /**
-   * Clear the target line after it has been revealed by the editor.
-   * Called by CodeEditorComponent after successfully revealing the line.
-   */
+  /** Clear the target line after it has been revealed by the editor. */
   clearTargetLine(): void {
     this._targetLine.set(undefined);
   }
 
-  /**
-   * Open a diff view for a file, showing the HEAD version alongside the working tree version.
-   * Creates a special diff tab with a `diff:` prefixed key to distinguish from regular file tabs.
-   *
-   * Fetches the original (HEAD) content via git:showFile RPC and the current content
-   * via editor:openFile RPC in parallel.
-   *
-   * @param relativePath - The git-relative path of the file (e.g., "src/app/foo.ts")
-   * @param absolutePath - The absolute file system path for reading current content
-   */
+  /** Open a diff view for a file. */
   async openDiff(relativePath: string, absolutePath: string): Promise<void> {
-    const diffKey = `diff:${relativePath}`;
-
-    // If diff tab already open, switch to it
-    const existingTab = this._openTabs().find((t) => t.filePath === diffKey);
-    if (existingTab) {
-      this._activeFilePath.set(diffKey);
-      this._activeFileContent.set(existingTab.content);
-      return;
-    }
-
-    this._isLoading.set(true);
-    this.clearError();
-
-    // Fetch original content from HEAD and current content in parallel
-    const [originalResult, currentResult] = await Promise.all([
-      rpcCall<{ content: string }>(this.vscodeService, 'git:showFile', {
-        path: relativePath,
-      }),
-      rpcCall<{ content: string; filePath: string }>(
-        this.vscodeService,
-        'editor:openFile',
-        { filePath: absolutePath },
-      ),
-    ]);
-
-    const originalContent = originalResult.success
-      ? (originalResult.data?.content ?? '')
-      : '';
-    const currentContent = currentResult.success
-      ? (currentResult.data?.content ?? '')
-      : '';
-
-    const fileName = this._extractFileName(relativePath);
-
-    this._openTabs.update((tabs) => [
-      ...tabs,
-      {
-        filePath: diffKey,
-        fileName: `${fileName} (diff)`,
-        content: currentContent,
-        isDirty: false,
-        isDiff: true,
-        originalContent,
-        diffRelativePath: relativePath,
-      },
-    ]);
-
-    this._activeFilePath.set(diffKey);
-    this._activeFileContent.set(currentContent);
-    this._isLoading.set(false);
-    this._syncTabsToCache();
+    return this.diffSplitHelper.openDiff(relativePath, absolutePath);
   }
 
-  /**
-   * Save the active file content. Sends an RPC message to persist changes.
-   */
+  /** Save the active file content. */
   async saveFile(filePath: string, content: string): Promise<void> {
-    this._isLoading.set(true);
-    this.clearError();
-
-    const result = await rpcCall<{ success: boolean }>(
-      this.vscodeService,
-      'editor:saveFile',
-      { filePath, content },
-    );
-
-    if (!result.success) {
-      this.showError(result.error ?? 'Failed to save file');
-    }
-    this._isLoading.set(false);
+    return this.fileOpsHelper.saveFile(filePath, content);
   }
 
-  /**
-   * Lazy-load children for a directory that was at the initial depth boundary.
-   * Updates the tree in place by replacing the directory's children and clearing needsLoad.
-   */
+  /** Lazy-load children for a directory at the initial depth boundary. */
   async loadDirectoryChildren(dirPath: string): Promise<void> {
-    const result = await rpcCall<{ children: FileTreeNode[] }>(
-      this.vscodeService,
-      'editor:getDirectoryChildren',
-      { dirPath },
-    );
-
-    if (result.success && result.data) {
-      const children = result.data.children ?? [];
-      // Update the tree in place: find the node and replace its children
-      const currentTree = this._fileTree();
-      const updatedTree = this.updateNodeChildren(
-        currentTree,
-        dirPath,
-        children,
-      );
-      this._fileTree.set(updatedTree);
-
-      // Update cached workspace state
-      if (this._activeWorkspacePath) {
-        const cached = this._workspaceEditorState.get(
-          this._activeWorkspacePath,
-        );
-        if (cached) {
-          cached.fileTree = updatedTree;
-        }
-      }
-    } else {
-      this.showError(result.error ?? 'Failed to load directory');
-    }
+    return this.workspaceHelper.loadDirectoryChildren(dirPath);
   }
 
-  /**
-   * Recursively find a node by path and replace its children.
-   * Returns a new tree (immutable update) so signals detect the change.
-   */
-  private updateNodeChildren(
-    nodes: FileTreeNode[],
-    targetPath: string,
-    children: FileTreeNode[],
-  ): FileTreeNode[] {
-    return nodes.map((node) => {
-      if (node.path === targetPath) {
-        return { ...node, children, needsLoad: false };
-      }
-      if (node.children && node.children.length > 0) {
-        return {
-          ...node,
-          children: this.updateNodeChildren(
-            node.children,
-            targetPath,
-            children,
-          ),
-        };
-      }
-      return node;
-    });
-  }
-
-  /**
-   * Clear the active file selection.
-   */
+  /** Clear the active file selection. */
   clearActiveFile(): void {
-    this._activeFilePath.set(undefined);
-    this._activeFileContent.set('');
-
-    // Update cached state
-    if (this._activeWorkspacePath) {
-      const cached = this._workspaceEditorState.get(this._activeWorkspacePath);
-      if (cached) {
-        cached.activeFilePath = undefined;
-        cached.activeFileContent = '';
-      }
-    }
+    this.fileOpsHelper.clearActiveFile();
   }
 
   // ============================================================================
-  // FILE CRUD OPERATIONS
+  // FILE CRUD OPERATIONS — delegated to EditorFileOpsHelper
   // ============================================================================
 
-  /**
-   * Create a new file at the given path. Refreshes the file tree on success.
-   */
+  /** Create a new file at the given path. Refreshes the file tree on success. */
   async createFile(filePath: string): Promise<boolean> {
-    const result = await rpcCall<{ success: boolean; error?: string }>(
-      this.vscodeService,
-      'editor:createFile',
-      { filePath },
-    );
-    if (result.success && result.data?.success) {
-      await this.loadFileTree();
-      return true;
-    }
-    this.showError(
-      result.data?.error ?? result.error ?? 'Failed to create file',
-    );
-    return false;
+    return this.fileOpsHelper.createFile(filePath);
   }
 
-  /**
-   * Create a new folder at the given path. Refreshes the file tree on success.
-   */
+  /** Create a new folder at the given path. Refreshes the file tree on success. */
   async createFolder(folderPath: string): Promise<boolean> {
-    const result = await rpcCall<{ success: boolean; error?: string }>(
-      this.vscodeService,
-      'editor:createFolder',
-      { folderPath },
-    );
-    if (result.success && result.data?.success) {
-      await this.loadFileTree();
-      return true;
-    }
-    this.showError(
-      result.data?.error ?? result.error ?? 'Failed to create folder',
-    );
-    return false;
+    return this.fileOpsHelper.createFolder(folderPath);
   }
 
-  /**
-   * Rename a file or folder. Updates open tabs if affected. Refreshes tree on success.
-   */
+  /** Rename a file or folder. Updates open tabs if affected. */
   async renameItem(oldPath: string, newPath: string): Promise<boolean> {
-    const result = await rpcCall<{ success: boolean; error?: string }>(
-      this.vscodeService,
-      'editor:renameItem',
-      { oldPath, newPath },
-    );
-    if (result.success && result.data?.success) {
-      const normalizedOld = oldPath.replace(/\\/g, '/');
-      const normalizedNew = newPath.replace(/\\/g, '/');
-      const newFileName = this._extractFileName(normalizedNew);
-
-      // Update tabs whose paths match or are children of the renamed item
-      this._openTabs.update((tabs) =>
-        tabs.map((tab) => {
-          const normalizedTab = tab.filePath.replace(/\\/g, '/');
-          if (normalizedTab === normalizedOld) {
-            return { ...tab, filePath: normalizedNew, fileName: newFileName };
-          }
-          // Handle directory rename: update children paths
-          const oldPrefix = normalizedOld + '/';
-          if (normalizedTab.startsWith(oldPrefix)) {
-            const newTabPath =
-              normalizedNew + '/' + normalizedTab.slice(oldPrefix.length);
-            return {
-              ...tab,
-              filePath: newTabPath,
-              fileName: this._extractFileName(newTabPath),
-            };
-          }
-          return tab;
-        }),
-      );
-
-      // Update active file path if it was the renamed item
-      const currentActive = this._activeFilePath()?.replace(/\\/g, '/');
-      if (currentActive === normalizedOld) {
-        this._activeFilePath.set(normalizedNew);
-      } else if (currentActive?.startsWith(normalizedOld + '/')) {
-        this._activeFilePath.set(
-          normalizedNew + '/' + currentActive.slice(normalizedOld.length + 1),
-        );
-      }
-
-      this._syncTabsToCache();
-      await this.loadFileTree();
-      return true;
-    }
-    this.showError(result.data?.error ?? result.error ?? 'Failed to rename');
-    return false;
+    return this.fileOpsHelper.renameItem(oldPath, newPath);
   }
 
-  /**
-   * Delete a file or folder. Closes affected tabs. Refreshes tree on success.
-   */
+  /** Delete a file or folder. Closes affected tabs. */
   async deleteItem(itemPath: string, isDirectory: boolean): Promise<boolean> {
-    const result = await rpcCall<{ success: boolean; error?: string }>(
-      this.vscodeService,
-      'editor:deleteItem',
-      { itemPath, isDirectory },
-    );
-    if (result.success && result.data?.success) {
-      const normalizedPath = itemPath.replace(/\\/g, '/');
-
-      if (isDirectory) {
-        // Close all tabs within the deleted directory
-        const prefix = normalizedPath + '/';
-        const tabsToClose = this._openTabs()
-          .filter((t) => t.filePath.replace(/\\/g, '/').startsWith(prefix))
-          .map((t) => t.filePath);
-        for (const tabPath of tabsToClose) {
-          this.closeTab(tabPath);
-        }
-      } else {
-        // Close the tab for the deleted file
-        const tab = this._openTabs().find(
-          (t) => t.filePath.replace(/\\/g, '/') === normalizedPath,
-        );
-        if (tab) {
-          this.closeTab(tab.filePath);
-        }
-      }
-
-      await this.loadFileTree();
-      return true;
-    }
-    this.showError(result.data?.error ?? result.error ?? 'Failed to delete');
-    return false;
+    return this.fileOpsHelper.deleteItem(itemPath, isDirectory);
   }
 
   // ============================================================================
-  // SPLIT PANE OPERATIONS
+  // SPLIT PANE OPERATIONS — delegated to EditorDiffSplitHelper
   // ============================================================================
 
-  /**
-   * Open a file in the split (right) pane.
-   * Fetches file content via RPC and activates split mode.
-   *
-   * @param filePath - Absolute path to the file to open in the split pane
-   */
+  /** Open a file in the split (right) pane. */
   async openFileInSplit(filePath: string): Promise<void> {
-    this._splitFilePath.set(filePath);
-    this._splitActive.set(true);
-
-    // Check if file is already open in a tab — reuse cached content
-    const existingTab = this._openTabs().find((t) => t.filePath === filePath);
-    if (existingTab) {
-      this._splitFileContent.set(existingTab.content);
-      return;
-    }
-
-    // Fetch content from backend
-    const result = await rpcCall<{ content: string; filePath: string }>(
-      this.vscodeService,
-      'editor:openFile',
-      { filePath },
-    );
-
-    if (result.success && result.data) {
-      this._splitFileContent.set(result.data.content ?? '');
-    } else {
-      this.showError(result.error ?? 'Failed to open file in split pane');
-      this.closeSplit();
-    }
+    return this.diffSplitHelper.openFileInSplit(filePath);
   }
 
-  /**
-   * Close the split pane and reset all split-related state.
-   * Returns focus to the left (primary) pane.
-   */
+  /** Close the split pane and reset all split-related state. */
   closeSplit(): void {
-    this._splitActive.set(false);
-    this._splitFilePath.set(undefined);
-    this._splitFileContent.set('');
-    this._focusedPane.set('left');
+    this.diffSplitHelper.closeSplit();
   }
 
-  /**
-   * Set which pane currently has focus.
-   * Used by the editor panel to track click/focus between left and right panes.
-   *
-   * @param pane - 'left' for the primary pane, 'right' for the split pane
-   */
+  /** Set which pane currently has focus. */
   setFocusedPane(pane: 'left' | 'right'): void {
-    this._focusedPane.set(pane);
+    this.diffSplitHelper.setFocusedPane(pane);
   }
 
-  /**
-   * Update the content of the file in the split (right) pane.
-   * Called when the user edits content in the split pane's Monaco editor.
-   */
+  /** Update the content of the file in the split (right) pane. */
   updateSplitContent(content: string): void {
-    this._splitFileContent.set(content);
+    this.diffSplitHelper.updateSplitContent(content);
   }
 
   // ============================================================================
-  // TAB OPERATIONS
+  // TAB OPERATIONS — delegated to EditorTabsHelper
   // ============================================================================
 
-  /**
-   * Close a tab by file path. If the closed tab was active, switch to the
-   * last remaining tab or clear the editor if no tabs remain.
-   * If the closed file was open in the split pane, auto-close the split.
-   */
+  /** Close a tab by file path. */
   closeTab(filePath: string): void {
-    const currentTabs = this._openTabs();
-    const tabIndex = currentTabs.findIndex((t) => t.filePath === filePath);
-    if (tabIndex === -1) return;
-
-    const updatedTabs = currentTabs.filter((t) => t.filePath !== filePath);
-    this._openTabs.set(updatedTabs);
-
-    // If the closed file was open in the split pane, close the split
-    if (this._splitActive() && this._splitFilePath() === filePath) {
-      this.closeSplit();
-    }
-
-    // If the closed tab was active, switch to another tab
-    if (this._activeFilePath() === filePath) {
-      if (updatedTabs.length > 0) {
-        // Switch to the tab that was adjacent (prefer the one before, or the last one)
-        const newIndex = Math.min(tabIndex, updatedTabs.length - 1);
-        const newActive = updatedTabs[newIndex];
-        this._activeFilePath.set(newActive.filePath);
-        this._activeFileContent.set(newActive.content);
-        this._updateCachedActiveFile(newActive.filePath, newActive.content);
-      } else {
-        this.clearActiveFile();
-      }
-    }
-
-    this._syncTabsToCache();
+    this.tabsHelper.closeTab(filePath);
   }
 
-  /**
-   * Switch to an already-open tab by file path.
-   * Updates the active file path and content from cached tab data.
-   */
+  /** Switch to an already-open tab by file path. */
   switchTab(filePath: string): void {
-    const tab = this._openTabs().find((t) => t.filePath === filePath);
-    if (!tab) return;
-
-    this._activeFilePath.set(tab.filePath);
-    this._activeFileContent.set(tab.content);
-    this._updateCachedActiveFile(tab.filePath, tab.content);
+    this.tabsHelper.switchTab(filePath);
   }
 
-  /**
-   * Update a tab's content and mark it as dirty.
-   * Called when the user edits content in the Monaco editor.
-   */
+  /** Update a tab's content and mark it as dirty. */
   updateTabContent(filePath: string, content: string): void {
-    this._openTabs.update((tabs) =>
-      tabs.map((tab) =>
-        tab.filePath === filePath ? { ...tab, content, isDirty: true } : tab,
-      ),
-    );
-    this._syncTabsToCache();
+    this.tabsHelper.updateTabContent(filePath, content);
   }
 
-  /**
-   * Mark a tab as clean (not dirty) after a successful save.
-   */
+  /** Mark a tab as clean (not dirty) after a successful save. */
   markTabClean(filePath: string): void {
-    this._openTabs.update((tabs) =>
-      tabs.map((tab) =>
-        tab.filePath === filePath ? { ...tab, isDirty: false } : tab,
-      ),
-    );
-    this._syncTabsToCache();
+    this.tabsHelper.markTabClean(filePath);
   }
 
-  /**
-   * Update the scroll position for the current workspace.
-   * Called by editor components when scroll position changes.
-   */
+  /** Update the cached scroll position for the current workspace. */
   updateScrollPosition(scrollPosition: number): void {
     if (this._activeWorkspacePath) {
       const cached = this._workspaceEditorState.get(this._activeWorkspacePath);
@@ -952,10 +340,7 @@ export class EditorService {
     }
   }
 
-  /**
-   * Update the cursor position for the current workspace.
-   * Called by editor components when cursor position changes.
-   */
+  /** Update the cached cursor position for the current workspace. */
   updateCursorPosition(line: number, column: number): void {
     if (this._activeWorkspacePath) {
       const cached = this._workspaceEditorState.get(this._activeWorkspacePath);
@@ -965,32 +350,34 @@ export class EditorService {
     }
   }
 
-  /**
-   * Get the cached scroll position for the active workspace.
-   */
+  /** Get the cached scroll position for the active workspace. */
   getScrollPosition(): number | undefined {
     if (!this._activeWorkspacePath) return undefined;
     return this._workspaceEditorState.get(this._activeWorkspacePath)
       ?.scrollPosition;
   }
 
-  /**
-   * Get the cached cursor position for the active workspace.
-   */
+  /** Get the cached cursor position for the active workspace. */
   getCursorPosition(): { line: number; column: number } | undefined {
     if (!this._activeWorkspacePath) return undefined;
     return this._workspaceEditorState.get(this._activeWorkspacePath)
       ?.cursorPosition;
   }
 
+  /**
+   * Wave F3 (TASK_2026_103): expose the internal-state handle for the
+   * `EDITOR_INTERNAL_STATE` provider. Caller MUST be `provideEditorInternalState`
+   * — components and other services should use the public surface above.
+   */
+  getInternalState(): EditorInternalState {
+    return this.internalState;
+  }
+
   // ============================================================================
-  // ERROR HANDLING
+  // ERROR HANDLING — coordinator-owned (helpers delegate back here)
   // ============================================================================
 
-  /**
-   * Clear the current error state. Can be called from components
-   * to dismiss error toasts manually.
-   */
+  /** Clear the current error state. */
   clearError(): void {
     if (this.errorTimeout) {
       clearTimeout(this.errorTimeout);
@@ -1005,68 +392,5 @@ export class EditorService {
       this._error.set(null);
       this.errorTimeout = null;
     }, 5000);
-  }
-
-  // ============================================================================
-  // WORKSPACE STATE HELPERS (TASK_2025_208)
-  // ============================================================================
-
-  /**
-   * Save current workspace's editor state from signals into the workspace map.
-   * Called before switching away from the current workspace.
-   */
-  private _saveCurrentWorkspaceState(): void {
-    if (!this._activeWorkspacePath) return;
-
-    const existing = this._workspaceEditorState.get(this._activeWorkspacePath);
-
-    this._workspaceEditorState.set(this._activeWorkspacePath, {
-      fileTree: this._fileTree(),
-      activeFilePath: this._activeFilePath(),
-      activeFileContent: this._activeFileContent(),
-      openTabs: this._openTabs(),
-      scrollPosition: existing?.scrollPosition,
-      cursorPosition: existing?.cursorPosition,
-      splitActive: this._splitActive(),
-      splitFilePath: this._splitFilePath(),
-      splitFileContent: this._splitFileContent(),
-    });
-  }
-
-  // ============================================================================
-  // TAB & CACHE HELPERS
-  // ============================================================================
-
-  /**
-   * Extract file name from a full file path.
-   */
-  private _extractFileName(filePath: string): string {
-    const parts = filePath.replace(/\\/g, '/').split('/');
-    return parts[parts.length - 1] || filePath;
-  }
-
-  /**
-   * Update the cached active file path and content for the current workspace.
-   */
-  private _updateCachedActiveFile(filePath: string, content: string): void {
-    if (this._activeWorkspacePath) {
-      const cached = this._workspaceEditorState.get(this._activeWorkspacePath);
-      if (cached) {
-        cached.activeFilePath = filePath;
-        cached.activeFileContent = content;
-      }
-    }
-  }
-
-  /**
-   * Sync the current openTabs signal into the workspace state cache.
-   */
-  private _syncTabsToCache(): void {
-    if (this._activeWorkspacePath) {
-      const cached = this._workspaceEditorState.get(this._activeWorkspacePath);
-      if (cached) {
-        cached.openTabs = this._openTabs();
-      }
-    }
   }
 }

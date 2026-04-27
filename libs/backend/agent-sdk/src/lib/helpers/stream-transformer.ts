@@ -263,18 +263,24 @@ export class StreamTransformer {
         // FIRST_MESSAGE_TIMEOUT_MS, abort the query and surface a clear error
         // so the UI doesn't spin forever. Cleared as soon as the first message
         // is received — normal streaming then proceeds without interference.
+        // Include the configured base URL and model ID in the error so users
+        // can diagnose misrouted requests (e.g., unsupported Moonshot model
+        // IDs on the Anthropic-compatible endpoint).
         let firstMessageReceived = false;
+        const baseUrlForError = authEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
         const timeoutHandle: NodeJS.Timeout | null = abortController
           ? setTimeout(() => {
               if (firstMessageReceived) return;
               const seconds = Math.round(FIRST_MESSAGE_TIMEOUT_MS / 1000);
               logger.error(
-                `[StreamTransformer] Session ${sessionId} timed out waiting for first response after ${seconds}s — aborting`,
+                `[StreamTransformer] Session ${sessionId} timed out waiting for first response after ${seconds}s — aborting (baseUrl=${baseUrlForError}, model=${initialModel})`,
               );
               try {
                 abortController.abort(
                   new Error(
-                    `Request timed out after ${seconds}s — no response from provider. ` +
+                    `Request timed out after ${seconds}s — no response from provider ` +
+                      `(baseUrl="${baseUrlForError}", model="${initialModel}"). ` +
+                      `The provider may not support this model ID, or the endpoint may be unreachable. ` +
                       `Check provider configuration or switch providers.`,
                   ),
                 );

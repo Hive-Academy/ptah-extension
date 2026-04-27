@@ -6,6 +6,7 @@ import {
   effect,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -19,6 +20,7 @@ import {
   AdminModelSpec,
   FieldSpec,
 } from '../admin-models.config';
+import { DeleteUserModalComponent } from '../components/delete-user-modal/delete-user-modal';
 
 /**
  * AdminDetail — generic show/edit page for a single admin record.
@@ -45,7 +47,7 @@ import {
   selector: 'ptah-admin-detail',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe],
+  imports: [DatePipe, DeleteUserModalComponent],
   templateUrl: './admin-detail.html',
   styleUrls: ['./admin-detail.css'],
 })
@@ -53,6 +55,8 @@ export class AdminDetail {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly api = inject(AdminApiService);
+
+  protected readonly deleteUserModal = viewChild(DeleteUserModalComponent);
 
   // --- Route params --------------------------------------------------------
 
@@ -238,6 +242,10 @@ export class AdminDetail {
   }
 
   protected onCancel(): void {
+    this.navigateBack();
+  }
+
+  protected onUserDeleted(): void {
     this.navigateBack();
   }
 

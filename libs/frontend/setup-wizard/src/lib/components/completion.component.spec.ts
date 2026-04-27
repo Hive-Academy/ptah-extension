@@ -8,6 +8,15 @@ import {
 } from '../services/setup-wizard-state.service';
 import { VSCodeService } from '@ptah-extension/core';
 
+// F8: CompletionComponent was rewritten for multi-phase + enhanced-prompts
+// integration (TASK_2025_149, TASK_2025_206). The spec still targets the
+// pre-refactor template ("Your personalized agents have been generated...",
+// "Open Agents Folder" button, stat cards, tips alert) that has since been
+// replaced by an orchestrate-focused "Quick Start Guide". 15/23 tests fail on
+// outdated text/layout assertions; the remaining structural tests now hit
+// missing state signals from the refactored facade. Rewriting this spec
+// against the new template is out of scope for the F8 pre-existing-failure
+// batch. Tracking as a follow-up.
 describe.skip('CompletionComponent', () => {
   let component: CompletionComponent;
   let fixture: ComponentFixture<CompletionComponent>;
@@ -54,163 +63,10 @@ describe.skip('CompletionComponent', () => {
     it('should display success message', () => {
       const text = fixture.nativeElement.textContent;
       expect(text).toContain(
-        'Your personalized agents have been generated and are ready to use'
+        'Your personalized agents have been generated and are ready to use',
       );
     });
   });
-
-  // describe('Total Duration Calculation', () => {
-  //   it('should calculate total duration correctly', () => {
-  //     const agents: AgentProgress[] = [
-  //       { id: '1', name: 'Agent 1', status: 'complete', duration: 5000 },
-  //       { id: '2', name: 'Agent 2', status: 'complete', duration: 3000 },
-  //       { id: '3', name: 'Agent 3', status: 'complete', duration: 2000 },
-  //     ];
-
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents,
-  //     });
-
-  //     expect(component['totalDuration']()).toBe(10000);
-  //   });
-
-  //   it('should ignore agents without duration', () => {
-  //     const agents: AgentProgress[] = [
-  //       { id: '1', name: 'Agent 1', status: 'complete', duration: 5000 },
-  //       { id: '2', name: 'Agent 2', status: 'complete' },
-  //       { id: '3', name: 'Agent 3', status: 'complete', duration: 3000 },
-  //     ];
-
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents,
-  //     });
-
-  //     expect(component['totalDuration']()).toBe(8000);
-  //   });
-
-  //   it('should handle null progress', () => {
-  //     expect(component['totalDuration']()).toBe(0);
-  //   });
-
-  //   it('should handle progress without agents', () => {
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //     });
-
-  //     expect(component['totalDuration']()).toBe(0);
-  //   });
-  // });
-
-  // describe('Duration Formatting', () => {
-  //   it('should format seconds correctly', () => {
-  //     const agents: AgentProgress[] = [
-  //       { id: '1', name: 'Agent 1', status: 'complete', duration: 30000 },
-  //     ];
-
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents,
-  //     });
-
-  //     expect(component['formatTotalTime']()).toBe('30s');
-  //   });
-
-  //   it('should format minutes and seconds correctly', () => {
-  //     const agents: AgentProgress[] = [
-  //       { id: '1', name: 'Agent 1', status: 'complete', duration: 125000 },
-  //     ];
-
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents,
-  //     });
-
-  //     expect(component['formatTotalTime']()).toBe('2m 5s');
-  //   });
-
-  //   it('should format hours, minutes correctly', () => {
-  //     const agents: AgentProgress[] = [
-  //       { id: '1', name: 'Agent 1', status: 'complete', duration: 3725000 },
-  //     ];
-
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents,
-  //     });
-
-  //     expect(component['formatTotalTime']()).toBe('1h 2m');
-  //   });
-
-  //   it('should handle zero duration', () => {
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents: [],
-  //     });
-
-  //     expect(component['formatTotalTime']()).toBe('0s');
-  //   });
-
-  //   it('should handle negative duration gracefully', () => {
-  //     const agents: AgentProgress[] = [
-  //       { id: '1', name: 'Agent 1', status: 'complete', duration: -5000 },
-  //     ];
-
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents,
-  //     });
-
-  //     expect(component['formatTotalTime']()).toBe('0s');
-  //   });
-
-  //   it('should handle exact minute', () => {
-  //     const agents: AgentProgress[] = [
-  //       { id: '1', name: 'Agent 1', status: 'complete', duration: 60000 },
-  //     ];
-
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents,
-  //     });
-
-  //     expect(component['formatTotalTime']()).toBe('1m 0s');
-  //   });
-
-  //   it('should handle exact hour', () => {
-  //     const agents: AgentProgress[] = [
-  //       { id: '1', name: 'Agent 1', status: 'complete', duration: 3600000 },
-  //     ];
-
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents,
-  //     });
-
-  //     expect(component['formatTotalTime']()).toBe('1h 0m');
-  //   });
-  // });
 
   describe('Action Buttons', () => {
     it('should display open agents folder button', () => {
@@ -268,64 +124,6 @@ describe.skip('CompletionComponent', () => {
       expect(code.textContent).toContain('@agent-name');
     });
   });
-
-  // describe('Computed Signals', () => {
-  //   it('should compute total agents generated', () => {
-  //     const agents: AgentProgress[] = [
-  //       { id: '1', name: 'Agent 1', status: 'complete', duration: 5000 },
-  //       { id: '2', name: 'Agent 2', status: 'in-progress' },
-  //       { id: '3', name: 'Agent 3', status: 'complete', duration: 3000 },
-  //       { id: '4', name: 'Agent 4', status: 'pending' },
-  //     ];
-
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents,
-  //     });
-
-  //     expect(component['totalAgentsGenerated']()).toBe(2);
-  //   });
-
-  //   it('should return 0 when no progress', () => {
-  //     expect(component['totalAgentsGenerated']()).toBe(0);
-  //   });
-
-  //   it('should return 0 when no agents', () => {
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //     });
-
-  //     expect(component['totalAgentsGenerated']()).toBe(0);
-  //   });
-
-  //   it('should reactively update total agents', () => {
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents: [
-  //         { id: '1', name: 'Agent 1', status: 'complete', duration: 5000 },
-  //       ],
-  //     });
-
-  //     expect(component['totalAgentsGenerated']()).toBe(1);
-
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents: [
-  //         { id: '1', name: 'Agent 1', status: 'complete', duration: 5000 },
-  //         { id: '2', name: 'Agent 2', status: 'complete', duration: 3000 },
-  //       ],
-  //     });
-
-  //     expect(component['totalAgentsGenerated']()).toBe(2);
-  //   });
-  // });
 
   describe('Statistics Display', () => {
     it('should display all three statistics', () => {
@@ -398,93 +196,6 @@ describe.skip('CompletionComponent', () => {
     });
   });
 
-  // describe('Edge Cases', () => {
-  //   it('should handle very large agent count', () => {
-  //     const agents: AgentProgress[] = Array.from({ length: 100 }, (_, i) => ({
-  //       id: `${i + 1}`,
-  //       name: `Agent ${i + 1}`,
-  //       status: 'complete' as const,
-  //       duration: 1000,
-  //     }));
-
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents,
-  //     });
-
-  //     expect(component['totalAgentsGenerated']()).toBe(100);
-  //     expect(component['formatTotalTime']()).toBe('1m 40s');
-  //   });
-
-  //   it('should handle mixed agent statuses', () => {
-  //     const agents: AgentProgress[] = [
-  //       { id: '1', name: 'Agent 1', status: 'complete', duration: 5000 },
-  //       { id: '2', name: 'Agent 2', status: 'pending' },
-  //       { id: '3', name: 'Agent 3', status: 'in-progress' },
-  //       { id: '4', name: 'Agent 4', status: 'complete', duration: 3000 },
-  //     ];
-
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents,
-  //     });
-
-  //     expect(component['totalAgentsGenerated']()).toBe(2);
-  //   });
-
-  //   it('should handle very long duration', () => {
-  //     const agents: AgentProgress[] = [
-  //       { id: '1', name: 'Agent 1', status: 'complete', duration: 7200000 }, // 2 hours
-  //     ];
-
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents,
-  //     });
-
-  //     expect(component['formatTotalTime']()).toBe('2h 0m');
-  //   });
-
-  //   it('should handle duration just under 60 seconds', () => {
-  //     const agents: AgentProgress[] = [
-  //       { id: '1', name: 'Agent 1', status: 'complete', duration: 59999 },
-  //     ];
-
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents,
-  //     });
-
-  //     expect(component['formatTotalTime']()).toBe('59s');
-  //   });
-
-  //   it('should handle null progress reference', () => {
-  //     expect(component['totalAgentsGenerated']()).toBe(0);
-  //     expect(component['totalDuration']()).toBe(0);
-  //     expect(component['formatTotalTime']()).toBe('0s');
-  //   });
-
-  //   it('should handle undefined agents array', () => {
-  //     const progressSignal = mockStateService.generationProgress as any;
-  //     progressSignal.set({
-  //       phase: 'complete',
-  //       percentComplete: 100,
-  //       agents: undefined,
-  //     });
-
-  //     expect(component['totalAgentsGenerated']()).toBe(0);
-  //     expect(component['totalDuration']()).toBe(0);
-  //   });
-  // });
-
   describe('Layout and Styling', () => {
     it('should use hero layout', () => {
       const hero = fixture.nativeElement.querySelector('.hero');
@@ -493,7 +204,7 @@ describe.skip('CompletionComponent', () => {
 
     it('should have responsive button layout', () => {
       const buttonContainer = fixture.nativeElement.querySelector(
-        '.flex.flex-col.sm\\:flex-row'
+        '.flex.flex-col.sm\\:flex-row',
       );
       expect(buttonContainer).toBeTruthy();
     });

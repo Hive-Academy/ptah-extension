@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SessionLoaderService - Session List Management and Session Switching
  *
  * Extracted from ChatStore to handle session-related operations:
@@ -24,11 +24,13 @@ import {
   SubagentRecord,
   getModelContextWindow,
 } from '@ptah-extension/shared';
-import { SessionManager } from '../session-manager.service';
-import { TabManagerService } from '../tab-manager.service';
-import { StreamingHandlerService } from './streaming-handler.service';
-import { AgentMonitorStore } from '../agent-monitor.store';
-import { createEmptyStreamingState } from '../chat.types';
+import {
+  SessionManager,
+  StreamingHandlerService,
+  AgentMonitorStore,
+} from '@ptah-extension/chat-streaming';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import { createEmptyStreamingState } from '@ptah-extension/chat-types';
 
 /**
  * Cached session list state for a single workspace.
@@ -127,7 +129,7 @@ export class SessionLoaderService {
   constructor() {
     // React to pop-out panel session load requests from TabManagerService.
     // This effect breaks the circular dependency: TabManager emits a signal,
-    // SessionLoader consumes it — no import from SessionLoader in TabManager.
+    // SessionLoader consumes it â€” no import from SessionLoader in TabManager.
     effect(() => {
       const sessionId = this.tabManager.pendingSessionLoad();
       if (sessionId) {
@@ -396,11 +398,11 @@ export class SessionLoaderService {
     // Check cache for the target workspace
     const cached = this.sessionCache.get(normalizedNew);
     if (cached) {
-      // TASK_2025_264 P7f: LRU refresh — move entry to end of Map insertion order
+      // TASK_2025_264 P7f: LRU refresh â€” move entry to end of Map insertion order
       this.sessionCache.delete(normalizedNew);
       this.sessionCache.set(normalizedNew, cached);
 
-      // Cache hit — restore instantly without RPC
+      // Cache hit â€” restore instantly without RPC
       this._sessions.set(cached.sessions);
       this._totalSessions.set(cached.totalSessions);
       this._hasMoreSessions.set(cached.hasMoreSessions);
@@ -408,7 +410,7 @@ export class SessionLoaderService {
       return;
     }
 
-    // Cache miss — clear signals and load from backend using explicit path
+    // Cache miss â€” clear signals and load from backend using explicit path
     this._sessions.set([]);
     this._totalSessions.set(0);
     this._hasMoreSessions.set(false);
@@ -566,13 +568,11 @@ export class SessionLoaderService {
       const activeTabId = this.tabManager.openSessionTab(sessionId, title);
 
       // 4. Set tab to resuming state (show loading indicator)
-      this.tabManager.updateTab(activeTabId, {
-        messages: [],
-        streamingState: createEmptyStreamingState(),
-        status: 'resuming',
-        title,
+      this.tabManager.applyResumingSession(activeTabId, {
+        sessionId,
         name: title,
-        claudeSessionId: sessionId,
+        title,
+        streamingState: createEmptyStreamingState(),
       });
 
       // 5. Update SessionManager state
@@ -605,10 +605,11 @@ export class SessionLoaderService {
 
       // Store preloaded stats and session model for display (old sessions)
       if (stats) {
-        this.tabManager.updateTab(activeTabId, {
-          preloadedStats: stats,
-          sessionModel: stats.model ?? null,
-        });
+        this.tabManager.applyLoadedSessionStats(
+          activeTabId,
+          stats,
+          stats.model ?? null,
+        );
 
         // Populate liveModelStats for context usage display.
         // During live streaming this comes from SDK's modelUsage, but when loading
@@ -623,13 +624,11 @@ export class SessionLoaderService {
             contextWindow > 0
               ? Math.round((contextUsed / contextWindow) * 1000) / 10
               : 0;
-          this.tabManager.updateTab(activeTabId, {
-            liveModelStats: {
-              model: stats.model,
-              contextUsed,
-              contextWindow,
-              contextPercent,
-            },
+          this.tabManager.setLiveModelStats(activeTabId, {
+            model: stats.model,
+            contextUsed,
+            contextWindow,
+            contextPercent,
           });
         }
 
@@ -637,12 +636,13 @@ export class SessionLoaderService {
         // This enables the per-model breakdown table in SessionStatsSummary for old sessions.
         if (stats.modelUsageList && stats.modelUsageList.length > 0) {
           const backendModelList = stats.modelUsageList;
-          this.tabManager.updateTab(activeTabId, {
-            modelUsageList: backendModelList.map((entry) => ({
+          this.tabManager.setModelUsageList(
+            activeTabId,
+            backendModelList.map((entry) => ({
               ...entry,
               contextWindow: getModelContextWindow(entry.model),
             })),
-          });
+          );
         }
       }
 
@@ -688,11 +688,7 @@ export class SessionLoaderService {
         }));
 
         // Set messages directly on tab
-        this.tabManager.updateTab(activeTabId, {
-          messages: executionMessages,
-          status: 'loaded',
-          streamingState: null,
-        });
+        this.tabManager.applyResumedHistory(activeTabId, executionMessages);
         this.sessionManager.setStatus('loaded');
 
         // TASK_2025_213: Set resumableSubagents from chat:resume response (empty for simple-message sessions)
@@ -709,10 +705,7 @@ export class SessionLoaderService {
           resumeResult.error || 'No messages or events found',
         );
         // Resume failed - revert to loaded state with empty messages
-        this.tabManager.updateTab(activeTabId, {
-          status: 'loaded',
-          streamingState: null,
-        });
+        this.tabManager.applyResumeFailure(activeTabId);
         this.sessionManager.setStatus('loaded');
 
         // TASK_2025_213: No resumable subagents on error/empty session

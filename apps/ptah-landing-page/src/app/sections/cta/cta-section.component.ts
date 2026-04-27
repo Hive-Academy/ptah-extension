@@ -78,7 +78,9 @@ import {
           class="mt-8 flex flex-wrap justify-center gap-6"
         >
           <a
-            routerLink="/docs"
+            href="https://docs.ptah.live"
+            target="_blank"
+            rel="noopener noreferrer"
             class="text-secondary hover:text-accent transition-colors font-medium"
             aria-label="Read the documentation"
           >

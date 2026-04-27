@@ -5,7 +5,11 @@ import {
   computed,
   DestroyRef,
 } from '@angular/core';
-import { VSCodeService, ElectronLayoutService } from '@ptah-extension/core';
+import {
+  VSCodeService,
+  ElectronLayoutService,
+  rpcCall,
+} from '@ptah-extension/core';
 import type {
   GitWorktreeInfo,
   GitWorktreesResult,
@@ -13,7 +17,6 @@ import type {
   GitRemoveWorktreeResult,
   GitWorktreeChangedNotification,
 } from '@ptah-extension/shared';
-import { rpcCall } from './rpc-call.util';
 
 /**
  * WorktreeService - Manages git worktree operations and workspace folder registration.
