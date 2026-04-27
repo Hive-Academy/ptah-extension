@@ -2,6 +2,8 @@ name: Electron E2E
 
 on:
   pull_request:
+    branches:
+      - main
     paths:
       - 'apps/ptah-electron/**'
       - 'apps/ptah-electron-e2e/**'
