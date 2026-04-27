@@ -310,7 +310,7 @@ tagging to verify the published artifact will actually run.
 
 ### Cutting a release
 
-The `publish-cli` workflow has three trigger paths. Pick the one that
+The `publish-cli` workflow has two trigger paths. Pick the one that
 matches what you want.
 
 **Path A — push to `release/cli` (auto-bump, recommended):**
@@ -331,16 +331,17 @@ GitHub UI → Actions → **Publish CLI** → Run workflow → pick
 `patch`/`minor`/`major`. Toggle `dry-run` to validate the full
 pipeline without publishing.
 
-**Path C — explicit tag (escape hatch):**
+> The workflow does NOT trigger on `cli-v*` tag pushes. The branch flow
+> creates the tag itself; listening on it would cause a self-fire and a
+> 403 republish error. Tags exist for archeology / rollback parity with
+> the extension publish flow, not as a trigger.
 
-```bash
-# Bump version in apps/ptah-cli/package.json, commit to main first.
-git tag cli-v0.2.0
-git push origin cli-v0.2.0
-```
-
-The workflow refuses to publish if the tag does not match the
-committed `package.json` version.
+After the publish, the workflow opens a `chore(release): cli vX.Y.Z`
+PR against `main` with the version bump. Merging that PR brings `main`
+in sync with the published version. Merging the chore PR does NOT
+re-trigger the publish — `main` is not in the trigger list, and the
+guard on `chore(release):` commit messages skips the run if a chore
+commit ever lands on `release/cli`.
 
 ### Required GitHub secrets
 
