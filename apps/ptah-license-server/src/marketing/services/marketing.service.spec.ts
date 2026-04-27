@@ -550,6 +550,130 @@ describe('MarketingService', () => {
       );
     });
 
+    // -------------------------------------------------------------------------
+    // F2 — Marketing send E2E integration scenarios (TASK_2025_292 B7-T03)
+    // -------------------------------------------------------------------------
+
+    it('end-to-end: sendCampaign persists MarketingCampaign row, runs chunked dispatch, marks status=completed', async () => {
+      mockSegmentResolver.resolve.mockResolvedValue({
+        optedInUserIds: ['u-1', 'u-2', 'u-3'],
+        skippedUserIds: ['u-skipped'],
+        totalInSegment: 4,
+      });
+      mockPrisma.user.findUnique.mockImplementation(
+        ({ where }: { where: { id: string } }) =>
+          Promise.resolve({
+            id: where.id,
+            email: `${where.id}@example.com`,
+            firstName: null,
+            marketingOptIn: true,
+          }),
+      );
+
+      const dto: SendCampaignDto = {
+        name: 'Beta launch',
+        subject: 'Hello',
+        htmlBody: '<p>body</p>',
+        segment: 'all',
+      };
+
+      const response = await service.sendCampaign(dto, {
+        email: 'admin@ptah.live',
+      });
+      await flushAsync(50);
+
+      // (1) sendCampaign synchronous return contract.
+      expect(response).toEqual({
+        campaignId: 'campaign-1',
+        recipientCount: 3,
+        skippedCount: 1,
+        status: 'in_progress',
+      });
+
+      // (2) MarketingCampaign row created with correct shape.
+      expect(mockPrisma.marketingCampaign.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            name: 'Beta launch',
+            subject: 'Hello',
+            recipientCount: 3,
+            skippedUserIds: ['u-skipped'],
+            createdBy: 'admin@ptah.live',
+            segment: 'all',
+          }),
+        }),
+      );
+
+      // (3) Each opted-in user got an email — none of the skipped users did.
+      const recipients = mockEmail.sendCustomEmail.mock.calls.map(
+        (c) => c[0].to,
+      );
+      expect(recipients).toEqual(
+        expect.arrayContaining([
+          'u-1@example.com',
+          'u-2@example.com',
+          'u-3@example.com',
+        ]),
+      );
+      expect(recipients).not.toContain('u-skipped@example.com');
+      expect(mockEmail.sendCustomEmail).toHaveBeenCalledTimes(3);
+
+      // (4) Final completion + audit row written transactionally with status=completed.
+      const sendAudit = mockAuditLog.write.mock.calls.find(
+        (c) => c[0]?.action === 'marketing.campaign.send',
+      );
+      expect(sendAudit).toBeDefined();
+      expect(sendAudit![0]).toEqual(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            sent: 3,
+            failed: 0,
+            status: 'completed',
+          }),
+          tx: expect.anything(),
+        }),
+      );
+    });
+
+    it('webhook hard bounce flips opt-in atomically (single $transaction wraps user.update + audit.write)', async () => {
+      const txCallCount = mockPrisma.$transaction.mock.calls.length;
+
+      const event: ResendWebhookPayload = {
+        created_at: new Date().toISOString(),
+        type: 'email.bounced',
+        data: {
+          created_at: new Date().toISOString(),
+          email_id: 'em_atomic',
+          from: 'help@ptah.live',
+          to: ['victim@example.com'],
+          subject: 'x',
+          tags: { campaignId: 'campaign-1', userId: 'user-atomic' },
+          bounce: { type: 'hard' },
+        },
+      };
+
+      await service.handleResendWebhook(event, 'svix-atomic');
+
+      // The flipOptOut path runs inside `prisma.$transaction(async (tx) => …)`.
+      // Verify exactly one new transaction was opened for this webhook
+      // (counter-bump is a separate, single-row `update` outside the tx).
+      expect(mockPrisma.$transaction.mock.calls.length).toBe(txCallCount + 1);
+
+      // user.update + audit.write both observed inside the same callback.
+      expect(mockPrisma.user.update).toHaveBeenCalledTimes(1);
+      const auditArg = mockAuditLog.write.mock.calls.find(
+        (c) => c[0]?.action === 'user.bounced',
+      );
+      expect(auditArg).toBeDefined();
+      expect(auditArg![0]).toEqual(
+        expect.objectContaining({
+          actorEmail: null, // System / webhook-driven
+          targetId: 'user-atomic',
+          tx: expect.anything(),
+        }),
+      );
+    });
+
     it('sad path: chunk-progress update throws → finally still records audit row with status=failed and completedAt populated', async () => {
       mockSegmentResolver.resolve.mockResolvedValue({
         optedInUserIds: ['u-1'],
