@@ -16,7 +16,8 @@ export type AdminModelKey =
   | 'subscriptions'
   | 'failed-webhooks'
   | 'trial-reminders'
-  | 'session-requests';
+  | 'session-requests'
+  | 'admin-audit-log';
 
 export interface AdminModelConfig {
   /** Prisma delegate name (the lower-case client property, e.g. prisma.user) */
@@ -26,7 +27,8 @@ export interface AdminModelConfig {
     | 'subscription'
     | 'failedWebhook'
     | 'trialReminder'
-    | 'sessionRequest';
+    | 'sessionRequest'
+    | 'adminAuditLog';
   /** Columns shown on the list page */
   listFields: string[];
   /** Text-searchable string fields (contains, insensitive) */
@@ -173,6 +175,22 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
     readOnly: false,
     defaultSortBy: 'createdAt',
     include: { user: true },
+  },
+  'admin-audit-log': {
+    prismaModel: 'adminAuditLog',
+    listFields: [
+      'id',
+      'actorEmail',
+      'action',
+      'targetType',
+      'targetId',
+      'createdAt',
+    ],
+    searchFields: ['actorEmail', 'action', 'targetType', 'targetId'],
+    sortableFields: ['createdAt', 'action', 'actorEmail'],
+    editableFields: [],
+    readOnly: true,
+    defaultSortBy: 'createdAt',
   },
 };
 

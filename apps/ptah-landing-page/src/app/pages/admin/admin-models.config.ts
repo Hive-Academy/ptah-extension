@@ -141,6 +141,12 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
         editable: true,
       },
       {
+        key: 'source',
+        label: 'Source',
+        type: 'string',
+        listColumn: true,
+      },
+      {
         key: 'expiresAt',
         label: 'Expires',
         type: 'datetime',
@@ -351,6 +357,44 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
       {
         key: 'additionalNotes',
         label: 'Notes',
+        type: 'string',
+        listColumn: false,
+      },
+      {
+        key: 'createdAt',
+        label: 'Created',
+        type: 'datetime',
+        listColumn: true,
+      },
+    ],
+  },
+  {
+    key: 'admin-audit-log',
+    label: 'Audit Log',
+    readOnly: true,
+    searchPlaceholder: 'Search actor email, action, target type/id…',
+    fields: [
+      { key: 'id', label: 'ID', type: 'uuid', listColumn: false },
+      { key: 'actorEmail', label: 'Actor', type: 'string', listColumn: true },
+      { key: 'action', label: 'Action', type: 'string', listColumn: true },
+      {
+        key: 'targetType',
+        label: 'Target Type',
+        type: 'string',
+        listColumn: true,
+      },
+      { key: 'targetId', label: 'Target ID', type: 'uuid', listColumn: true },
+      {
+        key: 'targetSnapshot',
+        label: 'Snapshot',
+        type: 'json',
+        listColumn: false,
+      },
+      { key: 'metadata', label: 'Metadata', type: 'json', listColumn: false },
+      { key: 'ipAddress', label: 'IP', type: 'string', listColumn: false },
+      {
+        key: 'userAgent',
+        label: 'User Agent',
         type: 'string',
         listColumn: false,
       },
