@@ -133,3 +133,39 @@ export const BackgroundAgentId = {
     return BackgroundAgentId.validate(id) ? (id as BackgroundAgentId) : null;
   },
 };
+
+// ---------------------------------------------------------------------------
+// SurfaceId — TASK_2026_107 Phase 1
+// ---------------------------------------------------------------------------
+
+/**
+ * Identifies a non-tab consumer of a streaming pipeline — currently a
+ * setup-wizard analysis phase or a harness-builder operation. Sibling brand
+ * to `TabId`: both refer to a "consumer of streaming events bound to a
+ * conversation", but they belong to disjoint sets so consumers that care
+ * about UI tabs (tabs panel, navbar, persistence) never accidentally
+ * enumerate wizard/harness surfaces, and vice versa.
+ *
+ * Lives only in the renderer; never round-trips through the SDK. Minted by
+ * the originating service (wizard's `WizardPhaseAnalysis`, harness's
+ * state/streaming services), mirroring `TabId.create()`.
+ */
+export type SurfaceId = string & { readonly __brand: 'SurfaceId' };
+
+export const SurfaceId = {
+  create(): SurfaceId {
+    return uuidv4() as SurfaceId;
+  },
+  validate(id: string): id is SurfaceId {
+    return UUID_REGEX.test(id);
+  },
+  from(id: string): SurfaceId {
+    if (!SurfaceId.validate(id)) {
+      throw new TypeError(`Invalid SurfaceId format: ${id}`);
+    }
+    return id as SurfaceId;
+  },
+  safeParse(id: string): SurfaceId | null {
+    return SurfaceId.validate(id) ? (id as SurfaceId) : null;
+  },
+};

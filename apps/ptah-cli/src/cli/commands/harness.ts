@@ -51,6 +51,7 @@ import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import { executeSessionStart } from './session.js';
 import type {
   HarnessAnalyzeIntentResponse,
   HarnessApplyResponse,
@@ -94,6 +95,14 @@ export interface HarnessOptions {
   workspace?: boolean;
   /** For `generate-document --kind <prd|spec>`. */
   kind?: string;
+  /** For `chat` — forwarded to `session start --scope harness-skill` (B10d). */
+  task?: string;
+  /** For `chat --profile <name>`. */
+  profile?: string;
+  /** For `chat --session <id>` — resume an existing session. */
+  session?: string;
+  /** For `chat --auto-approve` — informational, plumbed but not consumed yet. */
+  autoApprove?: boolean;
 }
 
 /** Locked contract — mirrors the architect's `runChatAlias` body verbatim. */
@@ -121,6 +130,11 @@ export interface HarnessExecuteHooks {
   stat?: (path: string) => Promise<{ isDirectory(): boolean }>;
   /** Override hook for tests — defaults to `node:fs/promises.readFile`. */
   readFile?: (path: string) => Promise<string>;
+  /**
+   * Override hook for tests — defaults to delegating into B10c's
+   * `executeSessionStart`. Used by `harness chat` (TASK_2026_104 B10d).
+   */
+  executeSessionStart?: typeof executeSessionStart;
 }
 
 const VALID_DOC_KINDS = new Set(['prd', 'spec']);
@@ -459,24 +473,25 @@ async function runPresetLoad(
 }
 
 // ---------------------------------------------------------------------------
-// chat — locked alias contract per architect (TASK_2026_104 Batch 10).
+// chat — alias for `ptah session start --scope harness-skill`.
 //
-// DO NOT add new PtahNotification values, new PtahErrorCode values, or
-// event-pipe mappings for `harness.chat.*`. The body emits `task.error`
-// synchronously and exits 1. When Batch 10 lands the body becomes a
-// straight delegation to `session.ts:executeSession({ scope: 'harness-skill' })`.
+// TASK_2026_104 Sub-batch B10d (was previously a deferred `task.error` stub
+// per the locked architect contract; B10c shipped `executeSessionStart` so
+// this delegation is now real).
+//
+// The flag set on the router (`--task`, `--profile`, `--session`,
+// `--auto-approve`) mirrors `session start --scope harness-skill` for stream-
+// handling parity. Notifications emitted will be `session.*` + `agent.*`
+// from the underlying `session start|resume`. Consumers SHOULD treat
+// `harness chat` and `session start --scope harness-skill` as identical.
 // ---------------------------------------------------------------------------
 
 function buildChatOptions(opts: HarnessOptions): HarnessChatOptions {
-  // Forward any flags that landed on the harness sub-subcommand parser into
-  // the chat-options shape so the locked deferred-error payload can echo them
-  // back as `data.received_args` for diagnostics.
   return {
-    task: opts.intent,
-    // `profile` / `session` / `autoApprove` are recognized at the router level
-    // for forward-compat parity with `session start --scope harness-skill`;
-    // they are not currently surfaced through `HarnessOptions` because the
-    // body synchronously errors out — extending this struct lands in B10.
+    task: opts.task,
+    profile: opts.profile,
+    session: opts.session,
+    autoApprove: opts.autoApprove,
   };
 }
 
@@ -485,29 +500,17 @@ async function runChatAlias(
   globals: GlobalOptions,
   hooks: HarnessExecuteHooks = {},
 ): Promise<number> {
-  const formatter = hooks.formatter ?? buildFormatter(globals);
-
-  // TODO(B10): Replace this body with delegation to session.ts:
-  //   const sessionOpts: SessionOptions = opts.session
-  //     ? { subcommand: 'resume', id: opts.session, task: opts.task,
-  //         profile: opts.profile, scope: 'harness-skill' }
-  //     : { subcommand: 'start', task: opts.task,
-  //         profile: opts.profile, scope: 'harness-skill' };
-  //   return executeSession(sessionOpts, globals, hooks);
-  // Notifications emitted there will be `session.*` + `agent.*` — consumers
-  // SHOULD treat `harness chat` and `session start --scope harness-skill`
-  // as identical for stream-handling purposes.
-  void opts;
-
-  await formatter.writeNotification('task.error', {
-    ptah_code: 'unknown',
-    command: 'harness chat',
-    message:
-      'harness chat is deferred to Batch 10 (session command). ' +
-      "Use 'ptah harness analyze-intent --intent <text>' or 'ptah harness scan' for now.",
-    hint: 'Tracking: TASK_2026_104 Batch 10 (session start --scope harness-skill)',
-  });
-  return ExitCode.GeneralError;
+  const delegate = hooks.executeSessionStart ?? executeSessionStart;
+  return delegate(
+    {
+      task: opts.task,
+      profile: opts.profile,
+      scope: 'harness-skill',
+      resumeId: opts.session,
+      cwd: globals.cwd,
+    },
+    globals,
+  );
 }
 
 // ---------------------------------------------------------------------------

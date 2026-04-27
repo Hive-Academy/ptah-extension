@@ -23,6 +23,10 @@ import { TOKENS, GitInfoService } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  registerChatServices,
+  registerHarnessServices,
+} from '@ptah-extension/rpc-handlers';
 
 import {
   RpcMethodRegistrationService,
@@ -70,6 +74,15 @@ export function registerPhase3Handlers(
   container.register(TOKENS.GIT_INFO_SERVICE, {
     useFactory: (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),
   });
+
+  // Wave C7d/C7e: register the lifted harness + chat sub-services BEFORE
+  // their handler classes. `RpcMethodRegistrationService` injects
+  // `ChatRpcHandlers` eagerly via its constructor, so the chat sub-services
+  // (CHAT_TOKENS.PTAH_CLI, STREAM_BROADCASTER, SESSION, PREMIUM_CONTEXT)
+  // must be registered here, not deferred to `registerAll()`. Mirrors the
+  // electron pattern in `apps/ptah-electron/src/di/phase-4-handlers.ts`.
+  registerHarnessServices(container);
+  registerChatServices(container);
 
   // Register all domain-specific RPC handler classes. These are consumed by
   // `RpcMethodRegistrationService` to delegate per-domain RPC registration.

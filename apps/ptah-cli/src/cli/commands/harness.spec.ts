@@ -19,11 +19,10 @@
  *       * UsageError without <name> or --from
  *       * reads JSON config, dispatches harness:save-preset
  *   - preset load: dispatches harness:load-presets
- *   - chat (locked alias):
- *       * emits task.error with deferred-error payload
- *       * exit code is GeneralError (1), NOT UsageError (2), NOT Success (0)
- *       * payload contains "Batch 10" hint
- *       * payload mentions analyze-intent OR scan as a forward path
+ *   - chat (B10d alias for session start --scope harness-skill):
+ *       * delegates to executeSessionStart with scope:harness-skill
+ *       * forwards --profile / --session / --task into the delegation
+ *       * propagates non-zero exit codes from the underlying session start
  *   - analyze-intent:
  *       * UsageError when --intent < 10 chars
  *       * dispatches harness:analyze-intent
@@ -439,37 +438,82 @@ describe('ptah harness preset load', () => {
 });
 
 // ---------------------------------------------------------------------------
-// chat — locked alias contract (architect's spec, do not relax)
+// chat — TASK_2026_104 Sub-batch B10d delegates to `session start --scope
+// harness-skill` via `executeSessionStart`. The body is a thin pass-through;
+// these tests verify the delegation surface (option forwarding + exit-code
+// propagation) without exercising the full session DI bootstrap.
 // ---------------------------------------------------------------------------
-describe('ptah harness chat (deferred-to-Batch-10 alias)', () => {
-  it('emits task.error with deferred-error payload', async () => {
-    const { formatterTrace, hooks, engine } = buildHooks();
+type DelegateMock = jest.MockedFunction<
+  NonNullable<HarnessExecuteHooks['executeSessionStart']>
+>;
+
+function makeDelegate(returnCode: number): DelegateMock {
+  return jest.fn(async () => returnCode) as unknown as DelegateMock;
+}
+
+describe('ptah harness chat (alias for session start --scope harness-skill)', () => {
+  it('delegates to executeSessionStart with scope:harness-skill and exits 0 on success', async () => {
+    const { hooks } = buildHooks();
+    const delegate = makeDelegate(0);
+    hooks.executeSessionStart = delegate;
+
     const exit = await execute(
-      { subcommand: 'chat' } satisfies HarnessOptions,
+      {
+        subcommand: 'chat',
+        task: 'hello',
+      } satisfies HarnessOptions,
       baseGlobals,
       hooks,
     );
-    // No DI, no RPC.
-    expect(engine.rpcCalls).toHaveLength(0);
-    expect(formatterTrace.notifications).toHaveLength(1);
-    const evt = formatterTrace.notifications[0];
-    expect(evt?.method).toBe('task.error');
-    const params = evt?.params as {
-      ptah_code: string;
-      command: string;
-      message: string;
-      hint: string;
-    };
-    expect(params.command).toBe('harness chat');
-    // The locked contract requires the message and hint reference Batch 10
-    // and at least one forward-compat path.
-    expect(params.message).toMatch(/Batch 10/);
-    expect(params.message).toMatch(/analyze-intent|scan/);
-    expect(params.hint).toMatch(/Batch 10/);
-    // Returns ExitCode.GeneralError (1) — NOT UsageError (2), NOT Success (0).
+
+    expect(exit).toBe(ExitCode.Success);
+    expect(delegate).toHaveBeenCalledTimes(1);
+    const callOpts = delegate.mock.calls[0]?.[0];
+    expect(callOpts).toMatchObject({
+      task: 'hello',
+      scope: 'harness-skill',
+      cwd: baseGlobals.cwd,
+    });
+  });
+
+  it('forwards --profile and --session through the delegation surface', async () => {
+    const { hooks } = buildHooks();
+    const delegate = makeDelegate(0);
+    hooks.executeSessionStart = delegate;
+
+    const exit = await execute(
+      {
+        subcommand: 'chat',
+        task: 'follow-up',
+        profile: 'enhanced',
+        session: 'sdk-session-1',
+      } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    const callOpts = delegate.mock.calls[0]?.[0];
+    expect(callOpts).toMatchObject({
+      task: 'follow-up',
+      profile: 'enhanced',
+      scope: 'harness-skill',
+      resumeId: 'sdk-session-1',
+    });
+  });
+
+  it('propagates a non-zero exit code from executeSessionStart', async () => {
+    const { hooks } = buildHooks();
+    const delegate = makeDelegate(1);
+    hooks.executeSessionStart = delegate;
+
+    const exit = await execute(
+      { subcommand: 'chat', task: 'boom' } satisfies HarnessOptions,
+      baseGlobals,
+      hooks,
+    );
+
     expect(exit).toBe(ExitCode.GeneralError);
-    expect(exit).not.toBe(ExitCode.UsageError);
-    expect(exit).not.toBe(ExitCode.Success);
   });
 });
 
@@ -651,26 +695,33 @@ describe('ptah harness unknown sub-command', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Router-level harness chat parser sanity (locked contract — flag set must
-// mirror `session start --scope harness-skill` even though the action body
-// is a deferred error).
+// Router-level harness chat parser sanity (TASK_2026_104 B10d — flag set must
+// mirror `session start --scope harness-skill` since the body now delegates).
 // ---------------------------------------------------------------------------
 describe('ptah harness chat — router parsing', () => {
   it('accepts --task / --profile / --session / --auto-approve without parser error', async () => {
     // We can't instantiate the full router cheaply here, so this test just
-    // documents the locked contract via the harness execute() entry point —
-    // any extra flags on the harness sub-subcommand parser must NOT cause
-    // execute() itself to error. The parser surface lives in router.ts and
-    // is exercised by the integration smoke test.
+    // documents the contract via the harness execute() entry point — any
+    // flags on the harness sub-subcommand parser must NOT cause execute()
+    // itself to error. The parser surface lives in router.ts and is
+    // smoke-tested via `ptah harness chat --help`.
     const { hooks } = buildHooks();
+    const delegate = makeDelegate(0);
+    hooks.executeSessionStart = delegate;
+
     const exit = await execute(
-      { subcommand: 'chat', intent: 'ignored' } satisfies HarnessOptions,
+      {
+        subcommand: 'chat',
+        task: 'a task',
+        profile: 'claude_code',
+        session: 'sid',
+        autoApprove: true,
+      } satisfies HarnessOptions,
       baseGlobals,
       hooks,
     );
-    // Locked: still GeneralError (1), NOT UsageError (2). Help text /
-    // alias-for-session-start / Batch 10 references live in router.ts and
-    // are smoke-tested via `ptah harness chat --help`.
-    expect(exit).toBe(ExitCode.GeneralError);
+
+    expect(exit).toBe(ExitCode.Success);
+    expect(delegate).toHaveBeenCalledTimes(1);
   });
 });

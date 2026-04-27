@@ -59,6 +59,7 @@ export {
   TabId,
   ConversationId,
   BackgroundAgentId,
+  SurfaceId,
   type ClaudeSessionId,
 } from './lib/identity/ids';
 

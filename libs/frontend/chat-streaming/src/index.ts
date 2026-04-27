@@ -33,6 +33,15 @@ export { EventDeduplicationService } from './lib/event-deduplication.service';
 export { BatchedUpdateService } from './lib/batched-update.service';
 export { PermissionHandlerService } from './lib/permission-handler.service';
 
+// TASK_2026_107 Phase 2 — extracted event-type switch core. Consumed
+// directly by `chat-routing`'s StreamRouter (surface routing) and
+// transitively by `StreamingHandlerService` (chat tab routing).
+export {
+  StreamingAccumulatorCore,
+  type AccumulatorContext,
+  type AccumulatorResult,
+} from './lib/accumulator-core.service';
+
 // ============================================================================
 // SERVICES — Session + execution tree
 // ============================================================================

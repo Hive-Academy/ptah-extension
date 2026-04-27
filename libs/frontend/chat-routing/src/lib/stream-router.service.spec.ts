@@ -25,6 +25,7 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import {
   ConversationRegistry,
+  SurfaceId,
   TabId,
   TabManagerService,
   TabSessionBinding,
@@ -36,6 +37,10 @@ import {
   PermissionHandlerService,
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
+import {
+  createEmptyStreamingState,
+  type StreamingState,
+} from '@ptah-extension/chat-types';
 import type {
   CompactionCompleteEvent,
   CompactionStartEvent,
@@ -44,6 +49,7 @@ import type {
   TextDeltaEvent,
 } from '@ptah-extension/shared';
 import { StreamRouter } from './stream-router.service';
+import { StreamingSurfaceRegistry } from './streaming-surface-registry.service';
 
 // ---------- Helpers --------------------------------------------------------
 
@@ -139,6 +145,7 @@ function makeTabManagerMock(
 function makePermissionHandlerMock() {
   const targets = new Map<string, readonly string[]>();
   const cancelled: { promptId: string; exceptTabId: string | null }[] = [];
+  const responses: { id: string; decision: string; reason?: string }[] = [];
   const pulseSignal = signal<{
     seq: number;
     promptId: string;
@@ -156,10 +163,20 @@ function makePermissionHandlerMock() {
       cancelled.push({ promptId, exceptTabId });
       targets.delete(promptId);
     }),
+    // TASK_2026_107 Phase 5 — defensive guard auto-deny path. Mirrors the
+    // real PermissionHandlerService.handlePermissionResponse contract: the
+    // router calls this when a prompt resolves to a surface-only conversation.
+    handlePermissionResponse: jest.fn(
+      (response: { id: string; decision: string; reason?: string }) => {
+        responses.push({ ...response });
+        targets.delete(response.id);
+      },
+    ),
     decisionPulse: pulseSignal.asReadonly(),
     _emitDecision: (promptId: string, decidingTabId: string | null, seq = 1) =>
       pulseSignal.set({ seq, promptId, decidingTabId }),
     _cancelled: cancelled,
+    _responses: responses,
     _targets: targets,
   };
 }
@@ -751,5 +768,602 @@ describe('StreamRouter (authoritative — bootstrap migration)', () => {
     bootWithTabs([]);
     expect(binding.boundTabCount()).toBe(0);
     expect(registry.conversations()).toHaveLength(0);
+  });
+});
+
+// =============================================================================
+// PHASE 2 — Surface routing (TASK_2026_107)
+// =============================================================================
+//
+// Sibling APIs to onTabCreated/onTabClosed/routeStreamEvent/tabsForSession,
+// keyed by SurfaceId. Coverage:
+//   - onSurfaceCreated mints/seeds/binds a conversation; idempotent on repeat
+//   - onSurfaceCreated reuses an existing conversation when the session is
+//     already known to the registry (chat tab opened the same session first)
+//   - onSurfaceClosed unbinds + cleans up only when no other consumer remains
+//   - "Last consumer" check respects BOTH tabs AND surfaces
+//   - routeStreamEventForSurface drops events for unregistered surfaces
+//   - routeStreamEventForSurface mutates the surface adapter's state slot
+//   - routeStreamEventForSurface installs a fresh state on compaction_complete
+//   - surfacesForSession sibling lookup
+//   - routePermissionPrompt SIGNATURE UNCHANGED — this regression check
+//     guards against accidental wizard/harness leakage into permission
+//     routing during Phase 2.
+
+describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
+  let router: StreamRouter;
+  let registry: ConversationRegistry;
+  let binding: TabSessionBinding;
+  let surfaceRegistry: StreamingSurfaceRegistry;
+  let tabManager: ReturnType<typeof makeTabManagerMock>;
+  let streamingHandler: jest.Mocked<
+    Pick<StreamingHandlerService, 'cleanupSessionDeduplication'>
+  >;
+  let agentMonitorStore: jest.Mocked<
+    Pick<AgentMonitorStore, 'clearSessionAgents'>
+  >;
+  let permissionHandler: ReturnType<typeof makePermissionHandlerMock>;
+
+  beforeEach(() => {
+    tabManager = makeTabManagerMock();
+    streamingHandler = { cleanupSessionDeduplication: jest.fn() };
+    agentMonitorStore = { clearSessionAgents: jest.fn() };
+    permissionHandler = makePermissionHandlerMock();
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: TabManagerService, useValue: tabManager },
+        { provide: StreamingHandlerService, useValue: streamingHandler },
+        { provide: AgentMonitorStore, useValue: agentMonitorStore },
+        { provide: PermissionHandlerService, useValue: permissionHandler },
+      ],
+    });
+
+    router = TestBed.inject(StreamRouter);
+    registry = TestBed.inject(ConversationRegistry);
+    binding = TestBed.inject(TabSessionBinding);
+    surfaceRegistry = TestBed.inject(StreamingSurfaceRegistry);
+    TestBed.tick();
+  });
+
+  /** Build a minimal SurfaceAdapter probe and register it. */
+  function makeSurfaceProbe(): {
+    surfaceId: SurfaceId;
+    state: StreamingState;
+    setState: jest.Mock;
+    getState: jest.Mock;
+  } {
+    const probe = {
+      surfaceId: SurfaceId.create(),
+      state: createEmptyStreamingState(),
+      getState: jest.fn<StreamingState, []>(),
+      setState: jest.fn<void, [StreamingState]>(),
+    };
+    probe.getState.mockImplementation(() => probe.state);
+    probe.setState.mockImplementation((next) => {
+      probe.state = next;
+    });
+    surfaceRegistry.register(probe.surfaceId, probe.getState, probe.setState);
+    return probe;
+  }
+
+  // ---- onSurfaceCreated ---------------------------------------------------
+
+  describe('onSurfaceCreated()', () => {
+    it('with no existing sessionId mints empty conversation and binds the surface', () => {
+      const surfaceId = SurfaceId.create();
+      const conv = router.onSurfaceCreated(surfaceId);
+
+      expect(binding.conversationForSurface(surfaceId)).toBe(conv);
+      const record = registry.getRecord(conv);
+      expect(record).not.toBeNull();
+      expect(record?.sessions).toEqual([]);
+    });
+
+    it('with an existing sessionId mints a one-session conversation and binds the surface', () => {
+      const surfaceId = SurfaceId.create();
+      const conv = router.onSurfaceCreated(surfaceId, SESSION_A);
+
+      expect(binding.conversationForSurface(surfaceId)).toBe(conv);
+      expect(registry.getRecord(conv)?.sessions).toEqual([SESSION_A]);
+    });
+
+    it('is idempotent — calling twice for the same surface returns the same conversation', () => {
+      const surfaceId = SurfaceId.create();
+      const first = router.onSurfaceCreated(surfaceId);
+      const second = router.onSurfaceCreated(surfaceId);
+
+      expect(second).toBe(first);
+      expect(registry.conversations()).toHaveLength(1);
+    });
+
+    it('upgrades an empty conversation to one-session when a sessionId is provided on re-call', () => {
+      const surfaceId = SurfaceId.create();
+      const conv = router.onSurfaceCreated(surfaceId);
+      expect(registry.getRecord(conv)?.sessions).toEqual([]);
+
+      router.onSurfaceCreated(surfaceId, SESSION_A);
+      expect(registry.getRecord(conv)?.sessions).toEqual([SESSION_A]);
+    });
+
+    it('reuses an existing conversation when the session is already known (chat tab opened it first)', () => {
+      // Tab opens SESSION_A first.
+      const tab = newTabId();
+      const tabConv = router.onTabCreated(tab, SESSION_A);
+
+      // Surface registers later for the same session — must bind to the
+      // SAME conversation (no duplicate conversation minted).
+      const surfaceId = SurfaceId.create();
+      const surfaceConv = router.onSurfaceCreated(surfaceId, SESSION_A);
+
+      expect(surfaceConv).toBe(tabConv);
+      expect(binding.conversationForSurface(surfaceId)).toBe(tabConv);
+      expect(binding.conversationFor(tab)).toBe(tabConv);
+      expect(registry.conversations()).toHaveLength(1);
+    });
+  });
+
+  // ---- onSurfaceClosed ----------------------------------------------------
+
+  describe('onSurfaceClosed()', () => {
+    it('unbinds the surface and removes the conversation when no other consumer remains', () => {
+      const probe = makeSurfaceProbe();
+      const conv = router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+      router.onSurfaceClosed(probe.surfaceId);
+
+      expect(binding.conversationForSurface(probe.surfaceId)).toBeNull();
+      expect(registry.getRecord(conv)).toBeNull();
+      // Cleanup ran for the conversation's sessions.
+      expect(streamingHandler.cleanupSessionDeduplication).toHaveBeenCalledWith(
+        SESSION_A,
+      );
+      expect(agentMonitorStore.clearSessionAgents).toHaveBeenCalledWith(
+        SESSION_A,
+      );
+      // Surface adapter unregistered too.
+      expect(surfaceRegistry.getAdapter(probe.surfaceId)).toBeNull();
+    });
+
+    it('runs cleanup for every session the conversation ever spanned (compaction-spanning conversations)', () => {
+      const probe = makeSurfaceProbe();
+      const conv = router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      // Simulate the surface picking up a second session mid-conversation
+      // (e.g., compaction boundary).
+      registry.appendSession(conv, SESSION_B);
+
+      router.onSurfaceClosed(probe.surfaceId);
+
+      expect(streamingHandler.cleanupSessionDeduplication).toHaveBeenCalledWith(
+        SESSION_A,
+      );
+      expect(streamingHandler.cleanupSessionDeduplication).toHaveBeenCalledWith(
+        SESSION_B,
+      );
+      expect(agentMonitorStore.clearSessionAgents).toHaveBeenCalledWith(
+        SESSION_A,
+      );
+      expect(agentMonitorStore.clearSessionAgents).toHaveBeenCalledWith(
+        SESSION_B,
+      );
+    });
+
+    it('keeps the conversation alive when a tab is still bound to the same conversation', () => {
+      // 1 tab + 1 surface bound to the SAME conversation (rare but legal).
+      const tab = newTabId();
+      const conv = router.onTabCreated(tab, SESSION_A);
+      const probe = makeSurfaceProbe();
+      const surfConv = router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      expect(surfConv).toBe(conv);
+
+      router.onSurfaceClosed(probe.surfaceId);
+
+      // Conversation MUST still exist — the tab is still bound.
+      expect(registry.getRecord(conv)).not.toBeNull();
+      expect(binding.conversationFor(tab)).toBe(conv);
+      expect(binding.conversationForSurface(probe.surfaceId)).toBeNull();
+      // No teardown calls — the conversation isn't dead.
+      expect(
+        streamingHandler.cleanupSessionDeduplication,
+      ).not.toHaveBeenCalled();
+      expect(agentMonitorStore.clearSessionAgents).not.toHaveBeenCalled();
+    });
+
+    it('keeps the conversation alive when another surface is still bound to it', () => {
+      const probe1 = makeSurfaceProbe();
+      const probe2 = makeSurfaceProbe();
+      const conv = router.onSurfaceCreated(probe1.surfaceId, SESSION_A);
+      const conv2 = router.onSurfaceCreated(probe2.surfaceId, SESSION_A);
+      expect(conv2).toBe(conv);
+
+      router.onSurfaceClosed(probe1.surfaceId);
+
+      expect(registry.getRecord(conv)).not.toBeNull();
+      expect(binding.conversationForSurface(probe2.surfaceId)).toBe(conv);
+      expect(
+        streamingHandler.cleanupSessionDeduplication,
+      ).not.toHaveBeenCalled();
+      expect(agentMonitorStore.clearSessionAgents).not.toHaveBeenCalled();
+    });
+
+    it('mixed tabs + surfaces — closing the surface first keeps the conversation alive (tab is the surviving consumer)', () => {
+      const tab = newTabId();
+      const conv = router.onTabCreated(tab, SESSION_A);
+      const probe = makeSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+      // Close the surface FIRST. onSurfaceClosed correctly checks both
+      // tabsFor() and surfacesFor() before tearing down the conversation,
+      // so the tab keeps the conversation alive.
+      router.onSurfaceClosed(probe.surfaceId);
+
+      expect(registry.getRecord(conv)).not.toBeNull();
+      expect(binding.conversationFor(tab)).toBe(conv);
+      expect(binding.conversationForSurface(probe.surfaceId)).toBeNull();
+      // No teardown ran — the conversation is not dead.
+      expect(
+        streamingHandler.cleanupSessionDeduplication,
+      ).not.toHaveBeenCalled();
+      expect(agentMonitorStore.clearSessionAgents).not.toHaveBeenCalled();
+
+      // Now close the tab — last consumer, conversation must drop.
+      tabManager._emitClosedTab({
+        tabId: tab,
+        sessionId: SESSION_A,
+        kind: 'close',
+      });
+      TestBed.tick();
+
+      expect(registry.getRecord(conv)).toBeNull();
+      expect(streamingHandler.cleanupSessionDeduplication).toHaveBeenCalledWith(
+        SESSION_A,
+      );
+      expect(agentMonitorStore.clearSessionAgents).toHaveBeenCalledWith(
+        SESSION_A,
+      );
+    });
+
+    /**
+     * Asymmetry note (TASK_2026_107 Phase 2 unexpected discovery):
+     * `StreamRouter.onTabClosed` (and its driver `handleTabClosed`) only
+     * checks `binding.hasBoundTabs(convId)` — it is NOT surface-aware.
+     * `StreamRouter.onSurfaceClosed`, by contrast, IS tab-aware. This is
+     * intentional for Phase 2: the chat-view path must remain unchanged
+     * (R1 regression risk). Production-wise, tabs and surfaces never
+     * co-exist on the same conversation, so the asymmetry is benign —
+     * but Phase 3+ should consider tightening `onTabClosed` to mirror
+     * `onSurfaceClosed` once wizard/harness ship.
+     */
+    it('asymmetry — closing the tab when a surface still binds the same conversation drops the conversation (chat-view unchanged)', () => {
+      const tab = newTabId();
+      const conv = router.onTabCreated(tab, SESSION_A);
+      const probe = makeSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+      tabManager._emitClosedTab({
+        tabId: tab,
+        sessionId: SESSION_A,
+        kind: 'close',
+      });
+      TestBed.tick();
+
+      // Phase 2 reality: the tab-close path is surface-blind. The
+      // conversation IS dropped even though the surface still claims it.
+      // This documents the chat-view unchanged contract; Phase 3+ may
+      // tighten this once surfaces have a real consumer.
+      expect(registry.getRecord(conv)).toBeNull();
+      expect(binding.conversationFor(tab)).toBeNull();
+    });
+
+    it('is a graceful no-op when called for a never-registered surface (close-race tolerance)', () => {
+      const ghost = SurfaceId.create();
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      expect(() => router.onSurfaceClosed(ghost)).not.toThrow();
+      expect(
+        streamingHandler.cleanupSessionDeduplication,
+      ).not.toHaveBeenCalled();
+      expect(agentMonitorStore.clearSessionAgents).not.toHaveBeenCalled();
+      // No warn emitted for a missing binding — that's the happy path.
+      warnSpy.mockRestore();
+    });
+
+    it('tolerates errors thrown by streaming cleanup (best-effort)', () => {
+      const probe = makeSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+      streamingHandler.cleanupSessionDeduplication.mockImplementationOnce(
+        () => {
+          throw new Error('boom');
+        },
+      );
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      expect(() => router.onSurfaceClosed(probe.surfaceId)).not.toThrow();
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+  });
+
+  // ---- routeStreamEventForSurface ----------------------------------------
+
+  describe('routeStreamEventForSurface()', () => {
+    it('drops events silently when the surface is not registered with the adapter registry', () => {
+      const orphan = SurfaceId.create();
+      const result = router.routeStreamEventForSurface(
+        msgStart(SESSION_A),
+        orphan,
+      );
+
+      expect(result).toBeNull();
+      // No side effects.
+      expect(registry.conversations()).toHaveLength(0);
+      expect(binding.conversationForSurface(orphan)).toBeNull();
+    });
+
+    it('lazy-binds when the surface adapter is registered but onSurfaceCreated was skipped', () => {
+      const probe = makeSurfaceProbe();
+
+      const conv = router.routeStreamEventForSurface(
+        msgStart(SESSION_A),
+        probe.surfaceId,
+      );
+
+      expect(conv).not.toBeNull();
+      expect(binding.conversationForSurface(probe.surfaceId)).toBe(conv);
+      expect(registry.getRecord(conv as never)?.sessions).toEqual([SESSION_A]);
+    });
+
+    it('mutates the surface adapter state slot when the accumulator core writes', () => {
+      const probe = makeSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+      router.routeStreamEventForSurface(msgStart(SESSION_A), probe.surfaceId);
+
+      // The accumulator wrote to the surface's state — currentMessageId
+      // is the cheapest tell.
+      expect(probe.state.currentMessageId).toBe(`msg-${SESSION_A}`);
+      expect(probe.state.messageEventIds).toContain(`msg-${SESSION_A}`);
+    });
+
+    it('appends a new session to the conversation when the first event carries a different sessionId', () => {
+      const probe = makeSurfaceProbe();
+      const conv = router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+      router.routeStreamEventForSurface(msgStart(SESSION_B), probe.surfaceId);
+
+      const sessions = registry.getRecord(conv)?.sessions ?? [];
+      expect(sessions).toEqual([SESSION_A, SESSION_B]);
+    });
+
+    it('compaction_start marks the conversation in-flight (lifecycle parity with tab path)', () => {
+      const probe = makeSurfaceProbe();
+      const conv = router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+      router.routeStreamEventForSurface(
+        compactionStart(SESSION_A),
+        probe.surfaceId,
+      );
+
+      expect(registry.getRecord(conv)?.compactionInFlight).toBe(true);
+    });
+
+    it('compaction_complete installs a fresh state via adapter.setState (replacementState path)', () => {
+      const probe = makeSurfaceProbe();
+      const conv = router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+      // Seed the surface's state with content so we can observe the swap.
+      router.routeStreamEventForSurface(msgStart(SESSION_A), probe.surfaceId);
+      const seededState = probe.state;
+      expect(seededState.currentMessageId).toBe(`msg-${SESSION_A}`);
+
+      router.routeStreamEventForSurface(
+        compactionStart(SESSION_A),
+        probe.surfaceId,
+      );
+      router.routeStreamEventForSurface(
+        compactionComplete(SESSION_A),
+        probe.surfaceId,
+      );
+
+      // Adapter received a brand-new state object via setState.
+      expect(probe.setState).toHaveBeenCalled();
+      expect(probe.state).not.toBe(seededState);
+      expect(probe.state.currentMessageId).toBeNull();
+      expect(probe.state.messageEventIds).toEqual([]);
+      // Lifecycle flags propagated.
+      const record = registry.getRecord(conv);
+      expect(record?.compactionInFlight).toBe(false);
+      expect(record?.lastCompactionAt).not.toBeNull();
+    });
+  });
+
+  // ---- surfacesForSession -------------------------------------------------
+
+  describe('surfacesForSession()', () => {
+    it('returns every surface bound to a conversation containing the session', () => {
+      const p1 = makeSurfaceProbe();
+      const p2 = makeSurfaceProbe();
+      router.onSurfaceCreated(p1.surfaceId, SESSION_A);
+      router.onSurfaceCreated(p2.surfaceId, SESSION_A);
+
+      const surfaces = router.surfacesForSession(SESSION_A);
+
+      expect(new Set(surfaces)).toEqual(new Set([p1.surfaceId, p2.surfaceId]));
+    });
+
+    it('returns an empty array for an unknown session', () => {
+      expect(router.surfacesForSession(SESSION_C)).toEqual([]);
+    });
+
+    it('does not include tabs (parallel-graph isolation)', () => {
+      const tab = newTabId();
+      const probe = makeSurfaceProbe();
+      router.onTabCreated(tab, SESSION_A);
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+      const surfaces = router.surfacesForSession(SESSION_A);
+      expect(surfaces).toEqual([probe.surfaceId]);
+      expect(surfaces as readonly unknown[]).not.toContain(tab);
+
+      const tabs = router.tabsForSession(SESSION_A);
+      expect(tabs).toEqual([tab]);
+      expect(tabs as readonly unknown[]).not.toContain(probe.surfaceId);
+    });
+  });
+
+  // ---- routePermissionPrompt regression check ----------------------------
+
+  describe('routePermissionPrompt — signature unchanged (TASK_2026_107 R1 regression check)', () => {
+    it('routes ONLY to tabs (NOT surfaces) — wizard/harness must NOT receive permission prompts', () => {
+      // Set up: 1 tab + 1 surface, both bound to SESSION_A.
+      const tab = newTabId();
+      const probe = makeSurfaceProbe();
+      router.onTabCreated(tab, SESSION_A);
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+      const prompt = makePermissionRequest({ id: 'perm-tab-only' });
+      const targets = router.routePermissionPrompt(prompt);
+
+      // Targets are tabs only — surface excluded by design (full-auto).
+      expect(targets).toEqual([tab]);
+      // attachPromptTargets received ONLY the tab id — no surface id leaked.
+      expect(permissionHandler.attachPromptTargets).toHaveBeenCalledWith(
+        'perm-tab-only',
+        [tab],
+      );
+    });
+
+    it('returns empty array when only surfaces are bound (no tab consumer for the prompt)', () => {
+      const probe = makeSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+
+      const prompt = makePermissionRequest({ id: 'perm-no-tab' });
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const targets = router.routePermissionPrompt(prompt);
+
+      expect(targets).toEqual([]);
+      expect(permissionHandler.attachPromptTargets).not.toHaveBeenCalled();
+      // TASK_2026_107 Phase 5 — defensive guard kicks in here.
+      expect(warnSpy).toHaveBeenCalledWith(
+        'prompt.received.no-tab-surface-only',
+        expect.objectContaining({
+          promptId: 'perm-no-tab',
+          surfaceCount: 1,
+        }),
+      );
+      warnSpy.mockRestore();
+    });
+  });
+
+  // ---- TASK_2026_107 Phase 5 — defensive guard ---------------------------
+
+  describe('defensive guard — prompt for surface-only conversation', () => {
+    it('emits prompt.received.no-tab-surface-only warning with full payload', () => {
+      const probe = makeSurfaceProbe();
+      const conv = router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      router.routePermissionPrompt(
+        makePermissionRequest({ id: 'perm-guard-1' }),
+      );
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        'prompt.received.no-tab-surface-only',
+        {
+          promptId: 'perm-guard-1',
+          sessionId: SESSION_A as unknown as string,
+          conversationId: conv,
+          surfaceCount: 1,
+        },
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('auto-denies via handlePermissionResponse so the SDK is unblocked', () => {
+      const probe = makeSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      router.routePermissionPrompt(
+        makePermissionRequest({ id: 'perm-guard-2' }),
+      );
+
+      expect(permissionHandler.handlePermissionResponse).toHaveBeenCalledWith({
+        id: 'perm-guard-2',
+        decision: 'deny',
+        reason: expect.stringContaining('auto-deny'),
+      });
+      warnSpy.mockRestore();
+    });
+
+    it('counts every surface bound to the conversation in surfaceCount', () => {
+      const p1 = makeSurfaceProbe();
+      const p2 = makeSurfaceProbe();
+      router.onSurfaceCreated(p1.surfaceId, SESSION_A);
+      router.onSurfaceCreated(p2.surfaceId, SESSION_A);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      router.routePermissionPrompt(
+        makePermissionRequest({ id: 'perm-guard-3' }),
+      );
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        'prompt.received.no-tab-surface-only',
+        expect.objectContaining({ surfaceCount: 2 }),
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('does NOT fire when at least one tab is bound (mixed tab+surface conversation)', () => {
+      const tab = newTabId();
+      const probe = makeSurfaceProbe();
+      router.onTabCreated(tab, SESSION_A);
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const targets = router.routePermissionPrompt(
+        makePermissionRequest({ id: 'perm-guard-4' }),
+      );
+
+      // Tab path wins — guard does not fire. Tab is the prompt target.
+      expect(targets).toEqual([tab]);
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(permissionHandler.handlePermissionResponse).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('does NOT fire when sessionId is unknown to the registry (legacy fallback path)', () => {
+      // No surfaces, no tabs — session is unknown. Guard must not warn
+      // because this is the existing legacy-fallback case (router didn't
+      // see the binding event yet); auto-deny would be wrong here.
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const targets = router.routePermissionPrompt(
+        makePermissionRequest({
+          id: 'perm-guard-5',
+          sessionId: SESSION_C as unknown as string,
+        }),
+      );
+
+      expect(targets).toEqual([]);
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(permissionHandler.handlePermissionResponse).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('does NOT fire when prompt has no sessionId (legacy fallback path)', () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const targets = router.routePermissionPrompt(
+        makePermissionRequest({ id: 'perm-guard-6', sessionId: undefined }),
+      );
+
+      expect(targets).toEqual([]);
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(permissionHandler.handlePermissionResponse).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
   });
 });

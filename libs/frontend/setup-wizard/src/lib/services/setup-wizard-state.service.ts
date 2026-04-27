@@ -1,6 +1,14 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
-import { type StreamingState } from '@ptah-extension/chat-types';
+import {
+  createEmptyStreamingState,
+  type StreamingState,
+} from '@ptah-extension/chat-types';
+import { SurfaceId } from '@ptah-extension/chat-state';
+import {
+  StreamRouter,
+  StreamingSurfaceRegistry,
+} from '@ptah-extension/chat-routing';
 import type {
   AgentPackInfoDto,
   AgentRecommendation,
@@ -8,6 +16,7 @@ import type {
   AnswerValue,
   DiscoveryAnswers,
   EnhancedPromptsSummary,
+  FlatStreamEventUnion,
   GenerationStreamPayload,
   MasterPlan,
   MultiPhaseAnalysisResponse,
@@ -16,7 +25,6 @@ import type {
   QuestionGroup,
   SavedAnalysisMetadata,
 } from '@ptah-extension/shared';
-import { WizardStreamAccumulator } from './setup-wizard/wizard-stream-accumulator';
 import { WizardMessageDispatcher } from './setup-wizard/wizard-message-dispatcher';
 import { WizardPhaseAnalysis } from './setup-wizard/wizard-phase-analysis';
 import { WizardPhaseGeneration } from './setup-wizard/wizard-phase-generation';
@@ -41,6 +49,32 @@ import type {
   WizardPath,
   WizardStep,
 } from './setup-wizard-state.types';
+
+/**
+ * Façade exposed to {@link WizardPhaseAnalysis} and {@link WizardPhaseGeneration}
+ * so they can route flat events through the canonical streaming pipeline
+ * without holding a reference to the entire {@link SetupWizardStateService}.
+ *
+ * TASK_2026_107 Phase 3: replaces the deleted `WizardStreamAccumulator`.
+ *
+ * - `ensurePhaseSurface` — idempotent lazy mint of a SurfaceId for a phaseKey
+ * - `routePhaseEvent` — forwards a flat event to
+ *   `StreamRouter.routeStreamEventForSurface` (lazy-mints the surface if not
+ *   already registered)
+ * - `unregisterAllPhaseSurfaces` — closes every active routing binding
+ *   (called on analysis-complete) but KEEPS the accumulated StreamingStates
+ *   visible in the public `phaseStreamingStates` signal so the transcript
+ *   continues to render completed phases
+ * - `resetPhaseSurfaces` — full teardown: closes routing AND clears the
+ *   accumulated states (called on wizard reset and on generation-stream
+ *   initialization to wipe stale analysis-phase entries)
+ */
+export interface WizardSurfaceFacade {
+  ensurePhaseSurface(phaseKey: string): SurfaceId;
+  routePhaseEvent(phaseKey: string, event: FlatStreamEventUnion): void;
+  unregisterAllPhaseSurfaces(): void;
+  resetPhaseSurfaces(): void;
+}
 
 // Re-export shared types for backward compatibility with existing consumers
 export type {
@@ -96,9 +130,30 @@ export type {
 })
 export class SetupWizardStateService {
   private readonly vscodeService = inject(VSCodeService);
+  // TASK_2026_107 Phase 3: surface routing dependencies. Wizard registers a
+  // SurfaceId per analysis/generation phase so its stream events flow through
+  // the canonical pipeline (dedup, batching, agent stores, session binding).
+  private readonly streamRouter = inject(StreamRouter);
+  private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
 
   /** Per-coordinator-instance gate preventing duplicate listener registration. */
   private isMessageListenerRegistered = false;
+
+  // TASK_2026_107 Phase 3: surface registration state.
+  //
+  // Surfaces are minted lazily on first stream event for a given phaseKey
+  // (the wizard backend uses `event.messageId === wizard-phase-${currentPhase}`
+  // to discriminate phases). The Map below holds the SurfaceId for each
+  // active phaseKey; a sibling Map holds the live StreamingState reference
+  // each surface adapter exposes via getState().
+  //
+  // The accumulator-core mutates StreamingState in place. To trigger Angular
+  // signal reactivity for `phaseStreamingStates` consumers, we re-emit the
+  // signal with a freshly-built array after every routed event — see
+  // `nudgePhaseStreamingStates()`. The inner StreamingState objects are
+  // shared with `_phaseStateRefs` so consumers always read the latest data.
+  private readonly _phaseSurfaces = new Map<string, SurfaceId>();
+  private readonly _phaseStateRefs = new Map<string, StreamingState>();
 
   // === Private Writable Signals ===
   // All signals live on the coordinator so signal IDENTITY is preserved for
@@ -270,7 +325,6 @@ export class SetupWizardStateService {
   // ============================================================================
 
   // C7b helpers — message-handling pipeline
-  private readonly streamAccumulator: WizardStreamAccumulator;
   private readonly phaseAnalysis: WizardPhaseAnalysis;
   private readonly phaseGeneration: WizardPhaseGeneration;
   private readonly messageDispatcher: WizardMessageDispatcher;
@@ -372,16 +426,26 @@ export class SetupWizardStateService {
     };
 
     // C7b helpers
-    this.streamAccumulator = new WizardStreamAccumulator(
-      this.phaseStreamingStatesSignal,
-    );
+    // TASK_2026_107 Phase 3: WizardStreamAccumulator deleted; the helpers
+    // below now route stream events through StreamRouter via the surface
+    // management methods on `this` (registerPhaseSurface / routePhaseEvent /
+    // resetPhaseSurfaces). The state service is passed as a thin façade so
+    // helpers stay loosely coupled to the wider coordinator surface.
+    const surfaceFacade: WizardSurfaceFacade = {
+      ensurePhaseSurface: (phaseKey): SurfaceId =>
+        this.registerPhaseSurface(phaseKey),
+      routePhaseEvent: (phaseKey, event): void =>
+        this.routePhaseEvent(phaseKey, event),
+      unregisterAllPhaseSurfaces: (): void => this.unregisterAllPhaseSurfaces(),
+      resetPhaseSurfaces: (): void => this.resetPhaseSurfaces(),
+    };
     this.phaseAnalysis = new WizardPhaseAnalysis(
       this.internalState,
-      this.streamAccumulator,
+      surfaceFacade,
     );
     this.phaseGeneration = new WizardPhaseGeneration(
       this.internalState,
-      this.streamAccumulator,
+      surfaceFacade,
     );
 
     this.messageDispatcher = new WizardMessageDispatcher(
@@ -543,6 +607,12 @@ export class SetupWizardStateService {
     this.phaseStreamingStatesSignal.set([]); // TASK_2025_229 / Wave F2
     this.generationStreamSignal.set([]);
     this.enhanceStreamSignal.set([]);
+
+    // TASK_2026_107 Phase 3: tear down all per-phase surface registrations
+    // when the wizard restarts. Each phase's SurfaceId is unbound from its
+    // conversation and removed from the surface adapter registry so the
+    // router doesn't fan stale events to a dead phase entry.
+    this.resetPhaseSurfaces();
   }
 
   // === Community Agent Pack State Mutations (TASK_2025_258) ===
@@ -687,6 +757,155 @@ export class SetupWizardStateService {
     this.generationState.retryGenerationItem(itemId);
   }
 
+  // ===========================================================================
+  // TASK_2026_107 Phase 3 — Surface routing (replaces WizardStreamAccumulator).
+  //
+  // Wizard phases (analysis + generation) participate in the canonical chat
+  // streaming pipeline by registering a `SurfaceId` per `phaseKey`. The
+  // SurfaceId is bound to a fresh ConversationId via StreamRouter, and the
+  // accumulator-core mutates a per-phase `StreamingState` slot exposed via
+  // the surface adapter's `getState`/`setState`. After every routed event we
+  // re-emit `phaseStreamingStatesSignal` so consumers re-evaluate the tree
+  // builder against the mutated state.
+  // ===========================================================================
+
+  /**
+   * Mint (or return existing) SurfaceId for a phase. Idempotent — repeat
+   * calls for the same `phaseKey` return the same SurfaceId. Synchronously
+   * binds via `StreamRouter.onSurfaceCreated` and registers the surface
+   * adapter with `StreamingSurfaceRegistry` BEFORE this method returns, so
+   * the very next `routeStreamEventForSurface` call has a live adapter to
+   * resolve (Phase 2 discovery #3 — registration must precede the first event).
+   */
+  public registerPhaseSurface(phaseKey: string): SurfaceId {
+    const existing = this._phaseSurfaces.get(phaseKey);
+    if (existing) return existing;
+
+    const surfaceId = SurfaceId.create();
+    this._phaseSurfaces.set(phaseKey, surfaceId);
+
+    // Seed the per-phase StreamingState slot. The adapter exposes this same
+    // reference via getState() so the accumulator-core mutates it in place.
+    const initialState = createEmptyStreamingState();
+    this._phaseStateRefs.set(phaseKey, initialState);
+
+    // Bind to a fresh conversation BEFORE registering the adapter — order
+    // doesn't strictly matter (router methods are independent), but doing
+    // bind-first mirrors the chat path's onTabCreated → first event order.
+    this.streamRouter.onSurfaceCreated(surfaceId);
+    this.surfaceRegistry.register(
+      surfaceId,
+      () => {
+        // Always return the live ref. If a phase ever swaps its state object
+        // (compaction_complete), this getter will be replaced via setState
+        // below — but the Map entry tracks the latest reference for any
+        // subsequent getState() call.
+        return (
+          this._phaseStateRefs.get(phaseKey) ?? createEmptyStreamingState()
+        );
+      },
+      (next) => {
+        // setState fires when the accumulator-core hands back a
+        // `replacementState` (currently only on compaction_complete).
+        this._phaseStateRefs.set(phaseKey, next);
+        this.nudgePhaseStreamingStates();
+      },
+    );
+
+    // Surface the new phase entry in the public `phaseStreamingStates`
+    // signal so consumers see the (initially empty) state immediately.
+    this.nudgePhaseStreamingStates();
+    return surfaceId;
+  }
+
+  /**
+   * Tear down a single phase surface. Calls `StreamRouter.onSurfaceClosed`
+   * (which handles unregistering the adapter from `StreamingSurfaceRegistry`
+   * — see Phase 2 discovery #1: do NOT call surfaceRegistry.unregister here)
+   * and removes the per-phase Map entries.
+   *
+   * The phase's accumulated `StreamingState` is intentionally retained in
+   * the public `phaseStreamingStates` signal so the analysis transcript
+   * keeps rendering the completed phase's tree after teardown — only the
+   * routing/registry state is torn down.
+   */
+  public unregisterPhaseSurface(phaseKey: string): void {
+    const surfaceId = this._phaseSurfaces.get(phaseKey);
+    if (!surfaceId) return;
+
+    // Phase 2 discovery #1: onSurfaceClosed handles surfaceRegistry.unregister
+    // internally; calling it ourselves first would race residual events into
+    // the void.
+    this.streamRouter.onSurfaceClosed(surfaceId);
+    this._phaseSurfaces.delete(phaseKey);
+    // _phaseStateRefs stays — the analysis-transcript reads completed-phase
+    // states from the signal until the wizard resets.
+  }
+
+  /** Lookup helper. Returns the SurfaceId for `phaseKey` or null. */
+  public surfaceForPhase(phaseKey: string): SurfaceId | null {
+    return this._phaseSurfaces.get(phaseKey) ?? null;
+  }
+
+  /**
+   * Route a flat event for a phase through the canonical streaming pipeline.
+   * Lazy-mints the surface if `phaseKey` hasn't been seen yet (covers the
+   * stream-arrives-before-explicit-startPhase ordering — the wizard backend
+   * doesn't emit a discrete "phase start" message, just begins streaming).
+   *
+   * After the router returns, the StreamingState referenced by the phase's
+   * adapter has been mutated in place. We re-emit
+   * `phaseStreamingStatesSignal` so computed consumers (analysis-transcript
+   * tree builder) re-run.
+   */
+  public routePhaseEvent(phaseKey: string, event: FlatStreamEventUnion): void {
+    const surfaceId = this.registerPhaseSurface(phaseKey);
+    this.streamRouter.routeStreamEventForSurface(event, surfaceId);
+    this.nudgePhaseStreamingStates();
+  }
+
+  /**
+   * Close routing for every active phase surface but PRESERVE the
+   * accumulated StreamingStates in the public signal so the transcript
+   * continues to render completed phases. Called on analysis-complete.
+   */
+  public unregisterAllPhaseSurfaces(): void {
+    const keys = Array.from(this._phaseSurfaces.keys());
+    for (const phaseKey of keys) {
+      this.unregisterPhaseSurface(phaseKey);
+    }
+    // _phaseStateRefs intentionally retained — completed phases stay visible.
+  }
+
+  /**
+   * Full teardown: close routing for every phase AND clear all accumulated
+   * states. Called on wizard reset and on generation-stream initialization
+   * (so stale analysis-phase entries don't bleed into the generation
+   * transcript).
+   */
+  public resetPhaseSurfaces(): void {
+    this.unregisterAllPhaseSurfaces();
+    this._phaseStateRefs.clear();
+    this.phaseStreamingStatesSignal.set([]);
+  }
+
+  /**
+   * Re-emit `phaseStreamingStatesSignal` with a freshly-built array drawn
+   * from `_phaseStateRefs`. The inner StreamingState objects are shared
+   * across emissions (the accumulator-core mutates them in place), so
+   * downstream computeds must rebuild from `state.events` etc. on each
+   * emission rather than caching by reference. The single existing consumer
+   * (`AnalysisTranscriptComponent.allPhaseTrees`) already does this — it
+   * calls `treeBuilder.buildTree(state, phaseKey)` from scratch on each run.
+   */
+  private nudgePhaseStreamingStates(): void {
+    const next: PhaseStreamingEntry[] = [];
+    for (const [phaseKey, state] of this._phaseStateRefs) {
+      next.push({ phaseKey, state });
+    }
+    this.phaseStreamingStatesSignal.set(next);
+  }
+
   /**
    * Cleanup for testing or explicit teardown.
    * Removes the message listener and resets the registration flag.
@@ -698,5 +917,8 @@ export class SetupWizardStateService {
   public dispose(): void {
     this.messageDispatcher.dispose();
     this.isMessageListenerRegistered = false;
+    // Tear down any lingering surface registrations so subsequent test
+    // instances of the service don't see leaked routing state.
+    this.resetPhaseSurfaces();
   }
 }

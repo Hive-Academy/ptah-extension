@@ -6,7 +6,7 @@ import type {
 } from '@ptah-extension/shared';
 import type { CompletionData, ErrorState } from '../setup-wizard-state.types';
 import type { WizardInternalState } from './wizard-internal-state';
-import type { WizardStreamAccumulator } from './wizard-stream-accumulator';
+import type { WizardSurfaceFacade } from '../setup-wizard-state.service';
 
 /**
  * WizardPhaseGeneration — handlers for the content-generation lifecycle
@@ -26,7 +26,7 @@ export class WizardPhaseGeneration {
 
   public constructor(
     private readonly state: WizardInternalState,
-    private readonly accumulator: WizardStreamAccumulator,
+    private readonly surfaces: WizardSurfaceFacade,
   ) {}
 
   /**
@@ -104,6 +104,12 @@ export class WizardPhaseGeneration {
 
     this.state.completionData.set(completionData);
     this.state.setCurrentStepIfGeneration();
+
+    // TASK_2026_107 Phase 3: tear down generation-phase routing bindings.
+    // The accumulated StreamingStates remain visible in the public
+    // `phaseStreamingStates` signal until the next generation pass starts
+    // (`handleGenerationStream` resets them on first event of new pass).
+    this.surfaces.unregisterAllPhaseSurfaces();
   }
 
   /**
@@ -115,13 +121,21 @@ export class WizardPhaseGeneration {
   public handleGenerationStream(payload: GenerationStreamPayload): void {
     if (!this.generationStreamInitialized) {
       this.generationStreamInitialized = true;
-      this.accumulator.reset();
+      // TASK_2026_107 Phase 3: clear stale analysis-phase surfaces (and their
+      // accumulated states) before the generation pass begins. Equivalent to
+      // the deleted `WizardStreamAccumulator.reset()`.
+      this.surfaces.resetPhaseSurfaces();
     }
 
     this.state.generationStream.update((msgs) => [...msgs, payload]);
 
     if (payload.flatEvent) {
-      this.accumulator.accumulate(payload.flatEvent);
+      // TASK_2026_107 Phase 3: route through StreamRouter; surface is lazy-
+      // minted on first event for the generation phase's messageId.
+      this.surfaces.routePhaseEvent(
+        payload.flatEvent.messageId,
+        payload.flatEvent,
+      );
     }
   }
 
@@ -147,5 +161,10 @@ export class WizardPhaseGeneration {
       details: payload.details,
     };
     this.state.errorState.set(errorState);
+
+    // TASK_2026_107 Phase 3: a fatal wizard error tears down any active
+    // surface routing bindings so residual stream events from a partially-
+    // dead phase are dropped (router resolves to no adapter and no-ops).
+    this.surfaces.unregisterAllPhaseSurfaces();
   }
 }

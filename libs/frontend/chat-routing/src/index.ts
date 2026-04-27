@@ -14,3 +14,11 @@
  */
 
 export { StreamRouter } from './lib/stream-router.service';
+
+// TASK_2026_107 Phase 2 — surface registry for non-tab streaming
+// consumers (wizard analysis phases, harness operations). Phase 2 ships
+// in additive shadow mode — no caller is wired in until Phase 3/4.
+export {
+  StreamingSurfaceRegistry,
+  type SurfaceAdapter,
+} from './lib/streaming-surface-registry.service';

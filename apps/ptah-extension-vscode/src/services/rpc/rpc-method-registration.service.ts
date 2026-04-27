@@ -23,8 +23,6 @@ import {
 } from '@ptah-extension/vscode-core';
 import {
   registerAllRpcHandlers,
-  registerHarnessServices,
-  registerChatServices,
   verifyAndReportRpcRegistration,
   WorkspaceRpcHandlers,
   __debugAssertSharedHandlersDisjoint,
@@ -114,13 +112,9 @@ export class RpcMethodRegistrationService {
    * Register all RPC methods and wire SDK / agent events.
    */
   registerAll(): void {
-    // Wave C7d: wire the six extracted harness services BEFORE
-    // `registerAllRpcHandlers` resolves `HarnessRpcHandlers`.
-    registerHarnessServices(this.container);
-
-    // Wave C7e: wire the four extracted chat services BEFORE
-    // `registerAllRpcHandlers` resolves `ChatRpcHandlers`.
-    registerChatServices(this.container);
+    // Note: registerHarnessServices + registerChatServices moved into
+    // `phase-3-handlers.ts` so they fire before `ChatRpcHandlers` is
+    // eagerly resolved by this service's constructor.
 
     // VS Code excludes WorkspaceRpcHandlers: VsCodeWorkspaceProvider has no
     // lifecycle methods, so IWorkspaceLifecycleProvider is not registered in

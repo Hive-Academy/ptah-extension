@@ -1,7 +1,7 @@
 export default {
   displayName: 'harness-builder',
   preset: '../../../jest.preset.js',
-  setupFilesAfterSetup: ['<rootDir>/src/test-setup.ts'],
+  setupFilesAfterEnv: ['<rootDir>/src/test-setup.ts'],
   coverageDirectory: '../../../coverage/libs/frontend/harness-builder',
   transform: {
     '^.+\\.(ts|mjs|js|html)$': [

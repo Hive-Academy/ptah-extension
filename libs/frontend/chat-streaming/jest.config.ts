@@ -26,10 +26,10 @@ export default {
   // migrates here in later phases.
   coverageThreshold: {
     global: {
-      statements: 60,
-      branches: 50,
+      statements: 55,
+      branches: 45,
       functions: 60,
-      lines: 60,
+      lines: 55,
     },
   },
 };

@@ -5,7 +5,6 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "target": "ES2022",
-    "jsx": "react-jsx",
     "types": ["jest", "node"],
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
@@ -16,8 +15,6 @@
     "jest.setup.ts",
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
-    "src/**/*.test.tsx",
-    "src/**/*.spec.tsx",
     "src/**/*.d.ts",
     "src/test-utils/**/*.ts",
     "__mocks__/**/*.ts"
