@@ -11,9 +11,8 @@ The CLI works standalone — there is no requirement to install VS Code or the E
 ## Install
 
 ```bash
-# Global install from npm (package distribution is in flight; until then,
-# install via local link from the monorepo).
-npm i -g @ptah-extensions/cli
+# Global install from npm.
+npm i -g @hive-academy/ptah-cli
 
 # Development install from a checkout of the monorepo:
 nx build ptah-cli
@@ -22,6 +21,12 @@ npm link            # exposes `ptah` on PATH
 ```
 
 The binary lives at `dist/apps/ptah-cli/main.mjs`. The package's `bin` entry declares `ptah`, so `npm link` (or a published install) yields a `ptah` command.
+
+The package is published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) — verify the attestation links back to this repo with:
+
+```bash
+npm view @hive-academy/ptah-cli --json | jq '.dist.attestations'
+```
 
 ## Quick start
 
