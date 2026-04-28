@@ -230,10 +230,26 @@ function createMockWorkspaceProvider(): Record<string, jest.Mock> {
     getWorkspaceFolders: jest.fn().mockReturnValue(['/workspace/root']),
     getWorkspaceRoot: jest.fn().mockReturnValue('/workspace/root'),
     getConfiguration: jest.fn(
-      <T>(_section: string, key: string, defaultValue?: T): T | undefined => {
-        return (
-          currentConfig[key] !== undefined ? currentConfig[key] : defaultValue
-        ) as T | undefined;
+      <T>(section: string, key: string, defaultValue?: T): T | undefined => {
+        // Production code uses two forms:
+        //   - workspace.getConfiguration('ptah.agentOrchestration', 'foo')
+        //   - workspace.getConfiguration('ptah', 'agentOrchestration.foo')
+        // Normalise to a single suffix lookup so tests can set bare keys
+        // (e.g. 'maxConcurrentAgents') regardless of which form production uses.
+        const sectionSuffix = section.startsWith('ptah.')
+          ? section.slice('ptah.'.length) + '.'
+          : section === 'ptah'
+            ? ''
+            : section + '.';
+        const fullKey = sectionSuffix + key;
+        const lastSegment = fullKey.split('.').pop() ?? key;
+        const lookup =
+          currentConfig[fullKey] !== undefined
+            ? currentConfig[fullKey]
+            : currentConfig[key] !== undefined
+              ? currentConfig[key]
+              : currentConfig[lastSegment];
+        return (lookup !== undefined ? lookup : defaultValue) as T | undefined;
       },
     ),
     setConfiguration: jest.fn().mockResolvedValue(undefined),

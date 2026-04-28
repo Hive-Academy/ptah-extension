@@ -84,6 +84,10 @@ export class SessionQueryExecutor {
       enhancedPromptsContent,
       pluginPaths,
       pathToClaudeCodeExecutable,
+      forkSession,
+      resumeSessionAt,
+      enableFileCheckpointing,
+      includePartialMessages,
     } = config;
 
     this.logger.info(
@@ -179,6 +183,15 @@ export class SessionQueryExecutor {
         pluginPaths,
         permissionMode: initialPermissionMode,
         pathToClaudeCodeExecutable,
+        forkSession,
+        resumeSessionAt,
+        // Default file checkpointing ON when not explicitly disabled, so
+        // session:rewindFiles works on resumed sessions without callers
+        // having to opt in. Pass through `false` verbatim when set.
+        enableFileCheckpointing: enableFileCheckpointing ?? true,
+        // Forward partial-message opt-in. Builder defaults to true when
+        // unspecified, matching previous hardcoded behavior.
+        includePartialMessages,
         onProviderError: (stderrChunk: string) => {
           if (providerErrorAborted || abortController.signal.aborted) return;
           providerErrorAborted = true;
