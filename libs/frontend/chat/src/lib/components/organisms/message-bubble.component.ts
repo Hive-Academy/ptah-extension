@@ -1,6 +1,7 @@
 import {
   Component,
   input,
+  output,
   computed,
   signal,
   effect,
@@ -17,6 +18,8 @@ import {
   Paperclip,
   ChevronDown,
   ChevronRight,
+  GitBranch,
+  Undo2,
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution/execution-node.component';
 import {
@@ -89,6 +92,14 @@ export class MessageBubbleComponent {
   /** Indicates if this message is currently streaming */
   readonly isStreaming = input<boolean>(false);
 
+  /**
+   * TASK_2026_TREE_STABILITY Fix 5/8: True while the chat is in the
+   * streaming → finalized handoff window (~300ms). Forwarded down to
+   * ExecutionNodeComponent so it can suppress fade keyframes that would
+   * otherwise stack on top of the layout settle.
+   */
+  readonly isFinalizing = input<boolean>(false);
+
   /** Position of this message in the messages array */
   readonly messageIndex = input<number>(0);
 
@@ -103,6 +114,20 @@ export class MessageBubbleComponent {
   readonly PaperclipIcon = Paperclip;
   readonly ChevronDownIcon = ChevronDown;
   readonly ChevronRightIcon = ChevronRight;
+  readonly GitBranchIcon = GitBranch;
+  readonly Undo2Icon = Undo2;
+
+  /**
+   * Emits the user message UUID when the user clicks "Branch from here".
+   * Wired in chat-view to fork the session at this message into a new tab.
+   */
+  readonly branchRequested = output<string>();
+
+  /**
+   * Emits the user message UUID when the user clicks "Rewind to here".
+   * Wired in chat-view to dry-run + confirm + commit a file rewind.
+   */
+  readonly rewindRequested = output<string>();
   readonly ptahIconUri = this.vscode.getPtahIconUri();
   readonly ptahUserIconUri = this.vscode.getPtahUserIconUri();
 
@@ -207,6 +232,16 @@ export class MessageBubbleComponent {
    */
   protected onPermissionResponse(response: PermissionResponse): void {
     this.chatStore.handlePermissionResponse(response);
+  }
+
+  /** Click handler for the "Branch from here" action on user bubbles. */
+  protected onBranchClick(): void {
+    this.branchRequested.emit(this.message().id);
+  }
+
+  /** Click handler for the "Rewind to here" action on user bubbles. */
+  protected onRewindClick(): void {
+    this.rewindRequested.emit(this.message().id);
   }
 
   /** Toggle the collapsed state of this message bubble */
