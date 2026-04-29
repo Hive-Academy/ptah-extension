@@ -238,6 +238,10 @@ export class ChatSessionService {
         pluginPaths,
         thinking: options?.thinking, // TASK_2025_184
         effort: options?.effort, // TASK_2025_184
+        // Opt-in passthrough for SDK partial-message stream events. When
+        // omitted, the SDK plumbing defaults to ON (preserves historical
+        // Ptah behavior — StreamTransformer already consumes stream_event).
+        includePartialMessages: options?.includePartialMessages,
       });
 
       // Stream ExecutionNodes to webview (background — don't await)

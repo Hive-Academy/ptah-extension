@@ -55,6 +55,14 @@ export interface ChatStartParams {
     thinking?: ThinkingConfig;
     /** TASK_2025_184: Effort level for reasoning depth */
     effort?: EffortLevel;
+    /**
+     * Opt-in to SDK `SDKPartialAssistantMessage` (`stream_event`) emissions
+     * for finer-grained streaming deltas. Forwarded to the Claude Agent SDK
+     * as `Options.includePartialMessages`. Defaults to ON at the SDK
+     * plumbing layer when omitted, preserving historical Ptah behavior.
+     * Pass `false` to opt out (lower event volume).
+     */
+    includePartialMessages?: boolean;
   };
 }
 

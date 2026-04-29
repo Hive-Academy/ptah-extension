@@ -89,6 +89,13 @@ export interface AgentSessionStartConfig extends AISessionConfig {
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
+  /**
+   * Opt-in to SDK `SDKPartialAssistantMessage` (`stream_event`) emissions
+   * for finer streaming deltas. Forwarded to the Claude Agent SDK as
+   * `Options.includePartialMessages`. Defaults to ON at the SDK plumbing
+   * layer when omitted (preserves historical Ptah streaming behavior).
+   */
+  includePartialMessages?: boolean;
 }
 
 /**
@@ -102,6 +109,8 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
   tabId?: string;
   /** New user message to send as part of this resumed turn. */
   prompt?: string;
+  /** See {@link AgentSessionStartConfig.includePartialMessages}. */
+  includePartialMessages?: boolean;
 }
 
 /**
