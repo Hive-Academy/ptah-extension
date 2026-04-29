@@ -28,6 +28,7 @@ import * as newProjectCmd from './commands/new-project.js';
 import * as pluginCmd from './commands/plugin.js';
 import * as promptsCmd from './commands/prompts.js';
 import * as providerCmd from './commands/provider.js';
+import * as proxyCmd from './commands/proxy.js';
 import * as qualityCmd from './commands/quality.js';
 import * as runCmd from './commands/run.js';
 import * as sessionCmd from './commands/session.js';
@@ -2066,6 +2067,74 @@ export function buildRouter(): Command {
         { model: opts.model, save: opts.save === true, out: opts.out },
         resolveGlobals(program),
       );
+      process.exitCode = exit;
+    });
+
+  // -- ptah proxy ------------------------------------------------------------
+  // Anthropic-compatible HTTP proxy (TASK_2026_104 P2). `start` is long-blocking;
+  // `stop` and `status` are deferred to Phase 2.
+  const proxyCommand = program
+    .command('proxy')
+    .description('Anthropic-compatible HTTP proxy (Messages API)');
+
+  proxyCommand
+    .command('start')
+    .description('start the HTTP proxy and block until SIGINT/SIGTERM')
+    .requiredOption(
+      '--port <number>',
+      'TCP port to bind (0 = OS-assigned)',
+      (v) => Number.parseInt(v, 10),
+    )
+    .option('--host <addr>', 'bind address', '127.0.0.1')
+    .option(
+      '--idle-timeout <seconds>',
+      'auto-shutdown after N seconds idle (0 = disabled)',
+      (v) => Number.parseInt(v, 10),
+      0,
+    )
+    .option(
+      '--no-expose-workspace-tools',
+      'disable workspace MCP / plugin-skill tool merging into caller `tools[]`',
+    )
+    .action(
+      async (opts: {
+        port: number;
+        host: string;
+        idleTimeout: number;
+        exposeWorkspaceTools: boolean;
+      }) => {
+        const exit = await proxyCmd.executeStart(
+          {
+            port: opts.port,
+            host: opts.host,
+            idleTimeout: opts.idleTimeout,
+            exposeWorkspaceTools: opts.exposeWorkspaceTools !== false,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  proxyCommand
+    .command('stop')
+    .description('stop a running proxy (Phase 2 — deferred)')
+    .option('--port <number>', 'port of the proxy to stop', (v) =>
+      Number.parseInt(v, 10),
+    )
+    .action(async (opts: { port?: number }) => {
+      const exit = await proxyCmd.executeStop(
+        { port: opts.port },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  proxyCommand
+    .command('status')
+    .description('list running proxies (Phase 2 — deferred)')
+    .action(async () => {
+      const exit = await proxyCmd.executeStatus({}, resolveGlobals(program));
       process.exitCode = exit;
     });
 

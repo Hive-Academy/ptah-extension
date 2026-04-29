@@ -33,6 +33,15 @@ export const FatalErrorCode = {
   WorkspaceMissing: 'workspace_missing',
   AuthRequired: 'auth_required',
   LicenseRequired: 'license_required',
+  // Anthropic-compatible HTTP proxy (TASK_2026_104 P2 — proxy).
+  // Surfaced from `ptah proxy start` so supervisors that monitor stderr see a
+  // deterministic NDJSON line for fatal proxy startup / runtime failures even
+  // when the JSON-RPC stdout channel is unavailable (CLI invoked outside
+  // `ptah interact`).
+  ProxyBindFailed: 'proxy_bind_failed',
+  ProxyInvalidRequest: 'proxy_invalid_request',
+  PermissionGateUnavailable: 'permission_gate_unavailable',
+  CliAgentUnavailable: 'cli_agent_unavailable',
 } as const satisfies Readonly<Record<string, PtahErrorCode>>;
 
 /** String-literal union of fatal error codes accepted by `emitFatalError`. */
