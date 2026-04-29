@@ -395,11 +395,17 @@ function tryBuildPlaceholderAgent(
     ? state.agentSummaryAccumulators.get(placeholderAgentId) || undefined
     : state.agentSummaryAccumulators.get(toolStart.toolCallId) || undefined;
 
+  // TASK_2026_TREE_STABILITY Fix 1/8: Share the same `agent:${toolCallId}`
+  // id with the real agent_start path in agent-node.fn.ts. When the real
+  // `agent_start` event arrives, the agent node id stays stable — Angular's
+  // `track` reuses the same component instance instead of remounting.
+  const stableAgentId = `agent:${toolStart.toolCallId}`;
+
   let finalPlaceholderChildren: ExecutionNode[];
 
   if (placeholderContentBlocks.length > 0) {
     finalPlaceholderChildren = deps.buildInterleavedChildren(
-      `agent-placeholder-${toolStart.toolCallId}`,
+      stableAgentId,
       toolStart.timestamp,
       placeholderContentBlocks,
       agentChildren,
@@ -407,7 +413,7 @@ function tryBuildPlaceholderAgent(
   } else if (placeholderSummaryContent && placeholderSummaryContent.trim()) {
     finalPlaceholderChildren = [...agentChildren];
     const summaryTextNode = createExecutionNode({
-      id: `agent-placeholder-${toolStart.toolCallId}-summary-text`,
+      id: `${stableAgentId}-summary-text`,
       type: 'text',
       status: 'complete',
       content: placeholderSummaryContent,
@@ -430,7 +436,7 @@ function tryBuildPlaceholderAgent(
   );
 
   const placeholderAgent = createExecutionNode({
-    id: `agent-placeholder-${toolStart.toolCallId}`,
+    id: stableAgentId,
     type: 'agent',
     status: 'streaming',
     content: agentDescription,

@@ -19,7 +19,7 @@
  * - Per-build cache reset of {@link AgentStatsService}
  */
 
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, isDevMode } from '@angular/core';
 import type {
   AgentStartEvent,
   ExecutionNode,
@@ -64,6 +64,18 @@ interface TreeCacheEntry {
   agentContentBlocksCount: number;
   backgroundAgentCount: number;
   tree: ExecutionNode[];
+  /**
+   * TASK_2026_TREE_STABILITY Fix 3/8: Map of every node id → reference in the
+   * previously-built tree, indexed for the structural-reuse pass that runs on
+   * each non-trivial rebuild.
+   */
+  nodesById: Map<string, ExecutionNode>;
+  /**
+   * TASK_2026_TREE_STABILITY Fix 3/8: Structural fingerprint per node id from
+   * the previous build, computed bottom-up. A new build's node is replaced by
+   * the previous reference whenever its fingerprint matches.
+   */
+  fingerprintsById: Map<string, string>;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -236,6 +248,26 @@ export class ExecutionTreeBuilderService {
       }
     }
 
+    // TASK_2026_TREE_STABILITY Fix 3/8 + Diagnostic: structural reuse pass.
+    // Walk the freshly-built tree bottom-up; for each node compute a content
+    // fingerprint (id + key fields + children fingerprints). If the previous
+    // build had a node at the same id with an identical fingerprint, reuse
+    // the previous reference. This eliminates the OnPush re-render cascade in
+    // unchanged subtrees (the highest-impact identity-churn fix).
+    const reuseStats = { reused: 0, fresh: 0 };
+    const newNodesById = new Map<string, ExecutionNode>();
+    const newFingerprintsById = new Map<string, string>();
+    const reuseRoots = rootNodes.map((root) =>
+      this.reuseUnchangedSubtree(
+        root,
+        cached?.nodesById,
+        cached?.fingerprintsById,
+        newNodesById,
+        newFingerprintsById,
+        reuseStats,
+      ),
+    );
+
     if (this.treeCache.size >= this.MAX_CACHE_SIZE) {
       const firstKey = this.treeCache.keys().next().value;
       if (firstKey) {
@@ -251,10 +283,124 @@ export class ExecutionTreeBuilderService {
       agentSummaryTotalLength,
       agentContentBlocksCount,
       backgroundAgentCount,
-      tree: rootNodes,
+      tree: reuseRoots,
+      nodesById: newNodesById,
+      fingerprintsById: newFingerprintsById,
     });
 
-    return rootNodes;
+    // TASK_2026_TREE_STABILITY Diagnostic: dev-only identity-churn log.
+    // Useful to verify Fix 3 works and catch regressions. Off in production.
+    if (isDevMode()) {
+      console.debug(
+        `[TreeBuilder] reused: ${reuseStats.reused} / new: ${reuseStats.fresh} nodes (key: ${cacheKey})`,
+      );
+    }
+
+    return reuseRoots;
+  }
+
+  /**
+   * TASK_2026_TREE_STABILITY Fix 3/8: Recursively walk a freshly-built node,
+   * compute its structural fingerprint, and either return the previous build's
+   * node-at-same-id (when fingerprint matches) or the fresh node (with its
+   * new children potentially reused).
+   *
+   * Children are processed first so the parent fingerprint can incorporate
+   * children fingerprints — guarantees that identity-stable children imply
+   * an identity-stable parent only when nothing else in the parent changed.
+   */
+  private reuseUnchangedSubtree(
+    node: ExecutionNode,
+    prevNodesById: Map<string, ExecutionNode> | undefined,
+    prevFingerprintsById: Map<string, string> | undefined,
+    outNodesById: Map<string, ExecutionNode>,
+    outFingerprintsById: Map<string, string>,
+    stats: { reused: number; fresh: number },
+  ): ExecutionNode {
+    const incomingChildren = node.children;
+    let childrenChanged = false;
+    const reusedChildren: ExecutionNode[] = new Array(incomingChildren.length);
+    for (let i = 0; i < incomingChildren.length; i++) {
+      const reusedChild = this.reuseUnchangedSubtree(
+        incomingChildren[i],
+        prevNodesById,
+        prevFingerprintsById,
+        outNodesById,
+        outFingerprintsById,
+        stats,
+      );
+      if (reusedChild !== incomingChildren[i]) childrenChanged = true;
+      reusedChildren[i] = reusedChild;
+    }
+
+    // Use freshly-built node, but with reused children if any swapped.
+    const candidate: ExecutionNode = childrenChanged
+      ? { ...node, children: reusedChildren }
+      : node;
+
+    const fingerprint = this.fingerprintNode(candidate, outFingerprintsById);
+    const prevFingerprint = prevFingerprintsById?.get(candidate.id);
+    const prev = prevNodesById?.get(candidate.id);
+
+    if (prev && prevFingerprint === fingerprint) {
+      // Structurally equal — reuse the previous reference. Cache it under
+      // its id and propagate the (identical) fingerprint forward.
+      outNodesById.set(prev.id, prev);
+      outFingerprintsById.set(prev.id, fingerprint);
+      stats.reused++;
+      return prev;
+    }
+
+    outNodesById.set(candidate.id, candidate);
+    outFingerprintsById.set(candidate.id, fingerprint);
+    stats.fresh++;
+    return candidate;
+  }
+
+  /**
+   * Compute a structural fingerprint for a node. Combines the discriminating
+   * scalar fields with the (already-computed) fingerprints of its children.
+   * Two nodes with the same fingerprint render identically and can share a
+   * reference safely under OnPush change detection.
+   */
+  private fingerprintNode(
+    node: ExecutionNode,
+    fingerprintsById: Map<string, string>,
+  ): string {
+    const childFps: string[] = new Array(node.children.length);
+    for (let i = 0; i < node.children.length; i++) {
+      const child = node.children[i];
+      const fp = fingerprintsById.get(child.id);
+      // Children are visited first, so their fingerprint is always populated.
+      childFps[i] = fp ?? `${child.id}:?`;
+    }
+
+    // Hash key surface area: fields that affect rendering. Stringify only
+    // primitives/small payloads; nested children are represented by their ids
+    // + fingerprints (already content-addressable).
+    return [
+      node.id,
+      node.type,
+      node.status,
+      node.content ?? '',
+      node.toolName ?? '',
+      node.toolCallId ?? '',
+      node.agentType ?? '',
+      node.agentId ?? '',
+      node.agentDescription ?? '',
+      node.model ?? '',
+      node.cost ?? 0,
+      node.duration ?? 0,
+      node.error ?? '',
+      node.isPermissionRequest ? 1 : 0,
+      node.isBackground ? 1 : 0,
+      node.toolInput ? JSON.stringify(node.toolInput) : '',
+      node.toolOutput !== undefined ? JSON.stringify(node.toolOutput) : '',
+      node.tokenUsage
+        ? `${node.tokenUsage.input}/${node.tokenUsage.output}`
+        : '',
+      childFps.join('|'),
+    ].join('§');
   }
 
   /** Clear cache for a specific key, or all entries (also resets unmatched log). */

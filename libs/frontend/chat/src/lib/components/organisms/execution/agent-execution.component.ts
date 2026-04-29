@@ -248,7 +248,7 @@ import type {
       .ae-collapse-wrapper {
         display: grid;
         grid-template-rows: 1fr;
-        transition: grid-template-rows 220ms ease-out;
+        transition: grid-template-rows 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
       }
       .ae-collapse-wrapper.ae-collapsed {
         grid-template-rows: 0fr;
@@ -261,13 +261,15 @@ import type {
       @keyframes aeFadeIn {
         from {
           opacity: 0;
+          transform: translateY(3px);
         }
         to {
           opacity: 1;
+          transform: translateY(0);
         }
       }
       :host ::ng-deep .ae-fade-in {
-        animation: aeFadeIn 160ms ease-out both;
+        animation: aeFadeIn 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
       }
 
       @media (prefers-reduced-motion: reduce) {
