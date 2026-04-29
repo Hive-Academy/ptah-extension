@@ -1337,10 +1337,13 @@ export class AgentProcessManager {
   }
 
   private getMaxConcurrentAgents(): number {
+    // Section 'ptah' + flat key 'agentOrchestration.<key>' matches the write path
+    // in agent-rpc.handlers.ts and ensures FILE_BASED_SETTINGS_KEYS routing
+    // through PtahFileSettingsManager (~/.ptah/settings.json) where applicable.
     return (
       this.workspace.getConfiguration<number>(
-        'ptah.agentOrchestration',
-        'maxConcurrentAgents',
+        'ptah',
+        'agentOrchestration.maxConcurrentAgents',
         5,
       ) ?? 5
     );
@@ -1350,20 +1353,24 @@ export class AgentProcessManager {
     // Known system CLI types (not Ptah CLI IDs)
     const systemCliTypes = new Set<string>(['gemini', 'codex', 'copilot']);
 
-    // Read disabled CLIs to exclude them from selection
+    // Read disabled CLIs to exclude them from selection.
+    // IMPORTANT: section MUST be 'ptah' (not 'ptah.agentOrchestration') so the
+    // FILE_BASED_SETTINGS_KEYS check in IWorkspaceProvider.getConfiguration
+    // routes through PtahFileSettingsManager → ~/.ptah/settings.json. Writes
+    // (agent-rpc.handlers.ts) use the same section + flat-key format.
     const disabledClis = new Set(
       this.workspace.getConfiguration<string[]>(
-        'ptah.agentOrchestration',
-        'disabledClis',
+        'ptah',
+        'agentOrchestration.disabledClis',
         [],
       ) ?? [],
     );
 
-    // Read user's preferred agent order
+    // Read user's preferred agent order (matches write format)
     const preferredOrder =
       this.workspace.getConfiguration<string[]>(
-        'ptah.agentOrchestration',
-        'preferredAgentOrder',
+        'ptah',
+        'agentOrchestration.preferredAgentOrder',
         [],
       ) ?? [];
     this.logger.debug(
