@@ -328,7 +328,16 @@ export type PtahErrorCode =
   // requested CLI is not in the locked allowlist (`glm` | `gemini`). NEVER
   // bypassable via env vars — the check lives at command entry-point and
   // ignores `process.env.PTAH_AGENT_CLI_OVERRIDE` entirely.
-  | 'cli_agent_unavailable';
+  | 'cli_agent_unavailable'
+  // SDK agent adapter failed to initialize during CLI bootstrap (P0 fix —
+  // headless ptah-cli bug). Emitted from `withEngine` when `mode === 'full'`
+  // and the AGENT_ADAPTER's `initialize()` returns false or throws — without
+  // this surface, `chat:start` RPCs hang because the adapter never spawns
+  // claude. Mirrors Electron's bootstrap.ts initialization step.
+  | 'sdk_init_failed'
+  // Workspace root could not be resolved or does not exist. Reserved for
+  // structured stderr emission via `emitFatalError` (cli-shift.md Phase 2).
+  | 'workspace_missing';
 
 // ---------------------------------------------------------------------------
 // Process exit codes — task-description.md §6

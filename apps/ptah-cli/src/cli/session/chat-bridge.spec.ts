@@ -466,6 +466,42 @@ describe('ChatBridge — runTurn', () => {
     expectNoListenerLeaks(adapter);
   });
 
+  // P1 Fix 3 — defensive backstop on `{ success: false }` ack from rpcCall.
+  // Without this, the bridge waits forever in `outerPromise` because the
+  // backend never broadcasts a terminal `chat:complete | chat:error`.
+  it('rpcCall ack { success: false } — bridge settles deterministically without hanging', async () => {
+    const { bridge, adapter } = makeBridge();
+
+    const result = await bridge.runTurn({
+      tabId: 'tab-rpc-rejected',
+      rpcCall: async () => ({ success: false }),
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success === true) throw new Error('unreachable');
+    expect(result.error).toContain('rpc rejected');
+    expect(result.sessionId).toBe('tab-rpc-rejected');
+    expectNoListenerLeaks(adapter);
+  });
+
+  it('rpcCall ack { success: false, error: "..." } — bridge preserves ack error string', async () => {
+    const { bridge, adapter } = makeBridge();
+
+    const result = await bridge.runTurn({
+      tabId: 'tab-rpc-rejected-msg',
+      // The ack carries a descriptive error string — bridge must surface it.
+      rpcCall: async () =>
+        ({ success: false, error: 'auth required' }) as {
+          success: boolean;
+        },
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success === true) throw new Error('unreachable');
+    expect(result.error).toBe('auth required');
+    expectNoListenerLeaks(adapter);
+  });
+
   it('timeout — elapsed timeoutMs with no terminal event resolves failure', async () => {
     jest.useFakeTimers();
     try {
