@@ -8,6 +8,21 @@ import type { SessionId } from '../branded.types';
 import type { ThinkingConfig, EffortLevel } from '../ai-provider.types';
 import type { FlatStreamEventUnion } from '../execution';
 
+/**
+ * Minimal HTTP-flavored MCP server descriptor used by the
+ * `ChatStartParams.mcpServersOverride` escape hatch (TASK_2026_104 P2 — proxy).
+ *
+ * Mirrors the load-bearing subset of `McpHttpServerConfig` from
+ * `@anthropic-ai/claude-agent-sdk` so the shared layer doesn't need to import
+ * the SDK directly. The agent-sdk consumer (`SdkQueryOptionsBuilder`) widens
+ * each entry back to `McpHttpServerConfig` before passing to the SDK.
+ */
+export interface McpHttpServerOverride {
+  readonly type: 'http';
+  readonly url: string;
+  readonly headers?: Record<string, string>;
+}
+
 // ============================================================
 // Chat RPC Types
 // ============================================================
@@ -64,6 +79,23 @@ export interface ChatStartParams {
      */
     includePartialMessages?: boolean;
   };
+  /**
+   * Caller-supplied MCP server map. When present, merged OVER the registry-
+   * resolved MCP server map by `SdkQueryOptionsBuilder.buildMcpServers` —
+   * caller wins on key collision so the Anthropic-compatible HTTP proxy can
+   * inject workspace MCP tools per-request without disturbing the shared
+   * registry.
+   *
+   * Currently scoped to HTTP transports only — stdio and SSE overrides are
+   * out of scope for the P2 proxy MVP (the proxy itself talks HTTP).
+   *
+   * Symmetric with the `includePartialMessages` opt-in above — both are
+   * surfaced via the same `ChatStartParams` envelope so the proxy and other
+   * advanced callers get a uniform extension surface without per-feature RPCs.
+   *
+   * TASK_2026_104 P2 — proxy.
+   */
+  mcpServersOverride?: Record<string, McpHttpServerOverride>;
 }
 
 /** Response from chat:start RPC method */

@@ -261,6 +261,40 @@ export type PtahNotification =
   | 'provider.default.updated'
   | 'provider.tier.updated'
   | 'provider.tier.cleared'
+  // Anthropic-compatible HTTP proxy (`ptah proxy *`).
+  //
+  // Emitted by `apps/ptah-cli/src/services/proxy/anthropic-proxy.service.ts`
+  // when the proxy is launched embedded inside an active `ptah interact`
+  // session. Outside of `interact`, these notifications are produced via the
+  // structured stderr formatter only — there's no JSON-RPC peer to receive
+  // them.
+  //
+  //   - `proxy.started`       — HTTP server bound + token issued.
+  //                             `{ host, port, token_path, expose_workspace_tools }`
+  //   - `proxy.token.issued`  — token mint event mirroring the disk write.
+  //                             `{ token, port }` (token field is the literal
+  //                             secret — the peer is responsible for not
+  //                             logging it). Also written to
+  //                             `~/.ptah/proxy/<port>.token` mode 0o600.
+  //   - `proxy.request`       — per-request lifecycle (start + complete).
+  //                             `{ request_id, model, tool_count, stream,
+  //                                phase: 'start' | 'complete', duration_ms? }`
+  //   - `proxy.tool_invoked`  — workspace MCP tool surfaced to caller.
+  //                             `{ request_id, tool_name, source: 'caller' |
+  //                                'workspace' }`
+  //   - `proxy.warning`       — collision / soft-fail diagnostics.
+  //                             `{ request_id?, kind, message, details? }`
+  //   - `proxy.error`         — request-level fatal (non-fatal to the proxy).
+  //                             `{ request_id?, code, message }`
+  //   - `proxy.stopped`       — HTTP server closed (idempotent).
+  //                             `{ port, reason }`
+  | 'proxy.started'
+  | 'proxy.token.issued'
+  | 'proxy.request'
+  | 'proxy.tool_invoked'
+  | 'proxy.warning'
+  | 'proxy.error'
+  | 'proxy.stopped'
   // Agent surface (TASK_2026_104 B7) — task-description.md §4.1.2
   | 'agent.packs.list'
   | 'agent.pack.install.start'
@@ -308,7 +342,13 @@ export type PtahInboundRequest =
   | 'task.submit'
   | 'task.cancel'
   | 'session.shutdown'
-  | 'session.history';
+  | 'session.history'
+  // Anthropic-compatible HTTP proxy shutdown — only registered when the proxy
+  // is launched embedded inside `ptah interact`. Closes the HTTP listener,
+  // detaches the proxy from the push adapter, and unlinks
+  // `~/.ptah/proxy/<port>.token`. Idempotent — second call returns
+  // `{ stopped: false, reason: 'already stopped' }`.
+  | 'proxy.shutdown';
 
 // ---------------------------------------------------------------------------
 // Ptah-specific error codes — task-description.md §4.4
@@ -337,7 +377,20 @@ export type PtahErrorCode =
   | 'sdk_init_failed'
   // Workspace root could not be resolved or does not exist. Reserved for
   // structured stderr emission via `emitFatalError` (cli-shift.md Phase 2).
-  | 'workspace_missing';
+  | 'workspace_missing'
+  // Anthropic-compatible HTTP proxy failed to bind the requested host/port
+  // pair. `data.host` / `data.port` carry the requested values; `data.cause`
+  // carries the underlying `EADDRINUSE` / `EACCES` reason from `node:http`.
+  | 'proxy_bind_failed'
+  // Caller body rejected by the proxy (e.g. malformed JSON, unsupported
+  // `model` field, missing `messages`). Always paired with HTTP 400; the
+  // peer-side notification is a `proxy.error` event.
+  | 'proxy_invalid_request'
+  // Proxy attempted to forward a tool that requires user permission, but the
+  // active CLI session has no permission gate available (no `--auto-approve`
+  // and not running embedded inside `ptah interact`). Treated as a fail-fast
+  // at proxy-startup so the proxy never silently auto-allows.
+  | 'permission_gate_unavailable';
 
 // ---------------------------------------------------------------------------
 // Process exit codes — task-description.md §6
