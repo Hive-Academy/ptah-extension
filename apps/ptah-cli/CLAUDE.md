@@ -299,14 +299,42 @@ size, and integrity hash.
 
 ### Local end-to-end smoke (no registry contact)
 
+Two scripts live under `apps/ptah-cli/scripts/`:
+
 ```bash
-bash scripts/test-publish-cli.sh
+# 1. Six-scenario behavioural smoke (boots the dist binary, exercises the
+#    JSON-RPC stdio loop, the proxy permission gate, lifecycle teardown,
+#    real Anthropic API roundtrip, and the embedded proxy.shutdown RPC).
+bash apps/ptah-cli/scripts/smoke-pre-publish.sh
+
+# 2. Tarball install verification (npm pack → install into mktemp -d →
+#    run `ptah --version`, `ptah --help`, `ptah agent list --human`).
+bash apps/ptah-cli/scripts/test-publish-cli.sh
 ```
 
-Builds, packs the tarball, installs it into a clean `mktemp -d`
-prefix, then runs `ptah --version`, `ptah --help`, and
-`ptah agent list --human` against the installed copy. Use this before
-tagging to verify the published artifact will actually run.
+Use both before tagging a release; the `publish-cli.yml` workflow runs
+them on a `[ubuntu-latest, windows-latest]` matrix as a hard gate before
+any `npm publish` step.
+
+#### `ANTHROPIC_API_KEY` requirement (Smoke 5)
+
+Smoke scenario 5 in `smoke-pre-publish.sh` POSTs to `/v1/messages` against
+the running proxy, which forwards to the real Anthropic API
+(`claude-3-5-haiku-20241022`, `max_tokens: 16` to keep cost negligible).
+
+Behaviour gates on two env vars:
+
+| Env var                 | Local default                                             | CI                                            |
+| ----------------------- | --------------------------------------------------------- | --------------------------------------------- |
+| `ANTHROPIC_API_KEY`     | Optional. When unset, Smoke 5 SKIPs with a stderr warning | Required (sourced from repo secret)           |
+| `SMOKE_REQUIRE_API_KEY` | Unset / `0` — local skip is non-fatal                     | Set to `1` so the smoke FAILs without the key |
+
+429 contract: a single 429 from Anthropic triggers a 5s sleep + one retry.
+A second 429 in the same scenario fails the smoke. Keep `max_tokens` at 16
+to stay well under any project rate budget.
+
+CI uses `SMOKE_REQUIRE_API_KEY=1` to fail closed: a missing key surfaces
+as a publish-pipeline failure rather than a silent skip.
 
 ### Cutting a release
 

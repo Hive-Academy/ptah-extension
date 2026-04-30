@@ -11,8 +11,10 @@
  * stay fast. After `nx build ptah-cli`, the suite runs and asserts on stdout.
  */
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import * as path from 'node:path';
 
 // Resolve repo root from this test file: apps/ptah-cli/src/smoke.spec.ts
@@ -23,6 +25,25 @@ const DIST_BIN = path.join(REPO_ROOT, 'dist', 'apps', 'ptah-cli', 'main.mjs');
 const distExists = existsSync(DIST_BIN);
 
 const describeIfBuilt = distExists ? describe : describe.skip;
+
+jest.setTimeout(60_000);
+
+// Wait helper — polls a predicate until truthy or timeout. Returns the
+// resolved value (or `undefined` if the predicate never returns a truthy
+// value within the timeout window).
+async function waitFor<T>(
+  fn: () => T | Promise<T>,
+  timeoutMs: number,
+  intervalMs = 100,
+): Promise<T | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const v = await fn();
+    if (v) return v;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return undefined;
+}
 
 describeIfBuilt('ptah-cli smoke (dist/apps/ptah-cli/main.mjs)', () => {
   it('--version exits 0 and prints a semver-shaped string', () => {
@@ -70,5 +91,124 @@ describeIfBuilt('ptah-cli smoke (dist/apps/ptah-cli/main.mjs)', () => {
     // Non-zero exit. We don't lock the exact code (commander uses 1, our
     // dispatcher may map to 2 — either is acceptable).
     expect(result.status).not.toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // TASK_2026_108 T4 (Task 4.4) — proxy gate fail-fast (Smoke 3) and
+  // registry cleanup on graceful shutdown (Smoke 4 minus the curl healthz
+  // check, which is reserved for the bash smoke harness). Both scenarios
+  // exercise the dist binary via `child_process.spawn`.
+  // ---------------------------------------------------------------------------
+
+  describe('proxy permission-gate fail-fast (Smoke 3)', () => {
+    it('exits with AuthRequired when neither --auto-approve nor PTAH_INTERACT_ACTIVE is set', () => {
+      // Strip the env-var marker so the gate trips even when a parent test
+      // process happens to have it set.
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        NO_COLOR: '1',
+        FORCE_COLOR: '0',
+      };
+      delete env['PTAH_INTERACT_ACTIVE'];
+
+      const result = spawnSync(
+        process.execPath,
+        [DIST_BIN, 'proxy', 'start', '--port', '0'],
+        {
+          encoding: 'utf8',
+          timeout: 10_000,
+          env,
+        },
+      );
+
+      expect(result.error).toBeUndefined();
+      // ExitCode.AuthRequired === 3.
+      expect(result.status).toBe(3);
+      expect(result.stderr).toContain('"error":"permission_gate_unavailable"');
+    });
+  });
+
+  describe('proxy registry cleanup on graceful shutdown (Smoke 4)', () => {
+    const TEST_PORT = 18768;
+    const REGISTRY_PATH = path.join(
+      homedir(),
+      '.ptah',
+      'proxies',
+      `${TEST_PORT}.json`,
+    );
+
+    afterEach(async () => {
+      // Defensive: remove the registry file even if a previous run leaked it.
+      await rm(REGISTRY_PATH, { force: true });
+    });
+
+    // POSIX-only — Node `child.kill('SIGTERM')` on Windows resolves to
+    // `TerminateProcess`, which kills the child without giving the proxy's
+    // `finally` block a chance to run `unregister()`. The bash smoke
+    // harness covers Windows via Git Bash `kill -TERM`, which Node's
+    // signal-handler shim DOES catch — different code path. Keep this Jest
+    // assertion gated on POSIX so CI on `windows-latest` doesn't bounce.
+    const itPosix = process.platform === 'win32' ? it.skip : it;
+
+    itPosix('removes the registry entry after SIGTERM teardown', async () => {
+      await rm(REGISTRY_PATH, { force: true });
+
+      const child = spawn(
+        process.execPath,
+        [
+          DIST_BIN,
+          'proxy',
+          'start',
+          '--port',
+          String(TEST_PORT),
+          '--auto-approve',
+        ],
+        {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
+        },
+      );
+
+      try {
+        // Wait for the proxy to register itself in `~/.ptah/proxies/`.
+        const registered = await waitFor(
+          () => existsSync(REGISTRY_PATH),
+          15_000,
+          200,
+        );
+        // If the proxy never registered, surface stderr for diagnosis.
+        if (!registered) {
+          let stderrBuf = '';
+          child.stderr?.on('data', (c) => {
+            stderrBuf += c.toString('utf8');
+          });
+          await new Promise((r) => setTimeout(r, 200));
+          throw new Error(
+            `proxy never registered ${REGISTRY_PATH}; stderr=${stderrBuf}`,
+          );
+        }
+
+        // Send SIGTERM and wait for exit.
+        const exitPromise = new Promise<number | null>((resolve) => {
+          child.once('exit', (code) => resolve(code));
+        });
+        child.kill('SIGTERM');
+        await Promise.race([
+          exitPromise,
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('exit timeout')), 10_000),
+          ),
+        ]);
+
+        // The `finally` block in `executeStart` calls `unregister(port)` on
+        // both SIGTERM and proxy.shutdown paths. Assert the registry file
+        // is gone.
+        expect(existsSync(REGISTRY_PATH)).toBe(false);
+      } finally {
+        if (!child.killed) {
+          child.kill('SIGKILL');
+        }
+      }
+    });
   });
 });

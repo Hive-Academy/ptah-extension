@@ -66,7 +66,100 @@ env:
   NX_TUI: 'false'
 
 jobs:
+  # -------------------------------------------------------------------------
+  # Pre-publish smoke matrix — TASK_2026_108 T4 (Task 4.5).
+  #
+  # Runs the full bash smoke suite + tarball install verification + a
+  # forbidden-pattern scan on the publish dry-run output, on Linux AND
+  # Windows. The publish job depends on every matrix leg succeeding.
+  #
+  # Smoke 5 in `smoke-pre-publish.sh` talks to the live Anthropic API and
+  # is fail-closed in CI via `SMOKE_REQUIRE_API_KEY=1` — the workflow MUST
+  # be configured with the `ANTHROPIC_API_KEY` repository secret.
+  # -------------------------------------------------------------------------
+  smoke:
+    name: Smoke (${{ matrix.os }})
+    if: >-
+      github.event_name != 'push' ||
+      !startsWith(github.event.head_commit.message, 'chore(release):')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Windows runner uses Git Bash so the smoke scripts execute under a
+        # POSIX-flavoured shell on both platforms.
+        shell: bash
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SMOKE_REQUIRE_API_KEY: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: |
+          npm ci
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            npm install @rollup/rollup-linux-x64-gnu --no-save --force
+          fi
+
+      - name: Build CLI
+        run: npx nx build ptah-cli
+
+      - name: Smoke — pre-publish bash harness
+        run: bash apps/ptah-cli/scripts/smoke-pre-publish.sh
+
+      - name: Smoke — tarball install verification
+        run: bash apps/ptah-cli/scripts/test-publish-cli.sh
+
+      - name: Publish dry-run + forbidden-pattern scan
+        run: |
+          # Capture the dry-run output so we can grep it for forbidden
+          # tarball entries (test specs, source maps, hoisted node_modules,
+          # scratch directories). `npm publish --dry-run` writes the file
+          # list to stderr — redirect with 2>&1 so we see both streams.
+          set -o pipefail
+          DRYRUN_LOG="$(mktemp)"
+          npx nx run ptah-cli:publish:dry-run 2>&1 | tee "$DRYRUN_LOG"
+
+          # Forbidden patterns. If any match, fail the smoke step.
+          FORBIDDEN_PATTERNS=(
+            '\.spec\.ts$'
+            '^node_modules/'
+            'scratch[/]'
+            '\.ts\.map$'
+          )
+          violations=0
+          for pat in "${FORBIDDEN_PATTERNS[@]}"; do
+            if grep -E "$pat" "$DRYRUN_LOG" >/dev/null 2>&1; then
+              echo "::error::Forbidden tarball entry pattern matched: $pat"
+              grep -E "$pat" "$DRYRUN_LOG" || true
+              violations=$((violations + 1))
+            fi
+          done
+          rm -f "$DRYRUN_LOG"
+          if [ "$violations" -gt 0 ]; then
+            exit 1
+          fi
+
   publish:
+    needs: smoke
     runs-on: ubuntu-latest
     # Skip the chore(release): bump commits to prevent self-trigger loops
     # if a chore commit ever lands on release/cli.
