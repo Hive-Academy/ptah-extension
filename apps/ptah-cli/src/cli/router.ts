@@ -2143,13 +2143,52 @@ export function buildRouter(): Command {
     .command('interact')
     .description('persistent JSON-RPC 2.0 stdio session')
     .option('--session <id>', 'resume or create the session with this id')
-    .action(async (opts: { session?: string }) => {
-      const exit = await interactCmd.execute(
-        { session: opts.session },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
+    .option(
+      '--proxy-start',
+      'boot an embedded Anthropic-compatible HTTP proxy alongside the interact loop',
+      false,
+    )
+    .option(
+      '--proxy-port <port>',
+      'TCP port for the embedded proxy (0 = OS-assigned)',
+      (raw) => Number.parseInt(raw, 10),
+      0,
+    )
+    .option(
+      '--proxy-host <host>',
+      'bind host for the embedded proxy',
+      '127.0.0.1',
+    )
+    .option(
+      '--proxy-expose-workspace-tools',
+      'surface workspace MCP tools through the embedded proxy',
+      false,
+    )
+    .action(
+      async (opts: {
+        session?: string;
+        proxyStart?: boolean;
+        proxyPort?: number;
+        proxyHost?: string;
+        proxyExposeWorkspaceTools?: boolean;
+      }) => {
+        const exit = await interactCmd.execute(
+          {
+            session: opts.session,
+            proxyStart: opts.proxyStart === true,
+            proxyPort:
+              typeof opts.proxyPort === 'number' &&
+              Number.isFinite(opts.proxyPort)
+                ? opts.proxyPort
+                : 0,
+            proxyHost: opts.proxyHost ?? '127.0.0.1',
+            proxyExposeWorkspaceTools: opts.proxyExposeWorkspaceTools === true,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
 
   return program;
 }
