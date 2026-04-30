@@ -101,7 +101,13 @@ export interface InteractOptions {
  * casts into the spec.
  */
 export interface AnthropicProxyServiceLike {
-  start(): Promise<{ port: number; host: string; tokenPath: string }>;
+  start(): Promise<{
+    port: number;
+    host: string;
+    tokenPath: string;
+    /** TASK_2026_108 T3 — sha256 fingerprint of the bearer token. */
+    tokenFingerprint: string;
+  }>;
   stop(reason?: 'shutdown' | 'sigint' | 'rpc'): Promise<void>;
   registerShutdownRpc(
     server: Pick<JsonRpcServer, 'register' | 'unregister'>,

@@ -853,6 +853,7 @@ describe('ptah interact', () => {
           host: '127.0.0.1',
           port: 47331,
           tokenPath: 'D:/tmp/47331.token',
+          tokenFingerprint: 'abc123def456abcd',
         })),
         stop: jest.fn(async () => {
           stoppedRef.value = true;

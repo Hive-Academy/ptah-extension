@@ -2118,7 +2118,9 @@ export function buildRouter(): Command {
 
   proxyCommand
     .command('stop')
-    .description('stop a running proxy (Phase 2 — deferred)')
+    .description(
+      'stop a running proxy registered in ~/.ptah/proxies/<port>.json',
+    )
     .option('--port <number>', 'port of the proxy to stop', (v) =>
       Number.parseInt(v, 10),
     )
@@ -2132,7 +2134,7 @@ export function buildRouter(): Command {
 
   proxyCommand
     .command('status')
-    .description('list running proxies (Phase 2 — deferred)')
+    .description('list running proxies registered in ~/.ptah/proxies/')
     .action(async () => {
       const exit = await proxyCmd.executeStatus({}, resolveGlobals(program));
       process.exitCode = exit;

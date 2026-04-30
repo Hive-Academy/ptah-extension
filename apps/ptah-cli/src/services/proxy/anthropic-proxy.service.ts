@@ -78,6 +78,7 @@ import {
   verifyProxyToken,
   writeProxyTokenFile,
 } from './proxy-auth.js';
+import { tokenFingerprint } from './proxy-registry.js';
 import { emitFatalError } from '../../cli/output/stderr-json.js';
 
 /** Configuration for the proxy lifecycle. */
@@ -164,8 +165,19 @@ export class AnthropicProxyService {
    * Bind the HTTP listener, mint the bearer token, write the token file,
    * and emit `proxy.started` + `proxy.token.issued`. Throws on bind failure
    * (caller maps to `proxy_bind_failed`).
+   *
+   * Returns the bound coordinates plus a `tokenFingerprint` (sha256 of the
+   * raw token, first 16 hex chars) so the caller can persist it into the
+   * proxy registry (TASK_2026_108 T3) WITHOUT ever exposing the raw token —
+   * the raw token stays inside this service and the on-disk
+   * `<userDataPath>/proxy/<port>.token` file (mode 0o600).
    */
-  async start(): Promise<{ port: number; host: string; tokenPath: string }> {
+  async start(): Promise<{
+    port: number;
+    host: string;
+    tokenPath: string;
+    tokenFingerprint: string;
+  }> {
     this.token = mintProxyToken();
     this.handle = await this.httpProvider.listen(
       this.config.host,
@@ -189,6 +201,10 @@ export class AnthropicProxyService {
       this.config.userDataPath,
     );
 
+    // Compute fingerprint inside the service so the raw token never leaks
+    // out — registry caller receives only the fingerprint.
+    const fingerprint = tokenFingerprint(this.token);
+
     await this.notifier.notify('proxy.started', {
       host: this.handle.host,
       port: this.handle.port,
@@ -204,6 +220,7 @@ export class AnthropicProxyService {
       port: this.handle.port,
       host: this.handle.host,
       tokenPath: this.tokenPath,
+      tokenFingerprint: fingerprint,
     };
   }
 
