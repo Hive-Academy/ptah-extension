@@ -30,6 +30,7 @@ import {
   ISdkPermissionHandler,
   InlineImageAttachment,
   type AuthEnv,
+  type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import {
@@ -184,6 +185,14 @@ export interface ExecuteQueryConfig {
    * unspecified to preserve historical Ptah streaming behavior.
    */
   includePartialMessages?: boolean;
+  /**
+   * Caller-supplied MCP HTTP server overrides — merged OVER the registry-
+   * built map by the options builder (caller wins on key collision).
+   * Reserved for the Anthropic-compatible HTTP proxy in P3 (TASK_2026_108
+   * T2). When `undefined` or empty, the SDK's `mcpServers` is identity-
+   * preserved relative to pre-T2 behavior.
+   */
+  mcpServersOverride?: Record<string, McpHttpServerOverride>;
 }
 
 /**

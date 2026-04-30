@@ -601,6 +601,64 @@ describe('SdkAgentAdapter', () => {
   });
 
   // -------------------------------------------------------------------------
+  // SdkAgentAdapter.startChatSession (mcpServersOverride threading)
+  // TASK_2026_108 § 2 T2 — Layer 3 forwarding contract.
+  // -------------------------------------------------------------------------
+
+  describe('SdkAgentAdapter.startChatSession (mcpServersOverride threading)', () => {
+    it('forwards mcpServersOverride to sessionLifecycle.executeQuery', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+
+      const override = {
+        ptah: {
+          type: 'http' as const,
+          url: 'http://override.example/proxy',
+          headers: { 'X-Trace': 'on' },
+        },
+      };
+
+      await h.adapter.startChatSession({
+        ...makeSessionConfig(),
+        mcpServersOverride: override,
+      } as AISessionConfig & {
+        tabId: string;
+        mcpServersOverride: typeof override;
+      });
+
+      expect(h.sessionLifecycle.executeQuery).toHaveBeenCalledTimes(1);
+      const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
+      // Strict identity — the same reference must flow through unchanged.
+      expect(callArg.mcpServersOverride).toBe(override);
+    });
+
+    it('omits mcpServersOverride when caller did not supply it', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+
+      await h.adapter.startChatSession(makeSessionConfig());
+
+      const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
+      // Identity-preserving no-op for non-proxy callers — undefined must
+      // remain undefined so SdkQueryOptionsBuilder.mergeMcpOverride returns
+      // the registry-built map unchanged (toBe identity).
+      expect(callArg.mcpServersOverride).toBeUndefined();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // resumeSession()
   // -------------------------------------------------------------------------
 

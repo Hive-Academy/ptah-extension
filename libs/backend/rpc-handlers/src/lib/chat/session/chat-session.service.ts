@@ -242,6 +242,11 @@ export class ChatSessionService {
         // omitted, the SDK plumbing defaults to ON (preserves historical
         // Ptah behavior — StreamTransformer already consumes stream_event).
         includePartialMessages: options?.includePartialMessages,
+        // TASK_2026_108 T2: Caller-supplied MCP HTTP server overrides
+        // (populated by the Anthropic-compatible HTTP proxy via the
+        // X-Ptah-Mcp-Servers header). Identity-preserved when undefined or
+        // empty — see SdkQueryOptionsBuilder.mergeMcpOverride.
+        mcpServersOverride: params.mcpServersOverride,
       });
 
       // Stream ExecutionNodes to webview (background — don't await)

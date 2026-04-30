@@ -51,6 +51,7 @@ import type {
   IHttpServerHandle,
   IHttpServerProvider,
 } from '@ptah-extension/platform-core';
+import type { McpHttpServerOverride } from '@ptah-extension/shared';
 
 import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
 import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
@@ -423,6 +424,22 @@ export class AnthropicProxyService {
       phase: 'start',
     });
 
+    // -- TASK_2026_108 T2: parse X-Ptah-Mcp-Servers header ---------------
+    // Q2=A locked: header is the ONLY signal. Malformed headers DO NOT
+    // produce 400; we degrade to `undefined` + emit `proxy.warning` so
+    // the chat path proceeds with the registry-built MCP map intact.
+    const mcpHeaderParse = parseMcpOverrideHeader(
+      req.headers['x-ptah-mcp-servers'],
+    );
+    if (mcpHeaderParse.warning !== null) {
+      void this.notifier.notify('proxy.warning', {
+        request_id: requestId,
+        kind: 'mcp_override_invalid',
+        message: mcpHeaderParse.warning,
+      });
+    }
+    const mcpServersOverride = mcpHeaderParse.override;
+
     // -- Build chat:start params ------------------------------------------
     // Caller `model` is intentionally IGNORED in the MVP — the workspace
     // config drives the actual model. Caller `system` is APPENDED to the
@@ -498,18 +515,24 @@ export class AnthropicProxyService {
       const result = await bridge.runTurn({
         tabId,
         rpcCall: async () => {
-          // mcpServersOverride threading is deferred — see Phase 2 TODO at
-          // top of file. For the MVP, workspace MCP tools are surfaced via
-          // the merged `tools[]` array (advertised to the caller's model)
-          // but not registered as MCP servers on the SDK side.
+          // TASK_2026_108 T2: mcpServersOverride is forwarded through the
+          // `chat:start` payload. When the header is absent / empty / invalid
+          // it stays `undefined`, which is identity-preserved at every layer
+          // of the SDK chain (see SdkQueryOptionsBuilder.mergeMcpOverride).
+          // Workspace MCP tools are also surfaced via the merged `tools[]`
+          // array on the response side for callers that don't speak MCP.
+          const chatStartParams: Record<string, unknown> = {
+            tabId,
+            prompt,
+            workspacePath: this.config.workspacePath,
+            options: {},
+          };
+          if (mcpServersOverride !== undefined) {
+            chatStartParams['mcpServersOverride'] = mcpServersOverride;
+          }
           const resp = await this.transport.call<unknown, unknown>(
             'chat:start',
-            {
-              tabId,
-              prompt,
-              workspacePath: this.config.workspacePath,
-              options: {},
-            },
+            chatStartParams,
           );
           return { success: resp.success === true };
         },
@@ -741,4 +764,135 @@ function stringifyContent(content: unknown): string {
     return out.join('\n');
   }
   return '';
+}
+
+/**
+ * Result of parsing the `X-Ptah-Mcp-Servers` request header.
+ *
+ * Q2=A locked decision (TASK_2026_108 § 2 plan): the header is the ONLY
+ * signal that drives `mcpServersOverride` — there is NO inference from
+ * `tools[]`. Malformed/empty/absent headers all degrade to `undefined`
+ * with an optional `proxy.warning`, never a 400 response.
+ */
+export interface McpOverrideParseResult {
+  /** `undefined` when header absent, empty, or invalid. */
+  readonly override: Record<string, McpHttpServerOverride> | undefined;
+  /** Human-readable reason for an emitted `proxy.warning`. `null` on success/absent. */
+  readonly warning: string | null;
+}
+
+/**
+ * Parse the `X-Ptah-Mcp-Servers` header into `mcpServersOverride`.
+ *
+ * Header format: a JSON object keyed by MCP server name, where each value
+ * matches `McpHttpServerOverride` — `{ type: 'http', url: string,
+ * headers?: Record<string,string> }`. Non-HTTP MCP transports (stdio) are
+ * NOT supported by this surface.
+ *
+ * Edge cases (all non-throwing):
+ *   - Header absent OR empty string → `{ override: undefined, warning: null }`.
+ *   - Header non-string (multi-value) → first value used.
+ *   - JSON parse failure → `{ override: undefined, warning: 'invalid JSON' }`.
+ *   - Top-level not an object → `{ override: undefined, warning: 'not an object' }`.
+ *   - Any entry shape mismatch → `{ override: undefined, warning: 'entry "<key>" invalid' }`.
+ *   - Empty object `{}` → `{ override: undefined, warning: null }` (treated as absent).
+ *
+ * Caller must emit `proxy.warning { kind: 'mcp_override_invalid' }` when
+ * `warning !== null`, then proceed with `override` (which is `undefined`).
+ */
+export function parseMcpOverrideHeader(
+  rawHeader: string | string[] | undefined,
+): McpOverrideParseResult {
+  // Normalize: pick first value if array, treat empty/whitespace as absent.
+  const raw = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+  if (raw === undefined || raw === null) {
+    return { override: undefined, warning: null };
+  }
+  const trimmed = String(raw).trim();
+  if (trimmed.length === 0) {
+    return { override: undefined, warning: null };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return {
+      override: undefined,
+      warning: `X-Ptah-Mcp-Servers header is not valid JSON: ${detail}`,
+    };
+  }
+
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      override: undefined,
+      warning:
+        'X-Ptah-Mcp-Servers header must be a JSON object keyed by MCP server name',
+    };
+  }
+
+  const entries = parsed as Record<string, unknown>;
+  const out: Record<string, McpHttpServerOverride> = {};
+  for (const key of Object.keys(entries)) {
+    if (!Object.prototype.hasOwnProperty.call(entries, key)) continue;
+    const entry = entries[key];
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      return {
+        override: undefined,
+        warning: `X-Ptah-Mcp-Servers entry "${key}" must be an object`,
+      };
+    }
+    const obj = entry as Record<string, unknown>;
+    if (obj['type'] !== 'http') {
+      return {
+        override: undefined,
+        warning: `X-Ptah-Mcp-Servers entry "${key}" must have type === 'http'`,
+      };
+    }
+    if (typeof obj['url'] !== 'string' || obj['url'].length === 0) {
+      return {
+        override: undefined,
+        warning: `X-Ptah-Mcp-Servers entry "${key}" must have a non-empty string "url"`,
+      };
+    }
+    const headersRaw = obj['headers'];
+    let headers: Record<string, string> | undefined;
+    if (headersRaw !== undefined) {
+      if (
+        headersRaw === null ||
+        typeof headersRaw !== 'object' ||
+        Array.isArray(headersRaw)
+      ) {
+        return {
+          override: undefined,
+          warning: `X-Ptah-Mcp-Servers entry "${key}" "headers" must be a string→string object`,
+        };
+      }
+      const headersObj = headersRaw as Record<string, unknown>;
+      const safeHeaders: Record<string, string> = {};
+      for (const hk of Object.keys(headersObj)) {
+        if (!Object.prototype.hasOwnProperty.call(headersObj, hk)) continue;
+        const hv = headersObj[hk];
+        if (typeof hv !== 'string') {
+          return {
+            override: undefined,
+            warning: `X-Ptah-Mcp-Servers entry "${key}" header "${hk}" must be a string`,
+          };
+        }
+        safeHeaders[hk] = hv;
+      }
+      headers = safeHeaders;
+    }
+
+    out[key] = headers
+      ? { type: 'http', url: obj['url'] as string, headers }
+      : { type: 'http', url: obj['url'] as string };
+  }
+
+  // Treat `{}` as absent — keeps the merge a no-op, matches mergeMcpOverride.
+  if (Object.keys(out).length === 0) {
+    return { override: undefined, warning: null };
+  }
+  return { override: out, warning: null };
 }

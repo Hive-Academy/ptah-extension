@@ -22,6 +22,7 @@ import {
   AuthEnv,
   ThinkingConfig,
   EffortLevel,
+  type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkError } from '../errors';
@@ -377,6 +378,14 @@ export interface QueryOptionsInput {
    * bandwidth-sensitive paths).
    */
   includePartialMessages?: boolean;
+  /**
+   * Caller-supplied MCP HTTP server overrides — merged OVER the registry-
+   * built map by `mergeMcpOverride` (caller wins on key collision). Reserved
+   * for the Anthropic-compatible HTTP proxy in P3 (TASK_2026_108 T2). When
+   * `undefined` or an empty object, the builder's `mcpServers` output is
+   * byte-identical to the pre-T2 behavior.
+   */
+  mcpServersOverride?: Record<string, McpHttpServerOverride>;
 }
 
 /**
@@ -530,6 +539,7 @@ export class SdkQueryOptionsBuilder {
       resumeSessionAt,
       enableFileCheckpointing,
       includePartialMessages,
+      mcpServersOverride,
     } = input;
 
     // Model is required - SDK sets default in config at startup
@@ -651,10 +661,9 @@ export class SdkQueryOptionsBuilder {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
-        mcpServers: this.buildMcpServers(
-          isPremium,
-          mcpServerRunning,
-          sessionId,
+        mcpServers: this.mergeMcpOverride(
+          this.buildMcpServers(isPremium, mcpServerRunning, sessionId),
+          mcpServersOverride,
         ),
         // Set SDK permission mode based on current autopilot config.
         // SDK evaluation order: Hooks → Rules → Permission Mode → canUseTool.
@@ -989,6 +998,31 @@ export class SdkQueryOptionsBuilder {
       mcpUrl: mcpConfig.ptah.url,
     });
     return mcpConfig;
+  }
+
+  /**
+   * Merge caller-supplied MCP HTTP overrides over the registry-built map.
+   * Caller wins on key collision (matches the proxy tool-merger contract).
+   *
+   * Returns the original `base` reference unchanged when `override` is
+   * `undefined` or empty — preserves identity for the existing chat path so
+   * the merge is a no-op on every non-proxy call site.
+   *
+   * @see TASK_2026_108 T2 — threading mcpServersOverride through the SDK chain
+   */
+  private mergeMcpOverride(
+    base: Record<string, McpHttpServerConfig>,
+    override: Record<string, McpHttpServerOverride> | undefined,
+  ): Record<string, McpHttpServerConfig> {
+    if (!override || Object.keys(override).length === 0) {
+      return base;
+    }
+    // McpHttpServerOverride is structurally a subset of McpHttpServerConfig —
+    // both share { type: 'http', url, headers? }. The widening cast lets the
+    // SDK consume the override entries without a runtime conversion. This is
+    // the SINGLE documented widening cast for TASK_2026_108 T2; do NOT add
+    // additional `as` casts elsewhere in the threading path.
+    return { ...base, ...(override as Record<string, McpHttpServerConfig>) };
   }
 
   /**

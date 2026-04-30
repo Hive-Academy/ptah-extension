@@ -32,6 +32,7 @@ import {
   AIMessageOptions,
   SessionId,
   FlatStreamEventUnion,
+  type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
@@ -578,6 +579,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
        * explicitly to disable partial events on this session.
        */
       includePartialMessages?: boolean;
+      /**
+       * Caller-supplied MCP HTTP server overrides (TASK_2026_108 T2).
+       * Keyed by MCP server name; entries are merged OVER the registry-built
+       * map by `SdkQueryOptionsBuilder.mergeMcpOverride` (caller wins on key
+       * collision). Reserved for the Anthropic-compatible HTTP proxy in P3 —
+       * non-proxy callers leave this `undefined` and the merge is a no-op.
+       */
+      mcpServersOverride?: Record<string, McpHttpServerOverride>;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -593,6 +602,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       enhancedPromptsContent,
       pluginPaths,
       includePartialMessages,
+      mcpServersOverride,
     } = config;
     const trackingId = tabId as SessionId;
 
@@ -628,6 +638,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
         includePartialMessages,
+        // TASK_2026_108 T2: forward caller-supplied MCP HTTP overrides
+        mcpServersOverride,
       });
 
     // projectPath is guaranteed by ChatRpcHandlers (validated before reaching here).

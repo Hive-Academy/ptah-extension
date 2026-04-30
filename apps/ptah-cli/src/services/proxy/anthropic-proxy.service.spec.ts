@@ -30,6 +30,8 @@ import type {
 import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
 import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
 import type { JsonRpcServer } from '../../cli/jsonrpc/server.js';
+import { Readable } from 'node:stream';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 
 // ---------------------------------------------------------------------------
 // Test doubles
@@ -59,20 +61,116 @@ function makeFakeJsonRpcServer(): FakeJsonRpcServer {
   };
 }
 
-function makeStubHttpProvider(): {
-  provider: jest.Mocked<IHttpServerProvider>;
-  handle: IHttpServerHandle;
-} {
+/** Captures the dispatcher passed to `httpProvider.listen` so the spec can
+ * drive synthetic HTTP requests through `dispatch()` without binding a real
+ * port. The `dispatcher` slot is `null` until `start()` resolves. */
+interface StubHttpProvider {
+  readonly provider: jest.Mocked<IHttpServerProvider>;
+  readonly handle: IHttpServerHandle;
+  dispatcher: ((req: unknown, res: unknown) => void) | null;
+}
+
+function makeStubHttpProvider(): StubHttpProvider {
   const handle: IHttpServerHandle = {
     host: '127.0.0.1',
     port: 38421,
     close: jest.fn<Promise<void>, []>(() => Promise.resolve()),
   };
-  const listen: jest.Mocked<IHttpServerProvider>['listen'] = jest.fn(
-    async (_host, _port, _handler) => handle,
+  const stub: StubHttpProvider = {
+    provider: {
+      listen: jest.fn(),
+    } as unknown as jest.Mocked<IHttpServerProvider>,
+    handle,
+    dispatcher: null,
+  };
+  (stub.provider.listen as jest.Mock).mockImplementation(
+    async (
+      _host: string,
+      _port: number,
+      handler: (req: unknown, res: unknown) => void,
+    ) => {
+      stub.dispatcher = handler;
+      return handle;
+    },
   );
-  const provider: jest.Mocked<IHttpServerProvider> = { listen };
-  return { provider, handle };
+  return stub;
+}
+
+// ---------------------------------------------------------------------------
+// Synthetic HTTP request / response helpers
+//
+// `dispatch()` calls `readBody(req)` which expects an `IncomingMessage` with
+// a node `Readable` stream and `headers`. We assemble one from a JSON body
+// string; `ServerResponse` only needs `writeHead | write | end | once` plus
+// a `writableEnded` flag for the proxy's happy/error paths.
+// ---------------------------------------------------------------------------
+
+interface CapturedResponse {
+  statusCode: number | null;
+  headers: Record<string, string | number | string[]> | null;
+  bodyChunks: string[];
+  ended: boolean;
+}
+
+function makeSyntheticReq(opts: {
+  url: string;
+  method: string;
+  headers: Record<string, string | string[]>;
+  body: string;
+}): IncomingMessage {
+  const stream = Readable.from([Buffer.from(opts.body, 'utf8')]);
+  // Lowercase header keys to match Node's IncomingMessage behavior.
+  const headers: Record<string, string | string[]> = {};
+  for (const k of Object.keys(opts.headers)) {
+    headers[k.toLowerCase()] = opts.headers[k];
+  }
+  Object.assign(stream, {
+    url: opts.url,
+    method: opts.method,
+    headers,
+  });
+  return stream as unknown as IncomingMessage;
+}
+
+function makeSyntheticRes(): {
+  res: ServerResponse;
+  captured: CapturedResponse;
+} {
+  const captured: CapturedResponse = {
+    statusCode: null,
+    headers: null,
+    bodyChunks: [],
+    ended: false,
+  };
+  const res = {
+    writableEnded: false,
+    writeHead(
+      status: number,
+      headers?: Record<string, string | number | string[]>,
+    ): void {
+      captured.statusCode = status;
+      captured.headers = headers ?? null;
+    },
+    write(chunk: string | Buffer): boolean {
+      captured.bodyChunks.push(
+        typeof chunk === 'string' ? chunk : chunk.toString('utf8'),
+      );
+      return true;
+    },
+    end(chunk?: string | Buffer): void {
+      if (chunk !== undefined) {
+        captured.bodyChunks.push(
+          typeof chunk === 'string' ? chunk : chunk.toString('utf8'),
+        );
+      }
+      captured.ended = true;
+      (this as { writableEnded: boolean }).writableEnded = true;
+    },
+    once(_event: string, _cb: (...args: unknown[]) => void): unknown {
+      return res;
+    },
+  };
+  return { res: res as unknown as ServerResponse, captured };
 }
 
 function makeStubTransport(): jest.Mocked<CliMessageTransport> {
@@ -205,6 +303,214 @@ describe('AnthropicProxyService.registerShutdownRpc', () => {
     unregister();
     expect(fakeServer.handlers.has('proxy.shutdown')).toBe(false);
     expect(fakeServer.unregister).toHaveBeenCalledWith('proxy.shutdown');
+
+    await service.stop('shutdown');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AnthropicProxyService — mcpServersOverride population (TASK_2026_108 T2).
+//
+// Drives a synthetic POST /v1/messages through the captured dispatcher so we
+// can assert the parser extracts X-Ptah-Mcp-Servers correctly and forwards
+// it onto the chat:start RPC payload. Auth is satisfied by issuing the
+// proxy.token.issued notification from start() and reading the minted token
+// off the notifier mock.
+// ---------------------------------------------------------------------------
+
+describe('AnthropicProxyService — mcpServersOverride population', () => {
+  let tmpUserData: string;
+
+  beforeEach(() => {
+    tmpUserData = mkdtempSync(path.join(tmpdir(), 'ptah-proxy-mcp-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpUserData, { recursive: true, force: true });
+  });
+
+  /** Resolve as soon as `transport.call` is invoked for `chat:start`. */
+  function captureChatStart(transport: jest.Mocked<CliMessageTransport>): {
+    waitForCall: () => Promise<unknown>;
+  } {
+    let resolveCall: (params: unknown) => void;
+    const callPromise = new Promise<unknown>((resolve) => {
+      resolveCall = resolve;
+    });
+    (transport.call as jest.Mock).mockImplementation(
+      async (method: string, params: unknown) => {
+        if (method === 'chat:start') {
+          resolveCall(params);
+          return { success: true };
+        }
+        return undefined;
+      },
+    );
+    return { waitForCall: () => callPromise };
+  }
+
+  /** Read the minted token off the notifier (`proxy.token.issued`). */
+  function tokenFromNotifier(notifier: jest.Mocked<ProxyNotifier>): string {
+    const issued = notifier.notify.mock.calls.find(
+      ([m]) => m === 'proxy.token.issued',
+    );
+    if (!issued) throw new Error('proxy.token.issued was not emitted');
+    const params = issued[1] as { token: string };
+    return params.token;
+  }
+
+  it('parses X-Ptah-Mcp-Servers header into mcpServersOverride on chat:start', async () => {
+    const httpStub = makeStubHttpProvider();
+    const transport = makeStubTransport();
+    const pushAdapter = makeStubPushAdapter();
+    const notifier = makeStubNotifier();
+    const { waitForCall } = captureChatStart(transport);
+
+    const service = new AnthropicProxyService(
+      makeBaseConfig(tmpUserData),
+      httpStub.provider,
+      transport,
+      pushAdapter,
+      notifier,
+    );
+    await service.start();
+    const token = tokenFromNotifier(notifier);
+    const dispatcher = httpStub.dispatcher;
+    if (dispatcher === null) throw new Error('dispatcher not captured');
+
+    const headerValue = JSON.stringify({
+      ptah: {
+        type: 'http',
+        url: 'http://override.example/proxy',
+        headers: { 'X-Trace': 'on' },
+      },
+    });
+    const req = makeSyntheticReq({
+      url: '/v1/messages',
+      method: 'POST',
+      headers: {
+        'x-api-key': token,
+        'content-type': 'application/json',
+        'x-ptah-mcp-servers': headerValue,
+      },
+      body: JSON.stringify({
+        model: 'ptah-default',
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    });
+    const { res } = makeSyntheticRes();
+    dispatcher(req, res);
+
+    const params = (await waitForCall()) as Record<string, unknown>;
+    expect(params['mcpServersOverride']).toEqual({
+      ptah: {
+        type: 'http',
+        url: 'http://override.example/proxy',
+        headers: { 'X-Trace': 'on' },
+      },
+    });
+
+    await service.stop('shutdown');
+  });
+
+  it('emits proxy.warning kind=mcp_override_invalid on malformed header — and proceeds without override', async () => {
+    const httpStub = makeStubHttpProvider();
+    const transport = makeStubTransport();
+    const pushAdapter = makeStubPushAdapter();
+    const notifier = makeStubNotifier();
+    const { waitForCall } = captureChatStart(transport);
+
+    const service = new AnthropicProxyService(
+      makeBaseConfig(tmpUserData),
+      httpStub.provider,
+      transport,
+      pushAdapter,
+      notifier,
+    );
+    await service.start();
+    const token = tokenFromNotifier(notifier);
+    const dispatcher = httpStub.dispatcher;
+    if (dispatcher === null) throw new Error('dispatcher not captured');
+
+    const req = makeSyntheticReq({
+      url: '/v1/messages',
+      method: 'POST',
+      headers: {
+        'x-api-key': token,
+        'content-type': 'application/json',
+        'x-ptah-mcp-servers': '{not-json',
+      },
+      body: JSON.stringify({
+        model: 'ptah-default',
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    });
+    const { res } = makeSyntheticRes();
+    dispatcher(req, res);
+
+    const params = (await waitForCall()) as Record<string, unknown>;
+    // Q2=A locked — malformed header MUST NOT block the request. We proceed
+    // with `undefined` so the SDK chain's identity-preserving merge runs.
+    expect(params['mcpServersOverride']).toBeUndefined();
+
+    const warningCall = notifier.notify.mock.calls.find(
+      ([method, p]) =>
+        method === 'proxy.warning' &&
+        (p as { kind?: string } | undefined)?.kind === 'mcp_override_invalid',
+    );
+    expect(warningCall).toBeDefined();
+
+    await service.stop('shutdown');
+  });
+
+  it('omits mcpServersOverride when header is absent', async () => {
+    const httpStub = makeStubHttpProvider();
+    const transport = makeStubTransport();
+    const pushAdapter = makeStubPushAdapter();
+    const notifier = makeStubNotifier();
+    const { waitForCall } = captureChatStart(transport);
+
+    const service = new AnthropicProxyService(
+      makeBaseConfig(tmpUserData),
+      httpStub.provider,
+      transport,
+      pushAdapter,
+      notifier,
+    );
+    await service.start();
+    const token = tokenFromNotifier(notifier);
+    const dispatcher = httpStub.dispatcher;
+    if (dispatcher === null) throw new Error('dispatcher not captured');
+
+    const req = makeSyntheticReq({
+      url: '/v1/messages',
+      method: 'POST',
+      headers: {
+        'x-api-key': token,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'ptah-default',
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    });
+    const { res } = makeSyntheticRes();
+    dispatcher(req, res);
+
+    const params = (await waitForCall()) as Record<string, unknown>;
+    // Property must be absent (not set to undefined) so JSON-RPC payloads
+    // are byte-identical to the pre-T2 shape on non-proxy calls.
+    expect(
+      Object.prototype.hasOwnProperty.call(params, 'mcpServersOverride'),
+    ).toBe(false);
+
+    // No mcp_override_invalid warning when the header is absent.
+    const warningCall = notifier.notify.mock.calls.find(
+      ([method, p]) =>
+        method === 'proxy.warning' &&
+        (p as { kind?: string } | undefined)?.kind === 'mcp_override_invalid',
+    );
+    expect(warningCall).toBeUndefined();
 
     await service.stop('shutdown');
   });

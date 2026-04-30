@@ -88,6 +88,7 @@ export class SessionQueryExecutor {
       resumeSessionAt,
       enableFileCheckpointing,
       includePartialMessages,
+      mcpServersOverride,
     } = config;
 
     this.logger.info(
@@ -192,6 +193,10 @@ export class SessionQueryExecutor {
         // Forward partial-message opt-in. Builder defaults to true when
         // unspecified, matching previous hardcoded behavior.
         includePartialMessages,
+        // Forward caller-supplied MCP HTTP overrides (TASK_2026_108 T2).
+        // Identity-preserved when undefined or empty — see
+        // SdkQueryOptionsBuilder.mergeMcpOverride.
+        mcpServersOverride,
         onProviderError: (stderrChunk: string) => {
           if (providerErrorAborted || abortController.signal.aborted) return;
           providerErrorAborted = true;

@@ -182,6 +182,37 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
     );
   });
 
+  // -------------------------------------------------------------------------
+  // chat:start mcpServersOverride passthrough
+  // TASK_2026_108 § 2 T2 — verifies the RPC facade does not strip the field.
+  // -------------------------------------------------------------------------
+
+  describe('ChatRpcHandlers chat:start (mcpServersOverride passthrough)', () => {
+    it('forwards mcpServersOverride from RPC params to ChatSessionService.startSession', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+
+      const params = {
+        tabId: 't1',
+        prompt: 'hi',
+        mcpServersOverride: {
+          ptah: {
+            type: 'http' as const,
+            url: 'http://override.example/proxy',
+            headers: { 'X-Trace': 'on' },
+          },
+        },
+      };
+      await getHandler(suite.rpc, 'chat:start')(params);
+
+      // The thin facade must pass the entire params object straight through
+      // to ChatSessionService.startSession without stripping fields — that
+      // service is the layer responsible for forwarding mcpServersOverride
+      // into SdkAgentAdapter.startChatSession.
+      expect(suite.session.startSession).toHaveBeenCalledWith(params);
+    });
+  });
+
   describe('runRpc — C7d shape (entry/exit logs + Sentry on throw)', () => {
     it('emits "RPC: chat:start called" + "success" debug logs on the happy path', async () => {
       const suite = buildSuite();
