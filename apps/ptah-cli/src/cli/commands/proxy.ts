@@ -43,7 +43,7 @@ import { AnthropicProxyService } from '../../services/proxy/anthropic-proxy.serv
 export interface ProxyStartOptions {
   /** TCP port to bind. Required for `start`. */
   port?: number;
-  /** Bind host (default `127.0.0.1`). */
+  /** Bind host (default `localhost` — dual-stack IPv4/IPv6 loopback). */
   host?: string;
   /** Idle-timeout in seconds (0 disables — default). */
   idleTimeout?: number;
@@ -78,7 +78,10 @@ export async function executeStart(
     return ExitCode.UsageError;
   }
 
-  const host = opts.host ?? '127.0.0.1';
+  // Use 'localhost' (rather than '127.0.0.1') so Node's dual-stack DNS resolution
+  // applies — clients that prefer IPv6 (::1) can still reach the proxy on hosts
+  // where the loopback iface only exposes one of the two address families.
+  const host = opts.host ?? 'localhost';
   // `--auto-approve` is a global flag (see `program.option` in router.ts) so
   // we read it from `globals` rather than the subcommand-level `opts` to
   // avoid commander's parent/subcommand option-name conflict (the value lands

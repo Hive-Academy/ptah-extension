@@ -138,7 +138,7 @@ export async function extractSessionIdFromFile(
     if (bytesRead === 0) return null;
 
     const content = buffer.toString('utf-8', 0, bytesRead);
-    const firstLine = content.split('\n')[0];
+    const firstLine = content.split(/\r?\n/)[0];
     if (!firstLine) return null;
 
     const msg = JSON.parse(firstLine) as { sessionId?: string };

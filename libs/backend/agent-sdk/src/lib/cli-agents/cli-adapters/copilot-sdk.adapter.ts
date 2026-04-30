@@ -179,7 +179,7 @@ export class CopilotSdkAdapter implements CliAdapter {
           ['--version'],
           { timeout: 5000 },
         );
-        version = versionOutput.trim().split('\n')[0];
+        version = versionOutput.trim().split(/\r?\n/)[0];
       } catch {
         // Version check failed -- CLI still usable
       }
@@ -385,7 +385,8 @@ export class CopilotSdkAdapter implements CliAdapter {
 
     child.stdout?.on('data', (data: string) => {
       lineBuf += data;
-      const lines = lineBuf.split('\n');
+      // Cross-platform line splitting: handle both \n (Unix) and \r\n (Windows).
+      const lines = lineBuf.split(/\r?\n/);
       lineBuf = lines.pop() ?? '';
 
       for (const line of lines) {

@@ -155,7 +155,7 @@ export class JsonlReaderService {
     // when createReadStream uses encoding: 'utf8'. File size is already
     // bounded by the 50MB check above, so this is safe.
     const content = await fs.readFile(filePath, 'utf8');
-    const lines = content.split('\n');
+    const lines = content.split(/\r?\n/);
     const messages: SessionHistoryMessage[] = [];
 
     for (const line of lines) {
