@@ -99,13 +99,11 @@ export class LoggingService {
       PTAH_DEBUG_LOGGING?: boolean;
     };
 
-    win.PTAH_DEBUG_LOGGING = true;
-
     // Check for debug mode flag
     if (win.PTAH_DEBUG_LOGGING === true) {
       this._currentLevel.set(LogLevel.DEBUG);
       console.info(
-        '[LoggingService] Debug logging enabled via window.PTAH_DEBUG_LOGGING'
+        '[LoggingService] Debug logging enabled via window.PTAH_DEBUG_LOGGING',
       );
       return;
     }
@@ -117,7 +115,7 @@ export class LoggingService {
       if (level !== undefined) {
         this._currentLevel.set(level);
         console.info(
-          `[LoggingService] Log level set to ${levelName} via window.PTAH_LOG_LEVEL`
+          `[LoggingService] Log level set to ${levelName} via window.PTAH_LOG_LEVEL`,
         );
         return;
       }
@@ -126,10 +124,10 @@ export class LoggingService {
     console.info(
       `[LoggingService] Using default log level: ${
         LogLevel[this._currentLevel()]
-      }`
+      }`,
     );
     console.info(
-      '[LoggingService] To enable debug logging, run: window.PTAH_DEBUG_LOGGING = true'
+      '[LoggingService] To enable debug logging, run: window.PTAH_DEBUG_LOGGING = true',
     );
   }
 
@@ -148,7 +146,7 @@ export class LoggingService {
   setConsoleEnabled(enabled: boolean): void {
     this.consoleEnabled = enabled;
     console.info(
-      `[LoggingService] Console output ${enabled ? 'enabled' : 'disabled'}`
+      `[LoggingService] Console output ${enabled ? 'enabled' : 'disabled'}`,
     );
   }
 
@@ -197,7 +195,7 @@ export class LoggingService {
   lifecycle(
     componentName: string,
     lifecycleHook: string,
-    data?: unknown
+    data?: unknown,
   ): void {
     this.debug(`[Lifecycle] ${componentName}`, lifecycleHook, data);
   }
@@ -229,7 +227,7 @@ export class LoggingService {
   api(
     direction: 'sent' | 'received',
     messageType: string,
-    data?: unknown
+    data?: unknown,
   ): void {
     this.debug(`[API] ${direction}`, messageType, data);
   }
@@ -241,7 +239,7 @@ export class LoggingService {
     level: LogLevel,
     context: string,
     message: string,
-    data?: unknown
+    data?: unknown,
   ): void {
     // Filter based on current log level
     if (level < this._currentLevel()) {

@@ -10,6 +10,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type {
   IAuthStrategy,
   AuthConfigureResult,
@@ -20,12 +21,12 @@ import type { ProviderModelsService } from '../../provider-models.service';
 import type {
   ICopilotAuthService,
   ICopilotTranslationProxy,
-} from '../../copilot-provider/copilot-provider.types';
-import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../../copilot-provider/copilot-provider.types';
-import type { ICodexAuthService } from '../../codex-provider/codex-provider.types';
-import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../../codex-provider/codex-provider.types';
-import type { ITranslationProxy } from '../../openai-translation';
-import { seedStaticModelPricing } from '../../helpers/anthropic-provider-registry';
+} from '../../providers/copilot/copilot-provider.types';
+import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../../providers/copilot/copilot-provider.types';
+import type { ICodexAuthService } from '../../providers/codex/codex-provider.types';
+import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../../providers/codex/codex-provider.types';
+import type { ITranslationProxy } from '../../providers/_shared/translation';
+import { seedStaticModelPricing } from '../../providers/_shared/provider-registry';
 
 @injectable()
 export class OAuthProxyStrategy implements IAuthStrategy {
@@ -43,6 +44,8 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     private readonly codexProxy: ITranslationProxy,
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
@@ -127,6 +130,13 @@ export class OAuthProxyStrategy implements IAuthStrategy {
         );
       }
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          errorSource: 'OAuthProxyStrategy.configureCopilotOAuth',
+          activeProvider: providerId,
+        },
+      );
       this.logger.error(
         `[${this.name}] Failed to start translation proxy: ${
           error instanceof Error ? error.message : String(error)
@@ -226,6 +236,13 @@ export class OAuthProxyStrategy implements IAuthStrategy {
         );
       }
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          errorSource: 'OAuthProxyStrategy.configureCodexOAuth',
+          activeProvider: providerId,
+        },
+      );
       this.logger.error(
         `[${this.name}] Failed to start Codex translation proxy: ${
           error instanceof Error ? error.message : String(error)
@@ -276,6 +293,10 @@ export class OAuthProxyStrategy implements IAuthStrategy {
       try {
         await proxy.stop();
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'OAuthProxyStrategy.stopProxyIfRunning' },
+        );
         this.logger.warn(
           `[${this.name}] Failed to stop ${proxyName} proxy: ${
             error instanceof Error ? error.message : String(error)

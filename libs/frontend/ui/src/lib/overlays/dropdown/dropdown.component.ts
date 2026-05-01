@@ -1,4 +1,9 @@
-import { Component, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  input,
+  output,
+} from '@angular/core';
 import { OverlayModule, ConnectedPosition } from '@angular/cdk/overlay';
 import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
 
@@ -36,6 +41,7 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
 @Component({
   selector: 'ptah-dropdown',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [OverlayModule],
   template: `
     <div cdkOverlayOrigin #trigger="cdkOverlayOrigin">
@@ -75,27 +81,39 @@ export class DropdownComponent {
   readonly backdropClicked = output<void>();
 
   /**
+   * Tracks whether the current close is being driven by a backdrop click,
+   * so `handleDetach()` knows a `closed` event has already been emitted
+   * and can suppress the duplicate.
+   */
+  private closingViaBackdrop = false;
+
+  /**
    * Handles backdrop click events.
-   * Always emits backdropClicked output.
-   * If closeOnBackdropClick is true, emits closed output to signal
-   * that the parent should close the dropdown.
+   * Always emits `backdropClicked`. When `closeOnBackdropClick` is true,
+   * also emits `closed` so the parent can close the dropdown (e.g. by
+   * setting its `isOpen` signal to `false`). We set an internal flag so
+   * the ensuing `cdkConnectedOverlay` detach does not re-emit `closed`.
    */
   handleBackdropClick(): void {
     this.backdropClicked.emit();
     if (this.closeOnBackdropClick()) {
-      // Signal parent to close dropdown (parent sets isOpen to false)
-      // This is a semantic "please close" signal, distinct from the
-      // overlay detach event which happens when actually closing
+      this.closingViaBackdrop = true;
       this.closed.emit();
     }
   }
 
   /**
    * Handles overlay detach event.
-   * Emits closed output when overlay programmatically closes.
-   * This ensures closed event fires for ALL close scenarios (backdrop click, programmatic close, etc.)
+   * Emits `closed` when the overlay programmatically closes. If the
+   * detach was caused by a backdrop click (which already emitted
+   * `closed` via `handleBackdropClick`), the flag suppresses the
+   * duplicate event.
    */
   protected handleDetach(): void {
+    if (this.closingViaBackdrop) {
+      this.closingViaBackdrop = false;
+      return;
+    }
     this.closed.emit();
   }
 }

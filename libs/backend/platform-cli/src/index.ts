@@ -6,6 +6,9 @@ export { registerPlatformCliServices } from './registration';
 // Types
 export type { CliPlatformOptions } from './types';
 
+// Interfaces
+export type { IOAuthUrlOpener } from './interfaces/oauth-url-opener.interface';
+
 // Implementations
 export { CliFileSystemProvider } from './implementations/cli-file-system-provider';
 export { CliStateStorage } from './implementations/cli-state-storage';
@@ -17,3 +20,4 @@ export { CliWorkspaceProvider } from './implementations/cli-workspace-provider';
 export { CliUserInteraction } from './implementations/cli-user-interaction';
 export { CliSecretStorage } from './implementations/cli-secret-storage';
 export { CliEditorProvider } from './implementations/cli-editor-provider';
+export { CliHttpServerProvider } from './implementations/cli-http-server-provider';

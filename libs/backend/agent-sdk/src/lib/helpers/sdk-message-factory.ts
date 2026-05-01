@@ -16,6 +16,7 @@ import {
   MessageId,
   SessionId,
   InlineImageAttachment,
+  resolveImageMediaType,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { AttachmentProcessorService } from './attachment-processor.service';
@@ -100,13 +101,27 @@ export class SdkMessageFactory {
       // Add text content first
       contentBlocks.push({ type: 'text', text: content });
 
-      // Add inline images (pasted/dropped)
+      // Add inline images (pasted/dropped).
+      //
+      // Defense-in-depth guard: the Anthropic API only accepts four image
+      // media types (jpeg/png/gif/webp). Frontend clients and file pickers
+      // have historically let through svg/bmp/ico/jfif/empty strings and
+      // clipboard-mislabeled types, which poison persisted transcripts so
+      // that every resume fails validation. Re-check here at the SDK
+      // boundary and drop any block we cannot resolve.
       for (const img of images) {
+        const mediaType = resolveImageMediaType(img.mediaType, img.data);
+        if (mediaType === null) {
+          this.logger.warn(
+            `[SdkMessageFactory] Dropping inline image with unsupported media_type='${img.mediaType ?? ''}' (no valid magic bytes either)`,
+          );
+          continue;
+        }
         contentBlocks.push({
           type: 'image',
           source: {
             type: 'base64',
-            media_type: img.mediaType,
+            media_type: mediaType,
             data: img.data,
           },
         });

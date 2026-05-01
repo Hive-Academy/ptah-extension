@@ -74,6 +74,21 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'provider.z-ai.modelTier.sonnet',
   'provider.z-ai.modelTier.haiku',
 
+  // Provider: Ollama (local)
+  'provider.ollama.modelTier.opus',
+  'provider.ollama.modelTier.sonnet',
+  'provider.ollama.modelTier.haiku',
+
+  // Provider: Ollama Cloud
+  'provider.ollama-cloud.modelTier.opus',
+  'provider.ollama-cloud.modelTier.sonnet',
+  'provider.ollama-cloud.modelTier.haiku',
+
+  // Provider: LM Studio (local)
+  'provider.lm-studio.modelTier.opus',
+  'provider.lm-studio.modelTier.sonnet',
+  'provider.lm-studio.modelTier.haiku',
+
   // CLI agent configurations
   'ptahCliAgents',
 
@@ -150,6 +165,24 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'provider.z-ai.modelTier.opus': null,
   'provider.z-ai.modelTier.sonnet': null,
   'provider.z-ai.modelTier.haiku': null,
+
+  // Provider: Ollama (local) — defaults null so the runtime falls back to
+  // OLLAMA_PROVIDER_ENTRY.defaultTiers (qwen3:8b / devstral / qwen3:32b)
+  'provider.ollama.modelTier.opus': null,
+  'provider.ollama.modelTier.sonnet': null,
+  'provider.ollama.modelTier.haiku': null,
+
+  // Provider: Ollama Cloud — defaults null so the runtime falls back to
+  // OLLAMA_CLOUD_PROVIDER_ENTRY.defaultTiers
+  'provider.ollama-cloud.modelTier.opus': null,
+  'provider.ollama-cloud.modelTier.sonnet': null,
+  'provider.ollama-cloud.modelTier.haiku': null,
+
+  // Provider: LM Studio (local) — no defaultTiers in the registry; user must
+  // pick from dynamically-discovered models
+  'provider.lm-studio.modelTier.opus': null,
+  'provider.lm-studio.modelTier.sonnet': null,
+  'provider.lm-studio.modelTier.haiku': null,
 
   // CLI agent configurations
   ptahCliAgents: [],

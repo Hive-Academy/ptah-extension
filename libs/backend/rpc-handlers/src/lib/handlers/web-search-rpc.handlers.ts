@@ -9,6 +9,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   ISecretStorage,
@@ -23,22 +24,23 @@ import type {
   WebSearchProviderType,
   IWebSearchProvider,
 } from '@ptah-extension/vscode-lm-tools';
-
-/** Secret key pattern for web search API keys */
-const SECRET_KEY_PREFIX = 'ptah.webSearch.apiKey';
-
-/** Valid provider names */
-const VALID_PROVIDERS: ReadonlySet<string> = new Set([
-  'tavily',
-  'serper',
-  'exa',
-]);
+import { SECRET_KEY_PREFIX, VALID_PROVIDERS } from './web-search-rpc.schema';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for web search settings management
  */
 @injectable()
 export class WebSearchRpcHandlers {
+  static readonly METHODS = [
+    'webSearch:getApiKeyStatus',
+    'webSearch:setApiKey',
+    'webSearch:deleteApiKey',
+    'webSearch:test',
+    'webSearch:getConfig',
+    'webSearch:setConfig',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -46,6 +48,8 @@ export class WebSearchRpcHandlers {
     private readonly secretStorage: ISecretStorage,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -92,6 +96,10 @@ export class WebSearchRpcHandlers {
           'RPC: webSearch:getApiKeyStatus failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'WebSearchRpcHandlers.registerGetApiKeyStatus' },
+        );
         throw error;
       }
     });
@@ -125,6 +133,10 @@ export class WebSearchRpcHandlers {
           'RPC: webSearch:setApiKey failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'WebSearchRpcHandlers.registerSetApiKey' },
+        );
         throw error;
       }
     });
@@ -149,6 +161,10 @@ export class WebSearchRpcHandlers {
           this.logger.error(
             'RPC: webSearch:deleteApiKey failed',
             error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'WebSearchRpcHandlers.registerDeleteApiKey' },
           );
           throw error;
         }
@@ -187,7 +203,7 @@ export class WebSearchRpcHandlers {
 
         // Use Promise.race for a 10-second timeout, clearing the timer afterward
         const searchPromise = adapter.search('test', 1);
-        let timeoutId: ReturnType<typeof setTimeout>;
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
         const timeoutPromise = new Promise<never>((_, reject) => {
           timeoutId = setTimeout(
             () => reject(new Error('Search test timed out after 10 seconds')),
@@ -198,7 +214,9 @@ export class WebSearchRpcHandlers {
         try {
           await Promise.race([searchPromise, timeoutPromise]);
         } finally {
-          clearTimeout(timeoutId!);
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+          }
         }
 
         this.logger.info('Web search test succeeded', { provider });
@@ -233,6 +251,10 @@ export class WebSearchRpcHandlers {
         this.logger.error(
           'RPC: webSearch:getConfig failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'WebSearchRpcHandlers.registerGetConfig' },
         );
         throw error;
       }
@@ -269,6 +291,10 @@ export class WebSearchRpcHandlers {
         this.logger.error(
           'RPC: webSearch:setConfig failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'WebSearchRpcHandlers.registerSetConfig' },
         );
         throw error;
       }

@@ -48,10 +48,12 @@ import { AppShellComponent } from './app-shell.component';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
 import { WelcomeComponent } from './welcome.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
-import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
-import { ElectronResizeHandleComponent } from '../atoms/electron-resize-handle.component';
-import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
-import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
+import {
+  SidebarTabComponent,
+  ElectronResizeHandleComponent,
+  ThemeToggleComponent,
+  NotificationBellComponent,
+} from '@ptah-extension/chat-ui';
 
 @Component({
   selector: 'ptah-electron-shell',

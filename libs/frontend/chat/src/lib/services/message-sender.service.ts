@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MessageSenderService - Centralized Message Sending Logic (Mediator Pattern)
  *
  * Eliminates 3-level callback indirection by providing direct message sending API.
@@ -31,13 +31,15 @@ import {
   SessionId,
   EffortLevel,
 } from '@ptah-extension/shared';
-import { TabManagerService } from './tab-manager.service';
-import { SessionManager } from './session-manager.service';
+import {
+  ConversationRegistry,
+  TabId,
+  TabManagerService,
+  TabSessionBinding,
+} from '@ptah-extension/chat-state';
+import { SessionManager } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
-import type { SendMessageOptions } from './chat.types';
-
-// Re-export for consumers that import from message-sender.service
-export type { SendMessageOptions } from './chat.types';
+import type { SendMessageOptions } from '@ptah-extension/chat-types';
 
 /**
  * Centralized service for sending messages
@@ -59,6 +61,13 @@ export class MessageSenderService {
   private readonly modelState = inject(ModelStateService);
   private readonly effortState = inject(EffortStateService);
   private readonly ptahCliState = inject(PtahCliStateService);
+  // TASK_2026_106 Phase 6b — `placeholderSessionId` retired. The
+  // sessionId for a brand-new conversation is now sourced from the
+  // routing layer: if the tab is bound to a conversation that already
+  // has a head session, reuse it; otherwise mint a fresh id and let
+  // StreamRouter append it on the first event.
+  private readonly conversationRegistry = inject(ConversationRegistry);
+  private readonly tabSessionBinding = inject(TabSessionBinding);
 
   // ============================================================================
   // HELPER METHODS
@@ -69,6 +78,31 @@ export class MessageSenderService {
    */
   private generateId(): string {
     return `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  }
+
+  /**
+   * TASK_2026_106 Phase 6b — sourcing helper for the session id used in
+   * `startNewConversation`. Replaces `tab.placeholderSessionId`.
+   *
+   * Resolves the active tab's bound conversation via `TabSessionBinding`,
+   * then returns the head session id (last session in the conversation's
+   * ordered list) from `ConversationRegistry`. Returns `null` when:
+   *   - the tab id is not parseable as a `TabId` (legacy id format), OR
+   *   - the tab is not bound to any conversation yet, OR
+   *   - the bound conversation has no sessions (router will append one
+   *     when the first stream event flows back).
+   *
+   * Callers fall back to `generateId()` when this returns null.
+   */
+  private headSessionForTab(tabId: string | undefined): string | null {
+    if (!tabId) return null;
+    const parsedTabId = TabId.safeParse(tabId);
+    if (!parsedTabId) return null;
+    const convId = this.tabSessionBinding.conversationFor(parsedTabId);
+    if (!convId) return null;
+    const record = this.conversationRegistry.getRecord(convId);
+    if (!record || record.sessions.length === 0) return null;
+    return record.sessions[record.sessions.length - 1] as string;
   }
 
   /**
@@ -108,6 +142,50 @@ export class MessageSenderService {
     if (optionsEffort !== undefined) return optionsEffort;
     if (tabOverride !== undefined) return tabOverride ?? undefined;
     return this.effortState.currentEffort();
+  }
+
+  /**
+   * Wire an AbortSignal for a streaming tab so that aborting the signal
+   * triggers a backend `chat:abort` RPC. The signal itself comes from
+   * `TabManagerService.createAbortController(tabId)` and is fired by
+   * `TabManagerService.closeTab(tabId)` when the user closes the tab while
+   * streaming.
+   *
+   * TASK_2026_103 Wave E2: this is the ONE place that knows BOTH the tabId
+   * (to look up the AbortController) AND the SessionId (required by the
+   * chat:abort RPC), so registering the listener here keeps TabManager
+   * free of any session-resolution logic.
+   *
+   * Returns the signal so it can be threaded through to the streaming RPC.
+   */
+  private wireAbortDispatch(tabId: string): AbortSignal {
+    const signal = this.tabManager.createAbortController(tabId);
+    signal.addEventListener(
+      'abort',
+      () => {
+        // Re-resolve the session id at abort time â€” when the stream first
+        // started, claudeSessionId may not have been assigned yet.
+        const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+        const sessionId = tab?.claudeSessionId;
+        if (!sessionId) {
+          // No backend session was established before abort â€” nothing to
+          // cancel on the host side. The frontend RPC promise still
+          // resolves with an aborted error via the signal.
+          return;
+        }
+        // Fire-and-forget: the abort dispatch must not block tab close.
+        this.claudeRpcService
+          .call('chat:abort', { sessionId: sessionId as SessionId })
+          .catch((error) => {
+            console.warn(
+              '[MessageSender] chat:abort dispatch failed on tab close',
+              { tabId, sessionId, error },
+            );
+          });
+      },
+      { once: true },
+    );
+    return signal;
   }
 
   /**
@@ -168,7 +246,7 @@ export class MessageSenderService {
       return;
     }
 
-    // Sanitize content (trim whitespace) — slash commands passed through as-is
+    // Sanitize content (trim whitespace) â€” slash commands passed through as-is
     const sanitized = this.validator.sanitize(content);
 
     // When a tabId is provided (canvas tile context), use that specific tab
@@ -208,7 +286,7 @@ export class MessageSenderService {
     content: string,
     options?: SendMessageOptions,
   ): Promise<void> {
-    // Check if streaming — use target tab if specified, otherwise global active tab
+    // Check if streaming â€” use target tab if specified, otherwise global active tab
     const targetTabId = options?.tabId;
     const targetTab = targetTabId
       ? (this.tabManager.tabs().find((t) => t.id === targetTabId) ??
@@ -283,11 +361,17 @@ export class MessageSenderService {
       // Clear previous node maps to prevent stale references
       this.sessionManager.clearNodeMaps();
 
-      // Resolve the target tab — use explicit tabId when provided (canvas tile)
+      // Resolve the target tab â€” use explicit tabId when provided (canvas tile)
       const activeTab =
         this.tabManager.tabs().find((t) => t.id === activeTabId) ??
         this.tabManager.activeTab();
-      const sessionId = activeTab?.placeholderSessionId || this.generateId();
+      // TASK_2026_106 Phase 6b — replaces `activeTab?.placeholderSessionId`.
+      // Look up the routing layer: if the active tab is bound to a
+      // conversation whose head session is known, reuse it (legacy
+      // resume parity). Otherwise mint a fresh id; StreamRouter will
+      // append it to the conversation when the first event flows back.
+      const sessionId =
+        this.headSessionForTab(activeTab?.id) ?? this.generateId();
 
       // Update tab with streaming status immediately
       // TASK_2025_086: Changed from 'draft' to 'streaming' so UI shows content as it arrives
@@ -299,12 +383,7 @@ export class MessageSenderService {
       const autoName = hasUserName
         ? currentName
         : content.substring(0, 50).trim() || 'New Chat';
-      this.tabManager.updateTab(activeTabId, {
-        name: autoName,
-        title: autoName,
-        status: 'streaming',
-        isDirty: false,
-      });
+      this.tabManager.applyNewConversationStreaming(activeTabId, autoName);
 
       // Show streaming indicator (visual only - no side effects)
       this.tabManager.markTabStreaming(activeTabId);
@@ -328,11 +407,10 @@ export class MessageSenderService {
       // Update tab with user message (reuse activeTab from above)
       // Also clear stale streamingState from any previous session on this tab
       // to prevent handleSessionStats from seeing orphaned streaming state
-      this.tabManager.updateTab(activeTabId, {
-        messages: [...(activeTab?.messages ?? []), userMessage],
-        currentMessageId: null, // Reset per-tab message ID for new conversation
-        streamingState: null, // Clear stale streaming state from previous session
-      });
+      this.tabManager.appendUserMessageAndResetStreaming(activeTabId, [
+        ...(activeTab?.messages ?? []),
+        userMessage,
+      ]);
 
       // Session ID will be initialized by StreamingHandler on first event
       // No tracking needed - removed PendingSessionManager
@@ -347,24 +425,31 @@ export class MessageSenderService {
         effort,
         activeTab?.overrideEffort,
       );
-      const result = await this.claudeRpcService.call('chat:start', {
-        prompt: content,
-        tabId: activeTabId, // Frontend correlation ID
-        name: autoName, // Send message-derived name to backend (not stale activeTab reference)
-        workspacePath,
-        ptahCliId, // TASK_2025_170: Route to Ptah CLI agent adapter
-        options: {
-          model: effectiveModel,
-          ...(files ? { files } : {}),
-          ...(images && images.length > 0 ? { images } : {}),
-          ...(effectiveEffort ? { effort: effectiveEffort } : {}),
+      // TASK_2026_103 Wave E2: register abort dispatch so closing the tab
+      // mid-stream cancels the backend work via chat:abort.
+      const abortSignal = this.wireAbortDispatch(activeTabId);
+      const result = await this.claudeRpcService.call(
+        'chat:start',
+        {
+          prompt: content,
+          tabId: activeTabId, // Frontend correlation ID
+          name: autoName, // Send message-derived name to backend (not stale activeTab reference)
+          workspacePath,
+          ptahCliId, // TASK_2025_170: Route to Ptah CLI agent adapter
+          options: {
+            model: effectiveModel,
+            ...(files ? { files } : {}),
+            ...(images && images.length > 0 ? { images } : {}),
+            ...(effectiveEffort ? { effort: effectiveEffort } : {}),
+          },
         },
-      });
+        { signal: abortSignal },
+      );
 
       if (!result.success) {
         console.error('[MessageSender] Failed to start chat:', result.error);
         // Update tab status to loaded (failed)
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        this.tabManager.markLoaded(activeTabId);
         this.sessionManager.setStatus('loaded');
         this.sessionManager.failSession();
       }
@@ -372,7 +457,7 @@ export class MessageSenderService {
       console.error('[MessageSender] Failed to start new conversation:', error);
 
       if (activeTabId) {
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        this.tabManager.markLoaded(activeTabId);
       }
       this.sessionManager.setStatus('loaded');
       this.sessionManager.failSession();
@@ -424,7 +509,7 @@ export class MessageSenderService {
         return;
       }
 
-      // ✅ VALIDATE: Check if session file actually exists on disk
+      // âœ… VALIDATE: Check if session file actually exists on disk
       const validationResult = await this.validateSessionExists(
         sessionId,
         workspacePath,
@@ -437,10 +522,7 @@ export class MessageSenderService {
         );
 
         if (activeTabId) {
-          this.tabManager.updateTab(activeTabId, {
-            claudeSessionId: null,
-            status: 'loaded',
-          });
+          this.tabManager.detachSessionAndMarkLoaded(activeTabId);
         }
 
         await this.startNewConversation(content, options);
@@ -449,7 +531,7 @@ export class MessageSenderService {
 
       if (!activeTabId) {
         console.warn(
-          '[MessageSender] No active tab for continuing conversation — starting new',
+          '[MessageSender] No active tab for continuing conversation â€” starting new',
         );
         await this.startNewConversation(content, options);
         return;
@@ -463,7 +545,7 @@ export class MessageSenderService {
       this.sessionManager.setStatus('resuming');
 
       // Update tab status
-      this.tabManager.updateTab(activeTabId, { status: 'resuming' });
+      this.tabManager.markResuming(activeTabId);
 
       // Add user message immediately
       const userMessage = createExecutionChatMessage({
@@ -476,9 +558,10 @@ export class MessageSenderService {
       });
 
       // Update tab with user message
-      this.tabManager.updateTab(activeTabId, {
-        messages: [...(activeTab?.messages ?? []), userMessage],
-      });
+      this.tabManager.setMessages(activeTabId, [
+        ...(activeTab?.messages ?? []),
+        userMessage,
+      ]);
 
       // Call RPC to CONTINUE existing chat (uses --resume flag)
       // TASK_2025_092: Include tabId for event routing
@@ -488,32 +571,39 @@ export class MessageSenderService {
         effort,
         activeTab?.overrideEffort,
       );
-      const result = await this.claudeRpcService.call('chat:continue', {
-        prompt: content,
-        sessionId,
-        tabId: activeTabId, // For event routing
-        name: activeTab?.name, // Send session name (support late naming)
-        workspacePath,
-        model: effectiveModel,
-        files: files ?? [],
-        ...(images && images.length > 0 ? { images } : {}),
-        ...(effectiveEffort ? { effort: effectiveEffort } : {}),
-      });
+      // TASK_2026_103 Wave E2: register abort dispatch so closing the tab
+      // mid-stream cancels the backend work via chat:abort.
+      const abortSignal = this.wireAbortDispatch(activeTabId);
+      const result = await this.claudeRpcService.call(
+        'chat:continue',
+        {
+          prompt: content,
+          sessionId,
+          tabId: activeTabId, // For event routing
+          name: activeTab?.name, // Send session name (support late naming)
+          workspacePath,
+          model: effectiveModel,
+          files: files ?? [],
+          ...(images && images.length > 0 ? { images } : {}),
+          ...(effectiveEffort ? { effort: effectiveEffort } : {}),
+        },
+        { signal: abortSignal },
+      );
 
       if (!result.success) {
         console.error('[MessageSender] Failed to continue chat:', result.error);
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        this.tabManager.markLoaded(activeTabId);
         this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');
       } else {
         this.sessionManager.setStatus('streaming');
-        this.tabManager.updateTab(activeTabId, { status: 'streaming' });
+        this.tabManager.markStreaming(activeTabId);
         this.tabManager.markTabStreaming(activeTabId);
       }
     } catch (error) {
       console.error('[MessageSender] Failed to continue conversation:', error);
       if (activeTabId) {
-        this.tabManager.updateTab(activeTabId, { status: 'loaded' });
+        this.tabManager.markLoaded(activeTabId);
         this.tabManager.markTabIdle(activeTabId);
       }
       this.sessionManager.setStatus('loaded');

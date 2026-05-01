@@ -13,6 +13,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type {
   IAuthStrategy,
   AuthConfigureResult,
@@ -32,6 +33,8 @@ export class CliStrategy implements IAuthStrategy {
     private readonly cliDetector: ClaudeCliDetector,
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   async configure(

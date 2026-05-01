@@ -16,7 +16,8 @@ import {
   LicenseService,
   LicenseStatus,
 } from '@ptah-extension/vscode-core';
-import type { IPlatformCommands } from '../platform-abstractions';
+import type { SentryService } from '@ptah-extension/vscode-core';
+import type { IPlatformCommands } from '@ptah-extension/platform-core';
 import type {
   LicenseGetStatusParams,
   LicenseGetStatusResponse,
@@ -26,6 +27,7 @@ import type {
   LicenseClearKeyResponse,
   LicenseTier,
 } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for license operations
@@ -44,6 +46,12 @@ import type {
  */
 @injectable()
 export class LicenseRpcHandlers {
+  static readonly METHODS = [
+    'license:getStatus',
+    'license:setKey',
+    'license:clearKey',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -51,6 +59,8 @@ export class LicenseRpcHandlers {
     private readonly licenseService: LicenseService,
     @inject(TOKENS.PLATFORM_COMMANDS)
     private readonly platformCommands: IPlatformCommands,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -107,6 +117,10 @@ export class LicenseRpcHandlers {
         this.logger.error(
           'RPC: license:getStatus failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'LicenseRpcHandlers.registerGetStatus' },
         );
 
         // TASK_2025_128: On error, check cached status to determine fallback.
@@ -214,6 +228,10 @@ export class LicenseRpcHandlers {
             'RPC: license:setKey failed',
             error instanceof Error ? error : new Error(String(error)),
           );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'LicenseRpcHandlers.registerSetKey' },
+          );
           return {
             success: false,
             error:
@@ -253,6 +271,10 @@ export class LicenseRpcHandlers {
         this.logger.error(
           'RPC: license:clearKey failed',
           error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'LicenseRpcHandlers.registerClearKey' },
         );
         return {
           success: false,

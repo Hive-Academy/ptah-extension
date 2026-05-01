@@ -13,7 +13,7 @@ import type {
   AgentProcessManager,
   CliDetectionService,
   SdkHandle,
-} from '@ptah-extension/llm-abstraction';
+} from '@ptah-extension/agent-sdk';
 import type {
   AgentProcessInfo,
   CliDetectionResult,

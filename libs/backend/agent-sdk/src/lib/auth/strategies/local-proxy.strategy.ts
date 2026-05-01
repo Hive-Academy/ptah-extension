@@ -12,6 +12,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type {
   IAuthStrategy,
   AuthConfigureResult,
@@ -19,10 +20,10 @@ import type {
 } from '../auth-strategy.types';
 import { SDK_TOKENS } from '../../di/tokens';
 import type { ProviderModelsService } from '../../provider-models.service';
-import type { LocalModelTranslationProxy } from '../../local-provider/local-model-translation-proxy';
-import type { ICopilotTranslationProxy } from '../../copilot-provider/copilot-provider.types';
-import type { ITranslationProxy } from '../../openai-translation';
-import { LOCAL_PROXY_TOKEN_PLACEHOLDER } from '../../local-provider';
+import type { LocalModelTranslationProxy } from '../../providers/local/local-model-translation-proxy';
+import type { ICopilotTranslationProxy } from '../../providers/copilot/copilot-provider.types';
+import type { ITranslationProxy } from '../../providers/_shared/translation';
+import { LOCAL_PROXY_TOKEN_PLACEHOLDER } from '../../providers/local';
 
 @injectable()
 export class LocalProxyStrategy implements IAuthStrategy {
@@ -39,6 +40,8 @@ export class LocalProxyStrategy implements IAuthStrategy {
     private readonly copilotProxy: ICopilotTranslationProxy,
     @inject(SDK_TOKENS.SDK_CODEX_PROXY)
     private readonly codexProxy: ITranslationProxy,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
@@ -77,6 +80,13 @@ export class LocalProxyStrategy implements IAuthStrategy {
         );
       }
     } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          errorSource: 'LocalProxyStrategy.configure',
+          activeProvider: providerId,
+        },
+      );
       this.logger.error(
         `[${this.name}] Failed to start LM Studio translation proxy: ${
           error instanceof Error ? error.message : String(error)
@@ -134,6 +144,10 @@ export class LocalProxyStrategy implements IAuthStrategy {
       try {
         await proxy.stop();
       } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'LocalProxyStrategy.stopProxyIfRunning' },
+        );
         this.logger.warn(
           `[${this.name}] Failed to stop ${proxyName} proxy: ${
             error instanceof Error ? error.message : String(error)

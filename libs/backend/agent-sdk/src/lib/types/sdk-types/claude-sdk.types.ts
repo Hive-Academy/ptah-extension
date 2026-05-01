@@ -32,6 +32,8 @@ export type {
   ElicitationResultHookSpecificOutput,
   ExitReason,
   FastModeState,
+  ForkSessionOptions,
+  ForkSessionResult,
   HookCallback,
   HookCallbackMatcher,
   HookEvent,

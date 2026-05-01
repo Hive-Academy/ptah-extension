@@ -1,21 +1,81 @@
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Prisma } from '../generated-prisma-client/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/services/email.service';
+import { AuditLogService } from '../audit/audit-log.service';
 import {
   ADMIN_MODELS,
   AdminModelConfig,
   AdminModelKey,
 } from './admin-models.config';
 import { BulkEmailDto, ListQueryDto } from './admin.dto';
+import { DeleteUserDto } from './dto/delete-user.dto';
 import type {
   AdminBulkEmailResponse,
   AdminListResponse,
 } from './admin.controller';
+
+/**
+ * Per-user relation counts included in the deletion preview & result payloads.
+ * Matches the 4 `User` relations in `schema.prisma` that cascade via `onDelete`.
+ * `failed_webhooks` is intentionally omitted — that table has no FK to users.
+ */
+export interface UserCascadedCounts {
+  subscriptions: number;
+  licenses: number;
+  trialReminders: number;
+  sessionRequests: number;
+}
+
+export interface UserDeletionPreview {
+  userId: string;
+  email: string;
+  cascaded: UserCascadedCounts;
+  hasActivePaidSubscription: boolean;
+  activePaddleSubscriptionId?: string;
+  isAdminSelf: boolean;
+}
+
+export interface UserDeletionResult {
+  deleted: true;
+  user: {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+    createdAt: Date;
+  };
+  cascaded: UserCascadedCounts;
+  auditLogId: string;
+}
+
+export interface DeleteUserActor {
+  email: string;
+  ip?: string;
+  userAgent?: string;
+}
+
+/**
+ * Subscription statuses that count as an "active paid" subscription for the
+ * cascade-delete confirmation gate (§5.1). A subscription in any of these
+ * states represents real money that Paddle considers live — the admin must
+ * explicitly acknowledge before we delete the user row (which cascades to
+ * the subscription row in our DB; Paddle's own row is unaffected).
+ */
+const ACTIVE_PAID_STATUSES: readonly string[] = [
+  'active',
+  'trialing',
+  'past_due',
+];
 
 /**
  * AdminService
@@ -39,6 +99,8 @@ export class AdminService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(EmailService) private readonly email: EmailService,
+    @Inject(AuditLogService) private readonly auditLog: AuditLogService,
+    @Inject(ConfigService) private readonly config: ConfigService,
   ) {}
 
   /**
@@ -259,5 +321,231 @@ export class AdminService {
     if (!/At$|^expires|^scheduled/.test(field)) return value;
     const d = new Date(value);
     return isNaN(d.getTime()) ? value : d;
+  }
+
+  // --------------------------------------------------------------------------
+  // TASK_2025_292 — User cascade deletion (Batch B2)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Compute the impact preview for `DELETE /v1/admin/users/:id` (§5.1).
+   *
+   * Counts every cascaded row per the 4 User relations in
+   * `schema.prisma` (subscriptions, licenses, trial_reminders, session_requests).
+   * Also flags:
+   *   - `hasActivePaidSubscription` — any subscription row in
+   *     ('active' | 'trialing' | 'past_due'), plus the paddleSubscriptionId
+   *     so the frontend can show "Paddle sub {id}" in the warning banner.
+   *   - `isAdminSelf` — target email (lower-cased) matches `ADMIN_EMAILS`.
+   *     Preview returns this so the UI can pre-disable the delete button;
+   *     the service itself re-checks in `deleteUserCascade` to avoid a TOCTOU.
+   *
+   * Throws `NotFoundException` when the user id does not exist.
+   */
+  async getUserDeletionPreview(id: string): Promise<UserDeletionPreview> {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, email: true },
+    });
+    if (!user) {
+      throw new NotFoundException(`User ${id} not found`);
+    }
+
+    const [
+      subscriptions,
+      licenses,
+      trialReminders,
+      sessionRequests,
+      activePaid,
+    ] = await this.prisma.$transaction([
+      this.prisma.subscription.count({ where: { userId: id } }),
+      this.prisma.license.count({ where: { userId: id } }),
+      this.prisma.trialReminder.count({ where: { userId: id } }),
+      this.prisma.sessionRequest.count({ where: { userId: id } }),
+      this.prisma.subscription.findFirst({
+        where: { userId: id, status: { in: [...ACTIVE_PAID_STATUSES] } },
+        select: { paddleSubscriptionId: true },
+      }),
+    ]);
+
+    return {
+      userId: user.id,
+      email: user.email,
+      cascaded: { subscriptions, licenses, trialReminders, sessionRequests },
+      hasActivePaidSubscription: activePaid !== null,
+      activePaddleSubscriptionId: activePaid?.paddleSubscriptionId,
+      isAdminSelf: this.isAdminEmail(user.email),
+    };
+  }
+
+  /**
+   * Execute the user cascade delete inside a single Prisma interactive
+   * transaction (§6.2). Steps:
+   *
+   *   1. Load the user row (404 if missing).
+   *   2. Refuse if target email is on the ADMIN_EMAILS allowlist
+   *      (`CANNOT_DELETE_ADMIN`).
+   *   3. Verify typed `body.confirmEmail` matches user.email (case-insensitive).
+   *   4. Check for active paid subscription; require `acknowledgePaidSubscription`
+   *      override to proceed when present.
+   *   5. Snapshot counts + the user row for the audit payload.
+   *   6. Write an `admin_audit_log` row via `auditLog.write({..., tx})` —
+   *      atomic with the delete (R8).
+   *   7. `tx.user.delete(...)` — schema `onDelete: Cascade` handles children.
+   *
+   * Concurrent-delete race: if the row disappears between step 1 and step 7,
+   * Prisma throws `P2025`. We catch and rethrow as `NotFoundException` so the
+   * admin sees 404 instead of a bare 500.
+   *
+   * Privacy: user email is persisted to `targetSnapshot` (needed for audit
+   * reconstruction) but NEVER logged via `Logger`. Structured log keeps only
+   * the actor email + target id.
+   */
+  async deleteUserCascade(
+    id: string,
+    body: DeleteUserDto,
+    actor: DeleteUserActor,
+  ): Promise<UserDeletionResult> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.findUnique({ where: { id } });
+        if (!user) {
+          throw new NotFoundException(`User ${id} not found`);
+        }
+
+        // (2) Admin self-delete guard — case-insensitive compare.
+        if (this.isAdminEmail(user.email)) {
+          throw new ForbiddenException({
+            code: 'CANNOT_DELETE_ADMIN',
+            message: 'Admins cannot delete another admin account',
+          });
+        }
+
+        // (3) Typed-email confirmation.
+        if (
+          body.confirmEmail.trim().toLowerCase() !==
+          user.email.trim().toLowerCase()
+        ) {
+          throw new BadRequestException({
+            code: 'CONFIRM_EMAIL_MISMATCH',
+            message: 'confirmEmail does not match target user email',
+          });
+        }
+
+        // (4) Active paid subscription gate.
+        const activePaid = await tx.subscription.findFirst({
+          where: {
+            userId: id,
+            status: { in: [...ACTIVE_PAID_STATUSES] },
+          },
+          select: { paddleSubscriptionId: true },
+        });
+        if (activePaid && body.acknowledgePaidSubscription !== true) {
+          throw new ConflictException({
+            code: 'ACTIVE_PAID_SUBSCRIPTION',
+            paddleSubscriptionId: activePaid.paddleSubscriptionId,
+            message:
+              'User has an active paid Paddle subscription. Re-submit with acknowledgePaidSubscription: true to force-delete.',
+          });
+        }
+
+        // (5) Snapshot counts + user row for the audit payload.
+        const [subscriptions, licenses, trialReminders, sessionRequests] =
+          await Promise.all([
+            tx.subscription.count({ where: { userId: id } }),
+            tx.license.count({ where: { userId: id } }),
+            tx.trialReminder.count({ where: { userId: id } }),
+            tx.sessionRequest.count({ where: { userId: id } }),
+          ]);
+
+        const cascadedCounts: UserCascadedCounts = {
+          subscriptions,
+          licenses,
+          trialReminders,
+          sessionRequests,
+        };
+
+        const snapshot = {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          workosId: user.workosId,
+          paddleCustomerId: user.paddleCustomerId,
+          emailVerified: user.emailVerified,
+          marketingOptIn: user.marketingOptIn,
+          createdAt: user.createdAt.toISOString(),
+          updatedAt: user.updatedAt.toISOString(),
+        };
+
+        // (6) Audit log — in-transaction so it rolls back on failure.
+        const auditLogId = await this.auditLog.write({
+          actorEmail: actor.email,
+          action: 'user.delete',
+          targetType: 'User',
+          targetId: id,
+          targetSnapshot: snapshot,
+          metadata: {
+            cascadedCounts,
+            acknowledgedPaidSubscription:
+              body.acknowledgePaidSubscription === true,
+          },
+          ipAddress: actor.ip,
+          userAgent: actor.userAgent,
+          tx,
+        });
+
+        // (7) Cascade delete — schema FKs handle the children.
+        await tx.user.delete({ where: { id } });
+
+        // Structured log — no email in cleartext beyond the audit context
+        // that callers can tail via `kubectl logs | grep admin_audit_log`.
+        this.logger.log({
+          message: 'admin user cascade delete',
+          actorEmail: actor.email,
+          targetId: id,
+          cascadedCounts,
+          auditLogId,
+        });
+
+        return {
+          deleted: true as const,
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            createdAt: user.createdAt,
+          },
+          cascaded: cascadedCounts,
+          auditLogId,
+        };
+      });
+    } catch (err) {
+      // Concurrent delete race — map Prisma's P2025 to 404 (E6).
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2025'
+      ) {
+        throw new NotFoundException(`User ${id} not found`);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Case-insensitive check of `email` against the comma-separated
+   * `ADMIN_EMAILS` env var. Returns `false` when ADMIN_EMAILS is unset — the
+   * delete route is guarded by `AdminGuard` upstream which fail-closes on
+   * missing allowlist, so this service layer never runs without a list.
+   */
+  private isAdminEmail(email: string): boolean {
+    const raw = this.config.get<string>('ADMIN_EMAILS');
+    if (!raw || raw.trim().length === 0) return false;
+    const allowlist = raw
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    return allowlist.includes(email.trim().toLowerCase());
   }
 }

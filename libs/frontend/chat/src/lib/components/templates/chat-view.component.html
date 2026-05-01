@@ -19,7 +19,11 @@
 
       <!-- Session Stats Summary (only when there are messages) -->
       @if (resolvedMessages().length > 0) {
-        <div class="p-1 bg-base-200/30">
+        <div
+          class="p-1 bg-base-200/30"
+          animate.enter="banner-enter"
+          animate.leave="banner-leave"
+        >
           <ptah-session-stats-summary
             [messages]="resolvedMessages()"
             [preloadedStats]="resolvedPreloadedStats()"
@@ -38,32 +42,45 @@
         <ptah-compaction-notification [isCompacting]="resolvedIsCompacting()" />
       </div>
 
-      <!-- Message List -->
+      <!-- Message List
+           - Unified `@for` over `allMessages()`: finalized + streaming share the
+             same `track msg.id` so the streaming → finalized swap reuses the
+             same component instance (no remount, no layout shift).
+           - `[auto-animate]` on the container animates new bubble inserts via
+             FLIP without affecting siblings.
+           - `[autoAnimateDisabled]` is wired to the streaming flag: while
+             streaming, FLIP transforms race against the MutationObserver-driven
+             scroll-to-bottom (scrollHeight reflects post-mutation layout while
+             elements are mid-flight). Disabling FLIP during streaming trades a
+             tiny amount of insert smoothness for stable scroll. Animations
+             reactivate once streaming ends.
+      -->
       <div
         class="flex-1 overflow-y-auto p-2 space-y-3"
         #messageContainer
         (scroll)="onScroll($event)"
+        [auto-animate]
+        [autoAnimateDisabled]="resolvedIsStreaming() || isFinalizingTransition()"
       >
-        @for (message of resolvedMessages(); track message.id; let i = $index) {
-          <ptah-message-bubble
-            [message]="message"
-            [messageIndex]="i"
-            [totalMessages]="resolvedMessages().length"
-          />
-        }
-
-        <!-- Streaming assistant messages (live execution trees) -->
-        <!-- TASK_2025_096 FIX: Render ALL streaming messages, not just the first one! -->
-        @for (msg of streamingMessages(); track msg.id) {
+        @for (msg of allMessages(); track msg.id; let i = $index) {
           <ptah-message-bubble
             [message]="msg"
-            [isStreaming]="resolvedIsStreaming()"
+            [messageIndex]="i"
+            [totalMessages]="allMessages().length"
+            [isStreaming]="streamingMessageIds().has(msg.id)"
+            [isFinalizing]="isFinalizingTransition()"
+            (branchRequested)="onBranchRequested($event)"
+            (rewindRequested)="onRewindRequested($event)"
           />
         }
 
         <!-- Skeleton placeholder: streaming started but no trees yet -->
         @if (streamingMessages().length === 0 && resolvedIsStreaming()) {
-          <div class="chat chat-start">
+          <div
+            class="chat chat-start"
+            animate.enter="fade-enter"
+            animate.leave="fade-leave"
+          >
             <div class="chat-image avatar">
               <div class="w-8 h-8 rounded-full overflow-hidden">
                 <img [src]="ptahIconUri()" alt="Claude" width="32" height="32" />
@@ -84,10 +101,24 @@
           streamingMessages().length === 0
         ) {
           <ptah-chat-empty-state
+            animate.enter="fade-enter"
+            animate.leave="fade-leave"
             (promptSelected)="handlePromptSelected($event)"
           />
         }
       </div>
+
+      <!-- Branch/Rewind action error banner (auto-clears after 4s) -->
+      @if (actionError(); as errMsg) {
+        <div
+          class="px-4 py-2 mx-2 my-1 rounded-md bg-error/10 border border-error/30 text-error text-xs"
+          role="alert"
+          animate.enter="banner-enter"
+          animate.leave="banner-leave"
+        >
+          {{ errMsg }}
+        </div>
+      }
 
       <!-- Resume Notification Banner -->
       <div class="px-2 py-1">
@@ -106,7 +137,11 @@
 
       <!-- AskUserQuestion Cards (TASK_2025_136) — session-scoped to prevent showing in all canvas tiles -->
       @for (questionReq of resolvedQuestionRequests(); track questionReq.id) {
-        <div class="px-2 py-1">
+        <div
+          class="px-2 py-1"
+          animate.enter="banner-enter"
+          animate.leave="banner-leave"
+        >
           <ptah-question-card
             [request]="questionReq"
             (answered)="chatStore.handleQuestionResponse($event)"
@@ -116,7 +151,11 @@
 
       <!-- Queued Content Indicator -->
       @if (resolvedQueuedContent()) {
-        <div class="px-4 pb-2 border-t border-primary/20 bg-primary/5">
+        <div
+          class="px-4 pb-2 border-t border-primary/20 bg-primary/5"
+          animate.enter="banner-enter"
+          animate.leave="banner-leave"
+        >
           <div class="flex items-center justify-between gap-2 py-2">
             <!-- Left: Queue icon and text -->
             <div class="flex items-center gap-2 text-sm">

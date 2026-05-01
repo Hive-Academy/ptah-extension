@@ -1,790 +1,594 @@
 /**
- * WebviewManager Tests - User Requirement Validation
- * Testing Week 2 implementation: VS Code Webview Manager with Message Routing
- * Validates user requirements from TASK_CMD_002
+ * WebviewManager unit tests.
+ *
+ * Exercises the real WebviewManager surface: panel creation + initial data,
+ * revealing an existing panel, WebviewView registration, message sending and
+ * broadcasting, message routing (system vs. routable), metric tracking, and
+ * disposal.
+ *
+ * TASK_2025_291 Wave B: replaces a ghost spec that mocked a nonexistent
+ * EventBus dependency.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 import 'reflect-metadata';
-import * as vscode from 'vscode';
-import { WebviewManager, WebviewPanelConfig } from './webview-manager';
-// EventBus and TOKENS used for dependency injection in tests
+import type * as vscode from 'vscode';
 
-// Mock shared library imports
-jest.mock('@ptah-extension/shared', () => ({
-  isSystemMessage: jest.fn(),
-  isRoutableMessage: jest.fn(),
-  WebviewMessage: {},
-  StrictMessageType: {},
-  MessagePayloadMap: {},
-}));
+import { MESSAGE_TYPES, type WebviewMessage } from '@ptah-extension/shared';
 
-const {
-  isSystemMessage,
-  isRoutableMessage,
-} = require('@ptah-extension/shared');
+import type { Logger } from '../logging/logger';
+import { WebviewManager, type WebviewPanelConfig } from './webview-manager';
 
-// Mock VS Code API
+// -------------------------------------------------------------------------
+// Module-level vscode mock
+// -------------------------------------------------------------------------
 jest.mock('vscode', () => ({
   window: {
-    createWebviewPanel: jest.fn().mockReturnValue({
-      webview: {
-        postMessage: jest.fn().mockResolvedValue(undefined),
-        onDidReceiveMessage: jest.fn(),
-        html: '',
-        options: {},
-      },
-      onDidChangeViewState: jest.fn(),
-      onDidDispose: jest.fn(),
-      reveal: jest.fn(),
-      dispose: jest.fn(),
-      visible: true,
-      title: 'Test Panel',
-    }),
+    createWebviewPanel: jest.fn(),
   },
   ViewColumn: {
     One: 1,
     Two: 2,
+    Three: 3,
   },
   Uri: {
-    joinPath: jest.fn().mockReturnValue({
+    file: (path: string) => ({
       scheme: 'file',
+      fsPath: path,
+      path,
       authority: '',
-      path: '/test',
       query: '',
       fragment: '',
-      fsPath: '/test',
-      with: jest.fn(),
-      toString: jest.fn(),
-      toJSON: jest.fn(),
+      toString: () => `file://${path}`,
     }),
+    joinPath: jest.fn((base: { fsPath: string }, ...parts: string[]) => ({
+      scheme: 'file',
+      fsPath: `${base.fsPath}/${parts.join('/')}`,
+      path: `${base.fsPath}/${parts.join('/')}`,
+      authority: '',
+      query: '',
+      fragment: '',
+      toString: () => `file://${base.fsPath}/${parts.join('/')}`,
+    })),
   },
-  ExtensionContext: jest.fn(),
 }));
 
-// Access mocked objects after jest.mock
-const mockVscode = require('vscode');
-const mockWindow = mockVscode.window;
-// Mock context and webview creation
-const mockWebviewPanel = mockWindow.createWebviewPanel();
-const mockWebview = mockWebviewPanel.webview;
+const vscodeModule = jest.requireMock<{
+  window: { createWebviewPanel: jest.Mock };
+  ViewColumn: { One: number; Two: number; Three: number };
+}>('vscode');
 
-// Mock EventBus
-const mockEventBus = {
-  publish: jest.fn(),
-  subscribe: jest.fn(),
-  dispose: jest.fn(),
-};
+// -------------------------------------------------------------------------
+// Panel / View mock factories
+// -------------------------------------------------------------------------
+interface PanelHooks {
+  receiveMessage: (message: WebviewMessage) => void;
+  changeViewState: (visible: boolean) => void;
+  dispose: () => void;
+}
 
-describe('WebviewManager - User Requirement: Webview Management with Message Routing', () => {
-  let webviewManager: WebviewManager;
-  let mockContext: vscode.ExtensionContext;
+interface MockPanel {
+  webview: {
+    postMessage: jest.Mock;
+    onDidReceiveMessage: jest.Mock;
+    html: string;
+    options: Record<string, unknown>;
+  };
+  onDidChangeViewState: jest.Mock;
+  onDidDispose: jest.Mock;
+  reveal: jest.Mock;
+  dispose: jest.Mock;
+  visible: boolean;
+  hooks: PanelHooks;
+}
+
+function createMockPanel(): MockPanel {
+  const hooks: Partial<PanelHooks> = {};
+
+  const onDidReceiveMessage = jest.fn(
+    (callback: (message: WebviewMessage) => void) => {
+      hooks.receiveMessage = callback;
+      return { dispose: jest.fn() };
+    },
+  );
+
+  const onDidChangeViewState = jest.fn(
+    (callback: (e: { webviewPanel: { visible: boolean } }) => void) => {
+      hooks.changeViewState = (visible: boolean) =>
+        callback({ webviewPanel: { visible } });
+      return { dispose: jest.fn() };
+    },
+  );
+
+  const onDidDispose = jest.fn((callback: () => void) => {
+    hooks.dispose = callback;
+    return { dispose: jest.fn() };
+  });
+
+  return {
+    webview: {
+      postMessage: jest.fn().mockResolvedValue(true),
+      onDidReceiveMessage,
+      html: '',
+      options: {},
+    },
+    onDidChangeViewState,
+    onDidDispose,
+    reveal: jest.fn(),
+    dispose: jest.fn(),
+    visible: true,
+    hooks: hooks as PanelHooks,
+  };
+}
+
+interface MockView {
+  webview: {
+    postMessage: jest.Mock;
+    onDidReceiveMessage: jest.Mock;
+  };
+  onDidChangeVisibility: jest.Mock;
+  onDidDispose: jest.Mock;
+  visible: boolean;
+  hooks: { visibility?: () => void; dispose?: () => void };
+}
+
+function createMockView(): MockView {
+  const hooks: MockView['hooks'] = {};
+  return {
+    webview: {
+      postMessage: jest.fn().mockResolvedValue(true),
+      onDidReceiveMessage: jest.fn(),
+    },
+    onDidChangeVisibility: jest.fn((cb: () => void) => {
+      hooks.visibility = cb;
+      return { dispose: jest.fn() };
+    }),
+    onDidDispose: jest.fn((cb: () => void) => {
+      hooks.dispose = cb;
+      return { dispose: jest.fn() };
+    }),
+    visible: true,
+    hooks,
+  };
+}
+
+function createMockLogger(): jest.Mocked<
+  Pick<Logger, 'debug' | 'info' | 'warn' | 'error'>
+> {
+  return {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  };
+}
+
+function createMockContext(): Pick<
+  vscode.ExtensionContext,
+  'subscriptions' | 'extensionUri'
+> {
+  return {
+    subscriptions: [],
+    extensionUri: {
+      scheme: 'file',
+      fsPath: '/test/extension',
+      path: '/test/extension',
+      authority: '',
+      query: '',
+      fragment: '',
+      toString: () => 'file:///test/extension',
+    } as unknown as vscode.Uri,
+  } as Pick<vscode.ExtensionContext, 'subscriptions' | 'extensionUri'>;
+}
+
+// -------------------------------------------------------------------------
+describe('WebviewManager', () => {
+  let context: Pick<vscode.ExtensionContext, 'subscriptions' | 'extensionUri'>;
+  let logger: ReturnType<typeof createMockLogger>;
+  let createPanelMock: jest.Mock;
+  let panels: MockPanel[];
+  let manager: WebviewManager;
 
   beforeEach(() => {
     jest.clearAllMocks();
-
-    mockContext = {
-      subscriptions: [],
-      workspaceState: {
-        get: jest.fn(),
-        update: jest.fn(),
-        keys: jest.fn().mockReturnValue([]),
-      },
-      globalState: {
-        get: jest.fn(),
-        update: jest.fn(),
-        setKeysForSync: jest.fn(),
-        keys: jest.fn().mockReturnValue([]),
-      },
-      secrets: {
-        get: jest.fn(),
-        store: jest.fn(),
-        delete: jest.fn(),
-        onDidChange: jest.fn(),
-      },
-      extensionUri: {
-        scheme: 'file',
-        authority: '',
-        path: '/test',
-        query: '',
-        fragment: '',
-        fsPath: '/test',
-        with: jest.fn(),
-        toString: jest.fn(),
-        toJSON: jest.fn(),
-      },
-      extensionPath: '/test/extension/path',
-      environmentVariableCollection: {
-        persistent: false,
-        replace: jest.fn(),
-        append: jest.fn(),
-        prepend: jest.fn(),
-        get: jest.fn(),
-        forEach: jest.fn(),
-        delete: jest.fn(),
-        clear: jest.fn(),
-      },
-      storagePath: '/test/storage/path',
-      globalStoragePath: '/test/global/storage/path',
-      logPath: '/test/log/path',
-      extensionMode: 1,
-      logUri: {
-        scheme: 'file',
-        authority: '',
-        path: '/test/log',
-        query: '',
-        fragment: '',
-        fsPath: '/test/log',
-        with: jest.fn(),
-        toString: jest.fn(),
-        toJSON: jest.fn(),
-      },
-      storageUri: {
-        scheme: 'file',
-        authority: '',
-        path: '/test/storage',
-        query: '',
-        fragment: '',
-        fsPath: '/test/storage',
-        with: jest.fn(),
-        toString: jest.fn(),
-        toJSON: jest.fn(),
-      },
-      globalStorageUri: {
-        scheme: 'file',
-        authority: '',
-        path: '/test/global',
-        query: '',
-        fragment: '',
-        fsPath: '/test/global',
-        with: jest.fn(),
-        toString: jest.fn(),
-        toJSON: jest.fn(),
-      },
-      asAbsolutePath: jest.fn(),
-      extension: {
-        id: 'test.extension',
-        extensionUri: { scheme: 'file', path: '/test', fsPath: '/test' } as any,
-        extensionPath: '/test',
-        isActive: true,
-        packageJSON: {},
-        exports: undefined,
-        activate: jest.fn(),
-        extensionKind: 1,
-      },
-      languageModelAccessInformation: {
-        onDidChange: jest.fn(),
-        canSendRequest: jest.fn().mockReturnValue(true),
-      },
-    } as any;
-
-    webviewManager = new WebviewManager(mockContext, mockEventBus as any);
-
-    // Reset mock implementations
-    isSystemMessage.mockReset();
-    isRoutableMessage.mockReset();
+    panels = [];
+    createPanelMock = vscodeModule.window.createWebviewPanel;
+    createPanelMock.mockImplementation(() => {
+      const panel = createMockPanel();
+      panels.push(panel);
+      return panel;
+    });
+    context = createMockContext();
+    logger = createMockLogger();
+    manager = new WebviewManager(
+      context as vscode.ExtensionContext,
+      logger as unknown as Logger,
+    );
   });
 
   afterEach(() => {
-    webviewManager.dispose();
+    manager.dispose();
   });
 
-  describe('User Scenario: Webview Panel Creation', () => {
-    it('should create webview panel with enhanced configuration', () => {
-      // GIVEN: User wants to create a webview
-      const config: WebviewPanelConfig = {
-        viewType: 'ptah.chat',
-        title: 'Ptah Chat',
+  // ---------------------------------------------------------------------
+  // Construction
+  // ---------------------------------------------------------------------
+  describe('construction', () => {
+    it('starts with no active webviews', () => {
+      expect(manager.getActiveWebviews()).toEqual([]);
+      expect(manager.getWebviewMetrics()).toEqual({});
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // createWebviewPanel
+  // ---------------------------------------------------------------------
+  describe('createWebviewPanel', () => {
+    const baseConfig: WebviewPanelConfig = {
+      viewType: 'ptah.panel',
+      title: 'Ptah Panel',
+    };
+
+    it('creates a new panel, tracks it, and wires lifecycle hooks', () => {
+      const panel = manager.createWebviewPanel(baseConfig);
+
+      expect(createPanelMock).toHaveBeenCalledTimes(1);
+      expect(panel).toBe(panels[0]);
+      expect(manager.getWebviewPanel('ptah.panel')).toBe(panels[0]);
+      expect(manager.hasWebview('ptah.panel')).toBe(true);
+      expect(manager.getActiveWebviews()).toContain('ptah.panel');
+
+      // Lifecycle hooks registered exactly once.
+      expect(panels[0].webview.onDidReceiveMessage).toHaveBeenCalledTimes(1);
+      expect(panels[0].onDidChangeViewState).toHaveBeenCalledTimes(1);
+      expect(panels[0].onDidDispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('applies default webview options when none are provided', () => {
+      manager.createWebviewPanel(baseConfig);
+
+      const args = createPanelMock.mock.calls[0];
+      // [viewType, title, viewColumn, options]
+      expect(args[0]).toBe('ptah.panel');
+      expect(args[1]).toBe('Ptah Panel');
+      expect(args[2]).toBe(vscodeModule.ViewColumn.One);
+      expect(args[3]).toEqual(
+        expect.objectContaining({
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          enableForms: true,
+          enableCommandUris: false,
+        }),
+      );
+    });
+
+    it('sends initial data to the webview when provided', () => {
+      manager.createWebviewPanel(baseConfig, { version: '1.0.0' });
+
+      expect(panels[0].webview.postMessage).toHaveBeenCalledWith({
+        type: MESSAGE_TYPES.INITIAL_DATA,
+        payload: { version: '1.0.0' },
+      });
+    });
+
+    it('reveals the existing panel when the same viewType is requested again', () => {
+      const first = manager.createWebviewPanel(baseConfig);
+      const second = manager.createWebviewPanel({
+        ...baseConfig,
         showOptions: {
-          viewColumn: vscode.ViewColumn.One,
-          preserveFocus: false,
+          viewColumn: vscodeModule.ViewColumn
+            .Two as unknown as vscode.ViewColumn,
+          preserveFocus: true,
         },
-        options: {
-          enableScripts: true,
-          retainContextWhenHidden: true,
-          enableForms: true,
-          enableCommandUris: false,
-        },
-      };
-
-      // WHEN: Creating webview panel
-      const panel = webviewManager.createWebviewPanel(config);
-
-      // THEN: Panel should be created with correct configuration
-      expect(mockWindow.createWebviewPanel).toHaveBeenCalledWith(
-        'ptah.chat',
-        'Ptah Chat',
-        1, // ViewColumn.One
-        expect.objectContaining({
-          enableScripts: true,
-          retainContextWhenHidden: true,
-          enableForms: true,
-          enableCommandUris: false,
-          localResourceRoots: expect.any(Array),
-        })
-      );
-
-      expect(panel).toBe(mockWebviewPanel);
-      expect(webviewManager.hasWebview('ptah.chat')).toBe(true);
-    });
-
-    it('should return existing webview if already created', () => {
-      // GIVEN: Webview already exists
-      const config: WebviewPanelConfig = {
-        viewType: 'ptah.existing',
-        title: 'Existing Panel',
-      };
-
-      const panel1 = webviewManager.createWebviewPanel(config);
-      mockWindow.createWebviewPanel.mockClear();
-
-      // WHEN: Attempting to create same webview again
-      const panel2 = webviewManager.createWebviewPanel(config);
-
-      // THEN: Should return existing panel and call reveal
-      expect(panel2).toBe(panel1);
-      expect(mockWindow.createWebviewPanel).not.toHaveBeenCalled();
-      expect(mockWebviewPanel.reveal).toHaveBeenCalled();
-    });
-
-    it('should set up message handling and lifecycle events', () => {
-      // GIVEN: Webview configuration
-      const config: WebviewPanelConfig = {
-        viewType: 'ptah.lifecycle',
-        title: 'Lifecycle Test',
-      };
-
-      // WHEN: Creating webview
-      webviewManager.createWebviewPanel(config);
-
-      // THEN: Event listeners should be set up
-      expect(mockWebview.onDidReceiveMessage).toHaveBeenCalled();
-      expect(mockWebviewPanel.onDidChangeViewState).toHaveBeenCalled();
-      expect(mockWebviewPanel.onDidDispose).toHaveBeenCalled();
-
-      // Should publish creation event
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        expect.objectContaining({
-          event: 'webview:created',
-          properties: expect.objectContaining({
-            webviewId: 'ptah.lifecycle',
-            title: 'Lifecycle Test',
-          }),
-        })
-      );
-    });
-
-    it('should send initial data if provided', () => {
-      // GIVEN: Webview with initial data
-      const config: WebviewPanelConfig = {
-        viewType: 'ptah.initialdata',
-        title: 'Initial Data Test',
-      };
-      const initialData = {
-        config: { theme: 'dark' },
-        state: { currentView: 'chat' },
-      };
-
-      // WHEN: Creating webview with initial data
-      webviewManager.createWebviewPanel(config, initialData);
-
-      // THEN: Initial data should be sent
-      expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'initialData',
-        payload: initialData,
       });
-    });
 
-    it('should configure default options when not specified', () => {
-      // GIVEN: Minimal webview configuration
-      const config: WebviewPanelConfig = {
-        viewType: 'ptah.minimal',
-        title: 'Minimal Panel',
-      };
-
-      // WHEN: Creating webview
-      webviewManager.createWebviewPanel(config);
-
-      // THEN: Should use sensible defaults
-      expect(mockWindow.createWebviewPanel).toHaveBeenCalledWith(
-        'ptah.minimal',
-        'Minimal Panel',
-        1, // Default ViewColumn.One
-        expect.objectContaining({
-          enableScripts: true, // Default true
-          retainContextWhenHidden: true, // Default true
-          enableForms: true, // Default true
-          enableCommandUris: false, // Default false
-        })
+      expect(second).toBe(first);
+      expect(createPanelMock).toHaveBeenCalledTimes(1);
+      expect(panels[0].reveal).toHaveBeenCalledWith(
+        vscodeModule.ViewColumn.Two,
+        true,
       );
     });
   });
 
-  describe('User Scenario: Message Handling and Routing', () => {
-    let messageHandler: (message: any) => void;
-
+  // ---------------------------------------------------------------------
+  // Message routing
+  // ---------------------------------------------------------------------
+  describe('incoming message routing', () => {
     beforeEach(() => {
-      const config: WebviewPanelConfig = {
-        viewType: 'ptah.messaging',
-        title: 'Messaging Test',
-      };
-
-      webviewManager.createWebviewPanel(config);
-
-      // Capture the message handler
-      messageHandler = mockWebview.onDidReceiveMessage.mock.calls[0][0];
-    });
-
-    it('should route system messages internally', () => {
-      // GIVEN: System message from webview
-      const systemMessage = {
-        type: 'webview-ready',
-        payload: {},
-      };
-
-      isSystemMessage.mockReturnValue(true);
-      isRoutableMessage.mockReturnValue(false);
-
-      // WHEN: Handling system message
-      messageHandler(systemMessage);
-
-      // THEN: Should handle internally and publish analytics
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        expect.objectContaining({
-          event: 'webview:ready',
-          properties: expect.objectContaining({
-            webviewId: 'ptah.messaging',
-          }),
-        })
-      );
-    });
-
-    it('should route regular messages to event bus', () => {
-      // GIVEN: Regular routable message from webview
-      const routableMessage = {
-        type: 'chat:sendMessage',
-        payload: { content: 'Hello world', files: [] },
-      };
-
-      isSystemMessage.mockReturnValue(false);
-      isRoutableMessage.mockReturnValue(true);
-
-      // WHEN: Handling routable message
-      messageHandler(routableMessage);
-
-      // THEN: Should route to event bus
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'chat:sendMessage',
-        routableMessage.payload
-      );
-    });
-
-    it('should handle invalid messages gracefully', () => {
-      // GIVEN: Invalid message that doesn't match type system
-      const invalidMessage = {
-        type: 'unknown:message',
-        payload: { data: 'test' },
-      };
-
-      isSystemMessage.mockReturnValue(false);
-      isRoutableMessage.mockReturnValue(false);
-
-      // WHEN: Handling invalid message
-      messageHandler(invalidMessage);
-
-      // THEN: Should publish error event
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'error',
-        expect.objectContaining({
-          code: 'INVALID_WEBVIEW_MESSAGE',
-          message: expect.stringContaining('Invalid message type'),
-          source: 'WebviewManager',
-        })
-      );
-    });
-
-    it('should track message metrics', () => {
-      // GIVEN: Multiple messages received
-      const message1 = {
-        type: 'chat:sendMessage',
-        payload: { content: 'msg1' },
-      };
-      const message2 = {
-        type: 'analytics:trackEvent',
-        payload: { event: 'test', properties: {} },
-      };
-
-      isSystemMessage.mockReturnValue(false);
-      isRoutableMessage.mockReturnValue(true);
-
-      // WHEN: Handling multiple messages
-      messageHandler(message1);
-      messageHandler(message2);
-
-      // THEN: Metrics should be updated
-      const metrics = webviewManager.getWebviewMetrics('ptah.messaging');
-      expect(metrics).toBeDefined();
-      expect(metrics!.messageCount).toBe(2);
-      expect(metrics!.lastActivity).toBeGreaterThan(0);
-    });
-  });
-
-  describe('User Scenario: Message Sending to Webview', () => {
-    beforeEach(() => {
-      const config: WebviewPanelConfig = {
-        viewType: 'ptah.sending',
-        title: 'Send Test',
-      };
-      webviewManager.createWebviewPanel(config);
-    });
-
-    it('should send messages to existing webview', async () => {
-      // GIVEN: Active webview
-      // WHEN: Sending message to webview
-      const result = await webviewManager.sendMessage(
-        'ptah.sending',
-        'chat:messageChunk',
-        {
-          sessionId: 'test-session' as any,
-          messageId: 'test-message' as any,
-          content: 'Hello from extension',
-          isComplete: false,
-          streaming: true,
-        }
-      );
-
-      // THEN: Message should be sent successfully
-      expect(result).toBe(true);
-      expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'chat:messageChunk',
-        payload: expect.objectContaining({
-          content: 'Hello from extension',
-          streaming: true,
-        }),
+      manager.createWebviewPanel({
+        viewType: 'ptah.routing',
+        title: 'Routing',
       });
     });
 
-    it('should handle sending to non-existent webview', async () => {
-      // GIVEN: Non-existent webview
-      // WHEN: Attempting to send message
-      const result = await webviewManager.sendMessage(
-        'ptah.nonexistent',
-        'error',
-        {
-          message: 'Test error',
-        }
-      );
+    it('updates metrics when any message arrives', () => {
+      const panel = panels[0];
+      panel.hooks.receiveMessage({
+        type: MESSAGE_TYPES.WEBVIEW_READY,
+      } as WebviewMessage);
 
-      // THEN: Should fail gracefully and publish error
-      expect(result).toBe(false);
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'error',
-        expect.objectContaining({
-          code: 'WEBVIEW_NOT_FOUND',
-          message: expect.stringContaining('ptah.nonexistent'),
-        })
-      );
-    });
-
-    it('should handle webview message sending errors', async () => {
-      // GIVEN: Webview that fails to receive messages
-      mockWebview.postMessage.mockRejectedValueOnce(new Error('Send failed'));
-
-      // WHEN: Sending message that will fail
-      const result = await webviewManager.sendMessage('ptah.sending', 'error', {
-        message: 'Test message',
-      });
-
-      // THEN: Should handle error and publish error event
-      expect(result).toBe(false);
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'error',
-        expect.objectContaining({
-          code: 'WEBVIEW_MESSAGE_SEND_FAILED',
-          source: 'WebviewManager',
-        })
-      );
-    });
-  });
-
-  describe('User Scenario: Webview Management Operations', () => {
-    beforeEach(() => {
-      // Create multiple webviews for testing
-      webviewManager.createWebviewPanel({
-        viewType: 'ptah.test1',
-        title: 'Test 1',
-      });
-      webviewManager.createWebviewPanel({
-        viewType: 'ptah.test2',
-        title: 'Test 2',
-      });
-    });
-
-    it('should list all active webviews', () => {
-      // WHEN: Getting active webviews
-      const activeWebviews = webviewManager.getActiveWebviews();
-
-      // THEN: Should return all webview IDs
-      expect(activeWebviews).toEqual(['ptah.test1', 'ptah.test2']);
-    });
-
-    it('should check webview existence', () => {
-      // WHEN: Checking webview existence
-      const exists = webviewManager.hasWebview('ptah.test1');
-      const doesNotExist = webviewManager.hasWebview('ptah.nonexistent');
-
-      // THEN: Should correctly report existence
-      expect(exists).toBe(true);
-      expect(doesNotExist).toBe(false);
-    });
-
-    it('should get webview panel reference', () => {
-      // WHEN: Getting webview panel
-      const panel = webviewManager.getWebviewPanel('ptah.test1');
-      const nonExistent = webviewManager.getWebviewPanel('ptah.nonexistent');
-
-      // THEN: Should return correct panel or undefined
-      expect(panel).toBe(mockWebviewPanel);
-      expect(nonExistent).toBeUndefined();
-    });
-
-    it('should dispose specific webview', () => {
-      // GIVEN: Webview exists
-      expect(webviewManager.hasWebview('ptah.test1')).toBe(true);
-
-      // WHEN: Disposing webview
-      const result = webviewManager.disposeWebview('ptah.test1');
-
-      // THEN: Should dispose and remove from tracking
-      expect(result).toBe(true);
-      expect(mockWebviewPanel.dispose).toHaveBeenCalled();
-    });
-
-    it('should handle disposing non-existent webview', () => {
-      // WHEN: Disposing non-existent webview
-      const result = webviewManager.disposeWebview('ptah.nonexistent');
-
-      // THEN: Should return false without error
-      expect(result).toBe(false);
-    });
-
-    it('should get webview metrics', () => {
-      // WHEN: Getting metrics for specific webview
-      const metrics = webviewManager.getWebviewMetrics('ptah.test1');
-      const allMetrics = webviewManager.getWebviewMetrics();
-
-      // THEN: Should return appropriate metrics
-      expect(metrics).toBeDefined();
-      expect(metrics!.createdAt).toBeGreaterThan(0);
-      expect(metrics!.messageCount).toBe(0);
-      expect(metrics!.isVisible).toBe(true);
-
-      expect(Object.keys(allMetrics || {})).toContain('ptah.test1');
-      expect(Object.keys(allMetrics || {})).toContain('ptah.test2');
-    });
-  });
-
-  describe('User Scenario: Webview Lifecycle Events', () => {
-    let visibilityHandler: (event: any) => void;
-    let disposeHandler: () => void;
-
-    beforeEach(() => {
-      const config: WebviewPanelConfig = {
-        viewType: 'ptah.lifecycle',
-        title: 'Lifecycle Test',
-      };
-
-      webviewManager.createWebviewPanel(config);
-
-      // Capture event handlers
-      visibilityHandler =
-        mockWebviewPanel.onDidChangeViewState.mock.calls[0][0];
-      disposeHandler = mockWebviewPanel.onDidDispose.mock.calls[0][0];
-    });
-
-    it('should handle webview visibility changes', () => {
-      // GIVEN: Webview visibility change event
-      const visibilityEvent = {
-        webviewPanel: { visible: false },
-      };
-
-      // WHEN: Handling visibility change
-      visibilityHandler(visibilityEvent);
-
-      // THEN: Should update metrics and publish event
-      const metrics = webviewManager.getWebviewMetrics('ptah.lifecycle');
-      expect(metrics!.isVisible).toBe(false);
-
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        expect.objectContaining({
-          event: 'webview:visibilityChanged',
-          properties: expect.objectContaining({
-            webviewId: 'ptah.lifecycle',
-            visible: false,
-          }),
-        })
-      );
-    });
-
-    it('should handle webview disposal', () => {
-      // GIVEN: Webview is about to be disposed
-      expect(webviewManager.hasWebview('ptah.lifecycle')).toBe(true);
-
-      // WHEN: Handling disposal event
-      disposeHandler();
-
-      // THEN: Should clean up and publish disposal event
-      expect(webviewManager.hasWebview('ptah.lifecycle')).toBe(false);
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        'analytics:trackEvent',
-        expect.objectContaining({
-          event: 'webview:disposed',
-          properties: expect.objectContaining({
-            webviewId: 'ptah.lifecycle',
-          }),
-        })
-      );
-    });
-  });
-
-  describe('User Scenario: Extension Cleanup', () => {
-    it('should dispose all webviews during manager disposal', () => {
-      // GIVEN: Multiple active webviews
-      webviewManager.createWebviewPanel({
-        viewType: 'ptah.cleanup1',
-        title: 'Cleanup 1',
-      });
-      webviewManager.createWebviewPanel({
-        viewType: 'ptah.cleanup2',
-        title: 'Cleanup 2',
-      });
-
-      expect(webviewManager.getActiveWebviews()).toHaveLength(2);
-
-      // WHEN: Disposing manager
-      webviewManager.dispose();
-
-      // THEN: All webviews should be disposed
-      expect(mockWebviewPanel.dispose).toHaveBeenCalledTimes(2);
-      expect(webviewManager.getActiveWebviews()).toHaveLength(0);
-      expect(webviewManager.getWebviewMetrics()).toEqual({});
-    });
-  });
-
-  describe('User Error Scenarios', () => {
-    it('should handle webview creation errors gracefully', () => {
-      // GIVEN: VS Code API that throws during webview creation
-      mockWindow.createWebviewPanel.mockImplementationOnce(() => {
-        throw new Error('Failed to create webview');
-      });
-
-      const config: WebviewPanelConfig = {
-        viewType: 'ptah.error',
-        title: 'Error Test',
-      };
-
-      // WHEN: Attempting to create webview that fails
-      // THEN: Should throw error
-      expect(() => {
-        webviewManager.createWebviewPanel(config);
-      }).toThrow('Failed to create webview');
-    });
-
-    it('should handle message handler errors without crashing', () => {
-      // GIVEN: Webview with message handler
-      const config: WebviewPanelConfig = {
-        viewType: 'ptah.error.handling',
-        title: 'Error Handling Test',
-      };
-
-      webviewManager.createWebviewPanel(config);
-      const messageHandler = mockWebview.onDidReceiveMessage.mock.calls[0][0];
-
-      // Mock error in message routing
-      isSystemMessage.mockImplementation(() => {
-        throw new Error('Type guard error');
-      });
-
-      // WHEN: Handling message that causes error
-      // THEN: Should not crash the extension (implementation may or may not catch errors)
-      try {
-        messageHandler({ type: 'test', payload: {} });
-      } catch (error) {
-        // If error is caught here, it means implementation doesn't handle it internally
-        expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toBe('Type guard error');
+      const metrics = manager.getWebviewMetrics('ptah.routing');
+      if (metrics === null || Array.isArray(metrics)) {
+        throw new Error('expected per-webview metrics object');
       }
+      expect(metrics.messageCount).toBe(1);
+      expect(metrics.lastActivity).toBeGreaterThan(0);
+    });
+
+    it('handles system messages without logging an error', () => {
+      const panel = panels[0];
+      panel.hooks.receiveMessage({
+        type: MESSAGE_TYPES.WEBVIEW_READY,
+      } as WebviewMessage);
+
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('defers routable messages to the external handler and logs at debug level', () => {
+      const panel = panels[0];
+      panel.hooks.receiveMessage({
+        type: 'chat:sendMessage',
+        payload: { text: 'hi' },
+      } as unknown as WebviewMessage);
+
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('chat:sendMessage'),
+      );
     });
   });
 
-  describe('User Requirement: Type Safety and Integration', () => {
-    it('should maintain type safety in message routing', async () => {
-      // GIVEN: Type-safe webview setup
-      const config: WebviewPanelConfig = {
-        viewType: 'ptah.typesafe',
-        title: 'Type Safe Test',
-      };
+  // ---------------------------------------------------------------------
+  // View state / disposal tracking
+  // ---------------------------------------------------------------------
+  describe('lifecycle callbacks', () => {
+    it('updates isVisible when the panel view state changes', () => {
+      manager.createWebviewPanel({
+        viewType: 'ptah.visible',
+        title: 'Visible',
+      });
+      const panel = panels[0];
 
-      webviewManager.createWebviewPanel(config);
+      panel.hooks.changeViewState(false);
 
-      // WHEN: Sending type-safe messages
-      await webviewManager.sendMessage('ptah.typesafe', 'chat:sendMessage', {
-        content: 'Type safe message',
-        files: ['file1.ts'],
-        correlationId: 'test-correlation' as any,
+      const metrics = manager.getWebviewMetrics('ptah.visible');
+      if (metrics === null || Array.isArray(metrics)) {
+        throw new Error('expected per-webview metrics object');
+      }
+      expect(metrics.isVisible).toBe(false);
+    });
+
+    it('drops tracking when the panel disposes itself', () => {
+      manager.createWebviewPanel({
+        viewType: 'ptah.panel.dispose',
+        title: 'Self-dispose',
+      });
+      const panel = panels[0];
+
+      panel.hooks.dispose();
+
+      expect(manager.hasWebview('ptah.panel.dispose')).toBe(false);
+      expect(manager.getWebviewMetrics('ptah.panel.dispose')).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // sendMessage
+  // ---------------------------------------------------------------------
+  describe('sendMessage', () => {
+    it('posts the message on the matching panel and resolves true', async () => {
+      manager.createWebviewPanel({
+        viewType: 'ptah.send',
+        title: 'Send',
       });
 
-      // THEN: Type safety should be maintained (compile-time verification)
-      expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'chat:sendMessage',
-        payload: expect.objectContaining({
-          content: 'Type safe message',
-          files: ['file1.ts'],
-        }),
+      const result = await manager.sendMessage(
+        'ptah.send',
+        MESSAGE_TYPES.CHAT_MESSAGE_CHUNK,
+        { chunk: 'ok' },
+      );
+
+      expect(result).toBe(true);
+      expect(panels[0].webview.postMessage).toHaveBeenCalledWith({
+        type: MESSAGE_TYPES.CHAT_MESSAGE_CHUNK,
+        payload: { chunk: 'ok' },
       });
     });
 
-    it('should integrate properly with existing MessagePayloadMap', () => {
-      // GIVEN: Message types from existing system
-      const config: WebviewPanelConfig = {
-        viewType: 'ptah.integration',
-        title: 'Integration Test',
-      };
+    it('returns false and debug-logs when the target webview is unknown', async () => {
+      const result = await manager.sendMessage(
+        'ptah.unknown',
+        MESSAGE_TYPES.CHAT_MESSAGE_CHUNK,
+        {},
+      );
 
-      webviewManager.createWebviewPanel(config);
-      const messageHandler = mockWebview.onDidReceiveMessage.mock.calls[0][0];
+      expect(result).toBe(false);
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('not found'),
+        expect.objectContaining({
+          activePanels: expect.any(Array),
+          activeViews: expect.any(Array),
+        }),
+      );
+    });
 
-      isSystemMessage.mockReturnValue(false);
-      isRoutableMessage.mockReturnValue(true);
+    it('returns false and logs an error when postMessage rejects', async () => {
+      manager.createWebviewPanel({
+        viewType: 'ptah.send.err',
+        title: 'Err',
+      });
+      panels[0].webview.postMessage.mockRejectedValueOnce(
+        new Error('postMessage blew up'),
+      );
 
-      // WHEN: Handling various message types from existing system
-      const messages = [
-        { type: 'chat:sendMessage', payload: { content: 'test' } },
-        { type: 'providers:switch', payload: { providerId: 'test-provider' } },
-        {
-          type: 'analytics:trackEvent',
-          payload: { event: 'test', properties: {} },
-        },
-        {
-          type: 'context:updateFiles',
-          payload: { includedFiles: [], excludedFiles: [], tokenEstimate: 100 },
-        },
-      ];
+      const result = await manager.sendMessage(
+        'ptah.send.err',
+        MESSAGE_TYPES.CHAT_MESSAGE_CHUNK,
+        {},
+      );
 
-      messages.forEach((message) => {
-        messageHandler(message);
+      expect(result).toBe(false);
+      expect(logger.error).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // registerWebviewView
+  // ---------------------------------------------------------------------
+  describe('registerWebviewView', () => {
+    it('tracks the view and initialises metrics from its current visibility', () => {
+      const view = createMockView();
+      view.visible = false;
+
+      manager.registerWebviewView(
+        'ptah.view',
+        view as unknown as vscode.WebviewView,
+      );
+
+      expect(manager.getActiveWebviews()).toContain('ptah.view');
+
+      const metrics = manager.getWebviewMetrics('ptah.view');
+      if (metrics === null || Array.isArray(metrics)) {
+        throw new Error('expected per-webview metrics object');
+      }
+      expect(metrics.isVisible).toBe(false);
+    });
+
+    it('cleans up when the view disposes itself', () => {
+      const view = createMockView();
+      manager.registerWebviewView(
+        'ptah.view.dispose',
+        view as unknown as vscode.WebviewView,
+      );
+
+      expect(view.hooks.dispose).toBeDefined();
+      view.hooks.dispose?.();
+
+      expect(manager.getActiveWebviews()).not.toContain('ptah.view.dispose');
+      expect(manager.getWebviewMetrics('ptah.view.dispose')).toBeNull();
+    });
+
+    it('sendMessage() delivers to a registered view when no panel matches', async () => {
+      const view = createMockView();
+      manager.registerWebviewView(
+        'ptah.view.send',
+        view as unknown as vscode.WebviewView,
+      );
+
+      const result = await manager.sendMessage(
+        'ptah.view.send',
+        MESSAGE_TYPES.CHAT_MESSAGE_CHUNK,
+        { x: 1 },
+      );
+
+      expect(result).toBe(true);
+      expect(view.webview.postMessage).toHaveBeenCalledWith({
+        type: MESSAGE_TYPES.CHAT_MESSAGE_CHUNK,
+        payload: { x: 1 },
+      });
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // broadcastMessage
+  // ---------------------------------------------------------------------
+  describe('broadcastMessage', () => {
+    it('sends the message to every registered panel and view', async () => {
+      manager.createWebviewPanel({
+        viewType: 'ptah.broadcast.panel',
+        title: 'Panel',
+      });
+      const view = createMockView();
+      manager.registerWebviewView(
+        'ptah.broadcast.view',
+        view as unknown as vscode.WebviewView,
+      );
+
+      await manager.broadcastMessage(MESSAGE_TYPES.CHAT_MESSAGE_CHUNK, {
+        chunk: 'hello',
       });
 
-      // THEN: All message types should be routed correctly
-      messages.forEach((message) => {
-        expect(mockEventBus.publish).toHaveBeenCalledWith(
-          message.type,
-          message.payload
-        );
+      expect(panels[0].webview.postMessage).toHaveBeenCalledWith({
+        type: MESSAGE_TYPES.CHAT_MESSAGE_CHUNK,
+        payload: { chunk: 'hello' },
       });
+      expect(view.webview.postMessage).toHaveBeenCalledWith({
+        type: MESSAGE_TYPES.CHAT_MESSAGE_CHUNK,
+        payload: { chunk: 'hello' },
+      });
+    });
+
+    it('swallows per-view errors via warn rather than rejecting the broadcast', async () => {
+      const view = createMockView();
+      view.webview.postMessage.mockRejectedValueOnce(new Error('view failed'));
+      manager.registerWebviewView(
+        'ptah.broadcast.err',
+        view as unknown as vscode.WebviewView,
+      );
+
+      await expect(
+        manager.broadcastMessage(MESSAGE_TYPES.CHAT_MESSAGE_CHUNK, {}),
+      ).resolves.toBeUndefined();
+
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // getWebview / getWebviewPanel
+  // ---------------------------------------------------------------------
+  describe('accessors', () => {
+    it('getWebview() returns the panel webview when a panel is registered', () => {
+      manager.createWebviewPanel({
+        viewType: 'ptah.acc.panel',
+        title: 'Panel',
+      });
+
+      expect(manager.getWebview('ptah.acc.panel')).toBe(panels[0].webview);
+    });
+
+    it('getWebview() returns the view webview when only a view is registered', () => {
+      const view = createMockView();
+      manager.registerWebviewView(
+        'ptah.acc.view',
+        view as unknown as vscode.WebviewView,
+      );
+
+      expect(manager.getWebview('ptah.acc.view')).toBe(view.webview);
+    });
+
+    it('getWebview() returns undefined for unknown viewType', () => {
+      expect(manager.getWebview('ptah.unknown')).toBeUndefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // disposeWebview / dispose
+  // ---------------------------------------------------------------------
+  describe('disposal', () => {
+    it('disposeWebview() disposes the underlying panel', () => {
+      manager.createWebviewPanel({
+        viewType: 'ptah.disp.one',
+        title: 'One',
+      });
+
+      expect(manager.disposeWebview('ptah.disp.one')).toBe(true);
+      expect(panels[0].dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('disposeWebview() returns false for an unknown viewType', () => {
+      expect(manager.disposeWebview('ptah.unknown')).toBe(false);
+    });
+
+    it('dispose() disposes every panel and clears metrics', () => {
+      manager.createWebviewPanel({ viewType: 'ptah.all.1', title: '1' });
+      manager.createWebviewPanel({ viewType: 'ptah.all.2', title: '2' });
+
+      manager.dispose();
+
+      expect(panels[0].dispose).toHaveBeenCalledTimes(1);
+      expect(panels[1].dispose).toHaveBeenCalledTimes(1);
+      expect(manager.getWebviewMetrics()).toEqual({});
     });
   });
 });

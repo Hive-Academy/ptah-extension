@@ -31,4 +31,3 @@ export type { MessageUsageData } from './history-event-factory';
 export { JsonlReaderService } from './jsonl-reader.service';
 export { AgentCorrelationService } from './agent-correlation.service';
 export { SessionReplayService } from './session-replay.service';
-export { DeepAgentHistoryReaderService } from './deep-agent-history-reader.service';

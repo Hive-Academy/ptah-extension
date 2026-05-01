@@ -1,7 +1,7 @@
-import { Injectable, inject, DestroyRef } from '@angular/core';
+﻿import { Injectable, inject, DestroyRef } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { fromEvent } from 'rxjs';
-import { TabManagerService } from './tab-manager.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 
 /**
  * KeyboardShortcutsService - Global keyboard shortcuts for tab operations

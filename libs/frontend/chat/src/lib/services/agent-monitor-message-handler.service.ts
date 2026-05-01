@@ -13,7 +13,7 @@ import {
   type AgentOutputDelta,
   type AgentPermissionRequest,
 } from '@ptah-extension/shared';
-import { AgentMonitorStore } from './agent-monitor.store';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 
 @Injectable({ providedIn: 'root' })
 export class AgentMonitorMessageHandler implements MessageHandler {
@@ -39,7 +39,7 @@ export class AgentMonitorMessageHandler implements MessageHandler {
         break;
       case MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST:
         this.store.onPermissionRequest(
-          message.payload as AgentPermissionRequest
+          message.payload as AgentPermissionRequest,
         );
         break;
     }

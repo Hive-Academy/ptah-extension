@@ -31,6 +31,7 @@ import {
   FileTreeContextMenuComponent,
   type ContextMenuAction,
 } from '../file-tree/file-tree-context-menu.component';
+import { QuickOpenComponent } from '../quick-open/quick-open.component';
 import type { FileTreeNode } from '../models/file-tree.model';
 
 /**
@@ -67,6 +68,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
     TerminalPanelComponent,
     SidebarComponent,
     FileTreeContextMenuComponent,
+    QuickOpenComponent,
   ],
   template: `
     <div
@@ -431,6 +433,14 @@ import type { FileTreeNode } from '../models/file-tree.model';
           <div class="modal-backdrop" (click)="closeInputDialog()"></div>
         </div>
       }
+
+      <!-- Quick Open file picker (Ctrl+P / Cmd+P) -->
+      @if (quickOpenVisible()) {
+        <ptah-quick-open
+          (fileSelected)="onQuickOpenFileSelected($event)"
+          (closed)="quickOpenVisible.set(false)"
+        />
+      }
     </div>
   `,
   styles: `
@@ -455,6 +465,9 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
   /** Whether the terminal panel is visible. */
   protected readonly terminalVisible = signal(false);
+
+  /** Whether the Quick Open file picker is visible (Ctrl+P / Cmd+P). */
+  protected readonly quickOpenVisible = signal(false);
 
   /** Height of the terminal panel in pixels. Default 200px, minimum 100px. */
   protected readonly terminalHeight = signal(200);
@@ -484,6 +497,16 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   private _splitResizeMouseMove: ((e: MouseEvent) => void) | null = null;
   private _splitResizeMouseUp: (() => void) | null = null;
 
+  /** Bound keydown handler for Ctrl+P / Cmd+P Quick Open shortcut. */
+  private readonly _quickOpenKeydown = (e: KeyboardEvent): void => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+      e.preventDefault();
+      this.ngZone.run(() => {
+        this.quickOpenVisible.set(true);
+      });
+    }
+  };
+
   ngOnInit(): void {
     // Bootstrap file tree if a workspace is already active.
     // When the editor chunk loads after workspace coordination has already
@@ -501,6 +524,9 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
     // Load vim mode preference from backend settings
     void this.vimModeService.loadPreference();
+
+    // Register Ctrl+P / Cmd+P keyboard shortcut for Quick Open
+    document.addEventListener('keydown', this._quickOpenKeydown);
   }
 
   ngOnDestroy(): void {
@@ -509,6 +535,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     this.cleanupResizeListeners();
     this.cleanupSidebarResizeListeners();
     this.cleanupSplitResizeListeners();
+    document.removeEventListener('keydown', this._quickOpenKeydown);
   }
 
   protected toggleSidebar(): void {
@@ -558,7 +585,8 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     const filePath = this.editorService.activeFilePath();
     if (!filePath) return '';
     const normalized = filePath.replace(/\\/g, '/');
-    return 'file:///' + normalized;
+    const encoded = normalized.split('/').map(encodeURIComponent).join('/');
+    return 'file:///' + encoded;
   });
 
   /**
@@ -590,6 +618,16 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
   protected onFileSelected(filePath: string): void {
     void this.editorService.openFile(filePath);
+  }
+
+  /** Handle file selection from the Quick Open picker */
+  protected onQuickOpenFileSelected(event: { filePath: string }): void {
+    this.quickOpenVisible.set(false);
+    const wsRoot = this.editorService.activeWorkspacePath;
+    const absolutePath = wsRoot
+      ? wsRoot.replace(/\\/g, '/').replace(/\/$/, '') + '/' + event.filePath
+      : event.filePath;
+    void this.editorService.openFile(absolutePath);
   }
 
   protected onSearchResultSelected(event: {

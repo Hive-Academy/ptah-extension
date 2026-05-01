@@ -14,7 +14,11 @@
 import { DependencyContainer, Lifecycle } from 'tsyringe';
 import { createEmptyAuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
+import { CliDetectionService } from '../cli-agents/cli-detection.service';
+import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
+import { CliPluginSyncService } from '../cli-agents/cli-skill-sync/cli-plugin-sync.service';
 import { SessionMetadataStore } from '../session-metadata-store';
 import { SessionImporterService } from '../session-importer.service';
 import { SessionHistoryReaderService } from '../session-history-reader.service';
@@ -60,19 +64,7 @@ import {
   PtahCliConfigPersistence,
   PtahCliSpawnOptions,
 } from '../ptah-cli';
-import {
-  CopilotAuthService,
-  CopilotTranslationProxy,
-} from '../copilot-provider';
-import { CodexAuthService, CodexTranslationProxy } from '../codex-provider';
-import {
-  OpenRouterAuthService,
-  OpenRouterTranslationProxy,
-} from '../openrouter-provider';
-import {
-  OllamaModelDiscoveryService,
-  LmStudioTranslationProxy,
-} from '../local-provider';
+import { registerProviders } from '../providers';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import { ModelResolver } from '../auth/model-resolver';
@@ -83,7 +75,6 @@ import {
   LocalProxyStrategy,
   CliStrategy,
 } from '../auth/strategies';
-import { DeepAgentHistoryReaderService } from '../helpers/history/deep-agent-history-reader.service';
 
 /**
  * Register all agent-sdk services in DI container
@@ -405,78 +396,32 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Copilot Provider Services (TASK_2025_186)
-  // Auth service and translation proxy for GitHub Copilot integration
-  // Must be registered before AuthManager resolves (which depends on these)
+  // CLI Agent Services (ex-llm-abstraction, folded in Wave C5 of
+  // TASK_2025_291)
+  // CliDetectionService enumerates installed CLI agents (Gemini, Codex,
+  // Copilot, Cursor). AgentProcessManager spawns and supervises their
+  // processes. CliPluginSyncService mirrors MCP plugins into each CLI's
+  // native extension format.
+  // Tokens live in @ptah-extension/vscode-core (cross-layer platform
+  // tokens) — resolve-call sites at apps are unchanged.
   // ============================================================
-
-  container.register(
-    SDK_TOKENS.SDK_COPILOT_AUTH,
-    { useClass: CopilotAuthService },
-    { lifecycle: Lifecycle.Singleton },
+  container.registerSingleton(
+    TOKENS.CLI_DETECTION_SERVICE,
+    CliDetectionService,
+  );
+  container.registerSingleton(
+    TOKENS.AGENT_PROCESS_MANAGER,
+    AgentProcessManager,
+  );
+  container.registerSingleton(
+    TOKENS.CLI_PLUGIN_SYNC_SERVICE,
+    CliPluginSyncService,
   );
 
-  container.register(
-    SDK_TOKENS.SDK_COPILOT_PROXY,
-    { useClass: CopilotTranslationProxy },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
-  // Codex Provider Services (TASK_2025_193)
-  // Auth service and translation proxy for OpenAI Codex integration
-  // Must be registered before AuthManager resolves (which depends on these)
-  // ============================================================
-
-  container.register(
-    SDK_TOKENS.SDK_CODEX_AUTH,
-    { useClass: CodexAuthService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_CODEX_PROXY,
-    { useClass: CodexTranslationProxy },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
-  // OpenRouter Provider Services
-  // Auth service (reads API key from SecretStorage) and translation proxy
-  // (Anthropic <-> OpenAI Chat Completions). Must be registered before
-  // AuthManager resolves (which depends on these via ApiKeyStrategy).
-  // ============================================================
-
-  container.register(
-    SDK_TOKENS.SDK_OPENROUTER_AUTH,
-    { useClass: OpenRouterAuthService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_OPENROUTER_PROXY,
-    { useClass: OpenRouterTranslationProxy },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
-  // Local Model Provider Services (TASK_2025_265, updated TASK_2025_281)
-  // Ollama: model discovery service (Anthropic-native, no proxy)
-  // LM Studio: translation proxy (OpenAI-compat, still needs proxy)
-  // Must be registered before AuthManager resolves (which depends on these)
-  // ============================================================
-
-  container.register(
-    SDK_TOKENS.SDK_OLLAMA_DISCOVERY,
-    { useClass: OllamaModelDiscoveryService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_LM_STUDIO_PROXY,
-    { useClass: LmStudioTranslationProxy },
-    { lifecycle: Lifecycle.Singleton },
-  );
+  // Provider services (Copilot, Codex, OpenRouter, Ollama, LM Studio).
+  // Extracted to registerProviders() helper in TASK_2025_291 Wave C3.
+  // Must register before AuthManager (auth strategies depend on these tokens).
+  registerProviders(container);
 
   // ============================================================
   // Auth Strategies (TASK_AUTH_REFACTOR Phase 2)
@@ -520,16 +465,6 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_MODEL_RESOLVER,
     { useClass: ModelResolver },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
-  // Deep Agent History Reader
-  // Reads LangGraph checkpoint sessions from .ptah/deep-agent-sessions/
-  // ============================================================
-  container.register(
-    SDK_TOKENS.SDK_DEEP_AGENT_HISTORY_READER,
-    { useClass: DeepAgentHistoryReaderService },
     { lifecycle: Lifecycle.Singleton },
   );
 

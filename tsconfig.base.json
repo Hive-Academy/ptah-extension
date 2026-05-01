@@ -21,22 +21,28 @@
         "libs/backend/agent-generation/src/index.ts"
       ],
       "@ptah-extension/agent-sdk": ["libs/backend/agent-sdk/src/index.ts"],
-      "@ptah-extension/deep-agent-sdk": [
-        "libs/backend/deep-agent-sdk/src/index.ts"
-      ],
       "@ptah-extension/canvas": ["libs/frontend/canvas/src/index.ts"],
       "@ptah-extension/chat": ["libs/frontend/chat/src/index.ts"],
+      "@ptah-extension/chat-types": ["libs/frontend/chat-types/src/index.ts"],
+      "@ptah-extension/chat-state": ["libs/frontend/chat-state/src/index.ts"],
+      "@ptah-extension/chat-execution-tree": [
+        "libs/frontend/chat-execution-tree/src/index.ts"
+      ],
+      "@ptah-extension/chat-routing": [
+        "libs/frontend/chat-routing/src/index.ts"
+      ],
+      "@ptah-extension/chat-streaming": [
+        "libs/frontend/chat-streaming/src/index.ts"
+      ],
+      "@ptah-extension/chat-ui": ["libs/frontend/chat-ui/src/index.ts"],
       "@ptah-extension/core": ["libs/frontend/core/src/index.ts"],
+      "@ptah-extension/core/testing": [
+        "libs/frontend/core/src/testing/index.ts"
+      ],
       "@ptah-extension/dashboard": ["libs/frontend/dashboard/src/index.ts"],
       "@ptah-extension/editor": ["libs/frontend/editor/src/index.ts"],
       "@ptah-extension/editor/services": [
         "libs/frontend/editor/src/services.ts"
-      ],
-      "@ptah-extension/llm-abstraction": [
-        "libs/backend/llm-abstraction/src/index.ts"
-      ],
-      "@ptah-extension/llm-abstraction/vscode-lm": [
-        "libs/backend/llm-abstraction/src/vscode-lm.ts"
       ],
       "@ptah-extension/platform-cli": [
         "libs/backend/platform-cli/src/index.ts"
@@ -44,28 +50,35 @@
       "@ptah-extension/platform-core": [
         "libs/backend/platform-core/src/index.ts"
       ],
+      "@ptah-extension/platform-core/testing": [
+        "libs/backend/platform-core/src/testing/index.ts"
+      ],
       "@ptah-extension/platform-electron": [
         "libs/backend/platform-electron/src/index.ts"
       ],
       "@ptah-extension/platform-vscode": [
         "libs/backend/platform-vscode/src/index.ts"
       ],
-      "@ptah-extension/providers": ["libs/frontend/providers/src/index.ts"],
       "@ptah-extension/rpc-handlers": [
         "libs/backend/rpc-handlers/src/index.ts"
       ],
       "@ptah-extension/harness-builder": [
         "libs/frontend/harness-builder/src/index.ts"
       ],
+      "@ptah-extension/markdown": ["libs/frontend/markdown/src/index.ts"],
       "@ptah-extension/setup-wizard": [
         "libs/frontend/setup-wizard/src/index.ts"
       ],
       "@ptah-extension/shared": ["libs/shared/src/index.ts"],
-      "@ptah-extension/template-generation": [
-        "libs/backend/template-generation/src/index.ts"
-      ],
+      "@ptah-extension/shared/testing": ["libs/shared/src/testing/index.ts"],
       "@ptah-extension/ui": ["libs/frontend/ui/src/index.ts"],
+      "@ptah-extension/webview-e2e-harness": [
+        "libs/frontend/webview-e2e-harness/src/index.ts"
+      ],
       "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
+      "@ptah-extension/vscode-core/testing": [
+        "libs/backend/vscode-core/src/testing/index.ts"
+      ],
       "@ptah-extension/vscode-lm-tools": [
         "libs/backend/vscode-lm-tools/src/index.ts"
       ],

@@ -50,8 +50,23 @@ See [strategies.md](references/strategies.md) for detailed flow diagrams.
 
 1. **Delegate to Specialist Agents** - Use Task tool to invoke specialists
 2. **Coordinate Workflows** - Manage flow between agents, handle checkpoints
-3. **Verify Quality** - Ensure agents complete tasks correctly
-4. **Never Implement Directly** - Avoid writing code yourself
+3. **Own All User Interaction** - Subagents CANNOT call `AskUserQuestion`. YOU must run all clarification checkpoints (0, 0.1, 1, 1.5, 2, 3) directly using `AskUserQuestion`. If a subagent returns a `## Clarifications Needed` section, present those questions to the user via `AskUserQuestion`, then re-invoke the subagent with the answers in its prompt.
+4. **Verify Quality** - Ensure agents complete tasks correctly
+5. **Never Implement Directly** - Avoid writing code yourself
+
+### Subagent Tool Constraints
+
+Subagents spawned via `Task` run in a headless context with no UI channel back to the user. They CANNOT call:
+
+- `AskUserQuestion` — UI-coupled, only works in the main orchestrator
+- Any tool requiring foreground user interaction
+
+If a subagent's response contains `## Clarifications Needed`, treat it as a structured request to YOU:
+
+1. Parse the questions and options from the subagent's response
+2. Call `AskUserQuestion` yourself with those questions (preserve options, recommended markers)
+3. Re-invoke the subagent via `Task` with a prompt that includes a `## User Decisions` section containing the answers
+4. The subagent will then proceed to its primary deliverable
 
 ### When to Delegate (ALWAYS)
 
@@ -136,7 +151,6 @@ else
 | tasks.md (IN PROGRESS)  | Team-leader MODE 2 (verify)         |
 | tasks.md (IMPLEMENTED)  | Team-leader MODE 2 (commit)         |
 | tasks.md (all COMPLETE) | Team-leader MODE 3 OR QA choice     |
-| QA complete (no future-enhancements.md) | Invoke modernization-detector |
 | future-enhancements.md  | Workflow complete                   |
 
 See [task-tracking.md](references/task-tracking.md) for full phase detection.
@@ -161,19 +175,43 @@ See [agent-name].md for detailed instructions.`,
 
 ## Validation Checkpoints
 
+**ALL checkpoints are run by YOU (the orchestrator) using `AskUserQuestion` or direct user prompts. Subagents NEVER run checkpoints.**
+
 ### Checkpoint 0.1: CLI Agent Discovery (before any agent invocation)
 
-Run `ptah_agent_list` and present results to user. Ask whether sub-agents should utilize CLI agents as junior helpers. Store selection in `context.md`. Skipped for Minimal pattern tasks or when no CLI agents are available. See [checkpoints.md](references/checkpoints.md) for the full template.
+Run `ptah_agent_list` and present results to user via `AskUserQuestion`. Ask whether sub-agents should utilize CLI agents as junior helpers. Store selection in `context.md`. Skipped for Minimal pattern tasks or when no CLI agents are available.
 
-### Standard Checkpoints
+### Checkpoint 0: Scope Clarification (MANDATORY before PM when ambiguity exists)
 
-After PM or Architect deliverables, present to user:
+**Before invoking project-manager**, evaluate whether the user's request has ambiguous scope, multiple valid interpretations, or unclear success criteria. If ANY ambiguity exists, run Checkpoint 0 using `AskUserQuestion` directly. The PM cannot ask the user — YOU must.
+
+Skip only when: request is extremely specific, task is a clear continuation, or user explicitly said "use your judgment" / "just do it".
+
+### Checkpoint 1.5: Technical Clarification (MANDATORY before Architect when multiple valid approaches exist)
+
+**Before invoking software-architect**, evaluate whether multiple valid architectural approaches exist (REST vs GraphQL, library X vs custom, etc.). If yes, run Checkpoint 1.5 using `AskUserQuestion` directly. The architect cannot ask the user — YOU must.
+
+Skip only when: codebase has clear established patterns, task extends existing architecture, or user deferred technical decisions.
+
+### Standard Validation Checkpoints (1, 2, 3)
+
+After PM, Architect, or development deliverables, present to user via `AskUserQuestion`:
 
 ```
 USER VALIDATION CHECKPOINT - TASK_[ID]
 [Summary of deliverable]
 Reply "APPROVED" to proceed OR provide feedback for revision
 ```
+
+### Subagent-Triggered Clarification Loop
+
+If any subagent returns a `## Clarifications Needed` section in its response (instead of its expected deliverable):
+
+1. **Do NOT proceed** to the next workflow phase
+2. **Extract** the questions and options from the subagent's response
+3. **Call `AskUserQuestion`** with those questions
+4. **Re-invoke** the same subagent via `Task`, embedding answers in a `## User Decisions` block in the prompt
+5. **Repeat** if the subagent still returns clarifications (rare — should converge in 1-2 iterations)
 
 See [checkpoints.md](references/checkpoints.md) for all checkpoint templates.
 
@@ -213,14 +251,19 @@ See [team-leader-modes.md](references/team-leader-modes.md) for detailed integra
 
 ## CLI Agent Delegation Mode
 
-Enable a **3-tier hierarchy** where the **team-leader** is the primary CLI agent delegator, spawning CLI agents as junior developer helpers for batch implementation and verification.
+Enable a **2-tier hierarchy** where the **main orchestrator (Claude)** is the sole spawner of sub-agents and CLI agents. Team-leader is advisory only — it recommends per-batch executors in `tasks.md` and the orchestrator acts on those recommendations.
 
 ```
-Tier 1: Claude (Orchestrator) — coordinates workflow, runs Checkpoint 0.1
-  └── Tier 2: Team-Leader (Primary CLI Delegator) — via Agent tool
-        ├── Spawns CLI agents for independent batch tasks — via ptah_agent_spawn
-        ├── Spawns CLI agents for parallel verification
-        └── Falls back to sub-agent developers for coupled/complex work
+Tier 1: Claude (Orchestrator) — SOLE authority for spawning
+  ├── Spawns team-leader (advisory role: decompose, verify, commit)
+  ├── Spawns sub-agent developers (backend-developer, frontend-developer, etc.)
+  ├── Spawns CLI agents via ptah_agent_spawn (sequential or parallel)
+  ├── Spawns code-logic-reviewer when team-leader returns NEEDS REVIEW
+  └── Runs Checkpoint 0.1 to enable CLI mode
+
+Tier 2: Team-Leader (Advisory only — NEVER spawns)
+  └── Writes tasks.md with per-batch Recommended Executor + Execution Mode
+        Orchestrator reads recommendations and spawns accordingly
 ```
 
 ### How It Works
@@ -228,32 +271,33 @@ Tier 1: Claude (Orchestrator) — coordinates workflow, runs Checkpoint 0.1
 1. **Discovery**: At orchestration start, run `ptah_agent_list` to find available CLI agents
 2. **Checkpoint 0.1**: Present available agents to user and ask whether to enable delegation
 3. **Store in context.md**: Record `cli_delegation: enabled|disabled|auto` and available agents
-4. **Team-leader delegates**: In MODE 2, team-leader spawns CLI agents for independent batch tasks instead of (or alongside) sub-agent developers. The team-leader agent template has full CLI delegation instructions built in.
+4. **Team-leader recommends, orchestrator spawns**: Team-leader MODE 1 fills `Recommended Executor` + `Execution Mode` on each batch in `tasks.md`. When team-leader returns `NEXT BATCH ASSIGNED: [executor/mode]`, the ORCHESTRATOR spawns the executor — sub-agent via `Task`, or CLI via `ptah_agent_spawn` (parallel fan-out when mode is `parallel`).
 
 ### Quick Reference
 
-| Aspect                  | Detail                                                               |
-| ----------------------- | -------------------------------------------------------------------- |
-| **Activation**          | Checkpoint 0.1 (auto-discovered, user-confirmed)                     |
-| **Primary delegator**   | team-leader (has CLI delegation built into MODE 2)                   |
-| **Available agents**    | gemini, codex, copilot, ptah-cli (user-configured)                   |
-| **Concurrency limit**   | Max 3 CLI agents simultaneously                                      |
-| **Selection priority**  | ptah-cli > gemini > codex > copilot                                  |
-| **Decision authority**  | Team-leader decides when to use CLI agents vs sub-agent developers   |
-| **Quality ownership**   | Team-leader owns quality — verifies all CLI agent output             |
+| Aspect                  | Detail                                                                    |
+| ----------------------- | ------------------------------------------------------------------------- |
+| **Activation**          | Checkpoint 0.1 (auto-discovered, user-confirmed)                          |
+| **Sole spawner**        | Main orchestrator (Claude) — NO agent spawns sub-agents or CLI agents     |
+| **Team-leader role**    | Advisory: fills `Recommended Executor` + `Execution Mode` on each batch   |
+| **Available agents**    | gemini, codex, copilot, ptah-cli (user-configured)                        |
+| **Concurrency limit**   | Max 3 CLI agents simultaneously                                           |
+| **Selection priority**  | ptah-cli > gemini > codex > copilot                                       |
+| **Decision authority**  | Team-leader recommends; orchestrator executes the recommendation          |
+| **Quality ownership**   | code-logic-reviewer (spawned by orchestrator on team-leader's NEEDS REVIEW) + team-leader verification before commit |
 
-### When Team-Leader Uses CLI Agents vs Sub-agent Developers
+### Executor Recommendation Heuristics (Applied by Team-Leader in tasks.md)
 
-| Use CLI Agents (ptah_agent_spawn)           | Use Sub-agent Developers (Agent tool)    |
-| ------------------------------------------- | ---------------------------------------- |
-| Batch has 3+ independent tasks              | Tightly coupled tasks needing shared ctx |
-| Boilerplate / scaffolding work              | Cross-file refactoring                   |
-| Parallel file verification                  | Architecture decisions required          |
-| Independent component implementation        | Complex business logic                   |
+| Use CLI Agents (orchestrator spawns via ptah_agent_spawn) | Use Sub-agent Developers (orchestrator spawns via Task) |
+| --------------------------------------------------------- | ------------------------------------------------------- |
+| Batch has 3+ independent, file-disjoint tasks             | Tightly coupled tasks needing shared context            |
+| Boilerplate / scaffolding work                            | Cross-file refactoring                                  |
+| Independent component implementation                      | Architecture decisions required                         |
+| Migration across many files                               | Complex business logic                                  |
 
-### Secondary Delegation (Other Sub-agents)
+### Secondary Delegation (Sub-agents other than team-leader)
 
-Other sub-agents (PM, Architect, Researcher, Tester, Reviewers) may also delegate focused sub-tasks to CLI agents when CLI mode is active. For these agents, append the CLI delegation injection block to their prompts. However, the **team-leader is the primary and most impactful delegator** — it handles the bulk of CLI agent work during batch implementation.
+Other sub-agents (PM, Architect, Researcher, Tester, Reviewers, Developers) MAY delegate focused sub-tasks to CLI agents when CLI mode is active — they can call `ptah_agent_spawn` directly for grunt work. This is **different from team-leader**, which is strictly advisory and never spawns.
 
 ### CLI Delegation Prompt Injection (For Secondary Delegators)
 
@@ -294,34 +338,9 @@ independently-executable sub-tasks to speed up your work.
 [role-specific examples injected per agent type — see agent-catalog.md]
 ```
 
-**Note**: The team-leader does NOT need this injection block — its agent template already has full CLI delegation instructions built into MODE 2.
+**Note**: The team-leader does NOT receive this injection block — it is strictly advisory and is forbidden from spawning sub-agents or CLI agents. Its recommendations live in `tasks.md` under `Recommended Executor` / `Execution Mode` per batch.
 
 See [cli-agent-delegation.md](references/cli-agent-delegation.md) for the comprehensive reference.
-
----
-
-## Post-QA: Modernization-Detector Phase
-
-After QA completes (or is skipped), invoke the modernization-detector as the final workflow phase. This applies to FEATURE, BUGFIX, REFACTORING, and DEVOPS workflows.
-
-**Skip if**: DOCUMENTATION, RESEARCH, CREATIVE, or SAAS_INIT workflows (no modernization analysis needed).
-
-```typescript
-Task({
-  subagent_type: 'modernization-detector',
-  description: 'Analyze future improvements for TASK_[ID]',
-  prompt: `You are modernization-detector for TASK_[ID].
-
-**Task Folder**: [absolute path to .ptah/specs/TASK_[ID]]
-**Changes**: Review tasks.md for what was implemented
-
-Identify opportunities for future improvements, tech debt, and modernization.
-Write findings to future-enhancements.md in the task folder.
-See modernization-detector.md for detailed instructions.`,
-});
-```
-
-Once `future-enhancements.md` is created, the workflow is complete. Present the summary to the user.
 
 ---
 

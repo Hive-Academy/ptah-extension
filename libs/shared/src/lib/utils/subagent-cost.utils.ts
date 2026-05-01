@@ -12,7 +12,7 @@ import type {
   ExecutionNode,
   ExecutionChatMessage,
   MessageTokenUsage,
-} from '../types/execution-node.types';
+} from '../types/execution';
 
 /**
  * Agent cost breakdown for display
@@ -69,7 +69,7 @@ export function calculateTotalTreeCost(node: ExecutionNode): number {
  * Recursively calculate total tokens from an ExecutionNode tree
  */
 export function calculateTotalTreeTokens(
-  node: ExecutionNode
+  node: ExecutionNode,
 ): MessageTokenUsage {
   // Use mutable accumulator internally
   let input = node.tokenUsage?.input ?? 0;
@@ -94,7 +94,7 @@ export function calculateTotalTreeTokens(
  */
 export function getAgentCostBreakdown(
   node: ExecutionNode,
-  depth = 0
+  depth = 0,
 ): AgentCostBreakdown[] {
   const breakdown: AgentCostBreakdown[] = [];
 
@@ -114,7 +114,7 @@ export function getAgentCostBreakdown(
   for (const child of node.children) {
     const childBreakdown = getAgentCostBreakdown(
       child,
-      node.type === 'agent' ? depth + 1 : depth
+      node.type === 'agent' ? depth + 1 : depth,
     );
     breakdown.push(...childBreakdown);
   }
@@ -160,7 +160,7 @@ export function countAgents(node: ExecutionNode): number {
  * Calculate session cost summary from all messages
  */
 export function calculateSessionCostSummary(
-  messages: ExecutionChatMessage[]
+  messages: ExecutionChatMessage[],
 ): SessionCostSummary {
   let totalCost = 0;
   let totalDuration = 0;

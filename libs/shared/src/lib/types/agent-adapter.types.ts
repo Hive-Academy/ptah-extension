@@ -1,17 +1,14 @@
 /**
- * IAgentAdapter - Unified contract across multiple agent runtimes.
+ * IAgentAdapter - Unified contract for the agent runtime.
  *
- * Superset interface that both SdkAgentAdapter (Claude SDK, in-process)
- * and DeepAgentAdapter (LangChain deep-agents, in-process) implement.
- * A runtime selector picks which concrete adapter handles each session.
- *
- * Methods not supported by a given runtime MUST throw an Error with
- * message starting with "Not supported on <runtime> runtime." so the
- * RPC layer can surface a user-friendly error.
+ * Implemented by SdkAgentAdapter (Claude Agent SDK, in-process).
+ * Methods that fail at runtime MUST throw an Error so the RPC layer
+ * can surface a user-friendly error.
  */
 import type { IAIProvider, AISessionConfig } from './ai-provider.types';
 import type { SessionId } from './branded.types';
-import type { FlatStreamEventUnion } from './execution-node.types';
+import type { FlatStreamEventUnion } from './execution';
+import type { McpHttpServerOverride } from './rpc/rpc-chat.types';
 
 /**
  * Callback signatures — mirrored from agent-sdk's SdkAgentAdapter public API.
@@ -93,6 +90,21 @@ export interface AgentSessionStartConfig extends AISessionConfig {
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
+  /**
+   * Opt-in to SDK `SDKPartialAssistantMessage` (`stream_event`) emissions
+   * for finer streaming deltas. Forwarded to the Claude Agent SDK as
+   * `Options.includePartialMessages`. Defaults to ON at the SDK plumbing
+   * layer when omitted (preserves historical Ptah streaming behavior).
+   */
+  includePartialMessages?: boolean;
+  /**
+   * Caller-supplied MCP HTTP server overrides (TASK_2026_108 T2).
+   * Keyed by MCP server name; merged OVER the registry-built map at the
+   * options-builder layer (caller wins on key collision). Reserved for the
+   * Anthropic-compatible HTTP proxy in P3 — non-proxy callers leave this
+   * `undefined` and the merge is a no-op.
+   */
+  mcpServersOverride?: Record<string, McpHttpServerOverride>;
 }
 
 /**
@@ -104,13 +116,14 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
   tabId?: string;
+  /** New user message to send as part of this resumed turn. */
+  prompt?: string;
+  /** See {@link AgentSessionStartConfig.includePartialMessages}. */
+  includePartialMessages?: boolean;
 }
 
 /**
  * Configuration for slash command execution.
- * Intentionally loose (`Record<string, unknown>`-style) because different
- * runtimes handle these fields differently. Claude SDK runtime uses all of
- * them; deep-agent runtime will reject the call entirely.
  */
 export interface SlashCommandRunConfig {
   sessionConfig?: AISessionConfig;
@@ -122,8 +135,7 @@ export interface SlashCommandRunConfig {
 }
 
 /**
- * Model info returned by adapters. Intentionally thin — a superset that
- * works for both SDK `ModelInfo` and LangChain-style model listings.
+ * Model info returned by the adapter.
  */
 export interface AgentModelInfo {
   readonly value: string;
@@ -134,9 +146,8 @@ export interface AgentModelInfo {
 /**
  * Unified agent adapter contract.
  *
- * This is the superset of public methods on SdkAgentAdapter. Runtimes that
- * cannot support a specific method (e.g. deep-agent has no slash commands)
- * MUST throw a runtime-specific Error rather than silently no-op.
+ * Defines the public methods of SdkAgentAdapter. Methods that fail at
+ * runtime MUST throw an Error rather than silently no-op.
  */
 export interface IAgentAdapter extends IAIProvider {
   /** Pre-warm any heavy SDK modules (no-op if nothing to pre-load). */

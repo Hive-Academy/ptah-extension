@@ -22,10 +22,12 @@ import {
   TOKENS,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   SubagentQueryParams,
   SubagentQueryResult,
 } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for subagent operations (query only)
@@ -38,11 +40,17 @@ import {
  */
 @injectable()
 export class SubagentRpcHandlers {
+  static readonly METHODS = [
+    'chat:subagent-query',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
-    private readonly registry: SubagentRegistryService
+    private readonly registry: SubagentRegistryService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -103,12 +111,16 @@ export class SubagentRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: subagent:query failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'SubagentRpcHandlers.registerSubagentQuery' },
           );
           // Return empty array on error
           return { subagents: [] };
         }
-      }
+      },
     );
   }
 }

@@ -5,7 +5,7 @@
  * The harness builder configures: agents, skills, system prompts, MCP servers, and CLAUDE.md.
  */
 
-import type { FlatStreamEventUnion } from '../execution-node.types';
+import type { FlatStreamEventUnion } from '../execution';
 
 // ─── Common Types ────────────────────────────────────────
 

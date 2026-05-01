@@ -89,6 +89,32 @@ export class VscodeUserInteraction implements IUserInteraction {
     await vscode.env.clipboard.writeText(text);
   }
 
+  async openOAuthUrl(params: {
+    provider: 'copilot' | 'codex' | 'claude' | string;
+    verificationUri: string;
+    userCode?: string;
+  }): Promise<{ opened: boolean; code?: string }> {
+    let opened = false;
+    try {
+      opened = await vscode.env.openExternal(
+        vscode.Uri.parse(params.verificationUri),
+      );
+    } catch {
+      opened = false;
+    }
+    if (params.userCode) {
+      try {
+        await vscode.env.clipboard.writeText(params.userCode);
+      } catch {
+        /* clipboard failure is non-fatal */
+      }
+      void vscode.window.showInformationMessage(
+        `Device code: ${params.userCode} (copied to clipboard). Paste at ${params.verificationUri}.`,
+      );
+    }
+    return { opened, code: undefined };
+  }
+
   async withProgress<T>(
     options: ProgressOptions,
     task: (progress: IProgress, token: ICancellationToken) => Promise<T>,

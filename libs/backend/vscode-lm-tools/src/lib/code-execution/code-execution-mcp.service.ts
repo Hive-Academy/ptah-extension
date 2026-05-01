@@ -183,10 +183,28 @@ export class CodeExecutionMCP implements IDisposable {
   }
 
   /**
-   * Dispose of server resources
+   * Dispose of server resources (IDisposable contract — synchronous).
+   *
+   * Prefer disposeAsync() when the caller can await cleanup. This sync form
+   * kicks off stop() and surfaces any teardown error to the logger instead
+   * of silently swallowing it (which is what happened when dispose() simply
+   * called this.stop() without handling the returned promise).
    */
   dispose(): void {
-    this.stop();
+    this.disposeAsync().catch((error) => {
+      this.logger.error(
+        '[CodeExecutionMCP] Error during dispose',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    });
+  }
+
+  /**
+   * Async dispose — await this when the caller can wait for HTTP server
+   * shutdown to complete before proceeding (e.g., during app quit).
+   */
+  async disposeAsync(): Promise<void> {
+    await this.stop();
   }
 
   /**
@@ -235,6 +253,11 @@ export class CodeExecutionMCP implements IDisposable {
    * Prevents stale entries pointing to a dead server.
    */
   private unregisterFromMcpJson(): void {
+    // If the service was never registered, skip the disk read entirely.
+    // Avoids unnecessary fs.readFileSync on shutdown when
+    // ensureRegisteredForSubagents() never ran (e.g., free-tier sessions).
+    if (!this.registeredInMcpJson) return;
+
     const mcpJsonPath = this.getMcpJsonPath();
     if (!mcpJsonPath) return;
 
@@ -251,6 +274,7 @@ export class CodeExecutionMCP implements IDisposable {
       config['mcpServers'] = servers;
 
       fs.writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
+      this.registeredInMcpJson = false;
       this.logger.info(
         '[CodeExecutionMCP] Unregistered ptah from .mcp.json',
         'CodeExecutionMCP',

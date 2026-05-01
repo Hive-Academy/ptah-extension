@@ -23,14 +23,7 @@
         "generateLockfile": true,
         "skipTypeCheck": true,
         "deleteOutputPath": false,
-        "esbuildOptions": {
-          "outExtension": {
-            ".js": ".mjs"
-          },
-          "banner": {
-            "js": "import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
-          }
-        },
+        "esbuildConfig": "apps/ptah-electron/esbuild.config.cjs",
         "external": [
           "electron",
           "electron-updater",
@@ -211,6 +204,14 @@
     },
     "lint": {
       "executor": "@nx/eslint:lint"
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "apps/ptah-electron/jest.config.ts",
+        "passWithNoTests": true
+      }
     }
   }
 }

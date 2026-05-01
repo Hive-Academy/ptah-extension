@@ -1,0 +1,27 @@
+{
+  "name": "@ptah-extension/chat-state",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/frontend/chat-state/src",
+  "prefix": "ptah",
+  "projectType": "library",
+  "tags": ["scope:webview", "type:data-access"],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/frontend/chat-state/jest.config.ts",
+        "tsConfig": "libs/frontend/chat-state/tsconfig.spec.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ngc --noEmit --project libs/frontend/chat-state/tsconfig.lib.json"
+      }
+    }
+  }
+}

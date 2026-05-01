@@ -6,8 +6,8 @@ export * from './lib/types/branded.types';
 export * from './lib/types/claude-domain.types';
 export * from './lib/types/command-builder.types';
 export * from './lib/types/common.types';
-export * from './lib/types/execution-node.types';
-export * from './lib/types/message.types';
+export * from './lib/types/execution';
+export * from './lib/types/messages';
 export * from './lib/types/content-block.types';
 export * from './lib/types/permission.types';
 export * from './lib/types/quality-assessment.types';
@@ -25,7 +25,7 @@ export * from './lib/types/agent-permission.types';
 export * from './lib/types/mcp-directory.types';
 
 // Type guards
-export * from './lib/type-guards/tool-input-guards';
+export * from './lib/type-guards/guards';
 
 // Utilities
 export * from './lib/utils/message-normalizer';
@@ -36,7 +36,7 @@ export * from './lib/utils/subagent-cost.utils';
 export * from './lib/utils/git.utils';
 
 // Setup wizard types
-export * from './lib/types/setup-wizard.types';
+export * from './lib/types/wizard';
 
 // New project wizard types and data
 export * from './lib/types/new-project.types';

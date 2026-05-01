@@ -11,11 +11,12 @@
 
 import { injectable, inject, container } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   CliDetectionService,
   CopilotPermissionBridge,
   AgentProcessManager,
-} from '@ptah-extension/llm-abstraction';
+} from '@ptah-extension/agent-sdk';
 import {
   SDK_TOKENS,
   PtahCliRegistry,
@@ -63,6 +64,8 @@ export class AgentRpcHandlers {
     private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -171,11 +174,6 @@ export class AgentRpcHandlers {
                 'browser.allowLocalhost',
                 false,
               ) ?? false,
-            // Runtime selector lives under ptah.runtime (not ptah.agentOrchestration.*)
-            runtime:
-              this.workspaceProvider.getConfiguration<
-                'auto' | 'claude-sdk' | 'deep-agent'
-              >('ptah', 'runtime', 'auto') ?? 'auto',
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -185,6 +183,10 @@ export class AgentRpcHandlers {
 
           return result;
         } catch (error) {
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AgentRpcHandlers.registerGetConfig' },
+          );
           this.logger.error(
             'RPC: agent:getConfig failed',
             error instanceof Error ? error : new Error(String(error)),
@@ -205,35 +207,22 @@ export class AgentRpcHandlers {
   private registerSetConfig(): void {
     this.rpcHandler.registerMethod<
       AgentSetConfigParams,
-      { success: boolean; error?: string; reloadRequired?: boolean }
+      { success: boolean; error?: string }
     >('agent:setConfig', async (params) => {
       try {
         this.logger.debug('RPC: agent:setConfig called', { params });
 
-        // Detect runtime change so the frontend can prompt for reload.
-        // (VS Code also has a workspace.onDidChangeConfiguration watcher in
-        // main.ts that shows its own prompt; returning reloadRequired is
-        // harmless and keeps the wire contract consistent with Electron.)
-        let reloadRequired = false;
-        if (params.runtime !== undefined) {
-          const previous =
-            this.workspaceProvider.getConfiguration<
-              'auto' | 'claude-sdk' | 'deep-agent'
-            >('ptah', 'runtime', 'auto') ?? 'auto';
-          if (previous !== params.runtime) {
-            reloadRequired = true;
-          }
-        }
-
         await this.applyConfigUpdates(params);
 
         this.logger.debug('RPC: agent:setConfig success');
-        return reloadRequired
-          ? { success: true, reloadRequired }
-          : { success: true };
+        return { success: true };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'AgentRpcHandlers.registerSetConfig' },
+        );
         this.logger.error(
           'RPC: agent:setConfig failed',
           error instanceof Error ? error : new Error(errorMessage),
@@ -420,17 +409,6 @@ export class AgentRpcHandlers {
         clampedPort,
       );
     }
-
-    // Runtime selector lives under ptah.runtime (not ptah.agentOrchestration.*).
-    // VS Code's config system accepts arbitrary strings; enum values are validated
-    // by the declared enum in package.json contributes.configuration.
-    if (params.runtime !== undefined) {
-      await this.workspaceProvider.setConfiguration(
-        'ptah',
-        'runtime',
-        params.runtime,
-      );
-    }
   }
 
   /**
@@ -459,6 +437,10 @@ export class AgentRpcHandlers {
 
           return { clis: detectedClis };
         } catch (error) {
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AgentRpcHandlers.registerDetectClis' },
+          );
           this.logger.error(
             'RPC: agent:detectClis failed',
             error instanceof Error ? error : new Error(String(error)),
@@ -511,6 +493,10 @@ export class AgentRpcHandlers {
 
           return result;
         } catch (error) {
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AgentRpcHandlers.registerListCliModels' },
+          );
           this.logger.error(
             'RPC: agent:listCliModels failed',
             error instanceof Error ? error : new Error(String(error)),
@@ -654,6 +640,10 @@ export class AgentRpcHandlers {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'AgentRpcHandlers.registerPermissionResponse' },
+        );
         this.logger.error(
           'RPC: agent:permissionResponse failed',
           error instanceof Error ? error : new Error(errorMessage),
@@ -691,6 +681,10 @@ export class AgentRpcHandlers {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'AgentRpcHandlers.registerAgentStop' },
+        );
         this.logger.error(
           'RPC: agent:stop failed',
           error instanceof Error ? error : new Error(errorMessage),
@@ -781,6 +775,10 @@ export class AgentRpcHandlers {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'AgentRpcHandlers.registerResumeCliSession' },
+        );
         this.logger.error(
           'RPC: agent:resumeCliSession failed',
           error instanceof Error ? error : new Error(errorMessage),
@@ -891,8 +889,8 @@ export class AgentRpcHandlers {
   }
 
   /**
-   * Check if a session JSONL file exists on disk.
-   * Claude stores sessions in ~/.claude/projects/{escaped-workspace-path}/{sessionId}.jsonl
+   * Check if a Claude SDK JSONL session file exists on disk.
+   * Returns true if the file is found, false otherwise.
    */
   private async sessionFileExists(
     sessionId: string,
@@ -903,7 +901,6 @@ export class AgentRpcHandlers {
       const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
       const dirs = await fs.readdir(projectsDir);
 
-      // Find the matching project directory (case-insensitive, normalized)
       const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
       const normalizedEscaped = normalize(escapedPath);
       const matchedDir = dirs.find(
@@ -913,17 +910,23 @@ export class AgentRpcHandlers {
           normalize(d) === normalizedEscaped,
       );
 
-      if (!matchedDir) return false;
-
-      const sessionFile = path.join(
-        projectsDir,
-        matchedDir,
-        `${sessionId}.jsonl`,
-      );
-      await fs.access(sessionFile);
-      return true;
+      if (matchedDir) {
+        const sessionFile = path.join(
+          projectsDir,
+          matchedDir,
+          `${sessionId}.jsonl`,
+        );
+        try {
+          await fs.access(sessionFile);
+          return true;
+        } catch {
+          // JSONL file not found
+        }
+      }
     } catch {
-      return false;
+      // Projects dir doesn't exist
     }
+
+    return false;
   }
 }

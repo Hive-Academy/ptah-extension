@@ -34,6 +34,18 @@ export const ADMIN_ROUTES: Routes = [
         redirectTo: 'users',
       },
       {
+        path: 'marketing/compose',
+        loadComponent: () =>
+          import('./marketing/marketing-compose/marketing-compose').then(
+            (m) => m.MarketingCompose,
+          ),
+      },
+      {
+        path: 'marketing/campaigns',
+        pathMatch: 'full',
+        redirectTo: 'marketing-campaigns',
+      },
+      {
         path: ':model',
         loadComponent: () =>
           import('./admin-list/admin-list').then((m) => m.AdminList),

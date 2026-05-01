@@ -10,6 +10,8 @@ import {
   RpcMethodResult,
   SessionListResult,
   SessionLoadResult,
+  SessionForkResult,
+  SessionRewindResult,
   FileOpenResult,
   MESSAGE_TYPES,
   // TASK_2025_109: SubagentResumeResult removed - now uses context injection
@@ -21,6 +23,18 @@ import {
  */
 export interface RpcCallOptions {
   timeout?: number; // milliseconds, default: 30000
+  /**
+   * Optional AbortSignal — when fired, the pending call is dropped and the
+   * promise resolves with `success=false, error='RPC aborted: <method>'`.
+   *
+   * TASK_2026_103 Wave E2: drives the chat tab-close → stream-cancel flow.
+   * The webview-side timeout/lookup remains the source of truth for response
+   * correlation; aborting here only releases the caller's awaited promise.
+   * The matching backend cancellation (e.g. `chat:abort`) MUST be issued
+   * separately by the caller — this signal does NOT itself stop the
+   * extension-host work.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -114,6 +128,12 @@ const UNLICENSED_ALLOWED_METHODS: readonly string[] = [
   'license:setKey',
   'command:execute',
   'settings:import',
+  // Read-only config endpoints needed to render the welcome/license shell.
+  // Both return user preferences only — no AI feature surface — so safe to
+  // expose pre-license. Without these, AutopilotStateService and
+  // ModelStateService log RPC-blocked errors during webview bootstrap.
+  'config:autopilot-get',
+  'config:models-list',
 ] as const;
 
 @Injectable({ providedIn: 'root' })
@@ -187,8 +207,48 @@ export class ClaudeRpcService implements MessageHandler {
 
     const correlationId = CorrelationId.create();
     const timeout = options?.timeout ?? 30000;
+    const signal = options?.signal;
+
+    // TASK_2026_103 Wave E2: short-circuit if caller pre-aborted.
+    if (signal?.aborted) {
+      return new RpcResult<RpcMethodResult<T>>(
+        false,
+        undefined,
+        `RPC aborted: ${method}`,
+      );
+    }
 
     return new Promise<RpcResult<RpcMethodResult<T>>>((resolve) => {
+      // Mutable abort-listener handle so the resolver/timeout closures can
+      // detach it on completion. Wrapped in a single-property object so it
+      // can be rebinding-free (`const`) per ESLint prefer-const, while still
+      // allowing the inner property to be cleared after detach.
+      const abortRef: { listener: (() => void) | null } = { listener: null };
+
+      const detachAbortListener = (): void => {
+        if (signal && abortRef.listener) {
+          signal.removeEventListener('abort', abortRef.listener);
+          abortRef.listener = null;
+        }
+      };
+
+      // Set timeout to prevent hanging calls. Declared first so the resolver
+      // and abort listener can both clear it.
+      const timer = setTimeout(() => {
+        if (this.pendingCalls.has(correlationId)) {
+          this.pendingCalls.delete(correlationId);
+          detachAbortListener();
+          console.error(`[ClaudeRpcService] RPC timeout for method: ${method}`);
+          resolve(
+            new RpcResult<RpcMethodResult<T>>(
+              false,
+              undefined,
+              `RPC timeout: ${method}`,
+            ),
+          );
+        }
+      }, timeout);
+
       // Store resolver for this correlation ID.
       // The map stores callbacks as RpcResponse<unknown> for type erasure;
       // at call-site we know the concrete type so the cast is safe.
@@ -197,6 +257,7 @@ export class ClaudeRpcService implements MessageHandler {
       ) => {
         this.pendingCalls.delete(correlationId);
         clearTimeout(timer);
+        detachAbortListener();
         // Normalize error: backend may send string or { message: string }
         const errorStr = this.normalizeError(response.error);
         // TASK_2025_124: Pass errorCode for license-related errors
@@ -210,20 +271,25 @@ export class ClaudeRpcService implements MessageHandler {
         );
       }) as (response: RpcResponse<unknown>) => void);
 
-      // Set timeout to prevent hanging calls
-      const timer = setTimeout(() => {
-        if (this.pendingCalls.has(correlationId)) {
-          this.pendingCalls.delete(correlationId);
-          console.error(`[ClaudeRpcService] RPC timeout for method: ${method}`);
-          resolve(
-            new RpcResult<RpcMethodResult<T>>(
-              false,
-              undefined,
-              `RPC timeout: ${method}`,
-            ),
-          );
-        }
-      }, timeout);
+      // TASK_2026_103 Wave E2: bridge AbortSignal → promise resolution.
+      // We only release the caller's promise; backend cancellation must be
+      // issued separately (e.g. via chat:abort RPC).
+      if (signal) {
+        abortRef.listener = () => {
+          if (this.pendingCalls.has(correlationId)) {
+            this.pendingCalls.delete(correlationId);
+            clearTimeout(timer);
+            resolve(
+              new RpcResult<RpcMethodResult<T>>(
+                false,
+                undefined,
+                `RPC aborted: ${method}`,
+              ),
+            );
+          }
+        };
+        signal.addEventListener('abort', abortRef.listener, { once: true });
+      }
 
       // Send RPC call to backend
       this.postRpcMessage({
@@ -344,6 +410,57 @@ export class ClaudeRpcService implements MessageHandler {
     name: string,
   ): Promise<RpcResult<{ success: boolean; error?: string }>> {
     return this.call('session:rename', { sessionId, name });
+  }
+
+  /**
+   * Fork a session at an optional message boundary, producing a new session.
+   *
+   * Backend slices the JSONL transcript up to (and including) `upToMessageId`
+   * when provided, then materializes a new session UUID. Disk I/O justifies
+   * the 15s timeout — larger than the default RPC timeout but still bounded.
+   *
+   * @param sessionId - Source session UUID to fork from
+   * @param upToMessageId - Optional message UUID to slice transcript at (inclusive)
+   * @param title - Optional title for the fork (defaults to "<original> (fork)")
+   * @returns RpcResult containing the new session's UUID
+   */
+  async forkSession(
+    sessionId: SessionId,
+    upToMessageId?: string,
+    title?: string,
+  ): Promise<RpcResult<SessionForkResult>> {
+    return this.call(
+      'session:forkSession',
+      { sessionId, upToMessageId, title },
+      { timeout: 15000 },
+    );
+  }
+
+  /**
+   * Rewind on-disk file state to the checkpoint captured at a given user
+   * message. Pass `dryRun: true` to preview affected files without modifying
+   * anything. The 15s timeout matches forkSession — both touch disk and may
+   * involve git checkpoint resolution.
+   *
+   * Surfacing tip: when the backend returns an error code beginning with
+   * `'session-not-active:*'`, the session must be resumed before rewind can
+   * proceed. UI callers should offer a "Resume & retry" affordance.
+   *
+   * @param sessionId - Active session whose tracked files should be rewound
+   * @param userMessageId - UUID of the user message to rewind file state to
+   * @param dryRun - When true, returns planned changes without touching disk
+   * @returns RpcResult with rewind plan/outcome (filesChanged, insertions, deletions)
+   */
+  async rewindFiles(
+    sessionId: SessionId,
+    userMessageId: string,
+    dryRun?: boolean,
+  ): Promise<RpcResult<SessionRewindResult>> {
+    return this.call(
+      'session:rewindFiles',
+      { sessionId, userMessageId, dryRun },
+      { timeout: 15000 },
+    );
   }
 
   // ============================================================================

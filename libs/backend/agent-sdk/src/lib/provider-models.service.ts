@@ -25,12 +25,13 @@ import type {
   ModelPricing,
 } from '@ptah-extension/shared';
 import { updatePricingMap } from '@ptah-extension/shared';
+import { SdkError } from './errors';
 import {
   getAnthropicProvider,
   ANTHROPIC_DIRECT_PROVIDER_ID,
   DEFAULT_PROVIDER_ID,
   type AnthropicProvider,
-} from './helpers/anthropic-provider-registry';
+} from './providers/_shared/provider-registry';
 import { TIER_ENV_VAR_MAP } from './helpers/sdk-model-service';
 import { SDK_TOKENS } from './di/tokens';
 
@@ -186,7 +187,7 @@ export class ProviderModelsService {
 
     const provider = getAnthropicProvider(providerId);
     if (!provider) {
-      throw new Error(`Unknown provider: ${providerId}`);
+      throw new SdkError(`Unknown provider: ${providerId}`);
     }
 
     // Path 1: Has API endpoint AND key → try dynamic first
@@ -281,7 +282,7 @@ export class ProviderModelsService {
     }
 
     if (!apiKey) {
-      throw new Error(
+      throw new SdkError(
         `${provider.name} API key not configured. Please add your key in Settings.`,
       );
     }
@@ -304,7 +305,7 @@ export class ProviderModelsService {
       );
 
       if (!data.data || !Array.isArray(data.data)) {
-        throw new Error(`Invalid response format from ${provider.name} API`);
+        throw new SdkError(`Invalid response format from ${provider.name} API`);
       }
 
       // Transform to our model format and extract pricing
@@ -332,11 +333,11 @@ export class ProviderModelsService {
     } catch (error) {
       if (axios.isAxiosError(error) && error.response) {
         if (error.response.status === 401 || error.response.status === 403) {
-          throw new Error(
+          throw new SdkError(
             `${provider.name} API key is invalid or expired. Please delete your key and re-enter a valid one.`,
           );
         }
-        throw new Error(
+        throw new SdkError(
           `${provider.name} API error: ${error.response.status} ${error.response.statusText}`,
         );
       }
@@ -472,12 +473,23 @@ export class ProviderModelsService {
    * Call this during authentication setup when a provider is active
    */
   applyPersistedTiers(providerId: string): void {
-    const tiers = this.getModelTiers(providerId);
+    const userTiers = this.getModelTiers(providerId);
+    // Fall back to the provider's curated defaults so providers like Ollama
+    // (where Anthropic's claude-* model IDs are nonsensical) get sensible
+    // tier env vars even when the user has not explicitly mapped tiers.
+    const providerDefaults =
+      getAnthropicProvider(providerId)?.defaultTiers ?? {};
 
-    // Iterate the canonical TIER_ENV_VAR_MAP to ensure all tiers are covered
-    // if new tiers are added in the future
+    const effectiveTiers: Record<string, string | undefined> = {};
+    for (const tier of Object.keys(TIER_ENV_VAR_MAP)) {
+      const key = tier as keyof typeof TIER_ENV_VAR_MAP;
+      effectiveTiers[tier] =
+        userTiers[key as keyof typeof userTiers] ??
+        providerDefaults[key as keyof typeof providerDefaults];
+    }
+
     for (const [tier, envKey] of Object.entries(TIER_ENV_VAR_MAP)) {
-      const value = tiers[tier as keyof typeof tiers];
+      const value = effectiveTiers[tier];
       if (value) {
         this.authEnv[envKey as keyof AuthEnv] = value;
         process.env[envKey] = value;
@@ -486,7 +498,7 @@ export class ProviderModelsService {
 
     this.logger.debug(
       '[ProviderModelsService] Applied persisted tier mappings',
-      { providerId, tiers },
+      { providerId, userTiers, providerDefaults, effectiveTiers },
     );
   }
 

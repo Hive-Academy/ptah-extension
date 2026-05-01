@@ -378,8 +378,15 @@ export class ElectronLayoutService {
     const folders = this._workspaceFolders();
     if (index < 0 || index >= folders.length) return;
 
-    // No-op if already on this workspace
-    if (this._activeWorkspaceIndex() === index) return;
+    // No-op only if already on this workspace AND VSCodeService already reflects it.
+    // When adding the first workspace folder, _activeWorkspaceIndex is already 0
+    // (the default), but workspaceRoot is empty — we must coordinate, not no-op.
+    if (
+      this._activeWorkspaceIndex() === index &&
+      this.vscodeService.config().workspaceRoot === folders[index].path
+    ) {
+      return;
+    }
 
     // Capture previous index BEFORE updating signal so rollback can revert correctly
     const previousIndex = this._activeWorkspaceIndex();

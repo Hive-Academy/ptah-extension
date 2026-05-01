@@ -32,8 +32,9 @@ import {
   TOKENS,
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
-import type { SdkHandle } from '@ptah-extension/llm-abstraction';
+import type { SdkHandle } from '../cli-agents/cli-adapters';
 import { SDK_TOKENS } from '../di/tokens';
+import { SdkError } from '../errors';
 import type { SdkModuleLoader } from '../helpers/sdk-module-loader';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { SdkPermissionHandler } from '../sdk-permission-handler';
@@ -48,8 +49,8 @@ import {
   getProviderAuthEnvVar,
   seedStaticModelPricing,
   type AnthropicProvider,
-} from '../helpers/anthropic-provider-registry';
-import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../local-provider';
+} from '../providers/_shared/provider-registry';
+import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local';
 import { buildSafeEnv } from '../helpers/build-safe-env';
 import { TIER_TO_MODEL_ID, type ModelTier } from '../helpers/sdk-model-service';
 import type { Options } from '../types/sdk-types/claude-sdk.types';
@@ -178,7 +179,7 @@ export class PtahCliRegistry {
     await this.configPersistence.ensureMigrated();
     const provider = getAnthropicProvider(providerId);
     if (!provider) {
-      throw new Error(`Unknown provider: ${providerId}`);
+      throw new SdkError(`Unknown provider: ${providerId}`);
     }
 
     const id = generateAgentId();
@@ -242,7 +243,7 @@ export class PtahCliRegistry {
     const configs = this.configPersistence.loadConfigs();
     const index = configs.findIndex((c) => c.id === id);
     if (index === -1) {
-      throw new Error(`Agent not found: ${id}`);
+      throw new SdkError(`Agent not found: ${id}`);
     }
 
     const existing = configs[index];
@@ -993,16 +994,18 @@ export class PtahCliRegistry {
   }
 
   /**
-   * Build default tier mappings from a provider's static models
+   * Build default tier mappings for a new agent.
+   *
+   * Returns undefined so the runtime cascade in resolveEffectiveTiers can
+   * resolve tiers in the right order: agentTiers → mainTiers → provider.defaultTiers
+   * → staticModels[0]. Pre-filling a partial mapping here would shadow the
+   * user's globally-configured tier choices (e.g. Ollama defaults to
+   * staticModels[0]='llama3.1:8b' even when the user has selected
+   * 'qwen3:8b'/'devstral'/'qwen3:32b' via the model mapping modal).
    */
   private buildDefaultTierMappings(
-    provider: AnthropicProvider,
+    _provider: AnthropicProvider,
   ): PtahCliConfig['tierMappings'] {
-    if (!provider.staticModels || provider.staticModels.length === 0) {
-      return undefined;
-    }
-    return {
-      sonnet: provider.staticModels[0].id,
-    };
+    return undefined;
   }
 }

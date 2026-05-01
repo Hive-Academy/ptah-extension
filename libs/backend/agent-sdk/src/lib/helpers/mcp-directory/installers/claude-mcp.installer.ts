@@ -18,6 +18,7 @@ import {
   uninstallServer,
   listInstalledServers,
 } from '../mcp-config-io.utils';
+import { SdkError } from '../../../errors';
 
 export class ClaudeMcpInstaller implements IMcpServerInstaller {
   readonly target = 'claude' as const;
@@ -71,7 +72,7 @@ export class ClaudeMcpInstaller implements IMcpServerInstaller {
 
   getConfigPath(workspaceRoot?: string): string {
     if (!workspaceRoot)
-      throw new Error('Claude MCP installer requires a workspace root');
+      throw new SdkError('Claude MCP installer requires a workspace root');
     return path.join(workspaceRoot, '.mcp.json');
   }
 }

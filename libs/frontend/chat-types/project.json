@@ -1,0 +1,18 @@
+{
+  "name": "@ptah-extension/chat-types",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/frontend/chat-types/src",
+  "projectType": "library",
+  "tags": ["scope:webview", "type:util"],
+  "targets": {
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/frontend/chat-types/tsconfig.lib.json"
+      }
+    }
+  }
+}

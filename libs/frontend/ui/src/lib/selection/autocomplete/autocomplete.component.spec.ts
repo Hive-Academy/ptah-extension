@@ -13,7 +13,7 @@ interface TestSuggestion {
   standalone: true,
   imports: [AutocompleteComponent],
   template: `
-    <lib-autocomplete
+    <ptah-autocomplete
       [suggestions]="suggestions()"
       [isLoading]="isLoading()"
       [isOpen]="isOpen()"
@@ -26,7 +26,7 @@ interface TestSuggestion {
       (closed)="onClosed()"
     >
       <input type="text" autocompleteInput #input />
-    </lib-autocomplete>
+    </ptah-autocomplete>
 
     <ng-template #suggestionTemplate let-suggestion>
       <div class="flex items-center gap-2">
@@ -99,7 +99,7 @@ describe('AutocompleteComponent', () => {
 
     it('should have correct selector', () => {
       const autocompleteElement =
-        fixture.nativeElement.querySelector('lib-autocomplete');
+        fixture.nativeElement.querySelector('ptah-autocomplete');
       expect(autocompleteElement).toBeTruthy();
     });
 
@@ -134,7 +134,7 @@ describe('AutocompleteComponent', () => {
       // Give CDK time to render overlay
       setTimeout(() => {
         const overlayContainer = document.querySelector(
-          '.cdk-overlay-container'
+          '.cdk-overlay-container',
         );
         expect(overlayContainer).toBeTruthy();
 
@@ -164,7 +164,7 @@ describe('AutocompleteComponent', () => {
       setTimeout(() => {
         const suggestionsPanel = document.querySelector('.suggestions-panel');
         expect(suggestionsPanel?.getAttribute('aria-label')).toBe(
-          'Custom Label'
+          'Custom Label',
         );
         done();
       }, 100);
@@ -193,7 +193,7 @@ describe('AutocompleteComponent', () => {
       fixture.detectChanges();
 
       setTimeout(() => {
-        const options = document.querySelectorAll('lib-option');
+        const options = document.querySelectorAll('ptah-option');
         expect(options.length).toBe(0);
         done();
       }, 100);
@@ -243,7 +243,7 @@ describe('AutocompleteComponent', () => {
       fixture.detectChanges();
 
       setTimeout(() => {
-        const options = document.querySelectorAll('lib-option');
+        const options = document.querySelectorAll('ptah-option');
         expect(options.length).toBe(0);
         done();
       }, 100);
@@ -257,7 +257,7 @@ describe('AutocompleteComponent', () => {
       fixture.detectChanges();
 
       setTimeout(() => {
-        const options = document.querySelectorAll('lib-option');
+        const options = document.querySelectorAll('ptah-option');
         expect(options.length).toBe(3);
         done();
       }, 100);
@@ -269,8 +269,11 @@ describe('AutocompleteComponent', () => {
       fixture.detectChanges();
 
       setTimeout(() => {
+        // The header element has CSS `uppercase` applied via Tailwind, so
+        // the visible text is uppercased at paint time but the DOM
+        // textContent preserves the original casing.
         const header = document.querySelector('.suggestions-panel');
-        expect(header?.textContent).toContain('FILE SUGGESTIONS');
+        expect(header?.textContent).toContain('File Suggestions');
         done();
       }, 100);
     });
@@ -289,6 +292,17 @@ describe('AutocompleteComponent', () => {
   });
 
   describe('Keyboard Navigation - ActiveDescendantKeyManager', () => {
+    // ActiveDescendantKeyManager is initialised lazily once options render
+    // in the CDK overlay portal. Every test in this block needs the
+    // dropdown to be open (isOpen=true + overlay attached + view stable)
+    // before `onKeyDown` can return true.
+    beforeEach(async () => {
+      hostComponent.isOpen.set(true);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+    });
+
     it('should handle ArrowDown key', () => {
       const event = new KeyboardEvent('keydown', { key: 'ArrowDown' });
       const handled = component.onKeyDown(event);
@@ -347,7 +361,13 @@ describe('AutocompleteComponent', () => {
   });
 
   describe('Mouse Interaction', () => {
-    it('should handle hover event and update active item', () => {
+    it('should handle hover event and update active item', async () => {
+      // Dropdown must be open for options to render and keyManager to init.
+      hostComponent.isOpen.set(true);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
       component.handleHover(2);
       fixture.detectChanges();
 
@@ -409,7 +429,7 @@ describe('AutocompleteComponent', () => {
       fixture.detectChanges();
 
       setTimeout(() => {
-        let options = document.querySelectorAll('lib-option');
+        let options = document.querySelectorAll('ptah-option');
         expect(options.length).toBe(3);
 
         hostComponent.suggestions.set([
@@ -419,7 +439,7 @@ describe('AutocompleteComponent', () => {
         fixture.detectChanges();
 
         setTimeout(() => {
-          options = document.querySelectorAll('lib-option');
+          options = document.querySelectorAll('ptah-option');
           expect(options.length).toBe(2);
           done();
         }, 100);
@@ -435,7 +455,7 @@ describe('AutocompleteComponent', () => {
       setTimeout(() => {
         const destroySpy = jest.spyOn(
           component['keyManager'] as unknown as { destroy: () => void },
-          'destroy'
+          'destroy',
         );
         fixture.destroy();
 
@@ -465,7 +485,7 @@ describe('AutocompleteComponent', () => {
       setTimeout(() => {
         const suggestionsPanel = document.querySelector('.suggestions-panel');
         expect(suggestionsPanel?.getAttribute('aria-label')).toBe(
-          'File Autocomplete'
+          'File Autocomplete',
         );
         done();
       }, 100);

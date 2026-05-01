@@ -22,8 +22,10 @@ import {
   AuthEnv,
   ThinkingConfig,
   EffortLevel,
+  type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
+import { SdkError } from '../errors';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
@@ -47,14 +49,38 @@ import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
-} from './anthropic-provider-registry';
+} from '../providers/_shared/provider-registry';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
-import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
-import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
-import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../openrouter-provider/openrouter-provider.types';
-import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../local-provider/local-provider.types';
+import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../providers/copilot/copilot-provider.types';
+import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../providers/codex/codex-provider.types';
+import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../providers/openrouter/openrouter-provider.types';
+import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local/local-provider.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT } from '../constants';
+
+/**
+ * Detect obvious upstream provider error signatures in a stderr chunk.
+ *
+ * The SDK sometimes logs HTTP / API errors to stderr without forwarding them
+ * through the message stream, which causes the UI to hang. These patterns
+ * cover the common cases we've seen from Anthropic-compatible providers
+ * (Moonshot, Z.AI, OpenRouter) — HTTP status codes, Anthropic error type
+ * strings, and common auth/model keywords.
+ */
+function isUpstreamProviderError(stderrChunk: string): boolean {
+  const lower = stderrChunk.toLowerCase();
+  return (
+    /\b(401|403|404|429|5\d\d)\b/.test(stderrChunk) ||
+    lower.includes('model_not_found') ||
+    lower.includes('invalid_request_error') ||
+    lower.includes('authentication_error') ||
+    lower.includes('permission_error') ||
+    lower.includes('not_found_error') ||
+    lower.includes('rate_limit_error') ||
+    lower.includes('overloaded_error') ||
+    lower.includes('api_error')
+  );
+}
 
 /**
  * Build model identity clarification prompt for third-party providers
@@ -313,6 +339,53 @@ export interface QueryOptionsInput {
    * the CI runner path at bundle time.
    */
   pathToClaudeCodeExecutable?: string;
+  /**
+   * Optional callback invoked when the SDK's stderr stream contains an
+   * obvious upstream provider error (HTTP 4xx, model_not_found,
+   * invalid_request_error, authentication failures). The callee is
+   * responsible for surfacing the error to the UI — typically by aborting
+   * the query's AbortController with a descriptive Error, which then
+   * causes the stream iterator to throw. Without this hook, stderr-only
+   * errors (e.g., Moonshot returning model_not_found for an unsupported
+   * tier mapping) can leave the UI hanging with no response.
+   */
+  onProviderError?: (message: string) => void;
+  /**
+   * When true, resume + forkSession together create a NEW session ID instead
+   * of mutating the resumed transcript. Used by the fork-session RPC path.
+   * Has no effect unless `resumeSessionId` is also set.
+   */
+  forkSession?: boolean;
+  /**
+   * When resuming, only replay messages up to (and including) the message with
+   * this UUID. Maps directly to SDK Options.resumeSessionAt.
+   */
+  resumeSessionAt?: string;
+  /**
+   * Toggle SDK file checkpointing for this session. Defaults to ON when
+   * unspecified — file checkpointing is required by `Query.rewindFiles()`,
+   * which is the underlying mechanism for the rewind feature. Pass `false`
+   * explicitly to opt out (e.g., performance-sensitive contexts).
+   */
+  enableFileCheckpointing?: boolean;
+  /**
+   * When true, the SDK emits `SDKPartialAssistantMessage` events
+   * (`subtype: 'stream_event'`) for finer-grained streaming deltas. Mirrors
+   * `Options.includePartialMessages` from the Claude Agent SDK. Defaults to
+   * ON when unspecified to preserve historical Ptah behavior — the existing
+   * stream consumers (StreamTransformer, SdkMessageTransformer) already
+   * handle these events. Pass `false` to opt out (reduces event volume on
+   * bandwidth-sensitive paths).
+   */
+  includePartialMessages?: boolean;
+  /**
+   * Caller-supplied MCP HTTP server overrides — merged OVER the registry-
+   * built map by `mergeMcpOverride` (caller wins on key collision). Reserved
+   * for the Anthropic-compatible HTTP proxy in P3 (TASK_2026_108 T2). When
+   * `undefined` or an empty object, the builder's `mcpServers` output is
+   * byte-identical to the pre-T2 behavior.
+   */
+  mcpServersOverride?: Record<string, McpHttpServerOverride>;
 }
 
 /**
@@ -368,6 +441,23 @@ export interface SdkQueryOptions {
    * Example: ['context-1m-2025-08-07'] enables 1M token context window.
    */
   betas?: SdkBeta[];
+  /**
+   * When true (with `resume`), the SDK creates a NEW session ID seeded from
+   * the resumed transcript instead of continuing the original session.
+   * Mirrors `Options.forkSession` from the Claude Agent SDK.
+   */
+  forkSession?: boolean;
+  /**
+   * When resuming, replay only up to and including this message UUID.
+   * Mirrors `Options.resumeSessionAt` from the Claude Agent SDK.
+   */
+  resumeSessionAt?: string;
+  /**
+   * Enable file checkpointing so `Query.rewindFiles()` can later restore
+   * files to their state at a given user message. Mirrors
+   * `Options.enableFileCheckpointing` from the Claude Agent SDK.
+   */
+  enableFileCheckpointing?: boolean;
 }
 
 /**
@@ -444,19 +534,29 @@ export class SdkQueryOptionsBuilder {
       pluginPaths,
       permissionMode = 'default',
       pathToClaudeCodeExecutable,
+      onProviderError,
+      forkSession,
+      resumeSessionAt,
+      enableFileCheckpointing,
+      includePartialMessages,
+      mcpServersOverride,
     } = input;
 
     // Model is required - SDK sets default in config at startup
     if (!sessionConfig?.model) {
-      throw new Error('Model not provided - ensure SDK is initialized');
+      throw new SdkError('Model not provided - ensure SDK is initialized');
     }
+
+    // Observability: log when fork/resume-at are requested without a resume id
+    // (these get silently dropped to `undefined` further down — see end of build()).
+    this.warnIfForkOptionsDroppedSilently(input);
 
     // Resolve bare tier names ('opus', 'sonnet', 'haiku') to full model IDs.
     // The SDK's query() requires full model IDs like 'claude-opus-4-6' —
     // bare tier names cause "can't access model named opus" errors.
     const model = this.modelService.resolveModelId(sessionConfig.model);
     if (!sessionConfig?.projectPath) {
-      throw new Error(
+      throw new SdkError(
         'projectPath is required — cannot start an SDK session without a workspace folder. ' +
           'Callers must resolve workspace path from IWorkspaceProvider before reaching here.',
       );
@@ -506,9 +606,14 @@ export class SdkQueryOptionsBuilder {
       mcpServerRunning,
     );
 
-    // Create permission callback with sessionId for UI routing (TASK_2025_187)
+    // Create permission callback with tabId for UI routing (TASK_2025_187).
+    // For new sessions sessionId == tabId (trackingId = tabId from startChatSession).
+    // For RESUMED sessions sessionId is the real SDK UUID while sessionConfig.tabId
+    // is still the frontend tab ID — use tabId so AskUserQuestion/permission cards
+    // route to the correct tab instead of being silently filtered out.
+    const routingId = sessionConfig?.tabId ?? sessionId;
     const canUseToolCallback: CanUseTool =
-      this.permissionHandler.createCallback(sessionId);
+      this.permissionHandler.createCallback(routingId);
 
     // Create merged hooks (subagent + compaction + worktree)
     // TASK_2025_098: Pass sessionId and callback for compaction hooks
@@ -556,10 +661,9 @@ export class SdkQueryOptionsBuilder {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
-        mcpServers: this.buildMcpServers(
-          isPremium,
-          mcpServerRunning,
-          sessionId,
+        mcpServers: this.mergeMcpOverride(
+          this.buildMcpServers(isPremium, mcpServerRunning, sessionId),
+          mcpServersOverride,
         ),
         // Set SDK permission mode based on current autopilot config.
         // SDK evaluation order: Hooks → Rules → Permission Mode → canUseTool.
@@ -567,13 +671,18 @@ export class SdkQueryOptionsBuilder {
         // When 'bypassPermissions'/'acceptEdits'/'plan': SDK resolves at step 3.
         permissionMode,
         canUseTool: canUseToolCallback,
-        includePartialMessages: true,
+        // Default ON preserves historical behavior — partial stream events
+        // are already consumed by StreamTransformer/SdkMessageTransformer.
+        // Callers can opt out via QueryOptionsInput.includePartialMessages.
+        includePartialMessages: includePartialMessages ?? true,
         // Load settings from project and local directories.
-        // IMPORTANT: Exclude 'user' when using a translation proxy because
-        // ~/.claude/settings.json may contain auth from a previous `claude login`
-        // that overrides ANTHROPIC_BASE_URL and routes requests to api.anthropic.com
-        // instead of our local proxy.
-        settingSources: this.authEnv.ANTHROPIC_BASE_URL?.includes('127.0.0.1')
+        // IMPORTANT: Exclude 'user' when using a translation proxy OR local provider
+        // (Ollama uses localhost, not 127.0.0.1) because ~/.claude/settings.json may
+        // contain auth from a previous `claude login` that overrides ANTHROPIC_BASE_URL
+        // and routes requests to api.anthropic.com instead of our local endpoint.
+        settingSources: /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(
+          this.authEnv.ANTHROPIC_BASE_URL?.trim() ?? '',
+        )
           ? ['project', 'local']
           : ['user', 'project', 'local'],
         // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
@@ -601,7 +710,12 @@ export class SdkQueryOptionsBuilder {
           })(),
         } as Record<string, string | undefined>,
         // Capture stderr — the SDK writes debug/info/warn/error to stderr;
-        // parse the level and route to the appropriate logger method
+        // parse the level and route to the appropriate logger method.
+        // When stderr carries an upstream provider error (HTTP 4xx,
+        // model_not_found, invalid_request_error, etc.) the SDK sometimes
+        // fails to forward it through the message stream, leaving the UI
+        // spinning. Detect those signatures and notify the caller via
+        // onProviderError so it can abort the query with a clear message.
         stderr: (data: string) => {
           if (data.includes('[ERROR]')) {
             this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
@@ -609,6 +723,17 @@ export class SdkQueryOptionsBuilder {
             this.logger.warn(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
           } else {
             this.logger.debug(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
+          }
+
+          if (onProviderError && isUpstreamProviderError(data)) {
+            try {
+              onProviderError(data);
+            } catch (hookErr) {
+              this.logger.warn(
+                '[SdkQueryOptionsBuilder] onProviderError hook threw',
+                hookErr instanceof Error ? hookErr : new Error(String(hookErr)),
+              );
+            }
           }
         },
         hooks,
@@ -634,8 +759,45 @@ export class SdkQueryOptionsBuilder {
         // pass it explicitly. Only for first-party (api.anthropic.com);
         // third-party providers don't support this beta header.
         betas: this.buildBetas(),
+        // File checkpointing — defaults ON so Query.rewindFiles() works.
+        // Callers can opt out by passing enableFileCheckpointing: false.
+        enableFileCheckpointing: enableFileCheckpointing ?? true,
+        // Fork-on-resume — only meaningful when resumeSessionId is also set.
+        // The SDK creates a brand-new session UUID seeded from the resumed
+        // transcript instead of mutating the original session.
+        forkSession: resumeSessionId ? forkSession : undefined,
+        // Resume from a specific message UUID (branching point).
+        resumeSessionAt: resumeSessionId ? resumeSessionAt : undefined,
       },
     };
+  }
+
+  /**
+   * Emit a structured warning when fork/resume-at are requested without a
+   * resumeSessionId. Behavior is intentionally preserved (silent drop into
+   * `undefined`) — but observability is added so misconfigured callers
+   * surface in logs instead of silently producing fresh sessions.
+   *
+   * Called inline below; extracted for readability and to keep the main
+   * `build()` flow uncluttered.
+   */
+  private warnIfForkOptionsDroppedSilently(input: QueryOptionsInput): void {
+    const { resumeSessionId, forkSession, resumeSessionAt, sessionId } = input;
+    if (resumeSessionId) return;
+    if (forkSession === undefined && resumeSessionAt === undefined) return;
+    this.logger.warn(
+      '[SdkQueryOptionsBuilder] forkSession/resumeSessionAt were set without a resumeSessionId — both options will be dropped because they only apply to resumed sessions.',
+      {
+        sessionId: sessionId ? `${sessionId.slice(0, 8)}...` : undefined,
+        hasForkSession: forkSession !== undefined,
+        hasResumeSessionAt: resumeSessionAt !== undefined,
+        forkSession,
+        // Truncate the message UUID like the rest of the file does
+        resumeSessionAt: resumeSessionAt
+          ? `${resumeSessionAt.slice(0, 8)}...`
+          : undefined,
+      },
+    );
   }
 
   /**
@@ -684,7 +846,7 @@ export class SdkQueryOptionsBuilder {
         hasBaseUrl: false,
         hasAuthToken: !!authToken,
       });
-      throw new Error(message);
+      throw new SdkError(message);
     }
   }
 
@@ -836,6 +998,31 @@ export class SdkQueryOptionsBuilder {
       mcpUrl: mcpConfig.ptah.url,
     });
     return mcpConfig;
+  }
+
+  /**
+   * Merge caller-supplied MCP HTTP overrides over the registry-built map.
+   * Caller wins on key collision (matches the proxy tool-merger contract).
+   *
+   * Returns the original `base` reference unchanged when `override` is
+   * `undefined` or empty — preserves identity for the existing chat path so
+   * the merge is a no-op on every non-proxy call site.
+   *
+   * @see TASK_2026_108 T2 — threading mcpServersOverride through the SDK chain
+   */
+  private mergeMcpOverride(
+    base: Record<string, McpHttpServerConfig>,
+    override: Record<string, McpHttpServerOverride> | undefined,
+  ): Record<string, McpHttpServerConfig> {
+    if (!override || Object.keys(override).length === 0) {
+      return base;
+    }
+    // McpHttpServerOverride is structurally a subset of McpHttpServerConfig —
+    // both share { type: 'http', url, headers? }. The widening cast lets the
+    // SDK consume the override entries without a runtime conversion. This is
+    // the SINGLE documented widening cast for TASK_2026_108 T2; do NOT add
+    // additional `as` casts elsewhere in the threading path.
+    return { ...base, ...(override as Record<string, McpHttpServerConfig>) };
   }
 
   /**

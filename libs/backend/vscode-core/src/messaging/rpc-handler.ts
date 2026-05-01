@@ -21,13 +21,14 @@
  *   });
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import { TOKENS } from '../di/tokens';
 import type { Logger } from '../logging/logger';
 import type {
   LicenseService,
   LicenseStatus,
 } from '../services/license.service';
+import type { SentryService } from '../services/sentry.service';
 import type {
   RpcMessage,
   RpcResponse,
@@ -100,9 +101,17 @@ const PRO_ONLY_METHOD_PREFIXES = [
   'setup-wizard:', // setup_wizard feature
   'wizard:', // setup_wizard feature (deep-analyze, recommend-agents)
   'enhancedPrompts:', // TASK_2025_137: Enhanced Prompts (Pro-only intelligent prompt generation)
-  'agent:', // TASK_2025_157: Agent orchestration (Pro-only headless CLI agents)
   'ptahCli:', // TASK_2025_170: Ptah CLI agent management (Pro-only)
 ] as const;
+
+/**
+ * Explicit allowlist of Pro-only agent:* methods.
+ *
+ * The coarse `agent:` prefix gate was removed because `agent:permissionResponse`
+ * must work for Community users during tool permission dialogs. Only truly
+ * Pro-only agent methods belong in this list.
+ */
+const PRO_ONLY_METHODS: readonly string[] = [] as const;
 
 /**
  * RPC methods that bypass license check entirely (TASK_2025_124)
@@ -267,6 +276,10 @@ export class RpcHandler {
       const errorObj =
         error instanceof Error ? error : new Error(String(error));
       this.logger.error(`RpcHandler: Method "${method}" failed`, errorObj);
+      this.reportToSentry(errorObj, {
+        errorSource: 'rpc-handler',
+        extra: { method, correlationId },
+      });
       return {
         success: false,
         error: errorObj.message,
@@ -319,6 +332,27 @@ export class RpcHandler {
    */
   private isValidMethodName(name: string): boolean {
     return ALLOWED_METHOD_PREFIXES.some((prefix) => name.startsWith(prefix));
+  }
+
+  /**
+   * Report a handler exception to Sentry at the single RPC chokepoint.
+   *
+   * Resolved lazily via the container so RpcHandler's constructor signature
+   * stays unchanged and tests without Sentry registered keep working. The
+   * reporting path is itself wrapped in try/catch so a Sentry failure can
+   * never break the RPC response flow.
+   */
+  private reportToSentry(
+    error: Error,
+    context: { errorSource: string; extra: Record<string, unknown> },
+  ): void {
+    try {
+      if (!container.isRegistered(TOKENS.SENTRY_SERVICE)) return;
+      const sentry = container.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
+      sentry.captureException(error, context);
+    } catch {
+      // Never let Sentry reporting break the RPC response path.
+    }
   }
 
   /**
@@ -445,6 +479,9 @@ export class RpcHandler {
    * @returns True if method requires Pro tier
    */
   private isProOnlyMethod(method: string): boolean {
-    return PRO_ONLY_METHOD_PREFIXES.some((prefix) => method.startsWith(prefix));
+    if (PRO_ONLY_METHOD_PREFIXES.some((prefix) => method.startsWith(prefix))) {
+      return true;
+    }
+    return PRO_ONLY_METHODS.includes(method);
   }
 }

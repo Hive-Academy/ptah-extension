@@ -25,6 +25,7 @@ import {
   TOKENS,
   LicenseService,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
@@ -44,10 +45,11 @@ import type {
   GenerationSummary,
   OrchestratorGenerationOptions,
 } from '@ptah-extension/agent-generation';
-import { CliDetectionService } from '@ptah-extension/llm-abstraction';
+import { CliDetectionService } from '@ptah-extension/agent-sdk';
 import { Result } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * Progress update callback payload from AgentGenerationOrchestratorService.
@@ -129,6 +131,12 @@ interface EnhancedPromptsServiceInterface {
  */
 @injectable()
 export class WizardGenerationRpcHandlers {
+  static readonly METHODS = [
+    'wizard:submit-selection',
+    'wizard:cancel',
+    'wizard:retry-item',
+  ] as const satisfies readonly RpcMethodName[];
+
   /**
    * Concurrent generation guard.
    * Prevents multiple simultaneous agent generation runs.
@@ -150,6 +158,8 @@ export class WizardGenerationRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject('DependencyContainer')
     private readonly container: DependencyContainer,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -540,6 +550,12 @@ export class WizardGenerationRpcHandlers {
           'RPC: wizard:submit-selection unexpected error',
           error instanceof Error ? error : new Error(errorMessage),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          {
+            errorSource: 'WizardGenerationRpcHandlers.registerSubmitSelection',
+          },
+        );
         this.isGenerating = false;
         return {
           success: false,
@@ -561,8 +577,25 @@ export class WizardGenerationRpcHandlers {
     webviewManager: WebviewBroadcaster | null,
     startTime: number,
   ): void {
-    orchestrator
-      .generateAgents(options, progressCallback)
+    // Cap background generation at 10 minutes. Without this, a stuck LLM call
+    // leaves isGenerating=true forever, blocking all future wizard submissions
+    // until extension reload.
+    const GENERATION_TIMEOUT_MS = 10 * 60 * 1000;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(
+          new Error(
+            `Agent generation exceeded ${GENERATION_TIMEOUT_MS / 60_000}-minute timeout`,
+          ),
+        );
+      }, GENERATION_TIMEOUT_MS);
+    });
+
+    Promise.race([
+      orchestrator.generateAgents(options, progressCallback),
+      timeoutPromise,
+    ])
       .then((result) => {
         const durationMs = Date.now() - startTime;
 
@@ -651,6 +684,10 @@ export class WizardGenerationRpcHandlers {
         }
       })
       .finally(() => {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
         this.isGenerating = false;
       });
   }
@@ -745,6 +782,10 @@ export class WizardGenerationRpcHandlers {
           this.logger.warn('RPC: wizard:cancel error', {
             error: errorMessage,
           });
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(errorMessage),
+            { errorSource: 'WizardGenerationRpcHandlers.registerCancel' },
+          );
 
           // Reset generation flag even on error to prevent deadlock
           this.isGenerating = false;
@@ -907,6 +948,10 @@ export class WizardGenerationRpcHandlers {
         this.logger.error(
           'RPC: wizard:retry-item unexpected error',
           error instanceof Error ? error : new Error(errorMessage),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'WizardGenerationRpcHandlers.registerRetryItem' },
         );
         return {
           success: false,

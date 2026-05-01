@@ -49,11 +49,33 @@
       "configurations": {
         "development": {
           "sourcemap": true,
-          "minify": false
+          "minify": false,
+          "esbuildOptions": {
+            "outExtension": {
+              ".js": ".mjs"
+            },
+            "banner": {
+              "js": "import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
+            },
+            "define": {
+              "__SENTRY_DSN__": "\"\""
+            }
+          }
         },
         "production": {
           "sourcemap": false,
-          "minify": true
+          "minify": true,
+          "esbuildOptions": {
+            "outExtension": {
+              ".js": ".mjs"
+            },
+            "banner": {
+              "js": "import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
+            },
+            "define": {
+              "__SENTRY_DSN__": "\"https://f443ca20f86dff7c57cbf370e0f790e6@o4511123313393664.ingest.de.sentry.io/4511142057738320\""
+            }
+          }
         }
       }
     },
@@ -146,6 +168,14 @@
     },
     "lint": {
       "executor": "@nx/eslint:lint"
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "apps/ptah-extension-vscode/jest.config.ts",
+        "passWithNoTests": true
+      }
     },
     "typecheck": {
       "executor": "nx:run-commands",

@@ -153,8 +153,12 @@ export class PatternMatcherService {
     pattern: string,
     options?: PatternMatchOptions,
   ): boolean {
+    // Normalize Windows-style backslashes to forward slashes — picomatch
+    // operates on POSIX paths and treats `\` as literal on Linux.
+    const normalizedPath = path.replace(/\\/g, '/');
+
     // Check result cache first
-    const cacheKey = `${path}::${pattern}::${JSON.stringify(options || {})}`;
+    const cacheKey = `${normalizedPath}::${pattern}::${JSON.stringify(options || {})}`;
     const cachedResult = this.resultCache.get(cacheKey);
     if (cachedResult !== undefined) {
       return cachedResult;
@@ -164,7 +168,7 @@ export class PatternMatcherService {
     const matcher = this.getCompiledMatcher(pattern, options);
 
     // Test path against matcher
-    const result = matcher(path);
+    const result = matcher(normalizedPath);
 
     // Cache result
     this.resultCache.set(cacheKey, result);

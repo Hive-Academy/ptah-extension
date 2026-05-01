@@ -10,7 +10,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { z } from 'zod';
 import {
   Logger,
   RpcHandler,
@@ -18,10 +17,11 @@ import {
   ConfigManager,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import type {
   IPlatformCommands,
   IPlatformAuthProvider,
-} from '../platform-abstractions';
+} from '@ptah-extension/platform-core';
 import {
   SdkAgentAdapter,
   SDK_TOKENS,
@@ -40,12 +40,26 @@ import {
   AuthGetAuthStatusParams,
   AuthGetAuthStatusResponse,
 } from '@ptah-extension/shared';
+import { AuthSettingsSchema } from './auth-rpc.schema';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for authentication operations
  */
 @injectable()
 export class AuthRpcHandlers {
+  static readonly METHODS = [
+    'auth:getHealth',
+    'auth:getAuthStatus',
+    'auth:saveSettings',
+    'auth:testConnection',
+    'auth:copilotLogin',
+    'auth:copilotLogout',
+    'auth:copilotStatus',
+    'auth:codexLogin',
+    'auth:getApiKeyStatus',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -67,6 +81,8 @@ export class AuthRpcHandlers {
     private readonly platformAuth: IPlatformAuthProvider,
     @inject(SDK_TOKENS.SDK_CLI_DETECTOR)
     private readonly cliDetector: ClaudeCliDetector,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -81,6 +97,7 @@ export class AuthRpcHandlers {
     this.registerCopilotLogout();
     this.registerCopilotStatus();
     this.registerCodexLogin();
+    this.registerGetApiKeyStatus();
 
     this.logger.debug('Auth RPC handlers registered', {
       methods: [
@@ -92,6 +109,7 @@ export class AuthRpcHandlers {
         'auth:copilotLogout',
         'auth:copilotStatus',
         'auth:codexLogin',
+        'auth:getApiKeyStatus',
       ],
     });
   }
@@ -111,6 +129,10 @@ export class AuthRpcHandlers {
           this.logger.error(
             'RPC: auth:getHealth failed',
             error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AuthRpcHandlers.registerGetHealth' },
           );
           throw error;
         }
@@ -191,6 +213,10 @@ export class AuthRpcHandlers {
           authType: 'authType' in p ? p.authType : undefined,
           isLocal: 'isLocal' in p ? p.isLocal : undefined,
           baseUrl: p.baseUrl,
+          supportsOptionalApiKey:
+            'supportsOptionalApiKey' in p
+              ? p.supportsOptionalApiKey
+              : undefined,
         }));
 
         // Check Copilot auth status (TASK_2025_191)
@@ -270,6 +296,10 @@ export class AuthRpcHandlers {
           'RPC: auth:getAuthStatus failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerGetAuthStatus' },
+        );
         throw error;
       }
     });
@@ -279,17 +309,6 @@ export class AuthRpcHandlers {
    * auth:saveSettings - Save authentication settings
    */
   private registerSaveSettings(): void {
-    const AuthSettingsSchema = z.object({
-      authMethod: z.enum(['apiKey', 'claudeCli', 'thirdParty']),
-      anthropicApiKey: z.string().optional(),
-      providerApiKey: z.string().optional(),
-      // TASK_2025_129 Batch 3: Selected Anthropic-compatible provider
-      // Validated against known provider IDs from the registry
-      anthropicProviderId: z
-        .enum(ANTHROPIC_PROVIDERS.map((p) => p.id) as [string, ...string[]])
-        .optional(),
-    });
-
     this.rpcHandler.registerMethod<
       unknown,
       { success: boolean; error?: string }
@@ -386,6 +405,10 @@ export class AuthRpcHandlers {
           'RPC: auth:saveSettings failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerSaveSettings' },
+        );
         throw error;
       }
     });
@@ -452,6 +475,10 @@ export class AuthRpcHandlers {
           'RPC: auth:testConnection failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerTestConnection' },
+        );
         throw error;
       }
     });
@@ -498,6 +525,10 @@ export class AuthRpcHandlers {
           'RPC: auth:copilotLogin failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerCopilotLogin' },
+        );
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Login failed',
@@ -524,6 +555,10 @@ export class AuthRpcHandlers {
           this.logger.error(
             'RPC: auth:copilotLogout failed',
             error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AuthRpcHandlers.registerCopilotLogout' },
           );
           return { success: false };
         }
@@ -563,7 +598,60 @@ export class AuthRpcHandlers {
           'RPC: auth:copilotStatus failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerCopilotStatus' },
+        );
         return { authenticated: false };
+      }
+    });
+  }
+
+  /**
+   * auth:getApiKeyStatus - List all providers with their key presence
+   *
+   * TASK_2026_104 Batch B8b: Lifted from
+   * `apps/ptah-electron/src/services/rpc/handlers/config-extended-rpc.handlers.ts`
+   * so all three apps (VS Code, Electron, CLI) consume it via
+   * `registerAllRpcHandlers()`. Body is a verbatim port; the only mechanical
+   * change is `container.resolve<...>(...)` → `this.<field>` (constructor-injected).
+   */
+  private registerGetApiKeyStatus(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      {
+        providers: Array<{
+          provider: string;
+          displayName: string;
+          hasApiKey: boolean;
+          isDefault: boolean;
+        }>;
+      }
+    >('auth:getApiKeyStatus', async () => {
+      try {
+        const activeProvider = this.configManager.getWithDefault<string>(
+          'anthropicProviderId',
+          DEFAULT_PROVIDER_ID,
+        );
+        const providers = await Promise.all(
+          ANTHROPIC_PROVIDERS.map(async (p) => ({
+            provider: p.id,
+            displayName: p.name,
+            hasApiKey: await this.authSecretsService.hasProviderKey(p.id),
+            isDefault: p.id === activeProvider,
+          })),
+        );
+        return { providers };
+      } catch (error) {
+        this.logger.error(
+          'RPC: auth:getApiKeyStatus failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerGetApiKeyStatus' },
+        );
+        return { providers: [] };
       }
     });
   }
