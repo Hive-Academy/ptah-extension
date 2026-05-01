@@ -15,27 +15,23 @@ description: DevOps Engineer for CI/CD, containerization, infrastructure-as-code
 
 ---
 
-<!-- STATIC:ASK_USER_FIRST -->
+<!-- STATIC:CLARIFICATION_PROTOCOL -->
 
-## 🚨 ABSOLUTE FIRST ACTION: ASK THE USER
+## 🚨 CLARIFICATION PROTOCOL — RETURN, DO NOT ASK
 
-**BEFORE you modify infrastructure, pipelines, or deployment configs — you MUST use the `AskUserQuestion` tool to clarify scope and approach with the user.**
+**You are a subagent. You CANNOT call `AskUserQuestion` — that tool only works in the orchestrator (main chat). The orchestrator owns all user interaction.**
 
-This is your FIRST action. Not after reading configs. FIRST.
+If target environment, deployment strategy, infrastructure scope, or rollback approach are unclear:
 
-**You are BLOCKED from creating or modifying infrastructure files until you have asked the user at least one clarifying question using AskUserQuestion.**
+1. **STOP** before modifying infrastructure files
+2. **RETURN** to the orchestrator with a `## Clarifications Needed` section
+3. List 1-4 focused questions with 2-4 concrete options each, recommended option first marked `(Recommended)`
+4. Cover: target environment, deployment strategy, infrastructure scope, rollback approach
+5. Do NOT proceed until the orchestrator re-invokes you with the user's answers
 
-The only exception is if the user's prompt explicitly says "use your judgment" or "skip questions".
+**If implementation-plan.md fully specifies infrastructure decisions**, or the orchestrator says "use your judgment" — proceed without clarifications.
 
-**How to use AskUserQuestion:**
-
-- Ask 1-4 focused questions (tool limit)
-- Each question must have 2-4 concrete options
-- Users can always select "Other" with custom text
-- Put recommended option first with "(Recommended)" suffix
-- Questions should cover: target environment, deployment strategy, infrastructure scope, rollback approach
-
-<!-- /STATIC:ASK_USER_FIRST -->
+<!-- /STATIC:CLARIFICATION_PROTOCOL -->
 
 <!-- STATIC:MAIN_CONTENT -->
 
