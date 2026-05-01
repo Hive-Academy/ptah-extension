@@ -2,7 +2,7 @@
   "name": "ptah-coding-orchestra",
   "displayName": "Ptah - The Coding Orchestra",
   "description": "The AI coding orchestra for VS Code. Provider-agnostic AI orchestration with intelligent workspace analysis, Code Execution MCP server, and project-adaptive multi-agent workflows.",
-  "version": "0.2.26",
+  "version": "0.2.27",
   "publisher": "ptah-extensions",
   "repository": {
     "type": "git",
