@@ -90,6 +90,8 @@ export class CliAgentRpcHandlers {
   ) {}
 
   register(): void {
+    void this.migrateAgentOrchestrationSettings();
+
     this.registerGetConfig();
     this.registerSetConfig();
     this.registerDetectClis();
@@ -99,12 +101,13 @@ export class CliAgentRpcHandlers {
     this.registerResumeCliSession();
 
     // Initialize Copilot auto-approve from saved config (default: true).
-    // Same boot-time hydration the Electron handler performs.
-    const copilotAutoApprove =
-      this.stateStorage.get<boolean>(
-        'agentOrchestration.copilotAutoApprove',
-        true,
-      ) ?? true;
+    // Read via workspace provider so file-based key routes to ~/.ptah/settings.json
+    // — parity with Electron AgentRpcHandlers and the gate in
+    // agent-process-manager.service.ts.
+    const copilotAutoApprove = this.getAgentCfg<boolean>(
+      'copilotAutoApprove',
+      true,
+    );
     const copilotAdapter = this.cliDetection.getAdapter('copilot');
     if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
       const bridge = (
@@ -138,67 +141,48 @@ export class CliAgentRpcHandlers {
 
           const result: AgentOrchestrationConfig = {
             detectedClis,
-            preferredAgentOrder:
-              this.stateStorage.get<string[]>(
-                'agentOrchestration.preferredAgentOrder',
-                [],
-              ) ?? [],
-            maxConcurrentAgents:
-              this.stateStorage.get<number>(
-                'agentOrchestration.maxConcurrentAgents',
-                5,
-              ) ?? 5,
-            geminiModel:
-              this.stateStorage.get<string>(
-                'agentOrchestration.geminiModel',
-                '',
-              ) ?? '',
-            codexModel:
-              this.stateStorage.get<string>(
-                'agentOrchestration.codexModel',
-                '',
-              ) ?? '',
-            copilotModel:
-              this.stateStorage.get<string>(
-                'agentOrchestration.copilotModel',
-                '',
-              ) ?? '',
-            codexAutoApprove:
-              this.stateStorage.get<boolean>(
-                'agentOrchestration.codexAutoApprove',
-                true,
-              ) ?? true,
-            copilotAutoApprove:
-              this.stateStorage.get<boolean>(
-                'agentOrchestration.copilotAutoApprove',
-                true,
-              ) ?? true,
-            codexReasoningEffort:
-              this.stateStorage.get<string>(
-                'agentOrchestration.codexReasoningEffort',
-                '',
-              ) ?? '',
-            copilotReasoningEffort:
-              this.stateStorage.get<string>(
-                'agentOrchestration.copilotReasoningEffort',
-                '',
-              ) ?? '',
+            // agentOrchestration.* settings are read via IWorkspaceProvider so
+            // file-based keys route to ~/.ptah/settings.json — parity with the
+            // Electron handler and the gate in agent-process-manager.service.ts.
+            preferredAgentOrder: this.getAgentCfg<string[]>(
+              'preferredAgentOrder',
+              [],
+            ),
+            maxConcurrentAgents: this.getAgentCfg<number>(
+              'maxConcurrentAgents',
+              5,
+            ),
+            geminiModel: this.getAgentCfg<string>('geminiModel', ''),
+            codexModel: this.getAgentCfg<string>('codexModel', ''),
+            copilotModel: this.getAgentCfg<string>('copilotModel', ''),
+            codexAutoApprove: this.getAgentCfg<boolean>(
+              'codexAutoApprove',
+              true,
+            ),
+            copilotAutoApprove: this.getAgentCfg<boolean>(
+              'copilotAutoApprove',
+              true,
+            ),
+            codexReasoningEffort: this.getAgentCfg<string>(
+              'codexReasoningEffort',
+              '',
+            ),
+            copilotReasoningEffort: this.getAgentCfg<string>(
+              'copilotReasoningEffort',
+              '',
+            ),
+            // mcpPort lives under the `ptah` namespace (non-file-based);
+            // intentionally kept on stateStorage for parity with Electron.
             mcpPort:
               this.stateStorage.get<number>(
                 'agentOrchestration.mcpPort',
                 51820,
               ) ?? 51820,
-            disabledClis:
-              this.stateStorage.get<string[]>(
-                'agentOrchestration.disabledClis',
-                [],
-              ) ?? [],
-            disabledMcpNamespaces:
-              this.stateStorage.get<string[]>(
-                'agentOrchestration.disabledMcpNamespaces',
-                [],
-              ) ?? [],
-            // Browser settings — read from workspace provider (file-based settings).
+            disabledClis: this.getAgentCfg<string[]>('disabledClis', []),
+            disabledMcpNamespaces: this.getAgentCfg<string[]>(
+              'disabledMcpNamespaces',
+              [],
+            ),
             browserAllowLocalhost:
               this.workspace.getConfiguration<boolean>(
                 'ptah',
@@ -233,38 +217,29 @@ export class CliAgentRpcHandlers {
         this.logger.debug('RPC: agent:setConfig called', { params });
 
         if (params.preferredAgentOrder !== undefined) {
-          await this.stateStorage.update(
-            'agentOrchestration.preferredAgentOrder',
+          await this.setAgentCfg(
+            'preferredAgentOrder',
             params.preferredAgentOrder,
           );
         }
         if (params.maxConcurrentAgents !== undefined) {
-          await this.stateStorage.update(
-            'agentOrchestration.maxConcurrentAgents',
+          await this.setAgentCfg(
+            'maxConcurrentAgents',
             Math.max(1, Math.min(10, params.maxConcurrentAgents)),
           );
         }
         if (params.geminiModel !== undefined) {
-          await this.stateStorage.update(
-            'agentOrchestration.geminiModel',
-            params.geminiModel,
-          );
+          await this.setAgentCfg('geminiModel', params.geminiModel);
         }
         if (params.codexModel !== undefined) {
-          await this.stateStorage.update(
-            'agentOrchestration.codexModel',
-            params.codexModel,
-          );
+          await this.setAgentCfg('codexModel', params.codexModel);
         }
         if (params.copilotModel !== undefined) {
-          await this.stateStorage.update(
-            'agentOrchestration.copilotModel',
-            params.copilotModel,
-          );
+          await this.setAgentCfg('copilotModel', params.copilotModel);
         }
         if (params.copilotAutoApprove !== undefined) {
-          await this.stateStorage.update(
-            'agentOrchestration.copilotAutoApprove',
+          await this.setAgentCfg(
+            'copilotAutoApprove',
             params.copilotAutoApprove,
           );
           const copilotAdapter = this.cliDetection.getAdapter('copilot');
@@ -276,32 +251,31 @@ export class CliAgentRpcHandlers {
           }
         }
         if (params.codexReasoningEffort !== undefined) {
-          await this.stateStorage.update(
-            'agentOrchestration.codexReasoningEffort',
+          await this.setAgentCfg(
+            'codexReasoningEffort',
             params.codexReasoningEffort,
           );
         }
         if (params.copilotReasoningEffort !== undefined) {
-          await this.stateStorage.update(
-            'agentOrchestration.copilotReasoningEffort',
+          await this.setAgentCfg(
+            'copilotReasoningEffort',
             params.copilotReasoningEffort,
           );
         }
         if (params.mcpPort !== undefined) {
+          // mcpPort lives under `ptah` (not agentOrchestration) — kept on
+          // stateStorage to match Electron.
           await this.stateStorage.update(
             'agentOrchestration.mcpPort',
             Math.max(1024, Math.min(65535, params.mcpPort)),
           );
         }
         if (params.disabledClis !== undefined) {
-          await this.stateStorage.update(
-            'agentOrchestration.disabledClis',
-            params.disabledClis,
-          );
+          await this.setAgentCfg('disabledClis', params.disabledClis);
         }
         if (params.disabledMcpNamespaces !== undefined) {
-          await this.stateStorage.update(
-            'agentOrchestration.disabledMcpNamespaces',
+          await this.setAgentCfg(
+            'disabledMcpNamespaces',
             params.disabledMcpNamespaces,
           );
         }
@@ -702,5 +676,89 @@ export class CliAgentRpcHandlers {
     }
 
     return false;
+  }
+
+  /**
+   * Read an `agentOrchestration.<key>` setting via IWorkspaceProvider so
+   * file-based keys route through PtahFileSettingsManager — parity with
+   * Electron AgentRpcHandlers.getAgentCfg.
+   */
+  private getAgentCfg<T>(name: string, defaultValue: T): T {
+    return (
+      this.workspace.getConfiguration<T>(
+        'ptah',
+        `agentOrchestration.${name}`,
+        defaultValue,
+      ) ?? defaultValue
+    );
+  }
+
+  /** Companion writer to {@link getAgentCfg}. */
+  private async setAgentCfg(name: string, value: unknown): Promise<void> {
+    await this.workspace.setConfiguration(
+      'ptah',
+      `agentOrchestration.${name}`,
+      value,
+    );
+  }
+
+  /**
+   * One-shot migration mirror of Electron AgentRpcHandlers: copy any legacy
+   * `agentOrchestration.*` values out of IStateStorage into the workspace
+   * provider. Idempotent — gated by a flag in stateStorage.
+   */
+  private async migrateAgentOrchestrationSettings(): Promise<void> {
+    const FLAG_KEY = 'agentOrchestration.migratedToFileSettings';
+    if (this.stateStorage.get<boolean>(FLAG_KEY, false) === true) {
+      return;
+    }
+
+    const KEYS_TO_MIGRATE = [
+      'preferredAgentOrder',
+      'maxConcurrentAgents',
+      'geminiModel',
+      'codexModel',
+      'copilotModel',
+      'codexAutoApprove',
+      'copilotAutoApprove',
+      'codexReasoningEffort',
+      'copilotReasoningEffort',
+      'disabledClis',
+      'disabledMcpNamespaces',
+    ] as const;
+
+    try {
+      let migratedCount = 0;
+      for (const key of KEYS_TO_MIGRATE) {
+        const stateKey = `agentOrchestration.${key}`;
+        const stateValue = this.stateStorage.get<unknown>(stateKey, undefined);
+        if (stateValue === undefined) continue;
+
+        const existing = this.workspace.getConfiguration<unknown>(
+          'ptah',
+          stateKey,
+          undefined,
+        );
+        if (existing !== undefined) continue;
+
+        await this.workspace.setConfiguration('ptah', stateKey, stateValue);
+        migratedCount++;
+      }
+
+      await this.stateStorage.update(FLAG_KEY, true);
+
+      if (migratedCount > 0) {
+        this.logger.info(
+          'Migrated agentOrchestration settings from stateStorage to workspace provider',
+          { migratedCount },
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[CliAgentRpc] agentOrchestration migration failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 }

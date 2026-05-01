@@ -354,4 +354,118 @@ describe('ClaudeRpcService', () => {
       expect(service.handledMessageTypes).toContain(MESSAGE_TYPES.RPC_RESPONSE);
     });
   });
+
+  describe('forkSession() / rewindFiles() wrappers', () => {
+    it('forkSession posts session:forkSession with all params and a 15s timeout', async () => {
+      jest.useFakeTimers();
+      const pending = service.forkSession(
+        'sess-1' as unknown as Parameters<typeof service.forkSession>[0],
+        'msg-42',
+        'My Branch',
+      );
+      const sent = lastPostedRpc(postMessage);
+
+      expect(sent.payload.method).toBe('session:forkSession');
+      expect(sent.payload.params).toEqual({
+        sessionId: 'sess-1',
+        upToMessageId: 'msg-42',
+        title: 'My Branch',
+      });
+
+      // Default timeout is 30s — confirm the wrapper bumped to 15s by checking
+      // it has NOT timed out at 14999ms but DOES at 15000ms.
+      jest.advanceTimersByTime(14999);
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      service.handleResponse({
+        success: true,
+        data: { newSessionId: 'sess-2' },
+        correlationId: sent.payload.correlationId,
+      });
+
+      const result = await pending;
+      expect(result.isSuccess()).toBe(true);
+      if (result.isSuccess()) {
+        expect(result.data.newSessionId).toBe('sess-2');
+      }
+    });
+
+    it('forkSession works with only the required sessionId', async () => {
+      const pending = service.forkSession(
+        'sess-1' as unknown as Parameters<typeof service.forkSession>[0],
+      );
+      const sent = lastPostedRpc(postMessage);
+
+      expect(sent.payload.method).toBe('session:forkSession');
+      expect(sent.payload.params).toEqual({
+        sessionId: 'sess-1',
+        upToMessageId: undefined,
+        title: undefined,
+      });
+
+      service.handleResponse({
+        success: true,
+        data: { newSessionId: 'sess-3' },
+        correlationId: sent.payload.correlationId,
+      });
+      await pending;
+    });
+
+    it('rewindFiles posts session:rewindFiles with dryRun flag', async () => {
+      const pending = service.rewindFiles(
+        'sess-1' as unknown as Parameters<typeof service.rewindFiles>[0],
+        'msg-99',
+        true,
+      );
+      const sent = lastPostedRpc(postMessage);
+
+      expect(sent.payload.method).toBe('session:rewindFiles');
+      expect(sent.payload.params).toEqual({
+        sessionId: 'sess-1',
+        userMessageId: 'msg-99',
+        dryRun: true,
+      });
+
+      service.handleResponse({
+        success: true,
+        data: {
+          canRewind: true,
+          filesChanged: ['/a.ts', '/b.ts'],
+          insertions: 10,
+          deletions: 4,
+        },
+        correlationId: sent.payload.correlationId,
+      });
+
+      const result = await pending;
+      expect(result.isSuccess()).toBe(true);
+      if (result.isSuccess()) {
+        expect(result.data.canRewind).toBe(true);
+        expect(result.data.filesChanged).toEqual(['/a.ts', '/b.ts']);
+      }
+    });
+
+    it('rewindFiles propagates session-not-active error code through error string', async () => {
+      const pending = service.rewindFiles(
+        'sess-1' as unknown as Parameters<typeof service.rewindFiles>[0],
+        'msg-99',
+      );
+      const sent = lastPostedRpc(postMessage);
+
+      service.handleResponse({
+        success: false,
+        error: 'session-not-active: SDK process has exited',
+        correlationId: sent.payload.correlationId,
+      });
+
+      const result = await pending;
+      expect(result.isError()).toBe(true);
+      expect(result.error).toMatch(/^session-not-active/);
+    });
+  });
 });

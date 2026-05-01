@@ -1,0 +1,109 @@
+@if (isOpen()) {
+<dialog class="modal modal-open">
+  <div class="modal-box max-w-lg">
+    <h3 class="font-bold text-lg">Issue Complimentary License</h3>
+    <p class="py-2 text-sm opacity-70">Give <strong>{{ userEmail() }}</strong> a Pro license for free.</p>
+
+    @if (!result()) {
+      <div class="space-y-4 my-4">
+        <label class="form-control w-full">
+          <span class="label-text mb-1 text-xs font-semibold uppercase opacity-60">Duration</span>
+          <select class="select select-bordered select-sm" [ngModel]="durationPreset()" (ngModelChange)="durationPreset.set($event)">
+            <option value="30d">30 Days</option>
+            <option value="1y">1 Year</option>
+            <option value="5y">5 Years</option>
+            <option value="never">Never Expires (Lifetime)</option>
+            <option value="custom">Custom Date...</option>
+          </select>
+        </label>
+
+        @if (durationPreset() === 'custom') {
+          <label class="form-control w-full">
+            <span class="label-text mb-1 text-xs font-semibold uppercase opacity-60">Custom Expiration Date</span>
+            <input type="datetime-local" class="input input-bordered input-sm" [ngModel]="customExpiresAt()" (ngModelChange)="customExpiresAt.set($event)" />
+          </label>
+        }
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text text-xs font-semibold uppercase opacity-60">Reason for issuance</span>
+            <span class="label-text-alt opacity-50">{{ reason().length }}/500</span>
+          </div>
+          <textarea 
+            class="textarea textarea-bordered h-24 text-sm" 
+            placeholder="e.g. Beta tester, marketing partner, compensation for bug..."
+            [ngModel]="reason()" 
+            (ngModelChange)="reason.set($event)"
+            maxlength="500"
+          ></textarea>
+        </label>
+
+        <div class="space-y-2 pt-2">
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" [checked]="sendEmail()" (change)="sendEmail.set(!sendEmail())" />
+            <span>Send automated "Welcome to Pro" email</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" [checked]="stackOnTopOfPaid()" (change)="stackOnTopOfPaid.set(!stackOnTopOfPaid())" />
+            <span>Stack on top of existing paid license (ignore conflict)</span>
+          </label>
+        </div>
+      </div>
+
+      @if (error()) {
+        <div class="alert alert-error text-sm mb-3">
+          <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-4 w-4" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          <span>{{ error() }}</span>
+        </div>
+      }
+
+      <div class="modal-action">
+        <button class="btn btn-ghost btn-sm" (click)="close()" [disabled]="isLoading()">Cancel</button>
+        <button class="btn btn-primary btn-sm" [disabled]="!canSubmit()" (click)="confirm()">
+          @if (isLoading()) { <span class="loading loading-spinner loading-xs"></span> } Issue License
+        </button>
+      </div>
+    } @else {
+      <!-- Success View -->
+      <div class="py-6 flex flex-col items-center text-center space-y-4">
+        <div class="w-16 h-16 bg-success/10 text-success rounded-full flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+        </div>
+        <div>
+          <h4 class="font-bold text-xl">License Issued!</h4>
+          <p class="text-sm opacity-70">A complimentary Pro license has been generated.</p>
+        </div>
+
+        <div class="w-full bg-base-200 p-4 rounded-lg font-mono text-sm break-all relative group">
+          <div class="text-xs opacity-50 mb-1 uppercase text-left">License Key</div>
+          {{ result()?.license?.licenseKey }}
+          <button 
+            class="btn btn-ghost btn-xs absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+            (click)="copyToClipboard(result()?.license?.licenseKey || '')"
+            title="Copy to clipboard"
+          >
+            Copy
+          </button>
+        </div>
+
+        @if (result()?.emailSent) {
+          <p class="text-xs text-success flex items-center gap-1 justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+            Email notification sent to {{ userEmail() }}
+          </p>
+        } @else if (result()?.emailError) {
+          <p class="text-xs text-warning flex items-center gap-1 justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            License issued, but email failed: {{ result()?.emailError }}
+          </p>
+        }
+      </div>
+
+      <div class="modal-action">
+        <button class="btn btn-primary w-full" (click)="done()">Done</button>
+      </div>
+    }
+  </div>
+  <form method="dialog" class="modal-backdrop"><button (click)="close()">close</button></form>
+</dialog>
+}

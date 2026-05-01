@@ -11,6 +11,7 @@
  */
 import { injectable, inject } from 'tsyringe';
 import { execFile, ChildProcess } from 'child_process';
+import { promises as fsPromises } from 'fs';
 import { promisify } from 'util';
 import { EventEmitter } from 'eventemitter3';
 import axios from 'axios';
@@ -253,7 +254,7 @@ export class AgentProcessManager {
     // Validate working directory
     const workingDirectory =
       request.workingDirectory ?? this.getWorkspaceRoot();
-    this.validateWorkingDirectory(workingDirectory);
+    await this.validateWorkingDirectory(workingDirectory);
 
     // Resolve MCP port before SDK/CLI branch — only for adapters that support it.
     // Premium-gated: only provided when user is premium AND MCP server is running.
@@ -563,7 +564,7 @@ export class AgentProcessManager {
         }
 
         // Validate working directory is within workspace root (same as doSpawn path)
-        this.validateWorkingDirectory(meta.workingDirectory);
+        await this.validateWorkingDirectory(meta.workingDirectory);
 
         const agentId = AgentId.create();
         const startedAt = new Date().toISOString();
@@ -1294,8 +1295,33 @@ export class AgentProcessManager {
         }
       }
     } else {
-      // Unix: SIGTERM then SIGKILL after grace period
-      child.kill('SIGTERM');
+      // Unix: SIGTERM then SIGKILL after grace period.
+      //
+      // Try to signal the entire process group first via `process.kill(-pid)`.
+      // This reaches every descendant (CLIs that spawn shells/tools) so we
+      // don't leave orphaned subprocesses on Linux/macOS. Requires the child
+      // to have been spawned in its own process group (detached:true) OR for
+      // the CLI itself to have called setpgid(). When neither holds, the
+      // negative-pid kill targets our own group (EPERM) or fails (ESRCH /
+      // EINVAL); we fall back to direct child.kill() in that case.
+      const childPid = child.pid;
+      const killGroup = (signal: NodeJS.Signals): boolean => {
+        try {
+          process.kill(-childPid, signal);
+          return true;
+        } catch {
+          // Process group signaling not available (no setpgid, already dead,
+          // or insufficient permissions). Fall back to direct child kill.
+          try {
+            child.kill(signal);
+          } catch {
+            /* already dead */
+          }
+          return false;
+        }
+      };
+
+      killGroup('SIGTERM');
       await new Promise<void>((resolve) => {
         let resolved = false;
 
@@ -1303,7 +1329,7 @@ export class AgentProcessManager {
           if (resolved) return;
           resolved = true;
           try {
-            child.kill('SIGKILL');
+            killGroup('SIGKILL');
           } catch (err) {
             this.sentryService.captureException(
               err instanceof Error ? err : new Error(String(err)),
@@ -1337,10 +1363,13 @@ export class AgentProcessManager {
   }
 
   private getMaxConcurrentAgents(): number {
+    // Section 'ptah' + flat key 'agentOrchestration.<key>' matches the write path
+    // in agent-rpc.handlers.ts and ensures FILE_BASED_SETTINGS_KEYS routing
+    // through PtahFileSettingsManager (~/.ptah/settings.json) where applicable.
     return (
       this.workspace.getConfiguration<number>(
-        'ptah.agentOrchestration',
-        'maxConcurrentAgents',
+        'ptah',
+        'agentOrchestration.maxConcurrentAgents',
         5,
       ) ?? 5
     );
@@ -1350,20 +1379,24 @@ export class AgentProcessManager {
     // Known system CLI types (not Ptah CLI IDs)
     const systemCliTypes = new Set<string>(['gemini', 'codex', 'copilot']);
 
-    // Read disabled CLIs to exclude them from selection
+    // Read disabled CLIs to exclude them from selection.
+    // IMPORTANT: section MUST be 'ptah' (not 'ptah.agentOrchestration') so the
+    // FILE_BASED_SETTINGS_KEYS check in IWorkspaceProvider.getConfiguration
+    // routes through PtahFileSettingsManager → ~/.ptah/settings.json. Writes
+    // (agent-rpc.handlers.ts) use the same section + flat-key format.
     const disabledClis = new Set(
       this.workspace.getConfiguration<string[]>(
-        'ptah.agentOrchestration',
-        'disabledClis',
+        'ptah',
+        'agentOrchestration.disabledClis',
         [],
       ) ?? [],
     );
 
-    // Read user's preferred agent order
+    // Read user's preferred agent order (matches write format)
     const preferredOrder =
       this.workspace.getConfiguration<string[]>(
-        'ptah.agentOrchestration',
-        'preferredAgentOrder',
+        'ptah',
+        'agentOrchestration.preferredAgentOrder',
         [],
       ) ?? [];
     this.logger.debug(
@@ -1461,7 +1494,7 @@ export class AgentProcessManager {
     }
   }
 
-  private validateWorkingDirectory(dir: string): void {
+  private async validateWorkingDirectory(dir: string): Promise<void> {
     const workspaceRoot = this.getWorkspaceRoot();
     // Reject if workspace root is missing. An empty workspaceRoot would pass
     // the startsWith check for any directory (empty string is a prefix of
@@ -1472,9 +1505,46 @@ export class AgentProcessManager {
     if (!dir || dir.trim() === '') {
       throw new Error('Working directory is required but was empty.');
     }
-    // Normalize paths for cross-platform comparison
-    const normalizedDir = dir.replace(/\\/g, '/').toLowerCase();
-    const normalizedRoot = workspaceRoot.replace(/\\/g, '/').toLowerCase();
+
+    // Cross-platform path normalization differs:
+    // - Windows: filesystem is case-insensitive, drive letters and `\` vs `/`
+    //   should both compare equal -> lowercase + slash-normalize.
+    // - Unix (Linux/macOS): filesystem is case-sensitive (case-preserving on
+    //   default macOS APFS but still treated as sensitive by exact-match
+    //   tooling). Lowercasing here would break legitimate paths whose real
+    //   components contain uppercase letters. Instead, resolve symlinks via
+    //   realpath so a symlinked workspace root still matches its canonical
+    //   target.
+    let normalizedDir: string;
+    let normalizedRoot: string;
+    if (process.platform === 'win32') {
+      // Locale-independent ASCII-only lowercase. Avoid String.prototype.toLowerCase()
+      // because Turkish locale maps `I` -> `ı` (dotless), breaking path comparison
+      // for drive letters and ASCII path components.
+      const asciiLower = (s: string): string =>
+        s.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
+      normalizedDir = asciiLower(dir.replace(/\\/g, '/'));
+      normalizedRoot = asciiLower(workspaceRoot.replace(/\\/g, '/'));
+    } else {
+      // Resolve real paths to handle symlinked workspace roots (common on
+      // macOS where /tmp -> /private/tmp). Fall back to the raw paths if
+      // realpath fails (e.g., directory doesn't exist yet, EACCES).
+      let realDir = dir;
+      let realRoot = workspaceRoot;
+      try {
+        realDir = await fsPromises.realpath(dir);
+      } catch {
+        // Directory may not exist yet — keep original
+      }
+      try {
+        realRoot = await fsPromises.realpath(workspaceRoot);
+      } catch {
+        // Workspace root may not exist yet — keep original
+      }
+      normalizedDir = realDir;
+      normalizedRoot = realRoot;
+    }
+
     if (!normalizedDir.startsWith(normalizedRoot)) {
       throw new Error(
         `Working directory must be within workspace root. ` +

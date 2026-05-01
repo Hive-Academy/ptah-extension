@@ -153,3 +153,65 @@ export interface SessionStatsBatchResult {
   /** Stats for each requested session (order matches sessionIds) */
   readonly sessionStats: SessionStatsEntry[];
 }
+
+// ============================================================
+// Session Fork / Rewind RPC Types
+// ============================================================
+//
+// `shared` is Layer 0 — it cannot import from `@ptah-extension/agent-sdk`
+// or from the upstream `@anthropic-ai/claude-agent-sdk` package. Instead,
+// `SessionRewindResult` is a structurally equivalent redeclaration of the
+// SDK's `RewindFilesResult` shape (see
+// libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts —
+// `Query.rewindFiles()` return type). Backend code that adapts from the
+// SDK's type to this one relies on structural assignability.
+
+/** Parameters for session:forkSession RPC method */
+export interface SessionForkParams {
+  /** Source session UUID to fork from */
+  sessionId: SessionId;
+  /** Optional message UUID to slice the transcript at (inclusive) */
+  upToMessageId?: string;
+  /** Optional title for the new fork (defaults to "<original> (fork)") */
+  title?: string;
+}
+
+/** Response from session:forkSession RPC method */
+export interface SessionForkResult {
+  /** UUID of the newly created forked session */
+  newSessionId: SessionId;
+}
+
+/** Parameters for session:rewindFiles RPC method */
+export interface SessionRewindParams {
+  /** Active session whose tracked files should be rewound */
+  sessionId: SessionId;
+  /** UUID of the user message to rewind file state to */
+  userMessageId: string;
+  /**
+   * When true, returns the planned changes without modifying files on disk.
+   * Useful for previewing the rewind diff before committing.
+   */
+  dryRun?: boolean;
+}
+
+/**
+ * Response from session:rewindFiles RPC method.
+ *
+ * Mirrors the structural shape of the SDK's `RewindFilesResult` so backend
+ * code can return SDK results directly without conversion. The SDK reports
+ * `canRewind: false` plus an `error` string when checkpointing is disabled
+ * or no checkpoint exists for the requested message.
+ */
+export interface SessionRewindResult {
+  /** Whether the rewind can/did proceed (false when checkpointing is disabled). */
+  canRewind: boolean;
+  /** Human-readable error message when `canRewind` is false. */
+  error?: string;
+  /** Absolute paths of files that were (or would be) modified. */
+  filesChanged?: string[];
+  /** Total lines inserted across all files in the rewind diff. */
+  insertions?: number;
+  /** Total lines deleted across all files in the rewind diff. */
+  deletions?: number;
+}

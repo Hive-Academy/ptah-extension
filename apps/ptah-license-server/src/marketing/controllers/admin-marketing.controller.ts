@@ -4,17 +4,20 @@ import {
   Post,
   Body,
   UseGuards,
-  BadRequestException,
   ConflictException,
   HttpStatus,
   HttpCode,
   Inject,
+  Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../../app/auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../../admin/admin.guard';
 import { AdminThrottlerGuard } from '../../admin/admin-throttler.guard';
 import { SegmentResolverService } from '../services/segment-resolver.service';
 import { TemplateRenderService } from '../services/template-render.service';
+import { MarketingService } from '../services/marketing.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SaveTemplateDto } from '../dto/save-template.dto';
 import { SendCampaignDto } from '../dto/send-campaign.dto';
@@ -27,6 +30,7 @@ export class AdminMarketingController {
     private readonly segmentResolver: SegmentResolverService,
     @Inject(TemplateRenderService)
     private readonly templateRender: TemplateRenderService,
+    @Inject(MarketingService) private readonly marketing: MarketingService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
   ) {}
 
@@ -60,41 +64,16 @@ export class AdminMarketingController {
     });
   }
 
+  /**
+   * T-B5-03: real orchestrator wired in. Throttled at 3/min per
+   * AdminThrottlerGuard's per-admin-email tracker so a single admin can't
+   * accidentally fan out hundreds of campaigns.
+   */
   @Post('send')
   @HttpCode(HttpStatus.ACCEPTED)
-  async sendCampaign(@Body() dto: SendCampaignDto) {
-    // Validate DTO requirements (mutually exclusive content)
-    if (!dto.templateId && (!dto.subject || !dto.htmlBody)) {
-      throw new BadRequestException('CONTENT_REQUIRED');
-    }
-    if (dto.templateId && (dto.subject || dto.htmlBody)) {
-      throw new BadRequestException('CONTENT_AMBIGUOUS');
-    }
-
-    // Resolve template if provided
-    if (dto.templateId) {
-      const template = await this.prisma.marketingCampaignTemplate.findUnique({
-        where: { id: dto.templateId },
-      });
-      if (!template) {
-        throw new BadRequestException('TEMPLATE_NOT_FOUND');
-      }
-    }
-
-    // Resolve recipients to check if empty
-    const { optedInUserIds } = await this.segmentResolver.resolve(
-      dto.segment,
-      dto.userIds,
-    );
-    if (optedInUserIds.length === 0) {
-      throw new BadRequestException('EMPTY_SEGMENT');
-    }
-
-    // STUB: B5 replaces with real orchestrator
-    return {
-      campaignId: 'pending-b5',
-      recipientCount: optedInUserIds.length,
-      status: 'stub',
-    };
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  async sendCampaign(@Body() dto: SendCampaignDto, @Req() req: Request) {
+    const actorEmail = req.user?.email ?? 'unknown';
+    return this.marketing.sendCampaign(dto, { email: actorEmail });
   }
 }

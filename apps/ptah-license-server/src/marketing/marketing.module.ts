@@ -11,6 +11,8 @@ import { SegmentResolverService } from './services/segment-resolver.service';
 import { MarketingService } from './services/marketing.service';
 import { PublicMarketingController } from './controllers/public-marketing.controller';
 import { AdminMarketingController } from './controllers/admin-marketing.controller';
+import { ResendWebhookController } from './controllers/resend-webhook.controller';
+import { ResendWebhookGuard } from './guards/resend-webhook.guard';
 
 @Module({
   imports: [
@@ -26,8 +28,13 @@ import { AdminMarketingController } from './controllers/admin-marketing.controll
     TemplateRenderService,
     SegmentResolverService,
     MarketingService,
+    ResendWebhookGuard,
   ],
-  controllers: [PublicMarketingController, AdminMarketingController],
+  controllers: [
+    PublicMarketingController,
+    AdminMarketingController,
+    ResendWebhookController,
+  ],
   exports: [
     UnsubscribeTokenService,
     TemplateRenderService,

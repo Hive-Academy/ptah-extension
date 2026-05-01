@@ -21,6 +21,8 @@ import {
   SessionMetadataStore,
   SDK_TOKENS,
   SessionHistoryReaderService,
+  SdkAgentAdapter,
+  SessionNotActiveError,
 } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
@@ -34,6 +36,10 @@ import {
   SessionStatsBatchParams,
   SessionStatsBatchResult,
   SessionStatsEntry,
+  SessionForkParams,
+  SessionForkResult,
+  SessionRewindParams,
+  SessionRewindResult,
 } from '@ptah-extension/shared';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -58,6 +64,8 @@ export class SessionRpcHandlers {
     'session:validate',
     'session:cli-sessions',
     'session:stats-batch',
+    'session:forkSession',
+    'session:rewindFiles',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -71,6 +79,8 @@ export class SessionRpcHandlers {
     private readonly sentryService: SentryService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
+    private readonly sdkAdapter: SdkAgentAdapter,
   ) {}
 
   /**
@@ -89,6 +99,88 @@ export class SessionRpcHandlers {
   }
 
   /**
+   * Lowercased lookup of authorized workspace roots, used by path-containment
+   * checks that need a `startsWith` predicate rather than equality.
+   */
+  private getAuthorizedWorkspaceRoots(): string[] {
+    const folders = this.workspaceProvider.getWorkspaceFolders() ?? [];
+    return folders.map((f) =>
+      path.resolve(f).replace(/\\/g, '/').toLowerCase(),
+    );
+  }
+
+  /**
+   * Validate a session UUID: 8-4-4-4-12 hex with hyphens, case-insensitive.
+   * Throws an error tagged with `invalid-session-id` so the frontend can
+   * branch on a stable code instead of message wording.
+   */
+  private validateSessionId(sessionId: unknown): string {
+    if (typeof sessionId !== 'string' || !/^[0-9a-f-]{36}$/i.test(sessionId)) {
+      throw new Error('invalid-session-id: sessionId must be a 36-char UUID');
+    }
+    return sessionId;
+  }
+
+  /**
+   * Validate a user message id. Spec note: rewind's `userMessageId` may be a
+   * Ptah-generated message UUID rather than the SDK's exact format, so we
+   * apply a permissive guard (non-empty, max 100 chars, no path separators)
+   * and let the SDK do final validation.
+   */
+  private validateUserMessageId(value: unknown): string {
+    if (
+      typeof value !== 'string' ||
+      value.length === 0 ||
+      value.length > 100 ||
+      /[\\/]/.test(value)
+    ) {
+      throw new Error(
+        'invalid-user-message-id: userMessageId must be 1-100 chars without path separators',
+      );
+    }
+    return value;
+  }
+
+  /**
+   * Sanitize an optional fork title: cap at 200 chars and strip Windows-
+   * illegal filename characters. Empty strings collapse to `undefined` so
+   * downstream code can fall back to the SDK's default "<original> (fork)".
+   */
+  private sanitizeForkTitle(title: unknown): string | undefined {
+    if (title === undefined || title === null) return undefined;
+    if (typeof title !== 'string') return undefined;
+    // Strip characters that Windows disallows in filenames — the SDK persists
+    // the title as part of session metadata which can flow into file paths.
+    const stripped = title.replace(/[\\/:*?"<>|]/g, '').trim();
+    if (stripped.length === 0) return undefined;
+    return stripped.length > 200 ? stripped.substring(0, 200) : stripped;
+  }
+
+  /**
+   * Resolve session metadata + verify the workspace it belongs to is one of
+   * the currently open workspace folders. Throws stable error codes that the
+   * frontend (and tests) can branch on:
+   *   - `session-not-found` — no metadata for this id
+   *   - `unauthorized-workspace` — metadata workspace not in active folders
+   */
+  private async authorizeSessionAccess(sessionId: string): Promise<void> {
+    const metadata = await this.metadataStore.get(sessionId);
+    if (!metadata) {
+      throw new Error(
+        `session-not-found: session ${sessionId} not in metadata store`,
+      );
+    }
+    // Some legacy sessions may have a missing workspaceId. In that case we
+    // can't verify ownership, so reject conservatively rather than allow.
+    const workspacePath = metadata.workspaceId;
+    if (!workspacePath || !this.isAuthorizedWorkspace(workspacePath)) {
+      throw new Error(
+        `unauthorized-workspace: session ${sessionId} workspace not in active folders`,
+      );
+    }
+  }
+
+  /**
    * Register all session RPC methods
    */
   register(): void {
@@ -99,6 +191,8 @@ export class SessionRpcHandlers {
     this.registerSessionValidate();
     this.registerSessionCliSessions();
     this.registerSessionStatsBatch();
+    this.registerForkSession();
+    this.registerRewindFiles();
 
     this.logger.debug('Session RPC handlers registered', {
       methods: [
@@ -109,6 +203,8 @@ export class SessionRpcHandlers {
         'session:validate',
         'session:cli-sessions',
         'session:stats-batch',
+        'session:forkSession',
+        'session:rewindFiles',
       ],
     });
   }
@@ -701,6 +797,189 @@ export class SessionRpcHandlers {
 
       return { sessionStats };
     });
+  }
+
+  /**
+   * session:forkSession - Fork an existing session into a new branch
+   *
+   * Delegates to `SdkAgentAdapter.forkSession()`, which calls the SDK's
+   * standalone `forkSession()` export to copy the source transcript into a
+   * brand-new session file (with remapped UUIDs). Optionally slices the
+   * transcript at `upToMessageId` so the user can branch mid-conversation.
+   *
+   * The returned `newSessionId` can be passed to chat:resume to continue the
+   * forked branch. The original session is left untouched.
+   */
+  private registerForkSession(): void {
+    this.rpcHandler.registerMethod<SessionForkParams, SessionForkResult>(
+      'session:forkSession',
+      async (params: SessionForkParams) => {
+        try {
+          // Validate inputs at the boundary BEFORE any side effects. These
+          // throw with stable error code prefixes the frontend branches on.
+          const sessionId = this.validateSessionId(params.sessionId);
+          // upToMessageId is optional — only validate when present.
+          const upToMessageId =
+            params.upToMessageId !== undefined
+              ? this.validateUserMessageId(params.upToMessageId)
+              : undefined;
+          const title = this.sanitizeForkTitle(params.title);
+
+          // Authorize: confirm the session exists in our metadata store and
+          // belongs to a currently-open workspace. Rejects cross-workspace
+          // probes that bypass the frontend tab UI.
+          await this.authorizeSessionAccess(sessionId);
+
+          this.logger.debug('RPC: session:forkSession called', {
+            sessionId,
+            upToMessageId,
+            title,
+          });
+
+          const result = await this.sdkAdapter.forkSession(
+            sessionId as SessionId,
+            upToMessageId,
+            title,
+          );
+
+          // SDK's ForkSessionResult exposes the new id as `sessionId`. Surface
+          // it to the webview as `newSessionId` so callers don't confuse it
+          // with the source session id they just passed in.
+          return { newSessionId: result.sessionId as SessionId };
+        } catch (error) {
+          const errorObj =
+            error instanceof Error ? error : new Error(String(error));
+          this.logger.error('RPC: session:forkSession failed', errorObj);
+          this.sentryService.captureException(errorObj, {
+            errorSource: 'SessionRpcHandlers.registerForkSession',
+          });
+          throw new Error(`Failed to fork session: ${errorObj.message}`);
+        }
+      },
+    );
+  }
+
+  /**
+   * session:rewindFiles - Rewind tracked files for an active session
+   *
+   * Delegates to `SdkAgentAdapter.rewindFiles()`, which calls
+   * `Query.rewindFiles()` on the live SDK query handle. **Requires the
+   * session to be currently active in SessionLifecycleManager** — there
+   * must be an in-flight or paused query with file checkpointing enabled.
+   *
+   * When the session is not active, the adapter throws an SdkError that
+   * mentions "is not active or has no live Query handle". We translate
+   * that into a stable RPC error code (`session-not-active`) so the
+   * frontend can prompt the user to resume the session first instead of
+   * showing a raw stack trace.
+   */
+  private registerRewindFiles(): void {
+    this.rpcHandler.registerMethod<SessionRewindParams, SessionRewindResult>(
+      'session:rewindFiles',
+      async (params: SessionRewindParams) => {
+        try {
+          // Validate inputs at the boundary. Stable error code prefixes
+          // (`invalid-session-id`, `invalid-user-message-id`) flow up to the
+          // frontend so it can show actionable messages.
+          const sessionId = this.validateSessionId(params.sessionId);
+          const userMessageId = this.validateUserMessageId(
+            params.userMessageId,
+          );
+          const dryRun = params.dryRun;
+
+          // Authorize cross-workspace access (rejects when session belongs to
+          // a workspace not currently open in the editor).
+          await this.authorizeSessionAccess(sessionId);
+
+          this.logger.debug('RPC: session:rewindFiles called', {
+            sessionId,
+            userMessageId,
+            dryRun: dryRun ?? false,
+          });
+
+          const result = await this.sdkAdapter.rewindFiles(
+            sessionId as SessionId,
+            userMessageId,
+            dryRun,
+          );
+
+          // Path containment guard: when the SDK reports filesChanged in a
+          // non-dry-run, verify each path resolves under one of the active
+          // workspace roots. The SDK has already written by the time we see
+          // the result — moving the validation to a server-side dryRun first
+          // would be a much larger refactor (the frontend already does the
+          // dry-run preview pattern). Best we can do at this boundary:
+          // log + Sentry + reject the response so the user is alerted.
+          if (
+            dryRun === false &&
+            Array.isArray(result.filesChanged) &&
+            result.filesChanged.length > 0
+          ) {
+            const roots = this.getAuthorizedWorkspaceRoots();
+            const escapingPaths: string[] = [];
+            for (const p of result.filesChanged) {
+              const resolved = path
+                .resolve(p)
+                .replace(/\\/g, '/')
+                .toLowerCase();
+              const contained = roots.some(
+                (root) =>
+                  resolved === root ||
+                  resolved.startsWith(root.endsWith('/') ? root : root + '/'),
+              );
+              if (!contained) {
+                escapingPaths.push(p);
+              }
+            }
+
+            if (escapingPaths.length > 0) {
+              const message = `unauthorized-path-rewrite: rewindFiles touched ${escapingPaths.length} path(s) outside the active workspace`;
+              const err = new Error(message);
+              this.logger.warn(message, {
+                sessionId,
+                escapingCount: escapingPaths.length,
+                samplePaths: escapingPaths.slice(0, 5),
+              });
+              this.sentryService.captureException(err, {
+                errorSource:
+                  'SessionRpcHandlers.registerRewindFiles.pathContainment',
+              });
+              // Surface to the frontend so the user knows something is off.
+              throw err;
+            }
+          }
+
+          // SDK's RewindFilesResult is structurally identical to the shared
+          // SessionRewindResult (see rpc-session.types.ts) — return as-is.
+          return {
+            canRewind: result.canRewind,
+            error: result.error,
+            filesChanged: result.filesChanged,
+            insertions: result.insertions,
+            deletions: result.deletions,
+          };
+        } catch (error) {
+          const errorObj =
+            error instanceof Error ? error : new Error(String(error));
+          this.logger.error('RPC: session:rewindFiles failed', errorObj);
+          this.sentryService.captureException(errorObj, {
+            errorSource: 'SessionRpcHandlers.registerRewindFiles',
+          });
+          // Prefer the stable error type over regex-matching the message
+          // (Fix 8). The regex fallback is preserved below for safety in
+          // case a non-typed error bubbles up through legacy paths.
+          if (error instanceof SessionNotActiveError) {
+            throw new Error(`session-not-active: ${errorObj.message}`);
+          }
+          if (
+            /is not active or has no live Query handle/i.test(errorObj.message)
+          ) {
+            throw new Error(`session-not-active: ${errorObj.message}`);
+          }
+          throw new Error(`Failed to rewind files: ${errorObj.message}`);
+        }
+      },
+    );
   }
 
   /**

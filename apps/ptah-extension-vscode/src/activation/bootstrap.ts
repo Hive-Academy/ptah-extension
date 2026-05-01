@@ -126,6 +126,7 @@ export async function bootstrapVscode(
   const agentAdapter = DIContainer.resolve(TOKENS.AGENT_ADAPTER) as {
     initialize: () => Promise<boolean>;
     preloadSdk: () => Promise<void>;
+    prewarm: () => Promise<void>;
   };
   const authInitialized = await agentAdapter.initialize();
 
@@ -140,6 +141,15 @@ export async function bootstrapVscode(
     // This shifts ~100-200ms import cost from first user interaction to activation
     agentAdapter.preloadSdk().catch((err) => {
       logger.warn('SDK preload failed (will retry on first use)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+    // Pre-warm the SDK CLI subprocess via SDK startup() (Claude Agent SDK
+    // ≥ 0.2.111). Fire-and-forget — failure is benign, the first real
+    // query() will spawn on demand. Do NOT await: would slow activation.
+    agentAdapter.prewarm().catch((err) => {
+      logger.warn('SDK prewarm failed (will resolve on first query)', {
         error: err instanceof Error ? err.message : String(err),
       });
     });

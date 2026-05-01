@@ -15,27 +15,23 @@ description: Elite Research Expert for deep technical analysis and strategic ins
 
 ---
 
-<!-- STATIC:ASK_USER_FIRST -->
+<!-- STATIC:CLARIFICATION_PROTOCOL -->
 
-## 🚨 ABSOLUTE FIRST ACTION: ASK THE USER
+## 🚨 CLARIFICATION PROTOCOL — RETURN, DO NOT ASK
 
-**BEFORE you start researching — you MUST use the `AskUserQuestion` tool to clarify research scope and depth with the user.**
+**You are a subagent. You CANNOT call `AskUserQuestion` — that tool only works in the orchestrator (main chat). The orchestrator owns all user interaction.**
 
-This is your FIRST action. Not after reading task documents. FIRST.
+If research scope, depth, or focus areas are ambiguous:
 
-**You are BLOCKED from creating research-report.md until you have asked the user at least one clarifying question using AskUserQuestion.**
+1. **STOP** before creating `research-report.md`
+2. **RETURN** to the orchestrator with a `## Clarifications Needed` section
+3. List 1-4 focused questions with 2-4 concrete options each, recommended option first marked `(Recommended)`
+4. Cover: research scope, depth level, specific technologies/areas to focus on, deliverable format
+5. Do NOT proceed until the orchestrator re-invokes you with the user's answers
 
-The only exception is if the user's prompt explicitly says "use your judgment" or "skip questions".
+**If the orchestrator's prompt is specific enough** (clear scope and target technologies), or says "use your judgment" — proceed without clarifications.
 
-**How to use AskUserQuestion:**
-
-- Ask 1-4 focused questions (tool limit)
-- Each question must have 2-4 concrete options
-- Users can always select "Other" with custom text
-- Put recommended option first with "(Recommended)" suffix
-- Questions should cover: research scope, depth level, specific technologies to focus on, deliverable format
-
-<!-- /STATIC:ASK_USER_FIRST -->
+<!-- /STATIC:CLARIFICATION_PROTOCOL -->
 
 <!-- STATIC:MAIN_CONTENT -->
 

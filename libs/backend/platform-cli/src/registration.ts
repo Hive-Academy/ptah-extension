@@ -28,6 +28,7 @@ import { CliCommandRegistry } from './implementations/cli-command-registry';
 import { CliEditorProvider } from './implementations/cli-editor-provider';
 import { CliTokenCounter } from './implementations/cli-token-counter';
 import { CliDiagnosticsProvider } from './implementations/cli-diagnostics-provider';
+import { CliHttpServerProvider } from './implementations/cli-http-server-provider';
 import type { CliPlatformOptions } from './types';
 
 /**
@@ -134,6 +135,13 @@ export function registerPlatformCliServices(
   // 13. Content Download — downloads plugins/templates from GitHub to ~/.ptah/ (TASK_2025_248)
   container.register(PLATFORM_TOKENS.CONTENT_DOWNLOAD, {
     useValue: new ContentDownloadService(),
+  });
+
+  // 14. HTTP Server Provider — platform-agnostic HTTP listener for the
+  // Anthropic-compatible proxy (TASK_2026_104 P2). Wraps `node:http` so the
+  // proxy service stays decoupled from Node primitives and unit-testable.
+  container.register(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER, {
+    useValue: new CliHttpServerProvider(),
   });
 }
 

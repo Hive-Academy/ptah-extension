@@ -326,7 +326,7 @@ export class CodexCliAdapter implements CliAdapter {
           });
           child.on('close', () => {
             clearTimeout(timer);
-            const trimmed = stdout.trim().split('\n')[0];
+            const trimmed = stdout.trim().split(/\r?\n/)[0];
             resolve(trimmed || undefined);
           });
           child.on('error', () => {
@@ -395,8 +395,21 @@ export class CodexCliAdapter implements CliAdapter {
     { id: 'gpt-5.1-codex-mini', name: 'GPT 5.1 Codex Mini' },
   ];
 
-  /** Path to the Codex auth file */
-  private static readonly AUTH_PATH = join(homedir(), '.codex', 'auth.json');
+  /**
+   * Path to the Codex auth file.
+   *
+   * Resolved lazily (per call) so:
+   *  (a) `$HOME` / `$USERPROFILE` overrides applied AFTER module load (e.g.
+   *      sandbox/test setups that reassign HOME) are honoured, and
+   *  (b) we prefer the env var on platforms where `os.homedir()` ignores
+   *      `$HOME` overrides.
+   *
+   * Mirrors the env-preservation pattern in `build-safe-env.ts`.
+   */
+  private static getAuthPath(): string {
+    const home = process.env['HOME'] || process.env['USERPROFILE'] || homedir();
+    return join(home, '.codex', 'auth.json');
+  }
 
   /**
    * List available models for Codex.
@@ -413,7 +426,7 @@ export class CodexCliAdapter implements CliAdapter {
    */
   private async resolveAccessToken(): Promise<string | null> {
     try {
-      const raw = await readFile(CodexCliAdapter.AUTH_PATH, 'utf-8');
+      const raw = await readFile(CodexCliAdapter.getAuthPath(), 'utf-8');
       const auth = JSON.parse(raw) as CodexAuthFile;
 
       // API key takes priority — never expires (check both snake_case and SCREAMING_CASE)
@@ -434,7 +447,7 @@ export class CodexCliAdapter implements CliAdapter {
    */
   async ensureTokensFresh(): Promise<boolean> {
     try {
-      const raw = await readFile(CodexCliAdapter.AUTH_PATH, 'utf-8');
+      const raw = await readFile(CodexCliAdapter.getAuthPath(), 'utf-8');
       const auth = JSON.parse(raw) as CodexAuthFile;
 
       if (auth.openai_api_key || auth.OPENAI_API_KEY) return true;

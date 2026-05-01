@@ -22,6 +22,7 @@ import {
   AuthEnv,
   ThinkingConfig,
   EffortLevel,
+  type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkError } from '../errors';
@@ -349,6 +350,42 @@ export interface QueryOptionsInput {
    * tier mapping) can leave the UI hanging with no response.
    */
   onProviderError?: (message: string) => void;
+  /**
+   * When true, resume + forkSession together create a NEW session ID instead
+   * of mutating the resumed transcript. Used by the fork-session RPC path.
+   * Has no effect unless `resumeSessionId` is also set.
+   */
+  forkSession?: boolean;
+  /**
+   * When resuming, only replay messages up to (and including) the message with
+   * this UUID. Maps directly to SDK Options.resumeSessionAt.
+   */
+  resumeSessionAt?: string;
+  /**
+   * Toggle SDK file checkpointing for this session. Defaults to ON when
+   * unspecified — file checkpointing is required by `Query.rewindFiles()`,
+   * which is the underlying mechanism for the rewind feature. Pass `false`
+   * explicitly to opt out (e.g., performance-sensitive contexts).
+   */
+  enableFileCheckpointing?: boolean;
+  /**
+   * When true, the SDK emits `SDKPartialAssistantMessage` events
+   * (`subtype: 'stream_event'`) for finer-grained streaming deltas. Mirrors
+   * `Options.includePartialMessages` from the Claude Agent SDK. Defaults to
+   * ON when unspecified to preserve historical Ptah behavior — the existing
+   * stream consumers (StreamTransformer, SdkMessageTransformer) already
+   * handle these events. Pass `false` to opt out (reduces event volume on
+   * bandwidth-sensitive paths).
+   */
+  includePartialMessages?: boolean;
+  /**
+   * Caller-supplied MCP HTTP server overrides — merged OVER the registry-
+   * built map by `mergeMcpOverride` (caller wins on key collision). Reserved
+   * for the Anthropic-compatible HTTP proxy in P3 (TASK_2026_108 T2). When
+   * `undefined` or an empty object, the builder's `mcpServers` output is
+   * byte-identical to the pre-T2 behavior.
+   */
+  mcpServersOverride?: Record<string, McpHttpServerOverride>;
 }
 
 /**
@@ -404,6 +441,23 @@ export interface SdkQueryOptions {
    * Example: ['context-1m-2025-08-07'] enables 1M token context window.
    */
   betas?: SdkBeta[];
+  /**
+   * When true (with `resume`), the SDK creates a NEW session ID seeded from
+   * the resumed transcript instead of continuing the original session.
+   * Mirrors `Options.forkSession` from the Claude Agent SDK.
+   */
+  forkSession?: boolean;
+  /**
+   * When resuming, replay only up to and including this message UUID.
+   * Mirrors `Options.resumeSessionAt` from the Claude Agent SDK.
+   */
+  resumeSessionAt?: string;
+  /**
+   * Enable file checkpointing so `Query.rewindFiles()` can later restore
+   * files to their state at a given user message. Mirrors
+   * `Options.enableFileCheckpointing` from the Claude Agent SDK.
+   */
+  enableFileCheckpointing?: boolean;
 }
 
 /**
@@ -481,12 +535,21 @@ export class SdkQueryOptionsBuilder {
       permissionMode = 'default',
       pathToClaudeCodeExecutable,
       onProviderError,
+      forkSession,
+      resumeSessionAt,
+      enableFileCheckpointing,
+      includePartialMessages,
+      mcpServersOverride,
     } = input;
 
     // Model is required - SDK sets default in config at startup
     if (!sessionConfig?.model) {
       throw new SdkError('Model not provided - ensure SDK is initialized');
     }
+
+    // Observability: log when fork/resume-at are requested without a resume id
+    // (these get silently dropped to `undefined` further down — see end of build()).
+    this.warnIfForkOptionsDroppedSilently(input);
 
     // Resolve bare tier names ('opus', 'sonnet', 'haiku') to full model IDs.
     // The SDK's query() requires full model IDs like 'claude-opus-4-6' —
@@ -598,10 +661,9 @@ export class SdkQueryOptionsBuilder {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
-        mcpServers: this.buildMcpServers(
-          isPremium,
-          mcpServerRunning,
-          sessionId,
+        mcpServers: this.mergeMcpOverride(
+          this.buildMcpServers(isPremium, mcpServerRunning, sessionId),
+          mcpServersOverride,
         ),
         // Set SDK permission mode based on current autopilot config.
         // SDK evaluation order: Hooks → Rules → Permission Mode → canUseTool.
@@ -609,7 +671,10 @@ export class SdkQueryOptionsBuilder {
         // When 'bypassPermissions'/'acceptEdits'/'plan': SDK resolves at step 3.
         permissionMode,
         canUseTool: canUseToolCallback,
-        includePartialMessages: true,
+        // Default ON preserves historical behavior — partial stream events
+        // are already consumed by StreamTransformer/SdkMessageTransformer.
+        // Callers can opt out via QueryOptionsInput.includePartialMessages.
+        includePartialMessages: includePartialMessages ?? true,
         // Load settings from project and local directories.
         // IMPORTANT: Exclude 'user' when using a translation proxy OR local provider
         // (Ollama uses localhost, not 127.0.0.1) because ~/.claude/settings.json may
@@ -694,8 +759,45 @@ export class SdkQueryOptionsBuilder {
         // pass it explicitly. Only for first-party (api.anthropic.com);
         // third-party providers don't support this beta header.
         betas: this.buildBetas(),
+        // File checkpointing — defaults ON so Query.rewindFiles() works.
+        // Callers can opt out by passing enableFileCheckpointing: false.
+        enableFileCheckpointing: enableFileCheckpointing ?? true,
+        // Fork-on-resume — only meaningful when resumeSessionId is also set.
+        // The SDK creates a brand-new session UUID seeded from the resumed
+        // transcript instead of mutating the original session.
+        forkSession: resumeSessionId ? forkSession : undefined,
+        // Resume from a specific message UUID (branching point).
+        resumeSessionAt: resumeSessionId ? resumeSessionAt : undefined,
       },
     };
+  }
+
+  /**
+   * Emit a structured warning when fork/resume-at are requested without a
+   * resumeSessionId. Behavior is intentionally preserved (silent drop into
+   * `undefined`) — but observability is added so misconfigured callers
+   * surface in logs instead of silently producing fresh sessions.
+   *
+   * Called inline below; extracted for readability and to keep the main
+   * `build()` flow uncluttered.
+   */
+  private warnIfForkOptionsDroppedSilently(input: QueryOptionsInput): void {
+    const { resumeSessionId, forkSession, resumeSessionAt, sessionId } = input;
+    if (resumeSessionId) return;
+    if (forkSession === undefined && resumeSessionAt === undefined) return;
+    this.logger.warn(
+      '[SdkQueryOptionsBuilder] forkSession/resumeSessionAt were set without a resumeSessionId — both options will be dropped because they only apply to resumed sessions.',
+      {
+        sessionId: sessionId ? `${sessionId.slice(0, 8)}...` : undefined,
+        hasForkSession: forkSession !== undefined,
+        hasResumeSessionAt: resumeSessionAt !== undefined,
+        forkSession,
+        // Truncate the message UUID like the rest of the file does
+        resumeSessionAt: resumeSessionAt
+          ? `${resumeSessionAt.slice(0, 8)}...`
+          : undefined,
+      },
+    );
   }
 
   /**
@@ -896,6 +998,31 @@ export class SdkQueryOptionsBuilder {
       mcpUrl: mcpConfig.ptah.url,
     });
     return mcpConfig;
+  }
+
+  /**
+   * Merge caller-supplied MCP HTTP overrides over the registry-built map.
+   * Caller wins on key collision (matches the proxy tool-merger contract).
+   *
+   * Returns the original `base` reference unchanged when `override` is
+   * `undefined` or empty — preserves identity for the existing chat path so
+   * the merge is a no-op on every non-proxy call site.
+   *
+   * @see TASK_2026_108 T2 — threading mcpServersOverride through the SDK chain
+   */
+  private mergeMcpOverride(
+    base: Record<string, McpHttpServerConfig>,
+    override: Record<string, McpHttpServerOverride> | undefined,
+  ): Record<string, McpHttpServerConfig> {
+    if (!override || Object.keys(override).length === 0) {
+      return base;
+    }
+    // McpHttpServerOverride is structurally a subset of McpHttpServerConfig —
+    // both share { type: 'http', url, headers? }. The widening cast lets the
+    // SDK consume the override entries without a runtime conversion. This is
+    // the SINGLE documented widening cast for TASK_2026_108 T2; do NOT add
+    // additional `as` casts elsewhere in the threading path.
+    return { ...base, ...(override as Record<string, McpHttpServerConfig>) };
   }
 
   /**
