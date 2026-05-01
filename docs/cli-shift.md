@@ -82,7 +82,17 @@ For complex workflows, OpenClaw needs a persistent connection to the orchestrati
 
 ---
 
-### Phase 2: Technical Architecture
+### Phase 2: Technical Architecture (COMPLETE — TASK_2026_108)
+
+> **Status (2026-04-30)**: Phase 2 is complete. The Anthropic-compatible
+> HTTP proxy ships behind `ptah proxy start|stop|status` and `ptah interact
+--proxy-start`. MCP server passthrough threads through the 5-layer
+> agent-sdk chain via the `X-Ptah-Mcp-Servers` header. A six-scenario
+> pre-publish smoke harness (`apps/ptah-cli/scripts/smoke-pre-publish.sh`)
+>
+> - tarball install verification (`scripts/test-publish-cli.sh`) gate
+>   every release on a `[ubuntu-latest, windows-latest]` CI matrix. See
+>   `.ptah/specs/TASK_2026_108/` for the full task tree.
 
 To ensure seamless integration across your ecosystem, the CLI should be architected with the following technical constraints:
 

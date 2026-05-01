@@ -1,0 +1,92 @@
+<div class="p-6 max-w-4xl mx-auto">
+  <div class="flex justify-between items-center mb-6">
+    <h2 class="text-2xl font-bold">Compose Campaign</h2>
+    <button class="btn btn-ghost btn-sm" (click)="router.navigate(['/admin/marketing-campaigns'])">Cancel</button>
+  </div>
+
+  <div class="space-y-6">
+    <!-- Basic Info -->
+    <section class="card bg-base-100 shadow-sm border border-base-200 p-6">
+      <h3 class="text-lg font-semibold mb-4 text-primary">Campaign Basics</h3>
+      <div class="form-control w-full">
+        <label for="campaign-name" class="label-text font-medium mb-1">Campaign Name (Internal)</label>
+        <input id="campaign-name" type="text" class="input input-bordered w-full" [ngModel]="name()" (ngModelChange)="name.set($event)" placeholder="e.g. Spring 2026 Promo" />
+      </div>
+    </section>
+
+    <!-- Content -->
+    <section class="card bg-base-100 shadow-sm border border-base-200 p-6">
+      <h3 class="text-lg font-semibold mb-4 text-primary">Email Content</h3>
+      <div class="space-y-4">
+        <div class="form-control w-full">
+          <div class="label">
+            <span class="label-text font-medium">Use Template</span>
+          </div>
+          <ptah-template-picker [value]="templateId()" (valueChange)="templateId.set($event)" />
+        </div>
+
+        <div class="divider text-xs opacity-50">OR INLINE CONTENT</div>
+
+        <div class="form-control w-full">
+          <label for="campaign-subject" class="label-text font-medium mb-1">Subject</label>
+          <input id="campaign-subject" type="text" class="input input-bordered w-full" [disabled]="!!templateId()" [ngModel]="subject()" (ngModelChange)="subject.set($event)" placeholder="Email subject line" />
+        </div>
+
+        <div class="form-control w-full">
+          <label for="campaign-html" class="label-text font-medium mb-1">HTML Body</label>
+          <textarea id="campaign-html" class="textarea textarea-bordered h-48 font-mono text-sm" [disabled]="!!templateId()" [ngModel]="htmlBody()" (ngModelChange)="htmlBody.set($event)" placeholder="<html>...</html>"></textarea>
+          <span class="label-text-alt mt-1 opacity-60">Variables: {{'{{firstName}}'}}, {{'{{email}}'}}, {{'{{unsubscribeUrl}}'}}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Recipients -->
+    <section class="card bg-base-100 shadow-sm border border-base-200 p-6">
+      <h3 class="text-lg font-semibold mb-4 text-primary">Recipients</h3>
+      
+      <div class="flex gap-4 mb-4">
+        <label class="label cursor-pointer gap-2">
+          <input type="radio" name="recipient-mode" class="radio radio-primary radio-sm" [checked]="!useExplicitUserIds()" (change)="useExplicitUserIds.set(false)" />
+          <span class="label-text">Target Segment</span>
+        </label>
+        <label class="label cursor-pointer gap-2">
+          <input type="radio" name="recipient-mode" class="radio radio-primary radio-sm" [checked]="useExplicitUserIds()" (change)="useExplicitUserIds.set(true)" />
+          <span class="label-text">Explicit User IDs</span>
+        </label>
+      </div>
+
+      @if (!useExplicitUserIds()) {
+        <ptah-segment-picker [value]="segment()" (valueChange)="segment.set($event)" />
+      } @else {
+        <div class="form-control w-full">
+          <label for="explicit-ids" class="label-text font-medium mb-1">User IDs (comma, space, or newline separated)</label>
+          <textarea id="explicit-ids" class="textarea textarea-bordered h-32 font-mono text-xs" [ngModel]="userIdsRaw()" (ngModelChange)="userIdsRaw.set($event)" placeholder="UUIDs..."></textarea>
+          <div class="label">
+            <span class="label-text-alt opacity-60">{{ parsedUserIds().length }} IDs detected</span>
+          </div>
+        </div>
+      }
+
+      @if (recipientCountPreview() > 0 || totalRecipientPreview() > 0) {
+        <div class="alert alert-info mt-4 py-3 shadow-none">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          <span class="text-sm">Will send to <strong>~{{ recipientCountPreview() }}</strong> of {{ totalRecipientPreview() }} users (opted-in filter applied).</span>
+        </div>
+      }
+    </section>
+
+    @if (error()) {
+      <div class="alert alert-error shadow-none">
+        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        <span>{{ error() }}</span>
+      </div>
+    }
+
+    <div class="flex justify-end pt-4 pb-12">
+      <button class="btn btn-primary px-12" [disabled]="!canSubmit()" (click)="submit()">
+        @if (isLoading()) { <span class="loading loading-spinner loading-xs"></span> }
+        Send Campaign
+      </button>
+    </div>
+  </div>
+</div>

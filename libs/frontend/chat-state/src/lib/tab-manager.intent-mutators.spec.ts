@@ -172,11 +172,22 @@ describe('TabManagerService — intent-named mutators', () => {
   });
 
   describe('finalization', () => {
-    it('applyFinalizedTurn drops streamingState and switches to loaded', () => {
+    it('applyFinalizedTurn drops streamingState and switches to loaded', async () => {
       const id = service.createTab('final');
       const state = createEmptyStreamingState();
       service.setStreamingStateAndCurrentMessage(id, state, 'msg');
       service.applyFinalizedTurn(id, [makeMessage('a', 'done')]);
+      // applyFinalizedTurn splits the commit across two writes to prevent
+      // a scroll-vs-FLIP race during finalize: messages + currentMessageId
+      // land synchronously while status and streamingState flip together
+      // one microtask later, so every streaming-derived signal flips on a
+      // single coherent boundary AFTER the DOM commits the finalized
+      // messages.
+      const sync = service.tabs().find((t) => t.id === id);
+      expect(sync?.currentMessageId).toBeNull();
+      expect(sync?.messages.length).toBe(1);
+      expect(sync?.streamingState).not.toBeNull();
+      await Promise.resolve();
       const tab = service.tabs().find((t) => t.id === id);
       expect(tab?.streamingState).toBeNull();
       expect(tab?.status).toBe('loaded');

@@ -50,8 +50,23 @@ See [strategies.md](references/strategies.md) for detailed flow diagrams.
 
 1. **Delegate to Specialist Agents** - Use Task tool to invoke specialists
 2. **Coordinate Workflows** - Manage flow between agents, handle checkpoints
-3. **Verify Quality** - Ensure agents complete tasks correctly
-4. **Never Implement Directly** - Avoid writing code yourself
+3. **Own All User Interaction** - Subagents CANNOT call `AskUserQuestion`. YOU must run all clarification checkpoints (0, 0.1, 1, 1.5, 2, 3) directly using `AskUserQuestion`. If a subagent returns a `## Clarifications Needed` section, present those questions to the user via `AskUserQuestion`, then re-invoke the subagent with the answers in its prompt.
+4. **Verify Quality** - Ensure agents complete tasks correctly
+5. **Never Implement Directly** - Avoid writing code yourself
+
+### Subagent Tool Constraints
+
+Subagents spawned via `Task` run in a headless context with no UI channel back to the user. They CANNOT call:
+
+- `AskUserQuestion` — UI-coupled, only works in the main orchestrator
+- Any tool requiring foreground user interaction
+
+If a subagent's response contains `## Clarifications Needed`, treat it as a structured request to YOU:
+
+1. Parse the questions and options from the subagent's response
+2. Call `AskUserQuestion` yourself with those questions (preserve options, recommended markers)
+3. Re-invoke the subagent via `Task` with a prompt that includes a `## User Decisions` section containing the answers
+4. The subagent will then proceed to its primary deliverable
 
 ### When to Delegate (ALWAYS)
 
@@ -160,19 +175,43 @@ See [agent-name].md for detailed instructions.`,
 
 ## Validation Checkpoints
 
+**ALL checkpoints are run by YOU (the orchestrator) using `AskUserQuestion` or direct user prompts. Subagents NEVER run checkpoints.**
+
 ### Checkpoint 0.1: CLI Agent Discovery (before any agent invocation)
 
-Run `ptah_agent_list` and present results to user. Ask whether sub-agents should utilize CLI agents as junior helpers. Store selection in `context.md`. Skipped for Minimal pattern tasks or when no CLI agents are available. See [checkpoints.md](references/checkpoints.md) for the full template.
+Run `ptah_agent_list` and present results to user via `AskUserQuestion`. Ask whether sub-agents should utilize CLI agents as junior helpers. Store selection in `context.md`. Skipped for Minimal pattern tasks or when no CLI agents are available.
 
-### Standard Checkpoints
+### Checkpoint 0: Scope Clarification (MANDATORY before PM when ambiguity exists)
 
-After PM or Architect deliverables, present to user:
+**Before invoking project-manager**, evaluate whether the user's request has ambiguous scope, multiple valid interpretations, or unclear success criteria. If ANY ambiguity exists, run Checkpoint 0 using `AskUserQuestion` directly. The PM cannot ask the user — YOU must.
+
+Skip only when: request is extremely specific, task is a clear continuation, or user explicitly said "use your judgment" / "just do it".
+
+### Checkpoint 1.5: Technical Clarification (MANDATORY before Architect when multiple valid approaches exist)
+
+**Before invoking software-architect**, evaluate whether multiple valid architectural approaches exist (REST vs GraphQL, library X vs custom, etc.). If yes, run Checkpoint 1.5 using `AskUserQuestion` directly. The architect cannot ask the user — YOU must.
+
+Skip only when: codebase has clear established patterns, task extends existing architecture, or user deferred technical decisions.
+
+### Standard Validation Checkpoints (1, 2, 3)
+
+After PM, Architect, or development deliverables, present to user via `AskUserQuestion`:
 
 ```
 USER VALIDATION CHECKPOINT - TASK_[ID]
 [Summary of deliverable]
 Reply "APPROVED" to proceed OR provide feedback for revision
 ```
+
+### Subagent-Triggered Clarification Loop
+
+If any subagent returns a `## Clarifications Needed` section in its response (instead of its expected deliverable):
+
+1. **Do NOT proceed** to the next workflow phase
+2. **Extract** the questions and options from the subagent's response
+3. **Call `AskUserQuestion`** with those questions
+4. **Re-invoke** the same subagent via `Task`, embedding answers in a `## User Decisions` block in the prompt
+5. **Repeat** if the subagent still returns clarifications (rare — should converge in 1-2 iterations)
 
 See [checkpoints.md](references/checkpoints.md) for all checkpoint templates.
 

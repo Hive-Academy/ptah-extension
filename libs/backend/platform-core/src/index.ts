@@ -30,6 +30,11 @@ export type { ICommandRegistry } from './interfaces/command-registry.interface';
 export type { IEditorProvider } from './interfaces/editor-provider.interface';
 export type { ITokenCounter } from './interfaces/token-counter.interface';
 export type { IDiagnosticsProvider } from './interfaces/diagnostics-provider.interface';
+export type {
+  IHttpServerProvider,
+  IHttpServerHandle,
+  HttpServerRequestHandler,
+} from './interfaces/http-server-provider.interface';
 
 // Platform abstractions (moved from @ptah-extension/rpc-handlers in C8)
 export type {

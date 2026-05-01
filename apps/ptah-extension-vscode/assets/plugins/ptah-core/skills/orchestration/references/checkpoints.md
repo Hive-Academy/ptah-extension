@@ -2,6 +2,8 @@
 
 This reference documents all user validation checkpoints in the orchestration workflow, including trigger conditions, templates, and error handling patterns.
 
+> **Critical rule**: ALL checkpoints are owned by the orchestrator (main agent). Subagents (PM, Architect, Team-Leader, Developers, Reviewers, etc.) CANNOT call `AskUserQuestion` — it is a UI-coupled tool that only works in the main orchestrator's context. If a subagent needs clarification, it MUST return a `## Clarifications Needed` section to the orchestrator, who then runs `AskUserQuestion` and re-invokes the subagent with the answers.
+
 ---
 
 ## Checkpoint Types Overview
@@ -14,6 +16,7 @@ This reference documents all user validation checkpoints in the orchestration wo
 | **1.5**    | Technical Clarification | Before Architect  | Technical preferences          | Answers or "use your judgment"               |
 | **2**      | Architecture Validation | After Architect   | Approve implementation-plan.md | "APPROVED" or feedback                       |
 | **3**      | QA Choice               | After Development | Select QA agents               | tester/style/logic/visual/reviewers/all/skip |
+| **SR**     | Subagent Return Loop    | Any subagent step | Resolve subagent clarifications | Answers re-injected into subagent prompt    |
 
 ---
 
@@ -91,9 +94,11 @@ When CLI delegation is enabled or auto, add to context.md:
 
 ## Checkpoint 0: Scope Clarification
 
+**Owner**: Orchestrator only. The project-manager subagent CANNOT ask the user — if you skip this checkpoint when ambiguity exists, PM will return a `## Clarifications Needed` section and you'll have to run it anyway.
+
 ### Trigger Conditions
 
-Ask if ANY of these apply:
+**Mandatory** if ANY of these apply (do NOT delegate to PM hoping it will ask):
 
 - User request is vague or ambiguous
 - Scope could reasonably be interpreted as small OR large
@@ -109,6 +114,10 @@ Proceed WITHOUT asking if ALL apply:
 - Task is a continuation of previous work with clear context
 - User explicitly said "use your judgment" or "just do it"
 - Task type is BUGFIX with clear error description
+
+### How to Run
+
+Use the `AskUserQuestion` tool directly. Ask 1-4 focused questions, each with 2-4 concrete options. Put recommended option first with "(Recommended)" suffix. Embed the answers in the PM invocation prompt under a `## Scope Clarification Answers` heading.
 
 ### Template
 
@@ -194,9 +203,11 @@ OR provide feedback for revision
 
 ## Checkpoint 1.5: Technical Clarification
 
+**Owner**: Orchestrator only. The software-architect subagent CANNOT ask the user — if you skip this checkpoint when multiple valid approaches exist, the architect will return a `## Clarifications Needed` section and you'll have to run it anyway.
+
 ### Trigger Conditions
 
-Ask if ANY of these apply:
+**Mandatory** if ANY of these apply:
 
 - Multiple valid architectural approaches exist (e.g., REST vs GraphQL)
 - Key technology choices need user preference
@@ -208,10 +219,14 @@ Ask if ANY of these apply:
 
 Proceed WITHOUT asking if ALL apply:
 
-- Codebase investigation shows clear established patterns
+- Codebase investigation shows clear established patterns (architect will follow them)
 - Task is a direct extension of existing architecture
 - User explicitly deferred technical decisions
 - Task type is BUGFIX or simple REFACTORING
+
+### How to Run
+
+Use the `AskUserQuestion` tool directly. Ask 1-4 focused questions covering architectural approach, integration scope, design tradeoffs. Embed the answers in the Architect invocation prompt under a `## Technical Clarification Answers` heading.
 
 ### Template
 
@@ -375,6 +390,64 @@ Task({ subagent_type: 'visual-reviewer', prompt: `...` });
 | "reviewers" | Invoke ALL THREE reviewers in parallel      |
 | "all"       | Invoke ALL FOUR QA agents in parallel       |
 | "skip"      | Skip QA, proceed to git operations guidance |
+
+---
+
+## Checkpoint SR: Subagent Return Loop
+
+### When to Run
+
+When ANY subagent (PM, Architect, Team-Leader, Researcher, Developer, Designer, Content Writer, etc.) returns a response containing a `## Clarifications Needed` section instead of its expected deliverable.
+
+### Why This Exists
+
+Subagents run in a headless `Task` context with no UI channel back to the user — they cannot call `AskUserQuestion`. When a subagent encounters ambiguity, it returns structured questions to the orchestrator (you) for resolution.
+
+### Protocol
+
+1. **Detect**: Scan the subagent's response for a `## Clarifications Needed` heading
+2. **Parse**: Extract the questions, options, and recommended markers
+3. **Ask user via `AskUserQuestion`**: Preserve the subagent's question structure (1-4 questions, 2-4 options each, "(Recommended)" markers)
+4. **Re-invoke subagent**: Call `Task` again with the same `subagent_type`, but prepend a `## User Decisions` section to the prompt:
+
+```typescript
+Task({
+  subagent_type: '[same-agent]',
+  description: 'Continue [Agent] for TASK_[ID] with clarifications resolved',
+  prompt: `You are [agent-name] for TASK_[ID]. You previously returned clarifications. Here are the user's decisions:
+
+## User Decisions
+
+### 1. [Question 1 topic]
+**Selected**: [User's chosen option]
+
+### 2. [Question 2 topic]
+**Selected**: [User's chosen option]
+
+Now proceed with your primary deliverable. Do not return clarifications again — these decisions are final.
+
+[Original task prompt]`
+});
+```
+
+5. **Verify convergence**: The subagent should now produce its deliverable. If it returns clarifications a second time (rare), repeat — but examine whether the questions reveal a deeper scope problem requiring user re-engagement.
+
+### Anti-Patterns
+
+- **Do NOT** ignore the `## Clarifications Needed` section and re-invoke without resolution — the subagent will loop
+- **Do NOT** invent answers on the user's behalf — the subagent specifically returned because it cannot proceed without user input
+- **Do NOT** call `AskUserQuestion` from inside another subagent — only YOU (the orchestrator) can
+
+### Detection Snippet
+
+When parsing a subagent response, check for these markers:
+
+- Heading `## Clarifications Needed` (canonical)
+- Heading `## Questions for User`
+- Phrase "I need clarification on" / "Please clarify"
+- Numbered question list with `(Recommended)` option markers
+
+If detected → run Checkpoint SR. Do NOT proceed to the next workflow phase.
 
 ---
 

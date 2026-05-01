@@ -60,10 +60,18 @@ import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 import {
   PLATFORM_TOKENS,
+  type IHttpServerProvider,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { ISdkPermissionHandler } from '@ptah-extension/shared';
+import {
+  AnthropicProxyService,
+  type AnthropicProxyConfig,
+  type ProxyNotifier,
+} from '../../services/proxy/anthropic-proxy.service.js';
+import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -72,6 +80,55 @@ import type { ISdkPermissionHandler } from '@ptah-extension/shared';
 export interface InteractOptions {
   /** Optional resume target — currently only echoed in `session.ready`. */
   session?: string;
+  /** TASK_2026_108 T1 — boot an embedded Anthropic-compatible HTTP proxy. */
+  proxyStart?: boolean;
+  /** TASK_2026_108 T1 — TCP port for the embedded proxy (0 = OS-assigned). */
+  proxyPort?: number;
+  /** TASK_2026_108 T1 — bind host for the embedded proxy. */
+  proxyHost?: string;
+  /** TASK_2026_108 T1 — surface workspace MCP tools via embedded proxy. */
+  proxyExposeWorkspaceTools?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Embedded proxy test seam (TASK_2026_108 T1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal surface of `AnthropicProxyService` consumed by `interact.ts`.
+ * Defined here so the `proxyServiceFactory` hook can deliver a
+ * `jest.Mocked<AnthropicProxyServiceLike>` without leaking any `as any`
+ * casts into the spec.
+ */
+export interface AnthropicProxyServiceLike {
+  start(): Promise<{
+    port: number;
+    host: string;
+    tokenPath: string;
+    /** TASK_2026_108 T3 — sha256 fingerprint of the bearer token. */
+    tokenFingerprint: string;
+  }>;
+  stop(reason?: 'shutdown' | 'sigint' | 'rpc'): Promise<void>;
+  registerShutdownRpc(
+    server: Pick<JsonRpcServer, 'register' | 'unregister'>,
+  ): () => void;
+}
+
+/** Production factory — wires the real `AnthropicProxyService` constructor. */
+function defaultProxyServiceFactory(
+  config: AnthropicProxyConfig,
+  httpProvider: IHttpServerProvider,
+  transport: CliMessageTransport,
+  pushAdapter: CliWebviewManagerAdapter,
+  notifier: ProxyNotifier,
+): AnthropicProxyServiceLike {
+  return new AnthropicProxyService(
+    config,
+    httpProvider,
+    transport,
+    pushAdapter,
+    notifier,
+  );
 }
 
 /**
@@ -115,6 +172,19 @@ export interface InteractExecuteHooks {
    * `exit()` mock.
    */
   returnExitCode?: boolean;
+  /**
+   * TASK_2026_108 T1 — test seam for the embedded proxy lifecycle. Production
+   * callers omit this; `defaultProxyServiceFactory` wires the real
+   * `AnthropicProxyService` constructor. Tests inject a
+   * `jest.Mocked<AnthropicProxyServiceLike>`.
+   */
+  proxyServiceFactory?: (
+    config: AnthropicProxyConfig,
+    httpProvider: IHttpServerProvider,
+    transport: CliMessageTransport,
+    pushAdapter: CliWebviewManagerAdapter,
+    notifier: ProxyNotifier,
+  ) => AnthropicProxyServiceLike;
 }
 
 // ---------------------------------------------------------------------------
@@ -211,10 +281,13 @@ export async function execute(
   globals: GlobalOptions,
   hooks: InteractExecuteHooks = {},
 ): Promise<number> {
-  void opts; // `--session` is reserved for future resume; surfaced in session.ready below.
+  // `opts.session` is reserved for future resume; surfaced in session.ready below.
+  // `opts.proxy*` flags drive the embedded Anthropic-compatible proxy (TASK_2026_108 T1).
   const formatter = hooks.formatter ?? buildFormatter(globals);
   const engine = hooks.withEngine ?? withEngine;
   const uuid = hooks.randomUUID ?? nodeRandomUUID;
+  const proxyServiceFactory =
+    hooks.proxyServiceFactory ?? defaultProxyServiceFactory;
   const exit =
     hooks.exit ??
     ((code: number): void => {
@@ -241,6 +314,20 @@ export async function execute(
 
   try {
     await engine(globals, { mode: 'full' }, async (ctx) => {
+      // 0. TASK_2026_108 T1 — install the `PTAH_INTERACT_ACTIVE=1` marker
+      //    BEFORE any bridges attach or sub-process spawn. Capture the prior
+      //    value (including the unset case via `hasOwnProperty`) so the drain
+      //    can restore it byte-identically. A blanket `delete` would silently
+      //    erase a `'0'` set by an outer supervisor.
+      const priorInteractActiveSet = Object.prototype.hasOwnProperty.call(
+        process.env,
+        'PTAH_INTERACT_ACTIVE',
+      );
+      const priorInteractActive: string | undefined = priorInteractActiveSet
+        ? process.env['PTAH_INTERACT_ACTIVE']
+        : undefined;
+      process.env['PTAH_INTERACT_ACTIVE'] = '1';
+
       // 1. Synthesize the synthetic session id (replaced by SDK UUID once
       //    `message_start` arrives during the first turn).
       const tabId = uuid();
@@ -319,6 +406,56 @@ export async function execute(
       // 7. Start the JSON-RPC server (binds to stdin/stdout) BEFORE we emit
       //    `session.ready` — `notify(...)` requires the writer to be attached.
       server.start(stdinReader, stdoutWriter);
+
+      // 7b. TASK_2026_108 T1 — embedded Anthropic-compatible HTTP proxy.
+      //     When `--proxy-start` is set, construct the proxy via the test seam
+      //     factory, bind the listener, and register the `proxy.shutdown`
+      //     inbound RPC. The lifecycle order on drain is intentional and
+      //     load-bearing:
+      //       1. `proxy.stop()`     — close listener, abort in-flight reqs.
+      //       2. `proxyUnregister()` — remove `proxy.shutdown` handler BEFORE
+      //          the JsonRpcServer stops dispatching, so a second shutdown
+      //          surface (idempotent re-entry) settles via the proxy's own
+      //          stopped-state branch instead of bouncing as -32601.
+      //       3. `server.stop()`    — tear down the JSON-RPC stdio loop.
+      //
+      //     The `proxy.start()` failure surfaces by throwing — `engine(...)`
+      //     captures it and the top-level `catch` emits `task.error` with
+      //     `ptah_code: 'internal_failure'` (no swallow).
+      let embeddedProxy: AnthropicProxyServiceLike | null = null;
+      let embeddedProxyUnregister: (() => void) | null = null;
+      if (opts.proxyStart === true) {
+        const httpProvider = ctx.container.resolve<IHttpServerProvider>(
+          PLATFORM_TOKENS.HTTP_SERVER_PROVIDER,
+        );
+        const proxyConfig: AnthropicProxyConfig = {
+          host: opts.proxyHost ?? '127.0.0.1',
+          port: typeof opts.proxyPort === 'number' ? opts.proxyPort : 0,
+          exposeWorkspaceTools: opts.proxyExposeWorkspaceTools === true,
+          autoApprove: false,
+          workspacePath,
+        };
+        const proxyNotifier: ProxyNotifier = {
+          notify: <T = unknown>(method: string, params?: T): Promise<void> =>
+            server.notify(method, params),
+        };
+        embeddedProxy = proxyServiceFactory(
+          proxyConfig,
+          httpProvider,
+          ctx.transport,
+          ctx.pushAdapter,
+          proxyNotifier,
+        );
+        const bound = await embeddedProxy.start();
+        embeddedProxyUnregister = embeddedProxy.registerShutdownRpc(server);
+        // Surface the bound address on stderr for supervisor scraping. Always
+        // emitted (not gated on --verbose) so a parent process can pipe stderr
+        // and grab the line on first read; this matches the standalone
+        // `ptah proxy start` contract in proxy.ts:135.
+        process.stderr.write(
+          `[ptah] proxy listening on http://${bound.host}:${bound.port}\n`,
+        );
+      }
 
       // 8. Drain promise — resolves when the loop should terminate. The
       //    matching `setExit(code)` is the canonical settle path for EOF /
@@ -523,6 +660,32 @@ export async function execute(
         }
         approvalBridge?.detach();
         eventPipe.detach();
+        // TASK_2026_108 T1 — embedded proxy teardown order:
+        //   proxy.stop() → unregister() → server.stop()
+        // The unregister MUST run before `server.stop()` so a second
+        // `proxy.shutdown` re-entry hits the proxy's idempotent
+        // `{ stopped: false }` branch rather than the JsonRpcServer
+        // `-32601 method not found` path.
+        if (embeddedProxy !== null) {
+          try {
+            await embeddedProxy.stop('shutdown');
+          } catch (proxyStopErr) {
+            process.stderr.write(
+              `[ptah] embedded proxy stop error: ${
+                proxyStopErr instanceof Error
+                  ? proxyStopErr.message
+                  : String(proxyStopErr)
+              }\n`,
+            );
+          }
+        }
+        if (embeddedProxyUnregister !== null) {
+          try {
+            embeddedProxyUnregister();
+          } catch {
+            /* swallow — JsonRpcServer is about to stop anyway */
+          }
+        }
         server.stop();
         // Best-effort flush of pending writes (e.g. the shutdown response
         // we just queued in `setImmediate`).
@@ -530,6 +693,14 @@ export async function execute(
           await formatter.close();
         } catch {
           /* swallow — formatter may share the writer with the server */
+        }
+        // TASK_2026_108 T1 — restore the captured `PTAH_INTERACT_ACTIVE`
+        // exactly. `delete` is reserved for the previously-unset case so a
+        // prior `'0'` (or any other string) round-trips intact.
+        if (priorInteractActiveSet && priorInteractActive !== undefined) {
+          process.env['PTAH_INTERACT_ACTIVE'] = priorInteractActive;
+        } else {
+          delete process.env['PTAH_INTERACT_ACTIVE'];
         }
       }, drainTimeoutMs);
 

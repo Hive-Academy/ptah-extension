@@ -27,23 +27,46 @@ export function normalizeCrlf(content: string): string {
 }
 
 /**
+ * Detect whether the input content uses CRLF line endings.
+ * Returns true if CRLF is present, false otherwise.
+ *
+ * Used to restore the original line-ending style after frontmatter
+ * transformations, so we don't silently convert files between LF/CRLF on
+ * round-trip writes (which would create noisy git diffs on Windows).
+ */
+function hasCrlf(content: string): boolean {
+  return content.includes('\r\n');
+}
+
+/**
+ * Restore CRLF line endings if the original content used them.
+ * Operates on LF-normalized output: replaces all `\n` with `\r\n`.
+ * No-op if `originalUsedCrlf` is false.
+ */
+function restoreCrlf(normalized: string, originalUsedCrlf: boolean): string {
+  return originalUsedCrlf ? normalized.replace(/\n/g, '\r\n') : normalized;
+}
+
+/**
  * Strip `allowed-tools` field from YAML frontmatter.
  * This field is Claude-specific and has no meaning in other CLIs.
  *
  * Handles:
  * - `allowed-tools: value` (single line)
- * - Both LF and CRLF line endings (normalized before regex)
+ * - Both LF and CRLF line endings (normalized before regex, restored on output)
  * - Preserves all other frontmatter fields
  * - Returns content unchanged if no frontmatter present
  */
 export function stripAllowedToolsFromFrontmatter(content: string): string {
+  // Detect original line-ending style so we can restore it on output.
+  const originalUsedCrlf = hasCrlf(content);
   // Normalize CRLF to LF for reliable regex matching on Windows
   const normalized = normalizeCrlf(content);
 
   // Match YAML frontmatter block
   const frontmatterMatch = normalized.match(/^---\n([\s\S]*?)\n---/);
   if (!frontmatterMatch) {
-    return normalized;
+    return restoreCrlf(normalized, originalUsedCrlf);
   }
 
   const frontmatter = frontmatterMatch[1];
@@ -54,11 +77,15 @@ export function stripAllowedToolsFromFrontmatter(content: string): string {
 
   // If nothing was filtered, return normalized content
   if (filteredLines.length === lines.length) {
-    return normalized;
+    return restoreCrlf(normalized, originalUsedCrlf);
   }
 
   const newFrontmatter = filteredLines.join('\n');
-  return normalized.replace(frontmatterMatch[0], `---\n${newFrontmatter}\n---`);
+  const result = normalized.replace(
+    frontmatterMatch[0],
+    `---\n${newFrontmatter}\n---`,
+  );
+  return restoreCrlf(result, originalUsedCrlf);
 }
 
 /**
@@ -73,11 +100,12 @@ export function stripAllowedToolsFromFrontmatter(content: string): string {
  * quoted. Existing single-quoted values are also left unchanged.
  */
 export function sanitizeYamlDescriptions(content: string): string {
+  const originalUsedCrlf = hasCrlf(content);
   const normalized = normalizeCrlf(content);
 
   const frontmatterMatch = normalized.match(/^---\n([\s\S]*?)\n---/);
   if (!frontmatterMatch) {
-    return normalized;
+    return restoreCrlf(normalized, originalUsedCrlf);
   }
 
   const frontmatter = frontmatterMatch[1];
@@ -111,7 +139,11 @@ export function sanitizeYamlDescriptions(content: string): string {
   });
 
   const newFrontmatter = sanitizedLines.join('\n');
-  return normalized.replace(frontmatterMatch[0], `---\n${newFrontmatter}\n---`);
+  const result = normalized.replace(
+    frontmatterMatch[0],
+    `---\n${newFrontmatter}\n---`,
+  );
+  return restoreCrlf(result, originalUsedCrlf);
 }
 
 /**

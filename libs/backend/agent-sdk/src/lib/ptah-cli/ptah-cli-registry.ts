@@ -994,16 +994,18 @@ export class PtahCliRegistry {
   }
 
   /**
-   * Build default tier mappings from a provider's static models
+   * Build default tier mappings for a new agent.
+   *
+   * Returns undefined so the runtime cascade in resolveEffectiveTiers can
+   * resolve tiers in the right order: agentTiers → mainTiers → provider.defaultTiers
+   * → staticModels[0]. Pre-filling a partial mapping here would shadow the
+   * user's globally-configured tier choices (e.g. Ollama defaults to
+   * staticModels[0]='llama3.1:8b' even when the user has selected
+   * 'qwen3:8b'/'devstral'/'qwen3:32b' via the model mapping modal).
    */
   private buildDefaultTierMappings(
-    provider: AnthropicProvider,
+    _provider: AnthropicProvider,
   ): PtahCliConfig['tierMappings'] {
-    if (!provider.staticModels || provider.staticModels.length === 0) {
-      return undefined;
-    }
-    return {
-      sonnet: provider.staticModels[0].id,
-    };
+    return undefined;
   }
 }

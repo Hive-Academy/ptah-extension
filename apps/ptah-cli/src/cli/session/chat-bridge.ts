@@ -353,10 +353,31 @@ export class ChatBridge {
     }
 
     try {
-      // Kick the backend turn. The synchronous `{success}` ack is discarded —
-      // we only watch for `chat:complete | chat:error | abort | timeout`.
+      // Kick the backend turn. The synchronous `{success}` ack is normally
+      // discarded — we watch for `chat:complete | chat:error | abort |
+      // timeout`. BUT if the backend returns `{ success: false }` (rather
+      // than throwing) the bridge would otherwise wait forever for terminal
+      // events that will never arrive (P1 Fix 3 — HANDOFF-ptah-cli.md).
+      //
+      // Defensive backstop: settle with that failure result immediately so
+      // `outerPromise` resolves to a deterministic `task.error` instead of
+      // hanging. Independent of the throw-handling path below.
       try {
-        await rpcCall();
+        const ack = await rpcCall();
+        if (ack && ack.success === false) {
+          // Surface any error string the ack may carry; fall back to a
+          // generic message when the ack shape is bare `{ success: false }`.
+          const ackError = (ack as { readonly error?: unknown }).error;
+          const errorMessage =
+            typeof ackError === 'string' && ackError.length > 0
+              ? ackError
+              : 'rpc rejected chat turn (success=false)';
+          settle({
+            success: false,
+            error: errorMessage,
+            sessionId: resolvedSessionId,
+          });
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         settle({

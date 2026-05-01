@@ -1,19 +1,33 @@
 /**
  * Git Watcher Service
  *
- * Watches the .git directory for changes and pushes git status updates
- * to the renderer via WebviewManager. Replaces frontend polling with
- * event-driven push — git status is only computed when something actually changes.
+ * Despite the name, this service now drives BOTH git status push updates
+ * AND generic workspace file-tree change notifications to the renderer.
+ * The class name is preserved for backward compatibility with DI wiring
+ * and call sites; functionally it is a workspace + git watcher hybrid.
  *
- * Watches:
+ * Responsibilities:
+ *   1. Watch the .git directory (when present) and push `git:status-update`
+ *      events whenever HEAD, index, or refs change. This replaced the
+ *      frontend `git:info` polling loop with event-driven push.
+ *   2. Watch the workspace root unconditionally (NOT gated on `.git`
+ *      existence) and push `file:tree-changed` events for any create /
+ *      delete / rename, so the renderer's file explorer auto-refreshes
+ *      even in non-git workspaces.
+ *   3. Push `file:content-changed` events when the active editor file
+ *      is modified externally.
+ *
+ * Watches (git side):
  * - .git/HEAD      (branch switches, checkouts)
  * - .git/index     (staging area changes: git add/reset)
  * - .git/refs/     (new commits, remote updates, tag creation)
  *
- * Workspace file changes (unstaged modifications) are detected via a
- * secondary watcher on the workspace root with a longer debounce.
+ * Workspace file changes (unstaged modifications, file/folder CRUD) are
+ * detected via the workspace-root watcher and coalesced through
+ * TREE_DEBOUNCE_MS before being pushed.
  *
  * TASK_2025_240: Replace git:info polling with event-driven push
+ * Later expanded to drive generic workspace file watching as well.
  */
 
 import * as fs from 'fs';
@@ -51,8 +65,8 @@ export class GitWatcherService {
   /** Debounce interval for workspace file changes (ms). Longer to avoid noise. */
   private static readonly WORKSPACE_DEBOUNCE_MS = 2000;
 
-  /** Debounce interval for file tree refresh (ms). Longer to batch bulk operations like git pull. */
-  private static readonly TREE_DEBOUNCE_MS = 3000;
+  /** Debounce interval for file tree refresh (ms). Batches bulk ops (git pull, npm install) without making routine file creation feel laggy. */
+  private static readonly TREE_DEBOUNCE_MS = 500;
 
   constructor(
     private readonly gitInfo: GitInfoService,
@@ -77,20 +91,31 @@ export class GitWatcherService {
     this.broadcastFn = broadcast;
     this.isDisposed = false;
 
-    const gitDir = path.join(workspacePath, '.git');
+    this.logger.info('[GitWatcher] Starting file system watchers', {
+      workspacePath,
+    } as unknown as Error);
 
-    // Check if .git exists (could be a non-git workspace)
-    if (!fs.existsSync(gitDir) || !fs.statSync(gitDir).isDirectory()) {
+    // Watch workspace root recursively for file modifications and structural
+    // changes (file add/delete/rename → tree refresh). This must run for
+    // ALL workspaces, not only git repos — the file explorer depends on it
+    // to stay in sync when files are created via the UI, CLI agents, or
+    // external tools.
+    this.watchWorkspaceRoot(workspacePath);
+
+    // Git-specific watchers only attach when .git exists. A non-git workspace
+    // still gets workspace-root file watching above; only git status push is
+    // skipped (since there is no git status to report).
+    const gitDir = path.join(workspacePath, '.git');
+    const isGitRepo =
+      fs.existsSync(gitDir) && fs.statSync(gitDir).isDirectory();
+
+    if (!isGitRepo) {
       this.logger.debug(
-        '[GitWatcher] No .git directory found, skipping watch',
+        '[GitWatcher] No .git directory found, skipping git-specific watchers',
         { workspacePath } as unknown as Error,
       );
       return;
     }
-
-    this.logger.info('[GitWatcher] Starting file system watchers', {
-      workspacePath,
-    } as unknown as Error);
 
     // Watch .git/HEAD (branch switches)
     this.watchFile(
@@ -110,11 +135,7 @@ export class GitWatcherService {
       this.watchDirectory(refsDir, GitWatcherService.GIT_DEBOUNCE_MS);
     }
 
-    // Watch workspace root recursively for file modifications (unstaged changes)
-    // and structural changes (file add/delete for tree refresh).
-    this.watchWorkspaceRoot(workspacePath);
-
-    // Push initial state immediately
+    // Push initial git state immediately
     this.fetchAndPush();
   }
 

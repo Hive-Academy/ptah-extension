@@ -439,29 +439,37 @@ export class AgentSessionWatcherService extends EventEmitter {
 
     try {
       // Watch the main sessions directory (legacy flat layout)
-      this.directoryWatcher = fs.watch(sessionsDir, (eventType, filename) => {
-        // DIAGNOSTIC: Log ALL fs.watch events
-        this.logger.info('[AgentSessionWatcher] fs.watch event', {
-          eventType,
-          filename,
-          isAgentFile: filename?.startsWith('agent-'),
-        });
+      this.directoryWatcher = fs.watch(
+        sessionsDir,
+        (eventType, rawFilename) => {
+          // Normalize backslashes to forward slashes so pattern matching is
+          // identical on Windows and Unix. fs.watch on Windows can deliver
+          // platform-native separators in nested filenames; downstream regex/
+          // startsWith checks are written assuming forward-slash form.
+          const filename = rawFilename?.replace(/\\/g, '/');
+          // DIAGNOSTIC: Log ALL fs.watch events
+          this.logger.info('[AgentSessionWatcher] fs.watch event', {
+            eventType,
+            filename,
+            isAgentFile: filename?.startsWith('agent-'),
+          });
 
-        if (
-          eventType === 'rename' &&
-          filename?.startsWith('agent-') &&
-          filename.endsWith('.jsonl')
-        ) {
-          void this.handleNewAgentFile(sessionsDir, filename);
-        }
+          if (
+            eventType === 'rename' &&
+            filename?.startsWith('agent-') &&
+            filename.endsWith('.jsonl')
+          ) {
+            void this.handleNewAgentFile(sessionsDir, filename);
+          }
 
-        // When a session directory is created (e.g., UUID-named dir), re-check
-        // for subagent directories that we couldn't watch earlier.
-        if (eventType === 'rename' && filename && !filename.includes('.')) {
-          // UUID-like directory name (no extension) — could be a session dir
-          this.watchSubagentDirectories(sessionsDir);
-        }
-      });
+          // When a session directory is created (e.g., UUID-named dir), re-check
+          // for subagent directories that we couldn't watch earlier.
+          if (eventType === 'rename' && filename && !filename.includes('.')) {
+            // UUID-like directory name (no extension) — could be a session dir
+            this.watchSubagentDirectories(sessionsDir);
+          }
+        },
+      );
 
       this.directoryWatcher.on('error', (error) => {
         this.logger.error(
@@ -548,7 +556,9 @@ export class AgentSessionWatcherService extends EventEmitter {
           if (fs.existsSync(sessionDir)) {
             const sessionDirWatcher = fs.watch(
               sessionDir,
-              (eventType, filename) => {
+              (eventType, rawFilename) => {
+                // Normalize for cross-platform consistency (see main watcher).
+                const filename = rawFilename?.replace(/\\/g, '/');
                 if (eventType === 'rename' && filename === 'subagents') {
                   // subagents directory was created - now watch it
                   sessionDirWatcher.close();
@@ -591,7 +601,9 @@ export class AgentSessionWatcherService extends EventEmitter {
     if (this.subagentDirWatchers.has(subagentsDir)) return;
 
     try {
-      const watcher = fs.watch(subagentsDir, (eventType, filename) => {
+      const watcher = fs.watch(subagentsDir, (eventType, rawFilename) => {
+        // Normalize backslashes for cross-platform consistency (see main watcher).
+        const filename = rawFilename?.replace(/\\/g, '/');
         this.logger.info(
           '[AgentSessionWatcher] fs.watch event (subagents dir)',
           {
