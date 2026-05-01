@@ -466,6 +466,89 @@ describe('ChatBridge — runTurn', () => {
     expectNoListenerLeaks(adapter);
   });
 
+  // P1 Fix 3 — defensive backstop on `{ success: false }` ack from rpcCall.
+  // Without this, the bridge waits forever in `outerPromise` because the
+  // backend never broadcasts a terminal `chat:complete | chat:error`.
+  it('rpcCall ack { success: false } — bridge settles deterministically without hanging', async () => {
+    const { bridge, adapter } = makeBridge();
+
+    const result = await bridge.runTurn({
+      tabId: 'tab-rpc-rejected',
+      rpcCall: async () => ({ success: false }),
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success === true) throw new Error('unreachable');
+    expect(result.error).toContain('rpc rejected');
+    expect(result.sessionId).toBe('tab-rpc-rejected');
+    expectNoListenerLeaks(adapter);
+  });
+
+  it('rpcCall ack { success: false, error: "..." } — bridge preserves ack error string', async () => {
+    const { bridge, adapter } = makeBridge();
+
+    const result = await bridge.runTurn({
+      tabId: 'tab-rpc-rejected-msg',
+      // The ack carries a descriptive error string — bridge must surface it.
+      rpcCall: async () =>
+        ({ success: false, error: 'auth required' }) as {
+          success: boolean;
+        },
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success === true) throw new Error('unreachable');
+    expect(result.error).toBe('auth required');
+    expectNoListenerLeaks(adapter);
+  });
+
+  // P1 Fix 3 — `{ success: false }` ack must clean up the timeout handle so
+  // no dangling setTimeout keeps the test/process event loop alive after the
+  // bridge settles. Use fake timers to assert no pending timers remain.
+  it('rpcCall ack { success: false } with timeoutMs — clears timeout on settle (no dangling timers)', async () => {
+    jest.useFakeTimers();
+    try {
+      const { bridge, adapter } = makeBridge();
+
+      const result = await bridge.runTurn({
+        tabId: 'tab-rpc-rejected-cleanup',
+        rpcCall: async () => ({ success: false }),
+        // Long timeout that, if not cleared, would keep a pending timer alive
+        // after the bridge settles via the {success:false} backstop.
+        timeoutMs: 60_000,
+      });
+
+      expect(result.success).toBe(false);
+      if (result.success === true) throw new Error('unreachable');
+      expect(result.error).toContain('rpc rejected');
+      // Critical: the timeout handle MUST have been cleared by `finally`.
+      // Jest's fake-timer queue is empty when no scheduled timers remain.
+      expect(jest.getTimerCount()).toBe(0);
+      expectNoListenerLeaks(adapter);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('rpcCall throw with timeoutMs — clears timeout on settle (no dangling timers)', async () => {
+    jest.useFakeTimers();
+    try {
+      const { bridge, adapter } = makeBridge();
+      const result = await bridge.runTurn({
+        tabId: 'tab-rpc-throw-cleanup',
+        rpcCall: async () => {
+          throw new Error('rpc transport down');
+        },
+        timeoutMs: 60_000,
+      });
+      expect(result.success).toBe(false);
+      expect(jest.getTimerCount()).toBe(0);
+      expectNoListenerLeaks(adapter);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('timeout — elapsed timeoutMs with no terminal event resolves failure', async () => {
     jest.useFakeTimers();
     try {

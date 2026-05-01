@@ -75,11 +75,23 @@ const buildSessionMetadataStoreStub = () => ({
   createChild: jest.fn().mockResolvedValue(undefined),
 });
 
-const buildWorkspaceProviderStub = () => ({
-  getWorkspaceRoot: jest.fn().mockReturnValue(undefined),
-  getConfiguration: jest.fn().mockReturnValue(false),
-  setConfiguration: jest.fn().mockResolvedValue(undefined),
-});
+const buildWorkspaceProviderStub = () => {
+  const store = new Map<string, unknown>();
+  return {
+    getWorkspaceRoot: jest.fn().mockReturnValue(undefined),
+    getConfiguration: jest.fn(
+      <T>(_section: string, key: string, defaultValue?: T): T | undefined => {
+        const v = store.get(key);
+        return v === undefined ? defaultValue : (v as T);
+      },
+    ),
+    setConfiguration: jest.fn(
+      async (_section: string, key: string, value: unknown): Promise<void> => {
+        store.set(key, value);
+      },
+    ),
+  };
+};
 
 const buildStateStorageStub = () => {
   const store = new Map<string, unknown>();
@@ -226,12 +238,15 @@ describe('CliAgentRpcHandlers — per-method dispatch parity', () => {
     const cliResult = await findHandler(cli.rpc, 'agent:setConfig')(params);
     const eleResult = await findHandler(ele.rpc, 'agent:setConfig')(params);
     expect(cliResult).toEqual(eleResult);
-    // Both should have clamped to 10 / 65535.
-    expect(cli.storage.update).toHaveBeenCalledWith(
+    // Both should have clamped to 10 / 65535. agentOrchestration.* writes go
+    // through IWorkspaceProvider; mcpPort stays on stateStorage.
+    expect(cli.workspace.setConfiguration).toHaveBeenCalledWith(
+      'ptah',
       'agentOrchestration.maxConcurrentAgents',
       10,
     );
-    expect(ele.storage.update).toHaveBeenCalledWith(
+    expect(ele.workspace.setConfiguration).toHaveBeenCalledWith(
+      'ptah',
       'agentOrchestration.maxConcurrentAgents',
       10,
     );

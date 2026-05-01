@@ -75,12 +75,20 @@ const EFFORT_OPTIONS: readonly EffortOption[] = [
     bars: 3,
   },
   {
+    value: 'xhigh',
+    label: 'X-High',
+    description: 'Extra-deep reasoning (Opus tier)',
+    dotColor: 'bg-error/80',
+    textColor: 'text-error/90',
+    bars: 4,
+  },
+  {
     value: 'max',
     label: 'Max',
-    description: 'Maximum reasoning depth',
+    description: 'Maximum reasoning depth (Opus tier)',
     dotColor: 'bg-error',
     textColor: 'text-error',
-    bars: 4,
+    bars: 5,
   },
 ] as const;
 
@@ -229,7 +237,7 @@ export class EffortSelectorComponent {
   readonly CheckIcon = Check;
 
   readonly effortOptions = EFFORT_OPTIONS;
-  readonly barSlots = [0, 1, 2, 3];
+  readonly barSlots = [0, 1, 2, 3, 4];
 
   /**
    * Effective effort for this context: per-tab override when in canvas tile,

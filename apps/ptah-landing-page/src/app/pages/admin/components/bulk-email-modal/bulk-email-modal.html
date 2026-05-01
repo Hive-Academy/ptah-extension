@@ -4,11 +4,13 @@
       <header class="mb-4 flex items-start justify-between gap-4">
         <div>
           <h3 id="bulk-email-title" class="text-lg font-semibold">
-            Email Selected Users
+            Bulk Email
           </h3>
-          <p class="text-sm opacity-70">
-            {{ recipientCount() }} recipient(s)
-          </p>
+          @if (mode() === 'explicit-users') {
+            <p class="text-sm opacity-70">
+              {{ recipientCount() }} selected recipient(s)
+            </p>
+          }
         </div>
         <button
           type="button"
@@ -21,34 +23,16 @@
         </button>
       </header>
 
-      @if (result(); as r) {
+      @if (success()) {
         <!-- Success summary view -->
         <div class="alert alert-success mb-4">
           <div>
             <div class="font-semibold">
-              Sent {{ r.sent }} of {{ recipientCount() }}
+              Campaign queued successfully!
             </div>
-            @if (r.failed.length > 0) {
-              <div class="text-sm">{{ r.failed.length }} failed</div>
-            }
+            <div class="text-sm">The campaign has been started in the background. You can track its progress in the Campaign History.</div>
           </div>
         </div>
-
-        @if (r.failed.length > 0) {
-          <details class="mb-4">
-            <summary class="cursor-pointer text-sm opacity-70">
-              View failures
-            </summary>
-            <ul class="mt-2 max-h-40 overflow-auto text-xs">
-              @for (f of r.failed; track f.userId) {
-                <li class="border-b border-base-300 py-1">
-                  <span class="font-mono">{{ f.userId }}</span>:
-                  {{ f.error }}
-                </li>
-              }
-            </ul>
-          </details>
-        }
 
         <div class="modal-action">
           <button
@@ -61,50 +45,77 @@
         </div>
       } @else {
         <!-- Form view -->
-        <form (submit)="onSubmit($event)" class="flex flex-col gap-3">
+        <form (submit)="onSubmit($event)" class="flex flex-col gap-4">
           @if (errorMessage(); as msg) {
             <div class="alert alert-error text-sm">
               <span>{{ msg }}</span>
             </div>
           }
 
-          <label class="form-control">
-            <div class="label">
-              <span class="label-text">Subject</span>
-              <span class="label-text-alt">
-                {{ subject().length }} / 200
-              </span>
-            </div>
-            <input
-              type="text"
-              class="input input-bordered"
-              maxlength="200"
-              required
-              [value]="subject()"
-              (input)="onSubjectInput($event)"
-              [disabled]="sending()"
-              placeholder="Important announcement from Ptah"
-            />
-          </label>
+          <!-- Mode Toggle -->
+          <div class="flex gap-4">
+            <label class="label cursor-pointer gap-2">
+              <input type="radio" name="mode" class="radio radio-primary radio-sm" [checked]="mode() === 'explicit-users'" (change)="mode.set('explicit-users')" />
+              <span class="label-text">Selected Users</span>
+            </label>
+            <label class="label cursor-pointer gap-2">
+              <input type="radio" name="mode" class="radio radio-primary radio-sm" [checked]="mode() === 'segment'" (change)="mode.set('segment')" />
+              <span class="label-text">Target Segment</span>
+            </label>
+          </div>
 
-          <label class="form-control">
+          @if (mode() === 'segment') {
+            <ptah-segment-picker [value]="segment()" (valueChange)="segment.set($event)" />
+          }
+
+          <div class="divider text-xs opacity-50">CONTENT</div>
+
+          <div class="form-control">
             <div class="label">
-              <span class="label-text">HTML Body</span>
-              <span class="label-text-alt">
-                {{ html().length }} / 50000
-              </span>
+              <span class="label-text">Use Template</span>
             </div>
-            <textarea
-              class="textarea textarea-bordered font-mono text-sm"
-              rows="10"
-              maxlength="50000"
-              required
-              [value]="html()"
-              (input)="onHtmlInput($event)"
-              [disabled]="sending()"
-              placeholder="<p>Hello…</p>"
-            ></textarea>
-          </label>
+            <ptah-template-picker [value]="templateId()" (valueChange)="templateId.set($event)" />
+          </div>
+
+          @if (!templateId()) {
+            <label class="form-control">
+              <div class="label">
+                <span class="label-text">Subject</span>
+                <span class="label-text-alt">
+                  {{ subject().length }} / 200
+                </span>
+              </div>
+              <input
+                type="text"
+                class="input input-bordered"
+                maxlength="200"
+                required
+                [value]="subject()"
+                (input)="onSubjectInput($event)"
+                [disabled]="sending()"
+                placeholder="Important announcement"
+              />
+            </label>
+
+            <label class="form-control">
+              <div class="label">
+                <span class="label-text">HTML Body</span>
+                <span class="label-text-alt">
+                  {{ html().length }} / 50000
+                </span>
+              </div>
+              <textarea
+                class="textarea textarea-bordered font-mono text-sm"
+                rows="8"
+                maxlength="50000"
+                required
+                [value]="html()"
+                (input)="onHtmlInput($event)"
+                [disabled]="sending()"
+                placeholder="<p>Hello…</p>"
+              ></textarea>
+            </label>
+          }
 
           <div class="modal-action">
             <button
@@ -117,14 +128,14 @@
             </button>
             <button
               type="submit"
-              class="btn btn-primary"
+              class="btn btn-primary px-8"
               [disabled]="!canSubmit()"
             >
               @if (sending()) {
                 <span class="loading loading-spinner loading-sm"></span>
                 Sending…
               } @else {
-                Send to {{ recipientCount() }}
+                Send Campaign
               }
             </button>
           </div>

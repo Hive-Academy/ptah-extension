@@ -25,6 +25,29 @@ import {
 } from '../../di/container.js';
 import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
 import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
+import { emitFatalError } from '../output/stderr-json.js';
+
+/**
+ * Lightweight contract for the SDK agent adapter as resolved out of the DI
+ * container. We only need the lifecycle hooks here — the streaming surface
+ * lives on the same instance but is consumed elsewhere.
+ *
+ * Mirrors the slice used by `apps/ptah-electron/src/activation/bootstrap.ts`
+ * so the CLI initialization path stays symmetric with Electron.
+ */
+interface SdkAgentLifecycle {
+  initialize(): Promise<boolean>;
+  dispose?(): void | Promise<void>;
+}
+
+/**
+ * Symbol token for the agent adapter binding registered by
+ * `CliDIContainer.setup`. Resolved here as `Symbol.for('AgentAdapter')` rather
+ * than imported from `@ptah-extension/vscode-core` to keep `with-engine.ts`
+ * dependency-light (tests mock the bootstrap entirely and never reach this
+ * resolution path).
+ */
+const AGENT_ADAPTER_TOKEN = Symbol.for('AgentAdapter');
 
 /** Subset of resolved `GlobalOptions` `withEngine` cares about. */
 export interface WithEngineGlobals {
@@ -91,10 +114,103 @@ export async function withEngine<T>(
     pushAdapter: result.pushAdapter,
   };
 
+  // ---- P0 Fix 1: initialize the SDK agent adapter under `mode === 'full'` --
+  //
+  // Without this, `chat:start` RPCs throw `SdkAgentAdapter not initialized`
+  // inside the chat-session service, the throw is swallowed by an inner
+  // catch, and `ptah session start` / `ptah interact + task.submit` hang
+  // forever waiting for events that will never arrive.
+  //
+  // Mirrors `apps/ptah-electron/src/activation/bootstrap.ts:240`. We only run
+  // this for `'full'` because `'minimal'` skips Phase 4.x RPC registrations
+  // and is used by introspection commands (e.g. `--help`, `--version`,
+  // metadata-only queries) that never hit the chat surface.
+  let sdkAdapter: SdkAgentLifecycle | undefined;
+  if (opts.mode === 'full') {
+    try {
+      sdkAdapter =
+        ctx.container.resolve<SdkAgentLifecycle>(AGENT_ADAPTER_TOKEN);
+    } catch (resolveErr) {
+      // Container did not register the adapter (older bootstrap variants or
+      // a partial test harness). Treat as a non-recoverable init failure so
+      // JSON-RPC clients see a deterministic error instead of a hang.
+      const message =
+        resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
+      await runDispose(opts, ctx);
+      throw new SdkInitFailedError(message);
+    }
+
+    if (globals.verbose === true) {
+      // Dev-mode breadcrumb confirming the bootstrap path actually reached
+      // `initialize()`. Visible only with `--verbose`; never on the default
+      // hot path.
+      process.stderr.write('[ptah] withEngine: initializing SDK adapter\n');
+    }
+
+    let initialized = false;
+    let initErrorMessage: string | undefined;
+    try {
+      initialized = await sdkAdapter.initialize();
+    } catch (initErr) {
+      initErrorMessage =
+        initErr instanceof Error ? initErr.message : String(initErr);
+    }
+
+    if (!initialized) {
+      const message =
+        initErrorMessage ??
+        'SDK agent adapter initialize() returned false (auth not configured)';
+      // Emit the structured stderr NDJSON line BEFORE we tear down so
+      // supervisors per cli-shift.md see the deterministic error code even
+      // if the JSON-RPC stdout channel is closed.
+      emitFatalError('sdk_init_failed', message, {
+        command: 'engine.bootstrap',
+        bootstrap_mode: opts.mode,
+      });
+      // Symmetric teardown — `initialize()` may have partially mutated
+      // adapter state. The container clear + push-adapter listener cleanup
+      // run before we propagate so the caller doesn't observe a half-booted
+      // engine.
+      await runDispose(opts, ctx);
+      throw new SdkInitFailedError(message);
+    }
+  }
+
   try {
     return await fn(ctx);
   } finally {
+    // Dispose the SDK adapter symmetrically with `initialize()` — mirrors the
+    // electron shutdown path. Errors here are swallowed; the user-supplied
+    // `dispose` and `clearInstances()` still run below.
+    if (sdkAdapter && typeof sdkAdapter.dispose === 'function') {
+      try {
+        await sdkAdapter.dispose();
+      } catch (disposeErr) {
+        process.stderr.write(
+          `[ptah] sdk adapter dispose failed: ${
+            disposeErr instanceof Error
+              ? disposeErr.message
+              : String(disposeErr)
+          }\n`,
+        );
+      }
+    }
     await runDispose(opts, ctx);
+  }
+}
+
+/**
+ * Tagged error thrown by `withEngine` when `initialize()` returns false or
+ * throws under `mode === 'full'`. Carries the `ptah_code: 'sdk_init_failed'`
+ * marker that command-level catch blocks (e.g. `session.execute`) can pattern-
+ * match on to emit a deterministic JSON-RPC `task.error` notification instead
+ * of the generic `internal_failure` fallback.
+ */
+export class SdkInitFailedError extends Error {
+  readonly ptahCode = 'sdk_init_failed' as const;
+  constructor(message: string) {
+    super(message);
+    this.name = 'SdkInitFailedError';
   }
 }
 

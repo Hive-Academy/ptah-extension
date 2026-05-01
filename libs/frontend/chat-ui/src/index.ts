@@ -115,4 +115,11 @@ export { ToolOutputDisplayComponent } from './lib/molecules/tool-execution/tool-
 // ============================================================================
 // UTILITIES
 // ============================================================================
-export { generateAgentColor } from './lib/utils/agent-color.utils';
+export {
+  generateAgentColor,
+  generateAgentColorOklch,
+  formatOklch,
+  isThemeFallbackColor,
+  THEME_FALLBACK_OKLCH,
+  type OklchColor,
+} from './lib/utils/agent-color.utils';

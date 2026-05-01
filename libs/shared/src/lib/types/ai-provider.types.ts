@@ -95,11 +95,12 @@ export type ThinkingConfig =
  * - low: Minimal thinking, fastest responses
  * - medium: Moderate thinking
  * - high: Deep reasoning (SDK default)
- * - max: Maximum effort (Opus 4.6 only)
+ * - xhigh: Extra-deep reasoning (Opus tier)
+ * - max: Maximum effort (Opus tier)
  *
  * When undefined, SDK defaults to 'high'.
  */
-export type EffortLevel = 'low' | 'medium' | 'high' | 'max';
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * AI Session Configuration

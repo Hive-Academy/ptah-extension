@@ -16,7 +16,10 @@ export type AdminModelKey =
   | 'subscriptions'
   | 'failed-webhooks'
   | 'trial-reminders'
-  | 'session-requests';
+  | 'session-requests'
+  | 'admin-audit-log'
+  | 'marketing-campaigns'
+  | 'marketing-campaign-templates';
 
 export interface AdminModelConfig {
   /** Prisma delegate name (the lower-case client property, e.g. prisma.user) */
@@ -26,7 +29,10 @@ export interface AdminModelConfig {
     | 'subscription'
     | 'failedWebhook'
     | 'trialReminder'
-    | 'sessionRequest';
+    | 'sessionRequest'
+    | 'adminAuditLog'
+    | 'marketingCampaign'
+    | 'marketingCampaignTemplate';
   /** Columns shown on the list page */
   listFields: string[];
   /** Text-searchable string fields (contains, insensitive) */
@@ -173,6 +179,59 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
     readOnly: false,
     defaultSortBy: 'createdAt',
     include: { user: true },
+  },
+  'admin-audit-log': {
+    prismaModel: 'adminAuditLog',
+    listFields: [
+      'id',
+      'actorEmail',
+      'action',
+      'targetType',
+      'targetId',
+      'createdAt',
+    ],
+    searchFields: ['actorEmail', 'action', 'targetType', 'targetId'],
+    sortableFields: ['createdAt', 'action', 'actorEmail'],
+    editableFields: [],
+    readOnly: true,
+    defaultSortBy: 'createdAt',
+  },
+  'marketing-campaigns': {
+    prismaModel: 'marketingCampaign',
+    listFields: [
+      'id',
+      'name',
+      'subject',
+      'segment',
+      'recipientCount',
+      'sentCount',
+      'bouncedCount',
+      'complainedCount',
+      'createdBy',
+      'createdAt',
+      'completedAt',
+    ],
+    searchFields: ['name', 'subject', 'segment', 'createdBy'],
+    sortableFields: ['createdAt', 'completedAt', 'sentCount', 'recipientCount'],
+    editableFields: [],
+    readOnly: true,
+    defaultSortBy: 'createdAt',
+  },
+  'marketing-campaign-templates': {
+    prismaModel: 'marketingCampaignTemplate',
+    listFields: [
+      'id',
+      'name',
+      'subject',
+      'variables',
+      'createdAt',
+      'updatedAt',
+    ],
+    searchFields: ['name', 'subject'],
+    sortableFields: ['createdAt', 'updatedAt', 'name'],
+    editableFields: ['name', 'subject', 'htmlBody'],
+    readOnly: false,
+    defaultSortBy: 'createdAt',
   },
 };
 

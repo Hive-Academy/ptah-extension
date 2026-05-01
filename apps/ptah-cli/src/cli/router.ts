@@ -28,6 +28,7 @@ import * as newProjectCmd from './commands/new-project.js';
 import * as pluginCmd from './commands/plugin.js';
 import * as promptsCmd from './commands/prompts.js';
 import * as providerCmd from './commands/provider.js';
+import * as proxyCmd from './commands/proxy.js';
 import * as qualityCmd from './commands/quality.js';
 import * as runCmd from './commands/run.js';
 import * as sessionCmd from './commands/session.js';
@@ -2069,18 +2070,127 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
+  // -- ptah proxy ------------------------------------------------------------
+  // Anthropic-compatible HTTP proxy (TASK_2026_104 P2). `start` is long-blocking;
+  // `stop` and `status` are deferred to Phase 2.
+  const proxyCommand = program
+    .command('proxy')
+    .description('Anthropic-compatible HTTP proxy (Messages API)');
+
+  proxyCommand
+    .command('start')
+    .description('start the HTTP proxy and block until SIGINT/SIGTERM')
+    .requiredOption(
+      '--port <number>',
+      'TCP port to bind (0 = OS-assigned)',
+      (v) => Number.parseInt(v, 10),
+    )
+    .option('--host <addr>', 'bind address', '127.0.0.1')
+    .option(
+      '--idle-timeout <seconds>',
+      'auto-shutdown after N seconds idle (0 = disabled)',
+      (v) => Number.parseInt(v, 10),
+      0,
+    )
+    .option(
+      '--no-expose-workspace-tools',
+      'disable workspace MCP / plugin-skill tool merging into caller `tools[]`',
+    )
+    .action(
+      async (opts: {
+        port: number;
+        host: string;
+        idleTimeout: number;
+        exposeWorkspaceTools: boolean;
+      }) => {
+        const exit = await proxyCmd.executeStart(
+          {
+            port: opts.port,
+            host: opts.host,
+            idleTimeout: opts.idleTimeout,
+            exposeWorkspaceTools: opts.exposeWorkspaceTools !== false,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  proxyCommand
+    .command('stop')
+    .description(
+      'stop a running proxy registered in ~/.ptah/proxies/<port>.json',
+    )
+    .option('--port <number>', 'port of the proxy to stop', (v) =>
+      Number.parseInt(v, 10),
+    )
+    .action(async (opts: { port?: number }) => {
+      const exit = await proxyCmd.executeStop(
+        { port: opts.port },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  proxyCommand
+    .command('status')
+    .description('list running proxies registered in ~/.ptah/proxies/')
+    .action(async () => {
+      const exit = await proxyCmd.executeStatus({}, resolveGlobals(program));
+      process.exitCode = exit;
+    });
+
   // -- ptah interact ---------------------------------------------------------
   program
     .command('interact')
     .description('persistent JSON-RPC 2.0 stdio session')
     .option('--session <id>', 'resume or create the session with this id')
-    .action(async (opts: { session?: string }) => {
-      const exit = await interactCmd.execute(
-        { session: opts.session },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
+    .option(
+      '--proxy-start',
+      'boot an embedded Anthropic-compatible HTTP proxy alongside the interact loop',
+      false,
+    )
+    .option(
+      '--proxy-port <port>',
+      'TCP port for the embedded proxy (0 = OS-assigned)',
+      (raw) => Number.parseInt(raw, 10),
+      0,
+    )
+    .option(
+      '--proxy-host <host>',
+      'bind host for the embedded proxy',
+      '127.0.0.1',
+    )
+    .option(
+      '--proxy-expose-workspace-tools',
+      'surface workspace MCP tools through the embedded proxy',
+      false,
+    )
+    .action(
+      async (opts: {
+        session?: string;
+        proxyStart?: boolean;
+        proxyPort?: number;
+        proxyHost?: string;
+        proxyExposeWorkspaceTools?: boolean;
+      }) => {
+        const exit = await interactCmd.execute(
+          {
+            session: opts.session,
+            proxyStart: opts.proxyStart === true,
+            proxyPort:
+              typeof opts.proxyPort === 'number' &&
+              Number.isFinite(opts.proxyPort)
+                ? opts.proxyPort
+                : 0,
+            proxyHost: opts.proxyHost ?? '127.0.0.1',
+            proxyExposeWorkspaceTools: opts.proxyExposeWorkspaceTools === true,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
 
   return program;
 }

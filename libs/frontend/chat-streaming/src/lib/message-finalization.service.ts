@@ -66,8 +66,14 @@ export class MessageFinalizationService {
     const stateCopy = this.deepCopyStreamingState(streamingState);
 
     // Build final tree using ExecutionTreeBuilderService (TASK_2025_082 Batch 6)
-    // PERFORMANCE: Use unique cache key for finalization to avoid stale cache
-    const cacheKey = `finalize-${targetTabId}-${Date.now()}`;
+    // TASK_2026_TREE_STABILITY Fix 2/8: Reuse the streaming cache key
+    // (`tab-${tabId}`) so the fingerprint check inside buildTree returns the
+    // memoized streaming tree when the underlying state hasn't changed since
+    // the last streaming build. The previous `finalize-${tabId}-${Date.now()}`
+    // salt forced a full rebuild on every finalize, producing fresh node
+    // references for an identical structure and triggering OnPush re-render
+    // cascades plus a perceptible "flicker" between streaming and finalized.
+    const cacheKey = `tab-${targetTabId}`;
     let finalTree = this.treeBuilder.buildTree(stateCopy, cacheKey);
 
     // TASK_2025_098 FIX: Mark all 'streaming' nodes as 'interrupted' when aborted
@@ -112,33 +118,81 @@ export class MessageFinalizationService {
     const finalCost = cost;
     const finalDuration = duration;
 
-    // DEDUPLICATION FIX: Use tree node ID (message_start event id) NOT messageId.
-    // This ensures the finalized message ID matches the streaming tree ID,
-    // allowing streamingMessages computed signal to properly filter duplicates.
-    const treeNodeId = finalTree[0]?.id ?? messageId;
-
-    const assistantMessage = createExecutionChatMessage({
-      id: treeNodeId,
-      role: 'assistant',
-      streamingState: finalTree[0] || null, // Single root message
-      sessionId: targetTab?.claudeSessionId ?? undefined,
-      tokens: finalTokens,
-      cost: finalCost,
-      duration: finalDuration,
-    });
-
-    // DEDUPLICATION: Check if message already exists to prevent duplicates
-    // This can happen if finalizeCurrentMessage is called multiple times
-    // (e.g., from multiple event handlers or re-entrancy)
-    // Check by BOTH messageId and tree node ID to catch all cases
+    // ID STABILITY FIX:
+    // For each tree in finalTree, emit ONE finalized assistant message keyed
+    // by `tree.id` (the `message_start` event id). The streaming side renders
+    // each tree as a bubble keyed by the same `tree.id`, so when finalize
+    // arrives the unified `@for` loop in chat-view reuses the existing
+    // <ptah-message-bubble> instance for every tree (no remount, no FLIP).
+    //
+    // Cases handled:
+    //  - 0 trees (e.g. abort with content collapsed, or finalize before any
+    //    message_start arrived): we still emit ONE message keyed by
+    //    `messageId` so abort metadata (tokens/cost/duration) isn't lost.
+    //    There are no streaming bubbles in this case, so id collision with
+    //    a streaming tree.id is impossible.
+    //  - 1 tree (the common case): emit one message keyed by `tree.id`,
+    //    matching the streaming bubble's id exactly.
+    //  - N trees (multi-tree turn — e.g. assistant text → tools →
+    //    assistant text again): emit N messages, each keyed by the
+    //    corresponding `tree.id`. The streaming dedup set in `streamingMessages()`
+    //    contains every finalized id, so every streaming tree is reliably
+    //    excluded after finalize. Stats are attached only to the LAST tree
+    //    (session-end totals belong to the final assistant turn).
     const existingMessages = targetTab?.messages ?? [];
-    const treeNodeIdForCheck = finalTree[0]?.id ?? messageId;
-    const messageExists = existingMessages.some(
-      (msg) => msg.id === messageId || msg.id === treeNodeIdForCheck,
-    );
+    const existingIds = new Set(existingMessages.map((m) => m.id));
 
-    if (messageExists) {
-      // Message already finalized - just clear streaming state
+    const newMessages: ExecutionChatMessage[] = [];
+
+    if (finalTree.length === 0) {
+      // No trees built (abort/content-collapsed). Skip if a message with
+      // this messageId already exists; otherwise emit a stats-only message.
+      if (existingIds.has(messageId)) {
+        this.tabManager.clearStreamingForLoaded(targetTabId);
+        return;
+      }
+      newMessages.push(
+        createExecutionChatMessage({
+          id: messageId,
+          role: 'assistant',
+          streamingState: null,
+          sessionId: targetTab?.claudeSessionId ?? undefined,
+          tokens: finalTokens,
+          cost: finalCost,
+          duration: finalDuration,
+        }),
+      );
+    } else {
+      // One message per tree, keyed by tree.id for stable identity across
+      // the streaming → finalized handoff. Stats land on the final tree.
+      const lastIdx = finalTree.length - 1;
+      for (let i = 0; i < finalTree.length; i++) {
+        const tree = finalTree[i];
+        if (existingIds.has(tree.id)) {
+          // Already finalized (re-entrant finalize) — skip this tree.
+          continue;
+        }
+        const isLast = i === lastIdx;
+        newMessages.push(
+          createExecutionChatMessage({
+            id: tree.id,
+            role: 'assistant',
+            streamingState: tree,
+            sessionId: targetTab?.claudeSessionId ?? undefined,
+            ...(isLast
+              ? {
+                  tokens: finalTokens,
+                  cost: finalCost,
+                  duration: finalDuration,
+                }
+              : {}),
+          }),
+        );
+      }
+    }
+
+    if (newMessages.length === 0) {
+      // Every tree was already finalized — just clear streaming state.
       this.tabManager.clearStreamingForLoaded(targetTabId);
       return;
     }
@@ -146,7 +200,7 @@ export class MessageFinalizationService {
     // Add to target tab's messages and clear streaming state
     this.tabManager.applyFinalizedTurn(targetTabId, [
       ...existingMessages,
-      assistantMessage,
+      ...newMessages,
     ]);
 
     // Update SessionManager status
@@ -185,7 +239,9 @@ export class MessageFinalizationService {
     const stateCopy = this.deepCopyStreamingState(streamingState);
 
     // Build full tree for all messages
-    const cacheKey = `history-${tabId}-${Date.now()}`;
+    // TASK_2026_TREE_STABILITY Fix 2/8: Reuse the streaming cache key so an
+    // identical state fingerprint hits the memoized tree (no Date.now() salt).
+    const cacheKey = `tab-${tabId}`;
     let allTrees = this.treeBuilder.buildTree(stateCopy, cacheKey);
 
     // TASK_2025_103 FIX: Mark resumable agent nodes as 'interrupted'

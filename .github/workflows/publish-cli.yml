@@ -1,20 +1,25 @@
 # Publish Ptah CLI to npm
 #
 # Triggers (mirrors publish-extension.yml):
-#   1. Push to release/cli              → auto-bump patch, tag, publish, PR-back to main
-#   2. workflow_dispatch                → choose patch/minor/major + dry-run toggle
-#   3. Push of a tag matching cli-v*    → publish at the tagged version (manual escape hatch)
+#   1. Push to release/cli   → auto-bump patch, build, publish, tag, PR-back to main
+#   2. workflow_dispatch     → choose patch/minor/major + dry-run toggle
+#
+# We deliberately do NOT listen on `tags: ['cli-v*']`. The branch flow
+# pushes its own tag via `git push origin "$BRANCH" --tags`, which would
+# re-fire this workflow and produce a noisy 403 (can't republish the same
+# version). The tag is created for archeology / rollback parity with the
+# extension publish flow, not as a publish trigger.
 #
 # Pipeline:
 #   1. checkout + node 22 (registry-url so NPM_TOKEN authenticates)
 #   2. cache-aware npm ci (rollup linux binary workaround)
-#   3. resolve target version (tag-driven OR bump-driven)
+#   3. resolve next version (bump from package.json)
 #   4. quality gates: nx lint + typecheck + test scoped to ptah-cli
 #   5. nx build ptah-cli
 #   6. verify dist version matches the resolved version
 #   7. npm publish --dry-run
 #   8. npm publish --provenance --access public  (skipped on dry-run dispatch)
-#   9. for branch/dispatch flows: tag, push tag, open chore(release) PR to main
+#   9. tag, push tag, open chore(release) PR to main
 #
 # Provenance attestation requires `id-token: write` and a public repo,
 # both satisfied here.
@@ -30,12 +35,10 @@ on:
   push:
     branches:
       - release/cli
-    tags:
-      - 'cli-v*'
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump type (ignored when triggered by tag)'
+        description: 'Version bump type'
         required: true
         type: choice
         options:
@@ -63,12 +66,105 @@ env:
   NX_TUI: 'false'
 
 jobs:
-  publish:
-    runs-on: ubuntu-latest
-    # Skip the chore(release): bump commits to prevent self-trigger loops
+  # -------------------------------------------------------------------------
+  # Pre-publish smoke matrix — TASK_2026_108 T4 (Task 4.5).
+  #
+  # Runs the full bash smoke suite + tarball install verification + a
+  # forbidden-pattern scan on the publish dry-run output, on Linux AND
+  # Windows. The publish job depends on every matrix leg succeeding.
+  #
+  # Smoke 5 in `smoke-pre-publish.sh` talks to the live Anthropic API and
+  # is fail-closed in CI via `SMOKE_REQUIRE_API_KEY=1` — the workflow MUST
+  # be configured with the `ANTHROPIC_API_KEY` repository secret.
+  # -------------------------------------------------------------------------
+  smoke:
+    name: Smoke (${{ matrix.os }})
     if: >-
       github.event_name != 'push' ||
-      startsWith(github.ref, 'refs/tags/') ||
+      !startsWith(github.event.head_commit.message, 'chore(release):')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Windows runner uses Git Bash so the smoke scripts execute under a
+        # POSIX-flavoured shell on both platforms.
+        shell: bash
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SMOKE_REQUIRE_API_KEY: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: |
+          npm ci
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            npm install @rollup/rollup-linux-x64-gnu --no-save --force
+          fi
+
+      - name: Build CLI
+        run: npx nx build ptah-cli
+
+      - name: Smoke — pre-publish bash harness
+        run: bash apps/ptah-cli/scripts/smoke-pre-publish.sh
+
+      - name: Smoke — tarball install verification
+        run: bash apps/ptah-cli/scripts/test-publish-cli.sh
+
+      - name: Publish dry-run + forbidden-pattern scan
+        run: |
+          # Capture the dry-run output so we can grep it for forbidden
+          # tarball entries (test specs, source maps, hoisted node_modules,
+          # scratch directories). `npm publish --dry-run` writes the file
+          # list to stderr — redirect with 2>&1 so we see both streams.
+          set -o pipefail
+          DRYRUN_LOG="$(mktemp)"
+          npx nx run ptah-cli:publish:dry-run 2>&1 | tee "$DRYRUN_LOG"
+
+          # Forbidden patterns. If any match, fail the smoke step.
+          FORBIDDEN_PATTERNS=(
+            '\.spec\.ts$'
+            '^node_modules/'
+            'scratch[/]'
+            '\.ts\.map$'
+          )
+          violations=0
+          for pat in "${FORBIDDEN_PATTERNS[@]}"; do
+            if grep -E "$pat" "$DRYRUN_LOG" >/dev/null 2>&1; then
+              echo "::error::Forbidden tarball entry pattern matched: $pat"
+              grep -E "$pat" "$DRYRUN_LOG" || true
+              violations=$((violations + 1))
+            fi
+          done
+          rm -f "$DRYRUN_LOG"
+          if [ "$violations" -gt 0 ]; then
+            exit 1
+          fi
+
+  publish:
+    needs: smoke
+    runs-on: ubuntu-latest
+    # Skip the chore(release): bump commits to prevent self-trigger loops
+    # if a chore commit ever lands on release/cli.
+    if: >-
+      github.event_name != 'push' ||
       !startsWith(github.event.head_commit.message, 'chore(release):')
     steps:
       - uses: actions/checkout@v4
@@ -99,51 +195,34 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Resolve target version
+      - name: Bump version
         id: version
         run: |
           OLD_VERSION=$(node -p "require('./apps/ptah-cli/package.json').version")
-          MODE=""
-          NEW_VERSION=""
+          BUMP_TYPE="${{ github.event.inputs.bump || 'patch' }}"
+          NEW_VERSION=$(node -e "
+            const [major, minor, patch] = '${OLD_VERSION}'.split('.').map(Number);
+            const bump = '${BUMP_TYPE}';
+            if (bump === 'major') console.log(\`\${major+1}.0.0\`);
+            else if (bump === 'minor') console.log(\`\${major}.\${minor+1}.0\`);
+            else console.log(\`\${major}.\${minor}.\${patch+1}\`);
+          ")
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('apps/ptah-cli/package.json', 'utf8'));
+            pkg.version = '${NEW_VERSION}';
+            fs.writeFileSync('apps/ptah-cli/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "Bumped $OLD_VERSION -> $NEW_VERSION ($BUMP_TYPE)"
 
-          if [[ "${{ github.event_name }}" == "push" && "$GITHUB_REF" == refs/tags/cli-v* ]]; then
-            # Tag-driven: tag IS the version, package.json must already match
-            MODE="tag"
-            NEW_VERSION="${GITHUB_REF##refs/tags/cli-v}"
-            if [[ "$OLD_VERSION" != "$NEW_VERSION" ]]; then
-              echo "::error::Tag version ($NEW_VERSION) does not match apps/ptah-cli/package.json ($OLD_VERSION). For tag-driven publishes, bump the file first, commit, then tag."
-              exit 1
-            fi
-          else
-            # Branch push or workflow_dispatch: bump and write back
-            MODE="bump"
-            BUMP_TYPE="${{ github.event.inputs.bump || 'patch' }}"
-            NEW_VERSION=$(node -e "
-              const [major, minor, patch] = '${OLD_VERSION}'.split('.').map(Number);
-              const bump = '${BUMP_TYPE}';
-              if (bump === 'major') console.log(\`\${major+1}.0.0\`);
-              else if (bump === 'minor') console.log(\`\${major}.\${minor+1}.0\`);
-              else console.log(\`\${major}.\${minor}.\${patch+1}\`);
-            ")
-            node -e "
-              const fs = require('fs');
-              const pkg = JSON.parse(fs.readFileSync('apps/ptah-cli/package.json', 'utf8'));
-              pkg.version = '${NEW_VERSION}';
-              fs.writeFileSync('apps/ptah-cli/package.json', JSON.stringify(pkg, null, 2) + '\n');
-            "
-            echo "Bumped $OLD_VERSION -> $NEW_VERSION ($BUMP_TYPE)"
-          fi
-
-          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
           echo "old_version=$OLD_VERSION" >> "$GITHUB_OUTPUT"
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=cli-v$NEW_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check tag does not already exist
-        if: steps.version.outputs.mode == 'bump'
         run: |
           if git ls-remote --tags origin "refs/tags/${{ steps.version.outputs.tag }}" | grep -q .; then
-            echo "::error::Tag ${{ steps.version.outputs.tag }} already exists. Bump again or delete the existing tag."
+            echo "::error::Tag ${{ steps.version.outputs.tag }} already exists. Delete the tag or bump again."
             exit 1
           fi
 
@@ -186,9 +265,7 @@ jobs:
         run: npm publish --access public --provenance
 
       - name: Tag and open version-bump PR to main
-        if: >-
-          steps.version.outputs.mode == 'bump' &&
-          (github.event_name != 'workflow_dispatch' || github.event.inputs.dry-run != 'true')
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.dry-run != 'true'
         env:
           HUSKY: '0'
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
@@ -220,7 +297,6 @@ jobs:
         run: |
           echo "### Ptah CLI publish — ${{ steps.version.outputs.new_version }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Mode: \`${{ steps.version.outputs.mode }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Old: \`${{ steps.version.outputs.old_version }}\` → New: \`${{ steps.version.outputs.new_version }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tag: \`${{ steps.version.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Verify: \`npm view @hive-academy/ptah-cli@${{ steps.version.outputs.new_version }}\`" >> "$GITHUB_STEP_SUMMARY"
