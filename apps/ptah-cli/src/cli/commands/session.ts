@@ -43,9 +43,11 @@
 import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine, SdkInitFailedError } from '../bootstrap/with-engine.js';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
+import { emitFatalError } from '../output/stderr-json.js';
 import { ExitCode } from '../jsonrpc/types.js';
+import type { PtahErrorCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
 import { ChatBridge } from '../session/chat-bridge.js';
@@ -228,8 +230,22 @@ export async function execute(
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    // Distinguish SDK-init failures from generic internal failures so JSON-RPC
+    // clients see a deterministic `sdk_init_failed` code. The structured
+    // stderr breadcrumb (Fix 4 — cli-shift.md Phase 2 channel) was already
+    // emitted by `withEngine` for SDK-init; for internal_failure we emit it
+    // here so supervisors monitoring stderr don't have to parse stdout.
+    const isSdkInit = error instanceof SdkInitFailedError;
+    const ptahCode: PtahErrorCode = isSdkInit
+      ? 'sdk_init_failed'
+      : 'internal_failure';
+    if (!isSdkInit) {
+      emitFatalError('internal_failure', message, {
+        command: `session.${opts.subcommand}`,
+      });
+    }
     await formatter.writeNotification('task.error', {
-      ptah_code: 'internal_failure',
+      ptah_code: ptahCode,
       command: `session.${opts.subcommand}`,
       message,
     });

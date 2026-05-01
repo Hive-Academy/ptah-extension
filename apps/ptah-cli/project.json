@@ -29,7 +29,6 @@
         },
         "external": [
           "@anthropic-ai/claude-agent-sdk",
-          "@github/copilot-sdk",
           "@openai/codex-sdk",
           "reflect-metadata",
           "tsyringe",
@@ -62,6 +61,26 @@
           {
             "glob": "package.json",
             "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "README.md",
+            "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "docs/jsonrpc-schema.md",
+            "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "docs/migration.md",
+            "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "LICENSE.md",
+            "input": ".",
             "output": "."
           }
         ]
@@ -105,6 +124,22 @@
       "options": {
         "jestConfig": "apps/ptah-cli/jest.config.cjs",
         "passWithNoTests": true
+      }
+    },
+    "publish:dry-run": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "dist/apps/ptah-cli",
+        "command": "npm publish --dry-run --access public"
+      }
+    },
+    "publish": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "dist/apps/ptah-cli",
+        "command": "npm publish --access public --provenance"
       }
     }
   }

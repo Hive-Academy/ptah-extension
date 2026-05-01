@@ -176,7 +176,6 @@ export class AdminList {
   protected onSelectionChange(ids: readonly string[]): void {
     this.selectedIds.set(ids);
   }
-
   protected onSearchInput(event: Event): void {
     const target = event.target as HTMLInputElement | null;
     this.search.set(target?.value ?? '');
@@ -184,7 +183,18 @@ export class AdminList {
   }
 
   /**
-   * Hook for the "Email Selected" button. Opens the bulk-email modal
+   * Helper for 'source' field badge styling.
+   * Complimentary -> warning, manual -> info, paddle -> ghost.
+   */
+  protected getSourceBadgeClass(value: unknown): string {
+    if (value === 'complimentary') return 'badge-warning';
+    if (value === 'manual') return 'badge-info';
+    return 'badge-ghost';
+  }
+
+  /**
+ * Hook for the "Email Selected" button. Opens the bulk-email modal
+...
    * with the currently selected user IDs.
    */
   protected onBulkEmailClick(): void {

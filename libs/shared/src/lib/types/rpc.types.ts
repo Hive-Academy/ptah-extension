@@ -65,6 +65,10 @@ import type {
   SessionCliSessionsResult,
   SessionStatsBatchParams,
   SessionStatsBatchResult,
+  SessionForkParams,
+  SessionForkResult,
+  SessionRewindParams,
+  SessionRewindResult,
 } from './rpc/rpc-session.types';
 
 import type {
@@ -351,6 +355,14 @@ export interface RpcMethodRegistry {
   'session:stats-batch': {
     params: SessionStatsBatchParams;
     result: SessionStatsBatchResult;
+  };
+  'session:forkSession': {
+    params: SessionForkParams;
+    result: SessionForkResult;
+  };
+  'session:rewindFiles': {
+    params: SessionRewindParams;
+    result: SessionRewindResult;
   };
 
   // ---- Context Methods ----
@@ -1153,6 +1165,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:validate': true,
   'session:cli-sessions': true,
   'session:stats-batch': true,
+  'session:forkSession': true,
+  'session:rewindFiles': true,
 
   // Context Methods
   'context:getAllFiles': true,

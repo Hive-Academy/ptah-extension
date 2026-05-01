@@ -103,11 +103,20 @@ export function buildAgentNode(
     ? state.agentSummaryAccumulators.get(effectiveAgentId) || undefined
     : undefined;
 
+  // TASK_2026_TREE_STABILITY Fix 1/8: Use a stable id derived from toolCallId
+  // for the agent node itself AND as the prefix for child text-block ids.
+  // Without this, the placeholder agent (`agent-placeholder-${toolCallId}`)
+  // and the real agent (`agentStart.id`, an event uuid) had different ids,
+  // forcing a full remount when `agent_start` arrived. Sharing
+  // `agent:${toolCallId}` makes streaming → real a stable in-place update,
+  // and child text ids `${stableAgentId}-text-${i}` stay stable across builds.
+  const stableAgentId = `agent:${toolCallId}`;
+
   let finalChildren: ExecutionNode[];
 
   if (contentBlocks.length > 0) {
     finalChildren = buildInterleavedChildren(
-      agentStart.id,
+      stableAgentId,
       agentStart.timestamp,
       contentBlocks,
       agentChildren,
@@ -116,7 +125,7 @@ export function buildAgentNode(
     // Fallback: Use legacy summaryContent as single text node at beginning
     finalChildren = [...agentChildren];
     const summaryTextNode = createExecutionNode({
-      id: `${agentStart.id}-summary-text`,
+      id: `${stableAgentId}-summary-text`,
       type: 'text',
       status: 'complete',
       content: summaryContent,
@@ -141,7 +150,7 @@ export function buildAgentNode(
   const isBackground = deps.backgroundAgentStore.isBackgroundAgent(toolCallId);
 
   return createExecutionNode({
-    id: agentStart.id,
+    id: stableAgentId,
     type: 'agent',
     status: hasTaskToolResult ? 'complete' : 'streaming',
     content: agentStart.agentDescription || '',

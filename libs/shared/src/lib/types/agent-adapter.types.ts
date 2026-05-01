@@ -8,6 +8,7 @@
 import type { IAIProvider, AISessionConfig } from './ai-provider.types';
 import type { SessionId } from './branded.types';
 import type { FlatStreamEventUnion } from './execution';
+import type { McpHttpServerOverride } from './rpc/rpc-chat.types';
 
 /**
  * Callback signatures — mirrored from agent-sdk's SdkAgentAdapter public API.
@@ -89,6 +90,21 @@ export interface AgentSessionStartConfig extends AISessionConfig {
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
+  /**
+   * Opt-in to SDK `SDKPartialAssistantMessage` (`stream_event`) emissions
+   * for finer streaming deltas. Forwarded to the Claude Agent SDK as
+   * `Options.includePartialMessages`. Defaults to ON at the SDK plumbing
+   * layer when omitted (preserves historical Ptah streaming behavior).
+   */
+  includePartialMessages?: boolean;
+  /**
+   * Caller-supplied MCP HTTP server overrides (TASK_2026_108 T2).
+   * Keyed by MCP server name; merged OVER the registry-built map at the
+   * options-builder layer (caller wins on key collision). Reserved for the
+   * Anthropic-compatible HTTP proxy in P3 — non-proxy callers leave this
+   * `undefined` and the merge is a no-op.
+   */
+  mcpServersOverride?: Record<string, McpHttpServerOverride>;
 }
 
 /**
@@ -102,6 +118,8 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
   tabId?: string;
   /** New user message to send as part of this resumed turn. */
   prompt?: string;
+  /** See {@link AgentSessionStartConfig.includePartialMessages}. */
+  includePartialMessages?: boolean;
 }
 
 /**

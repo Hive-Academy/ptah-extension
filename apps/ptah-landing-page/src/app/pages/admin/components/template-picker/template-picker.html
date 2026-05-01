@@ -1,0 +1,18 @@
+@if (error(); as errMsg) {
+  <div class="alert alert-error mb-3" role="alert">
+    <span>{{ errMsg }}</span>
+    <button type="button" class="btn btn-sm btn-ghost" (click)="fetch()">Retry</button>
+  </div>
+} @else {
+  <select
+    class="select select-bordered w-full select-sm"
+    [value]="value() ?? ''"
+    [disabled]="isLoading()"
+    (change)="onSelect($event)"
+  >
+    <option value="">— None (use inline content) —</option>
+    @for (t of templates(); track t.id) {
+      <option [value]="t.id">{{ t.name }}</option>
+    }
+  </select>
+}

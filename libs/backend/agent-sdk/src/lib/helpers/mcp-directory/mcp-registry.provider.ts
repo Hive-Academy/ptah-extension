@@ -26,6 +26,32 @@ interface CachedResponse<T> {
   cachedAt: number;
 }
 
+/**
+ * Unwrap a registry entry, tolerating both the legacy flat shape
+ * (`{ name, description, ... }`) and the current envelope shape
+ * (`{ server: { ... }, _meta: { ... } }`) defined by the
+ * MCP Registry 2025-09 schema. Returns null if the entry has no
+ * usable `name` field after unwrapping.
+ *
+ * Why: the registry schema gained a `_meta` envelope which silently
+ * caused all list rows to render blank. Future schema additions that
+ * keep wrapping the payload under `server` will continue to work.
+ */
+function unwrapRegistryEntry(item: unknown): McpRegistryEntry | null {
+  if (!item || typeof item !== 'object') return null;
+  const obj = item as Record<string, unknown>;
+  const inner =
+    obj['server'] && typeof obj['server'] === 'object'
+      ? (obj['server'] as Record<string, unknown>)
+      : obj;
+
+  if (typeof inner['name'] !== 'string' || inner['name'].length === 0) {
+    return null;
+  }
+
+  return inner as unknown as McpRegistryEntry;
+}
+
 export class McpRegistryProvider {
   private popularCache: CachedResponse<McpRegistryEntry[]> | null = null;
 
@@ -54,18 +80,24 @@ export class McpRegistryProvider {
     const url = `${REGISTRY_BASE_URL}/servers?${params.toString()}`;
     const response = await this.fetch(url);
 
-    // The API returns { servers: [...], next_cursor?: "..." }
-    // Handle both the standard response shape and potential variations
     const body = (await response.json()) as Record<string, unknown>;
 
     const servers: McpRegistryEntry[] = Array.isArray(body['servers'])
-      ? (body['servers'] as McpRegistryEntry[])
+      ? (body['servers'] as unknown[])
+          .map((item) => unwrapRegistryEntry(item))
+          .filter((entry): entry is McpRegistryEntry => entry !== null)
       : [];
 
     const nextCursor =
       typeof body['next_cursor'] === 'string'
         ? (body['next_cursor'] as string)
-        : undefined;
+        : typeof (body['metadata'] as Record<string, unknown> | undefined)?.[
+              'next_cursor'
+            ] === 'string'
+          ? ((body['metadata'] as Record<string, unknown>)[
+              'next_cursor'
+            ] as string)
+          : undefined;
 
     return { servers, next_cursor: nextCursor };
   }
@@ -83,9 +115,7 @@ export class McpRegistryProvider {
 
       const body = (await response.json()) as Record<string, unknown>;
 
-      // The detail endpoint wraps in { server: { ... } } or returns flat
-      const server = (body['server'] ?? body) as McpRegistryEntry;
-      return server;
+      return unwrapRegistryEntry(body);
     } catch {
       return null;
     }

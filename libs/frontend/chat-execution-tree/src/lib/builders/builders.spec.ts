@@ -499,7 +499,10 @@ describe('builder fns (integration)', () => {
       expect(placeholder.type).toBe('agent');
       expect(placeholder.status).toBe('streaming');
       expect(placeholder.agentType).toBe('reviewer');
-      expect(placeholder.id.startsWith('agent-placeholder-')).toBe(true);
+      // TASK_2026_TREE_STABILITY Fix 1/8: Placeholder + real agent share
+      // a stable `agent:${toolCallId}` id so Angular tracking reuses the same
+      // component instance across the placeholder → real handoff.
+      expect(placeholder.id).toBe(`agent:${taskToolCallId}`);
     });
 
     it('returns null from buildAgentNode at MAX_DEPTH (recursion guard)', () => {

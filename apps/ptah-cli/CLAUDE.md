@@ -148,9 +148,11 @@ params)` for in-process RPC
   `lint`, `test`. The `external[]` list reflects the post-cleanup
   dependency set (no `react`, `ink*`, `@inkjs/ui`, `cli-highlight`,
   `marked-terminal`).
-- `package.json` — declares `bin: { ptah: ./main.mjs }` and
-  `name: '@ptah-extension/ptah-cli'` (will be flipped to
-  `@ptah-extensions/cli` for the public npm publish)
+- `package.json` — declares `bin: { ptah: main.mjs }` and
+  `name: '@hive-academy/ptah-cli'`. Lists the 22 runtime
+  `dependencies` that the esbuild bundle externalizes (anything in
+  `project.json` `external[]` that the bundle actually imports must be
+  declared as a runtime dep — verified against the produced `main.mjs`).
 - `jest.config.cjs` — Jest config (`displayName: 'ptah-cli'`)
 
 ## Architecture
@@ -273,8 +275,139 @@ the dist directory (or publishing `@ptah-extensions/cli`) yields a
 2. **banner**: esbuild injects `createRequire`, `__filename`, and
    `__dirname` shims so CommonJS interop and `__dirname`-style path
    resolution still work in the ESM output.
-3. **package.json copy**: the CLI `package.json` is copied alongside the
-   bundle to declare the `ptah` bin entry.
+3. **asset copy**: `package.json`, `README.md`, `LICENSE.md`, and the
+   two docs (`docs/jsonrpc-schema.md`, `docs/migration.md`) are copied
+   into `dist/apps/ptah-cli/` so the dist directory is a self-contained
+   npm publish root.
+
+## Publishing to npm
+
+The CLI is published as `@hive-academy/ptah-cli` to the public npm
+registry. Distribution is gated by the
+[`publish-cli` workflow](../../.github/workflows/publish-cli.yml),
+triggered by pushing a git tag matching `cli-v*`.
+
+### Local dry-run (no registry contact)
+
+```bash
+nx run ptah-cli:publish:dry-run
+```
+
+This depends on `build`, then runs `npm publish --dry-run --access
+public` from `dist/apps/ptah-cli/`. Reports the file list, tarball
+size, and integrity hash.
+
+### Local end-to-end smoke (no registry contact)
+
+Two scripts live under `apps/ptah-cli/scripts/`:
+
+```bash
+# 1. Six-scenario behavioural smoke (boots the dist binary, exercises the
+#    JSON-RPC stdio loop, the proxy permission gate, lifecycle teardown,
+#    real Anthropic API roundtrip, and the embedded proxy.shutdown RPC).
+bash apps/ptah-cli/scripts/smoke-pre-publish.sh
+
+# 2. Tarball install verification (npm pack → install into mktemp -d →
+#    run `ptah --version`, `ptah --help`, `ptah agent list --human`).
+bash apps/ptah-cli/scripts/test-publish-cli.sh
+```
+
+Use both before tagging a release; the `publish-cli.yml` workflow runs
+them on a `[ubuntu-latest, windows-latest]` matrix as a hard gate before
+any `npm publish` step.
+
+#### `ANTHROPIC_API_KEY` requirement (Smoke 5)
+
+Smoke scenario 5 in `smoke-pre-publish.sh` POSTs to `/v1/messages` against
+the running proxy, which forwards to the real Anthropic API
+(`claude-3-5-haiku-20241022`, `max_tokens: 16` to keep cost negligible).
+
+Behaviour gates on two env vars:
+
+| Env var                 | Local default                                             | CI                                            |
+| ----------------------- | --------------------------------------------------------- | --------------------------------------------- |
+| `ANTHROPIC_API_KEY`     | Optional. When unset, Smoke 5 SKIPs with a stderr warning | Required (sourced from repo secret)           |
+| `SMOKE_REQUIRE_API_KEY` | Unset / `0` — local skip is non-fatal                     | Set to `1` so the smoke FAILs without the key |
+
+429 contract: a single 429 from Anthropic triggers a 5s sleep + one retry.
+A second 429 in the same scenario fails the smoke. Keep `max_tokens` at 16
+to stay well under any project rate budget.
+
+CI uses `SMOKE_REQUIRE_API_KEY=1` to fail closed: a missing key surfaces
+as a publish-pipeline failure rather than a silent skip.
+
+### Cutting a release
+
+The `publish-cli` workflow has two trigger paths. Pick the one that
+matches what you want.
+
+**Path A — push to `release/cli` (auto-bump, recommended):**
+
+```bash
+git checkout -B release/cli origin/main
+git push -f origin release/cli
+```
+
+The workflow auto-bumps the patch version, publishes, tags
+`cli-v<new>`, and opens a `chore(release): cli vX.Y.Z` PR back to
+`main`. Merge that PR to keep `main` in sync. This is the same
+pattern as `publish-extension.yml`.
+
+**Path B — manual dispatch (choose bump type):**
+
+GitHub UI → Actions → **Publish CLI** → Run workflow → pick
+`patch`/`minor`/`major`. Toggle `dry-run` to validate the full
+pipeline without publishing.
+
+> The workflow does NOT trigger on `cli-v*` tag pushes. The branch flow
+> creates the tag itself; listening on it would cause a self-fire and a
+> 403 republish error. Tags exist for archeology / rollback parity with
+> the extension publish flow, not as a trigger.
+
+After the publish, the workflow opens a `chore(release): cli vX.Y.Z`
+PR against `main` with the version bump. Merging that PR brings `main`
+in sync with the published version. Merging the chore PR does NOT
+re-trigger the publish — `main` is not in the trigger list, and the
+guard on `chore(release):` commit messages skips the run if a chore
+commit ever lands on `release/cli`.
+
+### Required GitHub secrets
+
+| Secret          | Purpose                                                                                                                                                                                |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NPM_TOKEN`     | Granular access token for the `@hive-academy` scope, write on `@hive-academy/ptah-cli`, 2FA bypass for automation enabled. Set in repo Settings → Secrets and variables → Actions.     |
+| `RELEASE_TOKEN` | PAT with `repo` + `workflow` scopes. Used to push the auto-generated `chore/bump-cli-v*` branch and open the version-bump PR back to `main` (already used by `publish-extension.yml`). |
+
+### Provenance verification
+
+After the workflow publishes, verify the attestation:
+
+```bash
+npm view @hive-academy/ptah-cli --json | jq '.dist.attestations'
+```
+
+The `predicate.buildDefinition.externalParameters.workflow` field
+should resolve to this repository's `publish-cli.yml`, signed by
+GitHub's OIDC issuer.
+
+### Local registry test (verdaccio)
+
+For a fully isolated end-to-end test without using the real npm
+registry:
+
+```bash
+# In a separate terminal:
+npx verdaccio                                # runs at http://localhost:4873
+
+# In the repo:
+nx build ptah-cli
+cd dist/apps/ptah-cli
+npm publish --registry http://localhost:4873 --access public
+
+# In a clean tmp dir:
+npm install -g @hive-academy/ptah-cli --registry http://localhost:4873
+ptah --version
+```
 
 ## CLI-specific Concerns
 
