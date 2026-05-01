@@ -32,13 +32,18 @@ import {
   AIMessageOptions,
   SessionId,
   FlatStreamEventUnion,
+  type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
-import { SdkError } from './errors';
+import { SdkError, SessionNotActiveError } from './errors';
 import { SessionMetadataStore } from './session-metadata-store';
-import { ModelInfo } from './types/sdk-types/claude-sdk.types';
+import {
+  ModelInfo,
+  type ForkSessionResult,
+  type RewindFilesResult,
+} from './types/sdk-types/claude-sdk.types';
 import {
   AuthManager,
   SessionLifecycleManager,
@@ -189,6 +194,97 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   public async preloadSdk(): Promise<void> {
     return this.moduleLoader.preload();
+  }
+
+  /** Idempotency guard for prewarm() — see method docs. */
+  private _prewarmed = false;
+
+  /**
+   * Pre-warm the Claude Agent SDK subprocess via the SDK's `startup()` export.
+   *
+   * `startup()` (Claude Agent SDK ≥ 0.2.111) spawns the CLI subprocess and
+   * completes the initialize handshake ahead of time, so the first `query()`
+   * resolves immediately instead of paying the spawn+handshake latency.
+   *
+   * Idempotent: subsequent calls are no-ops (tracked via `_prewarmed`). The
+   * returned `WarmQuery` is intentionally NOT held — Ptah's existing query
+   * path constructs its own query options each session, and holding a warm
+   * handle would couple subprocess lifetime to extension lifetime in a way
+   * that's hard to reason about. The benefit of `startup()` here is the
+   * one-time CLI binary-resolution and module-load warmup it triggers; the
+   * `WarmQuery` is closed immediately to free the subprocess.
+   *
+   * Failures are swallowed with `logger.warn` — a failed pre-warm must NOT
+   * block normal flow. The first real `query()` call will retry naturally.
+   */
+  public async prewarm(): Promise<void> {
+    if (this._prewarmed) {
+      return;
+    }
+
+    const startTime = performance.now();
+    try {
+      const sdkModule = (await import('@anthropic-ai/claude-agent-sdk')) as {
+        startup?: (params?: {
+          options?: unknown;
+          initializeTimeoutMs?: number;
+        }) => Promise<{ close: () => void }>;
+      };
+      const startupFn = sdkModule.startup;
+      if (typeof startupFn !== 'function') {
+        this.logger.warn(
+          '[SdkAgentAdapter] SDK startup() export not found - skipping prewarm',
+          new Error(`startup is ${typeof startupFn}`),
+        );
+        return;
+      }
+
+      // Pass pathToClaudeCodeExecutable so startup() resolves the same cli.js
+      // the real query() will use. Without this, startup() falls back to the
+      // SDK's import.meta.url-based resolution (TASK_2025_194 backstory).
+      const warm = await startupFn({
+        options: this.cliJsPath
+          ? { pathToClaudeCodeExecutable: this.cliJsPath }
+          : undefined,
+      });
+      // Close immediately — see method-level rationale.
+      try {
+        warm.close();
+      } catch (closeErr) {
+        this.logger.warn(
+          '[SdkAgentAdapter] WarmQuery.close() threw',
+          closeErr instanceof Error ? closeErr : new Error(String(closeErr)),
+        );
+      }
+
+      const elapsed = (performance.now() - startTime).toFixed(2);
+      this.logger.info(
+        `[SdkAgentAdapter] SDK subprocess pre-warmed (${elapsed}ms)`,
+      );
+      // Set the idempotency flag ONLY after successful startup. Setting it
+      // before the await would silently swallow retry opportunities — a
+      // failed prewarm would mark itself "done" and the next call would
+      // become a no-op even though the subprocess never warmed up.
+      this._prewarmed = true;
+    } catch (err) {
+      const elapsed = (performance.now() - startTime).toFixed(2);
+      // Redact API key fragments before logging. SDK errors sometimes embed
+      // bearer tokens / sk-ant-* keys in stack traces or messages from
+      // upstream HTTP clients. Log only the error name + redacted message —
+      // never the full Error object (which carries `.stack`).
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      const errorName = err instanceof Error ? err.name : 'UnknownError';
+      const redactedMessage = rawMessage.replace(
+        /sk-ant-[A-Za-z0-9_-]+/g,
+        'sk-ant-***REDACTED***',
+      );
+      this.logger.warn(
+        `[SdkAgentAdapter] SDK prewarm failed after ${elapsed}ms (will resolve on first query): ${errorName}: ${redactedMessage}`,
+      );
+      // Do NOT set _prewarmed in the catch — leave it false so a subsequent
+      // call retries the warmup naturally. Do NOT capture in Sentry — prewarm
+      // is best-effort and benign on failure.
+    }
   }
 
   /**
@@ -476,6 +572,21 @@ export class SdkAgentAdapter implements IAgentAdapter {
        * Resolved by PluginLoaderService for premium users.
        */
       pluginPaths?: string[];
+      /**
+       * Opt-in to SDK `SDKPartialAssistantMessage` (`stream_event`) emissions
+       * for finer streaming deltas. When omitted, the SDK plumbing layer
+       * defaults to ON (preserves historical Ptah behavior). Pass `false`
+       * explicitly to disable partial events on this session.
+       */
+      includePartialMessages?: boolean;
+      /**
+       * Caller-supplied MCP HTTP server overrides (TASK_2026_108 T2).
+       * Keyed by MCP server name; entries are merged OVER the registry-built
+       * map by `SdkQueryOptionsBuilder.mergeMcpOverride` (caller wins on key
+       * collision). Reserved for the Anthropic-compatible HTTP proxy in P3 —
+       * non-proxy callers leave this `undefined` and the merge is a no-op.
+       */
+      mcpServersOverride?: Record<string, McpHttpServerOverride>;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -490,6 +601,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       mcpServerRunning = true,
       enhancedPromptsContent,
       pluginPaths,
+      includePartialMessages,
+      mcpServersOverride,
     } = config;
     const trackingId = tabId as SessionId;
 
@@ -524,6 +637,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
         enhancedPromptsContent,
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
+        includePartialMessages,
+        // TASK_2026_108 T2: forward caller-supplied MCP HTTP overrides
+        mcpServersOverride,
       });
 
     // projectPath is guaranteed by ChatRpcHandlers (validated before reaching here).
@@ -607,6 +723,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
        * SESSION_STATS can be routed to the correct frontend tab.
        */
       tabId?: string;
+      /**
+       * Opt-in to SDK partial-message stream events. See
+       * `startChatSession.config.includePartialMessages` for semantics.
+       */
+      includePartialMessages?: boolean;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -636,6 +757,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const mcpServerRunning = config?.mcpServerRunning ?? true;
     const enhancedPromptsContent = config?.enhancedPromptsContent;
     const pluginPaths = config?.pluginPaths;
+    const includePartialMessages = config?.includePartialMessages;
 
     this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`, {
       isPremium,
@@ -662,6 +784,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         enhancedPromptsContent,
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
+        includePartialMessages,
       });
 
     // For resumed sessions, just update lastActiveAt (metadata already exists)
@@ -869,6 +992,160 @@ export class SdkAgentAdapter implements IAgentAdapter {
   async interruptSession(sessionId: SessionId): Promise<void> {
     this.logger.info(`[SdkAgentAdapter] Interrupting session: ${sessionId}`);
     await this.sessionLifecycle.endSession(sessionId);
+  }
+
+  /**
+   * Fork an existing session into a new branch.
+   *
+   * Calls the SDK's standalone `forkSession()` export, which copies the
+   * source session's transcript into a brand-new session file (with remapped
+   * UUIDs) and returns the new session ID. Optionally slices the transcript
+   * up to a specific message UUID via `upToMessageId` so the user can branch
+   * mid-conversation.
+   *
+   * The returned session ID can be passed to `resumeSession()` to continue
+   * the forked branch. The original session is left untouched. Forked sessions
+   * do NOT carry file-history snapshots — the SDK only copies transcript data.
+   *
+   * @param sessionId - UUID of the source session to fork from
+   * @param upToMessageId - Optional message UUID to slice the transcript at (inclusive)
+   * @param title - Optional title for the new fork (defaults to "<original> (fork)")
+   * @returns The new forked session ID
+   * @throws SdkError if the SDK module fails to load or fork fails
+   */
+  async forkSession(
+    sessionId: SessionId,
+    upToMessageId?: string,
+    title?: string,
+  ): Promise<ForkSessionResult> {
+    if (!this.initialized) {
+      throw new SdkError(
+        'SdkAgentAdapter not initialized. Call initialize() first.',
+      );
+    }
+
+    this.logger.info(`[SdkAgentAdapter] Forking session: ${sessionId}`, {
+      upToMessageId,
+      title,
+    });
+
+    try {
+      // The SDK's forkSession is a standalone export, not on the Query handle.
+      // Use the same dynamic-import path as SdkModuleLoader so the bundled
+      // SDK is reused (no re-download / re-resolution cost).
+      const sdkModule = (await import('@anthropic-ai/claude-agent-sdk')) as {
+        forkSession?: (
+          sessionId: string,
+          options?: { upToMessageId?: string; title?: string },
+        ) => Promise<ForkSessionResult>;
+      };
+      const fork = sdkModule.forkSession;
+      if (typeof fork !== 'function') {
+        throw new SdkError(
+          `SDK module loaded but 'forkSession' export is ${typeof fork}, expected function`,
+        );
+      }
+
+      const result = await fork(sessionId as string, {
+        upToMessageId,
+        title,
+      });
+      this.logger.info('[SdkAgentAdapter] Session forked successfully', {
+        sourceSessionId: sessionId,
+        newSessionId: result.sessionId,
+        upToMessageId,
+      });
+      return result;
+    } catch (error) {
+      const errorObj =
+        error instanceof Error ? error : new Error(String(error));
+      this.sentryService.captureException(errorObj, {
+        errorSource: 'SdkAgentAdapter.forkSession',
+      });
+      this.logger.error('[SdkAgentAdapter] Failed to fork session', errorObj);
+      throw new SdkError(
+        `Failed to fork session ${sessionId}: ${errorObj.message}`,
+      );
+    }
+  }
+
+  /**
+   * Rewind tracked files to their state at a specific user message.
+   *
+   * Delegates to `Query.rewindFiles()` on the active SDK query handle for
+   * this session. Requires that the session was started with file
+   * checkpointing enabled (the default — see SdkQueryOptionsBuilder).
+   *
+   * **CONSTRAINT**: This requires a LIVE `Query` handle. The session must
+   * be currently active in `SessionLifecycleManager` (i.e. there's an
+   * in-flight or paused query). If the session has been disposed/ended,
+   * the SDK has no checkpoint state to rewind from and this method will
+   * throw. RPC callers should ensure the session is active (or resume it
+   * first) before invoking rewind.
+   *
+   * @param sessionId - The active session whose files should be rewound
+   * @param userMessageId - UUID of the user message to rewind file state to
+   * @param dryRun - When true, returns the planned changes without modifying files
+   * @returns `RewindFilesResult` with `canRewind`, optional `error`, and change stats
+   * @throws SdkError if the session is not active or has no live Query handle
+   */
+  async rewindFiles(
+    sessionId: SessionId,
+    userMessageId: string,
+    dryRun?: boolean,
+  ): Promise<RewindFilesResult> {
+    if (!this.initialized) {
+      throw new SdkError(
+        'SdkAgentAdapter not initialized. Call initialize() first.',
+      );
+    }
+
+    this.logger.info(`[SdkAgentAdapter] Rewinding files for session`, {
+      sessionId,
+      userMessageId,
+      dryRun: dryRun ?? false,
+    });
+
+    const activeSession = this.sessionLifecycle.getActiveSession(sessionId);
+    if (!activeSession || !activeSession.query) {
+      // Stable error type so RPC handlers can `instanceof`-check rather than
+      // brittle regex-match the message string. The message wording is kept
+      // for the legacy regex fallback at the RPC boundary.
+      throw new SessionNotActiveError(
+        `Cannot rewind files: session ${sessionId} is not active or has no live Query handle. ` +
+          `rewindFiles requires the session to be currently active in SessionLifecycleManager — ` +
+          `resume the session before invoking rewind.`,
+      );
+    }
+
+    // NOTE: the SessionNotActiveError thrown above is intentionally outside
+    // this try/catch — wrapping it would lose the `instanceof` discriminator
+    // the RPC layer relies on.
+    try {
+      const result = await activeSession.query.rewindFiles(userMessageId, {
+        dryRun,
+      });
+      this.logger.info('[SdkAgentAdapter] rewindFiles completed', {
+        sessionId,
+        userMessageId,
+        canRewind: result.canRewind,
+        filesChanged: result.filesChanged?.length ?? 0,
+        insertions: result.insertions,
+        deletions: result.deletions,
+        error: result.error,
+      });
+      return result;
+    } catch (error) {
+      const errorObj =
+        error instanceof Error ? error : new Error(String(error));
+      this.sentryService.captureException(errorObj, {
+        errorSource: 'SdkAgentAdapter.rewindFiles',
+      });
+      this.logger.error('[SdkAgentAdapter] rewindFiles failed', errorObj);
+      throw new SdkError(
+        `Failed to rewind files for session ${sessionId}: ${errorObj.message}`,
+      );
+    }
   }
 
   /**

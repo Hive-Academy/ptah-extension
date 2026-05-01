@@ -268,4 +268,126 @@ describe('AdminService.deleteUserCascade', () => {
       service.deleteUserCascade('user-1', baseDto, actor),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  // ===========================================================================
+  // F1 — Cascade Deletion Integration Scenarios (TASK_2025_292 B7-T01)
+  // ===========================================================================
+  //
+  // These build on the unit-level coverage above and exercise the user-impact
+  // matrix called out in task-description §8 F1: row-count fan-out, performance,
+  // and atomic audit-log writes inside the same Prisma interactive transaction.
+
+  describe('F1 — cascade integration scenarios', () => {
+    it('user with 0 related rows: cascadedCounts all zero, audit row recorded', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce(makeUser());
+      // All count delegates default to 0 in createMockPrisma().
+
+      const result = await service.deleteUserCascade('user-1', baseDto, actor);
+
+      expect(result.cascaded).toEqual({
+        subscriptions: 0,
+        licenses: 0,
+        trialReminders: 0,
+        sessionRequests: 0,
+      });
+      expect(prisma.user.delete).toHaveBeenCalledTimes(1);
+
+      const writeArg = auditLog.write.mock.calls[0][0];
+      expect(writeArg.metadata).toMatchObject({
+        cascadedCounts: {
+          subscriptions: 0,
+          licenses: 0,
+          trialReminders: 0,
+          sessionRequests: 0,
+        },
+      });
+    });
+
+    it('user with 1 of each related type: cascadedCounts surface correctly in audit metadata', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce(makeUser());
+      // Subscription.count is called twice — once for active-paid gate guard
+      // (mocked via findFirst above, returns null) and once inside the snapshot
+      // Promise.all. The other three count() calls map 1:1.
+      prisma.subscription.count.mockResolvedValueOnce(1);
+      prisma.license.count.mockResolvedValueOnce(1);
+      prisma.trialReminder.count.mockResolvedValueOnce(1);
+      prisma.sessionRequest.count.mockResolvedValueOnce(1);
+
+      const result = await service.deleteUserCascade('user-1', baseDto, actor);
+
+      expect(result.cascaded).toEqual({
+        subscriptions: 1,
+        licenses: 1,
+        trialReminders: 1,
+        sessionRequests: 1,
+      });
+
+      const writeArg = auditLog.write.mock.calls[0][0];
+      expect(writeArg.metadata).toMatchObject({
+        cascadedCounts: {
+          subscriptions: 1,
+          licenses: 1,
+          trialReminders: 1,
+          sessionRequests: 1,
+        },
+      });
+    });
+
+    it('user with 100 of each: counts forwarded + happy path executes well under perf budget (< 500ms)', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce(makeUser());
+      prisma.subscription.count.mockResolvedValueOnce(100);
+      prisma.license.count.mockResolvedValueOnce(100);
+      prisma.trialReminder.count.mockResolvedValueOnce(100);
+      prisma.sessionRequest.count.mockResolvedValueOnce(100);
+
+      const start = Date.now();
+      const result = await service.deleteUserCascade('user-1', baseDto, actor);
+      const elapsedMs = Date.now() - start;
+
+      expect(result.cascaded).toEqual({
+        subscriptions: 100,
+        licenses: 100,
+        trialReminders: 100,
+        sessionRequests: 100,
+      });
+      // p95 perf target — service-layer logic (no real DB) must stay tiny.
+      // Real DB perf is gated separately in the e2e suite; this guards
+      // against accidental N^2 logic creeping into the cascade path.
+      expect(elapsedMs).toBeLessThan(500);
+    });
+
+    it('audit-log write enlists in the same Prisma transaction as the user.delete (R8)', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce(makeUser());
+
+      await service.deleteUserCascade('user-1', baseDto, actor);
+
+      // R8: audit + delete must share one tx. Our $transaction mock aliases
+      // `tx` to the prisma mock, so the `tx` arg passed to auditLog.write is
+      // the same client used to call user.delete.
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(auditLog.write).toHaveBeenCalledTimes(1);
+      expect(prisma.user.delete).toHaveBeenCalledTimes(1);
+
+      const writeArg = auditLog.write.mock.calls[0][0];
+      expect(writeArg.tx).toBe(prisma); // same handle threaded through
+    });
+
+    it('audit row is rolled back when user.delete fails after audit.write succeeded', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce(makeUser());
+      // Simulate a generic DB failure on delete (not P2025) — should bubble.
+      const dbErr = new Error('connection reset');
+      prisma.user.delete.mockRejectedValueOnce(dbErr);
+
+      await expect(
+        service.deleteUserCascade('user-1', baseDto, actor),
+      ).rejects.toThrow('connection reset');
+
+      // Audit was *attempted* in tx, but Prisma would roll back the row when
+      // the outer tx callback throws. We can't observe Postgres-level rollback
+      // in unit tests — what we CAN assert is that write was called with the
+      // tx handle (so it would roll back) and that delete was attempted.
+      const writeArg = auditLog.write.mock.calls[0][0];
+      expect(writeArg.tx).toBe(prisma);
+    });
+  });
 });

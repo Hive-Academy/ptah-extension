@@ -147,10 +147,12 @@ export class EditorWorkspaceHelper {
 
       if (result.success && result.data) {
         const tree = result.data.tree ?? [];
-        this.state.fileTree.set(tree);
+        const previousTree = this.state.fileTree();
+        const merged = this.mergeLoadedSubtrees(tree, previousTree);
+        this.state.fileTree.set(merged);
         const cached = this.state.workspaceEditorState.get(targetWorkspace);
         if (cached) {
-          cached.fileTree = tree;
+          cached.fileTree = merged;
         }
       } else {
         this.state.showError(result.error ?? 'Failed to load file tree');
@@ -217,6 +219,95 @@ export class EditorWorkspaceHelper {
     });
   }
 
+  /**
+   * Preserve lazy-loaded subtrees across a tree refresh.
+   *
+   * The backend `editor:getFileTree` RPC builds the tree to a fixed depth
+   * (currently 6) from the workspace root. Directories deeper than that
+   * boundary come back as `{ needsLoad: true, children: [] }`. When the
+   * user has previously expanded such a directory (triggering
+   * `loadDirectoryChildren` to populate it), a subsequent full-tree
+   * refresh — for example from a file watcher tick or a local CRUD
+   * operation — would WIPE those loaded children, collapsing the user's
+   * expanded view and forcing them to re-expand each deep directory.
+   *
+   * This helper walks the freshly-fetched tree and, for every node that
+   * still reports `needsLoad: true` with no children, looks up the matching
+   * path in the previous tree. If the previous node was already loaded
+   * (had children, or `needsLoad === false`), its children are carried
+   * over into the new node and the flag is cleared. Recursion continues
+   * into the carried-over children so nested expanded subtrees are also
+   * preserved.
+   *
+   * Paths are normalized to forward slashes for matching (consistent with
+   * the rest of the editor code that calls `.replace(/\\/g, '/')`).
+   */
+  public mergeLoadedSubtrees(
+    newTree: FileTreeNode[],
+    previousTree: FileTreeNode[],
+  ): FileTreeNode[] {
+    if (!previousTree || previousTree.length === 0) return newTree;
+
+    // Build a path → node index of the previous tree for O(1) lookup.
+    const prevIndex = new Map<string, FileTreeNode>();
+    const indexNodes = (nodes: FileTreeNode[]): void => {
+      for (const node of nodes) {
+        const key = node.path.replace(/\\/g, '/');
+        prevIndex.set(key, node);
+        if (node.children && node.children.length > 0) {
+          indexNodes(node.children);
+        }
+      }
+    };
+    indexNodes(previousTree);
+
+    const mergeNode = (newNode: FileTreeNode): FileTreeNode => {
+      const key = newNode.path.replace(/\\/g, '/');
+      const prevNode = prevIndex.get(key);
+
+      // Type changed (file ↔ directory) — drop previous, take new as-is.
+      if (prevNode && prevNode.type !== newNode.type) {
+        if (newNode.children && newNode.children.length > 0) {
+          return {
+            ...newNode,
+            children: newNode.children.map(mergeNode),
+          };
+        }
+        return newNode;
+      }
+
+      // Boundary case: backend says needsLoad but we already loaded it before.
+      if (
+        newNode.type === 'directory' &&
+        newNode.needsLoad === true &&
+        (!newNode.children || newNode.children.length === 0) &&
+        prevNode &&
+        prevNode.type === 'directory' &&
+        (prevNode.needsLoad === false ||
+          (prevNode.children && prevNode.children.length > 0))
+      ) {
+        const carriedChildren = (prevNode.children ?? []).map(mergeNode);
+        return {
+          ...newNode,
+          needsLoad: false,
+          children: carriedChildren,
+        };
+      }
+
+      // Default: recurse into any children present on the new node.
+      if (newNode.children && newNode.children.length > 0) {
+        return {
+          ...newNode,
+          children: newNode.children.map(mergeNode),
+        };
+      }
+
+      return newNode;
+    };
+
+    return newTree.map(mergeNode);
+  }
+
   /** Start listening for file:tree-changed and file:content-changed pushes. */
   public startFileTreeWatcher(): void {
     if (this.treeMessageHandler) return;
@@ -233,8 +324,8 @@ export class EditorWorkspaceHelper {
         }, 500);
       }
 
-      if (data?.type === 'file:content-changed' && data?.data?.filePath) {
-        void this.callbacks.handleFileContentChanged(data.data.filePath);
+      if (data?.type === 'file:content-changed' && data?.payload?.filePath) {
+        void this.callbacks.handleFileContentChanged(data.payload.filePath);
       }
     };
     window.addEventListener('message', this.treeMessageHandler);

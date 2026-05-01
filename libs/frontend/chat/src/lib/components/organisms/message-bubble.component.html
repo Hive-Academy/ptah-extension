@@ -101,6 +101,7 @@
             <ptah-execution-node
               [node]="message().streamingState!"
               [isStreaming]="isStreaming()"
+              [isFinalizing]="isFinalizing()"
               [getPermissionForTool]="getPermissionForTool"
               (permissionResponded)="onPermissionResponse($event)"
             />
@@ -179,7 +180,7 @@
   </div>
 } @else {
   <!-- User message (right-aligned) -->
-  <div class="chat chat-end">
+  <div class="chat chat-end group">
     <!-- Header -->
     <div class="chat-header text-xs text-base-content/70 mb-1">
       <time
@@ -199,6 +200,32 @@
         [data]="userDisplayContent()"
         class="prose prose-sm max-w-none [&_*]:text-primary-content"
       />
+    </div>
+
+    <!-- User message action buttons (hover reveal): branch + rewind -->
+    <div
+      class="chat-footer flex gap-1 items-center mt-1 opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity duration-200"
+    >
+      <button
+        type="button"
+        class="btn btn-ghost btn-xs"
+        title="Branch conversation from here"
+        aria-label="Branch conversation from this message"
+        data-testid="user-branch-button"
+        (click)="onBranchClick()"
+      >
+        <lucide-angular [img]="GitBranchIcon" class="w-3.5 h-3.5" />
+      </button>
+      <button
+        type="button"
+        class="btn btn-ghost btn-xs"
+        title="Rewind file changes to here"
+        aria-label="Rewind file changes to this message"
+        data-testid="user-rewind-button"
+        (click)="onRewindClick()"
+      >
+        <lucide-angular [img]="Undo2Icon" class="w-3.5 h-3.5" />
+      </button>
     </div>
 
     <!-- File attachments indicator -->

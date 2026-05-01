@@ -27,7 +27,7 @@
 :host ::ng-deep .bubble-collapse-wrapper {
   display: grid;
   grid-template-rows: 1fr;
-  transition: grid-template-rows 220ms ease-out;
+  transition: grid-template-rows 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 :host ::ng-deep .bubble-collapse-wrapper.bubble-collapsed {
@@ -44,27 +44,31 @@
 @keyframes bubbleFadeIn {
   from {
     opacity: 0;
+    transform: translateY(2px);
   }
   to {
     opacity: 1;
+    transform: translateY(0);
   }
 }
 
 @keyframes bubbleFadeOut {
   from {
     opacity: 1;
+    transform: translateY(0);
   }
   to {
     opacity: 0;
+    transform: translateY(-2px);
   }
 }
 
 :host ::ng-deep .bubble-fade-enter {
-  animation: bubbleFadeIn 160ms ease-out both;
+  animation: bubbleFadeIn 240ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
 :host ::ng-deep .bubble-fade-leave {
-  animation: bubbleFadeOut 120ms ease-in both;
+  animation: bubbleFadeOut 160ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {

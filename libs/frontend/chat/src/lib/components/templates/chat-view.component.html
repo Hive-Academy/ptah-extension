@@ -60,7 +60,7 @@
         #messageContainer
         (scroll)="onScroll($event)"
         [auto-animate]
-        [autoAnimateDisabled]="resolvedIsStreaming()"
+        [autoAnimateDisabled]="resolvedIsStreaming() || isFinalizingTransition()"
       >
         @for (msg of allMessages(); track msg.id; let i = $index) {
           <ptah-message-bubble
@@ -68,6 +68,9 @@
             [messageIndex]="i"
             [totalMessages]="allMessages().length"
             [isStreaming]="streamingMessageIds().has(msg.id)"
+            [isFinalizing]="isFinalizingTransition()"
+            (branchRequested)="onBranchRequested($event)"
+            (rewindRequested)="onRewindRequested($event)"
           />
         }
 
@@ -104,6 +107,18 @@
           />
         }
       </div>
+
+      <!-- Branch/Rewind action error banner (auto-clears after 4s) -->
+      @if (actionError(); as errMsg) {
+        <div
+          class="px-4 py-2 mx-2 my-1 rounded-md bg-error/10 border border-error/30 text-error text-xs"
+          role="alert"
+          animate.enter="banner-enter"
+          animate.leave="banner-leave"
+        >
+          {{ errMsg }}
+        </div>
+      }
 
       <!-- Resume Notification Banner -->
       <div class="px-2 py-1">

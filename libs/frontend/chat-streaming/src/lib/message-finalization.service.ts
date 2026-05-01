@@ -66,8 +66,14 @@ export class MessageFinalizationService {
     const stateCopy = this.deepCopyStreamingState(streamingState);
 
     // Build final tree using ExecutionTreeBuilderService (TASK_2025_082 Batch 6)
-    // PERFORMANCE: Use unique cache key for finalization to avoid stale cache
-    const cacheKey = `finalize-${targetTabId}-${Date.now()}`;
+    // TASK_2026_TREE_STABILITY Fix 2/8: Reuse the streaming cache key
+    // (`tab-${tabId}`) so the fingerprint check inside buildTree returns the
+    // memoized streaming tree when the underlying state hasn't changed since
+    // the last streaming build. The previous `finalize-${tabId}-${Date.now()}`
+    // salt forced a full rebuild on every finalize, producing fresh node
+    // references for an identical structure and triggering OnPush re-render
+    // cascades plus a perceptible "flicker" between streaming and finalized.
+    const cacheKey = `tab-${targetTabId}`;
     let finalTree = this.treeBuilder.buildTree(stateCopy, cacheKey);
 
     // TASK_2025_098 FIX: Mark all 'streaming' nodes as 'interrupted' when aborted
@@ -233,7 +239,9 @@ export class MessageFinalizationService {
     const stateCopy = this.deepCopyStreamingState(streamingState);
 
     // Build full tree for all messages
-    const cacheKey = `history-${tabId}-${Date.now()}`;
+    // TASK_2026_TREE_STABILITY Fix 2/8: Reuse the streaming cache key so an
+    // identical state fingerprint hits the memoized tree (no Date.now() salt).
+    const cacheKey = `tab-${tabId}`;
     let allTrees = this.treeBuilder.buildTree(stateCopy, cacheKey);
 
     // TASK_2025_103 FIX: Mark resumable agent nodes as 'interrupted'

@@ -265,9 +265,17 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
 
       <!-- Agent Stats Footer (shown when stats available and not streaming) -->
       @if (hasStats() && !isStreaming()) {
+        <!-- TASK_2026_TREE_STABILITY Fix 5/8: animate.enter/leave gated by
+             !isFinalizing() — applied as a conditional class so the cross-fade
+             doesn't run during the finalize burst (which already includes a
+             layout settle). animate.enter is a static directive, so we ALSO
+             keep the directive but add a class-based suppression via
+             prefers-reduced-motion-style override below: when [data-finalizing]
+             is set on the host, the keyframes are no-ops. -->
         <div
           class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content/70 rounded-b-lg"
           [style.background-color]="footerBgColor()"
+          [attr.data-finalizing]="isFinalizing() ? '' : null"
           animate.enter="agent-fade-in"
           animate.leave="agent-fade-out"
         >
@@ -316,7 +324,7 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
       .agent-collapse-wrapper {
         display: grid;
         grid-template-rows: 1fr;
-        transition: grid-template-rows 220ms ease-out;
+        transition: grid-template-rows 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
       }
       .agent-collapse-wrapper.agent-collapsed {
         grid-template-rows: 0fr;
@@ -329,24 +337,39 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
       @keyframes agentFadeIn {
         from {
           opacity: 0;
+          transform: translateY(3px);
         }
         to {
           opacity: 1;
+          transform: translateY(0);
         }
       }
       @keyframes agentFadeOut {
         from {
           opacity: 1;
+          transform: translateY(0);
         }
         to {
           opacity: 0;
+          transform: translateY(-2px);
         }
       }
       :host ::ng-deep .agent-fade-in {
-        animation: agentFadeIn 160ms ease-out both;
+        animation: agentFadeIn 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
       }
       :host ::ng-deep .agent-fade-out {
-        animation: agentFadeOut 120ms ease-in both;
+        animation: agentFadeOut 180ms cubic-bezier(0.4, 0, 0.2, 1) both;
+      }
+
+      /* TASK_2026_TREE_STABILITY Fix 5/8: Suppress fade keyframes while a
+         finalize transition is in flight — avoids cross-fade waves stacking
+         on top of the layout settle when the streaming bubble swaps over to
+         the finalized representation. */
+      :host ::ng-deep [data-finalizing] .agent-fade-in,
+      :host ::ng-deep [data-finalizing] .agent-fade-out,
+      :host ::ng-deep [data-finalizing].agent-fade-in,
+      :host ::ng-deep [data-finalizing].agent-fade-out {
+        animation: none !important;
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -405,6 +428,15 @@ export class InlineAgentBubbleComponent {
   readonly nodeTemplate = input<TemplateRef<{
     $implicit: ExecutionNode;
   }> | null>(null);
+
+  /**
+   * TASK_2026_TREE_STABILITY Fix 5/8: Whether the chat is currently in the
+   * streaming → finalized handoff window. Forwarded from chat-view through
+   * ExecutionNodeComponent. When true, fade keyframes are suppressed via a
+   * `[data-finalizing]` attribute so cross-fades don't stack on the layout
+   * settle.
+   */
+  readonly isFinalizing = input<boolean>(false);
 
   /**
    * Emits when user responds to permission request

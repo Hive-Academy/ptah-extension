@@ -21,14 +21,33 @@
 
       @if (model() === 'users' && id(); as userId) {
         @if (record(); as rec) {
-          <button type="button" class="btn btn-error btn-outline btn-sm" (click)="deleteUserModal()?.open()">
-            Delete User
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="btn btn-primary btn-outline btn-sm"
+              (click)="compLicenseModal()?.open()"
+            >
+              Issue Complimentary License
+            </button>
+            <button
+              type="button"
+              class="btn btn-error btn-outline btn-sm"
+              (click)="deleteUserModal()?.open()"
+            >
+              Delete User
+            </button>
+          </div>
 
           <app-delete-user-modal
             [userId]="userId"
             [userEmail]="$any(rec).email"
             (deleted)="onUserDeleted()"
+          />
+
+          <app-issue-comp-license-modal
+            [userId]="userId"
+            [userEmail]="$any(rec).email"
+            (issued)="onLicenseIssued()"
           />
         }
       }

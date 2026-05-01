@@ -30,6 +30,7 @@ import {
   ISdkPermissionHandler,
   InlineImageAttachment,
   type AuthEnv,
+  type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import {
@@ -68,6 +69,21 @@ export interface Query {
   setModel(model?: string): Promise<void>;
   /** Stream input messages to the query */
   streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
+  /**
+   * Rewind tracked files to their state at a specific user message.
+   * Requires the session to have been started with `enableFileCheckpointing: true`.
+   * Throws if checkpointing is disabled.
+   */
+  rewindFiles(
+    userMessageId: string,
+    options?: { dryRun?: boolean },
+  ): Promise<{
+    canRewind: boolean;
+    error?: string;
+    filesChanged?: string[];
+    insertions?: number;
+    deletions?: number;
+  }>;
 }
 
 /**
@@ -143,6 +159,40 @@ export interface ExecuteQueryConfig {
    * the default import.meta.url-based resolution baked at bundle time.
    */
   pathToClaudeCodeExecutable?: string;
+  /**
+   * When true, resume + forkSession together create a NEW session ID instead
+   * of mutating the resumed transcript. Has no effect unless `resumeSessionId`
+   * is also set. Forwarded to `SdkQueryOptionsBuilder.build()`.
+   */
+  forkSession?: boolean;
+  /**
+   * When resuming, only replay messages up to (and including) the message
+   * with this UUID. Maps directly to SDK Options.resumeSessionAt. Forwarded
+   * to `SdkQueryOptionsBuilder.build()`.
+   */
+  resumeSessionAt?: string;
+  /**
+   * Toggle SDK file checkpointing for this session. Defaults to ON when
+   * unspecified — file checkpointing is required by `Query.rewindFiles()`,
+   * which is the underlying mechanism for the rewind feature. Pass `false`
+   * explicitly to opt out (e.g., performance-sensitive contexts).
+   */
+  enableFileCheckpointing?: boolean;
+  /**
+   * When true, the SDK emits `SDKPartialAssistantMessage` events
+   * (`subtype: 'stream_event'`) for finer-grained streaming deltas.
+   * Forwarded to `SdkQueryOptionsBuilder.build()`. Defaults to ON when
+   * unspecified to preserve historical Ptah streaming behavior.
+   */
+  includePartialMessages?: boolean;
+  /**
+   * Caller-supplied MCP HTTP server overrides — merged OVER the registry-
+   * built map by the options builder (caller wins on key collision).
+   * Reserved for the Anthropic-compatible HTTP proxy in P3 (TASK_2026_108
+   * T2). When `undefined` or empty, the SDK's `mcpServers` is identity-
+   * preserved relative to pre-T2 behavior.
+   */
+  mcpServersOverride?: Record<string, McpHttpServerOverride>;
 }
 
 /**
@@ -161,6 +211,27 @@ export interface SlashCommandConfig {
   onWorktreeRemoved?: WorktreeRemovedCallback;
   /** TASK_2025_194: Explicit path to cli.js */
   pathToClaudeCodeExecutable?: string;
+  /**
+   * Mirrors `ExecuteQueryConfig.forkSession`. Only meaningful in combination
+   * with `resumeSessionId` (always set internally for slash commands since
+   * they resume the existing session). Forwarded to the options builder.
+   */
+  forkSession?: boolean;
+  /**
+   * Mirrors `ExecuteQueryConfig.resumeSessionAt`. When set, the resumed
+   * transcript replay stops at this message UUID.
+   */
+  resumeSessionAt?: string;
+  /**
+   * Mirrors `ExecuteQueryConfig.enableFileCheckpointing`. Defaults to ON in
+   * the builder when unspecified.
+   */
+  enableFileCheckpointing?: boolean;
+  /**
+   * Mirrors `ExecuteQueryConfig.includePartialMessages`. Defaults to ON in
+   * the builder when unspecified.
+   */
+  includePartialMessages?: boolean;
 }
 
 /**
@@ -483,6 +554,14 @@ export class SessionLifecycleManager {
       enhancedPromptsContent: config.enhancedPromptsContent,
       pluginPaths: config.pluginPaths,
       pathToClaudeCodeExecutable: config.pathToClaudeCodeExecutable,
+      // Mirror ExecuteQueryConfig pass-through so slash commands honor the
+      // same fork/rewind/checkpoint/partial-message toggles as regular
+      // resume flows. Without this, callers that set these on
+      // SlashCommandConfig would have them silently dropped.
+      forkSession: config.forkSession,
+      resumeSessionAt: config.resumeSessionAt,
+      enableFileCheckpointing: config.enableFileCheckpointing,
+      includePartialMessages: config.includePartialMessages,
     });
   }
 

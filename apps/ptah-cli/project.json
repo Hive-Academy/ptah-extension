@@ -29,7 +29,6 @@
         },
         "external": [
           "@anthropic-ai/claude-agent-sdk",
-          "@github/copilot-sdk",
           "@openai/codex-sdk",
           "reflect-metadata",
           "tsyringe",

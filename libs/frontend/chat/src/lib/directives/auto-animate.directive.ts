@@ -113,7 +113,15 @@ export class AutoAnimateDirective implements AfterViewInit, OnDestroy {
   private ensureController(): void {
     if (this.controller) return;
     const raw = this.options();
-    const opts = raw && typeof raw === 'object' ? raw : {};
+    const userOpts = raw && typeof raw === 'object' ? raw : {};
+    // Softer defaults than the library's 250ms ease-in-out: longer duration
+    // with the Material "standard" curve gives a calmer, more natural feel
+    // for tree-node inserts. Caller can override via [auto-animate]="{...}".
+    const opts: Partial<AutoAnimateOptions> = {
+      duration: 320,
+      easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)',
+      ...userOpts,
+    };
     this.controller = autoAnimate(this.el.nativeElement, opts);
   }
 

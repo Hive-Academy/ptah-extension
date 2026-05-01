@@ -78,7 +78,19 @@
                   </span>
                 }
                 @default {
-                  {{ formatString(cellValue(row, col.key), col.truncate) }}
+                  @if (col.key === 'source') {
+                    @let val = cellValue(row, col.key);
+                    <span
+                      class="badge badge-sm"
+                      [class.badge-warning]="val === 'complimentary'"
+                      [class.badge-info]="val === 'manual'"
+                      [class.badge-ghost]="!val || val === 'paddle'"
+                    >
+                      {{ val || 'paddle' }}
+                    </span>
+                  } @else {
+                    {{ formatString(cellValue(row, col.key), col.truncate) }}
+                  }
                 }
               }
             </td>

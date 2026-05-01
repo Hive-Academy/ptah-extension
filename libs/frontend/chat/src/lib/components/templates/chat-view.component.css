@@ -37,11 +37,17 @@
   );
 }
 
+/* Soft cubic-bezier easing — Material "standard" curve, gentler than ease-out */
+:host {
+  --ptah-ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ptah-ease-gentle-in: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 /* Collapsible input area animation */
 .input-collapse-wrapper {
   display: grid;
   grid-template-rows: 1fr;
-  transition: grid-template-rows 200ms ease-out;
+  transition: grid-template-rows 260ms var(--ptah-ease-soft);
   overflow: hidden;
 }
 
@@ -64,22 +70,22 @@
 @keyframes ptahFadeSlideIn {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(6px) scale(0.985);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
 @keyframes ptahFadeSlideOut {
   from {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
   to {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-3px) scale(0.99);
   }
 }
 
@@ -102,19 +108,19 @@
 }
 
 .banner-enter {
-  animation: ptahFadeSlideIn 180ms ease-out both;
+  animation: ptahFadeSlideIn 260ms var(--ptah-ease-soft) both;
 }
 
 .banner-leave {
-  animation: ptahFadeSlideOut 140ms ease-in both;
+  animation: ptahFadeSlideOut 180ms var(--ptah-ease-gentle-in) both;
 }
 
 .fade-enter {
-  animation: ptahFadeIn 180ms ease-out both;
+  animation: ptahFadeIn 240ms var(--ptah-ease-soft) both;
 }
 
 .fade-leave {
-  animation: ptahFadeOut 140ms ease-in both;
+  animation: ptahFadeOut 160ms var(--ptah-ease-gentle-in) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
