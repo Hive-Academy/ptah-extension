@@ -147,102 +147,103 @@ See team-leader.md for detailed MODE 2 instructions.`,
  ASSIGNED"        COMPLETE"
 ```
 
-### CLI-Enhanced MODE 2 (When CLI Delegation Active)
+### Team-Leader is ADVISORY — Orchestrator Owns All Spawning
 
-When CLI Agent Delegation Mode is active, team-leader MODE 2 gains the ability to spawn CLI agents for parallel batch work and verification.
+**Critical architectural rule**: Team-leader NEVER spawns sub-agents or CLI agents. Team-leader's job is to **advise** via tasks.md and return-values. The **main orchestrator (main chat)** is the sole authority for spawning work — sequentially or in parallel.
 
-#### CLI Developer Agents for Batch Implementation
+This means team-leader MUST NOT call:
 
-Instead of (or alongside) invoking a single sub-agent developer for a batch, the team-leader can spawn CLI developer agents for independent sub-tasks within a batch:
+- `Task(subagent_type=...)` — never invoke sub-agents directly
+- `ptah_agent_spawn` — never spawn CLI agents directly
+- Any other agent-invocation tool
 
+Team-leader's tools are limited to: `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash` (for `git` only), and structural analysis. It produces recommendations; the orchestrator acts on them.
+
+### Advisory Output in tasks.md
+
+When decomposing (MODE 1), team-leader records per-batch executor recommendations inside `tasks.md`:
+
+```markdown
+## Batch 2: UI Atom Components - PENDING
+
+**Recommended Executor**: gemini CLI (x3 parallel)
+**Fallback Executor**: frontend-developer (sub-agent)
+**Execution Mode**: parallel
+**Rationale**: 3 independent components, no cross-file coupling, boilerplate-heavy — CLI agents excel at this shape and parallel fan-out cuts wall time ~3x.
+**Tasks**: 3 | **Dependencies**: Batch 1
 ```
-# Team-leader spawns CLI agents for independent tasks in Batch 2
-agent1 = ptah_agent_spawn {
-  task: "Implement the AgentStatusBadge component following the spec in .ptah/specs/TASK_2025_042/tasks.md Task 2.1. Use Angular standalone component with signals. Reference libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.component.ts for conventions.",
-  cli: "gemini",
-  taskFolder: "D:/projects/ptah-extension/.ptah/specs/TASK_2025_042",
-  files: ["libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.component.ts"]
-}
 
-agent2 = ptah_agent_spawn {
-  task: "Implement the AgentOutputPanel component following the spec in .ptah/specs/TASK_2025_042/tasks.md Task 2.2. Use Angular standalone component with signals.",
-  cli: "gemini",
-  taskFolder: "D:/projects/ptah-extension/.ptah/specs/TASK_2025_042"
-}
+Executor recommendation dimensions team-leader MUST fill:
 
-# Wait for both, read results, verify, then commit
-```
+| Field                   | Values                                                                    | How to decide                                                     |
+| ----------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| **Recommended Executor**| `backend-developer`, `frontend-developer`, `gemini CLI`, `codex CLI`, etc.| Match task to agent capability                                    |
+| **Execution Mode**      | `sequential` or `parallel`                                                | Parallel only if tasks are independent and file-disjoint          |
+| **Rationale**           | 1-2 sentence justification                                                | Why this executor + mode fit the batch shape                      |
 
-#### When to Use CLI Developer Agents
+### Executor Selection Heuristics (for Team-Leader to Apply)
 
-| Scenario                              | Use CLI Agents?                    |
-| ------------------------------------- | ---------------------------------- |
-| Batch has 3+ independent tasks        | Yes — spawn CLI agents in parallel |
-| Batch has tightly coupled tasks       | No — use sub-agent developer       |
-| Batch needs cross-file refactoring    | No — use sub-agent developer       |
-| Batch is boilerplate/scaffolding      | Yes — CLI agents excel at this     |
-| Batch requires architecture decisions | No — use sub-agent developer       |
-
-#### CLI Verification Pattern
-
-Team-leader can also use CLI agents to verify batch deliverables in parallel:
-
-```
-# After developer returns, verify files in parallel
-verify1 = ptah_agent_spawn {
-  task: "Read the file [path] and verify it: 1) Compiles (no syntax errors), 2) Exports expected symbols, 3) Follows project conventions. Report issues.",
-  cli: "gemini",
-  files: ["[path]"]
-}
-
-verify2 = ptah_agent_spawn {
-  task: "Read the file [path] and verify it...",
-  cli: "gemini",
-  files: ["[path]"]
-}
-```
+| Batch Shape                             | Recommended Executor               | Mode       |
+| --------------------------------------- | ---------------------------------- | ---------- |
+| 3+ independent tasks, boilerplate       | CLI (gemini preferred) x N         | parallel   |
+| 3+ independent tasks, standard logic    | CLI x N                            | parallel   |
+| Tightly coupled tasks in same file      | Sub-agent developer                | sequential |
+| Cross-file refactoring                  | Sub-agent developer                | sequential |
+| Architecture decisions required         | Sub-agent developer                | sequential |
+| Migration/scaffolding across many files | CLI x N                            | parallel   |
 
 ### Handling Team-Leader Responses
 
-| Response Pattern                        | Meaning                                   | Orchestrator Action                             |
-| --------------------------------------- | ----------------------------------------- | ----------------------------------------------- |
-| `NEXT BATCH ASSIGNED: [developer-type]` | Current batch committed, next batch ready | Invoke specified developer with provided prompt |
-| `BATCH REJECTED: [issues]`              | Verification failed                       | Re-invoke same developer with issues to fix     |
-| `ALL BATCHES COMPLETE`                  | All tasks done, ready for QA              | Invoke team-leader MODE 3                       |
+| Response Pattern                        | Meaning                                   | Orchestrator Action                                                                          |
+| --------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `NEEDS REVIEW: [paths]`                 | Files exist, require code-logic-reviewer  | Orchestrator spawns `code-logic-reviewer`, then re-invokes team-leader MODE 2 with result    |
+| `NEXT BATCH ASSIGNED: [executor/mode]`  | Prior batch committed, next batch ready   | Orchestrator spawns the recommended executor(s) per mode (parallel fan-out or single invoke) |
+| `BATCH REJECTED: [issues]`              | Verification failed                       | Orchestrator re-invokes the same developer/CLI with issues to fix                            |
+| `ALL BATCHES COMPLETE`                  | All tasks done, ready for QA              | Orchestrator invokes team-leader MODE 3                                                      |
 
 ### Response Detection Logic
 
 ```
-IF response contains "NEXT BATCH ASSIGNED":
-    → Extract developer type from response
-    → Extract developer prompt from response
-    → Invoke developer with extracted prompt
+IF response contains "NEEDS REVIEW":
+    → Extract file paths
+    → Orchestrator spawns code-logic-reviewer with those paths
+    → Orchestrator re-invokes team-leader MODE 2 with review result
+
+ELSE IF response contains "NEXT BATCH ASSIGNED":
+    → Extract Recommended Executor + Execution Mode from tasks.md batch entry
+    → IF mode = parallel AND executor is CLI:
+        → Orchestrator spawns N CLI agents concurrently via ptah_agent_spawn
+        → Orchestrator polls, reads results, re-invokes team-leader MODE 2
+    → ELSE:
+        → Orchestrator invokes single sub-agent or CLI with extracted prompt
 
 ELSE IF response contains "BATCH REJECTED":
     → Extract rejection reasons
-    → Re-invoke developer with fix instructions
+    → Orchestrator re-invokes the same executor with fix instructions
 
 ELSE IF response contains "ALL BATCHES COMPLETE":
-    → Proceed to MODE 3
+    → Orchestrator proceeds to MODE 3
 ```
 
 ### Example Loop Sequence
 
 ```
-1. MODE 1 completes → tasks.md created with 3 batches
-2. Orchestrator invokes backend-developer for Batch 1
-3. Developer completes → returns implementation report
-4. Orchestrator invokes team-leader MODE 2 with report
-5. Team-leader verifies, commits, responds "NEXT BATCH ASSIGNED: frontend-developer"
-6. Orchestrator invokes frontend-developer for Batch 2
-7. Developer completes → returns implementation report
-8. Orchestrator invokes team-leader MODE 2 with report
-9. Team-leader verifies, commits, responds "NEXT BATCH ASSIGNED: backend-developer"
-10. Orchestrator invokes backend-developer for Batch 3
-11. Developer completes → returns implementation report
-12. Orchestrator invokes team-leader MODE 2 with report
-13. Team-leader verifies, commits, responds "ALL BATCHES COMPLETE"
-14. Orchestrator invokes team-leader MODE 3
+1. MODE 1 completes → tasks.md created with 3 batches, each with Recommended Executor
+2. Orchestrator reads Batch 1 recommendation → spawns backend-developer (sub-agent)
+3. Developer completes → returns implementation report to orchestrator
+4. Orchestrator invokes team-leader MODE 2 with developer report
+5. Team-leader verifies files exist, responds "NEEDS REVIEW: [paths]"
+6. Orchestrator spawns code-logic-reviewer, captures verdict
+7. Orchestrator re-invokes team-leader MODE 2 with reviewer verdict
+8. Team-leader commits, responds "NEXT BATCH ASSIGNED: gemini CLI x3 parallel"
+9. Orchestrator reads Batch 2 recommendation → spawns 3 gemini CLI agents in parallel
+10. Orchestrator polls all 3, reads results, synthesizes a combined report
+11. Orchestrator invokes team-leader MODE 2 with combined report
+12. Team-leader verifies, responds "NEEDS REVIEW: [paths]"
+13. Orchestrator spawns code-logic-reviewer; then re-invokes team-leader MODE 2
+14. Team-leader commits, responds "NEXT BATCH ASSIGNED: ..." (continues)
+15. Final batch → team-leader responds "ALL BATCHES COMPLETE"
+16. Orchestrator invokes team-leader MODE 3
 ```
 
 ---
@@ -348,4 +349,4 @@ Development phase complete. Proceed to QA checkpoint.
 - **checkpoints.md**: QA Choice checkpoint follows MODE 3
 - **git-standards.md**: Commit format rules enforced in MODE 2
 - **task-tracking.md**: tasks.md document format and status tracking
-- **cli-agent-delegation.md**: CLI agent spawning patterns, task prompts, error handling for team-leader CLI-enhanced MODE 2
+- **cli-agent-delegation.md**: CLI agent spawning patterns used by the ORCHESTRATOR when a batch's `Recommended Executor` is a CLI agent (team-leader never spawns)

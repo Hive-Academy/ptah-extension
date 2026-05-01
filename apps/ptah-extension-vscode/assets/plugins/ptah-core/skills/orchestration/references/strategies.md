@@ -64,26 +64,6 @@ Phase 7: User handles git (commits already created)
          |
          v
 Phase 8: modernization-detector --> Creates future-enhancements.md
-         (Orchestrator invokes after QA completes or is skipped)
-```
-
-### Phase 8: Modernization-Detector Invocation
-
-After QA completes (or is skipped), the orchestrator MUST invoke the modernization-detector:
-
-```typescript
-Task({
-  subagent_type: 'modernization-detector',
-  description: 'Analyze future improvements for TASK_[ID]',
-  prompt: `You are modernization-detector for TASK_[ID].
-
-**Task Folder**: [absolute path to .ptah/specs/TASK_[ID]]
-**Changes**: Review tasks.md for what was implemented
-
-Identify opportunities for future improvements, tech debt, and modernization.
-Write findings to future-enhancements.md in the task folder.
-See modernization-detector.md for detailed instructions.`,
-});
 ```
 
 ### Conditional Agent Triggers
@@ -98,7 +78,7 @@ See modernization-detector.md for detailed instructions.`,
 - **Phase 1 (PM)**: Spawn CLI agents to survey codebase areas, analyze file structures, and gather dependency info before writing requirements
 - **Phase 2 (Research)**: Spawn parallel CLI agents for independent research threads (external docs + codebase analysis)
 - **Phase 4 (Architect)**: Spawn CLI agents to analyze existing patterns in target modules, check DI graphs, verify import paths
-- **Phase 5 (Development)**: Team-leader spawns CLI developer agents for independent batch sub-tasks; developers spawn CLI agents for test scaffolding
+- **Phase 5 (Development)**: Team-leader writes per-batch `Recommended Executor` in tasks.md; **orchestrator** spawns CLI developer agents (parallel fan-out when `Execution Mode: parallel`) or sub-agent developers. Sub-agent developers may spawn CLI agents for test scaffolding.
 - **Phase 6 (QA)**: Reviewers spawn CLI agents for parallel file-level reviews; tester spawns CLI agents for per-module test generation
 
 ---

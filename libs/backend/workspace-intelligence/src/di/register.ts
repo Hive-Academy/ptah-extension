@@ -55,6 +55,12 @@ import { CommandDiscoveryService } from '../autocomplete/command-discovery.servi
 // Quality assessment services registration (TASK_2025_141)
 import { registerQualityServices } from '../quality/di';
 
+// TASK_2025_291 Wave B (B2): AST-backed architecture rules need the
+// TreeSitterParserService. `configureArchitectureRules` is a module-level
+// setter called once during bootstrap (see Tier 6 below) to wire the
+// already-registered singleton into the rule module.
+import { configureArchitectureRules } from '../quality/rules/architecture-rules';
+
 /**
  * Register workspace-intelligence services in DI container
  *
@@ -73,19 +79,19 @@ import { registerQualityServices } from '../quality/di';
  */
 export function registerWorkspaceIntelligenceServices(
   container: DependencyContainer,
-  logger: Logger
+  logger: Logger,
 ): void {
   // TASK_2025_071 Batch 7: Dependency validation - fail fast if prerequisites missing
   if (!container.isRegistered(TOKENS.LOGGER)) {
     throw new Error(
-      '[Workspace Intelligence] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.'
+      '[Workspace Intelligence] DEPENDENCY ERROR: TOKENS.LOGGER must be registered first.',
     );
   }
 
   if (!container.isRegistered(TOKENS.FILE_SYSTEM_MANAGER)) {
     throw new Error(
       '[Workspace Intelligence] DEPENDENCY ERROR: vscode-core services must be registered before workspace-intelligence. ' +
-        'Ensure registerVsCodeCoreServices is called BEFORE registerWorkspaceIntelligenceServices in container.ts.'
+        'Ensure registerVsCodeCoreServices is called BEFORE registerWorkspaceIntelligenceServices in container.ts.',
     );
   }
 
@@ -96,20 +102,20 @@ export function registerWorkspaceIntelligenceServices(
   // ============================================================
   container.registerSingleton(
     TOKENS.PATTERN_MATCHER_SERVICE,
-    PatternMatcherService
+    PatternMatcherService,
   );
   container.registerSingleton(
     TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE,
-    IgnorePatternResolverService
+    IgnorePatternResolverService,
   );
   container.registerSingleton(
     TOKENS.FILE_TYPE_CLASSIFIER_SERVICE,
-    FileTypeClassifierService
+    FileTypeClassifierService,
   );
   container.registerSingleton(TOKENS.FILE_SYSTEM_SERVICE, FileSystemService);
   container.registerSingleton(
     TOKENS.TOKEN_COUNTER_SERVICE,
-    TokenCounterService
+    TokenCounterService,
   );
 
   // ============================================================
@@ -117,19 +123,19 @@ export function registerWorkspaceIntelligenceServices(
   // ============================================================
   container.registerSingleton(
     TOKENS.MONOREPO_DETECTOR_SERVICE,
-    MonorepoDetectorService
+    MonorepoDetectorService,
   );
   container.registerSingleton(
     TOKENS.DEPENDENCY_ANALYZER_SERVICE,
-    DependencyAnalyzerService
+    DependencyAnalyzerService,
   );
   container.registerSingleton(
     TOKENS.FRAMEWORK_DETECTOR_SERVICE,
-    FrameworkDetectorService
+    FrameworkDetectorService,
   );
   container.registerSingleton(
     TOKENS.PROJECT_DETECTOR_SERVICE,
-    ProjectDetectorService
+    ProjectDetectorService,
   );
 
   // ============================================================
@@ -137,7 +143,7 @@ export function registerWorkspaceIntelligenceServices(
   // ============================================================
   container.registerSingleton(
     TOKENS.WORKSPACE_INDEXER_SERVICE,
-    WorkspaceIndexerService
+    WorkspaceIndexerService,
   );
 
   // ============================================================
@@ -145,7 +151,7 @@ export function registerWorkspaceIntelligenceServices(
   // ============================================================
   container.registerSingleton(
     TOKENS.WORKSPACE_ANALYZER_SERVICE,
-    WorkspaceAnalyzerService
+    WorkspaceAnalyzerService,
   );
   container.registerSingleton(TOKENS.WORKSPACE_SERVICE, WorkspaceService);
 
@@ -155,15 +161,15 @@ export function registerWorkspaceIntelligenceServices(
   container.registerSingleton(TOKENS.CONTEXT_SERVICE, ContextService);
   container.registerSingleton(
     TOKENS.FILE_RELEVANCE_SCORER,
-    FileRelevanceScorerService
+    FileRelevanceScorerService,
   );
   container.registerSingleton(
     TOKENS.CONTEXT_SIZE_OPTIMIZER,
-    ContextSizeOptimizerService
+    ContextSizeOptimizerService,
   );
   container.registerSingleton(
     TOKENS.CONTEXT_ORCHESTRATION_SERVICE,
-    ContextOrchestrationService
+    ContextOrchestrationService,
   );
 
   // ============================================================
@@ -171,12 +177,23 @@ export function registerWorkspaceIntelligenceServices(
   // ============================================================
   container.registerSingleton(
     TOKENS.TREE_SITTER_PARSER_SERVICE,
-    TreeSitterParserService
+    TreeSitterParserService,
   );
   container.registerSingleton(TOKENS.AST_ANALYSIS_SERVICE, AstAnalysisService);
   container.registerSingleton(
     TOKENS.DEPENDENCY_GRAPH_SERVICE,
-    DependencyGraphService
+    DependencyGraphService,
+  );
+
+  // TASK_2025_291 B2: wire the tree-sitter parser into the module-level
+  // architecture-rules shim so `functionTooLargeRule` can perform AST-backed
+  // function-size analysis. Done here because the parser singleton is
+  // registered immediately above and the rule module needs it before
+  // `registerQualityServices` wires the detection pipeline.
+  configureArchitectureRules(
+    container.resolve<TreeSitterParserService>(
+      TOKENS.TREE_SITTER_PARSER_SERVICE,
+    ),
   );
 
   // ============================================================
@@ -185,7 +202,7 @@ export function registerWorkspaceIntelligenceServices(
   // ============================================================
   container.registerSingleton(
     TOKENS.CONTEXT_ENRICHMENT_SERVICE,
-    ContextEnrichmentService
+    ContextEnrichmentService,
   );
 
   // ============================================================
@@ -193,11 +210,11 @@ export function registerWorkspaceIntelligenceServices(
   // ============================================================
   container.registerSingleton(
     TOKENS.AGENT_DISCOVERY_SERVICE,
-    AgentDiscoveryService
+    AgentDiscoveryService,
   );
   container.registerSingleton(
     TOKENS.COMMAND_DISCOVERY_SERVICE,
-    CommandDiscoveryService
+    CommandDiscoveryService,
   );
 
   // ============================================================

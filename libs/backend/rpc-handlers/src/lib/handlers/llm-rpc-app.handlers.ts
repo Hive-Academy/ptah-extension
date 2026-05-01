@@ -11,13 +11,15 @@
 
 import { injectable, inject, DependencyContainer } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ISecretStorage } from '@ptah-extension/platform-core';
 import type {
   LlmListProviderModelsParams,
   LlmListProviderModelsResponse,
 } from '@ptah-extension/shared';
-import type { IModelDiscovery } from '../platform-abstractions';
+import type { IModelDiscovery } from '@ptah-extension/platform-core';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /** Secret storage key prefix for provider API keys */
 const API_KEY_PREFIX = 'ptah.apiKey';
@@ -66,10 +68,24 @@ const STATUS_PROVIDERS = ['anthropic', 'openrouter'];
  */
 @injectable()
 export class LlmRpcHandlers {
+  static readonly METHODS = [
+    'llm:getProviderStatus',
+    'llm:setApiKey',
+    'llm:removeApiKey',
+    'llm:getDefaultProvider',
+    'llm:setDefaultProvider',
+    'llm:setDefaultModel',
+    'llm:validateApiKeyFormat',
+    'llm:listVsCodeModels',
+    'llm:listProviderModels',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    private readonly container: DependencyContainer
+    private readonly container: DependencyContainer,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -108,7 +124,7 @@ export class LlmRpcHandlers {
    */
   private getSecretStorage(): ISecretStorage {
     return this.container.resolve<ISecretStorage>(
-      PLATFORM_TOKENS.SECRET_STORAGE
+      PLATFORM_TOKENS.SECRET_STORAGE,
     );
   }
 
@@ -147,7 +163,7 @@ export class LlmRpcHandlers {
           const providers = await Promise.all(
             STATUS_PROVIDERS.map(async (provider) => {
               const key = await secretStorage.get(
-                `${API_KEY_PREFIX}.${provider}`
+                `${API_KEY_PREFIX}.${provider}`,
               );
               const info = PROVIDER_INFO[provider];
               return {
@@ -156,18 +172,22 @@ export class LlmRpcHandlers {
                 hasApiKey: !!key,
                 isDefault: provider === defaultProvider,
               };
-            })
+            }),
           );
 
           return { providers, defaultProvider };
         } catch (error) {
           this.logger.error(
             'RPC: llm:getProviderStatus failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'LlmRpcHandlers.registerGetProviderStatus' },
           );
           return { providers: [] };
         }
-      }
+      },
     );
   }
 
@@ -208,14 +228,18 @@ export class LlmRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: llm:setApiKey failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'LlmRpcHandlers.registerSetApiKey' },
           );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -249,7 +273,11 @@ export class LlmRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: llm:removeApiKey failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'LlmRpcHandlers.registerRemoveApiKey' },
         );
         return {
           success: false,
@@ -275,11 +303,15 @@ export class LlmRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: llm:getDefaultProvider failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'LlmRpcHandlers.registerGetDefaultProvider' },
           );
           return { provider: 'anthropic' };
         }
-      }
+      },
     );
   }
 
@@ -301,21 +333,25 @@ export class LlmRpcHandlers {
           const configManager = this.getConfigManager();
           await configManager.set(
             'llm.defaultProvider',
-            params?.provider ?? 'anthropic'
+            params?.provider ?? 'anthropic',
           );
 
           return { success: true };
         } catch (error) {
           this.logger.error(
             'RPC: llm:setDefaultProvider failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'LlmRpcHandlers.registerSetDefaultProvider' },
           );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -339,21 +375,25 @@ export class LlmRpcHandlers {
           const settingsKey = params?.provider ?? 'anthropic';
           await configManager.set(
             `llm.${settingsKey}.model`,
-            params?.model ?? ''
+            params?.model ?? '',
           );
 
           return { success: true };
         } catch (error) {
           this.logger.error(
             'RPC: llm:setDefaultModel failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'LlmRpcHandlers.registerSetDefaultModel' },
           );
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -401,14 +441,18 @@ export class LlmRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: llm:validateApiKeyFormat failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'LlmRpcHandlers.registerValidateApiKeyFormat' },
           );
           return {
             valid: false,
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -435,11 +479,15 @@ export class LlmRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: llm:listVsCodeModels failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'LlmRpcHandlers.registerListVsCodeModels' },
           );
           return [];
         }
-      }
+      },
     );
   }
 
@@ -479,14 +527,18 @@ export class LlmRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: llm:listProviderModels failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'LlmRpcHandlers.registerListProviderModels' },
           );
           return {
             models: [],
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 }

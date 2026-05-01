@@ -1,0 +1,23 @@
+{
+  "name": "@ptah-extension/core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "commonjs",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "default": "./src/testing/index.ts"
+    }
+  },
+  "peerDependencies": {
+    "@angular/core": "21.2.6",
+    "@angular/common": "21.2.6"
+  },
+  "sideEffects": false
+}

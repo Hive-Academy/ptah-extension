@@ -1,0 +1,51 @@
+@if (isOpen()) {
+<dialog class="modal modal-open">
+  <div class="modal-box max-w-lg">
+    <h3 class="font-bold text-lg text-error">Delete User</h3>
+    <p class="py-2 text-sm opacity-70">This action is permanent and cannot be undone.</p>
+
+    @if (preview(); as p) {
+    <div class="bg-base-200 rounded-lg p-4 my-3 space-y-1 text-sm">
+      <p>Subscriptions: <strong>{{ p.cascaded.subscriptions }}</strong></p>
+      <p>Licenses: <strong>{{ p.cascaded.licenses }}</strong></p>
+      <p>Trial reminders: <strong>{{ p.cascaded.trialReminders }}</strong></p>
+      <p>Session requests: <strong>{{ p.cascaded.sessionRequests }}</strong></p>
+    </div>
+    @if (p.hasActivePaidSubscription) {
+    <div class="alert alert-warning text-sm mb-3">
+      <span>⚠ User has an active paid subscription ({{ p.activePaddleSubscriptionId }}). You must manually cancel it in Paddle after deletion.</span>
+    </div>
+    <label class="flex items-center gap-2 text-sm mb-3 cursor-pointer">
+      <input type="checkbox" class="checkbox checkbox-warning checkbox-sm" [checked]="acknowledgePaid()" (change)="acknowledgePaid.set(!acknowledgePaid())" />
+      I acknowledge this user has an active paid subscription
+    </label>
+    }
+
+    @if (p.isAdminSelf) {
+    <div class="alert alert-error text-sm mb-3">
+      <span>⚠ This user is an administrator and cannot be deleted via this tool.</span>
+    </div>
+    }
+
+    <p class="text-xs opacity-60 mb-2">Note: Failed webhook records (if any) are retained for audit.</p>
+    }
+
+    <label class="form-control mb-3">
+      <span class="label-text text-sm mb-1">Type <strong>{{ userEmail() }}</strong> to confirm</span>
+      <input type="text" class="input input-bordered input-sm" [ngModel]="typedEmail()" (ngModelChange)="typedEmail.set($event)" placeholder="user@example.com" />
+    </label>
+
+    @if (error()) {
+    <div class="alert alert-error text-sm mb-3"><span>{{ error() }}</span></div>
+    }
+
+    <div class="modal-action">
+      <button class="btn btn-ghost btn-sm" (click)="close()">Cancel</button>
+      <button class="btn btn-error btn-sm" [disabled]="!canSubmit()" (click)="confirm()">
+        @if (isLoading()) { <span class="loading loading-spinner loading-xs"></span> } Delete User
+      </button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button (click)="close()">close</button></form>
+</dialog>
+}

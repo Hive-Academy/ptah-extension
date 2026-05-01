@@ -9,7 +9,7 @@
 
 import { z } from 'zod';
 import type { PermissionLevel } from './model-autopilot.types';
-import type { QuestionItem } from '../type-guards/tool-input-guards';
+import type { QuestionItem } from '../type-guards/guards';
 
 /**
  * Sentinel value for when the parent agent's toolCallId cannot be resolved.
@@ -177,6 +177,8 @@ export interface AskUserQuestionRequest {
   readonly timeoutAt: number;
   /** Session ID this question belongs to (for UI routing to correct tab) */
   readonly sessionId?: string;
+  /** Frontend tab ID for direct tab routing (authoritative over sessionId) */
+  readonly tabId?: string;
 }
 
 /**

@@ -1,0 +1,41 @@
+@if (error(); as errMsg) {
+  <div class="alert alert-error mb-3" role="alert">
+    <span>{{ errMsg }}</span>
+    <button type="button" class="btn btn-sm btn-ghost" (click)="fetch()">Retry</button>
+  </div>
+}
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+  @if (isLoading()) {
+    @for (i of [1,2,3,4,5]; track i) {
+      <div class="bg-base-200 animate-pulse h-20 rounded-lg"></div>
+    }
+  } @else if (segments(); as s) {
+    @for (item of [
+      { key: 'all', data: s.all },
+      { key: 'proActive', data: s.proActive },
+      { key: 'communityActive', data: s.communityActive },
+      { key: 'trialing', data: s.trialing },
+      { key: 'subscriptionPastDue', data: s.subscriptionPastDue }
+    ]; track item.key) {
+      <div
+        class="card bg-base-100 border-2 cursor-pointer hover:border-primary transition-all p-4"
+        [class.border-primary]="value() === item.key"
+        [class.border-base-300]="value() !== item.key"
+        (click)="select(item.key)"
+      >
+        <div class="flex justify-between items-start">
+          <div class="font-bold text-sm">{{ getSegmentLabel(item.key) }}</div>
+          <input
+            type="radio"
+            [name]="'segment-' + item.key"
+            class="radio radio-primary radio-xs"
+            [checked]="value() === item.key"
+          />
+        </div>
+        <div class="text-xs opacity-60 mt-2">
+          {{ item.data.optedIn }} / {{ item.data.total }} opted in
+        </div>
+      </div>
+    }
+  }
+</div>

@@ -11,6 +11,10 @@
  * 2. OUTPUT_MANAGER (required by Logger)
  * 3. LOGGER (can now be resolved safely)
  * 4. This function (registers remaining services)
+ *
+ * TASK_2025_291 Wave C1: Platform-agnostic services are registered via
+ * `registerVsCodeCorePlatformAgnostic` (separate file with zero vscode imports).
+ * This file retains the VS Code-specific registrations.
  */
 
 import { DependencyContainer } from 'tsyringe';
@@ -21,18 +25,14 @@ import { TOKENS } from './tokens';
 // Import services (use relative paths to avoid circular dependencies)
 import { ErrorHandler } from '../error-handling/error-handler';
 import { ConfigManager } from '../config/config-manager';
-import { MessageValidatorService } from '../validation/message-validator.service';
 import { CommandManager } from '../api-wrappers/command-manager';
 import { WebviewManager } from '../api-wrappers/webview-manager';
 // OutputManager is imported in container.ts - registered BEFORE Logger due to dependency
 import { StatusBarManager } from '../api-wrappers/status-bar-manager';
 import { FileSystemManager } from '../api-wrappers/file-system-manager';
-import { RpcHandler } from '../messaging/rpc-handler';
-import { AgentSessionWatcherService } from '../services/agent-session-watcher.service';
 import { WebviewMessageHandlerService } from '../services/webview-message-handler.service';
-import { AuthSecretsService } from '../services/auth-secrets.service';
-import { LicenseService } from '../services/license.service';
-import { FeatureGateService } from '../services/feature-gate.service';
+
+import { registerVsCodeCorePlatformAgnostic } from './register-platform-agnostic';
 
 /**
  * Register vscode-core infrastructure services in DI container
@@ -44,13 +44,13 @@ import { FeatureGateService } from '../services/feature-gate.service';
 export function registerVsCodeCoreServices(
   container: DependencyContainer,
   context: vscode.ExtensionContext,
-  logger: Logger
+  logger: Logger,
 ): void {
   // TASK_2025_071 Batch 7: Dependency validation - fail fast if prerequisites missing
   if (!container.isRegistered(TOKENS.EXTENSION_CONTEXT)) {
     throw new Error(
       '[VS Code Core] DEPENDENCY ERROR: TOKENS.EXTENSION_CONTEXT must be registered before calling registerVsCodeCoreServices. ' +
-        'Ensure context is registered in PHASE 0 of container.ts.'
+        'Ensure context is registered in PHASE 0 of container.ts.',
     );
   }
 
@@ -58,28 +58,33 @@ export function registerVsCodeCoreServices(
     throw new Error(
       '[VS Code Core] DEPENDENCY ERROR: TOKENS.OUTPUT_MANAGER must be registered before calling registerVsCodeCoreServices. ' +
         'OutputManager is required by Logger. Ensure container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager) ' +
-        'is called BEFORE Logger registration in container.ts.'
+        'is called BEFORE Logger registration in container.ts.',
     );
   }
 
   if (!container.isRegistered(TOKENS.LOGGER)) {
     throw new Error(
       '[VS Code Core] DEPENDENCY ERROR: TOKENS.LOGGER must be registered before calling registerVsCodeCoreServices. ' +
-        'Ensure container.registerSingleton(TOKENS.LOGGER, Logger) is called after OutputManager in container.ts.'
+        'Ensure container.registerSingleton(TOKENS.LOGGER, Logger) is called after OutputManager in container.ts.',
     );
   }
 
   logger.info('[VS Code Core] Registering infrastructure services...');
 
   // ============================================================
+  // Platform-agnostic block — delegated to the helper
+  // (TASK_2025_291 Wave C1). Registers:
+  //   RPC_HANDLER, MESSAGE_VALIDATOR, AGENT_SESSION_WATCHER_SERVICE,
+  //   SUBAGENT_REGISTRY_SERVICE, FEATURE_GATE_SERVICE, SENTRY_SERVICE,
+  //   LICENSE_SERVICE, AUTH_SECRETS_SERVICE.
+  // ============================================================
+  registerVsCodeCorePlatformAgnostic(container, logger);
+
+  // ============================================================
   // Core infrastructure (Logger already registered externally)
   // ============================================================
   container.registerSingleton(TOKENS.ERROR_HANDLER, ErrorHandler);
   container.registerSingleton(TOKENS.CONFIG_MANAGER, ConfigManager);
-  container.registerSingleton(
-    TOKENS.MESSAGE_VALIDATOR,
-    MessageValidatorService
-  );
 
   // ============================================================
   // API Wrappers
@@ -93,62 +98,27 @@ export function registerVsCodeCoreServices(
   container.registerSingleton(TOKENS.FILE_SYSTEM_MANAGER, FileSystemManager);
 
   // ============================================================
-  // RPC Handler
-  // ============================================================
-  container.registerSingleton(TOKENS.RPC_HANDLER, RpcHandler);
-
-  // ============================================================
-  // Agent Session Watcher
-  // ============================================================
-  container.registerSingleton(
-    TOKENS.AGENT_SESSION_WATCHER_SERVICE,
-    AgentSessionWatcherService
-  );
-
-  // ============================================================
   // Webview Message Handler (shared message handling for all webviews)
   // ============================================================
   container.registerSingleton(
     TOKENS.WEBVIEW_MESSAGE_HANDLER,
-    WebviewMessageHandlerService
+    WebviewMessageHandlerService,
   );
-
-  // ============================================================
-  // Auth Secrets Service (TASK_2025_076)
-  // ============================================================
-  container.registerSingleton(TOKENS.AUTH_SECRETS_SERVICE, AuthSecretsService);
-
-  // ============================================================
-  // License Service (TASK_2025_075 Batch 5)
-  // TASK_2025_121: Skip if already registered by setupMinimal()
-  // ============================================================
-  if (!container.isRegistered(TOKENS.LICENSE_SERVICE)) {
-    container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
-  }
-
-  // ============================================================
-  // Feature Gate Service (TASK_2025_121 Batch 3)
-  // Provides centralized feature access control based on license tier
-  // Depends on LICENSE_SERVICE (must be registered after)
-  // ============================================================
-  container.registerSingleton(TOKENS.FEATURE_GATE_SERVICE, FeatureGateService);
 
   logger.info('[VS Code Core] Infrastructure services registered', {
     services: [
       'ERROR_HANDLER',
       'CONFIG_MANAGER',
-      'MESSAGE_VALIDATOR',
       'COMMAND_MANAGER',
       'WEBVIEW_MANAGER',
       // OUTPUT_MANAGER registered in container.ts (Logger dependency)
       'STATUS_BAR_MANAGER',
       'FILE_SYSTEM_MANAGER',
-      'RPC_HANDLER',
-      'AGENT_SESSION_WATCHER_SERVICE',
       'WEBVIEW_MESSAGE_HANDLER',
-      'AUTH_SECRETS_SERVICE',
-      'LICENSE_SERVICE',
-      'FEATURE_GATE_SERVICE',
+      // Platform-agnostic services registered via registerVsCodeCorePlatformAgnostic:
+      //   RPC_HANDLER, MESSAGE_VALIDATOR, AGENT_SESSION_WATCHER_SERVICE,
+      //   SUBAGENT_REGISTRY_SERVICE, FEATURE_GATE_SERVICE,
+      //   SENTRY_SERVICE, LICENSE_SERVICE, AUTH_SECRETS_SERVICE
     ],
   });
 }

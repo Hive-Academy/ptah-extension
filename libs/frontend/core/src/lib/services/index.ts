@@ -4,7 +4,6 @@ export * from './logging.service';
 export {
   VSCodeService,
   provideVSCodeService,
-  initializeVSCodeService,
   type WebviewConfig,
 } from './vscode.service';
 // DELETED: MessageHandlerService - redundant, components subscribe directly to VSCodeService
@@ -47,6 +46,10 @@ export {
   RpcResult,
   type RpcCallOptions,
 } from './claude-rpc.service';
+
+// RPC Util — function-based RPC client with ready-gate (Wave E1, TASK_2026_103).
+// Promoted from the editor library; the editor-bespoke client was deleted.
+export { rpcCall, getRpcClient, type RpcCallResult } from './rpc-call.util';
 
 // Ptah CLI State Service (TASK_2025_167 -> TASK_2025_170)
 export { PtahCliStateService } from './ptah-cli-state.service';

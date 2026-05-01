@@ -98,7 +98,7 @@ export class FileSystemManager {
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext
+    private readonly context: vscode.ExtensionContext,
   ) {
     this.initializeMetrics();
   }
@@ -113,7 +113,7 @@ export class FileSystemManager {
    */
   async readFile(
     uri: vscode.Uri,
-    _options?: FileOperationOptions
+    _options?: FileOperationOptions,
   ): Promise<Uint8Array> {
     const startTime = Date.now();
 
@@ -142,13 +142,8 @@ export class FileSystemManager {
    *
    * @param uri - Target file URI
    * @param content - Content to write
-   * @param options - Write operation options
    */
-  async writeFile(
-    uri: vscode.Uri,
-    content: Uint8Array,
-    options: FileOperationOptions = {}
-  ): Promise<void> {
+  async writeFile(uri: vscode.Uri, content: Uint8Array): Promise<void> {
     const startTime = Date.now();
 
     try {
@@ -177,7 +172,7 @@ export class FileSystemManager {
    */
   async delete(
     uri: vscode.Uri,
-    _options?: FileOperationOptions
+    _options?: FileOperationOptions,
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -216,7 +211,7 @@ export class FileSystemManager {
   async copy(
     source: vscode.Uri,
     target: vscode.Uri,
-    options: FileOperationOptions = {}
+    options: FileOperationOptions = {},
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -255,7 +250,7 @@ export class FileSystemManager {
   async move(
     source: vscode.Uri,
     target: vscode.Uri,
-    options: FileOperationOptions = {}
+    options: FileOperationOptions = {},
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -320,7 +315,7 @@ export class FileSystemManager {
    */
   async readDirectory(
     uri: vscode.Uri,
-    options: FileOperationOptions = {}
+    options: FileOperationOptions = {},
   ): Promise<Array<[string, vscode.FileType]>> {
     const startTime = Date.now();
 
@@ -338,7 +333,7 @@ export class FileSystemManager {
         'readdir',
         true,
         filteredEntries.length,
-        duration
+        duration,
       );
 
       return filteredEntries;
@@ -370,7 +365,7 @@ export class FileSystemManager {
         config.pattern,
         config.ignoreCreateEvents,
         config.ignoreChangeEvents,
-        config.ignoreDeleteEvents
+        config.ignoreDeleteEvents,
       );
 
       // Set up event handlers with event bus integration
@@ -491,7 +486,7 @@ export class FileSystemManager {
    */
   private async validateFileOperation(
     uri: vscode.Uri,
-    operation: FileOperationType
+    operation: FileOperationType,
   ): Promise<void> {
     // Basic URI validation
     if (!uri || !uri.scheme) {
@@ -517,7 +512,7 @@ export class FileSystemManager {
    */
   private filterDirectoryEntries(
     entries: Array<[string, vscode.FileType]>,
-    options: FileOperationOptions
+    options: FileOperationOptions,
   ): Array<[string, vscode.FileType]> {
     let filtered = entries;
 
@@ -546,7 +541,7 @@ export class FileSystemManager {
   private handleWatcherEvent(
     _watcherId: string,
     _eventType: 'created' | 'changed' | 'deleted',
-    _uri: vscode.Uri
+    _uri: vscode.Uri,
   ): void {
     // Handle file watcher events - params reserved for future implementation
     void _watcherId;
@@ -562,7 +557,7 @@ export class FileSystemManager {
     uri: vscode.Uri,
     targetUri: vscode.Uri | undefined,
     error: unknown,
-    duration: number
+    duration: number,
   ): void {
     const errorMessage = error instanceof Error ? error.message : String(error);
     this.categorizeFileSystemError(errorMessage);
@@ -619,7 +614,7 @@ export class FileSystemManager {
     operation: FileOperationType,
     success: boolean,
     bytesProcessed: number,
-    duration: number
+    duration: number,
   ): void {
     const metrics = this.operationMetrics.get(operation);
     if (!metrics) return;

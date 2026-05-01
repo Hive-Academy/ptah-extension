@@ -220,9 +220,9 @@ export type ProfileTab = 'account' | 'sessions' | 'contact';
                   }}
                 </a>
                 <a
-                  href="https://ptah.live/docs"
+                  href="https://docs.ptah.live"
                   target="_blank"
-                  rel="noopener"
+                  rel="noopener noreferrer"
                   class="btn btn-ghost"
                 >
                   <lucide-angular

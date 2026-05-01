@@ -9,10 +9,12 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   AutocompleteAgentsParams,
   AutocompleteCommandsParams,
 } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 interface AgentDiscoveryService {
   searchAgents(request: {
@@ -33,13 +35,20 @@ interface CommandDiscoveryService {
  */
 @injectable()
 export class AutocompleteRpcHandlers {
+  static readonly METHODS = [
+    'autocomplete:agents',
+    'autocomplete:commands',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.AGENT_DISCOVERY_SERVICE)
     private readonly agentDiscovery: AgentDiscoveryService,
     @inject(TOKENS.COMMAND_DISCOVERY_SERVICE)
-    private readonly commandDiscovery: CommandDiscoveryService
+    private readonly commandDiscovery: CommandDiscoveryService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -75,15 +84,19 @@ export class AutocompleteRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: autocomplete:agents failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AutocompleteRpcHandlers.registerAgents' },
           );
           throw new Error(
             `Failed to search agents: ${
               error instanceof Error ? error.message : String(error)
-            }`
+            }`,
           );
         }
-      }
+      },
     );
   }
 
@@ -108,15 +121,19 @@ export class AutocompleteRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: autocomplete:commands failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AutocompleteRpcHandlers.registerCommands' },
           );
           throw new Error(
             `Failed to search commands: ${
               error instanceof Error ? error.message : String(error)
-            }`
+            }`,
           );
         }
-      }
+      },
     );
   }
 }

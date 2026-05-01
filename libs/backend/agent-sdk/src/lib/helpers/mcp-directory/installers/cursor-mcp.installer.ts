@@ -18,6 +18,7 @@ import {
   uninstallServer,
   listInstalledServers,
 } from '../mcp-config-io.utils';
+import { SdkError } from '../../../errors';
 
 export class CursorMcpInstaller implements IMcpServerInstaller {
   readonly target = 'cursor' as const;
@@ -71,7 +72,7 @@ export class CursorMcpInstaller implements IMcpServerInstaller {
 
   getConfigPath(workspaceRoot?: string): string {
     if (!workspaceRoot)
-      throw new Error('Cursor MCP installer requires a workspace root');
+      throw new SdkError('Cursor MCP installer requires a workspace root');
     return path.join(workspaceRoot, '.cursor', 'mcp.json');
   }
 }

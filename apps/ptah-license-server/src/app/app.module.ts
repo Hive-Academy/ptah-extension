@@ -15,6 +15,8 @@ import { ContactModule } from '../contact/contact.module';
 import { SessionModule } from '../session/session.module';
 import { HealthModule } from '../health/health.module';
 import { AdminModule } from '../admin/admin.module';
+import { AuditModule } from '../audit/audit.module';
+import { MarketingModule } from '../marketing/marketing.module';
 
 /**
  * AppModule - Root application module
@@ -64,6 +66,9 @@ import { AdminModule } from '../admin/admin.module';
 
     // Core infrastructure
     PrismaModule,
+    // TASK_2025_292: cross-cutting admin audit log (global; consumed by
+    // AdminModule, LicenseModule, MarketingModule).
+    AuditModule,
 
     // Feature modules
     LicenseModule,
@@ -76,6 +81,7 @@ import { AdminModule } from '../admin/admin.module';
     SessionModule, // Training session request handling
     HealthModule, // Health check with DB validation (TASK_2025_180)
     AdminModule, // TASK_2025_290: native admin dashboard
+    MarketingModule, // TASK_2025_292: marketing backend foundation
   ],
   providers: [
     // TASK_2025_125: Apply ThrottlerGuard globally to all routes

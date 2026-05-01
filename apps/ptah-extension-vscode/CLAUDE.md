@@ -82,7 +82,6 @@ The **ptah-extension-vscode** is the main VS Code extension application that orc
 - `@ptah-extension/agent-generation` - Agent generation services
 - `@ptah-extension/agent-sdk` - Claude Agent SDK integration
 - `@ptah-extension/llm-abstraction` - LLM provider abstraction
-- `@ptah-extension/template-generation` - Template processing
 - `@ptah-extension/vscode-lm-tools` - VS Code LM tools
 
 ### External NPM Packages
@@ -125,13 +124,11 @@ nx run ptah-extension-vscode:package
 The build process consists of multiple steps orchestrated by Nx:
 
 1. **build-webpack**: Bundle extension code with Webpack
-
    - Input: `src/main.ts`
    - Output: `dist/apps/ptah-extension-vscode/main.js`
    - Target: Node.js (CommonJS)
 
 2. **post-build-copy**: Copy webview and assets
-
    - Copy webview build from `ptah-extension-webview`
    - Copy extension assets (icons, images)
    - Copy `package.json` manifest
@@ -192,13 +189,11 @@ const response = await rpcService.invoke('chat:send', { message });
    ```
 
 2. **Open Extension Development Host**:
-
    - Press F5 in VS Code
    - Extension loads in new window
    - Console logs appear in original window
 
 3. **Make Changes**:
-
    - Edit code in `src/`
    - Webpack rebuilds automatically
    - Reload extension window (Ctrl+R)

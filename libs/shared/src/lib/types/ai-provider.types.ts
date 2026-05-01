@@ -3,10 +3,8 @@
  * Supports Claude CLI and VS Code LM API with consistent interfaces
  */
 
-// Browser-compatible stream type
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Readable = any; // In browser context, will be replaced with appropriate stream type
 import { SessionId, CorrelationId } from './branded.types';
+import type { FlatStreamEventUnion } from './execution';
 
 /**
  * Supported AI Provider IDs
@@ -97,11 +95,12 @@ export type ThinkingConfig =
  * - low: Minimal thinking, fastest responses
  * - medium: Moderate thinking
  * - high: Deep reasoning (SDK default)
- * - max: Maximum effort (Opus 4.6 only)
+ * - xhigh: Extra-deep reasoning (Opus tier)
+ * - max: Maximum effort (Opus tier)
  *
  * When undefined, SDK defaults to 'high'.
  */
-export type EffortLevel = 'low' | 'medium' | 'high' | 'max';
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * AI Session Configuration
@@ -226,13 +225,13 @@ export interface IAIProvider {
       files?: readonly string[];
       /** Inline images (pasted/dropped) to include with the initial message */
       images?: ReadonlyArray<{ data: string; mediaType: string }>;
-    }
-  ): Promise<Readable>;
+    },
+  ): Promise<AsyncIterable<FlatStreamEventUnion>>;
   endSession(sessionId: SessionId): void;
   sendMessageToSession(
     sessionId: SessionId,
     content: string,
-    options?: AIMessageOptions
+    options?: AIMessageOptions,
   ): Promise<void>;
 
   /**
@@ -287,7 +286,7 @@ export interface IProviderManager {
    */
   on(
     event: 'provider-switched' | 'provider-error' | 'provider-health-changed',
-    listener: (data: unknown) => void
+    listener: (data: unknown) => void,
   ): void;
   off(event: string, listener: (data: unknown) => void): void;
 }

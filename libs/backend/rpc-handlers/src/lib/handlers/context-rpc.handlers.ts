@@ -9,10 +9,12 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   ContextGetAllFilesParams,
   ContextGetFileSuggestionsParams,
 } from '@ptah-extension/shared';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 interface ContextOrchestrationService {
   getAllFiles(params: ContextGetAllFilesParams): Promise<unknown>;
@@ -24,11 +26,18 @@ interface ContextOrchestrationService {
  */
 @injectable()
 export class ContextRpcHandlers {
+  static readonly METHODS = [
+    'context:getAllFiles',
+    'context:getFileSuggestions',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.CONTEXT_ORCHESTRATION_SERVICE)
-    private readonly contextOrchestration: ContextOrchestrationService
+    private readonly contextOrchestration: ContextOrchestrationService,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -60,15 +69,19 @@ export class ContextRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: context:getAllFiles failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'ContextRpcHandlers.registerGetAllFiles' },
           );
           throw new Error(
             `Failed to get all files: ${
               error instanceof Error ? error.message : String(error)
-            }`
+            }`,
           );
         }
-      }
+      },
     );
   }
 
@@ -84,22 +97,25 @@ export class ContextRpcHandlers {
             query: params?.query,
             limit: params?.limit,
           });
-          const result = await this.contextOrchestration.getFileSuggestions(
-            params
-          );
+          const result =
+            await this.contextOrchestration.getFileSuggestions(params);
           return result;
         } catch (error) {
           this.logger.error(
             'RPC: context:getFileSuggestions failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'ContextRpcHandlers.registerGetFileSuggestions' },
           );
           throw new Error(
             `Failed to get file suggestions: ${
               error instanceof Error ? error.message : String(error)
-            }`
+            }`,
           );
         }
-      }
+      },
     );
   }
 }

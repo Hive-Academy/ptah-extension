@@ -14,6 +14,7 @@
  * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.workspace.workspaceFolders with IWorkspaceProvider)
  */
 
+import * as path from 'path';
 import { injectable, inject, DependencyContainer } from 'tsyringe';
 import {
   Logger,
@@ -23,6 +24,7 @@ import {
   type LicenseStatus,
   ConfigManager,
 } from '@ptah-extension/vscode-core';
+import type { SentryService } from '@ptah-extension/vscode-core';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   PLATFORM_TOKENS,
@@ -63,6 +65,7 @@ import type {
 } from '@ptah-extension/shared';
 import { Result } from '@ptah-extension/shared';
 import type { MultiPhaseManifest } from '@ptah-extension/agent-generation';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
  * SetupStatus response type for setup-status:get-status RPC method
@@ -80,6 +83,22 @@ interface SetupStatusResponse {
  */
 @injectable()
 export class SetupRpcHandlers {
+  static readonly METHODS = [
+    'setup-status:get-status',
+    'setup-wizard:launch',
+    'wizard:deep-analyze',
+    'wizard:recommend-agents',
+    'wizard:cancel-analysis',
+    'wizard:list-analyses',
+    'wizard:load-analysis',
+    'wizard:list-agent-packs',
+    'wizard:install-pack-agents',
+    'wizard:new-project-select-type',
+    'wizard:new-project-submit-answers',
+    'wizard:new-project-get-plan',
+    'wizard:new-project-approve-plan',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -91,6 +110,8 @@ export class SetupRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject('DependencyContainer')
     private readonly container: DependencyContainer,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -700,7 +721,8 @@ export class SetupRpcHandlers {
         'AnalysisStorageService',
       );
 
-      return storageService.loadMultiPhase(workspaceRoot, params.filename);
+      const safeFilename = path.basename(params.filename);
+      return storageService.loadMultiPhase(workspaceRoot, safeFilename);
     });
   }
 

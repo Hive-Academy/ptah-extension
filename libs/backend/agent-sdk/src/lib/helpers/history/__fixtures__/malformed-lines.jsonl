@@ -1,0 +1,5 @@
+{"uuid":"ok-1","sessionId":"session-mal","timestamp":"2026-01-01T00:00:00.000Z","type":"user","message":{"role":"user","content":"First"}}
+this is not json at all
+{"uuid":"ok-2","sessionId":"session-mal","timestamp":"2026-01-01T00:00:01.000Z","type":"user","message":{"role":"user","content":"Second"}}
+{broken json,
+{"uuid":"ok-3","sessionId":"session-mal","timestamp":"2026-01-01T00:00:02.000Z","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Reply"}]}}

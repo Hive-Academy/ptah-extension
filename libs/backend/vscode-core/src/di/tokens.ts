@@ -69,6 +69,7 @@ export const AGENT_SESSION_WATCHER_SERVICE = Symbol.for(
   'AgentSessionWatcherService',
 );
 export const SUBAGENT_REGISTRY_SERVICE = Symbol.for('SubagentRegistryService');
+export const SENTRY_SERVICE = Symbol.for('SentryService');
 
 // ========================================
 // Workspace Intelligence Service Tokens
@@ -150,23 +151,13 @@ export const LICENSE_COMMANDS = Symbol.for('LicenseCommands');
 export const FEATURE_GATE_SERVICE = Symbol.for('FeatureGateService');
 
 // ========================================
-// Template Generation Service Tokens
+// Template Generation Service Tokens — DELETED
 // ========================================
-// TASK_2025_071 Batch 5: Dedicated token for template-generation's FileSystemAdapter
-// This resolves the collision where both workspace-intelligence (FileSystemService)
-// and template-generation (FileSystemAdapter) were using TOKENS.FILE_SYSTEM_SERVICE
-export const TEMPLATE_FILE_SYSTEM_ADAPTER = Symbol.for(
-  'TemplateFileSystemAdapter',
-);
-export const TEMPLATE_MANAGER = Symbol.for('TemplateManager');
-export const CONTENT_GENERATOR = Symbol.for('ContentGenerator');
-export const CONTENT_PROCESSOR = Symbol.for('ContentProcessor');
-export const TEMPLATE_PROCESSOR = Symbol.for('TemplateProcessor');
-export const TEMPLATE_FILE_MANAGER = Symbol.for('TemplateFileManager');
-export const TEMPLATE_ORCHESTRATOR = Symbol.for('TemplateOrchestrator');
-export const TEMPLATE_GENERATOR_SERVICE = Symbol.for(
-  'TemplateGeneratorService',
-);
+// The entire @ptah-extension/template-generation library was removed as dead code.
+// Removed tokens: TEMPLATE_FILE_SYSTEM_ADAPTER, TEMPLATE_MANAGER, CONTENT_GENERATOR,
+// CONTENT_PROCESSOR, TEMPLATE_PROCESSOR, TEMPLATE_FILE_MANAGER, TEMPLATE_ORCHESTRATOR,
+// TEMPLATE_GENERATOR_SERVICE. The real content-generation pipeline lives in
+// @ptah-extension/agent-generation (ContentGenerationService).
 
 // ========================================
 // Code Execution MCP (TASK_2025_025)
@@ -205,12 +196,10 @@ export const GLOBAL_STATE = Symbol.for('GlobalState');
 export const SDK_AGENT_ADAPTER = Symbol.for('SdkAgentAdapter');
 
 /**
- * AgentAdapter facade token — resolves to the AgentRuntimeSelector which
- * implements IAgentAdapter by dispatching to either SdkAgentAdapter or
- * DeepAgentAdapter based on the user's `ptah.runtime` setting.
+ * AgentAdapter facade token — resolves to SdkAgentAdapter.
+ * deep-agent runtime removed in TASK_2025_293.
  *
- * All consumers that don't care which runtime backs the session should
- * inject TOKENS.AGENT_ADAPTER typed as IAgentAdapter.
+ * All consumers should inject TOKENS.AGENT_ADAPTER typed as IAgentAdapter.
  */
 export const AGENT_ADAPTER = Symbol.for('AgentAdapter');
 // PERMISSION_SERVICE - DELETED (over-engineered, unused)
@@ -311,6 +300,11 @@ export const MODEL_DISCOVERY = Symbol.for('ModelDiscovery');
 // ========================================
 export const WORKSPACE_CONTEXT_MANAGER = Symbol.for('WorkspaceContextManager');
 
+// ========================================
+// Git Info Service (TASK_2026_104 Sub-batch B5b — lifted from electron-tokens)
+// ========================================
+export const GIT_INFO_SERVICE = Symbol.for('GitInfoService');
+
 /**
  * TOKENS constant for convenient access to all DI tokens
  * Provides a single source of truth for all dependency injection symbols
@@ -352,6 +346,7 @@ export const TOKENS = {
   // SDK_RPC_HANDLERS - DELETED in TASK_2025_092
   AGENT_SESSION_WATCHER_SERVICE,
   SUBAGENT_REGISTRY_SERVICE,
+  SENTRY_SERVICE,
 
   // ========================================
   // Workspace Intelligence
@@ -417,16 +412,8 @@ export const TOKENS = {
   FEATURE_GATE_SERVICE,
 
   // ========================================
-  // Template Generation
+  // Template Generation — DELETED (library removed as dead code)
   // ========================================
-  TEMPLATE_FILE_SYSTEM_ADAPTER, // TASK_2025_071 Batch 5: Dedicated adapter token
-  TEMPLATE_MANAGER,
-  CONTENT_GENERATOR,
-  CONTENT_PROCESSOR,
-  TEMPLATE_PROCESSOR,
-  TEMPLATE_FILE_MANAGER,
-  TEMPLATE_ORCHESTRATOR,
-  TEMPLATE_GENERATOR_SERVICE,
 
   // ========================================
   // Code Execution MCP (TASK_2025_025)
@@ -489,6 +476,11 @@ export const TOKENS = {
   // Workspace Context Management (TASK_2025_208)
   // ========================================
   WORKSPACE_CONTEXT_MANAGER,
+
+  // ========================================
+  // Git Info Service (TASK_2026_104 Sub-batch B5b)
+  // ========================================
+  GIT_INFO_SERVICE,
 } as const;
 
 /**

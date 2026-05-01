@@ -10,6 +10,10 @@ export default [
   {
     files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
     rules: {
+      // Strict 'error' severity (TASK_2026_103 W5 + F4). Both scope:*
+      // and type:* constraints are clean after retagging
+      // @ptah-extension/rpc-handlers from type:util to type:feature
+      // (matches its actual role as an RPC orchestration feature).
       '@nx/enforce-module-boundaries': [
         'error',
         {
@@ -56,6 +60,45 @@ export default [
                 'type:ui',
                 'type:util',
               ],
+            },
+            // type:* import direction (TASK_2026_103 W5 + F4).
+            // Enforced as 'error' after rpc-handlers was retagged
+            // type:feature (F4) — no remaining violations.
+            {
+              sourceTag: 'type:app',
+              onlyDependOnLibsWithTags: [
+                'type:feature',
+                'type:data-access',
+                'type:ui',
+                'type:util',
+                'type:core',
+              ],
+            },
+            {
+              sourceTag: 'type:feature',
+              onlyDependOnLibsWithTags: [
+                'type:feature',
+                'type:data-access',
+                'type:ui',
+                'type:util',
+                'type:core',
+              ],
+            },
+            {
+              sourceTag: 'type:data-access',
+              onlyDependOnLibsWithTags: ['type:data-access', 'type:util'],
+            },
+            {
+              sourceTag: 'type:ui',
+              onlyDependOnLibsWithTags: ['type:ui', 'type:util'],
+            },
+            {
+              sourceTag: 'type:util',
+              onlyDependOnLibsWithTags: ['type:util'],
+            },
+            {
+              sourceTag: 'type:core',
+              onlyDependOnLibsWithTags: ['type:core', 'type:util'],
             },
           ],
         },

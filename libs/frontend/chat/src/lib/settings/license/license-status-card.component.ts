@@ -1,4 +1,4 @@
-import {
+﻿import {
   Component,
   inject,
   ChangeDetectionStrategy,
@@ -24,7 +24,7 @@ import {
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
 import { ChatStore } from '../../services/chat.store';
-import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
+import { ConfirmationDialogService } from '@ptah-extension/chat-state';
 
 /**
  * LicenseStatusCardComponent - License tier, trial status, user profile, and action buttons

@@ -146,9 +146,6 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
 
   private readonly tabManager = inject(TabManagerService);
   private readonly parentEnvInjector = inject(EnvironmentInjector);
-  // CanvasStore is optionally injected for potential future use; not required here
-  // since focused() is passed as input by OrchestraCanvasComponent.
-  // (keeping constructor clean — canvasStore is read by the parent)
 
   // ============================================================================
   // STATE

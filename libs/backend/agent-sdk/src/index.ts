@@ -50,8 +50,8 @@ export {
   type DynamicModelFetcher,
 } from './lib/provider-models.service';
 
-// @deprecated Use ProviderModelsService instead
-export { ProviderModelsService as OpenRouterModelsService } from './lib/provider-models.service';
+// Errors (TASK_2025_291 Wave C8)
+export { SdkError, SessionNotActiveError } from './lib/errors';
 
 // DI registration exports
 export { registerSdkServices } from './lib/di/register';
@@ -67,22 +67,19 @@ export {
 } from './lib/helpers';
 
 // Anthropic-compatible provider registry (TASK_2025_129 Batch 3)
-// Re-exported via helpers barrel (canonical source: helpers/anthropic-provider-registry.ts)
+// Re-exported via providers barrel (canonical source: providers/_shared/provider-registry.ts)
 export {
   ANTHROPIC_PROVIDERS,
   DEFAULT_PROVIDER_ID,
   ANTHROPIC_DIRECT_PROVIDER_ID,
   getAnthropicProvider,
   getProviderBaseUrl,
-} from './lib/helpers';
+} from './lib/providers';
 export type {
   AnthropicProvider,
   AnthropicProviderId,
   ProviderStaticModel,
-} from './lib/helpers';
-
-// Deep Agent History Reader (reads LangGraph checkpoint sessions)
-export { DeepAgentHistoryReaderService } from './lib/helpers';
+} from './lib/providers';
 
 // CLI detector (Claude CLI availability check)
 export { ClaudeCliDetector } from './lib/detector/claude-cli-detector';
@@ -221,13 +218,13 @@ export {
   getCopilotHostsPath,
   getCopilotAppsPath,
   writeCopilotToken,
-} from './lib/copilot-provider';
+} from './lib/providers';
 export type {
   ICopilotAuthService,
   ICopilotTranslationProxy,
   CopilotAuthState,
   CopilotHostsFile,
-} from './lib/copilot-provider';
+} from './lib/providers';
 
 // ============================================================
 // Codex Provider (TASK_2025_193)
@@ -238,8 +235,8 @@ export {
   CodexTranslationProxy,
   CODEX_PROVIDER_ENTRY,
   CODEX_DEFAULT_TIERS,
-} from './lib/codex-provider';
-export type { ICodexAuthService, CodexAuthFile } from './lib/codex-provider';
+} from './lib/providers';
+export type { ICodexAuthService, CodexAuthFile } from './lib/providers';
 
 // ============================================================
 // OpenRouter Provider
@@ -251,8 +248,8 @@ export {
   OpenRouterAuthService,
   OpenRouterTranslationProxy,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
-} from './lib/openrouter-provider';
-export type { IOpenRouterAuthService } from './lib/openrouter-provider';
+} from './lib/providers';
+export type { IOpenRouterAuthService } from './lib/providers';
 
 // ============================================================
 // Local Model Providers (TASK_2025_265, updated TASK_2025_281)
@@ -268,7 +265,7 @@ export {
   OLLAMA_AUTH_TOKEN_PLACEHOLDER,
   isLocalProviderId,
   isOllamaProviderId,
-} from './lib/local-provider';
+} from './lib/providers';
 
 // ============================================================
 // OpenAI Translation Module (TASK_2025_193)
@@ -278,11 +275,11 @@ export {
   OpenAIResponseTranslator,
   TranslationProxyBase,
   translateAnthropicToOpenAI,
-} from './lib/openai-translation';
+} from './lib/providers';
 export type {
   ITranslationProxy,
   TranslationProxyConfig,
-} from './lib/openai-translation';
+} from './lib/providers';
 
 // ============================================================
 // Slash Command Interceptor (TASK_2025_184)
@@ -350,6 +347,48 @@ export type {
   AuthConfigureResult,
   AuthConfigureContext,
 } from './lib/auth';
+
+// ============================================================
+// CLI Agents (TASK_2025_291 Wave C5)
+// Relocated from the deleted @ptah-extension/llm-abstraction library.
+// External agent processes (Gemini, Codex, Copilot, Cursor) that Ptah
+// spawns and coordinates via stdio — peers of the Agent SDK itself,
+// not LLM providers.
+// ============================================================
+export {
+  CliDetectionService,
+  AgentProcessManager,
+  CopilotPermissionBridge,
+  CliPluginSyncService,
+} from './lib/cli-agents';
+export type {
+  CliAdapter,
+  CliCommand,
+  CliCommandOptions,
+  CliModelInfo,
+  SdkHandle,
+  ICliSkillInstaller,
+} from './lib/cli-agents';
+
+// ============================================================
+// RPC Wiring helpers (TASK_2025_291 Wave C4b)
+// Shared SDK callback + agent event wiring reused by VS Code,
+// Electron, and TUI RPC registration services.
+// ============================================================
+export {
+  wireSdkCallbacks,
+  type WireSdkCallbacksOptions,
+  type WireSdkCallbacksContext,
+  type SdkCallbackPlatform,
+  type WorktreeCreatedData,
+} from './lib/wiring/sdk-callbacks';
+export {
+  wireAgentEventListeners,
+  persistCliSessionReference,
+  type WireAgentEventListenersOptions,
+  type WireAgentEventListenersContext,
+  type AgentEventPlatform,
+} from './lib/wiring/agent-events';
 
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';

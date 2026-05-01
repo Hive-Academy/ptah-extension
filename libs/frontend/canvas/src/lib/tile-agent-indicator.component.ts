@@ -18,7 +18,8 @@ import {
   signal,
   computed,
 } from '@angular/core';
-import { AgentMonitorStore, TabManagerService } from '@ptah-extension/chat';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { TabManagerService } from '@ptah-extension/chat-state';
 
 @Component({
   selector: 'ptah-tile-agent-indicator',

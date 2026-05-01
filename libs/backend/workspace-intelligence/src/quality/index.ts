@@ -17,6 +17,3 @@ export * from './rules';
 
 // Services (Batch 4)
 export * from './services';
-
-// DI Registration (Batch 6)
-export { registerQualityServices } from './di';

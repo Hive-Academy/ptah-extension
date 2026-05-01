@@ -3,7 +3,7 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/rpc-handlers/src",
   "projectType": "library",
-  "tags": ["scope:extension", "type:util"],
+  "tags": ["scope:extension", "type:feature"],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",

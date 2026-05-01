@@ -7,6 +7,7 @@
   "types": "./index.d.ts",
   "dependencies": {
     "@ptah-extension/shared": "*",
+    "@ptah-extension/platform-core": "*",
     "picomatch": "*",
     "tsyringe": "*",
     "@ptah-extension/vscode-core": "*",

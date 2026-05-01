@@ -16,6 +16,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { QueryFunction } from '../types/sdk-types/claude-sdk.types';
 import { ClaudeCliDetector } from '../detector/claude-cli-detector';
 import { SDK_TOKENS } from '../di/tokens';
+import { SdkError } from '../errors';
 
 /**
  * Manages SDK module loading and caching
@@ -70,7 +71,7 @@ export class SdkModuleLoader {
       const query = sdkModule['query'];
 
       if (typeof query !== 'function') {
-        throw new Error(
+        throw new SdkError(
           `SDK module loaded but 'query' export is ${typeof query}, expected function`,
         );
       }

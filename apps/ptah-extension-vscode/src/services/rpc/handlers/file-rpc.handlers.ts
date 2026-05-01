@@ -11,7 +11,13 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
-import { FileOpenParams, FileOpenResult } from '@ptah-extension/shared';
+import type { SentryService } from '@ptah-extension/vscode-core';
+import {
+  FileOpenParams,
+  FileOpenResult,
+  MAX_IMAGE_SIZE_BYTES,
+  resolveImageMediaType,
+} from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -24,6 +30,8 @@ export class FileRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
+    @inject(TOKENS.SENTRY_SERVICE)
+    private readonly sentryService: SentryService,
   ) {}
 
   /**
@@ -81,6 +89,10 @@ export class FileRpcHandlers {
 
           return { success: true };
         } catch (error) {
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'FileRpcHandlers.registerFileOpen' },
+          );
           this.logger.error(
             'RPC: file:open failed',
             error instanceof Error ? error : new Error(String(error)),
@@ -130,6 +142,10 @@ export class FileRpcHandlers {
 
           return { files };
         } catch (error) {
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'FileRpcHandlers.registerPick' },
+          );
           this.logger.error(
             'RPC: file:pick failed',
             error instanceof Error ? error : new Error(String(error)),
@@ -153,6 +169,9 @@ export class FileRpcHandlers {
             multiple: params?.multiple,
           });
 
+          // Only offer extensions that map to Anthropic-allowed media types.
+          // Magic-byte sniffing (below) is the source of truth — the filter
+          // is just a UX hint.
           const imageUris = await vscode.window.showOpenDialog({
             canSelectFiles: true,
             canSelectFolders: false,
@@ -160,16 +179,7 @@ export class FileRpcHandlers {
             defaultUri: vscode.workspace.workspaceFolders?.[0]?.uri,
             title: 'Attach Images',
             filters: {
-              Images: [
-                'png',
-                'jpg',
-                'jpeg',
-                'gif',
-                'webp',
-                'svg',
-                'bmp',
-                'ico',
-              ],
+              Images: ['png', 'jpg', 'jpeg', 'gif', 'webp'],
             },
           });
 
@@ -185,18 +195,6 @@ export class FileRpcHandlers {
             };
           }
 
-          const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
-          const MIME_MAP: Record<string, string> = {
-            png: 'image/png',
-            jpg: 'image/jpeg',
-            jpeg: 'image/jpeg',
-            gif: 'image/gif',
-            webp: 'image/webp',
-            svg: 'image/svg+xml',
-            bmp: 'image/bmp',
-            ico: 'image/x-icon',
-          };
-
           const images: Array<{
             data: string;
             mediaType: string;
@@ -205,7 +203,7 @@ export class FileRpcHandlers {
 
           for (const uri of imageUris) {
             const stat = await fs.promises.stat(uri.fsPath);
-            if (stat.size > MAX_IMAGE_SIZE) {
+            if (stat.size > MAX_IMAGE_SIZE_BYTES) {
               this.logger.warn(
                 'RPC: file:pick-images skipping oversized file',
                 {
@@ -218,8 +216,18 @@ export class FileRpcHandlers {
 
             const data = await fs.promises.readFile(uri.fsPath);
             const base64 = data.toString('base64');
-            const ext = path.extname(uri.fsPath).toLowerCase().slice(1);
-            const mediaType = MIME_MAP[ext] || `image/${ext}`;
+            // Sniff the bytes — extension/MIME are unreliable, magic bytes
+            // are the only thing the Anthropic API will accept.
+            const mediaType = resolveImageMediaType(undefined, base64);
+            if (mediaType === null) {
+              this.logger.warn(
+                'RPC: file:pick-images skipping unsupported image (no matching magic bytes)',
+                {
+                  path: uri.fsPath,
+                } as unknown as Error,
+              );
+              continue;
+            }
 
             images.push({
               data: base64,
@@ -230,6 +238,10 @@ export class FileRpcHandlers {
 
           return { images };
         } catch (error) {
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'FileRpcHandlers.registerPickImages' },
+          );
           this.logger.error(
             'RPC: file:pick-images failed',
             error instanceof Error ? error : new Error(String(error)),

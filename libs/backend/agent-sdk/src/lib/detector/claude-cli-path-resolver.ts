@@ -244,7 +244,7 @@ export class ClaudeCliPathResolver {
 
       const child = spawn(command, [commandName], {
         stdio: 'pipe',
-        shell: isWindows,
+        shell: false,
       });
 
       let stdout = '';
@@ -255,7 +255,7 @@ export class ClaudeCliPathResolver {
 
       child.on('close', (code: number) => {
         if (code === 0) {
-          const paths = stdout.trim().split('\n');
+          const paths = stdout.trim().split(/\r?\n/);
           resolve(paths[0]?.trim() || null);
         } else {
           resolve(null);

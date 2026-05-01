@@ -16,6 +16,18 @@ import type {
 } from './quality-assessment.types';
 
 /**
+ * Utility type for values that may be returned synchronously or asynchronously.
+ *
+ * Used by {@link AntiPatternRule.detect} so individual rules can opt into async
+ * detection (e.g. AST-backed analyses) while leaving existing sync rules
+ * unchanged. Consumers must `await Promise.resolve(...)` the result to handle
+ * both cases uniformly.
+ *
+ * TASK_2025_291 Wave B (B2)
+ */
+export type MaybeAsync<T> = T | Promise<T>;
+
+/**
  * Match result from a single pattern detection
  */
 export interface AntiPatternMatch {
@@ -66,12 +78,21 @@ export interface AntiPatternRule {
   /** File extensions this rule applies to */
   fileExtensions: string[];
   /**
-   * Detection function
+   * Detection function.
+   *
+   * Rules may execute synchronously (e.g. regex scans) or asynchronously
+   * (e.g. AST/tree-sitter-backed analyses). Callers must normalize the
+   * return value with `await Promise.resolve(rule.detect(...))`.
+   *
+   * TASK_2025_291 Wave B (B2): widened from `AntiPatternMatch[]` to
+   * `MaybeAsync<AntiPatternMatch[]>` so structural rules can do real AST
+   * parsing without forcing every rule async.
+   *
    * @param content - File content to analyze
    * @param filePath - Relative file path
-   * @returns Array of detected matches
+   * @returns Array of detected matches (or a Promise resolving to one)
    */
-  detect: (content: string, filePath: string) => AntiPatternMatch[];
+  detect: (content: string, filePath: string) => MaybeAsync<AntiPatternMatch[]>;
   /**
    * Suggestion generator
    * @param match - The detected match
@@ -133,6 +154,6 @@ export interface AntiPatternRuleRegistry {
    */
   configureRule(
     ruleId: AntiPatternType,
-    config: Partial<RuleConfiguration>
+    config: Partial<RuleConfiguration>,
   ): void;
 }

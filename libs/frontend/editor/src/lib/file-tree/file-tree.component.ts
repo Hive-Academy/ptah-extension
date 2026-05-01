@@ -25,7 +25,7 @@ import { FileTreeNodeComponent } from './file-tree-node.component';
   imports: [FileTreeNodeComponent],
   template: `
     <aside
-      class="w-64 h-full overflow-y-auto bg-base-200 border-r border-base-300 flex flex-col flex-shrink-0"
+      class="w-full h-full overflow-y-auto flex flex-col"
       role="tree"
       aria-label="File Explorer"
       (contextmenu)="onBlankAreaRightClick($event)"

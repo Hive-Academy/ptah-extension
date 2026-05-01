@@ -1,0 +1,146 @@
+{
+  "name": "ptah-cli",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/ptah-cli/src",
+  "tags": ["scope:cli", "type:app"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "outputPath": "dist/apps/ptah-cli",
+        "main": "apps/ptah-cli/src/main.ts",
+        "outputFileName": "main.mjs",
+        "tsConfig": "apps/ptah-cli/tsconfig.build.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": true,
+        "esbuildOptions": {
+          "outExtension": { ".js": ".mjs" },
+          "banner": {
+            "js": "import 'reflect-metadata'; import { createRequire } from 'module'; import { fileURLToPath as __esm_fileURLToPath } from 'url'; import { dirname as __esm_dirname } from 'path'; const require = createRequire(import.meta.url); const __filename = __esm_fileURLToPath(import.meta.url); const __dirname = __esm_dirname(__filename);"
+          }
+        },
+        "external": [
+          "@anthropic-ai/claude-agent-sdk",
+          "@openai/codex-sdk",
+          "reflect-metadata",
+          "tsyringe",
+          "async-mutex",
+          "cross-spawn",
+          "eventemitter3",
+          "gray-matter",
+          "json2md",
+          "jsonrepair",
+          "minimatch",
+          "picomatch",
+          "rxjs",
+          "uuid",
+          "which",
+          "zod",
+          "tslib",
+          "chokidar",
+          "fast-glob",
+          "p-limit",
+          "p-queue",
+          "axios",
+          "exa-js",
+          "gpt-tokenizer",
+          "web-tree-sitter",
+          "@tavily/core",
+          "marked",
+          "commander"
+        ],
+        "assets": [
+          {
+            "glob": "package.json",
+            "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "README.md",
+            "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "docs/jsonrpc-schema.md",
+            "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "docs/migration.md",
+            "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "LICENSE.md",
+            "input": ".",
+            "output": "."
+          }
+        ]
+      },
+      "configurations": {
+        "production": {
+          "sourcemap": false,
+          "minify": true
+        },
+        "development": {
+          "sourcemap": true,
+          "minify": false
+        }
+      }
+    },
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx tsx apps/ptah-cli/src/main.ts"
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "command": "node dist/apps/ptah-cli/main.mjs"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project apps/ptah-cli/tsconfig.app.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "apps/ptah-cli/jest.config.cjs",
+        "passWithNoTests": true
+      }
+    },
+    "publish:dry-run": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "dist/apps/ptah-cli",
+        "command": "npm publish --dry-run --access public"
+      }
+    },
+    "publish": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "dist/apps/ptah-cli",
+        "command": "npm publish --access public --provenance"
+      }
+    }
+  }
+}

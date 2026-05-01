@@ -1,4 +1,6 @@
 import { Injectable, signal } from '@angular/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import type { MessageHandler } from './message-router.types';
 
 /**
  * Webview Configuration
@@ -65,7 +67,7 @@ function getPtahWindow(): PtahWindow {
 @Injectable({
   providedIn: 'root',
 })
-export class VSCodeService {
+export class VSCodeService implements MessageHandler {
   // VS Code API instance (null in development mode)
   private vscode: VsCodeApi | null = null;
 
@@ -88,6 +90,19 @@ export class VSCodeService {
   // Public readonly signals
   readonly config = this._config.asReadonly();
   readonly isConnected = this._isConnected.asReadonly();
+
+  // MessageHandler implementation — receives workspaceChanged from extension host
+  readonly handledMessageTypes = [MESSAGE_TYPES.WORKSPACE_CHANGED] as const;
+
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    const payload = message.payload as
+      | { workspaceInfo?: { path?: string } | null }
+      | undefined;
+    const path = payload?.workspaceInfo?.path;
+    if (path) {
+      this.updateWorkspaceRoot(path);
+    }
+  }
 
   constructor() {
     this.initializeFromGlobals();
@@ -188,7 +203,7 @@ export class VSCodeService {
       this.vscode.postMessage(message);
     } else {
       console.warn(
-        '[VSCodeService] postMessage called but VS Code API not available'
+        '[VSCodeService] postMessage called but VS Code API not available',
       );
     }
   }
@@ -228,7 +243,7 @@ export class VSCodeService {
   public setState<T>(key: string, value: T): void {
     if (!this.vscode) {
       console.warn(
-        '[VSCodeService] setState called but VS Code API not available'
+        '[VSCodeService] setState called but VS Code API not available',
       );
       return;
     }
@@ -246,7 +261,7 @@ export class VSCodeService {
  * Ensures VSCodeService is initialized before application bootstrap.
  */
 export function initializeVSCodeService(
-  _vscodeService: VSCodeService
+  _vscodeService: VSCodeService,
 ): () => void {
   return () => {
     // Service is already initialized in constructor

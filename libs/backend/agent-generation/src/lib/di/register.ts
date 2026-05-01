@@ -11,7 +11,11 @@
  */
 
 import { DependencyContainer, Lifecycle } from 'tsyringe';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  type Logger,
+  type SentryService,
+} from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   ContentDownloadService,
@@ -75,7 +79,12 @@ export function registerAgentGenerationServices(
         PLATFORM_TOKENS.CONTENT_DOWNLOAD,
       );
       const templatesPath = contentDownload.getTemplatesPath();
-      return new TemplateStorageService(loggerInstance, templatesPath);
+      const sentryService = c.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
+      return new TemplateStorageService(
+        loggerInstance,
+        sentryService,
+        templatesPath,
+      );
     },
   });
 

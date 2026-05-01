@@ -86,7 +86,7 @@ import {
 import {
   AgentProcessManager,
   CliDetectionService,
-} from '@ptah-extension/llm-abstraction';
+} from '@ptah-extension/agent-sdk';
 
 /**
  * Duplicated from SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER to avoid circular dependency

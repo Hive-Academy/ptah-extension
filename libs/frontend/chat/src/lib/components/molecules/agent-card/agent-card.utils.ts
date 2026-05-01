@@ -4,7 +4,7 @@
  * Pure functions for parsing, formatting, and merging agent output.
  */
 
-import type { RenderSegment, StderrSegment } from './agent-card.types';
+import type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
 
 /**
  * Format elapsed time in human-readable form.
@@ -136,7 +136,7 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
 
     // Reading/Searching actions shown as tool calls
     const actionMatch = trimmed.match(
-      /^(Reading|Searching|Writing|Creating|Executing)\s+(.+)$/
+      /^(Reading|Searching|Writing|Creating|Executing)\s+(.+)$/,
     );
     if (actionMatch) {
       flushText();
@@ -239,7 +239,7 @@ export function parseStderr(stderr: string): StderrSegment[] {
  * This collapses them for clean markdown rendering.
  */
 export function mergeConsecutiveTextSegments(
-  segments: readonly RenderSegment[]
+  segments: readonly RenderSegment[],
 ): RenderSegment[] {
   if (segments.length <= 1) return segments as RenderSegment[];
 

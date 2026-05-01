@@ -6,6 +6,10 @@
 export { TOKENS } from './di/tokens';
 export { registerVsCodeCoreServices } from './di';
 
+// TASK_2025_291 Wave C1: Platform-agnostic registration helper for non-VS-Code hosts
+export { registerVsCodeCorePlatformAgnostic } from './di/register-platform-agnostic';
+export type { PlatformAgnosticRegistrationOptions } from './di/register-platform-agnostic';
+
 // NOTE: DIContainer moved to apps/ptah-extension-vscode/src/di/container.ts
 // This library exports services, TOKENS, and registration function
 // DO NOT export tokens directly - only export via TOKENS namespace
@@ -120,6 +124,23 @@ export type {
 // Feature Gate Service (TASK_2025_121)
 export { FeatureGateService } from './services/feature-gate.service';
 export type { Feature, ProOnlyFeature } from './services/feature-gate.service';
+
+// Sentry Error Monitoring Service (TASK_2025_287)
+export { SentryService } from './services/sentry.service';
+export type {
+  SentryInitOptions,
+  SentryErrorContext,
+} from './services/sentry.service';
+
+// Git Info Service (TASK_2026_104 Sub-batch B5b — lifted from ptah-electron app)
+export { GitInfoService } from './services/git-info.service';
+
+// Workspace Context Manager + Workspace-Aware State Storage
+// (TASK_2026_104 Sub-batch B5a — lifted from ptah-electron app so the
+// shared WorkspaceRpcHandlers can be served by all hosts.)
+export { WorkspaceContextManager } from './services/workspace-context-manager';
+export { WorkspaceAwareStateStorage } from './services/workspace-aware-state-storage';
+export type { StateStorageFactory } from './services/workspace-aware-state-storage';
 
 // Platform Abstraction Interfaces (TASK_2025_203)
 // Defined in @ptah-extension/rpc-handlers (import directly from there)

@@ -4,7 +4,7 @@
   "sourceRoot": "libs/frontend/dashboard/src",
   "prefix": "ptah",
   "projectType": "library",
-  "tags": ["type:ui", "scope:webview", "platform:angular"],
+  "tags": ["type:feature", "scope:webview", "platform:angular"],
   "targets": {
     "test": {
       "executor": "@nx/jest:jest",

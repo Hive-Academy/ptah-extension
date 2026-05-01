@@ -121,7 +121,7 @@ export class VscodeFileSystemProvider implements IFileSystemProvider {
     pattern: string,
     exclude?: string,
     maxResults?: number,
-    cwd?: string,
+    _cwd?: string,
   ): Promise<string[]> {
     const uris = await vscode.workspace.findFiles(
       pattern,

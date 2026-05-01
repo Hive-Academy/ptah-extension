@@ -14,6 +14,19 @@
  *
  * Note: toolUseId may not be available at SubagentStart but is always
  * available at SubagentStop. Use setToolUseId() for late binding.
+ *
+ * Wave C7a (TASK_2025_291): Split into a thin coordinator + two helpers:
+ *  - `./agent-session-watcher/agent-jsonl-parser.ts` — pure stateless
+ *    parsing, session-directory resolution, UUID-like matching, label
+ *    formatting.
+ *  - `./agent-session-watcher/jsonl-tail-reader.ts` — per-file tailing
+ *    loop + incremental JSONL parsing.
+ *
+ * This file retains:
+ *  - The `@injectable()` service class + EventEmitter surface
+ *  - `fs.watch` lifecycle (main + subagents/ watchers)
+ *  - Active/pending watch maps + cleanup timeouts
+ *  - All public methods (byte-for-byte signatures)
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -23,6 +36,21 @@ import * as os from 'os';
 import { EventEmitter } from 'events';
 import type { Logger } from '../logging/logger';
 import { TOKENS } from '../di/tokens';
+import {
+  extractSessionIdFromFile,
+  findSessionsDirectory,
+  formatAgentDescription,
+  isUuidLike,
+  delay,
+  type AgentContentBlock,
+} from './agent-session-watcher/agent-jsonl-parser';
+import {
+  startTailingFile as tailStartTailingFile,
+  type ActiveWatch,
+} from './agent-session-watcher/jsonl-tail-reader';
+
+// Re-export structural types for backward-compatible barrel consumers.
+export type { AgentContentBlock };
 
 /**
  * Configuration constants for agent session watching
@@ -32,28 +60,11 @@ const AGENT_WATCHER_CONSTANTS = {
   MATCH_WINDOW_MS: 30_000,
   /** Cleanup timeout (ms) for pending agent files */
   PENDING_CLEANUP_MS: 60_000,
-  /** Interval (ms) between file tail reads */
-  TAIL_INTERVAL_MS: 200,
   /** Buffer size (bytes) for reading first line of agent file */
   FIRST_LINE_BUFFER_SIZE: 4096,
   /** Delay (ms) after file detection before reading */
   FILE_DETECTION_DELAY_MS: 100,
 } as const;
-
-/**
- * Content block from agent JSONL file - preserves interleaved structure.
- * TASK_2025_102: Changed from flat text to structured blocks for proper interleaving.
- */
-export interface AgentContentBlock {
-  /** Block type - text for narrative, tool_ref for tool position marker */
-  type: 'text' | 'tool_ref';
-  /** Text content (only for type: 'text') */
-  text?: string;
-  /** Tool use ID for correlation with SDK events (only for type: 'tool_ref') */
-  toolUseId?: string;
-  /** Tool name (only for type: 'tool_ref') */
-  toolName?: string;
-}
 
 /**
  * Summary chunk emitted when new content is found in agent file
@@ -108,52 +119,6 @@ export interface AgentStartEvent {
    * @see TASK_2025_099
    */
   agentId: string;
-}
-
-/**
- * Internal tracking for active agent watches
- */
-interface ActiveWatch {
-  /** Unique agent identifier (primary key for Map) */
-  agentId: string;
-  /** Main session ID (to match agent files) */
-  sessionId: string;
-  /** Task tool_use ID (set later via setToolUseId, may be null) */
-  toolUseId: string | null;
-  /** Agent type (e.g., 'Explore', 'Plan') - TASK_2025_100 */
-  agentType: string;
-  /** When the agent was detected */
-  startTime: number;
-  /** Path to the matched agent file (once found) */
-  agentFilePath: string | null;
-  /** Last read position in the file */
-  fileOffset: number;
-  /** Accumulated summary content */
-  summaryContent: string;
-  /** Interval for tailing the file */
-  tailInterval: NodeJS.Timeout | null;
-  /**
-   * TASK_2025_102: Buffer for incomplete lines from previous reads.
-   * When reading file content mid-write, we may get a partial JSON line
-   * at the end. This buffer stores that partial content to be prepended
-   * to the next read, ensuring we don't lose data.
-   */
-  incompleteLineBuffer: string;
-}
-
-/**
- * Shape of a Claude Agent JSONL message (parsed from agent output files)
- */
-interface AgentJsonlMessage {
-  type: string;
-  message?: {
-    content?: Array<{
-      type: string;
-      text?: string;
-      id?: string;
-      name?: string;
-    }>;
-  };
 }
 
 @injectable()
@@ -234,7 +199,7 @@ export class AgentSessionWatcherService extends EventEmitter {
     // TASK_2025_100 FIX: Emit agent-start event so frontend can create agent node
     // BEFORE summary chunks arrive. This fixes the race condition.
     if (toolUseId) {
-      const agentDescription = this.formatAgentDescription(agentType);
+      const agentDescription = formatAgentDescription(agentType);
       const agentStartEvent: AgentStartEvent = {
         toolUseId,
         agentType,
@@ -260,20 +225,6 @@ export class AgentSessionWatcherService extends EventEmitter {
     // Check if there are any pending files that match this agent
     // (agent file may have been created before we started watching)
     this.matchPendingFiles(agentId);
-  }
-
-  /**
-   * Format agent type into human-readable description
-   * TASK_2025_100: Matches the logic in execution-tree-builder.service.ts
-   */
-  private formatAgentDescription(agentType: string): string {
-    // Convert kebab-case or camelCase to Title Case with spaces
-    return agentType
-      .replace(/[-_]/g, ' ')
-      .replace(/([a-z])([A-Z])/g, '$1 $2')
-      .split(' ')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ');
   }
 
   /**
@@ -404,7 +355,7 @@ export class AgentSessionWatcherService extends EventEmitter {
       return;
     }
 
-    (watch as { isBackground?: boolean }).isBackground = true;
+    watch.isBackground = true;
     this.logger.info('[AgentSessionWatcher] Agent marked as background', {
       agentId,
       toolUseId: watch.toolUseId,
@@ -458,7 +409,7 @@ export class AgentSessionWatcherService extends EventEmitter {
       workspacePath,
     });
 
-    const sessionsDir = await this.findSessionsDirectory(workspacePath);
+    const sessionsDir = await findSessionsDirectory(workspacePath);
     if (!sessionsDir) {
       // DIAGNOSTIC: WARN level - this is a problem!
       this.logger.warn('[AgentSessionWatcher] Sessions directory NOT FOUND!', {
@@ -488,29 +439,37 @@ export class AgentSessionWatcherService extends EventEmitter {
 
     try {
       // Watch the main sessions directory (legacy flat layout)
-      this.directoryWatcher = fs.watch(sessionsDir, (eventType, filename) => {
-        // DIAGNOSTIC: Log ALL fs.watch events
-        this.logger.info('[AgentSessionWatcher] fs.watch event', {
-          eventType,
-          filename,
-          isAgentFile: filename?.startsWith('agent-'),
-        });
+      this.directoryWatcher = fs.watch(
+        sessionsDir,
+        (eventType, rawFilename) => {
+          // Normalize backslashes to forward slashes so pattern matching is
+          // identical on Windows and Unix. fs.watch on Windows can deliver
+          // platform-native separators in nested filenames; downstream regex/
+          // startsWith checks are written assuming forward-slash form.
+          const filename = rawFilename?.replace(/\\/g, '/');
+          // DIAGNOSTIC: Log ALL fs.watch events
+          this.logger.info('[AgentSessionWatcher] fs.watch event', {
+            eventType,
+            filename,
+            isAgentFile: filename?.startsWith('agent-'),
+          });
 
-        if (
-          eventType === 'rename' &&
-          filename?.startsWith('agent-') &&
-          filename.endsWith('.jsonl')
-        ) {
-          this.handleNewAgentFile(sessionsDir, filename);
-        }
+          if (
+            eventType === 'rename' &&
+            filename?.startsWith('agent-') &&
+            filename.endsWith('.jsonl')
+          ) {
+            void this.handleNewAgentFile(sessionsDir, filename);
+          }
 
-        // When a session directory is created (e.g., UUID-named dir), re-check
-        // for subagent directories that we couldn't watch earlier.
-        if (eventType === 'rename' && filename && !filename.includes('.')) {
-          // UUID-like directory name (no extension) — could be a session dir
-          this.watchSubagentDirectories(sessionsDir);
-        }
-      });
+          // When a session directory is created (e.g., UUID-named dir), re-check
+          // for subagent directories that we couldn't watch earlier.
+          if (eventType === 'rename' && filename && !filename.includes('.')) {
+            // UUID-like directory name (no extension) — could be a session dir
+            this.watchSubagentDirectories(sessionsDir);
+          }
+        },
+      );
 
       this.directoryWatcher.on('error', (error) => {
         this.logger.error(
@@ -573,7 +532,7 @@ export class AgentSessionWatcherService extends EventEmitter {
     try {
       const entries = fs.readdirSync(sessionsDir, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.isDirectory() && this.isUuidLike(entry.name)) {
+        if (entry.isDirectory() && isUuidLike(entry.name)) {
           sessionIds.add(entry.name);
         }
       }
@@ -597,7 +556,9 @@ export class AgentSessionWatcherService extends EventEmitter {
           if (fs.existsSync(sessionDir)) {
             const sessionDirWatcher = fs.watch(
               sessionDir,
-              (eventType, filename) => {
+              (eventType, rawFilename) => {
+                // Normalize for cross-platform consistency (see main watcher).
+                const filename = rawFilename?.replace(/\\/g, '/');
                 if (eventType === 'rename' && filename === 'subagents') {
                   // subagents directory was created - now watch it
                   sessionDirWatcher.close();
@@ -634,24 +595,15 @@ export class AgentSessionWatcherService extends EventEmitter {
   }
 
   /**
-   * Check if a directory name looks like a UUID or hex session identifier.
-   * Matches both standard UUID format (with hyphens) and hex-only format.
-   */
-  private isUuidLike(name: string): boolean {
-    return (
-      /^[0-9a-f]{8}(-[0-9a-f]{4}){0,3}(-[0-9a-f]{12})?$/i.test(name) ||
-      /^[0-9a-f]{12,64}$/i.test(name)
-    );
-  }
-
-  /**
    * Watch a specific subagents directory for new agent files
    */
   private watchSubagentDir(sessionsDir: string, subagentsDir: string): void {
     if (this.subagentDirWatchers.has(subagentsDir)) return;
 
     try {
-      const watcher = fs.watch(subagentsDir, (eventType, filename) => {
+      const watcher = fs.watch(subagentsDir, (eventType, rawFilename) => {
+        // Normalize backslashes for cross-platform consistency (see main watcher).
+        const filename = rawFilename?.replace(/\\/g, '/');
         this.logger.info(
           '[AgentSessionWatcher] fs.watch event (subagents dir)',
           {
@@ -670,7 +622,7 @@ export class AgentSessionWatcherService extends EventEmitter {
           // handleNewAgentFile expects the file to be in sessionsDir,
           // but for nested layout we need to provide the full path.
           // We pass the subagentsDir as the base directory.
-          this.handleNewAgentFile(subagentsDir, filename);
+          void this.handleNewAgentFile(subagentsDir, filename);
         }
       });
 
@@ -779,10 +731,13 @@ export class AgentSessionWatcherService extends EventEmitter {
     }
 
     // Wait a bit for the file to have content
-    await this.delay(AGENT_WATCHER_CONSTANTS.FILE_DETECTION_DELAY_MS);
+    await delay(AGENT_WATCHER_CONSTANTS.FILE_DETECTION_DELAY_MS);
 
     // Try to read the first line to get sessionId (for pending file storage)
-    const sessionId = await this.extractSessionIdFromFile(filePath);
+    const sessionId = await extractSessionIdFromFile(
+      filePath,
+      AGENT_WATCHER_CONSTANTS.FIRST_LINE_BUFFER_SIZE,
+    );
     if (!sessionId) {
       this.logger.warn(
         '[AgentSessionWatcher] Could not extract sessionId from file',
@@ -944,354 +899,49 @@ export class AgentSessionWatcherService extends EventEmitter {
   }
 
   /**
-   * Start tailing an agent file for new content
+   * Start tailing an agent file for new content.
+   *
+   * Delegates the low-level loop to {@link tailStartTailingFile}; the
+   * callback constructs and emits {@link AgentSummaryChunk} events with the
+   * watch's current toolUseId + sessionId (preserving original behaviour
+   * including the agentId fallback when toolUseId is still null).
    */
   private startTailingFile(agentId: string, filePath: string): void {
     const watch = this.activeWatches.get(agentId);
     if (!watch) return;
 
-    // DIAGNOSTIC: INFO level
-    this.logger.info('[AgentSessionWatcher] Starting to TAIL file', {
-      agentId,
-      filePath,
-      toolUseId: watch.toolUseId,
+    tailStartTailingFile(watch, filePath, this.logger, (tailChunk) => {
+      // Emit the chunk - use watch.toolUseId for UI routing
+      // toolUseId may be null if SubagentStop hasn't fired yet
+      // TASK_2025_099: Include agentId as stable key for summary lookup
+      const chunkId = watch.toolUseId ?? agentId;
+      const chunk: AgentSummaryChunk = {
+        toolUseId: chunkId,
+        summaryDelta: tailChunk.summaryDelta,
+        agentId, // Stable key for summary lookup (doesn't change between hook/complete)
+        sessionId: watch.sessionId, // Parent session ID for multi-tab routing
+        // TASK_2025_102: Include structured content blocks for proper interleaving
+        contentBlocks:
+          tailChunk.contentBlocks.length > 0
+            ? tailChunk.contentBlocks
+            : undefined,
+      };
+
+      this.emit('summary-chunk', chunk);
+
+      // DIAGNOSTIC: INFO level - show the ACTUAL ID used in chunk
+      // If toolUseId is null, we fallback to agentId which may NOT match frontend!
+      this.logger.info('[AgentSessionWatcher] >>> EMITTED summary-chunk <<<', {
+        agentId,
+        toolUseIdFromWatch: watch.toolUseId,
+        chunkIdUsed: chunkId,
+        isFallbackToAgentId: !watch.toolUseId,
+        deltaLength: tailChunk.summaryDelta.length,
+        totalLength: watch.summaryContent.length,
+        deltaPreview: tailChunk.summaryDelta.slice(0, 100),
+        contentBlocksCount: tailChunk.contentBlocks.length,
+      });
     });
-
-    // Clear existing interval if any
-    if (watch.tailInterval) {
-      clearInterval(watch.tailInterval);
-    }
-
-    // Read initial content
-    this.readNewContent(agentId, filePath);
-
-    // Set up interval to check for new content
-    watch.tailInterval = setInterval(() => {
-      this.readNewContent(agentId, filePath);
-    }, AGENT_WATCHER_CONSTANTS.TAIL_INTERVAL_MS);
-  }
-
-  /**
-   * Read new content from the agent file and emit summary chunks
-   *
-   * TASK_2025_102: Fixed partial line handling. When reading file content
-   * mid-write, we may get a partial JSON line at the end. The previous
-   * implementation would mark these as PARSE_ERROR and lose the data.
-   * Now we buffer incomplete lines and prepend them to the next read.
-   */
-  private async readNewContent(
-    agentId: string,
-    filePath: string,
-  ): Promise<void> {
-    const watch = this.activeWatches.get(agentId);
-    if (!watch) return;
-
-    try {
-      const stats = await fs.promises.stat(filePath);
-      const fileSize = stats.size;
-
-      // No new content
-      if (fileSize <= watch.fileOffset) return;
-
-      // DIAGNOSTIC: Log that we found new content
-      const newBytes = fileSize - watch.fileOffset;
-      this.logger.info('[AgentSessionWatcher] Reading new content', {
-        agentId,
-        fileOffset: watch.fileOffset,
-        fileSize,
-        newBytes,
-        hasBufferedContent: watch.incompleteLineBuffer.length > 0,
-      });
-
-      // Read new content
-      const fd = await fs.promises.open(filePath, 'r');
-      const buffer = Buffer.alloc(newBytes);
-      await fd.read(buffer, 0, buffer.length, watch.fileOffset);
-      await fd.close();
-
-      watch.fileOffset = fileSize;
-
-      // TASK_2025_102: Prepend any buffered incomplete content from previous read
-      const newContent = watch.incompleteLineBuffer + buffer.toString('utf-8');
-      watch.incompleteLineBuffer = ''; // Clear buffer
-
-      // Split by newlines - but be careful with the last line
-      const rawLines = newContent.split('\n');
-
-      // TASK_2025_102: The last element after split may be incomplete if file
-      // was read mid-write. We'll try to parse it, and if it fails, buffer it.
-      const lines: string[] = [];
-      const messageTypes: string[] = [];
-      let summaryDelta = '';
-      const allContentBlocks: AgentContentBlock[] = [];
-
-      for (let i = 0; i < rawLines.length; i++) {
-        const line = rawLines[i].trim();
-        if (!line) continue; // Skip empty lines
-
-        const isLastLine = i === rawLines.length - 1;
-
-        try {
-          const msg = JSON.parse(line) as AgentJsonlMessage;
-          messageTypes.push(msg.type || 'unknown');
-          lines.push(line);
-
-          // TASK_2025_102: Extract structured content blocks for interleaving
-          const { summaryText, contentBlocks } = this.extractContentBlocks(msg);
-          if (summaryText) {
-            summaryDelta += summaryText;
-          }
-          if (contentBlocks.length > 0) {
-            allContentBlocks.push(...contentBlocks);
-          }
-        } catch {
-          // TASK_2025_102: If this is the last line and it failed to parse,
-          // it's likely incomplete (read mid-write). Buffer it for next read.
-          if (isLastLine && line.length > 0) {
-            watch.incompleteLineBuffer = line;
-            this.logger.debug(
-              '[AgentSessionWatcher] Buffering incomplete line for next read',
-              {
-                agentId,
-                lineLength: line.length,
-                linePreview: line.slice(0, 50),
-              },
-            );
-          } else {
-            // Non-last line that failed to parse - this is genuinely malformed
-            messageTypes.push('PARSE_ERROR');
-            this.logger.warn(
-              '[AgentSessionWatcher] Malformed JSON line (not last)',
-              {
-                agentId,
-                lineIndex: i,
-                lineLength: line.length,
-                linePreview: line.slice(0, 100),
-              },
-            );
-          }
-        }
-      }
-
-      // DIAGNOSTIC: Always log what we found in the file
-      this.logger.info('[AgentSessionWatcher] Parsed new content', {
-        agentId,
-        linesCount: lines.length,
-        messageTypes,
-        summaryDeltaLength: summaryDelta.length,
-        hasTextContent: summaryDelta.length > 0,
-        hasBufferedIncomplete: watch.incompleteLineBuffer.length > 0,
-        contentBlocksCount: allContentBlocks.length,
-        contentBlockTypes: allContentBlocks.map((b) => b.type),
-      });
-
-      if (summaryDelta || allContentBlocks.length > 0) {
-        watch.summaryContent += summaryDelta;
-
-        // Emit the chunk - use watch.toolUseId for UI routing
-        // toolUseId may be null if SubagentStop hasn't fired yet
-        // TASK_2025_099: Include agentId as stable key for summary lookup
-        const chunkId = watch.toolUseId ?? agentId;
-        const chunk: AgentSummaryChunk = {
-          toolUseId: chunkId,
-          summaryDelta,
-          agentId, // Stable key for summary lookup (doesn't change between hook/complete)
-          sessionId: watch.sessionId, // Parent session ID for multi-tab routing
-          // TASK_2025_102: Include structured content blocks for proper interleaving
-          contentBlocks:
-            allContentBlocks.length > 0 ? allContentBlocks : undefined,
-        };
-
-        this.emit('summary-chunk', chunk);
-
-        // DIAGNOSTIC: INFO level - show the ACTUAL ID used in chunk
-        // If toolUseId is null, we fallback to agentId which may NOT match frontend!
-        this.logger.info(
-          '[AgentSessionWatcher] >>> EMITTED summary-chunk <<<',
-          {
-            agentId,
-            toolUseIdFromWatch: watch.toolUseId,
-            chunkIdUsed: chunkId,
-            isFallbackToAgentId: !watch.toolUseId,
-            deltaLength: summaryDelta.length,
-            totalLength: watch.summaryContent.length,
-            deltaPreview: summaryDelta.slice(0, 100),
-            contentBlocksCount: allContentBlocks.length,
-          },
-        );
-      }
-    } catch (error) {
-      // File may not exist yet or be locked, ignore
-      this.logger.debug('AgentSessionWatcher: Error reading file', {
-        agentId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  /**
-   * Extract structured content blocks from a JSONL message
-   *
-   * TASK_2025_102: Changed from extracting just text to extracting ALL content
-   * blocks in order (text + tool_use references). This preserves the interleaving
-   * structure so the frontend can properly position text between tool calls.
-   *
-   * @returns Object with summaryText (legacy) and contentBlocks (structured)
-   */
-  private extractContentBlocks(msg: AgentJsonlMessage): {
-    summaryText: string | null;
-    contentBlocks: AgentContentBlock[];
-  } {
-    // DIAGNOSTIC: Log what we're checking
-    if (msg.type === 'assistant') {
-      this.logger.debug('[AgentSessionWatcher] Found assistant message', {
-        hasMessageContent: !!msg.message?.content,
-        contentLength: msg.message?.content?.length,
-        contentBlockTypes: msg.message?.content?.map(
-          (b: { type: string }) => b.type,
-        ),
-      });
-    }
-
-    // Only process assistant messages with content
-    if (msg.type !== 'assistant' || !msg.message?.content) {
-      return { summaryText: null, contentBlocks: [] };
-    }
-
-    const textParts: string[] = [];
-    const contentBlocks: AgentContentBlock[] = [];
-
-    for (const block of msg.message.content) {
-      if (block.type === 'text' && block.text) {
-        textParts.push(block.text);
-        contentBlocks.push({
-          type: 'text',
-          text: block.text,
-        });
-        // DIAGNOSTIC: Log text extraction
-        this.logger.info('[AgentSessionWatcher] Extracted text block', {
-          textLength: block.text.length,
-          textPreview: block.text.slice(0, 50),
-        });
-      } else if (block.type === 'tool_use' && block.id) {
-        // TASK_2025_102: Also capture tool_use blocks as position markers
-        contentBlocks.push({
-          type: 'tool_ref',
-          toolUseId: block.id,
-          toolName: block.name,
-        });
-        this.logger.info('[AgentSessionWatcher] Captured tool_use reference', {
-          toolUseId: block.id,
-          toolName: block.name,
-        });
-      }
-    }
-
-    return {
-      summaryText: textParts.length > 0 ? textParts.join('\n') : null,
-      contentBlocks,
-    };
-  }
-
-  /**
-   * Extract sessionId from the first line of an agent file
-   */
-  private async extractSessionIdFromFile(
-    filePath: string,
-  ): Promise<string | null> {
-    try {
-      // Read first FIRST_LINE_BUFFER_SIZE bytes to get the first line
-      const fd = await fs.promises.open(filePath, 'r');
-      const buffer = Buffer.alloc(
-        AGENT_WATCHER_CONSTANTS.FIRST_LINE_BUFFER_SIZE,
-      );
-      const { bytesRead } = await fd.read(
-        buffer,
-        0,
-        AGENT_WATCHER_CONSTANTS.FIRST_LINE_BUFFER_SIZE,
-        0,
-      );
-      await fd.close();
-
-      if (bytesRead === 0) return null;
-
-      const content = buffer.toString('utf-8', 0, bytesRead);
-      const firstLine = content.split('\n')[0];
-      if (!firstLine) return null;
-
-      const msg = JSON.parse(firstLine) as { sessionId?: string };
-      return msg.sessionId || null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Find the Claude CLI sessions directory for a workspace
-   */
-  private async findSessionsDirectory(
-    workspacePath: string,
-  ): Promise<string | null> {
-    const homeDir = os.homedir();
-    const projectsDir = path.join(homeDir, '.claude', 'projects');
-
-    try {
-      await fs.promises.access(projectsDir);
-    } catch {
-      return null;
-    }
-
-    // Generate the escaped path pattern (replace : and /\ with -)
-    const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
-
-    const dirs = await fs.promises.readdir(projectsDir);
-
-    // Try exact match first
-    if (dirs.includes(escapedPath)) {
-      return path.join(projectsDir, escapedPath);
-    }
-
-    // Try lowercase match
-    const lowerEscaped = escapedPath.toLowerCase();
-    const lowerMatch = dirs.find((d) => d.toLowerCase() === lowerEscaped);
-    if (lowerMatch) {
-      return path.join(projectsDir, lowerMatch);
-    }
-
-    // Try normalized match: treat hyphens and underscores as equivalent.
-    // Claude CLI may normalize path separators differently (e.g., replacing _ with -)
-    const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
-    const normalizedEscaped = normalize(escapedPath);
-    const normalizedMatch = dirs.find(
-      (d) => normalize(d) === normalizedEscaped,
-    );
-    if (normalizedMatch) {
-      return path.join(projectsDir, normalizedMatch);
-    }
-
-    // Try without leading hyphen
-    const withoutLeading = escapedPath.replace(/^-+/, '');
-    const withoutLeadingLower = withoutLeading.toLowerCase();
-    const normalizedWithoutLeading = normalize(withoutLeading);
-    const partialMatch = dirs.find(
-      (d) =>
-        d.toLowerCase() === withoutLeadingLower ||
-        d.toLowerCase().endsWith(withoutLeadingLower) ||
-        normalize(d) === normalizedWithoutLeading ||
-        normalize(d).endsWith(normalizedWithoutLeading),
-    );
-    if (partialMatch) {
-      return path.join(projectsDir, partialMatch);
-    }
-
-    return null;
-  }
-
-  /**
-   * Utility delay function
-   */
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
