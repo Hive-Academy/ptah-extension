@@ -38,6 +38,7 @@ import {
 import { SDK_TOKENS } from './di/tokens';
 import type { ModelResolver } from './auth/model-resolver';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
+import type { LiveUsageTracker } from './helpers/live-usage-tracker';
 import {
   SDKMessage,
   SDKAssistantMessage,
@@ -140,30 +141,16 @@ export class SdkMessageTransformer {
   /**
    * TASK_2026_109 (A2): Per-session live cumulative token tracker.
    *
-   * Captures the most recent cumulative pre-compaction token usage observed on
-   * the streaming wire (input + output + cache_read + cache_creation). The
-   * PreCompact hook reads this snapshot at compaction start time and ships it
-   * with the `compaction_start` event so the frontend can freeze the
-   * pre-compaction header stats during the compaction window and pair the
-   * start with the eventual `compact_boundary` for delta computation.
+   * The snapshot map itself was extracted into `LiveUsageTracker` to break a
+   * DI cycle introduced by injecting the transformer into the PreCompact hook
+   * handler. The transformer remains the sole writer (from
+   * `message_start.message.usage` and `message_delta.usage`); the
+   * `CompactionHookHandler` is the sole reader at PreCompact firing time.
    *
-   * Source events:
-   *   - `message_start.message.usage` carries `input_tokens` + cache fields
-   *   - `message_delta.usage`         carries cumulative `output_tokens`
-   * Combined per session, the latest snapshot approximates pre-compaction
-   * cumulative usage closely enough for the UI freeze.
-   *
-   * Cleared on session deletion via `clearSessionTokenSnapshot()`.
+   * The transformer keeps thin pass-through methods (`getCumulativeTokens`,
+   * `clearSessionTokenSnapshot`) that delegate to the tracker so existing
+   * callers and unit tests continue to work unchanged.
    */
-  private liveTokenSnapshotBySession: Map<
-    string,
-    {
-      input: number;
-      output: number;
-      cacheRead: number;
-      cacheCreation: number;
-    }
-  > = new Map();
 
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
@@ -179,6 +166,10 @@ export class SdkMessageTransformer {
     // most-recently-active session id over sdkMessage.session_id.
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
     private readonly sessionLifecycle: SessionLifecycleManager,
+    // TASK_2026_109 (cycle-break): Shared writer-side tracker used by the
+    // PreCompact hook handler at compaction firing time.
+    @inject(SDK_TOKENS.SDK_LIVE_USAGE_TRACKER)
+    private readonly usageTracker: LiveUsageTracker,
   ) {}
 
   /**
@@ -193,6 +184,7 @@ export class SdkMessageTransformer {
       this.subagentRegistry,
       this.modelResolver,
       this.sessionLifecycle,
+      this.usageTracker,
     );
   }
 
@@ -206,11 +198,7 @@ export class SdkMessageTransformer {
    * `compaction_start` event broadcast.
    */
   getCumulativeTokens(sessionId: string): number {
-    const snap = this.liveTokenSnapshotBySession.get(sessionId);
-    if (!snap) {
-      return 0;
-    }
-    return snap.input + snap.output + snap.cacheRead + snap.cacheCreation;
+    return this.usageTracker.getCumulativeTokens(sessionId);
   }
 
   /**
@@ -220,7 +208,7 @@ export class SdkMessageTransformer {
    * cleanup; safe to no-op if the session was never tracked.
    */
   clearSessionTokenSnapshot(sessionId: string): void {
-    this.liveTokenSnapshotBySession.delete(sessionId);
+    this.usageTracker.clearSessionTokenSnapshot(sessionId);
   }
 
   /**
@@ -239,25 +227,7 @@ export class SdkMessageTransformer {
       cacheCreation?: number;
     },
   ): void {
-    if (!sessionId) {
-      return;
-    }
-    const prev = this.liveTokenSnapshotBySession.get(sessionId) ?? {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheCreation: 0,
-    };
-    const next = {
-      input: Math.max(prev.input, fields.input ?? prev.input),
-      output: Math.max(prev.output, fields.output ?? prev.output),
-      cacheRead: Math.max(prev.cacheRead, fields.cacheRead ?? prev.cacheRead),
-      cacheCreation: Math.max(
-        prev.cacheCreation,
-        fields.cacheCreation ?? prev.cacheCreation,
-      ),
-    };
-    this.liveTokenSnapshotBySession.set(sessionId, next);
+    this.usageTracker.recordSessionUsage(sessionId, fields);
   }
 
   /**

@@ -393,7 +393,7 @@ async function wireHandle(
     }
 
     if (typeof (msg as { method?: unknown }).method === 'string') {
-      const note = msg as JsonRpcNotificationLike;
+      const note = msg as unknown as JsonRpcNotificationLike;
       notifications.push({ method: note.method, params: note.params });
       // Drain matching waiters.
       for (let i = notifWaiters.length - 1; i >= 0; i--) {

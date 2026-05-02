@@ -32,7 +32,8 @@ import type {
   HookInput,
 } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
-import type { SdkMessageTransformer } from '../sdk-message-transformer';
+import type { LiveUsageTracker } from './live-usage-tracker';
+import type { CompactionCallbackRegistry } from './compaction-callback-registry';
 
 /**
  * Callback type for notifying when compaction starts
@@ -86,14 +87,28 @@ export function isPreCompactHook(
 export class CompactionHookHandler {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    // TASK_2026_109 (A2): Inject the message transformer to read the latest
-    // cumulative pre-compaction token snapshot at PreCompact firing time.
-    // The transformer aggregates `message_start` + `message_delta` usage on
-    // the streaming wire — sampling it here gives the frontend the exact
-    // value needed to freeze the pre-compaction header stats during the
-    // compaction window.
-    @inject(SDK_TOKENS.SDK_MESSAGE_TRANSFORMER)
-    private readonly messageTransformer: SdkMessageTransformer,
+    // TASK_2026_109 (A2 + cycle-break): Inject the LiveUsageTracker to read
+    // the latest cumulative pre-compaction token snapshot at PreCompact
+    // firing time. The tracker aggregates `message_start` + `message_delta`
+    // usage on the streaming wire (written by SdkMessageTransformer) and
+    // exposes a read-only `getCumulativeTokens(sessionId)` API.
+    //
+    // Why a dedicated tracker instead of injecting the transformer:
+    // injecting `SdkMessageTransformer` here closes a DI cycle
+    // (SessionLifecycleManager → SdkQueryOptionsBuilder → CompactionHookHandler
+    // → SdkMessageTransformer → SessionLifecycleManager) that crashes every
+    // `withEngine`-driven CLI subcommand at construction time. Splitting the
+    // session-token state into an orthogonal service breaks the cycle without
+    // weakening A1/A2 semantics.
+    @inject(SDK_TOKENS.SDK_LIVE_USAGE_TRACKER)
+    private readonly usageTracker: LiveUsageTracker,
+    // TASK_2026_HERMES Track 1: fan-out registry for additional subscribers
+    // (e.g. memory curator). Marked @optional so legacy paths that resolve
+    // CompactionHookHandler directly without the registry registered (mostly
+    // unit tests) keep working — the field will be undefined and the
+    // notifyAll() call below short-circuits.
+    @inject(SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY)
+    private readonly callbackRegistry?: CompactionCallbackRegistry,
   ) {}
 
   /**
@@ -180,14 +195,35 @@ export class CompactionHookHandler {
                   },
                 );
 
+                // TASK_2026_HERMES Track 1: also fan out to the registry, so
+                // memory-curator (and any future subscribers) receive the
+                // PreCompact event without the chat path having to know about
+                // them. Sample tokens once and reuse.
+                let preTokensSampled: number | null = null;
+                const ensurePreTokens = () => {
+                  if (preTokensSampled === null) {
+                    preTokensSampled =
+                      this.usageTracker.getCumulativeTokens(sessionId);
+                  }
+                  return preTokensSampled;
+                };
+
+                if (this.callbackRegistry && this.callbackRegistry.size > 0) {
+                  this.callbackRegistry.notifyAll({
+                    sessionId,
+                    trigger,
+                    timestamp: Date.now(),
+                    preTokens: ensurePreTokens(),
+                  });
+                }
+
                 // Notify via callback if provided
                 if (capturedCallback) {
                   // TASK_2026_109 (A2): Sample cumulative pre-compaction tokens
-                  // from the live transformer snapshot. Returns 0 for sessions
-                  // that haven't yet produced any assistant turn — acceptable
+                  // from the live usage tracker. Returns 0 for sessions that
+                  // haven't yet produced any assistant turn — acceptable
                   // because compaction-before-first-turn is a no-op edge case.
-                  const preTokens =
-                    this.messageTransformer.getCumulativeTokens(sessionId);
+                  const preTokens = ensurePreTokens();
 
                   const compactionData = {
                     sessionId,

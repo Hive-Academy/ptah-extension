@@ -40,6 +40,10 @@ export {
   type CompactionStartCallback,
   isPreCompactHook,
 } from './compaction-hook-handler';
+// Compaction callback registry (TASK_2026_HERMES Track 1)
+export { CompactionCallbackRegistry } from './compaction-callback-registry';
+// Live usage tracker (TASK_2026_109 cycle-break)
+export { LiveUsageTracker } from './live-usage-tracker';
 // Worktree hook handler (TASK_2025_236)
 export {
   WorktreeHookHandler,

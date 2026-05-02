@@ -44,6 +44,8 @@ import {
   // Compaction configuration and hooks (TASK_2025_098)
   CompactionConfigProvider,
   CompactionHookHandler,
+  // Compaction callback registry (TASK_2026_HERMES Track 1)
+  CompactionCallbackRegistry,
   // Live usage tracker (TASK_2026_109 cycle-break)
   LiveUsageTracker,
   // Worktree hook handler (TASK_2025_236)
@@ -250,6 +252,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
     { useClass: CompactionConfigProvider },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Compaction callback registry (TASK_2026_HERMES Track 1)
+  // Must be registered BEFORE CompactionHookHandler which injects it.
+  container.register(
+    SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY,
+    { useClass: CompactionCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 

@@ -16,7 +16,7 @@
 import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { SdkMessageTransformer } from '../sdk-message-transformer';
+import type { LiveUsageTracker } from './live-usage-tracker';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 
 import { CompactionHookHandler } from './compaction-hook-handler';
@@ -30,9 +30,9 @@ function makeLogger(): jest.Mocked<Logger> {
   } as unknown as jest.Mocked<Logger>;
 }
 
-function makeTransformer(
+function makeUsageTracker(
   cumulative: number,
-): jest.Mocked<Pick<SdkMessageTransformer, 'getCumulativeTokens'>> {
+): jest.Mocked<Pick<LiveUsageTracker, 'getCumulativeTokens'>> {
   return {
     getCumulativeTokens: jest.fn().mockReturnValue(cumulative),
   };
@@ -41,10 +41,10 @@ function makeTransformer(
 describe('CompactionHookHandler — PreCompact callback (TASK_2026_109 A2)', () => {
   it('emits preTokens from getCumulativeTokens(sessionId) and trigger from hook input', async () => {
     const logger = makeLogger();
-    const transformer = makeTransformer(54321);
+    const usageTracker = makeUsageTracker(54321);
     const handler = new CompactionHookHandler(
       logger,
-      transformer as unknown as SdkMessageTransformer,
+      usageTracker as unknown as LiveUsageTracker,
     );
 
     const received: Array<{
@@ -76,7 +76,7 @@ describe('CompactionHookHandler — PreCompact callback (TASK_2026_109 A2)', () 
     // Hook never throws; always returns continue:true.
     expect(result).toEqual({ continue: true });
     // Sampled from the transformer at firing time.
-    expect(transformer.getCumulativeTokens).toHaveBeenCalledWith('sess-42');
+    expect(usageTracker.getCumulativeTokens).toHaveBeenCalledWith('sess-42');
     expect(received).toHaveLength(1);
     expect(received[0]).toEqual(
       expect.objectContaining({

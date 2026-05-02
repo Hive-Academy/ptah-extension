@@ -25,6 +25,7 @@ import type { ModelResolver } from './auth/model-resolver';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
 
 import { SdkMessageTransformer } from './sdk-message-transformer';
+import { LiveUsageTracker } from './helpers/live-usage-tracker';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -112,6 +113,7 @@ describe('SdkMessageTransformer — compact_boundary (TASK_2026_109)', () => {
       registry as unknown as SubagentRegistryService,
       modelResolver as unknown as ModelResolver,
       lifecycle as unknown as SessionLifecycleManager,
+      new LiveUsageTracker(),
     );
   }
 

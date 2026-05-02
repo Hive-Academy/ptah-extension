@@ -1,0 +1,104 @@
+# Ptah CLI E2E Harness — TASK_2026_110
+#
+# INFORMATIONAL workflow until 2026-05-09 (7-day stabilization window from 2026-05-02).
+# After 7 days of green runs, promote to a required PR status check via branch protection
+# (manual repo settings change; this workflow file does not enforce it).
+#
+# Pipeline:
+#   1. checkout + node 22
+#   2. cache-aware npm ci (rollup linux binary workaround for Linux runner)
+#   3. nx build ptah-cli  (explicit build to avoid the nx e2e dependency graph
+#      pulling messaging-gateway / persistence-sqlite which fail to bundle
+#      without optional native deps — repo-wide known issue)
+#   4. jest e2e specs directly via the harness config
+#   5. upload jest report as artifact on failure
+#
+# Runtime budget: < 5 min per matrix cell on cached deps.
+
+name: CLI E2E
+
+on:
+  push:
+    branches:
+      - main
+      - release/cli
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'apps/ptah-cli/**'
+      - 'libs/backend/**'
+      - 'libs/shared/**'
+      - '.github/workflows/cli-e2e.yml'
+
+concurrency:
+  group: cli-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 22
+  NX_TUI: 'false'
+
+jobs:
+  cli-e2e:
+    name: CLI E2E (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: ['22']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        # Use bash on both Linux and Windows (Git Bash) so step scripts behave
+        # identically across runners. Without this, Windows defaults to pwsh
+        # and breaks POSIX-flavoured commands.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: |
+          npm ci
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            npm install @rollup/rollup-linux-x64-gnu --no-save --force
+          fi
+
+      - name: Build CLI
+        run: npx nx build ptah-cli
+
+      - name: Run CLI e2e harness
+        # Invoke jest directly (NOT `nx e2e ptah-cli`) because the nx target
+        # pulls 16 build dependencies including messaging-gateway and
+        # persistence-sqlite that fail to bundle without optional native
+        # deps. The CLI build above is sufficient for the harness.
+        run: npx jest --config apps/ptah-cli/jest.e2e.config.cjs --runInBand
+
+      - name: Upload jest report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-e2e-report-${{ matrix.os }}
+          path: |
+            apps/ptah-cli/test-output/
+            apps/ptah-cli/coverage/
+          retention-days: 7
+          if-no-files-found: ignore

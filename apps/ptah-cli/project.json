@@ -126,6 +126,13 @@
         "passWithNoTests": true
       }
     },
+    "e2e": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "command": "jest --config apps/ptah-cli/jest.e2e.config.cjs --runInBand"
+      }
+    },
     "publish:dry-run": {
       "executor": "nx:run-commands",
       "dependsOn": ["build"],
