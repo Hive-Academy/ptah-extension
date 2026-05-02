@@ -808,13 +808,24 @@ export function buildRouter(): Command {
       'provider id (e.g. anthropic, openrouter)',
     )
     .requiredOption('--key <value>', 'API key (never echoed back)')
-    .action(async (opts: { provider: string; key: string }) => {
-      const exit = await providerCmd.execute(
-        { subcommand: 'set-key', provider: opts.provider, key: opts.key },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
+    .option(
+      '--base-url <url>',
+      'optional per-provider base URL override (persisted alongside the key)',
+    )
+    .action(
+      async (opts: { provider: string; key: string; baseUrl?: string }) => {
+        const exit = await providerCmd.execute(
+          {
+            subcommand: 'set-key',
+            provider: opts.provider,
+            key: opts.key,
+            baseUrl: opts.baseUrl,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
 
   provider
     .command('remove-key')
@@ -915,6 +926,119 @@ export function buildRouter(): Command {
     .action(async (opts: { tier: string }) => {
       const exit = await providerCmd.execute(
         { subcommand: 'tier', action: 'clear', tier: opts.tier },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah provider base-url -----------------------------------------------
+  // CLI parity with the desktop/extension base-URL override surface. Keys
+  // route to ~/.ptah/settings.json under `provider.<id>.baseUrl` and are
+  // consulted by ApiKeyStrategy.resolveProviderBaseUrl before the registry
+  // default.
+  const providerBaseUrl = provider
+    .command('base-url')
+    .description(
+      'manage per-provider base URL overrides (persisted in ~/.ptah/settings.json)',
+    );
+
+  providerBaseUrl
+    .command('set <url>')
+    .description(
+      'persist a base URL override for a provider and emit provider.base_url.set',
+    )
+    .requiredOption('--provider <id>', 'provider id (e.g. anthropic, ollama)')
+    .action(async (url: string, opts: { provider: string }) => {
+      const exit = await providerCmd.execute(
+        {
+          subcommand: 'base-url',
+          action: 'set',
+          provider: opts.provider,
+          baseUrl: url,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  providerBaseUrl
+    .command('get')
+    .description(
+      'emit provider.base_url with the override (if any) and registry default',
+    )
+    .requiredOption('--provider <id>', 'provider id')
+    .action(async (opts: { provider: string }) => {
+      const exit = await providerCmd.execute(
+        {
+          subcommand: 'base-url',
+          action: 'get',
+          provider: opts.provider,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  providerBaseUrl
+    .command('clear')
+    .description(
+      'clear the base URL override for a provider and emit provider.base_url.cleared',
+    )
+    .requiredOption('--provider <id>', 'provider id')
+    .action(async (opts: { provider: string }) => {
+      const exit = await providerCmd.execute(
+        {
+          subcommand: 'base-url',
+          action: 'clear',
+          provider: opts.provider,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah provider ollama -------------------------------------------------
+  // Convenience facade over `provider base-url ...` for the Ollama provider.
+  // Identical persistence and resolution path; the only difference is the
+  // hard-coded `provider: 'ollama'` and dedicated notification names.
+  const providerOllama = provider
+    .command('ollama')
+    .description(
+      'manage the local/remote Ollama endpoint (alias for `provider base-url --provider ollama`)',
+    );
+
+  providerOllama
+    .command('set-endpoint <url>')
+    .description(
+      'persist the Ollama base URL override and emit provider.ollama.endpoint.set',
+    )
+    .action(async (url: string) => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'ollama', action: 'set-endpoint', baseUrl: url },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  providerOllama
+    .command('get-endpoint')
+    .description('emit provider.ollama.endpoint with override + default URL')
+    .action(async () => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'ollama', action: 'get-endpoint' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  providerOllama
+    .command('clear-endpoint')
+    .description(
+      'clear the Ollama base URL override and emit provider.ollama.endpoint.cleared',
+    )
+    .action(async () => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'ollama', action: 'clear-endpoint' },
         resolveGlobals(program),
       );
       process.exitCode = exit;

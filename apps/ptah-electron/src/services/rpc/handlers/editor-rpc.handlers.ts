@@ -20,7 +20,7 @@ import type {
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import type { FileOpenParams } from '@ptah-extension/shared';
-import { FILE_BASED_SETTINGS_KEYS } from '@ptah-extension/platform-core';
+import { isFileBasedSettingKey } from '@ptah-extension/platform-core';
 
 /** Extends FileOpenParams with legacy 'filePath' for backward compatibility. */
 type FileOpenCompatParams = FileOpenParams & { filePath?: string };
@@ -380,7 +380,7 @@ export class EditorRpcHandlers {
           return { success: false, error: 'key is required' };
         }
         // Only allow updating keys registered in the file-based settings allowlist
-        if (!FILE_BASED_SETTINGS_KEYS.has(params.key)) {
+        if (!isFileBasedSettingKey(params.key)) {
           return {
             success: false,
             error: `Setting key '${params.key}' is not writable`,

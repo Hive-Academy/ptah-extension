@@ -78,7 +78,7 @@ export class ApiKeyStrategy implements IAuthStrategy {
     // Third-party Anthropic-compatible providers that speak Anthropic protocol
     // natively (Moonshot, Z.AI) — direct passthrough, no proxy.
     await this.stopOpenRouterProxyIfRunning();
-    return this.configureProviderApiKey(providerId, authEnv);
+    return this.configureProviderApiKey(providerId, authEnv, envSnapshot);
   }
 
   async teardown(): Promise<void> {
@@ -313,20 +313,61 @@ export class ApiKeyStrategy implements IAuthStrategy {
   private async configureProviderApiKey(
     providerId: string,
     authEnv: AuthEnv,
+    envSnapshot?: {
+      ANTHROPIC_API_KEY?: string;
+      ANTHROPIC_AUTH_TOKEN?: string;
+      ANTHROPIC_BASE_URL?: string;
+    },
   ): Promise<AuthConfigureResult> {
     const provider = getAnthropicProvider(providerId);
+    const providerName = provider?.name ?? providerId;
+    const baseUrl = this.resolveProviderBaseUrl(providerId);
+    const authEnvVar = getProviderAuthEnvVar(providerId);
+
     const providerKey = await this.authSecrets.getProviderKey(providerId);
 
     if (!providerKey?.trim()) {
+      // Env-var fallback: mirror the direct-Anthropic path. Headless flows like
+      // the openclaw bridge pre-set ANTHROPIC_AUTH_TOKEN (+ ANTHROPIC_BASE_URL)
+      // instead of populating SecretStorage. The clean-slate wipe in
+      // AuthManager removed these from process.env, so we read them from the
+      // pre-wipe snapshot.
+      const envProviderKey =
+        envSnapshot?.[authEnvVar] ??
+        envSnapshot?.ANTHROPIC_AUTH_TOKEN ??
+        envSnapshot?.ANTHROPIC_API_KEY;
+
+      if (envProviderKey?.trim()) {
+        const trimmed = envProviderKey.trim();
+        this.logger.info(
+          `[${this.name}] Found provider key in environment (provider: ${providerName}, length: ${trimmed.length})`,
+        );
+
+        authEnv.ANTHROPIC_BASE_URL = baseUrl;
+        authEnv[authEnvVar as keyof AuthEnv] = trimmed;
+        process.env['ANTHROPIC_BASE_URL'] = baseUrl;
+        process.env[authEnvVar] = trimmed;
+
+        // Apply persisted tier mappings + seed pricing same as the SecretStorage path.
+        this.providerModels.switchActiveProvider(providerId);
+        seedStaticModelPricing(providerId);
+
+        this.logger.info(
+          `[${this.name}] Using ${providerName} via environment fallback (routing via ${baseUrl})`,
+        );
+
+        return {
+          configured: true,
+          details: [`${providerName} API key (from environment)`],
+        };
+      }
+
       this.logger.debug(
-        `[${this.name}] No provider key found in SecretStorage for ${providerId}`,
+        `[${this.name}] No provider key found in SecretStorage or environment for ${providerId}`,
       );
       return { configured: false, details: [] };
     }
 
-    const providerName = provider?.name ?? providerId;
-    const baseUrl = getProviderBaseUrl(providerId);
-    const authEnvVar = getProviderAuthEnvVar(providerId);
     const keyLength = providerKey.length;
 
     // Validate key format if provider has expected prefix
@@ -374,6 +415,32 @@ export class ApiKeyStrategy implements IAuthStrategy {
       })`,
     ];
     return { configured: true, details };
+  }
+
+  /**
+   * Resolve the effective base URL for a provider.
+   *
+   * Returns the user-supplied override stored at
+   * `provider.<id>.baseUrl` in `~/.ptah/settings.json` when present, otherwise
+   * the static registry default from `getProviderBaseUrl()`. Used by both the
+   * direct-passthrough flow (Moonshot, Z-AI, Ollama, etc.) and the OpenRouter
+   * proxy flow (CLI parity: `provider base-url set ...` and `provider ollama
+   * set-endpoint ...`).
+   *
+   * The override is trimmed; empty/whitespace strings fall back to the
+   * registry default so users can clear an override by setting an empty value
+   * (in addition to the explicit `provider base-url clear` path).
+   */
+  private resolveProviderBaseUrl(providerId: string): string {
+    const override = this.config.get<string>(`provider.${providerId}.baseUrl`);
+    if (typeof override === 'string' && override.trim().length > 0) {
+      const trimmed = override.trim();
+      this.logger.info(
+        `[${this.name}] Using user-supplied base URL override for ${providerId}: ${trimmed}`,
+      );
+      return trimmed;
+    }
+    return getProviderBaseUrl(providerId);
   }
 
   private applyDirectProviderTiers(): void {

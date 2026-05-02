@@ -226,3 +226,43 @@ export interface LlmListProviderModelsResponse {
   models: Array<{ id: string; displayName: string }>;
   error?: string;
 }
+
+// ============================================================
+// Provider Base URL Override RPC Types (CLI parity)
+// ============================================================
+
+/** Parameters for llm:setProviderBaseUrl RPC method */
+export interface LlmSetProviderBaseUrlParams {
+  provider: LlmProviderName;
+  baseUrl: string;
+}
+
+/** Response from llm:setProviderBaseUrl RPC method */
+export interface LlmSetProviderBaseUrlResponse {
+  success: boolean;
+  error?: string;
+}
+
+/** Parameters for llm:getProviderBaseUrl RPC method */
+export interface LlmGetProviderBaseUrlParams {
+  provider: LlmProviderName;
+}
+
+/** Response from llm:getProviderBaseUrl RPC method */
+export interface LlmGetProviderBaseUrlResponse {
+  /** Override URL set by user, or null if no override (registry default in effect) */
+  baseUrl: string | null;
+  /** Registry default URL for this provider (informational) */
+  defaultBaseUrl: string | null;
+}
+
+/** Parameters for llm:clearProviderBaseUrl RPC method */
+export interface LlmClearProviderBaseUrlParams {
+  provider: LlmProviderName;
+}
+
+/** Response from llm:clearProviderBaseUrl RPC method */
+export interface LlmClearProviderBaseUrlResponse {
+  success: boolean;
+  error?: string;
+}

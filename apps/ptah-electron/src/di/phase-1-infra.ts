@@ -20,8 +20,8 @@ import type { DependencyContainer } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
   PtahFileSettingsManager,
-  FILE_BASED_SETTINGS_KEYS,
   FILE_BASED_SETTINGS_DEFAULTS,
+  isFileBasedSettingKey,
   type IStateStorage,
   type ISecretStorage,
 } from '@ptah-extension/platform-core';
@@ -99,20 +99,20 @@ export function registerPhase1Infra(
     );
     const configManagerShim = {
       get: <T>(key: string): T | undefined => {
-        if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+        if (isFileBasedSettingKey(key)) {
           return fileSettings.get<T>(key);
         }
         return configStorage.get<T>(`ptah.${key}`);
       },
       getWithDefault: <T>(key: string, defaultValue: T): T => {
-        if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+        if (isFileBasedSettingKey(key)) {
           return fileSettings.get<T>(key, defaultValue) ?? defaultValue;
         }
         const value = configStorage.get<T>(`ptah.${key}`);
         return value !== undefined ? value : defaultValue;
       },
       getTyped: <T>(key: string): T | undefined => {
-        if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+        if (isFileBasedSettingKey(key)) {
           return fileSettings.get<T>(key);
         }
         return configStorage.get<T>(`ptah.${key}`);
@@ -122,28 +122,28 @@ export function registerPhase1Infra(
         _schema: unknown,
         defaultValue: T,
       ): T => {
-        if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+        if (isFileBasedSettingKey(key)) {
           return fileSettings.get<T>(key, defaultValue) ?? defaultValue;
         }
         const value = configStorage.get<T>(`ptah.${key}`);
         return value !== undefined ? value : defaultValue;
       },
       set: async <T>(key: string, value: T): Promise<void> => {
-        if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+        if (isFileBasedSettingKey(key)) {
           await fileSettings.set(key, value);
           return;
         }
         await configStorage.update(`ptah.${key}`, value);
       },
       setTyped: async <T>(key: string, value: T): Promise<void> => {
-        if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+        if (isFileBasedSettingKey(key)) {
           await fileSettings.set(key, value);
           return;
         }
         await configStorage.update(`ptah.${key}`, value);
       },
       update: async (key: string, value: unknown): Promise<void> => {
-        if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+        if (isFileBasedSettingKey(key)) {
           await fileSettings.set(key, value);
           return;
         }

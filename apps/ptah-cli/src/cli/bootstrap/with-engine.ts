@@ -63,6 +63,20 @@ export interface WithEngineOptions {
   /** Bootstrap depth — `'minimal'` skips Phase 4.x; `'full'` registers all RPC handlers. */
   mode: 'minimal' | 'full';
   /**
+   * When `false`, skip the SDK agent adapter `initialize()` step under
+   * `mode === 'full'`. Defaults to `true` for backward compatibility.
+   *
+   * Auth-bootstrap commands (`ptah provider set-key`, `ptah auth login`,
+   * `ptah config ...`) need the full DI graph (Phase 4 RPC registration) but
+   * MUST run before auth is configured. Without this opt-out, `initialize()`
+   * returns `false` and `withEngine` throws `sdk_init_failed`, making it
+   * impossible to bootstrap auth via the CLI (chicken-and-egg).
+   *
+   * Commands that actually exercise the agent (chat, session, run,
+   * execute-spec, interact) should leave this unset / `true`.
+   */
+  requireSdk?: boolean;
+  /**
    * Override hook for tests — replaces `CliDIContainer.setup`. Production
    * callers omit this; the default invokes the real bootstrap.
    */
@@ -126,7 +140,7 @@ export async function withEngine<T>(
   // and is used by introspection commands (e.g. `--help`, `--version`,
   // metadata-only queries) that never hit the chat surface.
   let sdkAdapter: SdkAgentLifecycle | undefined;
-  if (opts.mode === 'full') {
+  if (opts.mode === 'full' && opts.requireSdk !== false) {
     try {
       sdkAdapter =
         ctx.container.resolve<SdkAgentLifecycle>(AGENT_ADAPTER_TOKEN);
