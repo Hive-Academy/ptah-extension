@@ -185,6 +185,11 @@ export class LicenseCache {
       return null;
     }
 
+    this.cache = {
+      status: persistedCache.status,
+      timestamp: persistedCache.persistedAt,
+    };
+
     return persistedCache;
   }
 
