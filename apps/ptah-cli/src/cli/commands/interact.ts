@@ -538,6 +538,7 @@ export async function execute(
           try {
             const result = await chatBridge.runTurn({
               tabId,
+              command: 'task.submit',
               rpcCall: async () => {
                 const resp = await ctx.transport.call<unknown, unknown>(
                   rpcMethod,

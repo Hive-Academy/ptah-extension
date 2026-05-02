@@ -640,6 +640,7 @@ async function runStreamingTurn(args: StreamingTurnArgs): Promise<number> {
   try {
     const result = await chatBridge.runTurn({
       tabId,
+      command,
       rpcCall: async () => {
         const resp = await ctx.transport.call(rpcMethod, buildParams());
         return { success: resp.success === true };
@@ -655,18 +656,13 @@ async function runStreamingTurn(args: StreamingTurnArgs): Promise<number> {
       return ExitCode.Success;
     }
 
-    // result.success === false — narrowed branch.
+    // result.success === false — narrowed branch. The terminal `task.error`
+    // notification was already emitted by ChatBridge.settle() before resolving.
     if (aborted || result.cancelled === true) {
       // SIGINT path — exit 130 (matching the conventional Ctrl+C exit code).
       return 130;
     }
 
-    await formatter.writeNotification('task.error', {
-      ptah_code: 'unknown',
-      command,
-      message: result.error,
-      session_id: result.sessionId ?? tabId,
-    });
     return ExitCode.GeneralError;
   } finally {
     approvalBridge?.detach();

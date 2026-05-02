@@ -90,6 +90,12 @@ export interface RunTurnOptions {
    * `chat:complete | chat:error | abortSignal`.
    */
   readonly timeoutMs?: number;
+  /**
+   * Caller-supplied command label propagated into the terminal `task.complete`
+   * / `task.error` notification (`params.command`). Defaults to `'chat'` when
+   * omitted, matching the schema in `docs/jsonrpc-schema.md` § 1.10.
+   */
+  readonly command?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +180,8 @@ export class ChatBridge {
    */
   async runTurn(opts: RunTurnOptions): Promise<ChatTurnResult> {
     const { tabId, rpcCall, abortSignal, timeoutMs } = opts;
+    const command = opts.command ?? 'chat';
+    const startedAt = Date.now();
 
     // Mutable state — `message_start` flips the synthetic tabId for the real
     // SDK UUID so subsequent `agent.*` notifications carry the SDK session_id.
@@ -184,15 +192,57 @@ export class ChatBridge {
     // the synthetic tabId so partial progress notifications still correlate.
     const turnId = `${tabId}:t1`;
 
+    // Aggregate assistant text from `text_delta` chunks so the terminal
+    // `task.complete` summary carries the final message body for headless
+    // consumers that only read the terminal notification (Bug 1+4 repro).
+    let aggregatedText = '';
+
     let resolveOuter: (result: ChatTurnResult) => void = () => undefined;
     const outerPromise = new Promise<ChatTurnResult>((resolve) => {
       resolveOuter = resolve;
     });
 
+    const debug = (message: string): void => {
+      if (process.env['PTAH_LOG_LEVEL'] === 'debug') {
+        process.stderr.write(`[ptah:chat-bridge] ${message}\n`);
+      }
+    };
+
     let settled = false;
+    const emitTerminal = (result: ChatTurnResult): void => {
+      const durationMs = Date.now() - startedAt;
+      if (result.success === true) {
+        const summary: Record<string, unknown> = {
+          session_id: result.sessionId,
+          turn_id: result.turnId ?? turnId,
+        };
+        if (aggregatedText.length > 0) {
+          summary['text'] = aggregatedText;
+        }
+        void this.jsonrpc.notify('task.complete', {
+          command,
+          duration_ms: durationMs,
+          summary,
+        });
+      } else {
+        void this.jsonrpc.notify('task.error', {
+          command,
+          code: -32603,
+          message: result.error,
+          recoverable: result.cancelled === true,
+          ptah_code: 'unknown',
+          details: {
+            session_id: result.sessionId ?? resolvedSessionId,
+            cancelled: result.cancelled === true,
+            duration_ms: durationMs,
+          },
+        });
+      }
+    };
     const settle = (result: ChatTurnResult): void => {
       if (settled) return;
       settled = true;
+      emitTerminal(result);
       resolveOuter(result);
     };
 
@@ -234,6 +284,7 @@ export class ChatBridge {
         case 'text_delta': {
           const text = event.delta ?? event.text ?? '';
           if (text.length === 0) return;
+          aggregatedText += text;
           void this.jsonrpc.notify('agent.message', {
             session_id: resolvedSessionId,
             turn_id: turnId,
@@ -244,10 +295,10 @@ export class ChatBridge {
           return;
         }
         case 'message_complete': {
-          // Backend emits `message_complete` with metadata; only forward as a
-          // terminal `agent.message` if it carries text content.
+          // Backend emits `message_complete` with metadata; forward a terminal
+          // `agent.message` envelope so consumers always observe the message
+          // boundary, even when the chunk carries no text body.
           const text = event.text ?? '';
-          if (text.length === 0) return;
           void this.jsonrpc.notify('agent.message', {
             session_id: resolvedSessionId,
             turn_id: turnId,
@@ -283,7 +334,10 @@ export class ChatBridge {
           // Unknown / non-target event types (e.g. `tool_delta`,
           // `thinking_start`, `agent_start`, compaction events,
           // background_agent_*). The bridge intentionally drops them — those
-          // surfaces are out of scope for the CLI agent stream.
+          // surfaces have no JSON-RPC schema name yet. Surface the event name
+          // to stderr at debug level so future SDK additions are visible
+          // without re-running the bug repro under a debugger.
+          debug(`dropped event type: ${event.eventType}`);
           return;
       }
     };
