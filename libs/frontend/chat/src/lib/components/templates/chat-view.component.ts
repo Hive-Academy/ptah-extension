@@ -36,6 +36,7 @@ import { ResumeNotificationBannerComponent } from '../molecules/notifications/re
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { AutoAnimateDirective } from '../../directives/auto-animate.directive';
 import { ChatStore } from '../../services/chat.store';
+import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
 import {
   AgentMonitorStore,
   ExecutionTreeBuilderService,
@@ -127,6 +128,16 @@ export class ChatViewComponent {
   // legacy per-tab `isCompacting` flag for tabs not yet registered.
   private readonly _conversationRegistry = inject(ConversationRegistry);
   private readonly _tabSessionBinding = inject(TabSessionBinding);
+  /**
+   * TASK_2026_109 B4 — read the one-tick auto-animate suppression flag set
+   * by `CompactionLifecycleService.handleCompactionComplete`. Combined with
+   * `resolvedIsStreaming()` and `isFinalizingTransition()` in the
+   * `[autoAnimateDisabled]` binding so the FLIP directive skips the
+   * stale→empty diff that produced bubble overlap with sticky headers.
+   */
+  private readonly _compactionLifecycle = inject(CompactionLifecycleService);
+  protected readonly suppressAnimateOnce =
+    this._compactionLifecycle.suppressAnimateOnce;
   private readonly _claudeRpc = inject(ClaudeRpcService);
   private readonly _confirmDialog = inject(ConfirmationDialogService);
 
@@ -444,27 +455,27 @@ export class ChatViewComponent {
    *
    * TASK_2026_106 Phase 4c — sourced from `ConversationRegistry` via
    * `TabSessionBinding`. Compaction is conversation-scoped, so every tab
-   * bound to the conversation sees the banner together (canvas-grid). Falls
-   * back to legacy per-tab `isCompacting` when the tab has no binding yet
-   * (e.g. before StreamRouter has hydrated, or the tab predates the bind).
+   * bound to the conversation sees the banner together (canvas-grid).
+   *
+   * TASK_2026_109 C1 — reads ONLY from the conversation registry. The
+   * previous fallback to `tab.isCompacting` / `chatStore.isCompacting()`
+   * created a second source of truth: when StreamRouter had not yet
+   * registered the conversation by `compaction_complete` time, the registry
+   * stayed `inFlight=true` while the tab cleared (or vice versa) and the
+   * banner stuck on the 120s safety timeout. The lifecycle service now
+   * writes through the registry on every transition, so unresolved
+   * conversations simply render no banner — which is the correct state
+   * for an unrouted tab.
    */
   readonly resolvedIsCompacting = computed(() => {
     const tab = this.resolvedTab();
     const tabId = tab?.id ?? this._tabManager.activeTabId();
-    if (tabId) {
-      const convId = this._tabSessionBinding.conversationFor(tabId as TabId);
-      if (convId) {
-        const compactionState =
-          this._conversationRegistry.compactionStateFor(convId);
-        if (compactionState) {
-          return compactionState.inFlight;
-        }
-      }
-    }
-    // Legacy fallback: tab predates conversation registration, or no binding yet.
-    return tab !== null
-      ? (tab.isCompacting ?? false)
-      : this.chatStore.isCompacting();
+    if (!tabId) return false;
+    const convId = this._tabSessionBinding.conversationFor(tabId as TabId);
+    if (!convId) return false;
+    return (
+      this._conversationRegistry.compactionStateFor(convId)?.inFlight ?? false
+    );
   });
 
   /**

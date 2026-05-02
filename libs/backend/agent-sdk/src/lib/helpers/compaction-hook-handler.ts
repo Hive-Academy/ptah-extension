@@ -31,17 +31,26 @@ import type {
   HookJSONOutput,
   HookInput,
 } from '../types/sdk-types/claude-sdk.types';
+import { SDK_TOKENS } from '../di/tokens';
+import type { SdkMessageTransformer } from '../sdk-message-transformer';
 
 /**
  * Callback type for notifying when compaction starts
  * - sessionId: The session being compacted
  * - trigger: 'manual' (user requested) or 'auto' (threshold reached)
  * - timestamp: When the compaction started
+ * - preTokens: Cumulative pre-compaction token usage (input + output +
+ *   cache_read + cache_creation) sampled from the live transformer at
+ *   PreCompact firing time. Used by the frontend to freeze the
+ *   pre-compaction header stats during the compaction window and to pair
+ *   the start event with the eventual `compact_boundary` for delta /
+ *   duration computation. (TASK_2026_109 A2)
  */
 export type CompactionStartCallback = (data: {
   sessionId: string;
   trigger: 'manual' | 'auto';
   timestamp: number;
+  preTokens: number;
 }) => void;
 
 /**
@@ -50,7 +59,7 @@ export type CompactionStartCallback = (data: {
  * @returns True if input is PreCompactHookInput
  */
 export function isPreCompactHook(
-  input: HookInput
+  input: HookInput,
 ): input is PreCompactHookInput {
   return input.hook_event_name === 'PreCompact';
 }
@@ -75,7 +84,17 @@ export function isPreCompactHook(
  */
 @injectable()
 export class CompactionHookHandler {
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    // TASK_2026_109 (A2): Inject the message transformer to read the latest
+    // cumulative pre-compaction token snapshot at PreCompact firing time.
+    // The transformer aggregates `message_start` + `message_delta` usage on
+    // the streaming wire — sampling it here gives the frontend the exact
+    // value needed to freeze the pre-compaction header stats during the
+    // compaction window.
+    @inject(SDK_TOKENS.SDK_MESSAGE_TRANSFORMER)
+    private readonly messageTransformer: SdkMessageTransformer,
+  ) {}
 
   /**
    * Create hooks configuration for SDK query options
@@ -95,7 +114,7 @@ export class CompactionHookHandler {
    */
   createHooks(
     sessionId: string,
-    onCompactionStart?: CompactionStartCallback
+    onCompactionStart?: CompactionStartCallback,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     // Capture callback in closure for use in hook
     const capturedCallback = onCompactionStart;
@@ -113,7 +132,7 @@ export class CompactionHookHandler {
             async (
               input: HookInput,
               _toolUseId: string | undefined,
-              _options: { signal: AbortSignal }
+              _options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
               // Log that the hook was invoked by SDK
               this.logger.info(
@@ -121,7 +140,7 @@ export class CompactionHookHandler {
                 {
                   hookEventName: input.hook_event_name,
                   sessionId,
-                }
+                },
               );
 
               try {
@@ -132,7 +151,7 @@ export class CompactionHookHandler {
                     {
                       expected: 'PreCompact',
                       received: input.hook_event_name,
-                    }
+                    },
                   );
                   return { continue: true };
                 }
@@ -146,7 +165,7 @@ export class CompactionHookHandler {
                     {
                       trigger,
                       sessionId,
-                    }
+                    },
                   );
                   return { continue: true };
                 }
@@ -158,20 +177,28 @@ export class CompactionHookHandler {
                     sessionId,
                     trigger,
                     hasCustomInstructions: !!input.custom_instructions,
-                  }
+                  },
                 );
 
                 // Notify via callback if provided
                 if (capturedCallback) {
+                  // TASK_2026_109 (A2): Sample cumulative pre-compaction tokens
+                  // from the live transformer snapshot. Returns 0 for sessions
+                  // that haven't yet produced any assistant turn — acceptable
+                  // because compaction-before-first-turn is a no-op edge case.
+                  const preTokens =
+                    this.messageTransformer.getCumulativeTokens(sessionId);
+
                   const compactionData = {
                     sessionId,
                     trigger, // Use validated trigger variable
                     timestamp: Date.now(),
+                    preTokens,
                   };
 
                   this.logger.debug(
                     '[CompactionHookHandler] Invoking compaction callback',
-                    compactionData
+                    compactionData,
                   );
 
                   // Invoke callback but don't await (fire-and-forget)
@@ -184,20 +211,20 @@ export class CompactionHookHandler {
                       '[CompactionHookHandler] Error in compaction callback',
                       callbackError instanceof Error
                         ? callbackError
-                        : new Error(String(callbackError))
+                        : new Error(String(callbackError)),
                     );
                   }
                 }
 
                 this.logger.debug(
                   '[CompactionHookHandler] PreCompact processed successfully',
-                  { sessionId }
+                  { sessionId },
                 );
               } catch (error) {
                 // CRITICAL: Never throw from hooks - it would break SDK
                 this.logger.error(
                   '[CompactionHookHandler] Error in PreCompact hook',
-                  error instanceof Error ? error : new Error(String(error))
+                  error instanceof Error ? error : new Error(String(error)),
                 );
               }
 

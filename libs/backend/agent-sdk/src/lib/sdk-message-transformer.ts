@@ -37,6 +37,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
 import type { ModelResolver } from './auth/model-resolver';
+import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
 import {
   SDKMessage,
   SDKAssistantMessage,
@@ -136,6 +137,34 @@ export class SdkMessageTransformer {
    */
   private activeSkillToolUseIds: Set<string> = new Set();
 
+  /**
+   * TASK_2026_109 (A2): Per-session live cumulative token tracker.
+   *
+   * Captures the most recent cumulative pre-compaction token usage observed on
+   * the streaming wire (input + output + cache_read + cache_creation). The
+   * PreCompact hook reads this snapshot at compaction start time and ships it
+   * with the `compaction_start` event so the frontend can freeze the
+   * pre-compaction header stats during the compaction window and pair the
+   * start with the eventual `compact_boundary` for delta computation.
+   *
+   * Source events:
+   *   - `message_start.message.usage` carries `input_tokens` + cache fields
+   *   - `message_delta.usage`         carries cumulative `output_tokens`
+   * Combined per session, the latest snapshot approximates pre-compaction
+   * cumulative usage closely enough for the UI freeze.
+   *
+   * Cleared on session deletion via `clearSessionTokenSnapshot()`.
+   */
+  private liveTokenSnapshotBySession: Map<
+    string,
+    {
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheCreation: number;
+    }
+  > = new Map();
+
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
@@ -143,6 +172,13 @@ export class SdkMessageTransformer {
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: ModelResolver,
+    // TASK_2026_109 (A1): Active session correlator for compact_boundary fallback.
+    // The SDK occasionally omits session_id on SDKSystemMessage{compact_boundary},
+    // which previously caused compaction_complete to ship with sessionId=''
+    // and break frontend banner dismissal. Prefer the lifecycle manager's
+    // most-recently-active session id over sdkMessage.session_id.
+    @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
+    private readonly sessionLifecycle: SessionLifecycleManager,
   ) {}
 
   /**
@@ -156,7 +192,72 @@ export class SdkMessageTransformer {
       this.authEnv,
       this.subagentRegistry,
       this.modelResolver,
+      this.sessionLifecycle,
     );
+  }
+
+  /**
+   * TASK_2026_109 (A2): Read the most recent cumulative pre-compaction tokens
+   * observed for the given session, summing input + output + cache_read +
+   * cache_creation. Returns 0 when no usage has been observed yet (empty
+   * sessions, or compaction firing before the first assistant turn).
+   *
+   * Used by `CompactionHookHandler` at PreCompact firing time to enrich the
+   * `compaction_start` event broadcast.
+   */
+  getCumulativeTokens(sessionId: string): number {
+    const snap = this.liveTokenSnapshotBySession.get(sessionId);
+    if (!snap) {
+      return 0;
+    }
+    return snap.input + snap.output + snap.cacheRead + snap.cacheCreation;
+  }
+
+  /**
+   * TASK_2026_109 (A2): Clear the cached token snapshot for a session.
+   * Should be called on session deletion to avoid unbounded growth across
+   * long-lived extension sessions. Currently called from session lifecycle
+   * cleanup; safe to no-op if the session was never tracked.
+   */
+  clearSessionTokenSnapshot(sessionId: string): void {
+    this.liveTokenSnapshotBySession.delete(sessionId);
+  }
+
+  /**
+   * TASK_2026_109 (A2): Internal — record an observed cumulative usage frame
+   * for a session. Cumulative semantics: each field overwrites the previous
+   * value when the new value is greater (Anthropic API delivers monotonic
+   * cumulative counts within a turn; cross-turn aggregation is handled by
+   * downstream stats services, not here).
+   */
+  private recordSessionUsage(
+    sessionId: string,
+    fields: {
+      input?: number;
+      output?: number;
+      cacheRead?: number;
+      cacheCreation?: number;
+    },
+  ): void {
+    if (!sessionId) {
+      return;
+    }
+    const prev = this.liveTokenSnapshotBySession.get(sessionId) ?? {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheCreation: 0,
+    };
+    const next = {
+      input: Math.max(prev.input, fields.input ?? prev.input),
+      output: Math.max(prev.output, fields.output ?? prev.output),
+      cacheRead: Math.max(prev.cacheRead, fields.cacheRead ?? prev.cacheRead),
+      cacheCreation: Math.max(
+        prev.cacheCreation,
+        fields.cacheCreation ?? prev.cacheCreation,
+      ),
+    };
+    this.liveTokenSnapshotBySession.set(sessionId, next);
   }
 
   /**
@@ -246,11 +347,47 @@ export class SdkMessageTransformer {
         );
         this.clearStreamingState();
 
+        // TASK_2026_109 (A1): Resolve session correlator with strict priority.
+        // Prefer caller-provided sessionId (StreamTransformer threads the active
+        // tracking id), then SessionLifecycleManager's most-recently-active id,
+        // and finally sdkMessage.session_id. NEVER fall back to '' — emitting a
+        // compaction_complete with empty sessionId routes nowhere and leaves the
+        // banner stuck on the 120s safety timeout.
+        const activeIds = this.sessionLifecycle.getActiveSessionIds();
+        const resolvedSessionId =
+          sessionId ||
+          activeIds[0] ||
+          (sdkMessage.session_id as SessionId | undefined);
+
+        if (!resolvedSessionId) {
+          this.logger.warn(
+            '[SdkMessageTransformer] compact_boundary received without resolvable sessionId — skipping compaction_complete emission. Banner will rely on safety timeout.',
+            {
+              callerSessionId: sessionId,
+              sdkSessionId: sdkMessage.session_id,
+              activeSessionCount: activeIds.length,
+              trigger: sdkMessage.compact_metadata.trigger,
+              preTokens: sdkMessage.compact_metadata.pre_tokens,
+            },
+          );
+          return [];
+        }
+
+        // TASK_2026_109 (A4 + C4): Prune subagent entries and the live token
+        // snapshot for this session at the compaction boundary. Post-boundary
+        // tool-use ID space is fresh — stale entries would otherwise drift the
+        // AGENTS header counter and re-poison cumulative token tracking.
+        // `clearStreamingState()` above already clears the local
+        // `backgroundTaskToolUseIds` set (transformer-internal), so late
+        // tool_results matching pre-boundary IDs are harmless no-ops.
+        this.subagentRegistry.pruneSession(resolvedSessionId);
+        this.clearSessionTokenSnapshot(resolvedSessionId);
+
         const compactionCompleteEvent: CompactionCompleteEvent = {
           id: generateEventId(),
           eventType: 'compaction_complete',
           timestamp: Date.now(),
-          sessionId: sessionId || sdkMessage.session_id || '',
+          sessionId: resolvedSessionId,
           messageId: `compaction-${Date.now()}`,
           trigger: sdkMessage.compact_metadata.trigger,
           preTokens: sdkMessage.compact_metadata.pre_tokens,
@@ -371,10 +508,34 @@ export class SdkMessageTransformer {
         // 3. Tree building: events for same message scattered across multiple messageIds
         //
         // Priority: Anthropic message.id > SDK uuid > generated fallback
-        const message = (event as { message?: { id?: string; model?: string } })
-          .message;
+        const message = (
+          event as {
+            message?: {
+              id?: string;
+              model?: string;
+              usage?: {
+                input_tokens?: number;
+                output_tokens?: number;
+                cache_read_input_tokens?: number;
+                cache_creation_input_tokens?: number;
+              };
+            };
+          }
+        ).message;
         const messageId =
           message?.id || sdkMessage.uuid || `stream-msg-${Date.now()}`;
+
+        // TASK_2026_109 (A2): Capture initial cumulative usage from
+        // message_start (carries input_tokens + cache fields). Output tokens
+        // arrive later via message_delta.
+        if (sessionId && message?.usage) {
+          this.recordSessionUsage(sessionId, {
+            input: message.usage.input_tokens,
+            output: message.usage.output_tokens,
+            cacheRead: message.usage.cache_read_input_tokens,
+            cacheCreation: message.usage.cache_creation_input_tokens,
+          });
+        }
 
         // TASK_2025_096 FIX: Track current message ID per context
         // Context = parentToolUseId (for nested agent messages) or '' (for root messages)
@@ -425,9 +586,27 @@ export class SdkMessageTransformer {
         // Emit message_delta event with cumulative token usage
         const usage = (
           event as {
-            usage?: { input_tokens?: number; output_tokens?: number };
+            usage?: {
+              input_tokens?: number;
+              output_tokens?: number;
+              cache_read_input_tokens?: number;
+              cache_creation_input_tokens?: number;
+            };
           }
         ).usage;
+
+        // TASK_2026_109 (A2): Record cumulative usage for PreCompact hook.
+        // message_delta carries the running cumulative token counts; capture
+        // the latest snapshot so the compaction_start event can ship with
+        // accurate pre-compaction tokens.
+        if (sessionId && usage) {
+          this.recordSessionUsage(sessionId, {
+            input: usage.input_tokens,
+            output: usage.output_tokens,
+            cacheRead: usage.cache_read_input_tokens,
+            cacheCreation: usage.cache_creation_input_tokens,
+          });
+        }
 
         // TASK_2025_096 FIX: Look up messageId by context
         const context = parentToolUseId || '';

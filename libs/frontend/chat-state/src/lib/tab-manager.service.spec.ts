@@ -123,4 +123,68 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
   it('abortStreamingForTab is a no-op when no controller is registered', () => {
     expect(() => service.abortStreamingForTab('nonexistent')).not.toThrow();
   });
+
+  // ---------------------------------------------------------------------
+  // TASK_2026_109 — applyCompactionComplete (B1, B3)
+  // Asserts the patch produced by `applyCompactionComplete` clears the
+  // live model stats / usage list and stamps the completion timestamp.
+  // ---------------------------------------------------------------------
+  describe('applyCompactionComplete (TASK_2026_109)', () => {
+    it('B1 — clears liveModelStats and modelUsageList', () => {
+      const tabId = service.createTab('compacting tab');
+      service.setLiveModelStatsAndUsageList(
+        tabId,
+        {
+          model: 'opus',
+          contextUsed: 1234,
+          contextWindow: 200000,
+          contextPercent: 0.6,
+        },
+        [
+          {
+            model: 'opus',
+            inputTokens: 100,
+            outputTokens: 50,
+            contextWindow: 200000,
+            costUSD: 0.5,
+          },
+        ],
+      );
+
+      // Sanity-check the pre-state so the post-clear assertions are meaningful.
+      const before = service.tabs().find((t) => t.id === tabId);
+      expect(before?.liveModelStats).not.toBeNull();
+      expect(before?.modelUsageList?.length).toBe(1);
+
+      service.applyCompactionComplete(tabId, {
+        preloadedStats: {
+          totalCost: 1.0,
+          tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+          messageCount: 3,
+        },
+        compactionCount: 1,
+      });
+
+      const after = service.tabs().find((t) => t.id === tabId);
+      expect(after?.liveModelStats).toBeNull();
+      expect(after?.modelUsageList).toEqual([]);
+    });
+
+    it('B3 — stamps lastCompactionAt at completion time', () => {
+      const tabId = service.createTab('compacting tab');
+
+      const t0 = Date.now();
+      service.applyCompactionComplete(tabId, {
+        preloadedStats: null,
+        compactionCount: 1,
+      });
+      const t1 = Date.now();
+
+      const tab = service.tabs().find((t) => t.id === tabId);
+      expect(tab?.lastCompactionAt).toBeDefined();
+      const stamp = tab?.lastCompactionAt as number;
+      expect(stamp).toBeGreaterThanOrEqual(t0);
+      expect(stamp).toBeLessThanOrEqual(t1);
+    });
+  });
 });

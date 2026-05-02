@@ -581,9 +581,17 @@ export class StreamRouter {
     convId: ConversationId,
   ): void {
     if (event.eventType === 'compaction_start') {
-      this.registry.markCompactionStart(convId);
+      // TASK_2026_109 C1 — persist trigger/preTokens/startedAt so consumers
+      // (header freeze, late-event filter) can read full compaction context
+      // from the registry without threading new params through call sites.
+      this.registry.setCompactionState(convId, {
+        inFlight: true,
+        trigger: event.trigger,
+        preTokens: event.preTokens,
+        startedAt: Date.now(),
+      });
     } else if (event.eventType === 'compaction_complete') {
-      this.registry.markCompactionComplete(convId);
+      this.registry.setCompactionState(convId, { inFlight: false });
     }
   }
 

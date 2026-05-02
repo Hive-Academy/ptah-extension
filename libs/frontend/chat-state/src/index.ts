@@ -69,5 +69,7 @@ export {
 export {
   ConversationRegistry,
   type ConversationRecord,
+  type CompactionStatePatch,
+  type CompactionStateView,
 } from './lib/conversation-registry.service';
 export { TabSessionBinding } from './lib/tab-session-binding.service';

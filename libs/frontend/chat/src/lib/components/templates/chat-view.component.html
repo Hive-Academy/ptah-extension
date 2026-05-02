@@ -60,7 +60,11 @@
         #messageContainer
         (scroll)="onScroll($event)"
         [auto-animate]
-        [autoAnimateDisabled]="resolvedIsStreaming() || isFinalizingTransition()"
+        [autoAnimateDisabled]="
+          resolvedIsStreaming() ||
+          isFinalizingTransition() ||
+          suppressAnimateOnce()
+        "
       >
         @for (msg of allMessages(); track msg.id; let i = $index) {
           <ptah-message-bubble
