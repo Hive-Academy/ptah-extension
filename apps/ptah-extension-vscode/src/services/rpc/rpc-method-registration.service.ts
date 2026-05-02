@@ -169,7 +169,6 @@ export class RpcMethodRegistrationService {
       logger: this.logger,
       platform: 'vscode',
       options: {
-        wizardBroadcast: true,
         copilotPermission: true,
         persistCliSession: true,
         getSdkSessionId: (ptahCliId: string) =>

@@ -140,7 +140,6 @@ export class CliRpcMethodRegistrationService {
       logger: this.logger,
       platform: 'cli',
       options: {
-        wizardBroadcast: false,
         copilotPermission: false,
         persistCliSession: false,
       },

@@ -17,7 +17,6 @@ import {
   Logger,
   TOKENS,
   SubagentRegistryService,
-  AgentSessionWatcherService,
 } from '@ptah-extension/vscode-core';
 import type { SessionId } from '@ptah-extension/shared';
 
@@ -44,8 +43,6 @@ export class ChatSubagentContextInjectorService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
-    @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
-    private readonly agentSessionWatcher: AgentSessionWatcherService,
     @inject(CHAT_TOKENS.PTAH_CLI)
     private readonly ptahCli: ChatPtahCliService,
   ) {}
@@ -57,8 +54,7 @@ export class ChatSubagentContextInjectorService {
    * Side effects (preserved verbatim from pre-extraction):
    *  1. Filters resumable subagents by transcript-file existence; agents
    *     without a transcript on disk are removed from the registry.
-   *  2. Pre-warms `AgentSessionWatcherService` for each resumable subagent.
-   *  3. Marks each injected subagent as injected, then removes it from the
+   *  2. Marks each injected subagent as injected, then removes it from the
    *     registry so the prefix is one-shot.
    */
   async injectInterruptedAgentsContext(
@@ -103,32 +99,6 @@ export class ChatSubagentContextInjectorService {
         );
         // Remove from registry — can't resume without transcript
         this.subagentRegistry.remove(s.toolCallId);
-      }
-    }
-
-    // Proactively start file watchers for resumable subagents.
-    // Without this, only subagents newly spawned by the SDK get watchers
-    // via SubagentStart hooks. Resumed subagents may start writing before
-    // a hook fires, so we set up watchers preemptively.
-    if (resumableSubagents.length > 0 && workspacePath) {
-      for (const subagent of resumableSubagents) {
-        try {
-          await this.agentSessionWatcher.startWatching(
-            subagent.agentId,
-            sessionId,
-            workspacePath,
-            subagent.agentType,
-            subagent.toolCallId,
-          );
-        } catch (err) {
-          this.logger.warn(
-            'Failed to start proactive watcher for resumable subagent',
-            {
-              agentId: subagent.agentId,
-              error: err instanceof Error ? err.message : String(err),
-            },
-          );
-        }
       }
     }
 

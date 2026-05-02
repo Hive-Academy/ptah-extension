@@ -140,7 +140,6 @@ export class ElectronRpcMethodRegistrationService {
       logger: this.logger,
       platform: 'electron',
       options: {
-        wizardBroadcast: false,
         copilotPermission: true,
         persistCliSession: true,
         getSdkSessionId: (ptahCliId: string) =>

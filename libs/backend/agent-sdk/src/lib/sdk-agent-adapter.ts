@@ -73,6 +73,39 @@ export type {
 } from './helpers';
 
 /**
+ * Minimal shape of the SDK's `WarmQuery` returned by `startup()`. We type
+ * `query` as `unknown` because callers must invoke it via the type-narrow
+ * helper {@link tryUseWarmQuery} which discriminates at the call site —
+ * keeping a tight, dynamic-import-friendly surface here.
+ */
+export interface WarmQueryHandle {
+  close: () => void;
+  query?: unknown;
+}
+
+/**
+ * Description of the options baked into a warm handle at `startup()` time.
+ *
+ * `WarmQuery.query(prompt)` accepts ONLY a prompt — model, cwd,
+ * permissionMode, hooks, canUseTool, agents, systemPrompt, plugins,
+ * file-checkpointing, partial-messages, resume, fork, and per-call MCP
+ * overrides are ALL inherited from `startup()`'s options. So this fingerprint
+ * is the complete description of what the held warm handle can serve.
+ *
+ * `consumeWarmQuery(requirements)` matches the requirements against this
+ * fingerprint; any mismatch (extra hook, non-default permission mode, custom
+ * cwd, MCP override, etc.) discards the handle.
+ *
+ * TASK_2026_109 Fix 3 wiring.
+ */
+export interface WarmPrewarmFingerprint {
+  /** cli.js path baked into startup() — must match the consuming session. */
+  pathToClaudeCodeExecutable: string | null;
+  /** MCP servers map baked at startup — `null` when none were passed. */
+  mcpServers: Record<string, unknown> | null;
+}
+
+/**
  * Provider capabilities for SDK-based integration
  */
 const SDK_CAPABILITIES: ProviderCapabilities = {
@@ -201,13 +234,30 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   /**
    * Held WarmQuery handle from `startup()`. When non-null, the next call to
-   * {@link consumeWarmQuery} will return this handle (and null the slot) so
+   * {@link consumeWarmQuery} MAY return this handle (and null the slot) so
    * a single subsequent `query(prompt)` can amortize the spawn+handshake
    * cost. After consumption, the slot is empty until a new prewarm runs.
    *
    * TASK_2026_109 Fix 3.
    */
-  private _warmQuery: { close: () => void; query?: unknown } | null = null;
+  private _warmQuery: WarmQueryHandle | null = null;
+
+  /**
+   * Snapshot of the option fingerprint baked into `_warmQuery` at the time
+   * `prewarm()` ran. Compared by {@link consumeWarmQuery} against the
+   * caller-supplied requirement set so we never hand out a warm handle
+   * whose underlying subprocess was started with options that diverge from
+   * what the upcoming session needs.
+   *
+   * The SDK's `WarmQuery.query(prompt)` accepts ONLY a prompt — every other
+   * Option (model, cwd, permissionMode, hooks, canUseTool, mcpServers,
+   * agents, systemPrompt, plugins, file checkpointing, partial messages,
+   * resume/fork) was frozen when `startup()` was called. So this snapshot
+   * is the authoritative description of "what this warm handle can do".
+   *
+   * TASK_2026_109 Fix 3 wiring (this commit).
+   */
+  private _warmQueryFingerprint: WarmPrewarmFingerprint | null = null;
 
   /**
    * Wall-clock timestamp (ms) of the most recent successful prewarm. Used by
@@ -224,17 +274,34 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   /**
    * Consume the held WarmQuery, if any, returning it to the caller and
-   * clearing the slot. Returns null when:
-   *  - no warm handle is held, or
-   *  - the held handle is older than {@link WARM_QUERY_TTL_MS} (it is
-   *    discarded — closed and nulled — before returning).
+   * clearing the slot.
    *
-   * The first chat-path call should ask for a warm handle via this method;
-   * subsequent calls fall through to the normal `query()` construction.
+   * Returns null when ANY of the following is true:
+   *  - no warm handle is held, or
+   *  - the held handle is older than {@link WARM_QUERY_TTL_MS} (the handle
+   *    is discarded — closed and nulled — before returning), or
+   *  - `requirements` is provided AND fails to match the fingerprint baked
+   *    into the warm handle at `prewarm()` time. On mismatch the handle is
+   *    discarded so a fresh `prewarm()` can pick up the new fingerprint.
+   *
+   * **Why a requirements check is mandatory for the wiring path**: the SDK's
+   * `WarmQuery.query(prompt)` accepts ONLY a prompt — every other Option
+   * (model, cwd, permissionMode, hooks, canUseTool, mcpServers, agents,
+   * systemPrompt, plugins, fork/resume, file-checkpointing, partial-messages)
+   * was frozen at `startup()`. Handing out a warm handle to a session whose
+   * options diverge from the fingerprint would produce a session running
+   * with the WRONG cwd / WRONG permissions / NO hooks. Caller-supplied
+   * requirements let `executeQuery` reject the handle defensively.
+   *
+   * Backwards compat: when `requirements` is `undefined` the fingerprint
+   * check is skipped (legacy single-arg behavior preserved for existing
+   * tests and ad-hoc callers).
    *
    * TASK_2026_109 Fix 3.
    */
-  public consumeWarmQuery(): { close: () => void; query?: unknown } | null {
+  public consumeWarmQuery(
+    requirements?: WarmPrewarmFingerprint,
+  ): WarmQueryHandle | null {
     if (!this._warmQuery) {
       return null;
     }
@@ -243,24 +310,103 @@ export class SdkAgentAdapter implements IAgentAdapter {
       this.logger.info(
         `[SdkAgentAdapter] Discarding stale warm query (age=${age}ms > ttl=${SdkAgentAdapter.WARM_QUERY_TTL_MS}ms)`,
       );
-      try {
-        this._warmQuery.close();
-      } catch (closeErr) {
-        this.logger.warn(
-          '[SdkAgentAdapter] Stale WarmQuery.close() threw',
-          closeErr instanceof Error ? closeErr : new Error(String(closeErr)),
-        );
-      }
-      this._warmQuery = null;
-      this._warmQueryCreatedAt = 0;
+      this.discardWarmHandle();
       // Allow re-prewarm next time.
       this._prewarmed = false;
       return null;
     }
+
+    // Fingerprint guard. Skip when the caller doesn't supply requirements
+    // (preserves the legacy single-arg test/usage).
+    if (requirements && this._warmQueryFingerprint) {
+      const reason = SdkAgentAdapter.fingerprintMismatchReason(
+        this._warmQueryFingerprint,
+        requirements,
+      );
+      if (reason) {
+        this.logger.info(
+          `[SdkAgentAdapter] Discarding warm query — fingerprint mismatch: ${reason}`,
+        );
+        this.discardWarmHandle();
+        // Allow re-prewarm with the new desired fingerprint.
+        this._prewarmed = false;
+        return null;
+      }
+    }
+
     const handle = this._warmQuery;
     this._warmQuery = null;
+    this._warmQueryFingerprint = null;
     this._warmQueryCreatedAt = 0;
     return handle;
+  }
+
+  /**
+   * Close the currently-held warm handle (if any) and null both the handle
+   * slot and its fingerprint. Swallows errors from `close()` because the
+   * SDK has thrown from this path before (e.g. when the underlying socket
+   * is already half-shut by the OS) and we never want a discard to fail
+   * loudly — the caller is already on a fallback path.
+   */
+  private discardWarmHandle(): void {
+    if (!this._warmQuery) {
+      return;
+    }
+    try {
+      this._warmQuery.close();
+    } catch (closeErr) {
+      this.logger.warn(
+        '[SdkAgentAdapter] Stale WarmQuery.close() threw',
+        closeErr instanceof Error ? closeErr : new Error(String(closeErr)),
+      );
+    }
+    this._warmQuery = null;
+    this._warmQueryFingerprint = null;
+    this._warmQueryCreatedAt = 0;
+  }
+
+  /**
+   * Compare a warm-handle's baked fingerprint against the requirements of
+   * an upcoming session. Returns null when the handle satisfies the
+   * requirements (safe to consume), or a short human-readable string
+   * describing the first mismatch (for log lines).
+   *
+   * Equality rules:
+   *  - `pathToClaudeCodeExecutable` must match exactly. A null on either
+   *    side that doesn't match the other is a mismatch — the SDK resolves
+   *    a different cli.js when this is omitted, so a mismatch here means
+   *    the warm subprocess literally is a different binary than the new
+   *    session would have spawned.
+   *  - `mcpServers` must deep-match by JSON serialization. The SDK
+   *    completes the MCP initialize handshake during `startup()`, so a
+   *    different server map means the handshake state on the warm
+   *    subprocess doesn't match what the session needs.
+   *
+   * Anything mutable mid-session (model, permissionMode) is NOT compared
+   * here — those are settable on the live `Query` after consumption (via
+   * `setModel`, `setPermissionMode`).
+   */
+  private static fingerprintMismatchReason(
+    baked: WarmPrewarmFingerprint,
+    required: WarmPrewarmFingerprint,
+  ): string | null {
+    if (
+      baked.pathToClaudeCodeExecutable !== required.pathToClaudeCodeExecutable
+    ) {
+      return (
+        `pathToClaudeCodeExecutable differs ` +
+        `(warm=${baked.pathToClaudeCodeExecutable ?? 'null'}, ` +
+        `required=${required.pathToClaudeCodeExecutable ?? 'null'})`
+      );
+    }
+    const bakedMcp = baked.mcpServers ? JSON.stringify(baked.mcpServers) : '';
+    const requiredMcp = required.mcpServers
+      ? JSON.stringify(required.mcpServers)
+      : '';
+    if (bakedMcp !== requiredMcp) {
+      return 'mcpServers map differs';
+    }
+    return null;
   }
 
   /**
@@ -337,6 +483,19 @@ export class SdkAgentAdapter implements IAgentAdapter {
       }
       this._warmQuery = warm;
       this._warmQueryCreatedAt = Date.now();
+      // Record the fingerprint of options baked into THIS warm handle so
+      // `consumeWarmQuery(requirements)` can later validate that the
+      // session about to use it was started with matching options. Any
+      // mismatch (e.g. a session that uses an MCP override the warm handle
+      // doesn't have, or runs against a different cli.js) discards the
+      // handle and falls through to a normal `query()`.
+      this._warmQueryFingerprint = {
+        pathToClaudeCodeExecutable: this.cliJsPath,
+        mcpServers:
+          activeMcpServers && Object.keys(activeMcpServers).length > 0
+            ? activeMcpServers
+            : null,
+      };
 
       const elapsed = (performance.now() - startTime).toFixed(2);
       this.logger.info(
@@ -697,6 +856,27 @@ export class SdkAgentAdapter implements IAgentAdapter {
     // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
     // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
     // TASK_2025_236: Pass worktree callbacks for worktree change notifications
+
+    // TASK_2026_109 Fix 3 wiring: try to consume the warm subprocess held by
+    // `prewarm()`. We only ask for the handle when this session has
+    // requirements that match what was baked in at startup() time:
+    //   - same cli.js path (always true for this adapter — `cliJsPath` is
+    //     set once in initialize() and used by both prewarm and queries),
+    //   - no caller-supplied MCP override (the warm handle's MCP map was
+    //     fixed at prewarm). When `mcpServersOverride` is supplied, the
+    //     fingerprint guard discards the handle so we don't end up with a
+    //     subprocess whose MCP set differs from what the session needs.
+    // The executor (SessionQueryExecutor) further restricts to non-resume,
+    // non-fork, non-slash-command sessions before actually using the
+    // handle, and falls back to a normal `query()` (closing the handle)
+    // for any session shape it can't safely serve.
+    const warmHandle = mcpServersOverride
+      ? null // Caller-side MCP override means baked MCP fingerprint can't match.
+      : this.consumeWarmQuery({
+          pathToClaudeCodeExecutable: this.cliJsPath,
+          mcpServers: null,
+        });
+
     const { sdkQuery, initialModel, abortController } =
       await this.sessionLifecycle.executeQuery({
         sessionId: trackingId,
@@ -721,6 +901,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
         includePartialMessages,
         // TASK_2026_108 T2: forward caller-supplied MCP HTTP overrides
         mcpServersOverride,
+        // TASK_2026_109 Fix 3 wiring: hand the warm subprocess (if usable)
+        // to the executor for the very first SDK call of this session.
+        warmQuery: warmHandle ?? undefined,
       });
 
     // projectPath is guaranteed by ChatRpcHandlers (validated before reaching here).
