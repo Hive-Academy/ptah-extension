@@ -140,8 +140,12 @@ export class AuthManager {
     this.logger.debug(`[AuthManager] Configuring auth method: ${authMethod}`);
 
     // Capture env snapshot before clean slate wipe (strategies may need fallback values)
+    // ANTHROPIC_AUTH_TOKEN + ANTHROPIC_BASE_URL support headless third-party flows
+    // (e.g. openclaw bridge) that pre-set env vars instead of populating SecretStorage.
     const envSnapshot = {
       ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'],
+      ANTHROPIC_AUTH_TOKEN: process.env['ANTHROPIC_AUTH_TOKEN'],
+      ANTHROPIC_BASE_URL: process.env['ANTHROPIC_BASE_URL'],
     };
 
     // Step 2: Clean slate - clear ALL auth and tier env vars

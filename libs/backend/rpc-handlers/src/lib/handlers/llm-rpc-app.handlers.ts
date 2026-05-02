@@ -17,9 +17,16 @@ import type { ISecretStorage } from '@ptah-extension/platform-core';
 import type {
   LlmListProviderModelsParams,
   LlmListProviderModelsResponse,
+  LlmSetProviderBaseUrlParams,
+  LlmSetProviderBaseUrlResponse,
+  LlmGetProviderBaseUrlParams,
+  LlmGetProviderBaseUrlResponse,
+  LlmClearProviderBaseUrlParams,
+  LlmClearProviderBaseUrlResponse,
 } from '@ptah-extension/shared';
 import type { IModelDiscovery } from '@ptah-extension/platform-core';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import { getProviderBaseUrl as getRegistryProviderBaseUrl } from '@ptah-extension/agent-sdk';
 
 /** Secret storage key prefix for provider API keys */
 const API_KEY_PREFIX = 'ptah.apiKey';
@@ -78,6 +85,9 @@ export class LlmRpcHandlers {
     'llm:validateApiKeyFormat',
     'llm:listVsCodeModels',
     'llm:listProviderModels',
+    'llm:setProviderBaseUrl',
+    'llm:getProviderBaseUrl',
+    'llm:clearProviderBaseUrl',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -101,6 +111,9 @@ export class LlmRpcHandlers {
     this.registerValidateApiKeyFormat();
     this.registerListVsCodeModels();
     this.registerListProviderModels();
+    this.registerSetProviderBaseUrl();
+    this.registerGetProviderBaseUrl();
+    this.registerClearProviderBaseUrl();
 
     this.logger.debug('LLM RPC handlers registered', {
       methods: [
@@ -113,6 +126,9 @@ export class LlmRpcHandlers {
         'llm:validateApiKeyFormat',
         'llm:listVsCodeModels',
         'llm:listProviderModels',
+        'llm:setProviderBaseUrl',
+        'llm:getProviderBaseUrl',
+        'llm:clearProviderBaseUrl',
       ],
     });
   }
@@ -486,6 +502,177 @@ export class LlmRpcHandlers {
             { errorSource: 'LlmRpcHandlers.registerListVsCodeModels' },
           );
           return [];
+        }
+      },
+    );
+  }
+
+  /**
+   * llm:setProviderBaseUrl - Persist a per-provider base URL override.
+   *
+   * The override is stored at `provider.<id>.baseUrl` in
+   * `~/.ptah/settings.json` (routed via `isFileBasedSettingKey`). The auth
+   * strategies consult this override before falling back to the static
+   * registry default. Used by the CLI parity commands `provider set-key
+   * --base-url`, `provider base-url set`, and `provider ollama
+   * set-endpoint`.
+   */
+  private registerSetProviderBaseUrl(): void {
+    this.rpcHandler.registerMethod<
+      LlmSetProviderBaseUrlParams,
+      LlmSetProviderBaseUrlResponse
+    >(
+      'llm:setProviderBaseUrl',
+      async (params: LlmSetProviderBaseUrlParams | undefined) => {
+        if (!params?.provider || !params?.baseUrl) {
+          return {
+            success: false,
+            error: 'provider and baseUrl are required',
+          };
+        }
+
+        const trimmed = params.baseUrl.trim();
+        if (trimmed.length === 0) {
+          return {
+            success: false,
+            error: 'baseUrl must not be empty',
+          };
+        }
+
+        // Light URL sanity check — accept http/https schemes only.
+        try {
+          const parsed = new URL(trimmed);
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return {
+              success: false,
+              error: `baseUrl must use http(s) scheme (got '${parsed.protocol}')`,
+            };
+          }
+        } catch {
+          return {
+            success: false,
+            error: `baseUrl is not a valid URL: ${trimmed}`,
+          };
+        }
+
+        try {
+          this.logger.debug('RPC: llm:setProviderBaseUrl called', {
+            provider: params.provider,
+            // SECURITY: log host but not query/path which may contain tokens
+            host: new URL(trimmed).host,
+          });
+          const configManager = this.getConfigManager();
+          await configManager.set(
+            `provider.${params.provider}.baseUrl`,
+            trimmed,
+          );
+          return { success: true };
+        } catch (error) {
+          this.logger.error(
+            'RPC: llm:setProviderBaseUrl failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'LlmRpcHandlers.registerSetProviderBaseUrl' },
+          );
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    );
+  }
+
+  /**
+   * llm:getProviderBaseUrl - Read the persisted override and the registry
+   * default for a given provider. Returns `baseUrl: null` when no override
+   * exists.
+   */
+  private registerGetProviderBaseUrl(): void {
+    this.rpcHandler.registerMethod<
+      LlmGetProviderBaseUrlParams,
+      LlmGetProviderBaseUrlResponse
+    >(
+      'llm:getProviderBaseUrl',
+      async (params: LlmGetProviderBaseUrlParams | undefined) => {
+        if (!params?.provider) {
+          return { baseUrl: null, defaultBaseUrl: null };
+        }
+
+        try {
+          this.logger.debug('RPC: llm:getProviderBaseUrl called', {
+            provider: params.provider,
+          });
+          const configManager = this.getConfigManager();
+          const override = configManager.get<string>(
+            `provider.${params.provider}.baseUrl`,
+          );
+          const trimmed =
+            typeof override === 'string' && override.trim().length > 0
+              ? override.trim()
+              : null;
+          let defaultBaseUrl: string | null = null;
+          try {
+            defaultBaseUrl = getRegistryProviderBaseUrl(params.provider);
+          } catch {
+            // Provider not in registry — leave default null.
+            defaultBaseUrl = null;
+          }
+          return { baseUrl: trimmed, defaultBaseUrl };
+        } catch (error) {
+          this.logger.error(
+            'RPC: llm:getProviderBaseUrl failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'LlmRpcHandlers.registerGetProviderBaseUrl' },
+          );
+          return { baseUrl: null, defaultBaseUrl: null };
+        }
+      },
+    );
+  }
+
+  /**
+   * llm:clearProviderBaseUrl - Remove the persisted override so the registry
+   * default takes effect again.
+   */
+  private registerClearProviderBaseUrl(): void {
+    this.rpcHandler.registerMethod<
+      LlmClearProviderBaseUrlParams,
+      LlmClearProviderBaseUrlResponse
+    >(
+      'llm:clearProviderBaseUrl',
+      async (params: LlmClearProviderBaseUrlParams | undefined) => {
+        if (!params?.provider) {
+          return { success: false, error: 'provider is required' };
+        }
+
+        try {
+          this.logger.debug('RPC: llm:clearProviderBaseUrl called', {
+            provider: params.provider,
+          });
+          const configManager = this.getConfigManager();
+          // Set to empty string so PtahFileSettingsManager removes the key
+          // (its set() falls back to the default when given an empty value).
+          await configManager.set(`provider.${params.provider}.baseUrl`, '');
+          return { success: true };
+        } catch (error) {
+          this.logger.error(
+            'RPC: llm:clearProviderBaseUrl failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'LlmRpcHandlers.registerClearProviderBaseUrl' },
+          );
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
         }
       },
     );

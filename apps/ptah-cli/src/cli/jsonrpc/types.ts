@@ -390,7 +390,12 @@ export type PtahErrorCode =
   // active CLI session has no permission gate available (no `--auto-approve`
   // and not running embedded inside `ptah interact`). Treated as a fail-fast
   // at proxy-startup so the proxy never silently auto-allows.
-  | 'permission_gate_unavailable';
+  | 'permission_gate_unavailable'
+  // `ptah auth login claude-cli` could not locate the Claude CLI on PATH or
+  // in any of the known installation locations. Emitted alongside
+  // ExitCode.UsageError so the operator can re-run after `npm install -g
+  // @anthropic-ai/claude-code` (or equivalent).
+  | 'claude_cli_not_found';
 
 // ---------------------------------------------------------------------------
 // Process exit codes — task-description.md §6

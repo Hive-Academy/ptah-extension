@@ -160,7 +160,7 @@ async function runGet(
     stderr.write('ptah config get: <key> is required\n');
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const provider = resolveWorkspaceProvider(ctx);
     const key = opts.key as string;
     const value = provider.getConfiguration<unknown>('ptah', key);
@@ -190,7 +190,7 @@ async function runSet(
     stderr.write('ptah config set: <value> is required\n');
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const provider = resolveWorkspaceProvider(ctx);
     if (typeof provider.setConfiguration !== 'function') {
       throw new Error(
@@ -212,7 +212,7 @@ async function runList(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const provider = resolveWorkspaceProvider(ctx);
     const snapshot: Record<string, unknown> = {};
     for (const key of FILE_BASED_SETTINGS_KEYS) {
@@ -237,7 +237,7 @@ async function runReset(
     stderr.write('ptah config reset: <key> is required\n');
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const provider = resolveWorkspaceProvider(ctx);
     if (typeof provider.setConfiguration !== 'function') {
       throw new Error(
@@ -271,7 +271,7 @@ async function runModelSwitch(
     stderr.write('ptah config model-switch: <model> is required\n');
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(
       ctx.transport,
       'config:model-switch',
@@ -292,7 +292,7 @@ async function runModelGet(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(
       ctx.transport,
       'config:model-get',
@@ -308,7 +308,7 @@ async function runModelsList(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(
       ctx.transport,
       'config:models-list',
@@ -324,7 +324,7 @@ async function runAutopilotGet(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(
       ctx.transport,
       'config:autopilot-get',
@@ -355,7 +355,7 @@ async function runAutopilotSet(
     );
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(
       ctx.transport,
       'config:autopilot-toggle',
@@ -374,7 +374,7 @@ async function runEffortGet(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(
       ctx.transport,
       'config:effort-get',
@@ -405,7 +405,7 @@ async function runEffortSet(
     );
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(ctx.transport, 'config:effort-set', {
       effort: opts.value,
     });

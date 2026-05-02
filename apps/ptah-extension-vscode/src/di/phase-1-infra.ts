@@ -32,6 +32,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   FILE_BASED_SETTINGS_KEYS,
+  isFileBasedSettingKey,
 } from '@ptah-extension/platform-core';
 import { VscodeWorkspaceProvider } from '@ptah-extension/platform-vscode';
 
@@ -106,6 +107,7 @@ export function registerPhase1Infra(
   configManager.setFileSettingsStore(
     FILE_BASED_SETTINGS_KEYS,
     workspaceProvider.fileSettings,
+    isFileBasedSettingKey,
   );
 
   // ========================================

@@ -78,16 +78,26 @@ migration from the legacy TUI / `ptah run` / `ptah profile`, see
   `commander` router, dispatches to a command handler)
 - `src/cli/router.ts` — full commander wiring; declares every subcommand
   - sub-subcommand and the resolved `GlobalOptions`
-- `src/cli/bootstrap/with-engine.ts` — `withEngine({ mode })` DI bootstrap
-  helper. Three modes:
-  - `'none'` — no DI; for pure-`fs` commands (`harness init`,
-    `harness status`, `agent list`, `config get/set/list`)
-  - `'partial'` — Phase 0-2 only (config + logging + license); for
-    light-weight RPC commands (`license status`, `auth status`,
-    `provider status`)
+- `src/cli/bootstrap/with-engine.ts` — `withEngine({ mode, requireSdk })`
+  DI bootstrap helper. Two modes:
+  - `'minimal'` — skips Phase 4.x (RPC handler registration); used by
+    pure-`fs` and pre-bootstrap commands (e.g. `harness init`,
+    `harness status`, early `config` writes that must run before the
+    agent adapter is configured).
   - `'full'` — all 5 phases (Sentry, License, Auth, RPC, agent-sdk,
     workspace-intel, agent-generation, vscode-lm-tools, plugin loader,
-    content download); for chat / setup / wizard / generation commands
+    content download); for chat / setup / wizard / generation commands.
+
+  The `requireSdk` flag (default: `true`) controls whether `withEngine`
+  calls `SdkAgentAdapter.initialize()` after Phase 4 registration. Auth
+  and config bootstrap commands (`ptah provider set-key`, `ptah provider
+base-url set`, `ptah provider ollama set-endpoint`, `ptah auth login`,
+  `ptah config ...`) need the full DI graph but MUST run BEFORE auth is
+  configured — they pass `requireSdk: false` to skip the SDK init step,
+  which would otherwise fail with `sdk_init_failed` (chicken-and-egg).
+  Commands that actually exercise the agent (chat, session, run,
+  execute-spec, interact) leave `requireSdk` unset (= `true`).
+
 - `src/di/container.ts` — 5-phase DI bootstrap
 - `src/di/cli-adapters.ts` — Logger + OutputManager adapters for the CLI
   runtime (`CliLoggerAdapter`, `CliOutputManagerAdapter`); honors
@@ -169,7 +179,15 @@ params)` for in-process RPC
 │    ├── ptah agent packs list|install / agent list|apply              │
 │    ├── ptah agent-cli detect|config|models|stop|resume               │
 │    ├── ptah auth status|login|logout|test                            │
-│    ├── ptah provider status|set-key|default|models|tier              │
+│    │     login: copilot | codex | claude-cli (alias claude) |        │
+│    │            anthropic                                             │
+│    ├── ptah provider status|set-key|default|models|tier|             │
+│    │     base-url|ollama                                              │
+│    │     set-key:  --provider <id> --key <v> [--base-url <url>]      │
+│    │     base-url: set <url> --provider | get --provider |           │
+│    │               clear --provider                                  │
+│    │     ollama:   set-endpoint <url> | get-endpoint |               │
+│    │               clear-endpoint                                    │
 │    ├── ptah config get|set|list|model-switch|autopilot|effort        │
 │    ├── ptah plugin list|enable|disable|config|skills                 │
 │    ├── ptah skill search|installed|install|remove|popular|...        │

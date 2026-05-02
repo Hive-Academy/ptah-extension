@@ -30,8 +30,18 @@ export interface AuthConfigureContext {
   providerId: string;
   /** The shared mutable AuthEnv singleton — strategies write their env vars here */
   authEnv: AuthEnv;
-  /** Process.env values captured before clean slate wipe (for fallback detection) */
-  envSnapshot?: { ANTHROPIC_API_KEY?: string };
+  /**
+   * Process.env values captured before clean slate wipe (for fallback detection).
+   *
+   * `ANTHROPIC_API_KEY` supports the direct-Anthropic flow. `ANTHROPIC_AUTH_TOKEN`
+   * + `ANTHROPIC_BASE_URL` support headless third-party flows (e.g. the openclaw
+   * bridge that pre-sets these instead of populating the secret store).
+   */
+  envSnapshot?: {
+    ANTHROPIC_API_KEY?: string;
+    ANTHROPIC_AUTH_TOKEN?: string;
+    ANTHROPIC_BASE_URL?: string;
+  };
 }
 
 /**
