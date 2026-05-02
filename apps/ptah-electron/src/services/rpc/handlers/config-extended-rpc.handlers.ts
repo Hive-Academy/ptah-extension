@@ -1,26 +1,23 @@
 /**
  * Electron Config Extended RPC Handlers
  *
- * Handles Electron-specific config methods that go beyond
- * what the shared ConfigRpcHandlers provides:
- * - config:model-set - Persist model selection via StorageService
- *   (The shared ConfigRpcHandlers registers config:model-get, config:autopilot-get,
- *    config:autopilot-toggle, config:models-list, config:model-switch)
+ * Initializes the permission handler from saved config at startup. The
+ * `config:model-set`, `auth:setApiKey`, and `auth:getStatus` methods this
+ * file used to register were lifted to the shared `rpc-handlers` library
+ * (TASK_2026_107 Bug 6) so all hosts get the same implementation via
+ * `registerAllRpcHandlers()`.
  *
- * Also initializes the permission handler from saved config at startup.
+ * Kept here because the permission-handler bootstrap is Electron-specific
+ * startup glue, not an RPC method — there is nowhere shared to put it.
  *
- * TASK_2025_203 Batch 5: Extracted from inline registrations
+ * TASK_2025_203 Batch 5: Original extraction from inline registrations.
+ * TASK_2026_107 Bug 6: Trimmed to permission-handler init only.
  */
 
 import { injectable, inject, DependencyContainer } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type {
-  Logger,
-  RpcHandler,
-  IAuthSecretsService,
-} from '@ptah-extension/vscode-core';
-import { SDK_TOKENS, DEFAULT_PROVIDER_ID } from '@ptah-extension/agent-sdk';
-import type { ConfigManager } from '@ptah-extension/vscode-core';
+import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 
 @injectable()
 export class ConfigExtendedRpcHandlers {
@@ -28,100 +25,16 @@ export class ConfigExtendedRpcHandlers {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     private readonly container: DependencyContainer,
-  ) {}
+  ) {
+    // `rpcHandler` is intentionally retained as a constructor field for
+    // future Electron-only handlers; the current implementation only needs
+    // `container` + `logger`. Reference it once so unused-field linters
+    // do not flag it.
+    void this.rpcHandler;
+  }
 
   register(): void {
-    this.registerModelSet();
     this.initializePermissionHandler();
-    this.registerSetApiKey();
-    this.registerGetStatus();
-  }
-
-  /**
-   * Register config:model-set method.
-   * The rpc-handler-setup.ts previously handled this inline. Now it's extracted
-   * as a proper handler method.
-   */
-  private registerModelSet(): void {
-    this.rpcHandler.registerMethod(
-      'config:model-set',
-      async (params: { model?: string; autopilot?: boolean } | undefined) => {
-        if (params?.model !== undefined) {
-          const storageService = this.container.resolve<{
-            set<T>(key: string, value: T): Promise<void>;
-          }>(TOKENS.STORAGE_SERVICE);
-          await storageService.set('model.selected', params.model);
-        }
-        if (params?.autopilot !== undefined) {
-          const storageService = this.container.resolve<{
-            set<T>(key: string, value: T): Promise<void>;
-          }>(TOKENS.STORAGE_SERVICE);
-          await storageService.set('autopilot.enabled', params.autopilot);
-        }
-        return { success: true };
-      },
-    );
-  }
-
-  /** auth:setApiKey — store an API key for the given provider */
-  private registerSetApiKey(): void {
-    this.rpcHandler.registerMethod<
-      { provider: string; apiKey: string },
-      { success: boolean; error?: string }
-    >('auth:setApiKey', async (params) => {
-      try {
-        const authSecrets = this.container.resolve<IAuthSecretsService>(
-          TOKENS.AUTH_SECRETS_SERVICE,
-        );
-        if (params?.apiKey?.trim()) {
-          await authSecrets.setProviderKey(params.provider, params.apiKey);
-        } else {
-          await authSecrets.deleteProviderKey(params.provider);
-        }
-        return { success: true };
-      } catch (error) {
-        this.logger.error('[Electron RPC] auth:setApiKey failed', {
-          provider: params?.provider,
-          error: error instanceof Error ? error.message : String(error),
-        } as unknown as Error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
-    });
-  }
-
-  /** auth:getStatus — simple auth status for the active provider */
-  private registerGetStatus(): void {
-    this.rpcHandler.registerMethod<
-      Record<string, never>,
-      { isAuthenticated: boolean; provider: string; hasApiKey: boolean }
-    >('auth:getStatus', async () => {
-      try {
-        const authSecrets = this.container.resolve<IAuthSecretsService>(
-          TOKENS.AUTH_SECRETS_SERVICE,
-        );
-        const configManager = this.container.resolve<ConfigManager>(
-          TOKENS.CONFIG_MANAGER,
-        );
-        const provider = configManager.getWithDefault<string>(
-          'anthropicProviderId',
-          DEFAULT_PROVIDER_ID,
-        );
-        const hasApiKey = await authSecrets.hasProviderKey(provider);
-        return { isAuthenticated: hasApiKey, provider, hasApiKey };
-      } catch (error) {
-        this.logger.error('[Electron RPC] auth:getStatus failed', {
-          error: error instanceof Error ? error.message : String(error),
-        } as unknown as Error);
-        return {
-          isAuthenticated: false,
-          provider: DEFAULT_PROVIDER_ID,
-          hasApiKey: false,
-        };
-      }
-    });
   }
 
   /**

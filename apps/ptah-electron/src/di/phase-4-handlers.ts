@@ -59,7 +59,6 @@ import {
   FileRpcHandlers,
   ConfigExtendedRpcHandlers,
   CommandRpcHandlers,
-  SettingsRpcHandlers,
   AgentRpcHandlers,
   SkillsShRpcHandlers,
   LayoutRpcHandlers,
@@ -246,7 +245,6 @@ export function registerPhase4Handlers(
       ),
   });
   container.registerSingleton(CommandRpcHandlers);
-  container.registerSingleton(SettingsRpcHandlers);
   container.registerSingleton(AgentRpcHandlers);
   container.registerSingleton(SkillsShRpcHandlers);
   container.registerSingleton(LayoutRpcHandlers);
@@ -273,7 +271,6 @@ export function registerPhase4Handlers(
         'FileRpcHandlers',
         'ConfigExtendedRpcHandlers',
         'CommandRpcHandlers',
-        'SettingsRpcHandlers',
         'AgentRpcHandlers',
         'SkillsShRpcHandlers',
         'LayoutRpcHandlers',

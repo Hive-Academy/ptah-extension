@@ -45,3 +45,6 @@ export { GitRpcHandlers } from './git-rpc.handlers';
 
 // Workspace handlers (TASK_2026_104 Sub-batch B5a — lifted from Electron app)
 export { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
+
+// Settings handlers (TASK_2026_107 Bug 6 — lifted from Electron app)
+export { SettingsRpcHandlers } from './settings-rpc.handlers';
