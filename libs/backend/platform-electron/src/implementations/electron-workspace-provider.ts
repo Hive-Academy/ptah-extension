@@ -32,8 +32,8 @@ import type {
 import {
   createEvent,
   PtahFileSettingsManager,
-  FILE_BASED_SETTINGS_KEYS,
   FILE_BASED_SETTINGS_DEFAULTS,
+  isFileBasedSettingKey,
 } from '@ptah-extension/platform-core';
 
 export class ElectronWorkspaceProvider
@@ -92,7 +92,7 @@ export class ElectronWorkspaceProvider
     defaultValue?: T,
   ): T | undefined {
     // Route file-based settings to PtahFileSettingsManager
-    if (section === 'ptah' && FILE_BASED_SETTINGS_KEYS.has(key)) {
+    if (section === 'ptah' && isFileBasedSettingKey(key)) {
       return this.fileSettings.get<T>(key, defaultValue);
     }
     const sectionConfig = this.config[section];
@@ -216,7 +216,7 @@ export class ElectronWorkspaceProvider
     value: unknown,
   ): Promise<void> {
     // Route file-based settings to PtahFileSettingsManager
-    if (section === 'ptah' && FILE_BASED_SETTINGS_KEYS.has(key)) {
+    if (section === 'ptah' && isFileBasedSettingKey(key)) {
       await this.fileSettings.set(key, value);
       const fullKey = `${section}.${key}`;
       this.fireConfigChange({

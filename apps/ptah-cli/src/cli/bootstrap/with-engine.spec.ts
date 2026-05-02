@@ -484,6 +484,71 @@ describe('withEngine', () => {
       stderrSpy.mockRestore();
     });
 
+    it('mode=full + requireSdk=false skips initialize() AND dispose()', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      let captured: FakeContainer | undefined;
+      const initSpy = jest.fn(async () => true);
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = initSpy;
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        captured = c;
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', requireSdk: false, bootstrap: wrapped },
+        async () => undefined,
+      );
+
+      // No init, no dispose — auth-bootstrap commands MUST be able to run before
+      // the SDK is configured.
+      expect(initSpy).not.toHaveBeenCalled();
+      expect(captured?.__sdkAdapter.dispose).not.toHaveBeenCalled();
+    });
+
+    it('mode=full + requireSdk=false does NOT throw even if initialize() would have failed', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const initSpy = jest.fn(async () => false);
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = initSpy;
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        return result;
+      };
+
+      await expect(
+        withEngine(
+          baseGlobals,
+          { mode: 'full', requireSdk: false, bootstrap: wrapped },
+          async () => 'ran',
+        ),
+      ).resolves.toBe('ran');
+      expect(initSpy).not.toHaveBeenCalled();
+    });
+
+    it('mode=full + requireSdk=true (explicit) still calls initialize()', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const initSpy = jest.fn(async () => true);
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = initSpy;
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', requireSdk: true, bootstrap: wrapped },
+        async () => undefined,
+      );
+      expect(initSpy).toHaveBeenCalledTimes(1);
+    });
+
     it('calls SDK adapter dispose() on the success teardown path', async () => {
       const { bootstrap } = makeFakeBootstrap();
       let captured: FakeContainer | undefined;

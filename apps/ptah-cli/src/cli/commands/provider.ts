@@ -44,10 +44,23 @@ export type ProviderSubcommand =
   | 'remove-key'
   | 'default'
   | 'models'
-  | 'tier';
+  | 'tier'
+  | 'base-url'
+  | 'ollama';
 
-/** Action argument for nested sub-commands (`default get/set`, `models list`, `tier set/get/clear`). */
-export type ProviderAction = 'get' | 'set' | 'list' | 'clear';
+/**
+ * Action argument for nested sub-commands (`default get/set`, `models list`,
+ * `tier set/get/clear`, `base-url set/get/clear`, `ollama
+ * set-endpoint/get-endpoint/clear-endpoint`).
+ */
+export type ProviderAction =
+  | 'get'
+  | 'set'
+  | 'list'
+  | 'clear'
+  | 'set-endpoint'
+  | 'get-endpoint'
+  | 'clear-endpoint';
 
 /** Tier slot accepted by `provider:setModelTier` / `provider:clearModelTier`. */
 export type ProviderTier = 'sonnet' | 'opus' | 'haiku' | string;
@@ -64,6 +77,12 @@ export interface ProviderOptions {
   model?: string;
   /** Tier slot (for tier set --tier). */
   tier?: ProviderTier;
+  /**
+   * Base URL override (for `set-key --base-url`, `base-url set <provider>
+   * <url>`, and `ollama set-endpoint <url>`). When supplied via `set-key` the
+   * value is persisted after the API key write succeeds.
+   */
+  baseUrl?: string;
 }
 
 /** Stderr stream contract — narrowed for testability. */
@@ -111,6 +130,10 @@ export async function execute(
         return await runModels(opts, formatter, globals, stderr, engine);
       case 'tier':
         return await runTier(opts, formatter, globals, stderr, engine);
+      case 'base-url':
+        return await runBaseUrl(opts, formatter, globals, stderr, engine);
+      case 'ollama':
+        return await runOllama(opts, formatter, globals, stderr, engine);
       default:
         stderr.write(
           `ptah provider: unknown sub-command '${String(opts.subcommand)}'\n`,
@@ -136,7 +159,7 @@ async function runStatus(
   globals: GlobalOptions,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const status = await callRpc(
       ctx.transport,
       'llm:getProviderStatus',
@@ -173,7 +196,12 @@ async function runSetKey(
     return ExitCode.UsageError;
   }
 
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  const baseUrlOverride =
+    typeof opts.baseUrl === 'string' && opts.baseUrl.trim().length > 0
+      ? opts.baseUrl.trim()
+      : undefined;
+
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<{ success: boolean; error?: string }>(
       ctx.transport,
       'llm:setApiKey',
@@ -187,6 +215,30 @@ async function runSetKey(
       });
       return ExitCode.InternalFailure;
     }
+    // Optionally persist the base URL override AFTER the api key write
+    // succeeds. Failure here surfaces as a separate task.error so the user
+    // can re-run `provider base-url set` without re-supplying the key.
+    if (baseUrlOverride !== undefined) {
+      const baseResult = await callRpc<{ success: boolean; error?: string }>(
+        ctx.transport,
+        'llm:setProviderBaseUrl',
+        { provider, baseUrl: baseUrlOverride },
+      );
+      if (!baseResult.success) {
+        await formatter.writeNotification('task.error', {
+          provider,
+          ptah_code: 'internal_failure',
+          message:
+            baseResult.error ?? 'llm:setProviderBaseUrl returned success=false',
+        });
+        return ExitCode.InternalFailure;
+      }
+      await formatter.writeNotification('provider.base_url.set', {
+        provider,
+        baseUrl: baseUrlOverride,
+        success: true,
+      });
+    }
     // SECURITY: never echo the api key back — only the provider name.
     await formatter.writeNotification('provider.key.set', {
       provider,
@@ -194,6 +246,204 @@ async function runSetKey(
     });
     return ExitCode.Success;
   });
+}
+
+// ---------------------------------------------------------------------------
+// `provider base-url {set|get|clear}`
+// ---------------------------------------------------------------------------
+
+async function runBaseUrl(
+  opts: ProviderOptions,
+  formatter: Formatter,
+  globals: GlobalOptions,
+  stderr: ProviderStderrLike,
+  engine: typeof withEngine,
+): Promise<number> {
+  const action = opts.action;
+  const provider = (opts.provider ?? '').trim();
+
+  if (action === 'get') {
+    if (!provider) {
+      stderr.write('ptah provider base-url get: --provider is required\n');
+      return ExitCode.UsageError;
+    }
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+      const result = await callRpc<{
+        baseUrl: string | null;
+        defaultBaseUrl: string | null;
+      }>(ctx.transport, 'llm:getProviderBaseUrl', { provider });
+      await formatter.writeNotification('provider.base_url', {
+        provider,
+        baseUrl: result.baseUrl,
+        defaultBaseUrl: result.defaultBaseUrl,
+      });
+      return ExitCode.Success;
+    });
+  }
+
+  if (action === 'set') {
+    const baseUrl = (opts.baseUrl ?? '').trim();
+    if (!provider) {
+      stderr.write('ptah provider base-url set: --provider is required\n');
+      return ExitCode.UsageError;
+    }
+    if (!baseUrl) {
+      stderr.write('ptah provider base-url set: <url> is required\n');
+      return ExitCode.UsageError;
+    }
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+      const result = await callRpc<{ success: boolean; error?: string }>(
+        ctx.transport,
+        'llm:setProviderBaseUrl',
+        { provider, baseUrl },
+      );
+      if (!result.success) {
+        await formatter.writeNotification('task.error', {
+          provider,
+          ptah_code: 'internal_failure',
+          message:
+            result.error ?? 'llm:setProviderBaseUrl returned success=false',
+        });
+        return ExitCode.InternalFailure;
+      }
+      await formatter.writeNotification('provider.base_url.set', {
+        provider,
+        baseUrl,
+        success: true,
+      });
+      return ExitCode.Success;
+    });
+  }
+
+  if (action === 'clear') {
+    if (!provider) {
+      stderr.write('ptah provider base-url clear: --provider is required\n');
+      return ExitCode.UsageError;
+    }
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+      const result = await callRpc<{ success: boolean; error?: string }>(
+        ctx.transport,
+        'llm:clearProviderBaseUrl',
+        { provider },
+      );
+      if (!result.success) {
+        await formatter.writeNotification('task.error', {
+          provider,
+          ptah_code: 'internal_failure',
+          message:
+            result.error ?? 'llm:clearProviderBaseUrl returned success=false',
+        });
+        return ExitCode.InternalFailure;
+      }
+      await formatter.writeNotification('provider.base_url.cleared', {
+        provider,
+        success: true,
+      });
+      return ExitCode.Success;
+    });
+  }
+
+  stderr.write(
+    `ptah provider base-url: unknown action '${String(action)}' (expected get|set|clear)\n`,
+  );
+  return ExitCode.UsageError;
+}
+
+// ---------------------------------------------------------------------------
+// `provider ollama {set-endpoint <url>|get-endpoint|clear-endpoint}`
+//
+// Convenience facade over `provider base-url ...` with `provider: 'ollama'`
+// hardcoded. Routes through the same `llm:*ProviderBaseUrl` RPCs so users
+// pointing at a remote Ollama instance get the same override resolution as
+// every other provider.
+// ---------------------------------------------------------------------------
+
+const OLLAMA_PROVIDER_ID = 'ollama';
+
+async function runOllama(
+  opts: ProviderOptions,
+  formatter: Formatter,
+  globals: GlobalOptions,
+  stderr: ProviderStderrLike,
+  engine: typeof withEngine,
+): Promise<number> {
+  const action = opts.action;
+
+  if (action === 'set-endpoint') {
+    const baseUrl = (opts.baseUrl ?? '').trim();
+    if (!baseUrl) {
+      stderr.write('ptah provider ollama set-endpoint: <url> is required\n');
+      return ExitCode.UsageError;
+    }
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+      const result = await callRpc<{ success: boolean; error?: string }>(
+        ctx.transport,
+        'llm:setProviderBaseUrl',
+        { provider: OLLAMA_PROVIDER_ID, baseUrl },
+      );
+      if (!result.success) {
+        await formatter.writeNotification('task.error', {
+          provider: OLLAMA_PROVIDER_ID,
+          ptah_code: 'internal_failure',
+          message:
+            result.error ?? 'llm:setProviderBaseUrl returned success=false',
+        });
+        return ExitCode.InternalFailure;
+      }
+      await formatter.writeNotification('provider.ollama.endpoint.set', {
+        provider: OLLAMA_PROVIDER_ID,
+        baseUrl,
+        success: true,
+      });
+      return ExitCode.Success;
+    });
+  }
+
+  if (action === 'get-endpoint') {
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+      const result = await callRpc<{
+        baseUrl: string | null;
+        defaultBaseUrl: string | null;
+      }>(ctx.transport, 'llm:getProviderBaseUrl', {
+        provider: OLLAMA_PROVIDER_ID,
+      });
+      await formatter.writeNotification('provider.ollama.endpoint', {
+        provider: OLLAMA_PROVIDER_ID,
+        baseUrl: result.baseUrl,
+        defaultBaseUrl: result.defaultBaseUrl,
+      });
+      return ExitCode.Success;
+    });
+  }
+
+  if (action === 'clear-endpoint') {
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+      const result = await callRpc<{ success: boolean; error?: string }>(
+        ctx.transport,
+        'llm:clearProviderBaseUrl',
+        { provider: OLLAMA_PROVIDER_ID },
+      );
+      if (!result.success) {
+        await formatter.writeNotification('task.error', {
+          provider: OLLAMA_PROVIDER_ID,
+          ptah_code: 'internal_failure',
+          message:
+            result.error ?? 'llm:clearProviderBaseUrl returned success=false',
+        });
+        return ExitCode.InternalFailure;
+      }
+      await formatter.writeNotification('provider.ollama.endpoint.cleared', {
+        provider: OLLAMA_PROVIDER_ID,
+        success: true,
+      });
+      return ExitCode.Success;
+    });
+  }
+
+  stderr.write(
+    `ptah provider ollama: unknown action '${String(action)}' (expected set-endpoint|get-endpoint|clear-endpoint)\n`,
+  );
+  return ExitCode.UsageError;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +463,7 @@ async function runRemoveKey(
     return ExitCode.UsageError;
   }
 
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<{ success: boolean; error?: string }>(
       ctx.transport,
       'llm:removeApiKey',
@@ -248,7 +498,7 @@ async function runDefault(
 ): Promise<number> {
   const action = opts.action;
   if (action === 'get') {
-    return engine(globals, { mode: 'full' }, async (ctx) => {
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
       const result = await callRpc<{ provider: string }>(
         ctx.transport,
         'llm:getDefaultProvider',
@@ -266,7 +516,7 @@ async function runDefault(
       stderr.write('ptah provider default set: provider id is required\n');
       return ExitCode.UsageError;
     }
-    return engine(globals, { mode: 'full' }, async (ctx) => {
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
       const result = await callRpc<{ success: boolean; error?: string }>(
         ctx.transport,
         'llm:setDefaultProvider',
@@ -317,7 +567,7 @@ async function runModels(
     return ExitCode.UsageError;
   }
 
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<{
       models: Array<{ id: string; displayName?: string }>;
       error?: string;
@@ -361,7 +611,7 @@ async function runTier(
       stderr.write('ptah provider tier set: --model is required\n');
       return ExitCode.UsageError;
     }
-    return engine(globals, { mode: 'full' }, async (ctx) => {
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
       const result = await callRpc<{ success: boolean; error?: string }>(
         ctx.transport,
         'provider:setModelTier',
@@ -384,7 +634,7 @@ async function runTier(
     });
   }
   if (action === 'get') {
-    return engine(globals, { mode: 'full' }, async (ctx) => {
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
       const tiers = await callRpc<unknown>(
         ctx.transport,
         'provider:getModelTiers',
@@ -402,7 +652,7 @@ async function runTier(
       stderr.write('ptah provider tier clear: --tier is required\n');
       return ExitCode.UsageError;
     }
-    return engine(globals, { mode: 'full' }, async (ctx) => {
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
       const result = await callRpc<{ success: boolean; error?: string }>(
         ctx.transport,
         'provider:clearModelTier',

@@ -19,6 +19,7 @@ import type { DependencyContainer } from 'tsyringe';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { TOKENS, SentryService } from '@ptah-extension/vscode-core';
+import { fixPath } from '@ptah-extension/agent-sdk';
 import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
 
@@ -40,6 +41,14 @@ export interface BootstrapResult {
 export async function bootstrapElectron(
   getMainWindow: () => BrowserWindow | null,
 ): Promise<BootstrapResult> {
+  // PHASE 0: Repair process.env.PATH on Linux/macOS when launched from a
+  // GUI launcher (Activities, dock, Finder). Without this, npm-installed
+  // CLIs (Gemini, Codex, Copilot, Cursor) are not discoverable because
+  // ~/.bashrc / ~/.zshrc are not sourced for GUI-launched processes.
+  // Must run BEFORE DI container creation so CliDetectionService sees the
+  // repaired PATH on its first detect() call. No-op on Windows.
+  fixPath();
+
   // PHASE 1: Parse command-line args
   const workspacePath = process.argv.find(
     (arg) =>

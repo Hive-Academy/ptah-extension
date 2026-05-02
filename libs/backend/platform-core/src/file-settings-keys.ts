@@ -194,3 +194,24 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // Editor preferences (TASK_2025_283)
   'editor.vimMode': false,
 };
+
+/**
+ * Pattern for per-provider base URL override keys.
+ *
+ * Matches `provider.<providerId>.baseUrl` for any provider id. This lets the
+ * CLI parity work (`provider base-url set <provider> <url>`) accept arbitrary
+ * provider names without enumerating every entry from ANTHROPIC_PROVIDERS.
+ */
+const PROVIDER_BASE_URL_PATTERN = /^provider\.[a-z0-9-]+\.baseUrl$/;
+
+/**
+ * Returns true when the given settings key should be routed to file-based
+ * storage (~/.ptah/settings.json). Prefer this over `FILE_BASED_SETTINGS_KEYS.has()`
+ * directly so dynamic key families (e.g. provider base URL overrides) are
+ * resolved consistently across all platform workspace providers.
+ */
+export function isFileBasedSettingKey(key: string): boolean {
+  if (FILE_BASED_SETTINGS_KEYS.has(key)) return true;
+  if (PROVIDER_BASE_URL_PATTERN.test(key)) return true;
+  return false;
+}
