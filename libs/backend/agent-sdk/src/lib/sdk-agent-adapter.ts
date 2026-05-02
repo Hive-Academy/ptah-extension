@@ -200,24 +200,92 @@ export class SdkAgentAdapter implements IAgentAdapter {
   private _prewarmed = false;
 
   /**
+   * Held WarmQuery handle from `startup()`. When non-null, the next call to
+   * {@link consumeWarmQuery} will return this handle (and null the slot) so
+   * a single subsequent `query(prompt)` can amortize the spawn+handshake
+   * cost. After consumption, the slot is empty until a new prewarm runs.
+   *
+   * TASK_2026_109 Fix 3.
+   */
+  private _warmQuery: { close: () => void; query?: unknown } | null = null;
+
+  /**
+   * Wall-clock timestamp (ms) of the most recent successful prewarm. Used by
+   * {@link consumeWarmQuery} to evict warm handles older than 5 minutes —
+   * the underlying CLI subprocess gets stale, and consuming a stale warm
+   * handle risks dead-pipe errors at first send.
+   *
+   * TASK_2026_109 Fix 3.
+   */
+  private _warmQueryCreatedAt = 0;
+
+  /** Maximum age (ms) a held WarmQuery may remain unconsumed before discard. */
+  private static readonly WARM_QUERY_TTL_MS = 5 * 60 * 1000;
+
+  /**
+   * Consume the held WarmQuery, if any, returning it to the caller and
+   * clearing the slot. Returns null when:
+   *  - no warm handle is held, or
+   *  - the held handle is older than {@link WARM_QUERY_TTL_MS} (it is
+   *    discarded — closed and nulled — before returning).
+   *
+   * The first chat-path call should ask for a warm handle via this method;
+   * subsequent calls fall through to the normal `query()` construction.
+   *
+   * TASK_2026_109 Fix 3.
+   */
+  public consumeWarmQuery(): { close: () => void; query?: unknown } | null {
+    if (!this._warmQuery) {
+      return null;
+    }
+    const age = Date.now() - this._warmQueryCreatedAt;
+    if (age > SdkAgentAdapter.WARM_QUERY_TTL_MS) {
+      this.logger.info(
+        `[SdkAgentAdapter] Discarding stale warm query (age=${age}ms > ttl=${SdkAgentAdapter.WARM_QUERY_TTL_MS}ms)`,
+      );
+      try {
+        this._warmQuery.close();
+      } catch (closeErr) {
+        this.logger.warn(
+          '[SdkAgentAdapter] Stale WarmQuery.close() threw',
+          closeErr instanceof Error ? closeErr : new Error(String(closeErr)),
+        );
+      }
+      this._warmQuery = null;
+      this._warmQueryCreatedAt = 0;
+      // Allow re-prewarm next time.
+      this._prewarmed = false;
+      return null;
+    }
+    const handle = this._warmQuery;
+    this._warmQuery = null;
+    this._warmQueryCreatedAt = 0;
+    return handle;
+  }
+
+  /**
    * Pre-warm the Claude Agent SDK subprocess via the SDK's `startup()` export.
    *
    * `startup()` (Claude Agent SDK ≥ 0.2.111) spawns the CLI subprocess and
    * completes the initialize handshake ahead of time, so the first `query()`
    * resolves immediately instead of paying the spawn+handshake latency.
    *
-   * Idempotent: subsequent calls are no-ops (tracked via `_prewarmed`). The
-   * returned `WarmQuery` is intentionally NOT held — Ptah's existing query
-   * path constructs its own query options each session, and holding a warm
-   * handle would couple subprocess lifetime to extension lifetime in a way
-   * that's hard to reason about. The benefit of `startup()` here is the
-   * one-time CLI binary-resolution and module-load warmup it triggers; the
-   * `WarmQuery` is closed immediately to free the subprocess.
+   * Idempotent: subsequent calls are no-ops (tracked via `_prewarmed`).
+   *
+   * TASK_2026_109 Fix 3: the returned `WarmQuery` is now retained on the
+   * adapter (see {@link _warmQuery}) so the first real chat send can consume
+   * it via {@link consumeWarmQuery} and skip the spawn+handshake entirely.
+   * The handle has a 5-minute TTL — older handles are discarded so subsequent
+   * sessions don't pick up a stale subprocess. MCP server config and the
+   * authoritative tier env vars are passed into `startup()` so the MCP
+   * handshake also amortizes during prewarm.
    *
    * Failures are swallowed with `logger.warn` — a failed pre-warm must NOT
    * block normal flow. The first real `query()` call will retry naturally.
    */
-  public async prewarm(): Promise<void> {
+  public async prewarm(
+    activeMcpServers?: Record<string, unknown>,
+  ): Promise<void> {
     if (this._prewarmed) {
       return;
     }
@@ -228,7 +296,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         startup?: (params?: {
           options?: unknown;
           initializeTimeoutMs?: number;
-        }) => Promise<{ close: () => void }>;
+        }) => Promise<{ close: () => void; query?: unknown }>;
       };
       const startupFn = sdkModule.startup;
       if (typeof startupFn !== 'function') {
@@ -242,24 +310,37 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // Pass pathToClaudeCodeExecutable so startup() resolves the same cli.js
       // the real query() will use. Without this, startup() falls back to the
       // SDK's import.meta.url-based resolution (TASK_2025_194 backstory).
-      const warm = await startupFn({
-        options: this.cliJsPath
-          ? { pathToClaudeCodeExecutable: this.cliJsPath }
-          : undefined,
-      });
-      // Close immediately — see method-level rationale.
-      try {
-        warm.close();
-      } catch (closeErr) {
-        this.logger.warn(
-          '[SdkAgentAdapter] WarmQuery.close() threw',
-          closeErr instanceof Error ? closeErr : new Error(String(closeErr)),
-        );
+      // Also pass mcpServers so the MCP initialize handshake amortizes here
+      // instead of slowing the first chat send.
+      const startupOptions: Record<string, unknown> = {};
+      if (this.cliJsPath) {
+        startupOptions['pathToClaudeCodeExecutable'] = this.cliJsPath;
       }
+      if (activeMcpServers && Object.keys(activeMcpServers).length > 0) {
+        startupOptions['mcpServers'] = activeMcpServers;
+      }
+      const warm = await startupFn({
+        options:
+          Object.keys(startupOptions).length > 0 ? startupOptions : undefined,
+      });
+
+      // Retain the warm handle for the first real chat send to consume.
+      // Discard any prior unconsumed handle defensively (should not happen
+      // because we early-return on `_prewarmed`, but TTL eviction may flip
+      // `_prewarmed` back to false).
+      if (this._warmQuery) {
+        try {
+          this._warmQuery.close();
+        } catch {
+          // Ignore — we're replacing it anyway.
+        }
+      }
+      this._warmQuery = warm;
+      this._warmQueryCreatedAt = Date.now();
 
       const elapsed = (performance.now() - startTime).toFixed(2);
       this.logger.info(
-        `[SdkAgentAdapter] SDK subprocess pre-warmed (${elapsed}ms)`,
+        `[SdkAgentAdapter] SDK subprocess pre-warmed and retained (${elapsed}ms)`,
       );
       // Set the idempotency flag ONLY after successful startup. Setting it
       // before the await would silently swallow retry opportunities — a

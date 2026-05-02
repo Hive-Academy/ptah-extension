@@ -1,969 +1,129 @@
 /**
- * Agent Session Watcher Service
+ * Agent Session Watcher Service — NO-OP SHELL (TASK_2026_109 Fix 2)
  *
- * Watches for agent JSONL files during streaming to provide real-time
- * summary content updates. When a subagent starts (via SDK SubagentStart hook),
- * this service watches the sessions directory for new agent-{agent_id}.jsonl
- * files and streams their text content (summary) to the frontend.
+ * The original implementation tail-watched per-agent JSONL files written by
+ * the Claude Agent SDK at `~/.claude/projects/{slug}/{sessionId}/subagents/agent-{id}.jsonl`
+ * and re-emitted their text deltas as `summary-chunk` events so the chat UI
+ * could show subagent thinking inline.
  *
- * Flow:
- * 1. SubagentStart hook fires -> startWatching(agentId, sessionId, workspacePath, toolUseId?)
- * 2. New agent file appears -> match by agentId pattern, start tailing
- * 3. File grows -> extract text blocks, emit summary chunks with toolUseId
- * 4. SubagentStop hook fires -> setToolUseId(agentId, toolUseId), stopWatching(agentId)
+ * That mechanism is now obsolete: `SdkQueryOptionsBuilder` enables
+ * `forwardSubagentText: true` on every SDK query, which causes subagent text
+ * blocks to stream inline through the parent message stream. The
+ * `SdkMessageTransformer` (and downstream consumers) see those blocks
+ * directly — no out-of-band file watching is required.
  *
- * Note: toolUseId may not be available at SubagentStart but is always
- * available at SubagentStop. Use setToolUseId() for late binding.
+ * This file retains the class shell, public method signatures, and
+ * EventEmitter surface so existing consumers (chat-stream-broadcaster,
+ * chat-session.service, chat-subagent-context-injector,
+ * chat-slash-command-router, chat-ptah-cli.service, session-control.service,
+ * session-lifecycle-manager, subagent-hook-handler) keep compiling without a
+ * coordinated cross-library refactor. All methods are now no-ops; no events
+ * are emitted; no file system watchers are created.
  *
- * Wave C7a (TASK_2025_291): Split into a thin coordinator + two helpers:
- *  - `./agent-session-watcher/agent-jsonl-parser.ts` — pure stateless
- *    parsing, session-directory resolution, UUID-like matching, label
- *    formatting.
- *  - `./agent-session-watcher/jsonl-tail-reader.ts` — per-file tailing
- *    loop + incremental JSONL parsing.
- *
- * This file retains:
- *  - The `@injectable()` service class + EventEmitter surface
- *  - `fs.watch` lifecycle (main + subagents/ watchers)
- *  - Active/pending watch maps + cleanup timeouts
- *  - All public methods (byte-for-byte signatures)
+ * Future work: a follow-up task should drop these call sites entirely and
+ * delete this file.
  */
 
 import { injectable, inject } from 'tsyringe';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { EventEmitter } from 'events';
 import type { Logger } from '../logging/logger';
 import { TOKENS } from '../di/tokens';
-import {
-  extractSessionIdFromFile,
-  findSessionsDirectory,
-  formatAgentDescription,
-  isUuidLike,
-  delay,
-  type AgentContentBlock,
-} from './agent-session-watcher/agent-jsonl-parser';
-import {
-  startTailingFile as tailStartTailingFile,
-  type ActiveWatch,
-} from './agent-session-watcher/jsonl-tail-reader';
-
-// Re-export structural types for backward-compatible barrel consumers.
-export type { AgentContentBlock };
 
 /**
- * Configuration constants for agent session watching
+ * Structural type kept for barrel-export compatibility. Previously sourced
+ * from `./agent-session-watcher/agent-jsonl-parser`; that helper is gone.
  */
-const AGENT_WATCHER_CONSTANTS = {
-  /** Time window (ms) for matching agent files to active watches */
-  MATCH_WINDOW_MS: 30_000,
-  /** Cleanup timeout (ms) for pending agent files */
-  PENDING_CLEANUP_MS: 60_000,
-  /** Buffer size (bytes) for reading first line of agent file */
-  FIRST_LINE_BUFFER_SIZE: 4096,
-  /** Delay (ms) after file detection before reading */
-  FILE_DETECTION_DELAY_MS: 100,
-} as const;
+export interface AgentContentBlock {
+  type: 'text' | 'tool_use';
+  text?: string;
+  toolName?: string;
+  toolUseId?: string;
+  toolInput?: unknown;
+}
 
 /**
- * Summary chunk emitted when new content is found in agent file
- * TASK_2025_102: Now includes structured content blocks for proper interleaving.
+ * Summary chunk shape preserved for downstream type imports. No instances
+ * are emitted by this stub.
  */
 export interface AgentSummaryChunk {
-  /** The Task tool_use ID this summary belongs to */
   toolUseId: string;
-  /**
-   * New summary text to append (legacy - still used for simple cases)
-   * @deprecated Use contentBlocks for proper interleaving
-   */
+  /** @deprecated kept for type compatibility; never populated by stub */
   summaryDelta: string;
-  /**
-   * TASK_2025_102: Structured content blocks preserving text/tool interleaving.
-   * Each message from the agent file is parsed into ordered blocks:
-   * [text, tool_ref, text, tool_ref, ...]
-   * The frontend uses this to interleave text nodes between tool nodes.
-   */
   contentBlocks?: AgentContentBlock[];
-  /**
-   * Short agent identifier (e.g., "adcecb2") from SDK.
-   * Used as stable key for summary content lookup since toolCallId differs
-   * between hook (UUID) and complete message (toolu_* format).
-   * @see TASK_2025_099
-   */
   agentId: string;
-  /** Parent session ID for routing to correct tab in multi-tab scenarios */
   sessionId: string;
 }
 
 /**
- * Agent start event emitted when SubagentStart hook fires
- * TASK_2025_100 FIX: Emit agent_start event early so frontend can create
- * agent node BEFORE summary chunks arrive (fixes race condition)
+ * Agent start event shape preserved for downstream type imports. No
+ * instances are emitted by this stub.
  */
 export interface AgentStartEvent {
-  /** The Task tool_use ID this agent belongs to */
   toolUseId: string;
-  /** Agent type (e.g., 'Explore', 'Plan', 'software-architect') */
   agentType: string;
-  /** Agent description derived from agent type */
   agentDescription: string;
-  /** Timestamp when agent started */
   timestamp: number;
-  /** Parent session ID (for routing to correct tab) */
   sessionId: string;
-  /**
-   * Short agent identifier (e.g., "adcecb2") from SDK.
-   * Used as stable key for summary content since toolCallId differs
-   * between hook (UUID) and complete message (toolu_* format).
-   * @see TASK_2025_099
-   */
   agentId: string;
 }
 
 @injectable()
 export class AgentSessionWatcherService extends EventEmitter {
-  /** Active watches by agentId (primary key) */
-  private readonly activeWatches = new Map<string, ActiveWatch>();
-
-  /** Directory watcher instance (main sessions dir) */
-  private directoryWatcher: fs.FSWatcher | null = null;
-
-  /** Subagent directory watchers (nested {sessionId}/subagents/) */
-  private readonly subagentDirWatchers = new Map<string, fs.FSWatcher>();
-
-  /** Sessions directory being watched */
-  private watchedSessionsDir: string | null = null;
-
-  /** Pending agent matches (files detected before we know which toolUseId they belong to) */
-  private readonly pendingAgentFiles = new Map<
-    string,
-    { filePath: string; sessionId: string; detectedAt: number }
-  >();
-
-  /** Tracked timeout IDs for cleanup on dispose (prevents memory leaks) */
-  private readonly pendingCleanupTimeouts = new Set<NodeJS.Timeout>();
-
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     super();
+    this.logger.debug(
+      '[AgentSessionWatcher] Stub instantiated — JSONL tail-watching disabled (forwardSubagentText handles subagent text inline now)',
+    );
   }
 
   /**
-   * Start watching for an agent's session file
-   *
-   * Called when SubagentStart hook fires from the SDK.
-   * Starts watching the sessions directory for agent-{agent_id}.jsonl files.
-   *
-   * TASK_2025_100 FIX: Also emits 'agent-start' event so frontend can create
-   * agent node BEFORE summary chunks arrive (fixes race condition where
-   * summary chunks were buffered because no agent node existed).
-   *
-   * @param agentId - The unique agent identifier (primary key)
-   * @param sessionId - The main session ID (for context)
-   * @param workspacePath - Workspace path to find sessions directory
-   * @param agentType - Agent type (e.g., 'Explore', 'Plan')
-   * @param toolUseId - Optional Task tool_use ID (may be set later via setToolUseId)
+   * No-op. Subagent text now arrives inline via `forwardSubagentText: true`
+   * on the parent SDK stream — no file watching is needed.
    */
   async startWatching(
-    agentId: string,
-    sessionId: string,
-    workspacePath: string,
-    agentType: string,
-    toolUseId?: string,
+    _agentId: string,
+    _sessionId: string,
+    _workspacePath: string,
+    _agentType: string,
+    _toolUseId?: string,
   ): Promise<void> {
-    // DIAGNOSTIC: INFO level to trace execution
-    this.logger.info('[AgentSessionWatcher] >>> startWatching CALLED <<<', {
-      agentId,
-      sessionId,
-      agentType,
-      toolUseId: toolUseId ?? null,
-      workspacePath,
-    });
+    return;
+  }
 
-    const startTime = Date.now();
+  /** No-op. Late toolUseId binding is irrelevant without file watchers. */
+  setToolUseId(_agentId: string, _toolUseId: string): void {
+    return;
+  }
 
-    // Create watch entry keyed by agentId
-    this.activeWatches.set(agentId, {
-      agentId,
-      sessionId,
-      toolUseId: toolUseId ?? null,
-      agentType,
-      startTime,
-      agentFilePath: null,
-      fileOffset: 0,
-      summaryContent: '',
-      tailInterval: null,
-      incompleteLineBuffer: '', // TASK_2025_102: Initialize buffer for partial lines
-    });
+  /** No-op. Nothing is being watched. */
+  stopWatching(_agentId: string): void {
+    return;
+  }
 
-    // TASK_2025_100 FIX: Emit agent-start event so frontend can create agent node
-    // BEFORE summary chunks arrive. This fixes the race condition.
-    if (toolUseId) {
-      const agentDescription = formatAgentDescription(agentType);
-      const agentStartEvent: AgentStartEvent = {
-        toolUseId,
-        agentType,
-        agentDescription,
-        timestamp: startTime,
-        sessionId, // Parent session ID for tab routing
-        agentId, // TASK_2025_099: Include agentId for stable summary lookup
-      };
+  /** No-op. Nothing is being watched per session. */
+  stopAllForSession(_sessionId: string): void {
+    return;
+  }
 
-      this.logger.debug('AgentSessionWatcher: Emitting agent-start event', {
-        agentId,
-        toolUseId,
-        agentType,
-        sessionId,
-      });
-
-      this.emit('agent-start', agentStartEvent);
-    }
-
-    // Ensure we're watching the sessions directory
-    await this.ensureDirectoryWatcher(workspacePath);
-
-    // Check if there are any pending files that match this agent
-    // (agent file may have been created before we started watching)
-    this.matchPendingFiles(agentId);
+  /** No-op. Background-state tracking moved to SubagentRegistryService. */
+  markAsBackground(_agentId: string): void {
+    return;
   }
 
   /**
-   * Set the toolUseId for an active watch
-   *
-   * Called when SubagentStop hook provides the toolUseId (late binding).
-   * This enables proper UI routing for summary chunks.
-   *
-   * @param agentId - The unique agent identifier
-   * @param toolUseId - The Task tool_use ID to associate
-   */
-  setToolUseId(agentId: string, toolUseId: string): void {
-    const watch = this.activeWatches.get(agentId);
-    if (!watch) {
-      this.logger.debug(
-        'AgentSessionWatcher: setToolUseId called for unknown agent',
-        {
-          agentId,
-          toolUseId,
-        },
-      );
-      return;
-    }
-
-    this.logger.debug('AgentSessionWatcher: Setting toolUseId for agent', {
-      agentId,
-      toolUseId,
-      previousToolUseId: watch.toolUseId,
-    });
-
-    watch.toolUseId = toolUseId;
-  }
-
-  /**
-   * Stop watching for an agent's session file
-   *
-   * Called when SubagentStop hook fires (agent completed).
-   * Stops tailing the file and cleans up.
-   *
-   * @param agentId - The unique agent identifier
-   */
-  stopWatching(agentId: string): void {
-    const watch = this.activeWatches.get(agentId);
-    if (!watch) return;
-
-    this.logger.debug('AgentSessionWatcher: Stopping watch', {
-      agentId,
-      toolUseId: watch.toolUseId,
-      hadFile: !!watch.agentFilePath,
-      summaryLength: watch.summaryContent.length,
-    });
-
-    // Clear tail interval
-    if (watch.tailInterval) {
-      clearInterval(watch.tailInterval);
-    }
-
-    // Remove from active watches
-    this.activeWatches.delete(agentId);
-
-    // If no more active watches, stop directory watcher
-    if (this.activeWatches.size === 0) {
-      this.stopDirectoryWatcher();
-    }
-  }
-
-  /**
-   * Stop all watches associated with a given session ID.
-   *
-   * TASK_2025_175: Called when a session is aborted to ensure all agent
-   * watchers (including background agents) are cleaned up. Without this,
-   * background agent watchers continue tailing files and emitting events
-   * to a dead session indefinitely.
-   *
-   * @param sessionId - The session ID whose watches should be stopped
-   */
-  stopAllForSession(sessionId: string): void {
-    const agentIdsToStop: string[] = [];
-
-    for (const [agentId, watch] of this.activeWatches) {
-      if (watch.sessionId === sessionId) {
-        agentIdsToStop.push(agentId);
-      }
-    }
-
-    if (agentIdsToStop.length === 0) {
-      return;
-    }
-
-    this.logger.info('[AgentSessionWatcher] Stopping all watches for session', {
-      sessionId,
-      agentCount: agentIdsToStop.length,
-      agentIds: agentIdsToStop,
-    });
-
-    for (const agentId of agentIdsToStop) {
-      try {
-        this.stopWatching(agentId);
-      } catch (err) {
-        // TASK_2025_175: Don't let one failure prevent cleanup of remaining watches
-        this.logger.warn(
-          '[AgentSessionWatcher] Failed to stop watch for agent',
-          {
-            agentId,
-            error: err instanceof Error ? err.message : String(err),
-          },
-        );
-      }
-    }
-  }
-
-  /**
-   * Mark an agent as running in the background.
-   *
-   * Background agents are NOT stopped when stopWatching is called with
-   * their agentId from the normal flow. Instead, they continue to be
-   * watched until explicitly stopped via emitBackgroundAgentCompleted.
-   *
-   * @param agentId - The agent's short hex ID
-   */
-  markAsBackground(agentId: string): void {
-    const watch = this.activeWatches.get(agentId);
-    if (!watch) {
-      this.logger.debug(
-        '[AgentSessionWatcher] markAsBackground: watch not found',
-        { agentId },
-      );
-      return;
-    }
-
-    watch.isBackground = true;
-    this.logger.info('[AgentSessionWatcher] Agent marked as background', {
-      agentId,
-      toolUseId: watch.toolUseId,
-    });
-  }
-
-  /**
-   * Emit a background agent completed event.
-   *
-   * Called by SubagentHookHandler when a background agent's SubagentStop
-   * hook fires. Emits a 'background-agent-completed' event that can be
-   * picked up by ChatRpcHandlers to notify the webview.
-   *
-   * @param agentId - The agent's short hex ID
-   * @param toolCallId - The Task tool_use ID
-   * @param agentType - The agent subtype (e.g., 'Explore', 'software-architect')
+   * No-op. Background completion is observed through the SubagentStop hook
+   * and SubagentRegistryService directly — this event path is dormant.
    */
   emitBackgroundAgentCompleted(
-    agentId: string,
-    toolCallId: string,
-    agentType?: string,
+    _agentId: string,
+    _toolCallId: string,
+    _agentType?: string,
   ): void {
-    const watch = this.activeWatches.get(agentId);
-    const duration = watch
-      ? Date.now() - ((watch as { startedAt?: number }).startedAt ?? Date.now())
-      : undefined;
-
-    this.logger.info(
-      '[AgentSessionWatcher] Emitting background-agent-completed',
-      { agentId, toolCallId, agentType, duration },
-    );
-
-    this.emit('background-agent-completed', {
-      agentId,
-      toolCallId,
-      agentType: agentType || 'unknown',
-      duration,
-      summaryContent: watch?.summaryContent || '',
-      // TASK_2025_217: Include sessionId so the frontend store can properly
-      // associate the agent with a session even if the start event was missed
-      sessionId: watch?.sessionId || '',
-    });
+    return;
   }
 
-  /**
-   * Ensure we have a directory watcher running
-   */
-  private async ensureDirectoryWatcher(workspacePath: string): Promise<void> {
-    // DIAGNOSTIC: INFO level
-    this.logger.info('[AgentSessionWatcher] ensureDirectoryWatcher called', {
-      workspacePath,
-    });
-
-    const sessionsDir = await findSessionsDirectory(workspacePath);
-    if (!sessionsDir) {
-      // DIAGNOSTIC: WARN level - this is a problem!
-      this.logger.warn('[AgentSessionWatcher] Sessions directory NOT FOUND!', {
-        workspacePath,
-        homeDir: os.homedir(),
-        expectedPattern: workspacePath.replace(/[:\\/]/g, '-'),
-      });
-      return;
-    }
-
-    // Already watching this directory
-    if (this.watchedSessionsDir === sessionsDir && this.directoryWatcher) {
-      this.logger.info('[AgentSessionWatcher] Already watching directory', {
-        sessionsDir,
-      });
-      return;
-    }
-
-    // Stop existing watcher if watching different directory
-    this.stopDirectoryWatcher();
-
-    this.logger.info('[AgentSessionWatcher] Starting directory watcher', {
-      sessionsDir,
-    });
-
-    this.watchedSessionsDir = sessionsDir;
-
-    try {
-      // Watch the main sessions directory (legacy flat layout)
-      this.directoryWatcher = fs.watch(
-        sessionsDir,
-        (eventType, rawFilename) => {
-          // Normalize backslashes to forward slashes so pattern matching is
-          // identical on Windows and Unix. fs.watch on Windows can deliver
-          // platform-native separators in nested filenames; downstream regex/
-          // startsWith checks are written assuming forward-slash form.
-          const filename = rawFilename?.replace(/\\/g, '/');
-          // DIAGNOSTIC: Log ALL fs.watch events
-          this.logger.info('[AgentSessionWatcher] fs.watch event', {
-            eventType,
-            filename,
-            isAgentFile: filename?.startsWith('agent-'),
-          });
-
-          if (
-            eventType === 'rename' &&
-            filename?.startsWith('agent-') &&
-            filename.endsWith('.jsonl')
-          ) {
-            void this.handleNewAgentFile(sessionsDir, filename);
-          }
-
-          // When a session directory is created (e.g., UUID-named dir), re-check
-          // for subagent directories that we couldn't watch earlier.
-          if (eventType === 'rename' && filename && !filename.includes('.')) {
-            // UUID-like directory name (no extension) — could be a session dir
-            this.watchSubagentDirectories(sessionsDir);
-          }
-        },
-      );
-
-      this.directoryWatcher.on('error', (error) => {
-        this.logger.error(
-          'AgentSessionWatcher: Directory watcher error',
-          error,
-        );
-        this.stopDirectoryWatcher();
-      });
-
-      // Also watch nested subagents directories for active sessions.
-      // SDK stores agent files at {sessionsDir}/{sessionId}/subagents/agent-{id}.jsonl
-      this.watchSubagentDirectories(sessionsDir);
-
-      // Also scan for existing agent files that may have been created
-      // just before we started watching
-      await this.scanForExistingAgentFiles(sessionsDir);
-    } catch (error) {
-      this.logger.error(
-        'AgentSessionWatcher: Failed to start directory watcher',
-        error instanceof Error ? error : new Error(String(error)),
-      );
-    }
-  }
-
-  /**
-   * Stop the directory watcher
-   */
-  private stopDirectoryWatcher(): void {
-    if (this.directoryWatcher) {
-      this.directoryWatcher.close();
-      this.directoryWatcher = null;
-      this.watchedSessionsDir = null;
-    }
-
-    // Stop all subagent directory watchers
-    for (const [dir, watcher] of this.subagentDirWatchers) {
-      watcher.close();
-      this.logger.debug('[AgentSessionWatcher] Stopped subagent dir watcher', {
-        dir,
-      });
-    }
-    this.subagentDirWatchers.clear();
-  }
-
-  /**
-   * Watch nested subagent directories for active sessions.
-   *
-   * SDK stores agent files at {sessionsDir}/{sessionId}/subagents/agent-{id}.jsonl.
-   * We need to watch these directories for new agent files during live streaming.
-   * Creates watchers for each active session's subagents directory.
-   */
-  private watchSubagentDirectories(sessionsDir: string): void {
-    // Get unique sessionIds from active watches
-    const sessionIds = new Set(
-      Array.from(this.activeWatches.values()).map((w) => w.sessionId),
-    );
-
-    // Also scan the sessions directory for UUID-named directories.
-    // This catches the first subagent whose session ID isn't in activeWatches yet.
-    try {
-      const entries = fs.readdirSync(sessionsDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory() && isUuidLike(entry.name)) {
-          sessionIds.add(entry.name);
-        }
-      }
-    } catch {
-      // Directory scan failed (e.g., sessionsDir doesn't exist yet) -
-      // proceed with activeWatches only
-    }
-
-    for (const sessionId of sessionIds) {
-      const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
-
-      // Skip if already watching
-      if (this.subagentDirWatchers.has(subagentsDir)) continue;
-
-      // Try to watch (directory may not exist yet)
-      try {
-        // Ensure directory exists first
-        if (!fs.existsSync(subagentsDir)) {
-          // Watch the session directory for the creation of subagents/
-          const sessionDir = path.join(sessionsDir, sessionId);
-          if (fs.existsSync(sessionDir)) {
-            const sessionDirWatcher = fs.watch(
-              sessionDir,
-              (eventType, rawFilename) => {
-                // Normalize for cross-platform consistency (see main watcher).
-                const filename = rawFilename?.replace(/\\/g, '/');
-                if (eventType === 'rename' && filename === 'subagents') {
-                  // subagents directory was created - now watch it
-                  sessionDirWatcher.close();
-                  this.subagentDirWatchers.delete(sessionDir);
-                  this.watchSubagentDir(sessionsDir, subagentsDir);
-                }
-              },
-            );
-            sessionDirWatcher.on('error', () => {
-              sessionDirWatcher.close();
-              this.subagentDirWatchers.delete(sessionDir);
-            });
-            this.subagentDirWatchers.set(sessionDir, sessionDirWatcher);
-
-            this.logger.debug(
-              '[AgentSessionWatcher] Watching session dir for subagents creation',
-              { sessionDir },
-            );
-          }
-          continue;
-        }
-
-        this.watchSubagentDir(sessionsDir, subagentsDir);
-      } catch (error) {
-        this.logger.debug(
-          '[AgentSessionWatcher] Failed to watch subagents dir',
-          {
-            subagentsDir,
-            error: error instanceof Error ? error.message : String(error),
-          },
-        );
-      }
-    }
-  }
-
-  /**
-   * Watch a specific subagents directory for new agent files
-   */
-  private watchSubagentDir(sessionsDir: string, subagentsDir: string): void {
-    if (this.subagentDirWatchers.has(subagentsDir)) return;
-
-    try {
-      const watcher = fs.watch(subagentsDir, (eventType, rawFilename) => {
-        // Normalize backslashes for cross-platform consistency (see main watcher).
-        const filename = rawFilename?.replace(/\\/g, '/');
-        this.logger.info(
-          '[AgentSessionWatcher] fs.watch event (subagents dir)',
-          {
-            eventType,
-            filename,
-            subagentsDir,
-            isAgentFile: filename?.startsWith('agent-'),
-          },
-        );
-
-        if (
-          eventType === 'rename' &&
-          filename?.startsWith('agent-') &&
-          filename.endsWith('.jsonl')
-        ) {
-          // handleNewAgentFile expects the file to be in sessionsDir,
-          // but for nested layout we need to provide the full path.
-          // We pass the subagentsDir as the base directory.
-          void this.handleNewAgentFile(subagentsDir, filename);
-        }
-      });
-
-      watcher.on('error', (error) => {
-        this.logger.debug('[AgentSessionWatcher] Subagent dir watcher error', {
-          subagentsDir,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        watcher.close();
-        this.subagentDirWatchers.delete(subagentsDir);
-      });
-
-      this.subagentDirWatchers.set(subagentsDir, watcher);
-
-      this.logger.info('[AgentSessionWatcher] Watching subagents directory', {
-        subagentsDir,
-      });
-    } catch (error) {
-      this.logger.debug(
-        '[AgentSessionWatcher] Failed to create subagent dir watcher',
-        {
-          subagentsDir,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
-    }
-  }
-
-  /**
-   * Handle a new agent file being detected
-   *
-   * TASK_2025_102: Fixed file matching to prioritize agentId from filename.
-   * Previously, sessionId-based matching could incorrectly match old files
-   * from previous agents in the same session. Now we:
-   * 1. ONLY match by agentId in filename (most reliable)
-   * 2. If a watch already has a file but it's wrong (different agentId), re-match
-   * 3. Fall back to sessionId matching ONLY if agentId doesn't match any watch
-   */
-  private async handleNewAgentFile(
-    sessionsDir: string,
-    filename: string,
-  ): Promise<void> {
-    const filePath = path.join(sessionsDir, filename);
-
-    // Extract agentId from filename (agent-acb2453.jsonl → acb2453)
-    const filenameAgentId = filename
-      .replace('agent-', '')
-      .replace('.jsonl', '');
-
-    // DIAGNOSTIC: INFO level
-    this.logger.info('[AgentSessionWatcher] New agent file detected', {
-      filename,
-      filePath,
-      filenameAgentId,
-      activeWatchesCount: this.activeWatches.size,
-    });
-
-    // TASK_2025_102: agentId-based matching is PRIMARY and ONLY reliable method
-    // The filename contains the agentId, so we can match directly
-    const directMatch = this.activeWatches.get(filenameAgentId);
-    if (directMatch) {
-      const timeDiff = Date.now() - directMatch.startTime;
-      if (timeDiff < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
-        // TASK_2025_102: Allow re-matching even if a file was already assigned
-        // This handles the case where sessionId-based matching incorrectly
-        // matched an old file, and now the correct file (by agentId) appeared.
-        if (
-          directMatch.agentFilePath &&
-          directMatch.agentFilePath !== filePath
-        ) {
-          this.logger.info(
-            '[AgentSessionWatcher] RE-MATCHING: Found correct agent file by agentId, replacing incorrect match',
-            {
-              agentId: filenameAgentId,
-              oldFilePath: directMatch.agentFilePath,
-              newFilePath: filePath,
-            },
-          );
-          // Clear the old tail interval before re-matching
-          if (directMatch.tailInterval) {
-            clearInterval(directMatch.tailInterval);
-            directMatch.tailInterval = null;
-          }
-          // Reset state for fresh tailing
-          directMatch.fileOffset = 0;
-          directMatch.summaryContent = '';
-          directMatch.incompleteLineBuffer = '';
-        }
-
-        this.logger.info(
-          '[AgentSessionWatcher] MATCHED agent file by agentId!',
-          {
-            agentId: filenameAgentId,
-            filename,
-            timeDiff,
-            toolUseId: directMatch.toolUseId,
-            wasRematch:
-              directMatch.agentFilePath !== null &&
-              directMatch.agentFilePath !== filePath,
-          },
-        );
-        directMatch.agentFilePath = filePath;
-        this.startTailingFile(filenameAgentId, filePath);
-        return;
-      }
-    }
-
-    // Wait a bit for the file to have content
-    await delay(AGENT_WATCHER_CONSTANTS.FILE_DETECTION_DELAY_MS);
-
-    // Try to read the first line to get sessionId (for pending file storage)
-    const sessionId = await extractSessionIdFromFile(
-      filePath,
-      AGENT_WATCHER_CONSTANTS.FIRST_LINE_BUFFER_SIZE,
-    );
-    if (!sessionId) {
-      this.logger.warn(
-        '[AgentSessionWatcher] Could not extract sessionId from file',
-        { filename, filePath, filenameAgentId },
-      );
-      return;
-    }
-
-    // DIAGNOSTIC: Log what we're trying to match
-    this.logger.info('[AgentSessionWatcher] Extracted sessionId from file', {
-      filename,
-      fileSessionId: sessionId,
-      filenameAgentId,
-      activeWatches: Array.from(this.activeWatches.entries()).map(
-        ([id, w]) => ({
-          agentId: id,
-          watchSessionId: w.sessionId,
-          hasFilePath: !!w.agentFilePath,
-        }),
-      ),
-    });
-
-    // TASK_2025_128 FIX: Completely removed sessionId-based matching.
-    // Previously, sessionId fallback would incorrectly match OLD agent files
-    // to NEW agents when both share the same parent sessionId. This caused
-    // duplicate/wrong content to be emitted.
-    //
-    // Now we ONLY match by agentId (already done above in directMatch check).
-    // If no direct match, store as pending and let matchPendingFiles handle it.
-    this.logger.info(
-      '[AgentSessionWatcher] No direct agentId match, storing as pending',
-      {
-        filenameAgentId,
-        sessionId,
-        note: 'SessionId fallback removed to prevent wrong matches',
-      },
-    );
-
-    // Store as pending (the correct watch might start later)
-    this.pendingAgentFiles.set(filePath, {
-      filePath,
-      sessionId,
-      detectedAt: Date.now(),
-    });
-
-    // Clean up old pending files after PENDING_CLEANUP_MS
-    const timeoutId = setTimeout(() => {
-      this.pendingAgentFiles.delete(filePath);
-      this.pendingCleanupTimeouts.delete(timeoutId);
-    }, AGENT_WATCHER_CONSTANTS.PENDING_CLEANUP_MS);
-    this.pendingCleanupTimeouts.add(timeoutId);
-  }
-
-  /**
-   * Scan for existing agent files that may have been created before watching started
-   *
-   * TASK_2025_128 FIX: Only process files that DIRECTLY match active watches by agentId.
-   * Previously, the scan would process ANY recent file and let handleNewAgentFile do
-   * sessionId fallback matching. This caused wrong matches when multiple agents from
-   * the same parent session existed - old agent files would be incorrectly matched
-   * to new agents, causing duplicate/wrong content to be emitted.
-   *
-   * Now we ONLY process files where filename agentId matches an active watch agentId.
-   */
-  private async scanForExistingAgentFiles(sessionsDir: string): Promise<void> {
-    // TASK_2025_128 FIX: Build set of active watch agentIds for direct matching.
-    const activeAgentIds = new Set(this.activeWatches.keys());
-    const now = Date.now();
-    let recentCount = 0;
-
-    // Helper to scan a directory for agent files matching active watches
-    const scanDir = async (dir: string) => {
-      try {
-        const files = await fs.promises.readdir(dir);
-        const agentFiles = files.filter(
-          (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
-        );
-
-        for (const filename of agentFiles) {
-          const filenameAgentId = filename
-            .replace('agent-', '')
-            .replace('.jsonl', '');
-
-          if (!activeAgentIds.has(filenameAgentId)) continue;
-
-          const filePath = path.join(dir, filename);
-          try {
-            const stats = await fs.promises.stat(filePath);
-            const age = now - stats.mtimeMs;
-            if (age < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
-              recentCount++;
-              this.logger.info(
-                '[AgentSessionWatcher] Found recent agent file',
-                { filename, dir, ageMs: age, directAgentIdMatch: true },
-              );
-              await this.handleNewAgentFile(dir, filename);
-            }
-          } catch {
-            // Skip files that can't be read
-          }
-        }
-      } catch {
-        // Directory doesn't exist or not readable
-      }
-    };
-
-    // 1. Scan flat layout: {sessionsDir}/agent-*.jsonl
-    await scanDir(sessionsDir);
-
-    // 2. Scan nested layout: {sessionsDir}/{sessionId}/subagents/agent-*.jsonl
-    const sessionIds = new Set(
-      Array.from(this.activeWatches.values()).map((w) => w.sessionId),
-    );
-    for (const sessionId of sessionIds) {
-      const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
-      await scanDir(subagentsDir);
-    }
-
-    this.logger.info('[AgentSessionWatcher] Scan complete', {
-      recentFilesProcessed: recentCount,
-      scannedDirs: 1 + sessionIds.size,
-    });
-  }
-
-  /**
-   * Match pending agent files to a newly started watch
-   *
-   * TASK_2025_128 FIX: Changed from sessionId matching to agentId matching.
-   * Extract agentId from the pending file's path and match directly.
-   * This prevents wrong matches when multiple agents share the same sessionId.
-   */
-  private matchPendingFiles(agentId: string): void {
-    const watch = this.activeWatches.get(agentId);
-    if (!watch) return;
-
-    for (const [filePath, pending] of this.pendingAgentFiles) {
-      // TASK_2025_128: Extract agentId from filename and match directly
-      // Filename format: .../agent-{agentId}.jsonl
-      const filename = path.basename(filePath);
-      const filenameAgentId = filename
-        .replace('agent-', '')
-        .replace('.jsonl', '');
-
-      // Only match if the filename agentId matches the watch agentId
-      if (filenameAgentId === agentId) {
-        const timeDiff = Date.now() - pending.detectedAt;
-        if (timeDiff < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
-          this.logger.info(
-            'AgentSessionWatcher: Matched pending file to agent by agentId',
-            { agentId, filenameAgentId, filePath },
-          );
-          watch.agentFilePath = filePath;
-          this.pendingAgentFiles.delete(filePath);
-          this.startTailingFile(agentId, filePath);
-          break;
-        }
-      }
-    }
-  }
-
-  /**
-   * Start tailing an agent file for new content.
-   *
-   * Delegates the low-level loop to {@link tailStartTailingFile}; the
-   * callback constructs and emits {@link AgentSummaryChunk} events with the
-   * watch's current toolUseId + sessionId (preserving original behaviour
-   * including the agentId fallback when toolUseId is still null).
-   */
-  private startTailingFile(agentId: string, filePath: string): void {
-    const watch = this.activeWatches.get(agentId);
-    if (!watch) return;
-
-    tailStartTailingFile(watch, filePath, this.logger, (tailChunk) => {
-      // Emit the chunk - use watch.toolUseId for UI routing
-      // toolUseId may be null if SubagentStop hasn't fired yet
-      // TASK_2025_099: Include agentId as stable key for summary lookup
-      const chunkId = watch.toolUseId ?? agentId;
-      const chunk: AgentSummaryChunk = {
-        toolUseId: chunkId,
-        summaryDelta: tailChunk.summaryDelta,
-        agentId, // Stable key for summary lookup (doesn't change between hook/complete)
-        sessionId: watch.sessionId, // Parent session ID for multi-tab routing
-        // TASK_2025_102: Include structured content blocks for proper interleaving
-        contentBlocks:
-          tailChunk.contentBlocks.length > 0
-            ? tailChunk.contentBlocks
-            : undefined,
-      };
-
-      this.emit('summary-chunk', chunk);
-
-      // DIAGNOSTIC: INFO level - show the ACTUAL ID used in chunk
-      // If toolUseId is null, we fallback to agentId which may NOT match frontend!
-      this.logger.info('[AgentSessionWatcher] >>> EMITTED summary-chunk <<<', {
-        agentId,
-        toolUseIdFromWatch: watch.toolUseId,
-        chunkIdUsed: chunkId,
-        isFallbackToAgentId: !watch.toolUseId,
-        deltaLength: tailChunk.summaryDelta.length,
-        totalLength: watch.summaryContent.length,
-        deltaPreview: tailChunk.summaryDelta.slice(0, 100),
-        contentBlocksCount: tailChunk.contentBlocks.length,
-      });
-    });
-  }
-
-  /**
-   * Clean up all watchers (for extension deactivation)
-   */
+  /** No-op. No watchers, no intervals, no timers to clean up. */
   dispose(): void {
-    // Stop all tail intervals
-    for (const [, watch] of this.activeWatches) {
-      if (watch.tailInterval) {
-        clearInterval(watch.tailInterval);
-      }
-    }
-    this.activeWatches.clear();
-
-    // Stop directory watcher
-    this.stopDirectoryWatcher();
-
-    // Clear pending files and their cleanup timeouts
-    this.pendingAgentFiles.clear();
-    for (const timeoutId of this.pendingCleanupTimeouts) {
-      clearTimeout(timeoutId);
-    }
-    this.pendingCleanupTimeouts.clear();
+    return;
   }
 }

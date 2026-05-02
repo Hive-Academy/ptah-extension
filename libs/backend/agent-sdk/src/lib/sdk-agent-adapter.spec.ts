@@ -1052,7 +1052,9 @@ describe('SdkAgentAdapter', () => {
       getMockedStartup().mockReset();
     });
 
-    it('invokes SDK startup() once and closes the WarmQuery', async () => {
+    it('invokes SDK startup() once and retains the WarmQuery (does not close it)', async () => {
+      // TASK_2026_109 Fix 3: warm handle is now held for first chat send to
+      // consume via consumeWarmQuery(); it is NOT closed in prewarm().
       const h = makeAdapter();
       const close = jest.fn();
       getMockedStartup().mockResolvedValueOnce({ close });
@@ -1060,7 +1062,13 @@ describe('SdkAgentAdapter', () => {
       await h.adapter.prewarm();
 
       expect(getMockedStartup()).toHaveBeenCalledTimes(1);
-      expect(close).toHaveBeenCalledTimes(1);
+      expect(close).not.toHaveBeenCalled();
+      // The retained handle is observable via consumeWarmQuery().
+      const consumed = h.adapter.consumeWarmQuery();
+      expect(consumed).not.toBeNull();
+      expect((consumed as { close: () => void }).close).toBe(close);
+      // After consumption the slot is empty.
+      expect(h.adapter.consumeWarmQuery()).toBeNull();
     });
 
     it('is idempotent — second call is a no-op (does not call startup() again)', async () => {
@@ -1126,7 +1134,9 @@ describe('SdkAgentAdapter', () => {
       );
     });
 
-    it('does not throw when WarmQuery.close() throws — logs warn and continues', async () => {
+    it('does not throw when stale WarmQuery.close() throws during TTL eviction', async () => {
+      // TASK_2026_109 Fix 3: prewarm no longer closes the handle, so this
+      // test now exercises the TTL-eviction path inside consumeWarmQuery.
       const h = makeAdapter();
       const closeError = new Error('close failed');
       getMockedStartup().mockResolvedValueOnce({
@@ -1136,10 +1146,61 @@ describe('SdkAgentAdapter', () => {
       });
 
       await expect(h.adapter.prewarm()).resolves.toBeUndefined();
+
+      // Force the held handle to look ancient by stomping the timestamp.
+      // Use a private field overwrite via a typed accessor.
+      (
+        h.adapter as unknown as { _warmQueryCreatedAt: number }
+      )._warmQueryCreatedAt = Date.now() - 10 * 60 * 1000;
+
+      // consumeWarmQuery now sees the handle as stale, calls close() which
+      // throws, but must swallow the throw and return null.
+      expect(h.adapter.consumeWarmQuery()).toBeNull();
       expect(h.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('WarmQuery.close()'),
+        expect.stringContaining('Stale WarmQuery.close()'),
         closeError,
       );
+    });
+
+    it('passes mcpServers into startup() when provided', async () => {
+      // TASK_2026_109 Fix 3: MCP handshake amortizes during prewarm.
+      const h = makeAdapter();
+      const close = jest.fn();
+      getMockedStartup().mockResolvedValueOnce({ close });
+
+      const mcpServers = {
+        ptah: { type: 'http', url: 'http://localhost:9999' },
+      };
+      await h.adapter.prewarm(mcpServers);
+
+      expect(getMockedStartup()).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({ mcpServers }),
+        }),
+      );
+    });
+
+    it('discards a stale warm handle (>5min) on consumeWarmQuery and resets prewarmed flag', async () => {
+      // TASK_2026_109 Fix 3.
+      const h = makeAdapter();
+      const close = jest.fn();
+      getMockedStartup().mockResolvedValueOnce({ close });
+
+      await h.adapter.prewarm();
+
+      // Force the held handle to look 6 minutes old.
+      (
+        h.adapter as unknown as { _warmQueryCreatedAt: number }
+      )._warmQueryCreatedAt = Date.now() - 6 * 60 * 1000;
+
+      const consumed = h.adapter.consumeWarmQuery();
+      expect(consumed).toBeNull();
+      expect(close).toHaveBeenCalledTimes(1);
+
+      // Allows a fresh prewarm because the stale-eviction reset _prewarmed.
+      getMockedStartup().mockResolvedValueOnce({ close: jest.fn() });
+      await h.adapter.prewarm();
+      expect(getMockedStartup()).toHaveBeenCalledTimes(2);
     });
   });
 
