@@ -98,6 +98,45 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
 
   // Editor preferences (TASK_2025_283)
   'editor.vimMode',
+
+  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+  // Memory curator (TASK_2026_HERMES Track 1)
+  'memory.curatorEnabled',
+  'memory.tierLimits.core',
+  'memory.tierLimits.recall',
+  'memory.tierLimits.archival',
+  'memory.decayHalflifeDays',
+  'memory.embeddingModel',
+  'memory.curatorModel',
+  'memory.searchTopK',
+  'memory.searchAlpha',
+  // === TRACK_1_MEMORY_CURATOR_END ===
+
+  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+  // Autonomous skill synthesis (TASK_2026_HERMES Track 2)
+  'skillSynthesis.enabled',
+  'skillSynthesis.successesToPromote',
+  'skillSynthesis.dedupCosineThreshold',
+  'skillSynthesis.maxActiveSkills',
+  'skillSynthesis.candidatesDir',
+  // === TRACK_2_SKILL_SYNTHESIS_END ===
+
+  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+  // Messaging gateway (TASK_2026_HERMES Track 4)
+  'gateway.enabled',
+  'gateway.coalesceMs',
+  'gateway.voice.enabled',
+  'gateway.telegram.enabled',
+  'gateway.telegram.tokenCipher',
+  'gateway.telegram.allowedUserIds',
+  'gateway.discord.enabled',
+  'gateway.discord.tokenCipher',
+  'gateway.discord.allowedGuildIds',
+  'gateway.slack.enabled',
+  'gateway.slack.botTokenCipher',
+  'gateway.slack.appTokenCipher',
+  'gateway.slack.allowedTeamIds',
+  // === TRACK_4_MESSAGING_GATEWAY_END ===
 ]);
 
 /**
@@ -193,6 +232,45 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
 
   // Editor preferences (TASK_2025_283)
   'editor.vimMode': false,
+
+  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+  // Memory curator (TASK_2026_HERMES Track 1)
+  'memory.curatorEnabled': true,
+  'memory.tierLimits.core': 50,
+  'memory.tierLimits.recall': 500,
+  'memory.tierLimits.archival': 5000,
+  'memory.decayHalflifeDays': 14,
+  'memory.embeddingModel': 'Xenova/bge-small-en-v1.5',
+  'memory.curatorModel': 'claude-haiku-4-20251022',
+  'memory.searchTopK': 10,
+  'memory.searchAlpha': 0.5,
+  // === TRACK_1_MEMORY_CURATOR_END ===
+
+  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+  // Autonomous skill synthesis (TASK_2026_HERMES Track 2)
+  'skillSynthesis.enabled': true,
+  'skillSynthesis.successesToPromote': 3,
+  'skillSynthesis.dedupCosineThreshold': 0.85,
+  'skillSynthesis.maxActiveSkills': 50,
+  'skillSynthesis.candidatesDir': '',
+  // === TRACK_2_SKILL_SYNTHESIS_END ===
+
+  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+  // Messaging gateway (TASK_2026_HERMES Track 4)
+  'gateway.enabled': false,
+  'gateway.coalesceMs': 800,
+  'gateway.voice.enabled': true,
+  'gateway.telegram.enabled': false,
+  'gateway.telegram.tokenCipher': '',
+  'gateway.telegram.allowedUserIds': [],
+  'gateway.discord.enabled': false,
+  'gateway.discord.tokenCipher': '',
+  'gateway.discord.allowedGuildIds': [],
+  'gateway.slack.enabled': false,
+  'gateway.slack.botTokenCipher': '',
+  'gateway.slack.appTokenCipher': '',
+  'gateway.slack.allowedTeamIds': [],
+  // === TRACK_4_MESSAGING_GATEWAY_END ===
 };
 
 /**

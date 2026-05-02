@@ -25,6 +25,28 @@ import type { PtyManagerService } from '../services/pty-manager.service';
 import { syncCliAgentsOnActivation } from './cli-agent-sync';
 import { syncCliSkillsOnActivation } from './cli-skill-sync';
 import { activateSkillJunctions, initPluginLoader } from './plugin-activation';
+// === TRACK_1_MEMORY_CURATOR_BEGIN ===
+import {
+  PERSISTENCE_TOKENS,
+  type SqliteConnectionService,
+} from '@ptah-extension/persistence-sqlite';
+import {
+  MEMORY_TOKENS,
+  type MemoryCuratorService,
+} from '@ptah-extension/memory-curator';
+// === TRACK_1_MEMORY_CURATOR_END ===
+// === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+import {
+  SKILL_SYNTHESIS_TOKENS,
+  type SkillSynthesisService,
+} from '@ptah-extension/skill-synthesis';
+// === TRACK_2_SKILL_SYNTHESIS_END ===
+// === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+import {
+  GATEWAY_TOKENS,
+  type GatewayService,
+} from '@ptah-extension/messaging-gateway';
+// === TRACK_4_MESSAGING_GATEWAY_END ===
 
 export interface WireRuntimeOptions {
   container: DependencyContainer;
@@ -37,6 +59,35 @@ export interface WireRuntimeResult {
   resolvedStateStorage: IStateStorage | undefined;
   skillJunctionRef: { deactivateSync: () => void } | null;
   gitWatcher: { stop: () => void; switchWorkspace: (p: string) => void } | null;
+  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+  /**
+   * SQLite connection service handle for orderly shutdown. Null when
+   * Track 0 (persistence-sqlite) registration failed — caller's LIFO
+   * will-quit chain must tolerate null.
+   */
+  sqliteConnection: SqliteConnectionService | null;
+  /**
+   * Memory curator service handle for orderly shutdown. Null when
+   * Track 1 (memory-curator) registration or `start()` failed.
+   */
+  memoryCurator: MemoryCuratorService | null;
+  // === TRACK_1_MEMORY_CURATOR_END ===
+  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+  /**
+   * Skill synthesis service handle for orderly shutdown. Null when
+   * Track 0 (persistence-sqlite) is unavailable or `start()` failed —
+   * caller still owns the LIFO will-quit chain and must tolerate null.
+   */
+  skillSynthesis: SkillSynthesisService | null;
+  // === TRACK_2_SKILL_SYNTHESIS_END ===
+  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+  /**
+   * Messaging gateway service handle for orderly shutdown. Null when
+   * Track 0 (persistence-sqlite) is unavailable or `gateway.enabled` is
+   * `false` — caller's LIFO will-quit chain must tolerate null.
+   */
+  messagingGateway: GatewayService | null;
+  // === TRACK_4_MESSAGING_GATEWAY_END ===
 }
 
 export async function wireRuntime(
@@ -48,6 +99,16 @@ export async function wireRuntime(
   let skillJunctionRef: WireRuntimeResult['skillJunctionRef'] = null;
   let gitWatcher: WireRuntimeResult['gitWatcher'] = null;
   let resolvedStateStorage: IStateStorage | undefined;
+  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+  let sqliteConnection: SqliteConnectionService | null = null;
+  let memoryCurator: MemoryCuratorService | null = null;
+  // === TRACK_1_MEMORY_CURATOR_END ===
+  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+  let skillSynthesis: SkillSynthesisService | null = null;
+  // === TRACK_2_SKILL_SYNTHESIS_END ===
+  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+  let messagingGateway: GatewayService | null = null;
+  // === TRACK_4_MESSAGING_GATEWAY_END ===
   // PHASE 4: Setup IPC Bridge + WebviewManager
   // The IPC bridge connects ipcMain to the RpcHandler for renderer <-> main communication.
   // It must be initialized BEFORE loading the renderer so that IPC listeners are ready
@@ -109,6 +170,72 @@ export async function wireRuntime(
   console.log(
     '[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized',
   );
+
+  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+  // PHASE 4.51: Open SQLite + run migrations (TASK_2026_HERMES Track 1).
+  // The connection is registered in Phase 2.55 but lazy-opened here so
+  // `openAndMigrate()` failures (missing better-sqlite3 native build,
+  // disk full, etc.) are non-fatal — memory curator simply stays disabled.
+  try {
+    if (container.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION)) {
+      sqliteConnection = container.resolve<SqliteConnectionService>(
+        PERSISTENCE_TOKENS.SQLITE_CONNECTION,
+      );
+      await sqliteConnection.openAndMigrate();
+      console.log('[Ptah Electron] SQLite connection opened + migrated');
+    }
+  } catch (error) {
+    console.warn(
+      '[Ptah Electron] SQLite open/migrate skipped (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
+    sqliteConnection = null;
+  }
+
+  // PHASE 4.52: Memory curator cold-start (TASK_2026_HERMES Track 1).
+  // Subscribes to SDK_COMPACTION_CALLBACK_REGISTRY so PreCompact firings
+  // trigger extract → resolve → score → upsert. Failure is non-fatal —
+  // search/list still work against whatever is already in the store.
+  try {
+    if (
+      sqliteConnection !== null &&
+      container.isRegistered(MEMORY_TOKENS.MEMORY_CURATOR)
+    ) {
+      memoryCurator = container.resolve<MemoryCuratorService>(
+        MEMORY_TOKENS.MEMORY_CURATOR,
+      );
+      memoryCurator.start();
+      console.log('[Ptah Electron] Memory curator started');
+    }
+  } catch (error) {
+    console.warn(
+      '[Ptah Electron] Memory curator start skipped (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
+    memoryCurator = null;
+  }
+  // === TRACK_1_MEMORY_CURATOR_END ===
+
+  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+  // PHASE 4.53: Skill Synthesis cold-start (TASK_2026_HERMES Track 2)
+  // Resolve and start the skill synthesis service so the candidate store +
+  // sqlite migrations are ready before the first chat session ends.
+  // Failure is non-fatal — Track 0 (persistence-sqlite) may not be available
+  // yet on every branch and we never want skill synthesis to block boot.
+  try {
+    skillSynthesis = container.resolve<SkillSynthesisService>(
+      SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
+    );
+    await skillSynthesis.start();
+    console.log('[Ptah Electron] Skill synthesis started');
+  } catch (error) {
+    console.warn(
+      '[Ptah Electron] Skill synthesis start skipped (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
+    skillSynthesis = null;
+  }
+  // === TRACK_2_SKILL_SYNTHESIS_END ===
   // PHASE 4.54: Ensure plugin/template content from GitHub (TASK_2025_248)
   // Plugins and templates are no longer bundled in the app package.
   // ContentDownloadService downloads them to ~/.ptah/ on first launch and
@@ -337,9 +464,41 @@ export async function wireRuntime(
     );
   }
 
+  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+  // PHASE 4.95: Messaging gateway cold-start (TASK_2026_HERMES Track 4)
+  // Resolve and start the gateway service so any enabled adapters
+  // (Telegram/Discord/Slack) connect before the first chat message arrives.
+  // Failure is non-fatal — Track 0 (persistence-sqlite) may not be available
+  // and `gateway.enabled` defaults to false, so most users will see start()
+  // become a no-op that simply runs the voice GC pass.
+  try {
+    messagingGateway = container.resolve<GatewayService>(
+      GATEWAY_TOKENS.GATEWAY_SERVICE,
+    );
+    await messagingGateway.start();
+    console.log('[Ptah Electron] Messaging gateway started');
+  } catch (error) {
+    console.warn(
+      '[Ptah Electron] Messaging gateway start skipped (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
+    messagingGateway = null;
+  }
+  // === TRACK_4_MESSAGING_GATEWAY_END ===
+
   return {
     resolvedStateStorage,
     skillJunctionRef,
     gitWatcher,
+    // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+    sqliteConnection,
+    memoryCurator,
+    // === TRACK_1_MEMORY_CURATOR_END ===
+    // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+    skillSynthesis,
+    // === TRACK_2_SKILL_SYNTHESIS_END ===
+    // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+    messagingGateway,
+    // === TRACK_4_MESSAGING_GATEWAY_END ===
   };
 }

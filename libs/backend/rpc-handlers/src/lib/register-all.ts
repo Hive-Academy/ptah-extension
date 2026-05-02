@@ -19,11 +19,17 @@ import {
   ConfigRpcHandlers,
   ContextRpcHandlers,
   EnhancedPromptsRpcHandlers,
+  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+  GatewayRpcHandlers,
+  // === TRACK_4_MESSAGING_GATEWAY_END ===
   GitRpcHandlers,
   HarnessRpcHandlers,
   LicenseRpcHandlers,
   LlmRpcHandlers,
   McpDirectoryRpcHandlers,
+  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+  MemoryRpcHandlers,
+  // === TRACK_1_MEMORY_CURATOR_END ===
   PluginRpcHandlers,
   ProviderRpcHandlers,
   PtahCliRpcHandlers,
@@ -31,6 +37,9 @@ import {
   SessionRpcHandlers,
   SettingsRpcHandlers,
   SetupRpcHandlers,
+  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+  SkillsSynthesisRpcHandlers,
+  // === TRACK_2_SKILL_SYNTHESIS_END ===
   SubagentRpcHandlers,
   WebSearchRpcHandlers,
   WizardGenerationRpcHandlers,
@@ -51,11 +60,17 @@ export const SHARED_HANDLERS = [
   ConfigRpcHandlers,
   ContextRpcHandlers,
   EnhancedPromptsRpcHandlers,
+  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+  GatewayRpcHandlers,
+  // === TRACK_4_MESSAGING_GATEWAY_END ===
   GitRpcHandlers,
   HarnessRpcHandlers,
   LicenseRpcHandlers,
   LlmRpcHandlers,
   McpDirectoryRpcHandlers,
+  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+  MemoryRpcHandlers,
+  // === TRACK_1_MEMORY_CURATOR_END ===
   PluginRpcHandlers,
   ProviderRpcHandlers,
   PtahCliRpcHandlers,
@@ -63,6 +78,9 @@ export const SHARED_HANDLERS = [
   SessionRpcHandlers,
   SettingsRpcHandlers,
   SetupRpcHandlers,
+  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+  SkillsSynthesisRpcHandlers,
+  // === TRACK_2_SKILL_SYNTHESIS_END ===
   SubagentRpcHandlers,
   WebSearchRpcHandlers,
   WizardGenerationRpcHandlers,

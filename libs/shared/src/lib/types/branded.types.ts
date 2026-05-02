@@ -24,9 +24,31 @@ export type MessageId = string & { readonly __brand: 'MessageId' };
  */
 export type CorrelationId = string & { readonly __brand: 'CorrelationId' };
 
+// === TRACK_3_CRON_SCHEDULER_BEGIN ===
+/**
+ * Branded JobId type — identifies a scheduled cron job row.
+ * Backed by ULID (Crockford base32, 26 chars) per architecture §8.5.
+ */
+export type JobId = string & { readonly __brand: 'JobId' };
+
+/**
+ * Branded RunId type — identifies a single execution slot in `job_runs`.
+ * Also ULID-backed.
+ */
+export type RunId = string & { readonly __brand: 'RunId' };
+// === TRACK_3_CRON_SCHEDULER_END ===
+
 // UUID validation regex for branded type validation
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// === TRACK_3_CRON_SCHEDULER_BEGIN ===
+/**
+ * ULID validation regex — Crockford base32, 26 characters.
+ * Excludes I, L, O, U to avoid ambiguity (per the spec).
+ */
+const ULID_REGEX = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+// === TRACK_3_CRON_SCHEDULER_END ===
 
 /**
  * SessionId smart constructors with validation
@@ -138,6 +160,56 @@ export const CorrelationId = {
     return CorrelationId.validate(id) ? (id as CorrelationId) : null;
   },
 };
+
+// === TRACK_3_CRON_SCHEDULER_BEGIN ===
+/**
+ * JobId smart constructors with validation.
+ * Note: callers (cron-scheduler/JobStore) generate ULIDs via the `ulid`
+ * package and pass them through `from()` rather than asking us to mint one,
+ * so we avoid pulling `ulid` into shared.
+ */
+export const JobId = {
+  /**
+   * Validate the runtime string shape (ULID 26 chars, Crockford base32).
+   */
+  validate(id: string): id is JobId {
+    return ULID_REGEX.test(id);
+  },
+  /**
+   * Convert string to JobId with validation.
+   * @throws TypeError if invalid format
+   */
+  from(id: string): JobId {
+    if (!JobId.validate(id)) {
+      throw new TypeError(`Invalid JobId format (expected ULID): ${id}`);
+    }
+    return id as JobId;
+  },
+  /** Returns null instead of throwing on invalid input. */
+  safeParse(id: string): JobId | null {
+    return JobId.validate(id) ? (id as JobId) : null;
+  },
+};
+
+/**
+ * RunId smart constructors with validation. Same shape as JobId
+ * (ULID 26 chars, Crockford base32) — distinct brand for type safety.
+ */
+export const RunId = {
+  validate(id: string): id is RunId {
+    return ULID_REGEX.test(id);
+  },
+  from(id: string): RunId {
+    if (!RunId.validate(id)) {
+      throw new TypeError(`Invalid RunId format (expected ULID): ${id}`);
+    }
+    return id as RunId;
+  },
+  safeParse(id: string): RunId | null {
+    return RunId.validate(id) ? (id as RunId) : null;
+  },
+};
+// === TRACK_3_CRON_SCHEDULER_END ===
 
 /**
  * Zod schemas for runtime validation of branded types

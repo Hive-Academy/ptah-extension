@@ -29,6 +29,16 @@ if (!gotLock) {
     switchWorkspace: (p: string) => void;
   } | null = null;
   let flushWorkspacePersistence: (() => void) | null = null;
+  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+  let sqliteConnection: { close: () => void } | null = null;
+  let memoryCurator: { stop: () => void } | null = null;
+  // === TRACK_1_MEMORY_CURATOR_END ===
+  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+  let skillSynthesis: { stop: () => void } | null = null;
+  // === TRACK_2_SKILL_SYNTHESIS_END ===
+  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+  let messagingGateway: { stop: () => Promise<void> } | null = null;
+  // === TRACK_4_MESSAGING_GATEWAY_END ===
 
   app.whenReady().then(async () => {
     const boot = await bootstrapElectron(() => mainWindow);
@@ -43,6 +53,16 @@ if (!gotLock) {
     resolvedStateStorage = wired.resolvedStateStorage;
     skillJunctionRef = wired.skillJunctionRef;
     gitWatcher = wired.gitWatcher;
+    // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+    sqliteConnection = wired.sqliteConnection;
+    memoryCurator = wired.memoryCurator;
+    // === TRACK_1_MEMORY_CURATOR_END ===
+    // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+    skillSynthesis = wired.skillSynthesis;
+    // === TRACK_2_SKILL_SYNTHESIS_END ===
+    // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+    messagingGateway = wired.messagingGateway;
+    // === TRACK_4_MESSAGING_GATEWAY_END ===
     // Back-fill the mutable ref so bootstrap's onDidChangeWorkspaceFolders
     // subscription can call gitWatcher.switchWorkspace on folder changes.
     boot.gitWatcherRef.current = gitWatcher;
@@ -120,6 +140,70 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
+
+    // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+    // 4.5. Stop skill synthesis service (TASK_2026_HERMES Track 2).
+    // Currently a no-op (the synthesis service holds no long-lived
+    // resources of its own — the SQLite handle is owned by
+    // persistence-sqlite and disposed by its own lifecycle), but we
+    // call stop() to honour the start()/stop() contract and reserve a
+    // hook for future flushing.
+    try {
+      skillSynthesis?.stop();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Skill synthesis stop failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    // === TRACK_2_SKILL_SYNTHESIS_END ===
+
+    // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+    // 4.55. Stop memory curator + close SQLite (TASK_2026_HERMES Track 1).
+    // Order: stop curator first (unsubscribes from PreCompact registry),
+    // THEN close SQLite (so any in-flight write started by stop() finishes
+    // before the connection goes away). Both are synchronous to fit in
+    // will-quit; the embedder worker is reaped by node:worker_threads on
+    // process exit (its IEmbedder.dispose is async and we cannot await).
+    try {
+      memoryCurator?.stop();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Memory curator stop failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    try {
+      sqliteConnection?.close();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] SQLite close failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    // === TRACK_1_MEMORY_CURATOR_END ===
+
+    // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+    // 4.6. Stop messaging gateway adapters (TASK_2026_HERMES Track 4).
+    // Fire-and-forget: each adapter's stop() may await a graceful
+    // disconnect (Telegram bot polling, Discord WebSocket close, Slack
+    // Socket Mode close). will-quit is synchronous so we cannot await,
+    // but the OS will reap any in-flight network sockets when the
+    // process exits.
+    try {
+      messagingGateway?.stop().catch((error) => {
+        console.warn(
+          '[Ptah Electron] Messaging gateway stop failed (non-fatal):',
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Messaging gateway stop threw synchronously (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    // === TRACK_4_MESSAGING_GATEWAY_END ===
 
     // 5. Dispose PtahCliRegistry CLI adapters (TASK_2025_243)
     try {

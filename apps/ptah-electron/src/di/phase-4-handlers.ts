@@ -45,6 +45,15 @@ import {
   HarnessRpcHandlers,
   McpDirectoryRpcHandlers,
   GitRpcHandlers,
+  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+  MemoryRpcHandlers,
+  // === TRACK_1_MEMORY_CURATOR_END ===
+  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+  SkillsSynthesisRpcHandlers,
+  // === TRACK_2_SKILL_SYNTHESIS_END ===
+  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+  GatewayRpcHandlers,
+  // === TRACK_4_MESSAGING_GATEWAY_END ===
   registerHarnessServices,
   registerChatServices,
 } from '@ptah-extension/rpc-handlers';
@@ -187,6 +196,21 @@ export function registerPhase4Handlers(
     useValue: gitInfoService,
   });
   container.registerSingleton(GitRpcHandlers);
+
+  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+  // TASK_2026_HERMES Track 1: Memory curator RPC handlers.
+  container.registerSingleton(MemoryRpcHandlers);
+  // === TRACK_1_MEMORY_CURATOR_END ===
+
+  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+  // TASK_2026_HERMES Track 2: Skill synthesis RPC handlers.
+  container.registerSingleton(SkillsSynthesisRpcHandlers);
+  // === TRACK_2_SKILL_SYNTHESIS_END ===
+
+  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+  // TASK_2026_HERMES Track 4: Messaging gateway RPC handlers.
+  container.registerSingleton(GatewayRpcHandlers);
+  // === TRACK_4_MESSAGING_GATEWAY_END ===
 
   logger.info(
     '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',

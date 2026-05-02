@@ -48,3 +48,18 @@ export { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
 
 // Settings handlers (TASK_2026_107 Bug 6 — lifted from Electron app)
 export { SettingsRpcHandlers } from './settings-rpc.handlers';
+
+// === TRACK_1_MEMORY_CURATOR_BEGIN ===
+// Memory curator handlers (TASK_2026_HERMES Track 1)
+export { MemoryRpcHandlers } from './memory-rpc.handlers';
+// === TRACK_1_MEMORY_CURATOR_END ===
+
+// === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+// Skill synthesis handlers (TASK_2026_HERMES Track 2)
+export { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
+// === TRACK_2_SKILL_SYNTHESIS_END ===
+
+// === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+// Messaging gateway handlers (TASK_2026_HERMES Track 4)
+export { GatewayRpcHandlers } from './gateway-rpc.handlers';
+// === TRACK_4_MESSAGING_GATEWAY_END ===

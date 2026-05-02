@@ -123,11 +123,29 @@
         "external": ["electron"]
       }
     },
+    "build-embedder-worker": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/apps/ptah-electron",
+        "main": "libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts",
+        "outputFileName": "embedder-worker.mjs",
+        "tsConfig": "apps/ptah-electron/tsconfig.build.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "deleteOutputPath": false,
+        "external": ["@xenova/transformers"]
+      }
+    },
     "build": {
       "executor": "nx:run-commands",
       "dependsOn": [
         "build-main",
         "build-preload",
+        "build-embedder-worker",
         "ptah-extension-webview:build"
       ],
       "options": {
@@ -146,6 +164,7 @@
         "commands": [
           "nx build-main ptah-electron --configuration=development",
           "nx build-preload ptah-electron",
+          "nx build-embedder-worker ptah-electron",
           "nx build ptah-extension-webview --configuration=development"
         ],
         "parallel": true
@@ -177,6 +196,7 @@
         "commands": [
           "nx build-main ptah-electron --configuration=development --watch",
           "nx build-preload ptah-electron --watch",
+          "nx build-embedder-worker ptah-electron --watch",
           "nx build ptah-extension-webview --configuration=development --watch"
         ],
         "parallel": true
