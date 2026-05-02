@@ -360,6 +360,10 @@ export {
   AgentProcessManager,
   CopilotPermissionBridge,
   CliPluginSyncService,
+  fixPath,
+  spawnCli,
+  resolveCliPath,
+  stripAnsiCodes,
 } from './lib/cli-agents';
 export type {
   CliAdapter,

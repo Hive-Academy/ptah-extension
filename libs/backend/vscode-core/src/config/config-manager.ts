@@ -56,6 +56,7 @@ export class ConfigManager {
   /** File-based settings routing (set via setFileSettingsStore) */
   private fileStore: IFileSettingsStore | null = null;
   private fileBasedKeys: Set<string> | null = null;
+  private fileBasedKeyPredicate: ((key: string) => boolean) | null = null;
 
   constructor() {
     // Setup configuration change listener
@@ -74,20 +75,29 @@ export class ConfigManager {
    * Call this after construction once both ConfigManager and the file
    * settings store are available in the DI container.
    */
-  setFileSettingsStore(keys: Set<string>, store: IFileSettingsStore): void {
+  setFileSettingsStore(
+    keys: Set<string>,
+    store: IFileSettingsStore,
+    predicate?: (key: string) => boolean,
+  ): void {
     this.fileBasedKeys = keys;
     this.fileStore = store;
+    this.fileBasedKeyPredicate = predicate ?? null;
   }
 
   /**
    * Check if a key should be routed to file-based storage.
+   *
+   * Resolution order (any match wins): exact match in `fileBasedKeys`, then
+   * the optional `fileBasedKeyPredicate` for dynamic key families (e.g.
+   * `provider.<id>.baseUrl`).
    */
   private isFileBased(key: string): boolean {
-    return !!(
-      this.fileBasedKeys &&
-      this.fileStore &&
-      this.fileBasedKeys.has(key)
-    );
+    if (!this.fileStore) return false;
+    if (this.fileBasedKeys && this.fileBasedKeys.has(key)) return true;
+    if (this.fileBasedKeyPredicate && this.fileBasedKeyPredicate(key))
+      return true;
+    return false;
   }
 
   /**

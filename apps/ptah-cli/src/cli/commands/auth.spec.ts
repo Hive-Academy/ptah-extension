@@ -42,8 +42,13 @@ jest.mock(
     return {
       SDK_TOKENS: {
         SDK_COPILOT_AUTH: Symbol.for('SdkCopilotAuth'),
+        SDK_CLI_DETECTOR: Symbol.for('SdkCliDetector'),
       },
       ANTHROPIC_PROVIDERS: mockAnthropicProviders(),
+      // Stub: tests inject `spawnCodexLogin` via hooks, so the real
+      // `spawnCli` is never reached. We only need a callable export so
+      // the value import in `auth.ts` resolves at module load.
+      spawnCli: jest.fn(),
     };
   },
   { virtual: true },
@@ -348,36 +353,326 @@ describe('ptah auth login copilot', () => {
 });
 
 describe('ptah auth login codex', () => {
-  it('prints OOB instructions to stderr, emits start+url, exits 0', async () => {
-    const { formatterTrace, stderrTrace, hooks } = buildHooks();
+  // Helper — produces a fake CodexChildLike whose stdout emits a single
+  // chunk and which exits with the supplied code on the next tick.
+  function makeCodexChild(opts: {
+    stdoutChunks?: string[];
+    stderrChunks?: string[];
+    exitCode?: number | null;
+    fireError?: Error;
+  }): {
+    child: import('./auth.js').CodexChildLike;
+    killed: jest.Mock;
+  } {
+    const exitListeners: Array<(code: number | null) => void> = [];
+    const errorListeners: Array<(err: Error) => void> = [];
+    const stdoutDataListeners: Array<(chunk: Buffer | string) => void> = [];
+    const stderrDataListeners: Array<(chunk: Buffer | string) => void> = [];
+    const killed = jest.fn(() => true);
+    const child: import('./auth.js').CodexChildLike = {
+      on: ((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'exit' || event === 'close') {
+          exitListeners.push(listener as (code: number | null) => void);
+        } else if (event === 'error') {
+          errorListeners.push(listener as (err: Error) => void);
+        }
+        return child;
+      }) as import('./auth.js').CodexChildLike['on'],
+      stdout: {
+        on(event: string, listener: (chunk: Buffer | string) => void) {
+          if (event === 'data') stdoutDataListeners.push(listener);
+          return this;
+        },
+      } as unknown as NodeJS.ReadableStream,
+      stderr: {
+        on(event: string, listener: (chunk: Buffer | string) => void) {
+          if (event === 'data') stderrDataListeners.push(listener);
+          return this;
+        },
+      } as unknown as NodeJS.ReadableStream,
+      kill: killed,
+    };
+
+    // After listeners are wired, fire scripted output / exit on next tick.
+    setImmediate(() => {
+      for (const chunk of opts.stdoutChunks ?? []) {
+        for (const l of stdoutDataListeners) l(chunk);
+      }
+      for (const chunk of opts.stderrChunks ?? []) {
+        for (const l of stderrDataListeners) l(chunk);
+      }
+      if (opts.fireError) {
+        for (const l of errorListeners) l(opts.fireError);
+      } else {
+        const code = opts.exitCode ?? 0;
+        for (const l of exitListeners) l(code);
+      }
+    });
+
+    return { child, killed };
+  }
+
+  it('emits auth.login.url with the device-code URL and auth.login.complete on exit 0', async () => {
+    const { child } = makeCodexChild({
+      stdoutChunks: [
+        'Visit https://platform.openai.com/device-auth?code=ABC-123 to continue\n',
+      ],
+      exitCode: 0,
+    });
+    const spawnCodexLogin = jest.fn(() => child);
+    const { formatterTrace, hooks } = buildHooks({
+      spawnCodexLogin,
+    });
+
     const exit = await execute(
       { subcommand: 'login', provider: 'codex' },
       baseGlobals,
       hooks,
     );
     expect(exit).toBe(ExitCode.Success);
-    expect(stderrTrace.buffer).toContain('codex login --device-auth');
-    expect(stderrTrace.buffer).toContain('ptah auth status');
+    expect(spawnCodexLogin).toHaveBeenCalledWith(
+      'codex',
+      ['login', '--device-auth'],
+      expect.objectContaining({ env: expect.any(Object) }),
+    );
+
     const methods = formatterTrace.notifications.map((n) => n.method);
-    expect(methods).toEqual(['auth.login.start', 'auth.login.url']);
+    expect(methods).toEqual([
+      'auth.login.start',
+      'auth.login.url',
+      'auth.login.complete',
+    ]);
+
+    const urlNotification = formatterTrace.notifications[1]?.params as Record<
+      string,
+      unknown
+    >;
+    expect(urlNotification?.['provider']).toBe('codex');
+    expect(urlNotification?.['verification_uri']).toBe(
+      'https://platform.openai.com/device-auth?code=ABC-123',
+    );
+  });
+
+  it('emits task.error and returns AuthRequired on non-zero exit', async () => {
+    const { child } = makeCodexChild({ exitCode: 7 });
+    const spawnCodexLogin = jest.fn(() => child);
+    const { formatterTrace, hooks } = buildHooks({ spawnCodexLogin });
+
+    const exit = await execute(
+      { subcommand: 'login', provider: 'codex' },
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.AuthRequired);
+
+    const last = formatterTrace.notifications.at(-1);
+    expect(last?.method).toBe('task.error');
+    expect(last?.params).toMatchObject({
+      provider: 'codex',
+      ptah_code: 'auth_required',
+    });
+  });
+
+  it('propagates SIGINT to the child', async () => {
+    // Don't fire exit immediately; wait for SIGINT.
+    const exitListeners: Array<(code: number | null) => void> = [];
+    const killed = jest.fn(() => {
+      // Simulate kill triggering exit.
+      setImmediate(() => exitListeners.forEach((l) => l(130)));
+      return true;
+    });
+    const child: import('./auth.js').CodexChildLike = {
+      on: ((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'exit' || event === 'close') {
+          exitListeners.push(listener as (code: number | null) => void);
+        }
+        return child;
+      }) as import('./auth.js').CodexChildLike['on'],
+      stdout: null,
+      stderr: null,
+      kill: killed,
+    };
+    const spawnCodexLogin = jest.fn(() => child);
+
+    // Use a custom EventEmitter as the SIGINT source so tests don't pollute
+    // the real `process` event loop.
+    const { EventEmitter } = await import('node:events');
+    const sigintSource = new EventEmitter();
+
+    const { hooks } = buildHooks({
+      spawnCodexLogin,
+      processRefForCodex: sigintSource,
+    });
+
+    // Fire SIGINT after a short delay so the spawn logic can attach its
+    // listener before we trigger.
+    setImmediate(() => sigintSource.emit('SIGINT'));
+
+    const exit = await execute(
+      { subcommand: 'login', provider: 'codex' },
+      baseGlobals,
+      hooks,
+    );
+
+    expect(killed).toHaveBeenCalledWith('SIGINT');
+    expect(exit).toBe(ExitCode.AuthRequired);
+  });
+
+  it('emits task.error if spawn throws', async () => {
+    const spawnCodexLogin = jest.fn(() => {
+      throw new Error('ENOENT: codex not found');
+    });
+    const { formatterTrace, hooks } = buildHooks({ spawnCodexLogin });
+
+    const exit = await execute(
+      { subcommand: 'login', provider: 'codex' },
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.AuthRequired);
+    const last = formatterTrace.notifications.at(-1);
+    expect(last?.method).toBe('task.error');
+    expect(last?.params).toMatchObject({
+      provider: 'codex',
+      ptah_code: 'auth_required',
+    });
   });
 });
 
-describe('ptah auth login claude', () => {
-  it('prints "use provider set-key" instruction, exits 0', async () => {
-    const { stderrTrace, hooks } = buildHooks();
+describe('ptah auth login claude-cli', () => {
+  function makeDetector(
+    health: import('@ptah-extension/shared').ClaudeCliHealth,
+  ): import('@ptah-extension/agent-sdk').ClaudeCliDetector {
+    return {
+      performHealthCheck: jest.fn(async () => health),
+    } as unknown as import('@ptah-extension/agent-sdk').ClaudeCliDetector;
+  }
+
+  it('writes authMethod=claudeCli on success and emits auth.login.complete', async () => {
+    const setConfiguration = jest.fn(async () => undefined);
+    const detector = makeDetector({
+      available: true,
+      path: '/usr/local/bin/claude',
+      version: '1.2.3',
+      platform: 'linux',
+      isWSL: false,
+    });
+    const { formatterTrace, hooks } = buildHooks({
+      resolveClaudeCliDetector: () => detector,
+      resolveWorkspaceProvider: () => ({ setConfiguration }),
+    });
+
+    const exit = await execute(
+      { subcommand: 'login', provider: 'claude-cli' },
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.Success);
+    expect(setConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'authMethod',
+      'claudeCli',
+    );
+
+    const methods = formatterTrace.notifications.map((n) => n.method);
+    expect(methods).toEqual(['auth.login.start', 'auth.login.complete']);
+    const complete = formatterTrace.notifications.at(-1)?.params as Record<
+      string,
+      unknown
+    >;
+    expect(complete).toMatchObject({
+      provider: 'claude-cli',
+      success: true,
+      authMethod: 'claudeCli',
+      cliPath: '/usr/local/bin/claude',
+      cliVersion: '1.2.3',
+    });
+  });
+
+  it('aliases `claude` to claude-cli', async () => {
+    const setConfiguration = jest.fn(async () => undefined);
+    const detector = makeDetector({
+      available: true,
+      path: '/usr/local/bin/claude',
+      platform: 'linux',
+      isWSL: false,
+    });
+    const { hooks } = buildHooks({
+      resolveClaudeCliDetector: () => detector,
+      resolveWorkspaceProvider: () => ({ setConfiguration }),
+    });
+
     const exit = await execute(
       { subcommand: 'login', provider: 'claude' },
       baseGlobals,
       hooks,
     );
     expect(exit).toBe(ExitCode.Success);
-    expect(stderrTrace.buffer).toContain(
-      'ptah provider set-key --provider anthropic',
+    expect(setConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'authMethod',
+      'claudeCli',
     );
   });
 
-  it('also accepts "anthropic" as the provider alias', async () => {
+  it('emits task.error{ ptah_code: claude_cli_not_found } and returns UsageError when CLI is missing', async () => {
+    const setConfiguration = jest.fn(async () => undefined);
+    const detector = makeDetector({
+      available: false,
+      error: 'Claude CLI not found in system',
+      platform: 'linux',
+      isWSL: false,
+    });
+    const { formatterTrace, stderrTrace, hooks } = buildHooks({
+      resolveClaudeCliDetector: () => detector,
+      resolveWorkspaceProvider: () => ({ setConfiguration }),
+    });
+
+    const exit = await execute(
+      { subcommand: 'login', provider: 'claude-cli' },
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.UsageError);
+    expect(setConfiguration).not.toHaveBeenCalled();
+
+    const last = formatterTrace.notifications.at(-1);
+    expect(last?.method).toBe('task.error');
+    expect(last?.params).toMatchObject({
+      provider: 'claude-cli',
+      ptah_code: 'claude_cli_not_found',
+    });
+    expect(stderrTrace.buffer).toContain('Claude CLI not found');
+  });
+
+  it('emits task.error{ ptah_code: claude_cli_not_found } when health check throws', async () => {
+    const detector = {
+      performHealthCheck: jest.fn(async () => {
+        throw new Error('detector exploded');
+      }),
+    } as unknown as import('@ptah-extension/agent-sdk').ClaudeCliDetector;
+    const setConfiguration = jest.fn(async () => undefined);
+    const { formatterTrace, hooks } = buildHooks({
+      resolveClaudeCliDetector: () => detector,
+      resolveWorkspaceProvider: () => ({ setConfiguration }),
+    });
+
+    const exit = await execute(
+      { subcommand: 'login', provider: 'claude-cli' },
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.UsageError);
+    expect(setConfiguration).not.toHaveBeenCalled();
+    const last = formatterTrace.notifications.at(-1);
+    expect(last?.params).toMatchObject({
+      ptah_code: 'claude_cli_not_found',
+    });
+  });
+});
+
+describe('ptah auth login anthropic', () => {
+  it('prints "use provider set-key" instruction, exits 0', async () => {
     const { stderrTrace, hooks } = buildHooks();
     const exit = await execute(
       { subcommand: 'login', provider: 'anthropic' },
@@ -385,7 +680,9 @@ describe('ptah auth login claude', () => {
       hooks,
     );
     expect(exit).toBe(ExitCode.Success);
-    expect(stderrTrace.buffer).toContain('provider set-key');
+    expect(stderrTrace.buffer).toContain(
+      'ptah provider set-key --provider anthropic',
+    );
   });
 });
 

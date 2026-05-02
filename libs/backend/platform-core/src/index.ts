@@ -56,6 +56,7 @@ export type { FileSettingsDefaults } from './file-settings-manager';
 export {
   FILE_BASED_SETTINGS_KEYS,
   FILE_BASED_SETTINGS_DEFAULTS,
+  isFileBasedSettingKey,
 } from './file-settings-keys';
 
 // Content Download (TASK_2025_248)
