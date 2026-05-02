@@ -25,7 +25,18 @@
 // before any decorated class is touched, and esbuild preserves import order.
 import 'reflect-metadata';
 
+import { fixPath } from '@ptah-extension/agent-sdk';
 import { buildRouter } from './cli/router.js';
+
+// Repair process.env.PATH on Linux/macOS for parity with the Electron app
+// and the VS Code extension. Most CLI invocations inherit PATH from the
+// invoking shell (so this is a no-op), but the binary may also be launched
+// from non-interactive contexts (cron, systemd units, A2A bridges spawned
+// from GUI parents) where ~/.bashrc / ~/.zshrc were not sourced and
+// npm-global / nvm bins are missing — those paths cause CLI agent
+// detection to falsely report Gemini / Codex / Copilot as not installed.
+// Idempotent; no-op on Windows.
+fixPath();
 
 let shuttingDown = false;
 

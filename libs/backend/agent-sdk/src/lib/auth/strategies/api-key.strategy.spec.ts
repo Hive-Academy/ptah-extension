@@ -84,7 +84,11 @@ function createMockProviderModels(): jest.Mocked<ProviderModelsSurface> {
 function makeContext(
   providerId: string,
   authEnv: AuthEnv = {},
-  envSnapshot?: { ANTHROPIC_API_KEY?: string },
+  envSnapshot?: {
+    ANTHROPIC_API_KEY?: string;
+    ANTHROPIC_AUTH_TOKEN?: string;
+    ANTHROPIC_BASE_URL?: string;
+  },
 ): AuthConfigureContext {
   return { providerId, authEnv, envSnapshot };
 }
@@ -399,6 +403,98 @@ describe('ApiKeyStrategy', () => {
       await harness.strategy.configure(makeContext('moonshot'));
 
       expect(harness.openRouterProxy.stop).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Third-party provider env-var fallback
+  //
+  // Headless flows (e.g. openclaw bridge) pre-set ANTHROPIC_AUTH_TOKEN +
+  // ANTHROPIC_BASE_URL instead of populating SecretStorage. The clean-slate
+  // wipe in AuthManager removes these from process.env, but they survive in
+  // `envSnapshot`. ApiKeyStrategy must honour the snapshot the same way the
+  // direct-Anthropic path does.
+  // -------------------------------------------------------------------------
+
+  describe('third-party provider env-var fallback', () => {
+    it('falls back to envSnapshot.ANTHROPIC_AUTH_TOKEN when SecretStorage is empty', async () => {
+      const harness = makeStrategy({ providerKeys: {} });
+      const ctx = makeContext(
+        'moonshot',
+        {},
+        {
+          ANTHROPIC_AUTH_TOKEN: 'env-moonshot-token',
+        },
+      );
+
+      const result = await harness.strategy.configure(ctx);
+
+      expect(result.configured).toBe(true);
+      expect(result.details[0]).toContain('API key (from environment)');
+      expect(result.details[0]).toContain('Moonshot');
+      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe('env-moonshot-token');
+      expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBe(
+        'https://api.moonshot.ai/anthropic/',
+      );
+      expect(process.env['ANTHROPIC_AUTH_TOKEN']).toBe('env-moonshot-token');
+      expect(process.env['ANTHROPIC_BASE_URL']).toBe(
+        'https://api.moonshot.ai/anthropic/',
+      );
+      expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
+        'moonshot',
+      );
+    });
+
+    it('falls back to envSnapshot.ANTHROPIC_API_KEY as a last-resort source', async () => {
+      // Some headless callers stuff the third-party token into ANTHROPIC_API_KEY
+      // even though the provider's authEnvVar is ANTHROPIC_AUTH_TOKEN.
+      const harness = makeStrategy({ providerKeys: {} });
+      const ctx = makeContext(
+        'moonshot',
+        {},
+        {
+          ANTHROPIC_API_KEY: 'misplaced-key',
+        },
+      );
+
+      const result = await harness.strategy.configure(ctx);
+
+      expect(result.configured).toBe(true);
+      // The strategy writes to the provider's canonical authEnvVar
+      // (ANTHROPIC_AUTH_TOKEN for Moonshot).
+      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe('misplaced-key');
+    });
+
+    it('SecretStorage takes precedence over envSnapshot when both present', async () => {
+      const harness = makeStrategy({
+        providerKeys: { moonshot: 'secret-store-key' },
+      });
+      const ctx = makeContext(
+        'moonshot',
+        {},
+        {
+          ANTHROPIC_AUTH_TOKEN: 'env-token-should-be-ignored',
+        },
+      );
+
+      const result = await harness.strategy.configure(ctx);
+
+      expect(result.configured).toBe(true);
+      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe('secret-store-key');
+      expect(result.details[0]).not.toContain('from environment');
+    });
+
+    it('still returns configured=false when both SecretStorage AND envSnapshot are empty', async () => {
+      const harness = makeStrategy({ providerKeys: {} });
+      const ctx = makeContext('moonshot', {}, {});
+
+      const result = await harness.strategy.configure(ctx);
+
+      expect(result.configured).toBe(false);
+      expect(result.details).toEqual([]);
+      expect(
+        harness.providerModels.switchActiveProvider,
+      ).not.toHaveBeenCalled();
     });
   });
 

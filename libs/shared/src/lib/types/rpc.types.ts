@@ -129,6 +129,12 @@ import type {
   LlmListVsCodeModelsParams,
   LlmListProviderModelsParams,
   LlmListProviderModelsResponse,
+  LlmSetProviderBaseUrlParams,
+  LlmSetProviderBaseUrlResponse,
+  LlmGetProviderBaseUrlParams,
+  LlmGetProviderBaseUrlResponse,
+  LlmClearProviderBaseUrlParams,
+  LlmClearProviderBaseUrlResponse,
 } from './rpc/rpc-providers.types';
 
 import type {
@@ -589,6 +595,18 @@ export interface RpcMethodRegistry {
   'llm:listProviderModels': {
     params: LlmListProviderModelsParams;
     result: LlmListProviderModelsResponse;
+  };
+  'llm:setProviderBaseUrl': {
+    params: LlmSetProviderBaseUrlParams;
+    result: LlmSetProviderBaseUrlResponse;
+  };
+  'llm:getProviderBaseUrl': {
+    params: LlmGetProviderBaseUrlParams;
+    result: LlmGetProviderBaseUrlResponse;
+  };
+  'llm:clearProviderBaseUrl': {
+    params: LlmClearProviderBaseUrlParams;
+    result: LlmClearProviderBaseUrlResponse;
   };
 
   // ---- Provider Model Methods (TASK_2025_091 Phase 2, generalized TASK_2025_132) ----
@@ -1240,6 +1258,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'llm:validateApiKeyFormat': true,
   'llm:listVsCodeModels': true,
   'llm:listProviderModels': true,
+  'llm:setProviderBaseUrl': true,
+  'llm:getProviderBaseUrl': true,
+  'llm:clearProviderBaseUrl': true,
 
   // Provider Model Methods (TASK_2025_091 Phase 2, generalized TASK_2025_132)
   'provider:listModels': true,
