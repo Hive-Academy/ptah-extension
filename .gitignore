@@ -156,4 +156,5 @@ ptah-settings-export.json
 .windsurf/
 .zencoder/
 skills/
+!apps/ptah-extension-vscode/assets/plugins/**/skills/
 skills-lock.json
