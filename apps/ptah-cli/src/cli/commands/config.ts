@@ -359,7 +359,7 @@ async function runAutopilotSet(
     const result = await callRpc<unknown>(
       ctx.transport,
       'config:autopilot-toggle',
-      { enabled, permissionLevel: enabled ? 'all' : 'none' },
+      { enabled, permissionLevel: enabled ? 'yolo' : 'ask' },
     );
     await formatter.writeNotification('config.autopilot', {
       enabled,
