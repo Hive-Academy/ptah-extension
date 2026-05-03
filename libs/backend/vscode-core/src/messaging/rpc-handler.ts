@@ -75,6 +75,9 @@ const ALLOWED_METHOD_PREFIXES = [
   'harness:', // Harness setup builder (initialize, suggest-config, apply, presets, chat)
   'mcpDirectory:', // MCP Server Directory (search, getDetails, install, uninstall, listInstalled, getPopular)
   'cron:', // Scheduled cron jobs (list, get, create, update, delete, toggle, runNow, runs, nextFire)
+  'gateway:', // MCP gateway status, bindings, and messages
+  'memory:', // Memory curator (list, search, get, pin, unpin, forget, rebuildIndex, stats)
+  'skillSynthesis:', // Skills synthesis pipeline (listCandidates, getCandidate, promote, reject, invocations, stats)
 ] as const;
 
 /**
