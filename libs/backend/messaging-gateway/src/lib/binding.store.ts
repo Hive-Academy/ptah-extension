@@ -14,8 +14,7 @@
  *      the agent — only acknowledge with the pairing code reply.
  */
 import { inject, injectable } from 'tsyringe';
-import { randomUUID } from 'node:crypto';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { randomInt, randomUUID } from 'node:crypto';
 import {
   PERSISTENCE_TOKENS,
   type SqliteConnectionService,
@@ -47,43 +46,10 @@ const SELECT_COLS =
 
 @injectable()
 export class BindingStore {
-  /**
-   * Migration 0005 doesn't include `pairing_code` (it was added in §4.4 of the
-   * architecture but is not in the SQL DDL). We add it lazily on first use to
-   * avoid creating a 0006 migration just for one column.
-   */
-  private pairingColumnEnsured = false;
-
   constructor(
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
     private readonly sqlite: SqliteConnectionService,
-    @inject(TOKENS.LOGGER) private readonly logger: Logger,
   ) {}
-
-  private ensurePairingColumn(): void {
-    if (this.pairingColumnEnsured) return;
-    try {
-      const cols = this.sqlite.db
-        .prepare("PRAGMA table_info('gateway_bindings')")
-        .all() as Array<{ name: string }>;
-      if (!cols.some((c) => c.name === 'pairing_code')) {
-        this.sqlite.db.exec(
-          'ALTER TABLE gateway_bindings ADD COLUMN pairing_code TEXT',
-        );
-        this.logger.info(
-          '[gateway] added pairing_code column to gateway_bindings',
-        );
-      }
-      this.pairingColumnEnsured = true;
-    } catch (err) {
-      // Column may already exist on a fresh DB applied through a future
-      // migration — swallow & flag.
-      this.logger.warn('[gateway] ensurePairingColumn failed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      this.pairingColumnEnsured = true;
-    }
-  }
 
   /**
    * Locate an existing binding by composite natural key.
@@ -92,7 +58,6 @@ export class BindingStore {
     platform: GatewayPlatform,
     externalChatId: string,
   ): GatewayBinding | null {
-    this.ensurePairingColumn();
     const row = this.sqlite.db
       .prepare(
         `SELECT ${SELECT_COLS} FROM gateway_bindings WHERE platform = ? AND external_chat_id = ?`,
@@ -102,7 +67,6 @@ export class BindingStore {
   }
 
   findById(id: BindingId): GatewayBinding | null {
-    this.ensurePairingColumn();
     const row = this.sqlite.db
       .prepare(`SELECT ${SELECT_COLS} FROM gateway_bindings WHERE id = ?`)
       .get(id) as BindingRow | undefined;
@@ -113,7 +77,6 @@ export class BindingStore {
     platform?: GatewayPlatform;
     status?: ApprovalStatus;
   }): GatewayBinding[] {
-    this.ensurePairingColumn();
     const where: string[] = [];
     const params: unknown[] = [];
     if (filter?.platform) {
@@ -142,7 +105,6 @@ export class BindingStore {
     externalChatId: string;
     displayName?: string;
   }): GatewayBinding {
-    this.ensurePairingColumn();
     const existing = this.findByExternal(args.platform, args.externalChatId);
     if (existing) {
       // Refresh last_active_at; preserve pairing code + status.
@@ -153,7 +115,10 @@ export class BindingStore {
     }
     const id = randomUUID();
     const now = Date.now();
-    const pairingCode = String(Math.floor(100000 + Math.random() * 900000));
+    // SECURITY: pairing code authorizes a binding, so it MUST be sourced from
+    // a CSPRNG. `Math.random()` is V8 xorshift128+ — not cryptographically
+    // strong. `crypto.randomInt` draws uniformly from the requested range.
+    const pairingCode = String(randomInt(100000, 1000000));
     this.sqlite.db
       .prepare(
         `INSERT INTO gateway_bindings (id, platform, external_chat_id, display_name, approval_status,
@@ -181,7 +146,6 @@ export class BindingStore {
     ptahSessionId?: string,
     workspaceRoot?: string,
   ): GatewayBinding {
-    this.ensurePairingColumn();
     const now = Date.now();
     this.sqlite.db
       .prepare(
@@ -198,7 +162,6 @@ export class BindingStore {
   }
 
   setStatus(id: BindingId, status: ApprovalStatus): GatewayBinding {
-    this.ensurePairingColumn();
     this.sqlite.db
       .prepare(
         `UPDATE gateway_bindings SET approval_status = ?, last_active_at = ? WHERE id = ?`,

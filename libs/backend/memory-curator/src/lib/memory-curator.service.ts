@@ -177,6 +177,9 @@ export class MemoryCuratorService {
   /**
    * Wait for the most recent in-flight curate() invocation to settle.
    * Used by tests and graceful-shutdown flows.
+   *
+   * Does NOT re-throw: the fire-and-forget path in `start()` already catches
+   * and logs errors via `.catch()`, so `this.running` always resolves.
    */
   async drain(): Promise<void> {
     if (this.running) await this.running;

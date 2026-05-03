@@ -27,6 +27,7 @@ import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import { SkillCandidateStore } from './skill-candidate.store';
 import { SkillMdGenerator } from './skill-md-generator';
 import { SkillPromotionService } from './skill-promotion.service';
@@ -57,11 +58,11 @@ export class SkillSynthesisService {
     private readonly connection: SqliteConnectionService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
-    @inject(SkillCandidateStore)
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)
     private readonly store: SkillCandidateStore,
     @inject(SkillMdGenerator)
     private readonly mdGenerator: SkillMdGenerator,
-    @inject(SkillPromotionService)
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_PROMOTION_SERVICE)
     private readonly promotion: SkillPromotionService,
     @inject(TrajectoryExtractor)
     private readonly extractor: TrajectoryExtractor,

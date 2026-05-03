@@ -163,9 +163,13 @@ export class MemoryStore {
       `SELECT rowid AS rowid FROM memory_chunks WHERE id = ?`,
     );
 
-    type Txn = (m: typeof memoryParams) => MemoryId;
-    const txn = db.transaction(((m: typeof memoryParams) => {
-      insertMemoryStmt.run(m as unknown as Record<string, unknown>);
+    // better-sqlite3's `db.transaction()` is typed against a generic varargs
+    // callback. Cast the typed inner function exactly once to a callable
+    // matching that signature, then back to our typed wrapper — one cast in,
+    // one cast out, instead of three chained `as unknown as`.
+    type TxnFn = (m: typeof memoryParams) => MemoryId;
+    const txnFn = ((m: typeof memoryParams): MemoryId => {
+      insertMemoryStmt.run(m);
       for (let i = 0; i < chunks.length; i++) {
         const c = chunks[i];
         const cid = chunkId(ulid());
@@ -176,7 +180,7 @@ export class MemoryStore {
           text: c.text,
           token_count: c.tokenCount,
           created_at: now,
-        } as unknown as Record<string, unknown>);
+        });
         if (insertVecStmt) {
           const vec = embeddings[i];
           if (vec && vec.length === this.embedder.dim) {
@@ -193,7 +197,8 @@ export class MemoryStore {
         }
       }
       return id;
-    }) as unknown as (...args: unknown[]) => unknown) as unknown as Txn;
+    }) as unknown as (...args: unknown[]) => unknown;
+    const txn = db.transaction(txnFn) as unknown as TxnFn;
     return txn(memoryParams);
   }
 
@@ -245,11 +250,14 @@ export class MemoryStore {
     const totalRow = this.connection.db
       .prepare(`SELECT COUNT(*) AS n FROM memories ${whereSql}`)
       .get(params) as { n: number } | undefined;
+    // Parameterize LIMIT/OFFSET — even though `limit` and `offset` are clamped
+    // to safe integers above, parameterizing prevents any future caller from
+    // accidentally re-introducing string interpolation as a refactor pattern.
     const rows = this.connection.db
       .prepare(
-        `SELECT * FROM memories ${whereSql} ORDER BY salience DESC, last_used_at DESC LIMIT ${limit} OFFSET ${offset}`,
+        `SELECT * FROM memories ${whereSql} ORDER BY salience DESC, last_used_at DESC LIMIT @__limit OFFSET @__offset`,
       )
-      .all(params) as MemoryRow[];
+      .all({ ...params, __limit: limit, __offset: offset }) as MemoryRow[];
     return {
       memories: rows.map(rowToMemory),
       total: totalRow?.n ?? rows.length,
@@ -343,7 +351,7 @@ export class MemoryStore {
           text: c.text,
           token_count: c.tokenCount,
           created_at: now,
-        } as unknown as Record<string, unknown>);
+        });
         if (insertVecStmt) {
           const vec = embeddings[i];
           if (vec && vec.length === this.embedder.dim) {

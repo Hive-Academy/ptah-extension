@@ -136,6 +136,21 @@ export class GatewayRpcHandlers {
       if (!params?.platform || !params?.token) {
         throw new Error('gateway:setToken requires { platform, token }');
       }
+      // SECURITY: validate platform against the explicit allow-list so the
+      // setToken switch can never default into the slack branch and store a
+      // token under the wrong settings key.
+      if (
+        params.platform !== 'telegram' &&
+        params.platform !== 'discord' &&
+        params.platform !== 'slack'
+      ) {
+        throw new Error(
+          `gateway:setToken: unknown platform '${String(params.platform)}'`,
+        );
+      }
+      if (typeof params.token !== 'string' || params.token.length === 0) {
+        throw new Error('gateway:setToken: token must be a non-empty string');
+      }
       if (params.platform === 'slack' && !params.slackAppToken) {
         throw new Error(
           'gateway:setToken for slack requires both `token` (xoxb-...) and `slackAppToken` (xapp-...)',
@@ -163,7 +178,10 @@ export class GatewayRpcHandlers {
         filter.platform = params.platform as GatewayPlatform;
       if (params?.status) filter.status = params.status as ApprovalStatus;
       const bindings = this.gateway.listBindings(filter);
-      return { bindings: bindings.map(toBindingDto) };
+      // SECURITY: omit pairingCode from list responses — the code is the sole
+      // pairing secret and must not be serialised to the renderer IPC channel.
+      // It is only included in the explicit approveBinding confirmation.
+      return { bindings: bindings.map(toBindingDtoPublic) };
     });
   }
 
@@ -180,6 +198,10 @@ export class GatewayRpcHandlers {
         params.ptahSessionId,
         params.workspaceRoot,
       );
+      this.logger.info('[gateway] binding approved', {
+        bindingId: params.bindingId,
+        platform: binding.platform,
+      });
       return { binding: toBindingDto(binding) };
     });
   }
@@ -197,6 +219,11 @@ export class GatewayRpcHandlers {
         BindingId.create(params.bindingId),
         status,
       );
+      this.logger.info('[gateway] binding blocked', {
+        bindingId: params.bindingId,
+        status,
+        platform: binding.platform,
+      });
       return { binding: toBindingDto(binding) };
     });
   }
@@ -237,6 +264,11 @@ function toBindingDto(b: GatewayBinding): GatewayBindingDto {
     approvedAt: b.approvedAt,
     lastActiveAt: b.lastActiveAt,
   };
+}
+
+/** Public list variant — omits pairingCode so the secret never travels to the renderer. */
+function toBindingDtoPublic(b: GatewayBinding): GatewayBindingDto {
+  return { ...toBindingDto(b), pairingCode: null };
 }
 
 function toMessageDto(m: GatewayMessage): GatewayMessageDto {

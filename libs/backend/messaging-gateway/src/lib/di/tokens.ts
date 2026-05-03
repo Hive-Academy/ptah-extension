@@ -3,28 +3,26 @@
  *
  * Convention mirrors `libs/backend/agent-sdk/src/lib/di/tokens.ts`:
  * - Always `Symbol.for('Name')` (globally interned).
- * - Each description is globally unique across all token files.
+ * - Each description is globally unique across all token files (Ptah-prefixed).
  * - Frozen `as const` so consumer types narrow on the symbol values.
+ *
+ * Authoritative spec: TASK_2026_HERMES architecture.md §2.5.
  */
 export const GATEWAY_TOKENS = {
   /** GatewayService — top-level facade. */
-  GATEWAY_SERVICE: Symbol.for('GatewayService'),
+  GATEWAY_SERVICE: Symbol.for('PtahGatewayService'),
   /** ITokenVault — encrypts/decrypts platform tokens. */
-  GATEWAY_TOKEN_VAULT: Symbol.for('GatewayTokenVault'),
+  GATEWAY_TOKEN_VAULT: Symbol.for('PtahGatewayTokenVault'),
   /** BindingStore — gateway_bindings persistence. */
-  GATEWAY_BINDING_STORE: Symbol.for('GatewayBindingStore'),
+  GATEWAY_BINDING_STORE: Symbol.for('PtahGatewayBindingStore'),
   /** MessageStore — gateway_messages persistence. */
-  GATEWAY_MESSAGE_STORE: Symbol.for('GatewayMessageStore'),
+  GATEWAY_MESSAGE_STORE: Symbol.for('PtahGatewayMessageStore'),
   /** StreamCoalescer factory. */
-  GATEWAY_STREAM_COALESCER: Symbol.for('GatewayStreamCoalescer'),
+  GATEWAY_STREAM_COALESCER: Symbol.for('PtahGatewayStreamCoalescer'),
   /** WhisperTranscriber — voice → text. */
-  GATEWAY_WHISPER_TRANSCRIBER: Symbol.for('GatewayWhisperTranscriber'),
+  GATEWAY_WHISPER_TRANSCRIBER: Symbol.for('PtahGatewayWhisperTranscriber'),
   /** FfmpegDecoder — OGG/Opus → 16kHz WAV. */
-  GATEWAY_FFMPEG_DECODER: Symbol.for('GatewayFfmpegDecoder'),
-  /** Per-platform IMessagingAdapter factories. */
-  GATEWAY_TELEGRAM_ADAPTER: Symbol.for('GatewayTelegramAdapter'),
-  GATEWAY_DISCORD_ADAPTER: Symbol.for('GatewayDiscordAdapter'),
-  GATEWAY_SLACK_ADAPTER: Symbol.for('GatewaySlackAdapter'),
+  GATEWAY_FFMPEG_DECODER: Symbol.for('PtahGatewayFfmpegDecoder'),
 } as const;
 
 export type GatewayDIToken = keyof typeof GATEWAY_TOKENS;

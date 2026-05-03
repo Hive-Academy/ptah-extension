@@ -36,12 +36,20 @@ export interface SqliteDatabase {
 }
 
 export interface SqliteStatement {
+  /** Positional-parameter form: `stmt.run(val1, val2, ...)` */
   run(...params: unknown[]): {
     changes: number;
     lastInsertRowid: number | bigint;
   };
+  /** Named-parameter form: `stmt.run({ '@id': id, '@name': name })` */
+  run(params: Record<string, unknown>): {
+    changes: number;
+    lastInsertRowid: number | bigint;
+  };
   get(...params: unknown[]): unknown;
+  get(params: Record<string, unknown>): unknown;
   all(...params: unknown[]): unknown[];
+  all(params: Record<string, unknown>): unknown[];
   iterate(...params: unknown[]): IterableIterator<unknown>;
 }
 
@@ -51,11 +59,18 @@ export type SqliteDatabaseFactory = (filePath: string) => SqliteDatabase;
 /** Resolver for the sqlite-vec loadable extension path. */
 export type SqliteVecPathResolver = () => string;
 
-/** Lifecycle pragmas applied on every connection open (see §7.2). */
+/**
+ * Lifecycle pragmas applied on every connection open. The full set is
+ * mandated by architecture §3 (TASK_2026_HERMES) — `temp_store = MEMORY`
+ * and `mmap_size = 256 MiB` are required so vec0 + FTS5 scratch tables stay
+ * off-disk and large workspaces benefit from zero-copy reads.
+ */
 const PRAGMAS_ON_OPEN = [
   'journal_mode = WAL',
   'foreign_keys = ON',
   'synchronous = NORMAL',
+  'temp_store = MEMORY',
+  'mmap_size = 268435456', // 256 MiB — matches architecture §3
 ] as const;
 
 @injectable()

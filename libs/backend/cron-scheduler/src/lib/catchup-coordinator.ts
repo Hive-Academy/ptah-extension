@@ -1,4 +1,3 @@
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * CatchupCoordinator — replays missed cron slots after a process resume.
  *
@@ -30,47 +29,13 @@ import { CRON_TOKENS } from './di/tokens';
 import type { IJobStore } from './job.store';
 import type { JobRunner } from './job-runner';
 import type { IPowerMonitor } from './power-monitor.interface';
+import { loadCron, type CronInstance } from './croner-loader';
 import {
   CATCHUP_WINDOW_MAX_MS,
   type CatchupPolicy,
   type CronSchedulerOptions,
   type ScheduledJob,
 } from './types';
-
-/**
- * The croner instance shape we depend on. We avoid a hard `import` of
- * `croner` because the scheduler library is loaded at process boot and the
- * dependency is lazy-required — see CronScheduler. Keep this minimal slice
- * stable.
- */
-interface CronInstance {
-  nextRun(after?: Date): Date | null;
-  /**
-   * Emits the next-N runs from `after`. We only call it for `policy: 'all'`
-   * with a bounded `after` so the loop is cheap.
-   */
-  // No `nextRuns` here — we walk by repeated nextRun() to keep it minimal.
-}
-
-/** Lazy-require croner. Mirrors `defaultBetterSqlite3Factory` pattern. */
-type CronCtor = new (
-  expr: string,
-  options: { timezone?: string; protect?: boolean; paused?: boolean },
-) => CronInstance;
-
-let cachedCronCtor: CronCtor | null = null;
-function loadCron(): CronCtor {
-  if (cachedCronCtor) return cachedCronCtor;
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const mod = require('croner') as { Cron: CronCtor };
-  if (!mod || typeof mod.Cron !== 'function') {
-    throw new Error(
-      "croner module loaded but did not export 'Cron' constructor",
-    );
-  }
-  cachedCronCtor = mod.Cron;
-  return cachedCronCtor;
-}
 
 @injectable()
 export class CatchupCoordinator {
@@ -199,4 +164,3 @@ export class CatchupCoordinator {
     return slots;
   }
 }
-// === TRACK_3_CRON_SCHEDULER_END ===

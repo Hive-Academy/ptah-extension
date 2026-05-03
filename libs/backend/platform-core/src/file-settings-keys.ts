@@ -99,8 +99,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // Editor preferences (TASK_2025_283)
   'editor.vimMode',
 
-  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
-  // Memory curator (TASK_2026_HERMES Track 1)
+  // Memory curator
   'memory.curatorEnabled',
   'memory.tierLimits.core',
   'memory.tierLimits.recall',
@@ -110,26 +109,20 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'memory.curatorModel',
   'memory.searchTopK',
   'memory.searchAlpha',
-  // === TRACK_1_MEMORY_CURATOR_END ===
 
-  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
-  // Autonomous skill synthesis (TASK_2026_HERMES Track 2)
+  // Autonomous skill synthesis
   'skillSynthesis.enabled',
   'skillSynthesis.successesToPromote',
   'skillSynthesis.dedupCosineThreshold',
   'skillSynthesis.maxActiveSkills',
   'skillSynthesis.candidatesDir',
-  // === TRACK_2_SKILL_SYNTHESIS_END ===
 
-  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
-  // Cron scheduler (TASK_2026_HERMES Track 3)
+  // Cron scheduler
   'cron.enabled',
   'cron.maxConcurrentJobs',
   'cron.catchupWindowMs',
-  // === TRACK_3_CRON_SCHEDULER_END ===
 
-  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
-  // Messaging gateway (TASK_2026_HERMES Track 4)
+  // Messaging gateway
   'gateway.enabled',
   'gateway.coalesceMs',
   'gateway.voice.enabled',
@@ -143,7 +136,6 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'gateway.slack.botTokenCipher',
   'gateway.slack.appTokenCipher',
   'gateway.slack.allowedTeamIds',
-  // === TRACK_4_MESSAGING_GATEWAY_END ===
 ]);
 
 /**
@@ -240,8 +232,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // Editor preferences (TASK_2025_283)
   'editor.vimMode': false,
 
-  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
-  // Memory curator (TASK_2026_HERMES Track 1)
+  // Memory curator
   'memory.curatorEnabled': true,
   'memory.tierLimits.core': 50,
   'memory.tierLimits.recall': 500,
@@ -251,26 +242,20 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'memory.curatorModel': 'claude-haiku-4-20251022',
   'memory.searchTopK': 10,
   'memory.searchAlpha': 0.5,
-  // === TRACK_1_MEMORY_CURATOR_END ===
 
-  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
-  // Autonomous skill synthesis (TASK_2026_HERMES Track 2)
+  // Autonomous skill synthesis
   'skillSynthesis.enabled': true,
   'skillSynthesis.successesToPromote': 3,
   'skillSynthesis.dedupCosineThreshold': 0.85,
   'skillSynthesis.maxActiveSkills': 50,
   'skillSynthesis.candidatesDir': '',
-  // === TRACK_2_SKILL_SYNTHESIS_END ===
 
-  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
-  // Cron scheduler (TASK_2026_HERMES Track 3)
+  // Cron scheduler
   'cron.enabled': true,
   'cron.maxConcurrentJobs': 3,
   'cron.catchupWindowMs': 86400000,
-  // === TRACK_3_CRON_SCHEDULER_END ===
 
-  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
-  // Messaging gateway (TASK_2026_HERMES Track 4)
+  // Messaging gateway
   'gateway.enabled': false,
   'gateway.coalesceMs': 800,
   'gateway.voice.enabled': true,
@@ -284,7 +269,6 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'gateway.slack.botTokenCipher': '',
   'gateway.slack.appTokenCipher': '',
   'gateway.slack.allowedTeamIds': [],
-  // === TRACK_4_MESSAGING_GATEWAY_END ===
 };
 
 /**

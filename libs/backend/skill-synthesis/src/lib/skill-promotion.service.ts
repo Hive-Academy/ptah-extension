@@ -12,6 +12,7 @@
  *
  * Materializes SKILL.md at the active root and updates `body_path` on the row.
  */
+import * as fs from 'node:fs';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SkillCandidateStore } from './skill-candidate.store';
@@ -165,8 +166,6 @@ export class SkillPromotionService {
 
   private readCandidateBody(candidate: SkillCandidateRow): string {
     try {
-      // Lazy require to avoid pulling fs into test seams unnecessarily.
-      const fs = require('node:fs') as typeof import('node:fs');
       if (fs.existsSync(candidate.bodyPath)) {
         const raw = fs.readFileSync(candidate.bodyPath, 'utf8');
         // Strip frontmatter — we re-emit it from candidate.name/description.

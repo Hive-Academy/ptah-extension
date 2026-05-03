@@ -143,10 +143,17 @@ export class ElectronSafeStorageVault implements ITokenVault {
       fs.writeFileSync(FALLBACK_UUID_FILE, fresh, { mode: 0o600 });
       return Buffer.from(fresh, 'utf8');
     } catch {
-      // Last-resort: derive from hostname + user. Stable across runs but
-      // weaker than a real machine id. Better than crashing.
-      const fallback = `${os.hostname()}::${os.userInfo().username}`;
-      return Buffer.from(fallback, 'utf8');
+      // SECURITY: do NOT fall back to hostname+username — both values are
+      // world-readable on multi-user systems, making the derived AES-GCM key
+      // publicly computable. Throw so the failure surfaces clearly rather
+      // than silently encrypting with a predictable key. On a healthy system
+      // this path is unreachable: /etc/machine-id exists on all modern Linux
+      // distros, and ~/.ptah/ is always writable (we create it on first run).
+      throw new Error(
+        'ElectronSafeStorageVault: cannot derive a stable machine seed. ' +
+          '/etc/machine-id is unreadable and ~/.ptah/.machine-uuid could not be created. ' +
+          'Ensure the ~/.ptah directory is writable.',
+      );
     }
   }
 }

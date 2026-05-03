@@ -53,7 +53,6 @@ export interface DiscordClientLike {
 export type DiscordClientFactory = () => DiscordClientLike;
 
 const defaultFactory: DiscordClientFactory = () => {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { Client, GatewayIntentBits } = require('discord.js') as {
     Client: new (opts: { intents: number[] }) => DiscordClientLike;
     GatewayIntentBits: { Guilds: number };
@@ -75,6 +74,12 @@ export class DiscordAdapter implements IMessagingAdapter {
   private allowedGuildIds = new Set<string>();
   /** Latest interaction handle keyed by externalMsgId so we can editReply. */
   private interactions = new Map<string, DiscordInteractionLike>();
+  /**
+   * Pending interactions per channel, in arrival order. `consumeFreshInteractionForChannel`
+   * pops the most recent so the flush response goes to the user who actually
+   * invoked the slash command — not a bystander's older interaction.
+   */
+  private pendingByChannel = new Map<string, DiscordInteractionLike[]>();
   /** Per-channel sliding window for edit rate limit. */
   private channelEdits = new Map<string, number[]>();
 
@@ -124,14 +129,20 @@ export class DiscordAdapter implements IMessagingAdapter {
     }
     this.client = null;
     this.interactions.clear();
+    this.pendingByChannel.clear();
     this.channelEdits.clear();
   }
 
   async sendMessage(externalChatId: string, body: string): Promise<SendResult> {
     // Discord's flow is interaction-driven; sendMessage maps to "followUp on
-    // the latest interaction for that channel" since we don't keep an arbitrary
-    // channel reference. If no interaction is available, surface a clear error.
-    const interaction = this.findInteractionForChannel(externalChatId);
+    // the most recent UNCONSUMED interaction for that channel". We must not
+    // re-use an arbitrary stored interaction because Discord scopes a
+    // followUp/editReply to the original invoking user — co-opting another
+    // user's interaction would surface this user's reply (and any leaked
+    // session content) under the wrong user's slash command. We therefore
+    // pop the freshest pending interaction and refuse to fall back to older
+    // ones implicitly.
+    const interaction = this.consumeFreshInteractionForChannel(externalChatId);
     if (!interaction) {
       throw new Error(
         `Discord adapter: no active interaction for channel ${externalChatId}; ` +
@@ -140,6 +151,7 @@ export class DiscordAdapter implements IMessagingAdapter {
     }
     await this.respectChannelRateLimit(externalChatId);
     const res = await interaction.followUp({ content: body });
+    // Track the followUp message id → originating interaction for editMessage.
     this.interactions.set(res.id, interaction);
     return { externalMsgId: res.id };
   }
@@ -164,13 +176,16 @@ export class DiscordAdapter implements IMessagingAdapter {
     this.listener = listener;
   }
 
-  private findInteractionForChannel(
+  private consumeFreshInteractionForChannel(
     channelId: string,
   ): DiscordInteractionLike | null {
-    for (const interaction of this.interactions.values()) {
-      if (interaction.channelId === channelId) return interaction;
-    }
-    return null;
+    const queue = this.pendingByChannel.get(channelId);
+    if (!queue || queue.length === 0) return null;
+    // LIFO — newest invocation wins, so the user that just typed `/ptah`
+    // gets the response, never a stale interaction belonging to someone else.
+    const interaction = queue.pop() ?? null;
+    if (queue.length === 0) this.pendingByChannel.delete(channelId);
+    return interaction;
   }
 
   private async handleInteraction(
@@ -178,21 +193,30 @@ export class DiscordAdapter implements IMessagingAdapter {
   ): Promise<void> {
     if (!this.listener) return;
     if (interaction.commandName !== 'ptah') return;
-    if (
-      this.allowedGuildIds.size &&
-      interaction.guildId &&
-      !this.allowedGuildIds.has(interaction.guildId)
-    ) {
-      this.logger.debug(
-        '[gateway] discord interaction rejected by allow-list',
-        {
-          guildId: interaction.guildId,
-        },
-      );
-      return;
+    if (this.allowedGuildIds.size) {
+      // SECURITY: when an allowlist is configured, reject DMs (guildId === null)
+      // and non-listed guilds. A null guildId means a DM — not in any guild,
+      // so no guild ID to check against the list. Passing through a DM when a
+      // guild allowlist is active would let any user who discovers the bot token
+      // bypass the restriction entirely.
+      if (
+        !interaction.guildId ||
+        !this.allowedGuildIds.has(interaction.guildId)
+      ) {
+        this.logger.debug(
+          '[gateway] discord interaction rejected by allow-list',
+          { guildId: interaction.guildId ?? 'null(DM)' },
+        );
+        return;
+      }
     }
     await interaction.deferReply();
     this.interactions.set(interaction.id, interaction);
+    // Track this interaction in the per-channel pending queue so the next
+    // outbound flush goes back to the user who invoked the command.
+    const queue = this.pendingByChannel.get(interaction.channelId) ?? [];
+    queue.push(interaction);
+    this.pendingByChannel.set(interaction.channelId, queue);
     const prompt = interaction.options.getString('prompt') ?? '';
     const externalChatId = interaction.channelId;
     const inbound: InboundMessage = {

@@ -11,6 +11,7 @@
  * walk an illegal edge (e.g. `rejected` → `promoted`).
  */
 import { inject, injectable } from 'tsyringe';
+import { ulid } from 'ulid';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PERSISTENCE_TOKENS,
@@ -442,11 +443,11 @@ export class SkillCandidateStore {
   }
 
   private generateCandidateId(): string {
-    return `cand_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    return ulid();
   }
 
   private generateInvocationId(): string {
-    return `inv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    return ulid();
   }
 }
 

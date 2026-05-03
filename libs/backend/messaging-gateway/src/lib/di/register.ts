@@ -44,20 +44,12 @@ export function registerMessagingGatewayServices(
     WhisperTranscriber,
   );
 
-  // Adapters are registered as concrete-class singletons so GatewayService can
-  // inject them by class. Tokens exposed for completeness/testing.
+  // Adapters are registered as concrete-class singletons — GatewayService
+  // injects them by class (not by token), so only the class registrations
+  // are needed.
   container.registerSingleton(GrammyTelegramAdapter);
   container.registerSingleton(DiscordAdapter);
   container.registerSingleton(BoltSlackAdapter);
-  container.register(GATEWAY_TOKENS.GATEWAY_TELEGRAM_ADAPTER, {
-    useFactory: (c) => c.resolve(GrammyTelegramAdapter),
-  });
-  container.register(GATEWAY_TOKENS.GATEWAY_DISCORD_ADAPTER, {
-    useFactory: (c) => c.resolve(DiscordAdapter),
-  });
-  container.register(GATEWAY_TOKENS.GATEWAY_SLACK_ADAPTER, {
-    useFactory: (c) => c.resolve(BoltSlackAdapter),
-  });
 
   container.registerSingleton(GATEWAY_TOKENS.GATEWAY_SERVICE, GatewayService);
 

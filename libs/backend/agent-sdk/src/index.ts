@@ -37,11 +37,9 @@ export { SessionImporterService } from './lib/session-importer.service';
 
 // Session history reader (reads JSONL files for session replay)
 export { SessionHistoryReaderService } from './lib/session-history-reader.service';
-// === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
-// Re-exposed for skill-synthesis (Track 2) which injects JsonlReaderService
+// Re-exposed for skill-synthesis which injects JsonlReaderService
 // directly to read raw JSONL turns for trajectory extraction.
 export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';
-// === TRACK_2_SKILL_SYNTHESIS_END ===
 
 // SDK type exports (centralized SDK types)
 export * from './lib/types/sdk-types/claude-sdk.types';

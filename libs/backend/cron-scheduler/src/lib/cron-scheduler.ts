@@ -1,4 +1,3 @@
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * CronScheduler — top-level orchestrator.
  *
@@ -34,9 +33,11 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type { JobId } from '@ptah-extension/shared';
 import { CRON_TOKENS } from './di/tokens';
 import type { CatchupCoordinator } from './catchup-coordinator';
+import { JobNotFoundError } from './errors';
 import type { IJobStore } from './job.store';
 import type { IRunStore } from './run.store';
 import { JobRunner } from './job-runner';
+import { loadCron, type CronInstance } from './croner-loader';
 import {
   CATCHUP_WINDOW_MAX_MS,
   type CatchupPolicy,
@@ -46,36 +47,6 @@ import {
   type ScheduledJob,
   type UpdateJobPatch,
 } from './types';
-
-interface CronInstance {
-  nextRun(after?: Date): Date | null;
-  stop(): void;
-  isRunning?(): boolean;
-}
-
-type CronCtor = new (
-  expr: string,
-  options: {
-    timezone?: string;
-    protect?: boolean;
-    paused?: boolean;
-  },
-  fn?: () => void,
-) => CronInstance;
-
-let cachedCronCtor: CronCtor | null = null;
-function loadCron(): CronCtor {
-  if (cachedCronCtor) return cachedCronCtor;
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const mod = require('croner') as { Cron: CronCtor };
-  if (!mod || typeof mod.Cron !== 'function') {
-    throw new Error(
-      "croner module loaded but did not export 'Cron' constructor",
-    );
-  }
-  cachedCronCtor = mod.Cron;
-  return cachedCronCtor;
-}
 
 /**
  * Default catchup policy when no per-job override is configured.
@@ -198,7 +169,7 @@ export class CronScheduler {
 
   update(id: JobId, patch: UpdateJobPatch): ScheduledJob {
     const existing = this.jobs.get(id);
-    if (!existing) throw new Error(`Job not found: ${id}`);
+    if (!existing) throw new JobNotFoundError(id);
     const merged = { ...existing, ...patch };
 
     // If timing fields changed, re-validate + recompute nextRunAt.
@@ -235,15 +206,16 @@ export class CronScheduler {
   }
 
   /**
-   * Fire a job NOW. Bypasses cron expression — uses the current time as
-   * `scheduledFor` so the UNIQUE-claim still works (collisions with the
-   * scheduled tick at the same ms are exceptionally rare and resolved by
-   * the runner's claim semantics).
+   * Fire a job NOW. Bypasses cron expression — uses the current second
+   * (same rounding as `armTimer`) so the UNIQUE constraint on
+   * `(job_id, scheduled_for)` prevents a simultaneous scheduled tick from
+   * also claiming the same slot. Raw `Date.now()` would produce a different
+   * ms value than the timer's second-rounded slot, defeating the constraint.
    */
   async runNow(id: JobId, signal?: AbortSignal): Promise<JobRun | null> {
     const job = this.jobs.get(id);
-    if (!job) throw new Error(`Job not found: ${id}`);
-    const slot = Date.now();
+    if (!job) throw new JobNotFoundError(id);
+    const slot = Math.floor(Date.now() / 1000) * 1000;
     await this.runner.run(job, slot, { signal });
     return this.runs.latestForJob(id);
   }
@@ -317,4 +289,3 @@ export class CronScheduler {
     this.timers.delete(id);
   }
 }
-// === TRACK_3_CRON_SCHEDULER_END ===

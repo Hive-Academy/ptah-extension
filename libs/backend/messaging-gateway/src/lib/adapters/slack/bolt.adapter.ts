@@ -67,7 +67,6 @@ export type SlackAppFactory = (opts: {
 }) => SlackBoltAppLike;
 
 const defaultFactory: SlackAppFactory = (opts) => {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { App } = require('@slack/bolt') as {
     App: new (cfg: {
       token: string;
@@ -117,6 +116,21 @@ export class BoltSlackAdapter implements IMessagingAdapter {
     if (!token) throw new Error('Slack bot token is empty');
     if (!opts?.appToken)
       throw new Error('Slack app token is required for Socket Mode');
+    // SECURITY: validate token shape so a swapped pair (bot token in the
+    // app-token slot) is rejected loudly rather than silently emitting a bot
+    // token over the Socket Mode WebSocket handshake. Slack token prefixes:
+    //   xoxb-... → bot token (HTTP API)
+    //   xapp-... → app-level token (Socket Mode)
+    if (!token.startsWith('xoxb-')) {
+      throw new Error(
+        'Slack adapter: bot token must start with "xoxb-" (got a different prefix — did you swap bot/app tokens?)',
+      );
+    }
+    if (!opts.appToken.startsWith('xapp-')) {
+      throw new Error(
+        'Slack adapter: app-level token must start with "xapp-" (got a different prefix — did you swap bot/app tokens?)',
+      );
+    }
     this.app = this.factory({ botToken: token, appToken: opts.appToken });
     this.app.event('app_mention', async (args) => {
       try {
@@ -178,15 +192,17 @@ export class BoltSlackAdapter implements IMessagingAdapter {
   private async handleEvent(args: SlackEventHandlerArgs): Promise<void> {
     if (!this.listener) return;
     const teamId = args.context.teamId ?? args.event.team;
-    if (
-      this.allowedTeamIds.size &&
-      teamId &&
-      !this.allowedTeamIds.has(teamId)
-    ) {
-      this.logger.debug('[gateway] slack event rejected by allow-list', {
-        teamId,
-      });
-      return;
+    if (this.allowedTeamIds.size) {
+      // SECURITY: when an allowlist is configured, drop events where teamId
+      // cannot be determined (both context and event fields undefined). A
+      // falsy teamId cannot be verified against the allowlist, so it must
+      // be rejected rather than passed through by accident.
+      if (!teamId || !this.allowedTeamIds.has(teamId)) {
+        this.logger.debug('[gateway] slack event rejected by allow-list', {
+          teamId: teamId ?? '(undefined)',
+        });
+        return;
+      }
     }
     const stripped = args.event.text.replace(/^<@[^>]+>\s*/, '').trim();
     const inbound: InboundMessage = {

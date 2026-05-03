@@ -36,7 +36,17 @@ export interface FlushPayload {
 export type FlushCallback = (payload: FlushPayload) => Promise<void> | void;
 
 interface BufferState {
+  /**
+   * Cumulative body for the current stream — grows as chunks arrive and is
+   * passed to the flush callback in full each time. Adapters that support
+   * `editMessage` use this to replace the message body with the latest
+   * cumulative text; first-flush adapters use it as the initial send.
+   * Reset only on `discard()` (stream end) so `editMessage` always replaces
+   * with the full assistant output, never a delta.
+   */
   body: string;
+  /** Pending unflushed chunk content — used to drive the maxTokens trigger. */
+  pendingDelta: string;
   startedAt: number;
   idleTimer: NodeJS.Timeout | null;
   ageTimer: NodeJS.Timeout | null;
@@ -78,6 +88,7 @@ export class StreamCoalescer {
     if (!state) {
       state = {
         body: '',
+        pendingDelta: '',
         startedAt: Date.now(),
         idleTimer: null,
         ageTimer: null,
@@ -92,13 +103,17 @@ export class StreamCoalescer {
       );
     }
     state.body += chunk;
+    state.pendingDelta += chunk;
     if (state.idleTimer) clearTimeout(state.idleTimer);
     state.idleTimer = setTimeout(
       () => void this.doFlush(conversationKey),
       this.opts.idleMs,
     );
 
-    if (approxTokens(state.body) >= this.opts.maxTokens) {
+    // Trigger an immediate flush when the *delta* since the last flush crosses
+    // the token threshold — so a long-running stream emits at most one edit
+    // per maxTokens worth of new content.
+    if (approxTokens(state.pendingDelta) >= this.opts.maxTokens) {
       void this.doFlush(conversationKey);
     }
   }
@@ -117,7 +132,16 @@ export class StreamCoalescer {
     this.buffers.delete(conversationKey);
   }
 
-  /** Discard every pending buffer — adapter shutdown / gateway stop. */
+  /**
+   * Drain all pending buffers, then discard. Call this on graceful shutdown
+   * so partially-assembled messages reach the platform before the adapters stop.
+   */
+  async drainAll(): Promise<void> {
+    await Promise.all([...this.buffers.keys()].map((k) => this.drain(k)));
+    this.discardAll();
+  }
+
+  /** Discard every pending buffer WITHOUT flushing — use only after `drainAll`. */
   discardAll(): void {
     for (const key of [...this.buffers.keys()]) this.discard(key);
   }
@@ -126,9 +150,9 @@ export class StreamCoalescer {
     const state = this.buffers.get(conversationKey);
     if (!state) return;
     if (state.flushing) return; // reentrancy guard
-    if (!state.body) {
-      // Nothing to send — clear timers but keep entry so subsequent appends
-      // do not reset `flushed`/`isFirstFlush`.
+    if (!state.pendingDelta) {
+      // Nothing new to send — clear timers but keep entry so subsequent
+      // appends do not reset `flushed`/`isFirstFlush`.
       if (state.idleTimer) {
         clearTimeout(state.idleTimer);
         state.idleTimer = null;
@@ -138,8 +162,11 @@ export class StreamCoalescer {
 
     state.flushing = true;
     const isFirstFlush = !state.flushed;
+    // Send the *cumulative* body so editMessage callers replace the message
+    // with the full assistant output (architecture §8.5: "concatenated
+    // within the window then sent as a single message edit").
     const body = state.body;
-    state.body = '';
+    state.pendingDelta = '';
     state.flushed = true;
     if (state.idleTimer) {
       clearTimeout(state.idleTimer);
@@ -150,7 +177,7 @@ export class StreamCoalescer {
     } finally {
       state.flushing = false;
       // If new chunks arrived during flush, schedule another idle flush.
-      if (state.body) {
+      if (state.pendingDelta) {
         state.idleTimer = setTimeout(
           () => void this.doFlush(conversationKey),
           this.opts.idleMs,

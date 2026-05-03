@@ -129,6 +129,14 @@ export class GatewayService extends EventEmitter {
   /** Ciphertext-decrypt-failure flag — surfaced via gateway:status. */
   private decryptFailures = new Set<GatewayPlatform>();
 
+  /**
+   * Bindings that have already received the one-shot pairing prompt this
+   * process. Architecture §8.5 mandates a *single* "approval required" reply
+   * per pending binding — not a reply on every inbound message. Cleared on
+   * approval (the binding leaves the pending state) or on process restart.
+   */
+  private pairingPromptSent = new Set<string>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -248,7 +256,9 @@ export class GatewayService extends EventEmitter {
 
   /** LIFO cleanup hook called by `main.ts` `will-quit`. */
   async stop(): Promise<void> {
-    this.coalescer?.discardAll();
+    // Drain before discard so any in-flight chunks reach the platform before
+    // adapters close. discardAll() without drainAll() drops buffered content.
+    await this.coalescer?.drainAll();
     for (const [platform, adapter] of this.adapters) {
       try {
         await adapter.stop();
@@ -302,11 +312,25 @@ export class GatewayService extends EventEmitter {
     ptahSessionId?: string,
     workspaceRoot?: string,
   ): GatewayBinding {
-    return this.bindings.approve(id, ptahSessionId, workspaceRoot);
+    const binding = this.bindings.approve(id, ptahSessionId, workspaceRoot);
+    // Binding has left the pending state — drop the one-shot prompt latch so
+    // a future revoke→re-pending cycle gets a fresh prompt.
+    this.pairingPromptSent.delete(id);
+    return binding;
   }
 
   setBindingStatus(id: BindingId, status: ApprovalStatus): GatewayBinding {
-    return this.bindings.setStatus(id, status);
+    const binding = this.bindings.setStatus(id, status);
+    // Any state transition out of `pending` clears the latch. Any transition
+    // into `revoked`/`rejected` also drops any in-flight outbound stream.
+    this.pairingPromptSent.delete(id);
+    if (status === 'revoked' || status === 'rejected') {
+      const handleKey =
+        `${binding.platform}:${binding.externalChatId}` as ConversationKey;
+      this.streamHandles.delete(handleKey);
+      this.coalescer?.discard(handleKey);
+    }
+    return binding;
   }
 
   listBindings(filter?: {
@@ -458,19 +482,25 @@ export class GatewayService extends EventEmitter {
     });
 
     if (binding.approvalStatus === 'pending') {
-      const code = binding.pairingCode ?? '------';
-      const reply =
-        `Ptah pairing required. Approve this binding in Ptah using code: ${code}\n` +
-        `(I will not respond to messages until approved.)`;
-      try {
-        const adapter = this.adapters.get(msg.platform);
-        if (adapter) {
-          await adapter.sendMessage(msg.externalChatId, reply);
+      // Architecture §8.5: send the "approval required" reply ONCE per
+      // pending binding. Every subsequent inbound is silently dropped to
+      // prevent a hostile sender from spamming the user's notifications.
+      if (!this.pairingPromptSent.has(binding.id)) {
+        const code = binding.pairingCode ?? '------';
+        const reply =
+          `Ptah pairing required. Approve this binding in Ptah using code: ${code}\n` +
+          `(I will not respond to messages until approved.)`;
+        try {
+          const adapter = this.adapters.get(msg.platform);
+          if (adapter) {
+            await adapter.sendMessage(msg.externalChatId, reply);
+          }
+          this.pairingPromptSent.add(binding.id);
+        } catch (err) {
+          this.logger.warn('[gateway] failed to send pairing prompt', {
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
-      } catch (err) {
-        this.logger.warn('[gateway] failed to send pairing prompt', {
-          error: err instanceof Error ? err.message : String(err),
-        });
       }
       return;
     }

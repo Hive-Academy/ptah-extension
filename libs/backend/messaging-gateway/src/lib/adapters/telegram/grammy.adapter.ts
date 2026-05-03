@@ -55,7 +55,6 @@ export interface TelegramContext {
 export type TelegramBotFactory = (token: string) => TelegramBotLike;
 
 const defaultFactory: TelegramBotFactory = (token) => {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { Bot } = require('grammy') as {
     Bot: new (t: string) => TelegramBotLike;
   };
@@ -161,15 +160,38 @@ export class GrammyTelegramAdapter implements IMessagingAdapter {
     const message = ctx.message;
     if (!message || !this.listener) return;
     const fromId = message.from?.id ? String(message.from.id) : '';
-    if (
-      this.allowedUserIds.size &&
-      fromId &&
-      !this.allowedUserIds.has(fromId)
-    ) {
-      this.logger.debug('[gateway] telegram inbound rejected by allow-list', {
-        fromId,
-      });
-      return;
+    if (this.allowedUserIds.size) {
+      // SECURITY: when an allowlist is configured, drop messages with no
+      // identifiable sender (channel posts, automated messages where `from`
+      // is absent) and messages from unlisted users. An empty fromId should
+      // never pass through — it cannot be verified against the allowlist.
+      if (!fromId || !this.allowedUserIds.has(fromId)) {
+        this.logger.debug('[gateway] telegram inbound rejected by allow-list', {
+          fromId: fromId || '(empty)',
+        });
+        return;
+      }
+    }
+    // SECURITY: When an allow-list is configured, reject group/supergroup/
+    // channel chats by default so an allow-listed user who happens to be a
+    // member of a group cannot have the bot answer (and leak the user's
+    // session contents) into the group. Telegram private chat ids are
+    // POSITIVE; group / supergroup / channel ids are NEGATIVE. Operators who
+    // explicitly want a group must add the chat id to the allow-list as well.
+    const chatIdNum =
+      typeof message.chat.id === 'number'
+        ? message.chat.id
+        : Number(message.chat.id);
+    const isPrivateChat = Number.isFinite(chatIdNum) && chatIdNum > 0;
+    if (this.allowedUserIds.size && !isPrivateChat) {
+      const chatIdStr = String(message.chat.id);
+      if (!this.allowedUserIds.has(chatIdStr)) {
+        this.logger.debug(
+          '[gateway] telegram inbound rejected — non-private chat not on allow-list',
+          { chatId: chatIdStr, fromId },
+        );
+        return;
+      }
     }
     const externalChatId = String(message.chat.id);
     const displayName = message.chat.title ?? message.chat.username;
