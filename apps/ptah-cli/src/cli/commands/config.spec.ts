@@ -356,7 +356,7 @@ describe('ptah config autopilot', () => {
     );
     expect(engine.rpcCalls[0]).toEqual({
       method: 'config:autopilot-toggle',
-      params: { enabled: true, permissionLevel: 'all' },
+      params: { enabled: true, permissionLevel: 'yolo' },
     });
   });
 

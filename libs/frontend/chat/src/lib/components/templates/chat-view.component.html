@@ -124,6 +124,18 @@
         </div>
       }
 
+      <!-- Branch/Rewind action info banner (auto-clears after 4s) -->
+      @if (actionInfo(); as infoMsg) {
+        <div
+          class="px-4 py-2 mx-2 my-1 rounded-md bg-success/10 border border-success/30 text-success text-xs"
+          role="status"
+          animate.enter="banner-enter"
+          animate.leave="banner-leave"
+        >
+          {{ infoMsg }}
+        </div>
+      }
+
       <!-- Resume Notification Banner -->
       <div class="px-2 py-1">
         <ptah-resume-notification-banner

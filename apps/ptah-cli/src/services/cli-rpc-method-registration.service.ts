@@ -19,6 +19,10 @@ import {
   registerHarnessServices,
   verifyAndReportRpcRegistration,
   __debugAssertSharedHandlersDisjoint,
+  CronRpcHandlers,
+  GatewayRpcHandlers,
+  MemoryRpcHandlers,
+  SkillsSynthesisRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import {
   wireSdkCallbacks,
@@ -77,6 +81,42 @@ const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   // inside the user's own terminal; spawning child PTYs is out of scope.
   'terminal:create',
   'terminal:kill',
+
+  // TASK_2026_HERMES — cron / gateway / memory / skill-synthesis services
+  // depend on persistence-sqlite + croner + voice/gateway adapters that
+  // are Electron-only. Excluded from the CLI runtime; their RPC handlers
+  // are skipped during shared-handler registration.
+  'cron:list',
+  'cron:get',
+  'cron:create',
+  'cron:update',
+  'cron:delete',
+  'cron:toggle',
+  'cron:runNow',
+  'cron:runs',
+  'cron:nextFire',
+  'gateway:status',
+  'gateway:start',
+  'gateway:stop',
+  'gateway:setToken',
+  'gateway:listBindings',
+  'gateway:approveBinding',
+  'gateway:blockBinding',
+  'gateway:listMessages',
+  'memory:list',
+  'memory:search',
+  'memory:get',
+  'memory:pin',
+  'memory:unpin',
+  'memory:forget',
+  'memory:rebuildIndex',
+  'memory:stats',
+  'skillSynthesis:listCandidates',
+  'skillSynthesis:getCandidate',
+  'skillSynthesis:promote',
+  'skillSynthesis:reject',
+  'skillSynthesis:invocations',
+  'skillSynthesis:stats',
 ];
 
 /**
@@ -111,7 +151,19 @@ export class CliRpcMethodRegistrationService {
 
     // TASK_2026_104 Batch 4: drop `exclude: [HarnessRpcHandlers]` so the
     // harness handler joins the shared set. Parity with Electron.
-    registerAllRpcHandlers(container);
+    //
+    // TASK_2026_HERMES: cron / gateway / memory / skill-synthesis services
+    // are Electron-only (require persistence-sqlite, croner, voice/gateway
+    // adapters not wired in the headless CLI). Exclude their RPC handlers
+    // so DI resolution does not fail at bootstrap.
+    registerAllRpcHandlers(container, {
+      exclude: [
+        CronRpcHandlers,
+        GatewayRpcHandlers,
+        MemoryRpcHandlers,
+        SkillsSynthesisRpcHandlers,
+      ],
+    });
 
     // TASK_2026_104 Sub-batch B6b: re-register `SkillsShRpcHandlers` (CLI
     // copy of the Electron handler — `skills-sh-rpc.handlers.ts`). The Skills

@@ -1314,10 +1314,24 @@ export class SdkAgentAdapter implements IAgentAdapter {
         upToMessageId,
         title,
       });
+
+      // Create metadata for the new forked session so session:load and
+      // chat:resume can find it. The SDK's standalone forkSession() only
+      // writes the JSONL file — it does not touch our metadata store, so
+      // without this the new session would 404 on session:load.
+      const sourceMetadata = await this.metadataStore.get(sessionId as string);
+      const forkName =
+        title ??
+        (sourceMetadata ? `${sourceMetadata.name} (fork)` : 'Forked session');
+      const workspaceId = sourceMetadata?.workspaceId ?? '';
+      await this.metadataStore.create(result.sessionId, workspaceId, forkName);
+
       this.logger.info('[SdkAgentAdapter] Session forked successfully', {
         sourceSessionId: sessionId,
         newSessionId: result.sessionId,
         upToMessageId,
+        workspaceId,
+        forkName,
       });
       return result;
     } catch (error) {

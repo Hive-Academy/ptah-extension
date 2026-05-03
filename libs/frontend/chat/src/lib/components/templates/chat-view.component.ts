@@ -151,12 +151,25 @@ export class ChatViewComponent {
   readonly actionError = this._actionError.asReadonly();
   private _actionErrorTimeout: ReturnType<typeof setTimeout> | null = null;
 
+  private readonly _actionInfo = signal<string | null>(null);
+  readonly actionInfo = this._actionInfo.asReadonly();
+  private _actionInfoTimeout: ReturnType<typeof setTimeout> | null = null;
+
   private showActionError(message: string): void {
     if (this._actionErrorTimeout) clearTimeout(this._actionErrorTimeout);
     this._actionError.set(message);
     this._actionErrorTimeout = setTimeout(() => {
       this._actionError.set(null);
       this._actionErrorTimeout = null;
+    }, 4000);
+  }
+
+  private showActionInfo(message: string): void {
+    if (this._actionInfoTimeout) clearTimeout(this._actionInfoTimeout);
+    this._actionInfo.set(message);
+    this._actionInfoTimeout = setTimeout(() => {
+      this._actionInfo.set(null);
+      this._actionInfoTimeout = null;
     }, 4000);
   }
 
@@ -878,29 +891,28 @@ export class ChatViewComponent {
       if (result.isSuccess()) {
         const newSessionId = result.data.newSessionId;
         // openSessionTab handles dedup + activation + workspace registration.
-        // Whether it auto-loads history depends on the tab manager's
-        // implementation — we explicitly load below to be defensive
-        // (loadSession is idempotent if the session is already cached).
         this._tabManager.openSessionTab(
           newSessionId as unknown as string,
           'Branch',
         );
 
-        // Defensive history load — see Fix 10. openSessionTab creates the
-        // tab but does not necessarily trigger a session:load RPC for
-        // freshly-forked session IDs unknown to the tab manager. Invoke
-        // loadSession explicitly so the new tab populates its message list
-        // immediately. The call is idempotent (returns metadata only; the
-        // SDK serves message history at chat:resume time) so a duplicate
-        // call from a future openSessionTab change is harmless.
-        const loadResult = await this._claudeRpc.loadSession(
-          newSessionId as SessionId,
-        );
-        if (!loadResult.isSuccess()) {
-          // Don't fail the whole branch — the tab is open and the user can
-          // retry. Just surface the warning.
+        // Refresh sidebar list so the new fork appears immediately. The
+        // backend now creates a metadata entry inside SdkAgentAdapter.forkSession,
+        // so loadSessions() will pick it up.
+        this.chatStore.loadSessions().catch((err) => {
+          console.warn('[ChatView] Failed to refresh sessions after fork', err);
+        });
+
+        // Switch to the new session — this fires chat:resume which streams
+        // the forked transcript into the new tab's messages and execution tree.
+        try {
+          await this.chatStore.switchSession(newSessionId as unknown as string);
+          this.showActionInfo('Branch created.');
+        } catch (err) {
           this.showActionError(
-            `Branch tab opened, but loading history failed: ${loadResult.error ?? 'Unknown'}`,
+            `Branch tab opened, but loading history failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
           );
         }
       } else {
@@ -1017,6 +1029,13 @@ export class ChatViewComponent {
       this.showActionError(
         commit.data.error ?? 'Rewind failed without an error message.',
       );
+    } else {
+      const changedCount = commit.data.filesChanged?.length ?? 0;
+      this.showActionInfo(
+        changedCount === 0
+          ? 'Rewind complete — no files changed.'
+          : `Rewind complete — ${changedCount} file(s) reverted.`,
+      );
     }
   }
 
@@ -1052,7 +1071,20 @@ export class ChatViewComponent {
       });
       if (!retry) return;
 
-      const resumed = await this._claudeRpc.loadSession(sessionId);
+      // Use chat:resume (not session:load) — only chat:resume actually starts
+      // a live SDK Query and registers it with SessionLifecycleManager, which
+      // is what rewindFiles needs to read its file checkpoint state.
+      // session:load is metadata-validation-only and does NOT activate the
+      // session — that was the original bug.
+      const tabId =
+        this._tabManager.tabs().find((t) => t.claudeSessionId === sessionId)
+          ?.id ?? this._tabManager.activeTabId();
+      const workspacePath = this.vscodeService.config().workspaceRoot;
+      const resumed = await this._claudeRpc.call('chat:resume', {
+        sessionId,
+        tabId: tabId ?? '',
+        workspacePath,
+      });
       if (!resumed.isSuccess()) {
         this.showActionError(`Resume failed: ${resumed.error ?? 'Unknown'}`);
         return;
