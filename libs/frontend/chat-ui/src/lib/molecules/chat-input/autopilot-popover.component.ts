@@ -49,7 +49,7 @@ import { type PermissionLevel } from '@ptah-extension/shared';
 
     <!-- Bottom Sheet Modal -->
     @if (isOpen()) {
-      <div class="fixed inset-0 z-50 flex flex-col justify-end">
+      <div class="absolute inset-0 z-50 flex flex-col justify-end">
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-black/60" (click)="closeModal()"></div>
 

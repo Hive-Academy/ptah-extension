@@ -177,6 +177,10 @@ export const MESSAGE_TYPES = {
   // Similar to permission system but expects answers instead of approve/deny
   ASK_USER_QUESTION_REQUEST: 'ask-user-question:request',
   ASK_USER_QUESTION_RESPONSE: 'ask-user-question:response',
+  // Backend → webview broadcast when an AskUserQuestion idle-timeout fires
+  // and the handler auto-picked the recommended option. Webview removes the
+  // stale question card so the UI reflects what the agent already knows.
+  ASK_USER_QUESTION_AUTO_RESOLVED: 'ask-user-question:auto-resolved',
 
   // ---- Permission Auto-Resolve Messages ----
   // Sent when "Always Allow" auto-resolves sibling pending requests for the same tool

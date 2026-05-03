@@ -109,7 +109,18 @@ interface PendingQuestionRequest {
   resolve: (response: AskUserQuestionResponse | null) => void;
   /** Session ID this request belongs to (for session-scoped cleanup) */
   sessionId?: string;
+  /** Idle-timeout timer that auto-picks the recommended option after
+   *  ASK_USER_QUESTION_IDLE_TIMEOUT_MS. Cleared when a real response or
+   *  abort arrives first. Null when timeout is disabled. */
+  idleTimer?: ReturnType<typeof setTimeout> | null;
 }
+
+/**
+ * Idle timeout for AskUserQuestion. After this long with no user response,
+ * the handler auto-picks the recommended (first) option for every question
+ * so the agent can continue instead of hanging forever. Set to 0 to disable.
+ */
+const ASK_USER_QUESTION_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * WebviewManager interface (avoid circular import)
@@ -876,6 +887,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       requestId,
       signal,
       sessionId,
+      input.questions,
     );
 
     if (!response) {
@@ -963,6 +975,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     requestId: string,
     signal?: AbortSignal,
     sessionId?: string,
+    questions?: QuestionItem[],
   ): Promise<AskUserQuestionResponse | null> {
     return new Promise<AskUserQuestionResponse | null>((resolve) => {
       if (signal?.aborted) {
@@ -971,7 +984,56 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         return;
       }
 
+      // Idle-timeout fallback — after ASK_USER_QUESTION_IDLE_TIMEOUT_MS with
+      // no response, auto-pick the recommended (first) option for every
+      // question so the agent continues instead of hanging forever.
+      // The agent's next turn naturally surfaces the choice via the tool
+      // result it receives.
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      if (
+        ASK_USER_QUESTION_IDLE_TIMEOUT_MS > 0 &&
+        questions &&
+        questions.length > 0
+      ) {
+        idleTimer = setTimeout(() => {
+          const pending = this.pendingQuestionRequests.get(requestId);
+          if (!pending) return;
+          const answers: Record<string, string> = {};
+          for (const q of questions) {
+            const recommended = q.options?.[0]?.label;
+            if (recommended) answers[q.header] = recommended;
+          }
+          this.logger.warn(
+            '[SdkPermissionHandler] AskUserQuestion idle-timeout reached — auto-picking recommended options',
+            {
+              requestId,
+              timeoutMs: ASK_USER_QUESTION_IDLE_TIMEOUT_MS,
+              answers,
+            },
+          );
+          this.pendingQuestionRequests.delete(requestId);
+          signal?.removeEventListener('abort', onAbort);
+          // Notify the webview to remove the now-stale question card so the
+          // user sees what was auto-answered. handleQuestionResponse on the
+          // frontend already filters the request out of `_questionRequests`.
+          this.webviewManager
+            ?.sendMessage(
+              'ptah.main',
+              MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED,
+              { id: requestId, answers, sessionId },
+            )
+            .catch((error) => {
+              this.logger.error(
+                '[SdkPermissionHandler] Failed to broadcast AskUserQuestion auto-resolution',
+                { error },
+              );
+            });
+          resolve({ id: requestId, answers });
+        }, ASK_USER_QUESTION_IDLE_TIMEOUT_MS);
+      }
+
       const onAbort = () => {
+        if (idleTimer) clearTimeout(idleTimer);
         this.pendingQuestionRequests.delete(requestId);
         resolve(null);
       };
@@ -979,10 +1041,12 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
       this.pendingQuestionRequests.set(requestId, {
         resolve: (response) => {
+          if (idleTimer) clearTimeout(idleTimer);
           signal?.removeEventListener('abort', onAbort);
           resolve(response);
         },
         sessionId,
+        idleTimer,
       });
     });
   }

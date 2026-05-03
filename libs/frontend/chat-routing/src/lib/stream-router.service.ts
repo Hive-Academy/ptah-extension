@@ -53,6 +53,7 @@ import {
   type AccumulatorContext,
 } from '@ptah-extension/chat-streaming';
 import type {
+  AskUserQuestionRequest,
   FlatStreamEventUnion,
   PermissionRequest,
 } from '@ptah-extension/shared';
@@ -526,6 +527,57 @@ export class StreamRouter {
           id: prompt.id,
           decision: 'deny',
           reason: 'auto-deny: prompt arrived for surface-only conversation',
+        });
+      }
+    }
+
+    return tabs;
+  }
+
+  /**
+   * AskUserQuestion routing — sibling of `routePermissionPrompt`.
+   *
+   * Resolves the question's `sessionId` to bound tabs and stores the
+   * resolved tab ids on the PermissionHandler so the chat-view filter can
+   * render the question on the correct tile(s) regardless of whether the
+   * payload's raw `tabId`/`sessionId` fields still match (they go stale
+   * after compaction-driven session id rotation, late `SESSION_ID_RESOLVED`,
+   * or idle re-binding — exactly the cases that produced silent hangs).
+   *
+   * Returns the resolved tab list. Empty return paths:
+   *   - No `sessionId` on the question → chat-view falls back to global
+   *     visibility (active tile shows the question).
+   *   - Session unknown to the registry → same global-visibility fallback.
+   *   - Conversation bound to surfaces only (wizard/harness — full-auto
+   *     background mode) → auto-deny so backend's indefinite
+   *     `awaitQuestionResponse` unblocks immediately. Mirrors the defensive
+   *     guard in `routePermissionPrompt`.
+   */
+  routeQuestionPrompt(question: AskUserQuestionRequest): readonly TabId[] {
+    if (!question.sessionId) return [];
+    const sessionId = question.sessionId as ClaudeSessionId;
+    const tabs = this.tabsForSession(sessionId);
+    if (tabs.length > 0) {
+      this.permissionHandler.attachQuestionTargets(question.id, tabs);
+      return tabs;
+    }
+
+    const containing = this.registry.findContainingSession(sessionId);
+    if (containing) {
+      const surfaces = this.binding.surfacesFor(containing.id);
+      if (surfaces.length > 0) {
+        console.warn('question.received.no-tab-surface-only', {
+          questionId: question.id,
+          sessionId: question.sessionId,
+          conversationId: containing.id,
+          surfaceCount: surfaces.length,
+        });
+        // Auto-resolve with empty answers so the SDK's
+        // `awaitQuestionResponse` (timeoutAt: 0 = block indefinitely)
+        // unblocks. Without this the call hangs forever.
+        this.permissionHandler.handleQuestionResponse({
+          id: question.id,
+          answers: {},
         });
       }
     }

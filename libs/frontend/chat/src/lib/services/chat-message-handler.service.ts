@@ -56,6 +56,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.SESSION_STATS,
     MESSAGE_TYPES.SESSION_ID_RESOLVED,
     MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
+    MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED,
     MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
     MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP,
     MESSAGE_TYPES.SESSION_METADATA_CHANGED,
@@ -83,6 +84,9 @@ export class ChatMessageHandler implements MessageHandler {
         break;
       case MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST:
         this.handleAskUserQuestion(message.payload);
+        break;
+      case MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED:
+        this.handleAskUserQuestionAutoResolved(message.payload);
         break;
       case MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED:
         this.handlePermissionAutoResolved(message.payload);
@@ -265,6 +269,23 @@ export class ChatMessageHandler implements MessageHandler {
     //    the backend's `awaitQuestionResponse` has no timeout, so the
     //    tool call hangs forever.
     this.streamRouter.routeQuestionPrompt(question);
+  }
+
+  // ASK_USER_QUESTION_AUTO_RESOLVED: idle-timeout fired backend-side and the
+  // recommended option was auto-picked. Drop the now-stale card from the UI
+  // (the agent already received the answer and moved on).
+  private handleAskUserQuestionAutoResolved(payload: unknown): void {
+    const { id, answers } =
+      (payload as {
+        id?: string;
+        answers?: Record<string, string>;
+      }) ?? {};
+    if (!id) return;
+    console.info(
+      '[ChatMessageHandler] AskUserQuestion auto-resolved (idle timeout)',
+      { id, answers },
+    );
+    this.chatStore.dropQuestionRequest(id);
   }
 
   // PERMISSION_AUTO_RESOLVED: Always Allow sibling resolution
