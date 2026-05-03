@@ -506,6 +506,52 @@ export class SubagentRegistryService {
   }
 
   /**
+   * TASK_2026_109 (A4 + C4): Prune subagent entries scoped to a parent session.
+   *
+   * Invoked from `SdkMessageTransformer` on `compact_boundary` to drop any
+   * pre-compaction subagent records for the active session. After compaction,
+   * the displayed message stream is sliced past the boundary, so pre-boundary
+   * subagents must not continue counting in the AGENTS header (registry was
+   * the cause of the "AGENTS 4" stale counter screenshot).
+   *
+   * Public, idempotent (no-op if no entries match), returns nothing.
+   * Excludes background agents — they outlive compaction by design.
+   *
+   * @param parentSessionId - The parent session ID to prune subagents for
+   */
+  pruneSession(parentSessionId: string): void {
+    if (!parentSessionId) {
+      return;
+    }
+
+    const toRemove: string[] = [];
+    for (const [toolCallId, record] of this.store.entries()) {
+      if (
+        record.parentSessionId === parentSessionId &&
+        !record.isBackground &&
+        record.status !== 'background'
+      ) {
+        toRemove.push(toolCallId);
+      }
+    }
+
+    for (const toolCallId of toRemove) {
+      this.store.delete(toolCallId);
+    }
+
+    if (toRemove.length > 0) {
+      this.logger.info(
+        '[SubagentRegistryService.pruneSession] Pruned pre-boundary subagents',
+        {
+          parentSessionId,
+          prunedCount: toRemove.length,
+          remainingRegistry: this.store.size,
+        },
+      );
+    }
+  }
+
+  /**
    * Remove all subagents for a parent session.
    *
    * Called when a session is permanently deleted (not just aborted).

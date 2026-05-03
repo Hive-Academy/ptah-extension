@@ -51,7 +51,9 @@ export class AuthRpcHandlers {
   static readonly METHODS = [
     'auth:getHealth',
     'auth:getAuthStatus',
+    'auth:getStatus',
     'auth:saveSettings',
+    'auth:setApiKey',
     'auth:testConnection',
     'auth:copilotLogin',
     'auth:copilotLogout',
@@ -91,7 +93,9 @@ export class AuthRpcHandlers {
   register(): void {
     this.registerGetHealth();
     this.registerGetAuthStatus();
+    this.registerGetStatus();
     this.registerSaveSettings();
+    this.registerSetApiKey();
     this.registerTestConnection();
     this.registerCopilotLogin();
     this.registerCopilotLogout();
@@ -103,7 +107,9 @@ export class AuthRpcHandlers {
       methods: [
         'auth:getHealth',
         'auth:getAuthStatus',
+        'auth:getStatus',
         'auth:saveSettings',
+        'auth:setApiKey',
         'auth:testConnection',
         'auth:copilotLogin',
         'auth:copilotLogout',
@@ -603,6 +609,95 @@ export class AuthRpcHandlers {
           { errorSource: 'AuthRpcHandlers.registerCopilotStatus' },
         );
         return { authenticated: false };
+      }
+    });
+  }
+
+  /**
+   * auth:setApiKey - Store or clear an API key for a provider.
+   *
+   * TASK_2026_107 Bug 6: Lifted from
+   * `apps/ptah-electron/src/services/rpc/handlers/config-extended-rpc.handlers.ts`
+   * so all three apps (VS Code, Electron, CLI) consume it via
+   * `registerAllRpcHandlers()`. Empty/whitespace `apiKey` deletes the slot
+   * — mirrors how `auth:saveSettings` treats empty strings.
+   */
+  private registerSetApiKey(): void {
+    this.rpcHandler.registerMethod<
+      { provider: string; apiKey: string },
+      { success: boolean; error?: string }
+    >('auth:setApiKey', async (params) => {
+      try {
+        if (!params?.provider) {
+          return {
+            success: false,
+            error: 'provider is required',
+          };
+        }
+        if (params.apiKey?.trim()) {
+          await this.authSecretsService.setProviderKey(
+            params.provider,
+            params.apiKey,
+          );
+        } else {
+          await this.authSecretsService.deleteProviderKey(params.provider);
+        }
+        // Invalidate model cache so next fetch uses the new key.
+        this.providerModels.clearCache(params.provider);
+        return { success: true };
+      } catch (error) {
+        this.logger.error(
+          'RPC: auth:setApiKey failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerSetApiKey' },
+        );
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+  }
+
+  /**
+   * auth:getStatus - Compact auth status for the active Anthropic provider.
+   *
+   * TASK_2026_107 Bug 6: Lifted from
+   * `apps/ptah-electron/src/services/rpc/handlers/config-extended-rpc.handlers.ts`.
+   * Distinct from `auth:getAuthStatus` (which returns full provider list +
+   * Copilot/Codex/Claude CLI flags); this method is the lightweight check
+   * the Electron renderer uses on startup.
+   */
+  private registerGetStatus(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      { isAuthenticated: boolean; provider: string; hasApiKey: boolean }
+    >('auth:getStatus', async () => {
+      try {
+        const provider = this.configManager.getWithDefault<string>(
+          'anthropicProviderId',
+          DEFAULT_PROVIDER_ID,
+        );
+        const hasApiKey =
+          await this.authSecretsService.hasProviderKey(provider);
+        return { isAuthenticated: hasApiKey, provider, hasApiKey };
+      } catch (error) {
+        this.logger.error(
+          'RPC: auth:getStatus failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerGetStatus' },
+        );
+        return {
+          isAuthenticated: false,
+          provider: DEFAULT_PROVIDER_ID,
+          hasApiKey: false,
+        };
       }
     });
   }

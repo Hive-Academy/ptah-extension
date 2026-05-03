@@ -304,7 +304,7 @@ export class SessionRpcHandlers {
           });
 
           // Validate session exists in metadata store
-          const metadata = await this.metadataStore.get(sessionId as string);
+          const metadata = await this.metadataStore.get(sessionId);
 
           if (!metadata) {
             throw new Error(`Session not found: ${sessionId}`);
@@ -357,15 +357,15 @@ export class SessionRpcHandlers {
         this.logger.info('RPC: session:delete called', { sessionId });
 
         // Get workspace path from metadata BEFORE deleting it
-        const metadata = await this.metadataStore.get(sessionId as string);
+        const metadata = await this.metadataStore.get(sessionId);
         const workspacePath = metadata?.workspaceId;
 
         // Delete metadata first
-        await this.metadataStore.delete(sessionId as string);
+        await this.metadataStore.delete(sessionId);
 
         // Delete JSONL session file from disk
         if (workspacePath) {
-          await this.deleteSessionFiles(sessionId as string, workspacePath);
+          await this.deleteSessionFiles(sessionId, workspacePath);
         } else {
           this.logger.warn(
             'RPC: session:delete - no workspace path in metadata, skipping file deletion',
@@ -417,12 +417,12 @@ export class SessionRpcHandlers {
           });
 
           // Verify session exists before renaming
-          const metadata = await this.metadataStore.get(sessionId as string);
+          const metadata = await this.metadataStore.get(sessionId);
           if (!metadata) {
             return { success: false, error: 'Session not found' };
           }
 
-          await this.metadataStore.rename(sessionId as string, trimmedName);
+          await this.metadataStore.rename(sessionId, trimmedName);
 
           this.logger.info('RPC: session:rename succeeded', { sessionId });
 
@@ -593,10 +593,7 @@ export class SessionRpcHandlers {
             return { exists: false };
           }
 
-          const filePath = await this.findSessionFile(
-            sessionId as string,
-            workspacePath,
-          );
+          const filePath = await this.findSessionFile(sessionId, workspacePath);
 
           if (filePath) {
             this.logger.debug('RPC: session:validate - session file exists', {

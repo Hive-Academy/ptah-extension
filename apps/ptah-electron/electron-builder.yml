@@ -52,6 +52,19 @@ asarUnpack:
   - 'node_modules/vscode-jsonrpc/**'
   - 'node_modules/@github/copilot-sdk/**'
   - 'node_modules/@github/copilot/**'
+  # TASK_2026_HERMES — native binaries that cannot load from inside asar.
+  # better-sqlite3: prebuilt .node binding
+  # sqlite-vec: native extension (.so/.dylib/.dll)
+  # ffmpeg-static: prebuilt ffmpeg binary
+  # nodejs-whisper: native bindings + downloaded model cache
+  - 'node_modules/better-sqlite3/**'
+  - 'node_modules/sqlite-vec/**'
+  - 'node_modules/sqlite-vec-darwin-arm64/**'
+  - 'node_modules/sqlite-vec-darwin-x64/**'
+  - 'node_modules/sqlite-vec-linux-x64/**'
+  - 'node_modules/sqlite-vec-windows-x86_64/**'
+  - 'node_modules/ffmpeg-static/**'
+  - 'node_modules/nodejs-whisper/**'
 
 extraResources:
   - from: 'renderer'

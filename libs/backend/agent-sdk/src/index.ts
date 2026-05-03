@@ -37,6 +37,9 @@ export { SessionImporterService } from './lib/session-importer.service';
 
 // Session history reader (reads JSONL files for session replay)
 export { SessionHistoryReaderService } from './lib/session-history-reader.service';
+// Re-exposed for skill-synthesis which injects JsonlReaderService
+// directly to read raw JSONL turns for trajectory extraction.
+export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';
 
 // SDK type exports (centralized SDK types)
 export * from './lib/types/sdk-types/claude-sdk.types';
@@ -57,6 +60,14 @@ export { SdkError, SessionNotActiveError } from './lib/errors';
 export { registerSdkServices } from './lib/di/register';
 export { SDK_TOKENS } from './lib/di/tokens';
 export type { SdkDIToken } from './lib/di/tokens';
+
+// Compaction callback registry (TASK_2026_HERMES Track 1)
+// Allows additional subscribers (e.g. memory curator) to receive PreCompact events.
+export { CompactionCallbackRegistry } from './lib/helpers';
+export {
+  CompactionHookHandler,
+  type CompactionStartCallback,
+} from './lib/helpers';
 
 // Model ID constants and tier resolution (single source of truth)
 export {
@@ -393,6 +404,11 @@ export {
   type WireAgentEventListenersContext,
   type AgentEventPlatform,
 } from './lib/wiring/agent-events';
+export {
+  wireSessionMetadataEvents,
+  type WireSessionMetadataEventsContext,
+  type SessionMetadataEventPlatform,
+} from './lib/wiring/session-metadata-events';
 
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';

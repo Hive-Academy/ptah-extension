@@ -38,6 +38,7 @@ export {
 
 // Tier 3 handlers (VS Code-specific, stay local)
 export { FileRpcHandlers } from './file-rpc.handlers';
+export { EditorRpcHandlers } from './editor-rpc.handlers';
 export { CommandRpcHandlers } from './command-rpc.handlers';
 export { AgentRpcHandlers } from './agent-rpc.handlers';
 export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';

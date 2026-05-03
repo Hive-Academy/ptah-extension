@@ -617,7 +617,7 @@ describe('ChatBridge — runTurn', () => {
     expectNoListenerLeaks(adapter);
   });
 
-  it('non-target eventTypes (tool_delta, agent_start, ...) are silently dropped', async () => {
+  it('non-target eventTypes (tool_delta, agent_start, ...) emit no agent.* notifications', async () => {
     const { bridge, adapter, calls } = makeBridge();
 
     await bridge.runTurn({
@@ -643,7 +643,147 @@ describe('ChatBridge — runTurn', () => {
       },
     });
 
-    expect(calls).toHaveLength(0);
+    // Bridge drops unknown chunk types (no `agent.*` for them) but ALWAYS
+    // emits the terminal `task.complete` envelope on chat:complete.
+    const agentCalls = calls.filter((c) => c.method.startsWith('agent.'));
+    expect(agentCalls).toHaveLength(0);
+    const terminal = calls.filter((c) => c.method === 'task.complete');
+    expect(terminal).toHaveLength(1);
+    expectNoListenerLeaks(adapter);
+  });
+
+  // Bug 1+4 — TASK_2026_107. Headless `--json` runs must always end with a
+  // visible turn boundary on stdout; otherwise consumers see only
+  // `session.created` and the process exits 0 with no signal that the turn
+  // finished. The bridge owns the terminal-notification contract so every
+  // caller (session start/resume/send AND interact task.submit) gets the
+  // same envelope shape.
+  it('emits a task.complete notification on chat:complete (success path)', async () => {
+    const { bridge, adapter, calls } = makeBridge();
+
+    await bridge.runTurn({
+      tabId: 'tab-term-ok',
+      command: 'session.start',
+      rpcCall: async () => {
+        queueMicrotask(() => {
+          adapter.emit('chat:chunk', {
+            tabId: 'tab-term-ok',
+            sessionId: 'tab-term-ok',
+            event: {
+              eventType: 'text_delta',
+              messageId: 'm-ok',
+              delta: 'hello',
+            },
+          });
+          adapter.emit('chat:complete', {
+            tabId: 'tab-term-ok',
+            sessionId: 'tab-term-ok',
+            turnId: 'turn-99',
+          });
+        });
+        return { success: true };
+      },
+    });
+
+    const terminal = calls.filter((c) => c.method === 'task.complete');
+    expect(terminal).toHaveLength(1);
+    const params = terminal[0]?.params as Record<string, unknown>;
+    expect(params['command']).toBe('session.start');
+    expect(typeof params['duration_ms']).toBe('number');
+    const summary = params['summary'] as Record<string, unknown>;
+    expect(summary['session_id']).toBe('tab-term-ok');
+    expect(summary['turn_id']).toBe('turn-99');
+    expect(summary['text']).toBe('hello');
+    expectNoListenerLeaks(adapter);
+  });
+
+  it('emits a task.error notification on chat:error (failure path)', async () => {
+    const { bridge, adapter, calls } = makeBridge();
+
+    await bridge.runTurn({
+      tabId: 'tab-term-err',
+      command: 'session.send',
+      rpcCall: async () => {
+        queueMicrotask(() => {
+          adapter.emit('chat:error', {
+            tabId: 'tab-term-err',
+            sessionId: 'tab-term-err',
+            error: 'rate limited',
+          });
+        });
+        return { success: true };
+      },
+    });
+
+    const terminal = calls.filter((c) => c.method === 'task.error');
+    expect(terminal).toHaveLength(1);
+    const params = terminal[0]?.params as Record<string, unknown>;
+    expect(params['command']).toBe('session.send');
+    expect(params['message']).toBe('rate limited');
+    expect(params['ptah_code']).toBe('unknown');
+    expectNoListenerLeaks(adapter);
+  });
+
+  it('emits exactly one terminal notification regardless of settle path', async () => {
+    const { bridge, adapter, calls } = makeBridge();
+
+    await bridge.runTurn({
+      tabId: 'tab-once',
+      rpcCall: async () => {
+        queueMicrotask(() => {
+          adapter.emit('chat:complete', {
+            tabId: 'tab-once',
+            sessionId: 'tab-once',
+          });
+          // Late `chat:error` after settle — must be ignored by the
+          // settled-once guard. No second terminal notification.
+          adapter.emit('chat:error', {
+            tabId: 'tab-once',
+            sessionId: 'tab-once',
+            error: 'late',
+          });
+        });
+        return { success: true };
+      },
+    });
+
+    const terminals = calls.filter(
+      (c) => c.method === 'task.complete' || c.method === 'task.error',
+    );
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]?.method).toBe('task.complete');
+    expectNoListenerLeaks(adapter);
+  });
+
+  it('message_complete with empty text still emits agent.message (envelope-only)', async () => {
+    const { bridge, adapter, calls } = makeBridge();
+
+    await bridge.runTurn({
+      tabId: 'tab-mc-empty',
+      rpcCall: async () => {
+        queueMicrotask(() => {
+          adapter.emit('chat:chunk', {
+            tabId: 'tab-mc-empty',
+            sessionId: 'tab-mc-empty',
+            event: { eventType: 'message_complete', messageId: 'm-empty' },
+          });
+          adapter.emit('chat:complete', {
+            tabId: 'tab-mc-empty',
+            sessionId: 'tab-mc-empty',
+          });
+        });
+        return { success: true };
+      },
+    });
+
+    const messages = calls.filter((c) => c.method === 'agent.message');
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.params).toMatchObject({
+      session_id: 'tab-mc-empty',
+      message_id: 'm-empty',
+      text: '',
+      is_partial: false,
+    });
     expectNoListenerLeaks(adapter);
   });
 });

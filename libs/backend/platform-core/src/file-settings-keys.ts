@@ -98,6 +98,44 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
 
   // Editor preferences (TASK_2025_283)
   'editor.vimMode',
+
+  // Memory curator
+  'memory.curatorEnabled',
+  'memory.tierLimits.core',
+  'memory.tierLimits.recall',
+  'memory.tierLimits.archival',
+  'memory.decayHalflifeDays',
+  'memory.embeddingModel',
+  'memory.curatorModel',
+  'memory.searchTopK',
+  'memory.searchAlpha',
+
+  // Autonomous skill synthesis
+  'skillSynthesis.enabled',
+  'skillSynthesis.successesToPromote',
+  'skillSynthesis.dedupCosineThreshold',
+  'skillSynthesis.maxActiveSkills',
+  'skillSynthesis.candidatesDir',
+
+  // Cron scheduler
+  'cron.enabled',
+  'cron.maxConcurrentJobs',
+  'cron.catchupWindowMs',
+
+  // Messaging gateway
+  'gateway.enabled',
+  'gateway.coalesceMs',
+  'gateway.voice.enabled',
+  'gateway.telegram.enabled',
+  'gateway.telegram.tokenCipher',
+  'gateway.telegram.allowedUserIds',
+  'gateway.discord.enabled',
+  'gateway.discord.tokenCipher',
+  'gateway.discord.allowedGuildIds',
+  'gateway.slack.enabled',
+  'gateway.slack.botTokenCipher',
+  'gateway.slack.appTokenCipher',
+  'gateway.slack.allowedTeamIds',
 ]);
 
 /**
@@ -193,6 +231,44 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
 
   // Editor preferences (TASK_2025_283)
   'editor.vimMode': false,
+
+  // Memory curator
+  'memory.curatorEnabled': true,
+  'memory.tierLimits.core': 50,
+  'memory.tierLimits.recall': 500,
+  'memory.tierLimits.archival': 5000,
+  'memory.decayHalflifeDays': 14,
+  'memory.embeddingModel': 'Xenova/bge-small-en-v1.5',
+  'memory.curatorModel': 'claude-haiku-4-20251022',
+  'memory.searchTopK': 10,
+  'memory.searchAlpha': 0.5,
+
+  // Autonomous skill synthesis
+  'skillSynthesis.enabled': true,
+  'skillSynthesis.successesToPromote': 3,
+  'skillSynthesis.dedupCosineThreshold': 0.85,
+  'skillSynthesis.maxActiveSkills': 50,
+  'skillSynthesis.candidatesDir': '',
+
+  // Cron scheduler
+  'cron.enabled': true,
+  'cron.maxConcurrentJobs': 3,
+  'cron.catchupWindowMs': 86400000,
+
+  // Messaging gateway
+  'gateway.enabled': false,
+  'gateway.coalesceMs': 800,
+  'gateway.voice.enabled': true,
+  'gateway.telegram.enabled': false,
+  'gateway.telegram.tokenCipher': '',
+  'gateway.telegram.allowedUserIds': [],
+  'gateway.discord.enabled': false,
+  'gateway.discord.tokenCipher': '',
+  'gateway.discord.allowedGuildIds': [],
+  'gateway.slack.enabled': false,
+  'gateway.slack.botTokenCipher': '',
+  'gateway.slack.appTokenCipher': '',
+  'gateway.slack.allowedTeamIds': [],
 };
 
 /**

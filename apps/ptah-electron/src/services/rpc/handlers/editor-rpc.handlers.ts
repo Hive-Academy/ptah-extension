@@ -19,11 +19,20 @@ import type {
   IFileSystemProvider,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
-import type { FileOpenParams } from '@ptah-extension/shared';
+import type {
+  FileOpenParams,
+  EditorRevertFilesParams,
+  EditorRevertFilesResult,
+} from '@ptah-extension/shared';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { isFileBasedSettingKey } from '@ptah-extension/platform-core';
 
 /** Extends FileOpenParams with legacy 'filePath' for backward compatibility. */
 type FileOpenCompatParams = FileOpenParams & { filePath?: string };
+
+interface WebviewBroadcaster {
+  broadcastMessage(type: string, payload: unknown): Promise<void>;
+}
 
 interface FileTreeEntry {
   name: string;
@@ -140,11 +149,14 @@ export class EditorRpcHandlers {
     private readonly workspace: IWorkspaceProvider,
     @inject('DependencyContainer')
     private readonly container: DependencyContainer,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: WebviewBroadcaster,
   ) {}
 
   register(): void {
     this.registerFileOpen(); // file:open (registry standard name)
     this.registerOpenFile(); // editor:openFile (Electron-specific)
+    this.registerRevertFiles(); // editor:revertFiles (Electron Monaco equivalent)
     this.registerSaveFile();
     this.registerGetFileTree();
     this.registerGetDirectoryChildren();
@@ -782,6 +794,58 @@ export class EditorRpcHandlers {
           files: [],
         };
       }
+    });
+  }
+
+  /**
+   * `editor:revertFiles` — Electron equivalent of VS Code's buffer revert.
+   *
+   * For each requested file path, reads the current on-disk content and
+   * broadcasts an `editor:tabContentReverted` push event to the renderer.
+   * The Angular EditorService handles the push and updates the Monaco tab
+   * models (content + isDirty reset to false).
+   *
+   * Files that no longer exist on disk (e.g. deleted by the rewind) are
+   * skipped silently — the frontend will detect the missing tab on the
+   * next user interaction.
+   */
+  private registerRevertFiles(): void {
+    this.rpcHandler.registerMethod<
+      EditorRevertFilesParams,
+      EditorRevertFilesResult
+    >('editor:revertFiles', async (params) => {
+      const requested = params?.files ?? [];
+      this.logger.debug('[Electron RPC] editor:revertFiles called', {
+        count: requested.length,
+      });
+
+      const revertedFiles: Array<{ filePath: string; content: string }> = [];
+
+      for (const filePath of requested) {
+        try {
+          const content = await nodeFs.readFile(filePath, 'utf8');
+          revertedFiles.push({ filePath, content });
+        } catch {
+          this.logger.debug(
+            '[Electron RPC] editor:revertFiles — skipping missing file',
+            { filePath } as unknown as Error,
+          );
+        }
+      }
+
+      if (revertedFiles.length > 0) {
+        await this.webviewManager.broadcastMessage(
+          MESSAGE_TYPES.EDITOR_TAB_CONTENT_REVERTED,
+          { files: revertedFiles },
+        );
+      }
+
+      this.logger.debug('[Electron RPC] editor:revertFiles completed', {
+        requested: requested.length,
+        revertedCount: revertedFiles.length,
+      });
+
+      return { revertedCount: revertedFiles.length };
     });
   }
 

@@ -356,16 +356,42 @@ async function runAutopilotSet(
     return ExitCode.UsageError;
   }
   return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
-    const result = await callRpc<unknown>(
-      ctx.transport,
-      'config:autopilot-toggle',
-      { enabled, permissionLevel: enabled ? 'all' : 'none' },
-    );
-    await formatter.writeNotification('config.autopilot', {
-      enabled,
-      ...wrapResult(result),
-    });
-    return ExitCode.Success;
+    const permissionLevel = enabled ? 'yolo' : 'ask';
+    try {
+      const result = await callRpc<unknown>(
+        ctx.transport,
+        'config:autopilot-toggle',
+        { enabled, permissionLevel },
+      );
+      await formatter.writeNotification('config.autopilot', {
+        enabled,
+        permissionLevel,
+        ...wrapResult(result),
+      });
+      return ExitCode.Success;
+    } catch (error) {
+      // `config:autopilot-toggle` rejects YOLO unless the active license is
+      // Pro. In headless / unlicensed runs the operator can still set the
+      // *intent* — the Pro gate is enforced at session-start time when the
+      // permission handler actually consults the level. Surface the
+      // requested level as a notification with `proRequired: true` so JSON-RPC
+      // clients see the intent (the gate becomes informational, not fatal).
+      const message = error instanceof Error ? error.message : String(error);
+      const isProGate =
+        enabled &&
+        permissionLevel === 'yolo' &&
+        /pro subscription|pro tier|pro-?required/i.test(message);
+      if (isProGate) {
+        await formatter.writeNotification('config.autopilot', {
+          enabled,
+          permissionLevel,
+          proRequired: true,
+          message,
+        });
+        return ExitCode.Success;
+      }
+      throw error;
+    }
   });
 }
 

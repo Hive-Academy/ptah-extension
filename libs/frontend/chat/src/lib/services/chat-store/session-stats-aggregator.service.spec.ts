@@ -17,7 +17,11 @@
 
 import { TestBed } from '@angular/core/testing';
 import { SessionStatsAggregatorService } from './session-stats-aggregator.service';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  ConversationRegistry,
+  TabManagerService,
+  TabSessionBinding,
+} from '@ptah-extension/chat-state';
 import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
@@ -96,6 +100,17 @@ describe('SessionStatsAggregatorService', () => {
     const dispatchMock = {
       sendQueuedMessage: sendQueuedMock,
     } as unknown as MessageDispatchService;
+    // TASK_2026_109 C1 — `isLateAfterCompaction` now reads from
+    // ConversationRegistry / TabSessionBinding. Tests in this file create
+    // tabs with no conversation binding so the fallback (per-tab
+    // `lastCompactionAt`) drives the grace-window check; the registry is
+    // never consulted because `conversationFor` returns null.
+    const conversationRegistryMock = {
+      compactionStateFor: jest.fn(() => null),
+    } as unknown as ConversationRegistry;
+    const tabSessionBindingMock = {
+      conversationFor: jest.fn(() => null),
+    } as unknown as TabSessionBinding;
 
     TestBed.configureTestingModule({
       providers: [
@@ -105,6 +120,8 @@ describe('SessionStatsAggregatorService', () => {
         { provide: SessionLoaderService, useValue: sessionLoaderMock },
         { provide: CompactionLifecycleService, useValue: compactionMock },
         { provide: MessageDispatchService, useValue: dispatchMock },
+        { provide: ConversationRegistry, useValue: conversationRegistryMock },
+        { provide: TabSessionBinding, useValue: tabSessionBindingMock },
       ],
     });
     service = TestBed.inject(SessionStatsAggregatorService);
@@ -282,5 +299,83 @@ describe('SessionStatsAggregatorService', () => {
   it('refreshes sidebar via SessionLoader.loadSessions', () => {
     service.handleSessionStats(baseStats);
     expect(loadSessionsMock).toHaveBeenCalled();
+  });
+
+  // ------------------------------------------------------------------
+  // TASK_2026_109 — late-event grace window + primary-model determinism.
+  // ------------------------------------------------------------------
+
+  describe('B3 — late SESSION_STATS dropped within grace window', () => {
+    it('drops the event without clearing compaction state or mutating preloadedStats when lastCompactionAt is fresh', () => {
+      tabs = [
+        makeTab({
+          // Very recent compaction completion → inside the 2s grace window.
+          lastCompactionAt: Date.now() - 100,
+          preloadedStats: {
+            totalCost: 1.0,
+            tokens: {
+              input: 1000,
+              output: 500,
+              cacheRead: 100,
+              cacheCreation: 50,
+            },
+            messageCount: 5,
+          },
+        }),
+      ];
+      // Re-bind the lookup mock against the new tabs array.
+      findTabsBySessionIdMock.mockImplementation((sid: string) =>
+        tabs.filter((t) => t.claudeSessionId === sid),
+      );
+
+      service.handleSessionStats(baseStats);
+
+      // Late event must NOT prematurely dismiss the banner …
+      expect(clearCompactionStateMock).not.toHaveBeenCalled();
+      // … and must NOT poison the just-reset preloadedStats.
+      expect(setPreloadedStatsMock).not.toHaveBeenCalled();
+      // The aggregator logs a warning to make the drop observable.
+      expect(warn).toHaveBeenCalledWith(
+        '[ChatStore] handleSessionStats: dropped late event after compaction',
+        expect.objectContaining({ sessionId: 'sess-1' }),
+      );
+    });
+  });
+
+  describe('C3 — primary-model selection delegated to shared pickPrimaryModel', () => {
+    it('returns the same model name on tied costs across runs (deterministic ordering)', () => {
+      const tiedUsage = [
+        {
+          model: 'claude-haiku',
+          inputTokens: 100,
+          outputTokens: 100,
+          contextWindow: 200000,
+          costUSD: 0.5,
+        },
+        {
+          model: 'claude-sonnet',
+          inputTokens: 100,
+          outputTokens: 100,
+          contextWindow: 200000,
+          costUSD: 0.5,
+        },
+      ];
+
+      service.handleSessionStats({ ...baseStats, modelUsage: tiedUsage });
+      const [, firstStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      const firstPick = (firstStats as { model: string }).model;
+
+      setLiveModelStatsAndUsageListMock.mockClear();
+
+      // Reverse the order to prove ordering does not flip the result.
+      service.handleSessionStats({
+        ...baseStats,
+        modelUsage: [...tiedUsage].reverse(),
+      });
+      const [, secondStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      const secondPick = (secondStats as { model: string }).model;
+
+      expect(firstPick).toBe(secondPick);
+    });
   });
 });

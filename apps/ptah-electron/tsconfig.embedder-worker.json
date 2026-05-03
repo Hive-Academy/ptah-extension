@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.build.json",
+  "include": [
+    "../../libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts",
+    "../../libs/backend/memory-curator/src/lib/embedder/**/*.ts"
+  ],
+  "exclude": ["**/*.spec.ts"]
+}

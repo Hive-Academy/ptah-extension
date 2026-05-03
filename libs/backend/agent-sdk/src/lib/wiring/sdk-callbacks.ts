@@ -229,8 +229,11 @@ function wireCompactionStartCallback(
 ): void {
   sdkAdapter.setCompactionStartCallback((data) => {
     logger.info(
-      `${tag} Compaction started: sessionId=${data.sessionId}, trigger=${data.trigger}`,
+      `${tag} Compaction started: sessionId=${data.sessionId}, trigger=${data.trigger}, preTokens=${data.preTokens}`,
     );
+    // TASK_2026_109 (A2): Forward `preTokens` so the frontend can freeze
+    // pre-compaction header stats and pair this start with the eventual
+    // `compact_boundary` for duration / delta computation.
     const compactionEvent = {
       id: `compaction_${data.sessionId}_${data.timestamp}`,
       eventType: 'compaction_start' as const,
@@ -238,6 +241,7 @@ function wireCompactionStartCallback(
       sessionId: data.sessionId,
       messageId: `compaction_msg_${data.timestamp}`,
       trigger: data.trigger,
+      preTokens: data.preTokens,
       source: 'stream' as const,
     };
     webviewManager

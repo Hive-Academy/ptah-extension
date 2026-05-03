@@ -26,6 +26,25 @@ If `workspace-path` is provided and points to a directory, Ptah opens it as the 
 | `--version`       | —         | Print the version and exit                                                                           |
 | `--help`          | —         | Print usage and exit                                                                                 |
 
+## `ptah interact` — embedded Anthropic-compatible proxy
+
+`ptah interact` can boot an embedded HTTP proxy that exposes an Anthropic-compatible API surface, optionally re-exporting Ptah's workspace MCP tools. Useful for harnessing external clients or supervisors that already speak the Anthropic protocol.
+
+| Flag                             | Argument | Purpose                                           |
+| -------------------------------- | -------- | ------------------------------------------------- |
+| `--proxy-start`                  | —        | Boot the embedded Anthropic-compatible HTTP proxy |
+| `--proxy-port`                   | `<n>`    | TCP port (`0` = OS-assigned)                      |
+| `--proxy-host`                   | `<host>` | Bind host (default `127.0.0.1`)                   |
+| `--proxy-expose-workspace-tools` | —        | Surface workspace MCP tools through the proxy     |
+
+The bound address is printed on stderr as:
+
+```text
+[ptah] proxy listening on http://127.0.0.1:54321
+```
+
+Supervisors can scrape that line to discover the live address when `--proxy-port=0` is used.
+
 ## Environment variables
 
 The same behavior is also available through environment variables, which is often more convenient when launching from a shell script:

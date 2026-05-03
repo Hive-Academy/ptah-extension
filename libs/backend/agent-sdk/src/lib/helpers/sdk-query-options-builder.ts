@@ -458,6 +458,24 @@ export interface SdkQueryOptions {
    * `Options.enableFileCheckpointing` from the Claude Agent SDK.
    */
   enableFileCheckpointing?: boolean;
+  /**
+   * When true, the SDK forwards subagent text content inline through the
+   * parent stream as it's produced. Mirrors `Options.forwardSubagentText`
+   * from the Claude Agent SDK. Without this, subagent thinking/text is
+   * only observable via JSONL tail-watching of subagent session files.
+   */
+  forwardSubagentText?: boolean;
+  /**
+   * Extra CLI arguments forwarded to the underlying Claude Code CLI binary.
+   * `null` values become bare flags (`--foo`); string values become
+   * `--foo=bar`. Mirrors `Options.extraArgs` from the Claude Agent SDK.
+   *
+   * Used here to enable `--replay-user-messages` whenever file
+   * checkpointing is on — the SDK only emits the `checkpointUuid` field
+   * on user-message stream events when this flag is set, and that UUID is
+   * required for `Query.rewindFiles()` to work.
+   */
+  extraArgs?: Record<string, string | null>;
 }
 
 /**
@@ -762,6 +780,17 @@ export class SdkQueryOptionsBuilder {
         // File checkpointing — defaults ON so Query.rewindFiles() works.
         // Callers can opt out by passing enableFileCheckpointing: false.
         enableFileCheckpointing: enableFileCheckpointing ?? true,
+        // Pair file checkpointing with --replay-user-messages so the SDK
+        // emits `checkpointUuid` on user-message stream events. Without
+        // this CLI flag, `Query.rewindFiles()` has no UUID to rewind to
+        // and the rewind feature silently no-ops.
+        ...((enableFileCheckpointing ?? true)
+          ? { extraArgs: { 'replay-user-messages': null } }
+          : {}),
+        // Forward subagent text inline through the parent stream so
+        // consumers can observe subagent activity without tail-watching
+        // JSONL files. Replaces the legacy AgentSessionWatcherService.
+        forwardSubagentText: true,
         // Fork-on-resume — only meaningful when resumeSessionId is also set.
         // The SDK creates a brand-new session UUID seeded from the resumed
         // transcript instead of mutating the original session.

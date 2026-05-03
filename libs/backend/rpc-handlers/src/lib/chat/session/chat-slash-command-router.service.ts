@@ -17,7 +17,6 @@ import {
   TOKENS,
   ConfigManager,
   LicenseService,
-  AgentSessionWatcherService,
   isPremiumTier,
 } from '@ptah-extension/vscode-core';
 import {
@@ -53,8 +52,6 @@ export class ChatSlashCommandRouterService {
     private readonly sdkAdapter: IAgentAdapter,
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
-    @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
-    private readonly agentSessionWatcher: AgentSessionWatcherService,
     @inject(SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR)
     private readonly slashCommandInterceptor: SlashCommandInterceptor,
     @inject(CHAT_TOKENS.PREMIUM_CONTEXT)
@@ -96,8 +93,6 @@ export class ChatSlashCommandRouterService {
       if (interceptResult.commandName === 'clear') {
         // End the current session, frontend handles reset
         await this.sdkAdapter.interruptSession(sessionId);
-        // Stop all agent session watchers (same as chat:abort)
-        this.agentSessionWatcher.stopAllForSession(sessionId as string);
 
         await this.webviewManager.broadcastMessage(
           MESSAGE_TYPES.CHAT_COMPLETE,

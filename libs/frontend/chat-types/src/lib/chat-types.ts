@@ -363,6 +363,14 @@ export interface TabState {
   compactionCount?: number;
 
   /**
+   * Timestamp (ms since epoch) of the last `compaction_complete` applied to
+   * this tab. Used by SessionStatsAggregatorService to drop late
+   * `SESSION_STATS` events that were emitted for the last pre-compaction
+   * turn but arrive after the post-compaction reset. See TASK_2026_109 (B3).
+   */
+  lastCompactionAt?: number | null;
+
+  /**
    * Full per-model usage breakdown for collapsible display.
    * Contains all models used in the session with their individual stats.
    */

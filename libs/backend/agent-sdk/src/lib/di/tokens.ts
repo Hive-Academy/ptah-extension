@@ -53,6 +53,14 @@ export const SDK_TOKENS = {
   // Compaction hook handler (TASK_2025_098)
   SDK_COMPACTION_HOOK_HANDLER: Symbol.for('SdkCompactionHookHandler'),
 
+  /**
+   * Compaction callback registry (TASK_2026_HERMES Track 1).
+   * Fan-out registry of additional `CompactionStartCallback` subscribers
+   * (e.g. memory curator) invoked by `CompactionHookHandler` in addition
+   * to the chat-path's captured closure.
+   */
+  SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
+
   // Worktree hook handler (TASK_2025_236)
   SDK_WORKTREE_HOOK_HANDLER: Symbol.for('SdkWorktreeHookHandler'),
 
@@ -135,6 +143,14 @@ export const SDK_TOKENS = {
   SDK_LOCAL_PROXY_STRATEGY: Symbol.for('SdkLocalProxyStrategy'),
   SDK_CLI_STRATEGY: Symbol.for('SdkCliStrategy'),
   SDK_MODEL_RESOLVER: Symbol.for('SdkModelResolver'),
+
+  /**
+   * Live usage tracker (TASK_2026_109 cycle-break).
+   * Holds the per-session cumulative pre-compaction token snapshot. Written
+   * by `SdkMessageTransformer` from streaming usage events and read by
+   * `CompactionHookHandler` at PreCompact firing time.
+   */
+  SDK_LIVE_USAGE_TRACKER: Symbol.for('SdkLiveUsageTracker'),
 } as const;
 
 /**

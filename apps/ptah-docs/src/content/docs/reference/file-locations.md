@@ -7,11 +7,13 @@ All paths below use absolute examples. Substitute `<you>` with your username.
 
 ## User configuration
 
-| Path                                                                                                                              | Purpose                                     |
-| --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `C:\Users\<you>\.ptah\settings.json` (Win) / `/Users/<you>/.ptah/settings.json` (mac) / `/home/<you>/.ptah/settings.json` (Linux) | Global Ptah settings                        |
-| `C:\Users\<you>\.ptah\plugins\` / `/Users/<you>/.ptah/plugins/` / `/home/<you>/.ptah/plugins/`                                    | Installed plugins (downloaded at runtime)   |
-| `C:\Users\<you>\.ptah\templates\` / `/Users/<you>/.ptah/templates/` / `/home/<you>/.ptah/templates/`                              | Installed templates (downloaded at runtime) |
+| Path                                                                                                                              | Purpose                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `C:\Users\<you>\.ptah\settings.json` (Win) / `/Users/<you>/.ptah/settings.json` (mac) / `/home/<you>/.ptah/settings.json` (Linux) | Global Ptah settings (incl. `memory.*`, `skillSynthesis.*`, `cron.*`, `gateway.*`) |
+| `C:\Users\<you>\.ptah\plugins\` / `/Users/<you>/.ptah/plugins/` / `/home/<you>/.ptah/plugins/`                                    | Installed plugins (downloaded at runtime)                                          |
+| `C:\Users\<you>\.ptah\templates\` / `/Users/<you>/.ptah/templates/` / `/home/<you>/.ptah/templates/`                              | Installed templates (downloaded at runtime)                                        |
+| `C:\Users\<you>\.ptah\skills\` / `/Users/<you>/.ptah/skills/` / `/home/<you>/.ptah/skills/`                                       | Auto-promoted skills (`<slug>/SKILL.md`) from [Skill Synthesis](/skill-synthesis/) |
+| `C:\Users\<you>\.ptah\ptah.db` / `/Users/<you>/.ptah/ptah.db` / `/home/<you>/.ptah/ptah.db`                                       | Shared SQLite database — memory, skills, cron jobs, messaging bindings             |
 
 ## Claude Agent SDK assets
 

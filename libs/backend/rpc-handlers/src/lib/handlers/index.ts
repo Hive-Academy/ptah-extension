@@ -45,3 +45,18 @@ export { GitRpcHandlers } from './git-rpc.handlers';
 
 // Workspace handlers (TASK_2026_104 Sub-batch B5a — lifted from Electron app)
 export { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
+
+// Settings handlers (TASK_2026_107 Bug 6 — lifted from Electron app)
+export { SettingsRpcHandlers } from './settings-rpc.handlers';
+
+// Memory curator handlers (TASK_2026_HERMES Track 1)
+export { MemoryRpcHandlers } from './memory-rpc.handlers';
+
+// Skill synthesis handlers (TASK_2026_HERMES Track 2)
+export { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
+
+// Cron scheduler handlers (TASK_2026_HERMES Track 3)
+export { CronRpcHandlers } from './cron-rpc.handlers';
+
+// Messaging gateway handlers (TASK_2026_HERMES Track 4)
+export { GatewayRpcHandlers } from './gateway-rpc.handlers';
