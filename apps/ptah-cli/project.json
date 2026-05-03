@@ -55,7 +55,18 @@
           "web-tree-sitter",
           "@tavily/core",
           "marked",
-          "commander"
+          "commander",
+          "better-sqlite3",
+          "sqlite-vec",
+          "croner",
+          "ulid",
+          "@xenova/transformers",
+          "grammy",
+          "discord.js",
+          "@slack/bolt",
+          "ffmpeg-static",
+          "nodejs-whisper",
+          "bottleneck"
         ],
         "assets": [
           {
@@ -124,6 +135,13 @@
       "options": {
         "jestConfig": "apps/ptah-cli/jest.config.cjs",
         "passWithNoTests": true
+      }
+    },
+    "e2e": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "command": "jest --config apps/ptah-cli/jest.e2e.config.cjs --runInBand"
       }
     },
     "publish:dry-run": {

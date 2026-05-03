@@ -87,6 +87,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   private readonly fetcher: LicenseFetcher;
   private readonly cache: LicenseCache;
   private readonly broadcaster: LicenseStateBroadcaster;
+  private readonly ready: Promise<void>;
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
@@ -109,18 +110,24 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     });
 
     // Load persisted cache on initialization (for offline grace period)
-    this.cache.loadPersistedCache().then((persistedCache) => {
-      if (persistedCache) {
-        this.logger.debug(
-          '[LicenseService.constructor] Loaded persisted cache',
-          {
-            tier: persistedCache.status.tier,
-            persistedAt: new Date(persistedCache.persistedAt).toISOString(),
-            isWithinGracePeriod: this.cache.isWithinGracePeriod(persistedCache),
-          },
-        );
-      }
-    });
+    this.ready = this.cache
+      .loadPersistedCache()
+      .then((persisted) => {
+        if (persisted) {
+          this.logger.debug(
+            '[LicenseService] Hydrated cache from persisted snapshot',
+            {
+              tier: persisted.status?.tier,
+              persistedAt: persisted.persistedAt,
+            },
+          );
+        }
+      })
+      .catch((err) => {
+        this.logger.warn('[LicenseService] Failed to hydrate persisted cache', {
+          error: err,
+        });
+      });
   }
 
   /**
@@ -141,6 +148,8 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
    */
   async verifyLicense(): Promise<LicenseStatus> {
     try {
+      await this.ready;
+
       // Step 1: Check cache (1-hour TTL)
       if (this.cache.isCacheValid()) {
         const cachedStatus = this.cache.getCached();

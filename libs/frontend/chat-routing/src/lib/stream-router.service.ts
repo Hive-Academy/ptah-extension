@@ -53,6 +53,7 @@ import {
   type AccumulatorContext,
 } from '@ptah-extension/chat-streaming';
 import type {
+  AskUserQuestionRequest,
   FlatStreamEventUnion,
   PermissionRequest,
 } from '@ptah-extension/shared';
@@ -534,6 +535,57 @@ export class StreamRouter {
   }
 
   /**
+   * AskUserQuestion routing — sibling of `routePermissionPrompt`.
+   *
+   * Resolves the question's `sessionId` to bound tabs and stores the
+   * resolved tab ids on the PermissionHandler so the chat-view filter can
+   * render the question on the correct tile(s) regardless of whether the
+   * payload's raw `tabId`/`sessionId` fields still match (they go stale
+   * after compaction-driven session id rotation, late `SESSION_ID_RESOLVED`,
+   * or idle re-binding — exactly the cases that produced silent hangs).
+   *
+   * Returns the resolved tab list. Empty return paths:
+   *   - No `sessionId` on the question → chat-view falls back to global
+   *     visibility (active tile shows the question).
+   *   - Session unknown to the registry → same global-visibility fallback.
+   *   - Conversation bound to surfaces only (wizard/harness — full-auto
+   *     background mode) → auto-deny so backend's indefinite
+   *     `awaitQuestionResponse` unblocks immediately. Mirrors the defensive
+   *     guard in `routePermissionPrompt`.
+   */
+  routeQuestionPrompt(question: AskUserQuestionRequest): readonly TabId[] {
+    if (!question.sessionId) return [];
+    const sessionId = question.sessionId as ClaudeSessionId;
+    const tabs = this.tabsForSession(sessionId);
+    if (tabs.length > 0) {
+      this.permissionHandler.attachQuestionTargets(question.id, tabs);
+      return tabs;
+    }
+
+    const containing = this.registry.findContainingSession(sessionId);
+    if (containing) {
+      const surfaces = this.binding.surfacesFor(containing.id);
+      if (surfaces.length > 0) {
+        console.warn('question.received.no-tab-surface-only', {
+          questionId: question.id,
+          sessionId: question.sessionId,
+          conversationId: containing.id,
+          surfaceCount: surfaces.length,
+        });
+        // Auto-resolve with empty answers so the SDK's
+        // `awaitQuestionResponse` (timeoutAt: 0 = block indefinitely)
+        // unblocks. Without this the call hangs forever.
+        this.permissionHandler.handleQuestionResponse({
+          id: question.id,
+          answers: {},
+        });
+      }
+    }
+
+    return tabs;
+  }
+
+  /**
    * TASK_2026_106 Phase 6a — fan a "prompt resolved" signal out to every
    * other bound tab. Today the prompt list is global, so cancellation is
    * a no-op once the deciding tab has already removed the entry from
@@ -581,9 +633,17 @@ export class StreamRouter {
     convId: ConversationId,
   ): void {
     if (event.eventType === 'compaction_start') {
-      this.registry.markCompactionStart(convId);
+      // TASK_2026_109 C1 — persist trigger/preTokens/startedAt so consumers
+      // (header freeze, late-event filter) can read full compaction context
+      // from the registry without threading new params through call sites.
+      this.registry.setCompactionState(convId, {
+        inFlight: true,
+        trigger: event.trigger,
+        preTokens: event.preTokens,
+        startedAt: Date.now(),
+      });
     } else if (event.eventType === 'compaction_complete') {
-      this.registry.markCompactionComplete(convId);
+      this.registry.setCompactionState(convId, { inFlight: false });
     }
   }
 

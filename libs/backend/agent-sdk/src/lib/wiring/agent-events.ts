@@ -1,5 +1,5 @@
 /**
- * Agent watcher + monitor + Copilot permission wiring (TASK_2025_291 Wave C4b).
+ * Agent monitor + Copilot permission wiring (TASK_2025_291 Wave C4b).
  *
  * Shared across VS Code, Electron, TUI. Lazily resolves DI services so the
  * helper can run before some app-side services are registered; when a required
@@ -7,8 +7,6 @@
  * with the previous per-app try/catch shape.
  *
  * Options let the caller opt out of platform-specific broadcasts:
- *   - `wizardBroadcast` (VS Code only): also forward agent-start to the setup
- *     wizard stream so wizard sessions can correlate Task tools.
  *   - `copilotPermission` (VS Code + Electron): forward Copilot SDK permission
  *     requests to the webview. TUI has no Copilot UI.
  *   - `persistCliSession` (VS Code + Electron): persist CLI session references
@@ -16,11 +14,7 @@
  */
 
 import type { DependencyContainer } from 'tsyringe';
-import type {
-  Logger,
-  AgentSummaryChunk,
-  AgentStartEvent,
-} from '@ptah-extension/vscode-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import {
   MESSAGE_TYPES,
@@ -28,7 +22,6 @@ import {
   type AgentProcessInfo,
   type AgentOutputDelta,
   type AgentPermissionRequest,
-  type AnalysisStreamPayload,
   type CliOutputSegment,
   type CliSessionReference,
   type FlatStreamEventUnion,
@@ -40,15 +33,6 @@ import type { CopilotPermissionBridge } from '../cli-agents';
 /** Minimal shape of the webview manager used by the wiring. */
 interface WebviewManagerLike {
   broadcastMessage(type: string, payload: unknown): Promise<void>;
-}
-
-/** Minimal shape of the agent session watcher used by the wiring. */
-interface AgentSessionWatcherLike {
-  on(
-    event: 'summary-chunk',
-    callback: (chunk: AgentSummaryChunk) => void,
-  ): void;
-  on(event: 'agent-start', callback: (event: AgentStartEvent) => void): void;
 }
 
 /** Minimal shape of the subagent registry used by `wireSdkCallbacks`. */
@@ -73,12 +57,6 @@ interface CliDetectionServiceLike {
 export type AgentEventPlatform = 'vscode' | 'electron' | 'cli';
 
 export interface WireAgentEventListenersOptions {
-  /**
-   * Also broadcast agent-start events to the setup wizard analysis stream.
-   * VS Code only — the wizard's ExecutionTreeBuilder uses it to match Task
-   * tools to agent_start events during project analysis.
-   */
-  readonly wizardBroadcast?: boolean;
   /**
    * Forward Copilot SDK permission-request events to the webview.
    * VS Code + Electron only.
@@ -105,8 +83,8 @@ export interface WireAgentEventListenersContext {
 }
 
 /**
- * Wire agent-session-watcher + agent-process-manager + Copilot permission
- * events to the webview. Safe to call once per app at bootstrap.
+ * Wire agent-process-manager + Copilot permission events to the webview.
+ * Safe to call once per app at bootstrap.
  */
 export function wireAgentEventListeners(
   container: DependencyContainer,
@@ -115,12 +93,6 @@ export function wireAgentEventListeners(
   const { logger, platform, options = {} } = ctx;
   const tag = `[${platform} RPC]`;
 
-  if (!container.isRegistered(TOKENS.AGENT_SESSION_WATCHER_SERVICE)) {
-    logger.warn(
-      `${tag} AgentSessionWatcherService not registered — watcher listeners skipped`,
-    );
-    return;
-  }
   if (!container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
     logger.warn(
       `${tag} AgentProcessManager not registered — monitor listeners skipped`,
@@ -135,9 +107,6 @@ export function wireAgentEventListeners(
   }
 
   try {
-    const agentWatcher = container.resolve<AgentSessionWatcherLike>(
-      TOKENS.AGENT_SESSION_WATCHER_SERVICE,
-    );
     const agentProcessManager = container.resolve<AgentProcessManager>(
       TOKENS.AGENT_PROCESS_MANAGER,
     );
@@ -145,14 +114,6 @@ export function wireAgentEventListeners(
       TOKENS.WEBVIEW_MANAGER,
     );
 
-    wireSummaryChunkListener(agentWatcher, webviewManager, logger, tag);
-    wireAgentStartListener(
-      agentWatcher,
-      webviewManager,
-      logger,
-      tag,
-      options.wizardBroadcast === true,
-    );
     wireAgentMonitorListeners(
       agentProcessManager,
       webviewManager,
@@ -174,80 +135,6 @@ export function wireAgentEventListeners(
       error instanceof Error ? error : new Error(String(error)),
     );
   }
-}
-
-function wireSummaryChunkListener(
-  agentWatcher: AgentSessionWatcherLike,
-  webviewManager: WebviewManagerLike,
-  logger: Logger,
-  tag: string,
-): void {
-  agentWatcher.on('summary-chunk', (chunk: AgentSummaryChunk) => {
-    webviewManager
-      .broadcastMessage(MESSAGE_TYPES.AGENT_SUMMARY_CHUNK, chunk)
-      .catch((error) => {
-        logger.error(
-          `${tag} Failed to send agent summary chunk to webview`,
-          error instanceof Error ? error : new Error(String(error)),
-        );
-      });
-  });
-}
-
-function wireAgentStartListener(
-  agentWatcher: AgentSessionWatcherLike,
-  webviewManager: WebviewManagerLike,
-  logger: Logger,
-  tag: string,
-  wizardBroadcast: boolean,
-): void {
-  agentWatcher.on('agent-start', (agentStartEvent: AgentStartEvent) => {
-    const streamingEvent = {
-      id: `agent-start-${agentStartEvent.toolUseId}`,
-      eventType: 'agent_start' as const,
-      sessionId: agentStartEvent.sessionId,
-      messageId: '',
-      toolCallId: agentStartEvent.toolUseId,
-      parentToolUseId: agentStartEvent.toolUseId,
-      agentType: agentStartEvent.agentType,
-      agentDescription: agentStartEvent.agentDescription,
-      timestamp: agentStartEvent.timestamp,
-      source: 'hook' as const,
-      agentId: agentStartEvent.agentId,
-    };
-
-    webviewManager
-      .broadcastMessage(MESSAGE_TYPES.CHAT_CHUNK, {
-        sessionId: agentStartEvent.sessionId,
-        event: streamingEvent,
-      })
-      .catch((error) => {
-        logger.error(
-          `${tag} Failed to send agent-start event to webview`,
-          error instanceof Error ? error : new Error(String(error)),
-        );
-      });
-
-    if (wizardBroadcast) {
-      const wizardStreamPayload: AnalysisStreamPayload = {
-        kind: 'status',
-        content: `Agent started: ${agentStartEvent.agentType ?? 'unknown'}`,
-        timestamp: agentStartEvent.timestamp,
-        flatEvent: streamingEvent as FlatStreamEventUnion,
-      };
-      webviewManager
-        .broadcastMessage(
-          MESSAGE_TYPES.SETUP_WIZARD_ANALYSIS_STREAM,
-          wizardStreamPayload,
-        )
-        .catch((error) => {
-          logger.debug(
-            `${tag} Failed to send agent-start to wizard pipeline (wizard may not be active)`,
-            { error: error instanceof Error ? error.message : String(error) },
-          );
-        });
-    }
-  });
 }
 
 function wireAgentMonitorListeners(

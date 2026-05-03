@@ -49,6 +49,37 @@ interface SdkAgentLifecycle {
  */
 const AGENT_ADAPTER_TOKEN = Symbol.for('AgentAdapter');
 
+/**
+ * Symbol token for the SDK permission handler binding registered by
+ * `registerSdkServices` (see `libs/backend/agent-sdk/src/lib/di/tokens.ts`
+ * — `SDK_TOKENS.SDK_PERMISSION_HANDLER`). Resolved by `Symbol.for(...)` to
+ * keep `with-engine.ts` dependency-light, mirroring `AGENT_ADAPTER_TOKEN`.
+ *
+ * Used by the `--auto-approve` / `PTAH_AUTO_APPROVE=true` wiring (Bug 2 in
+ * PTAH_CLI_BUGS.md) to elevate the permission level to `'yolo'` post DI
+ * bootstrap so headless `ptah run` / `ptah session start` invocations don't
+ * hang at the `canUseTool` gate waiting for a webview that never connects.
+ */
+const SDK_PERMISSION_HANDLER_TOKEN = Symbol.for('SdkPermissionHandler');
+
+/**
+ * Permission level union accepted by `SdkPermissionHandler.setPermissionLevel`.
+ * Mirrors `PermissionLevel` from `@ptah-extension/shared`
+ * (`libs/shared/src/lib/types/model-autopilot.types.ts`) — kept inline here
+ * to preserve `with-engine.ts`'s zero-shared-imports posture.
+ */
+type PermissionLevelLite = 'ask' | 'auto-edit' | 'yolo' | 'plan';
+
+/**
+ * Lightweight contract for the SDK permission handler as resolved out of the
+ * DI container. We only need `setPermissionLevel` here; the rest of the
+ * surface (canUseTool callback factory, rule store, request emitter) is
+ * consumed elsewhere.
+ */
+interface SdkPermissionHandlerLifecycle {
+  setPermissionLevel(level: PermissionLevelLite): void;
+}
+
 /** Subset of resolved `GlobalOptions` `withEngine` cares about. */
 export interface WithEngineGlobals {
   /** When true, propagated to `CliBootstrapOptions.verbose` for `debug.di.phase` events. */
@@ -57,6 +88,16 @@ export interface WithEngineGlobals {
   cwd?: string;
   /** Override config file path (matches `--config`). */
   config?: string;
+  /**
+   * When true (matches `--auto-approve` global flag), the SDK permission
+   * handler's level is elevated to `'yolo'` after DI bootstrap so unattended
+   * runs (e.g. `ptah --auto-approve run --task "..."`) don't hang at the
+   * `canUseTool` gate waiting for a webview response that will never arrive.
+   *
+   * The env var `PTAH_AUTO_APPROVE=true` is honored with the same semantics
+   * (parity with `approval-bridge.ts`).
+   */
+  autoApprove?: boolean;
 }
 
 export interface WithEngineOptions {
@@ -187,6 +228,55 @@ export async function withEngine<T>(
       // engine.
       await runDispose(opts, ctx);
       throw new SdkInitFailedError(message);
+    }
+  }
+
+  // ---- Bug 2 Fix: wire `--auto-approve` / `PTAH_AUTO_APPROVE` to YOLO -----
+  //
+  // The `--auto-approve` global flag (router.ts:188) was resolved into
+  // `globals.autoApprove` (router.ts:94) but no code path consulted it to
+  // elevate the SdkPermissionHandler's permission level. Tools outside the
+  // safe-tool whitelist hung indefinitely at the `canUseTool` gate waiting
+  // for a webview response that never arrives in headless mode.
+  //
+  // We wire post DI Phase 4 RPC registration AND post `SdkAgentAdapter.
+  // initialize()` so the permission handler singleton is guaranteed to be
+  // resolvable. The handler is only registered in `'full'` mode bootstrap
+  // (via `registerSdkServices`); `'minimal'` skips Phase 4 entirely.
+  //
+  // The env var `PTAH_AUTO_APPROVE=true` is honored with the same semantics
+  // for parity with `approval-bridge.ts` (which already consults it).
+  //
+  // Refs: PTAH_CLI_BUGS.md Bug 2.
+  if (opts.mode === 'full') {
+    const autoApproveRequested =
+      globals.autoApprove === true ||
+      process.env['PTAH_AUTO_APPROVE'] === 'true';
+
+    if (autoApproveRequested) {
+      try {
+        const permissionHandler =
+          ctx.container.resolve<SdkPermissionHandlerLifecycle>(
+            SDK_PERMISSION_HANDLER_TOKEN,
+          );
+        permissionHandler.setPermissionLevel('yolo');
+        if (globals.verbose === true) {
+          process.stderr.write(
+            '[ptah] withEngine: auto-approve enabled, permission level set to yolo\n',
+          );
+        }
+      } catch (resolveErr) {
+        // Resolving the permission handler should never fail in `'full'`
+        // mode bootstrap (registerSdkServices runs unconditionally), but
+        // surface a stderr breadcrumb instead of crashing — the command
+        // body can still execute; tools will simply hit the default `'ask'`
+        // gate as before this fix.
+        const message =
+          resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
+        process.stderr.write(
+          `[ptah] withEngine: failed to resolve SdkPermissionHandler for auto-approve: ${message}\n`,
+        );
+      }
     }
   }
 

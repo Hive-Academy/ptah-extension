@@ -26,7 +26,11 @@ import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { extractTokenUsage } from './helpers/usage-extraction.utils';
-import { calculateMessageCost } from '@ptah-extension/shared';
+import {
+  calculateMessageCost,
+  pickPrimaryModel,
+  type ModelUsageEntry,
+} from '@ptah-extension/shared';
 import { SDK_TOKENS } from './di/tokens';
 import { SdkError } from './errors';
 import type { ModelResolver } from './auth/model-resolver';
@@ -443,7 +447,10 @@ export class SessionHistoryReaderService {
       return null;
     }
 
-    // Convert per-model map to sorted array (highest cost first)
+    // Convert per-model map to sorted array (highest cost first).
+    // TASK_2026_109 C3 — primary-model selection is delegated to the shared
+    // `pickPrimaryModel` helper below; the array is still cost-sorted for
+    // downstream consumers that show a per-model breakdown.
     const modelUsageList = Array.from(perModelUsage.entries())
       .map(([model, usage]) => ({
         model,
@@ -452,6 +459,19 @@ export class SessionHistoryReaderService {
         costUSD: usage.cost,
       }))
       .sort((a, b) => b.costUSD - a.costUSD);
+
+    // TASK_2026_109 C3 — pick the primary model deterministically using
+    // the same algorithm as the live SESSION_STATS aggregator path. This
+    // prevents the displayed model name from flipping after a compaction
+    // reload when costs are close (e.g. mostly Sonnet + one Opus turn).
+    // Falls back to `detectedModel` (system-init metadata) when the
+    // post-compaction usage map is empty.
+    const primaryModelEntries: ModelUsageEntry[] = modelUsageList.map((m) => ({
+      model: m.model,
+      totalCost: m.costUSD,
+      tokens: { input: m.inputTokens, output: m.outputTokens },
+    }));
+    const primaryModel = pickPrimaryModel(primaryModelEntries) ?? detectedModel;
 
     // Derive totalCost from per-model costs to guarantee consistency.
     // Previously calculated independently which could diverge from the breakdown.
@@ -477,7 +497,7 @@ export class SessionHistoryReaderService {
         cacheCreation: totalCacheCreation,
       },
       messageCount,
-      model: detectedModel,
+      model: primaryModel,
       agentSessionCount: agentSessions.length,
       ...(modelUsageList.length > 0 && { modelUsageList }),
     };

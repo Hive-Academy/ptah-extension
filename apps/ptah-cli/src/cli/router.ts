@@ -1864,7 +1864,7 @@ export function buildRouter(): Command {
     )
     .option('--profile <name>', 'system prompt preset (claude_code|enhanced)')
     .option('--task <text>', 'initial prompt — when given, streams the turn')
-    .option('--once', 'single-turn mode (informational)', false)
+    .option('--once', 'exit after first turn completes', false)
     .option('--scope <scope>', 'forward-compat scope (e.g. harness-skill)')
     .action(
       async (opts: {

@@ -92,6 +92,7 @@ import {
 import {
   PlatformType,
   type IPlatformInfo,
+  type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 
 import { SdkAgentAdapter } from './sdk-agent-adapter';
@@ -154,6 +155,23 @@ function createMockSentry(): jest.Mocked<
   };
 }
 
+function createMockWorkspaceProvider(): jest.Mocked<
+  Pick<
+    IWorkspaceProvider,
+    | 'getWorkspaceRoot'
+    | 'getWorkspaceFolders'
+    | 'getConfiguration'
+    | 'setConfiguration'
+  >
+> {
+  return {
+    getWorkspaceRoot: jest.fn().mockReturnValue('/fake/workspace'),
+    getWorkspaceFolders: jest.fn().mockReturnValue(['/fake/workspace']),
+    getConfiguration: jest.fn().mockReturnValue(undefined),
+    setConfiguration: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
 function createMockAuthManager(): jest.Mocked<
   Pick<AuthManager, 'configureAuthentication' | 'clearAuthentication'>
 > {
@@ -206,11 +224,12 @@ function createMockConfigWatcher(): jest.Mocked<
 }
 
 function createMockMetadataStore(): jest.Mocked<
-  Pick<SessionMetadataStore, 'create' | 'touch'>
+  Pick<SessionMetadataStore, 'create' | 'touch' | 'get'>
 > {
   return {
     create: jest.fn().mockResolvedValue(undefined),
     touch: jest.fn().mockResolvedValue(undefined),
+    get: jest.fn().mockResolvedValue(null),
   };
 }
 
@@ -325,6 +344,7 @@ interface AdapterHarness {
   moduleLoader: ReturnType<typeof createMockModuleLoader>;
   modelService: ReturnType<typeof createMockModelService>;
   platformInfo: IPlatformInfo;
+  workspaceProvider: ReturnType<typeof createMockWorkspaceProvider>;
 }
 
 function makeAdapter(
@@ -345,6 +365,7 @@ function makeAdapter(
   const moduleLoader = createMockModuleLoader();
   const modelService = createMockModelService();
   const platformInfo = createMockPlatformInfo(options.platformInfo);
+  const workspaceProvider = createMockWorkspaceProvider();
 
   const adapter = new SdkAgentAdapter(
     asLogger(logger),
@@ -358,6 +379,7 @@ function makeAdapter(
     moduleLoader as unknown as SdkModuleLoader,
     modelService as unknown as SdkModelService,
     platformInfo,
+    workspaceProvider as unknown as IWorkspaceProvider,
     sentry as unknown as SentryService,
   );
 
@@ -375,6 +397,7 @@ function makeAdapter(
     moduleLoader,
     modelService,
     platformInfo,
+    workspaceProvider,
   };
 }
 
@@ -1052,7 +1075,9 @@ describe('SdkAgentAdapter', () => {
       getMockedStartup().mockReset();
     });
 
-    it('invokes SDK startup() once and closes the WarmQuery', async () => {
+    it('invokes SDK startup() once and retains the WarmQuery (does not close it)', async () => {
+      // TASK_2026_109 Fix 3: warm handle is now held for first chat send to
+      // consume via consumeWarmQuery(); it is NOT closed in prewarm().
       const h = makeAdapter();
       const close = jest.fn();
       getMockedStartup().mockResolvedValueOnce({ close });
@@ -1060,7 +1085,13 @@ describe('SdkAgentAdapter', () => {
       await h.adapter.prewarm();
 
       expect(getMockedStartup()).toHaveBeenCalledTimes(1);
-      expect(close).toHaveBeenCalledTimes(1);
+      expect(close).not.toHaveBeenCalled();
+      // The retained handle is observable via consumeWarmQuery().
+      const consumed = h.adapter.consumeWarmQuery();
+      expect(consumed).not.toBeNull();
+      expect((consumed as { close: () => void }).close).toBe(close);
+      // After consumption the slot is empty.
+      expect(h.adapter.consumeWarmQuery()).toBeNull();
     });
 
     it('is idempotent — second call is a no-op (does not call startup() again)', async () => {
@@ -1126,7 +1157,9 @@ describe('SdkAgentAdapter', () => {
       );
     });
 
-    it('does not throw when WarmQuery.close() throws — logs warn and continues', async () => {
+    it('does not throw when stale WarmQuery.close() throws during TTL eviction', async () => {
+      // TASK_2026_109 Fix 3: prewarm no longer closes the handle, so this
+      // test now exercises the TTL-eviction path inside consumeWarmQuery.
       const h = makeAdapter();
       const closeError = new Error('close failed');
       getMockedStartup().mockResolvedValueOnce({
@@ -1136,10 +1169,259 @@ describe('SdkAgentAdapter', () => {
       });
 
       await expect(h.adapter.prewarm()).resolves.toBeUndefined();
+
+      // Force the held handle to look ancient by stomping the timestamp.
+      // Use a private field overwrite via a typed accessor.
+      (
+        h.adapter as unknown as { _warmQueryCreatedAt: number }
+      )._warmQueryCreatedAt = Date.now() - 10 * 60 * 1000;
+
+      // consumeWarmQuery now sees the handle as stale, calls close() which
+      // throws, but must swallow the throw and return null.
+      expect(h.adapter.consumeWarmQuery()).toBeNull();
       expect(h.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('WarmQuery.close()'),
+        expect.stringContaining('Stale WarmQuery.close()'),
         closeError,
       );
+    });
+
+    it('passes mcpServers into startup() when provided', async () => {
+      // TASK_2026_109 Fix 3: MCP handshake amortizes during prewarm.
+      const h = makeAdapter();
+      const close = jest.fn();
+      getMockedStartup().mockResolvedValueOnce({ close });
+
+      const mcpServers = {
+        ptah: { type: 'http', url: 'http://localhost:9999' },
+      };
+      await h.adapter.prewarm(mcpServers);
+
+      expect(getMockedStartup()).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({ mcpServers }),
+        }),
+      );
+    });
+
+    it('discards a stale warm handle (>5min) on consumeWarmQuery and resets prewarmed flag', async () => {
+      // TASK_2026_109 Fix 3.
+      const h = makeAdapter();
+      const close = jest.fn();
+      getMockedStartup().mockResolvedValueOnce({ close });
+
+      await h.adapter.prewarm();
+
+      // Force the held handle to look 6 minutes old.
+      (
+        h.adapter as unknown as { _warmQueryCreatedAt: number }
+      )._warmQueryCreatedAt = Date.now() - 6 * 60 * 1000;
+
+      const consumed = h.adapter.consumeWarmQuery();
+      expect(consumed).toBeNull();
+      expect(close).toHaveBeenCalledTimes(1);
+
+      // Allows a fresh prewarm because the stale-eviction reset _prewarmed.
+      getMockedStartup().mockResolvedValueOnce({ close: jest.fn() });
+      await h.adapter.prewarm();
+      expect(getMockedStartup()).toHaveBeenCalledTimes(2);
+    });
+
+    it('discards warm handle when fingerprint requirement (cli path) mismatches', async () => {
+      // TASK_2026_109 Fix 3 wiring: consumeWarmQuery(requirements) must
+      // reject + close the handle when the baked fingerprint differs from
+      // what the upcoming session needs. Here we exercise the cli-path
+      // mismatch branch by initializing the adapter with one cli.js path,
+      // prewarming (handle bakes that path), then asking to consume with a
+      // different required path.
+      const h = makeAdapter();
+      h.cliDetector.findExecutable.mockResolvedValueOnce({
+        path: '/bin/claude',
+        source: 'path',
+        cliJsPath: '/bin/cli.js',
+        useDirectExecution: false,
+      } as ClaudeInstallation);
+      await h.adapter.initialize();
+
+      const close = jest.fn();
+      getMockedStartup().mockResolvedValueOnce({ close, query: jest.fn() });
+      await h.adapter.prewarm();
+
+      const consumed = h.adapter.consumeWarmQuery({
+        pathToClaudeCodeExecutable: '/different/cli.js',
+        mcpServers: null,
+      });
+
+      expect(consumed).toBeNull();
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(h.logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('fingerprint mismatch'),
+      );
+    });
+
+    it('discards warm handle when fingerprint requirement (mcpServers) mismatches', async () => {
+      // Variant of the above for the mcpServers branch — prewarm bakes
+      // an mcpServers map, consumer requests a different (or null) one.
+      const h = makeAdapter();
+      const close = jest.fn();
+      getMockedStartup().mockResolvedValueOnce({ close, query: jest.fn() });
+
+      await h.adapter.prewarm({ x: { type: 'http', url: 'http://x' } });
+
+      const consumed = h.adapter.consumeWarmQuery({
+        pathToClaudeCodeExecutable: null,
+        mcpServers: null, // baked had an mcp map → mismatch
+      });
+
+      expect(consumed).toBeNull();
+      expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns warm handle when fingerprint requirements match exactly', async () => {
+      const h = makeAdapter();
+      const close = jest.fn();
+      const warmQuery = jest.fn();
+      getMockedStartup().mockResolvedValueOnce({ close, query: warmQuery });
+
+      await h.adapter.prewarm();
+
+      // No cli.js path was set (no initialize call), no mcpServers passed.
+      const consumed = h.adapter.consumeWarmQuery({
+        pathToClaudeCodeExecutable: null,
+        mcpServers: null,
+      });
+
+      expect(consumed).not.toBeNull();
+      expect(close).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Warm-query wiring into startChatSession (TASK_2026_109 Fix 3 wiring)
+  // -------------------------------------------------------------------------
+
+  describe('startChatSession warm-query wiring', () => {
+    beforeEach(() => {
+      getMockedStartup().mockReset();
+    });
+
+    it('forwards a consumed warm handle to executeQuery on the first send (default settings)', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      // Prewarm to retain a warm handle on the adapter.
+      const close = jest.fn();
+      const warmQueryFn = jest.fn();
+      getMockedStartup().mockResolvedValueOnce({ close, query: warmQueryFn });
+      await h.adapter.prewarm();
+
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+
+      await h.adapter.startChatSession(makeSessionConfig());
+
+      const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
+      // The adapter must hand the warm handle through. The handle may be
+      // wrapped/unwrapped — assert by referencing the close fn (load-bearing
+      // identity for the executor's fallback path).
+      expect(callArg.warmQuery).toBeDefined();
+      expect((callArg.warmQuery as { close: () => void }).close).toBe(close);
+    });
+
+    it('does NOT forward the warm handle when the session has an mcpServersOverride', async () => {
+      // The fingerprint guard discards the handle pre-emptively when the
+      // caller supplies an MCP override (the warm handle's MCP map cannot
+      // match an arbitrary override). The handle must be closed (not
+      // leaked) because the adapter has nothing else to do with it.
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      const close = jest.fn();
+      const warmQueryFn = jest.fn();
+      getMockedStartup().mockResolvedValueOnce({ close, query: warmQueryFn });
+      await h.adapter.prewarm();
+
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+
+      const cfg = makeSessionConfig() as AISessionConfig & {
+        tabId: string;
+        mcpServersOverride: Record<string, unknown>;
+      };
+      cfg.mcpServersOverride = {
+        proxy: { type: 'http', url: 'http://proxy' },
+      } as Record<string, unknown>;
+
+      await h.adapter.startChatSession(
+        cfg as Parameters<typeof h.adapter.startChatSession>[0],
+      );
+
+      const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
+      // Adapter chose null for the warm-handle branch → undefined reaches
+      // the executor.
+      expect(callArg.warmQuery).toBeUndefined();
+      // The unused warm handle must have been closed by consumeWarmQuery's
+      // fingerprint-mismatch path... but the adapter's startChatSession
+      // short-circuits to `null` BEFORE calling consumeWarmQuery when
+      // mcpServersOverride is present. So the handle stays held until the
+      // next consume / TTL eviction. This is acceptable: a follow-up
+      // session without an override can still consume it.
+      // Assert the handle is still held on the adapter (NOT yet closed).
+      expect(close).not.toHaveBeenCalled();
+      expect(h.adapter.consumeWarmQuery()).not.toBeNull();
+    });
+
+    it('does NOT forward a warm handle on the second send (handle was consumed by the first)', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      const close = jest.fn();
+      const warmQueryFn = jest.fn();
+      getMockedStartup().mockResolvedValueOnce({ close, query: warmQueryFn });
+      await h.adapter.prewarm();
+
+      h.sessionLifecycle.executeQuery
+        .mockResolvedValueOnce({
+          sdkQuery: createFakeQuery(),
+          initialModel: 'claude-sonnet-4-20250514',
+          abortController: new AbortController(),
+        } as ExecuteQueryResult)
+        .mockResolvedValueOnce({
+          sdkQuery: createFakeQuery(),
+          initialModel: 'claude-sonnet-4-20250514',
+          abortController: new AbortController(),
+        } as ExecuteQueryResult);
+
+      // First send consumes the warm handle.
+      await h.adapter.startChatSession(makeSessionConfig({ tabId: 'tab_1' }));
+      const firstCall = h.sessionLifecycle.executeQuery.mock.calls[0][0];
+      expect(firstCall.warmQuery).toBeDefined();
+
+      // Second send finds nothing to consume — must fall through cleanly.
+      await h.adapter.startChatSession(makeSessionConfig({ tabId: 'tab_2' }));
+      const secondCall = h.sessionLifecycle.executeQuery.mock.calls[1][0];
+      expect(secondCall.warmQuery).toBeUndefined();
+    });
+
+    it('passes warmQuery=undefined when prewarm was never called', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+
+      await h.adapter.startChatSession(makeSessionConfig());
+
+      const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
+      expect(callArg.warmQuery).toBeUndefined();
     });
   });
 

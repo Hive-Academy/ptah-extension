@@ -162,7 +162,69 @@ jobs:
             exit 1
           fi
 
+  # -------------------------------------------------------------------------
+  # CLI E2E gate — TASK_2026_110.
+  #
+  # Inline e2e job (Path A from the architect's plan, NOT cross-workflow
+  # workflow_run). Functionally equivalent to .github/workflows/cli-e2e.yml
+  # but reduced to ubuntu-latest only — the publish artifact is platform-
+  # neutral JS and the cross-platform matrix is already exercised on PRs by
+  # cli-e2e.yml. Keeping this gate single-OS shaves ~3 min off the publish
+  # critical path while still catching e2e regressions before npm publish.
+  # -------------------------------------------------------------------------
+  e2e:
+    name: CLI E2E gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event_name != 'push' ||
+      !startsWith(github.event.head_commit.message, 'chore(release):')
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: |
+          npm ci
+          npm install @rollup/rollup-linux-x64-gnu --no-save --force
+
+      - name: Build CLI
+        run: npx nx build ptah-cli
+
+      - name: Run CLI e2e harness
+        # See cli-e2e.yml for rationale: invoke jest directly to bypass the
+        # nx e2e dependency graph that drags in messaging-gateway etc.
+        run: npx jest --config apps/ptah-cli/jest.e2e.config.cjs --runInBand
+
+      - name: Upload jest report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-e2e-report-publish-gate
+          path: |
+            apps/ptah-cli/test-output/
+            apps/ptah-cli/coverage/
+          retention-days: 7
+          if-no-files-found: ignore
+
   publish:
+    needs: [e2e]
     # `needs: smoke` removed while the smoke job is disabled — see the
     # TODO(ollama-cloud) note on the smoke job. Re-add once the harness
     # is migrated off ANTHROPIC_API_KEY onto Ollama Cloud.

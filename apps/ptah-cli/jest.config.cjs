@@ -8,6 +8,7 @@ module.exports = {
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'html'],
   coverageDirectory: '../../coverage/apps/ptah-cli',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
+  testPathIgnorePatterns: ['/node_modules/', '/tests/e2e/'],
   moduleNameMapper: {
     '^vscode$': '<rootDir>/../../__mocks__/vscode.ts',
     // Static `CliDIContainer` import in `with-engine.ts` pulls in the

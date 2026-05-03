@@ -89,6 +89,7 @@ export class SessionQueryExecutor {
       enableFileCheckpointing,
       includePartialMessages,
       mcpServersOverride,
+      warmQuery,
     } = config;
 
     this.logger.info(
@@ -268,11 +269,95 @@ export class SessionQueryExecutor {
         promptMode,
       });
 
-      // Step 7: Start SDK query
-      const sdkQuery: Query = queryFn({
-        prompt: effectivePrompt,
-        options: queryOptions.options as Options,
-      });
+      // Step 7: Start SDK query.
+      //
+      // Warm-query fast path (TASK_2026_109 Fix 3 wiring): when the caller
+      // hands us a `warmQuery` AND the session is a brand-new chat (NOT a
+      // resume, NOT a fork, NOT a slash command — slash commands need the
+      // SDK to parse the leading `/` from a string prompt, which a warm
+      // handle still supports, BUT the warm subprocess was started without
+      // the session's slash-command argument-parsing context, so we keep
+      // the safe path and only fast-path plain iterable prompts), we hand
+      // the prompt to `warmQuery.query(prompt)`. This skips the spawn +
+      // initialize handshake — the subprocess is already up and waiting.
+      //
+      // **Safety**: per `WarmQuery` contract, `warm.query(prompt)` accepts
+      // ONLY a prompt — every other Option (cwd, model, permissionMode,
+      // hooks, canUseTool, mcpServers, agents, systemPrompt, plugins,
+      // file-checkpointing, partial-messages) is inherited from the
+      // original `startup()` call. The caller (SdkAgentAdapter) is
+      // responsible for fingerprint-matching via `consumeWarmQuery
+      // (requirements)` BEFORE passing the handle here. We do not
+      // re-validate; instead we narrowly gate which sessions are eligible
+      // (no resume, no fork, no slash-command short-circuit) and fall back
+      // to the standard `queryFn` path on any failure. If the warm handle
+      // is supplied but unusable for this session, we close it so the
+      // subprocess doesn't leak.
+      let sdkQuery: Query;
+      const canUseWarmQuery =
+        !!warmQuery &&
+        typeof (warmQuery as { query?: unknown }).query === 'function' &&
+        !isResume &&
+        !forkSession &&
+        !isSlashCommand;
+      if (warmQuery && !canUseWarmQuery) {
+        // Caller passed a warm handle but this session can't use it
+        // (resume/fork/slash-command). Close to avoid subprocess leak.
+        try {
+          warmQuery.close();
+          this.logger.info(
+            `[SessionLifecycle] Discarding warm handle for session ${sessionId} — ` +
+              `session shape ineligible (isResume=${isResume}, ` +
+              `forkSession=${!!forkSession}, isSlashCommand=${isSlashCommand})`,
+          );
+        } catch (closeErr) {
+          this.logger.warn(
+            '[SessionLifecycle] WarmQuery.close() threw during fall-through',
+            closeErr instanceof Error ? closeErr : new Error(String(closeErr)),
+          );
+        }
+      }
+
+      if (canUseWarmQuery && warmQuery) {
+        try {
+          // Cast through unknown — the WarmQuery shape is dynamically loaded;
+          // we narrowed `query` to `function` in `canUseWarmQuery`.
+          const warmQueryFn = (
+            warmQuery as unknown as {
+              query: (prompt: string | AsyncIterable<SDKUserMessage>) => Query;
+            }
+          ).query;
+          sdkQuery = warmQueryFn(effectivePrompt);
+          this.logger.info(
+            `[SessionLifecycle] Used warm subprocess for session ${sessionId} ` +
+              `(skipped spawn+handshake)`,
+          );
+        } catch (warmErr) {
+          // Warm query call failed — log and fall back to a fresh query.
+          // Close the warm handle defensively (it may already be in a bad
+          // state, but `close()` is idempotent enough that swallowing here
+          // is safer than leaving a half-broken subprocess around).
+          this.logger.warn(
+            `[SessionLifecycle] warmQuery.query() threw for session ${sessionId} ` +
+              `— falling back to fresh query`,
+            warmErr instanceof Error ? warmErr : new Error(String(warmErr)),
+          );
+          try {
+            warmQuery.close();
+          } catch {
+            // ignore — already failing, don't compound
+          }
+          sdkQuery = queryFn({
+            prompt: effectivePrompt,
+            options: queryOptions.options as Options,
+          });
+        }
+      } else {
+        sdkQuery = queryFn({
+          prompt: effectivePrompt,
+          options: queryOptions.options as Options,
+        });
+      }
       const initialModel = queryOptions.options.model;
 
       // Step 7b: Connect streamInput for follow-up message delivery
