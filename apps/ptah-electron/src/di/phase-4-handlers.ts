@@ -245,6 +245,7 @@ export function registerPhase4Handlers(
         c.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
         c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
         c,
+        c.resolve(TOKENS.WEBVIEW_MANAGER),
       ),
   });
   container.registerSingleton(FileRpcHandlers);

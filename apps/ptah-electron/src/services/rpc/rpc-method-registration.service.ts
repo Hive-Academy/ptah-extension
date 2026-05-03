@@ -60,11 +60,7 @@ import {
  * `rpc-handlers` library and Electron registers it via Phase 4 — exclusion
  * removed.
  */
-const ELECTRON_EXCLUDED_METHODS: readonly string[] = [
-  // VS Code-only: reverts in-memory editor buffers via vscode.workspace API.
-  // Electron's Monaco editor has no equivalent buffer-revert concept.
-  'editor:revertFiles',
-];
+const ELECTRON_EXCLUDED_METHODS: readonly string[] = [];
 
 /**
  * Orchestrates RPC method registration for the Electron desktop app.

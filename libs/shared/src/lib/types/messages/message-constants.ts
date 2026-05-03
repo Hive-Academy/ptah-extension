@@ -166,6 +166,10 @@ export const MESSAGE_TYPES = {
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
 
+  // ---- Editor Push Messages ----
+  /** Backend → Frontend: reload Monaco tab content after a git rewind (Electron only). */
+  EDITOR_TAB_CONTENT_REVERTED: 'editor:tabContentReverted',
+
   // ---- Setup Wizard Messages ----
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
   SETUP_WIZARD_COMPLETE: 'setup-wizard:complete',
