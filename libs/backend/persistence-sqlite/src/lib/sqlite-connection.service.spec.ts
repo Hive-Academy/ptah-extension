@@ -167,11 +167,13 @@ describe('SqliteConnectionService — vec0 smoke (skipped without native)', () =
 
     const db = service.db;
     db.exec('CREATE VIRTUAL TABLE smoke_vec USING vec0(embedding FLOAT[3])');
-    const insert = db.prepare(
-      'INSERT INTO smoke_vec(rowid, embedding) VALUES (?, ?)',
-    );
-    insert.run(1, Buffer.from(new Float32Array([0, 0, 0]).buffer));
-    insert.run(2, Buffer.from(new Float32Array([1, 0, 0]).buffer));
+    // Don't bind `rowid` explicitly: sqlite-vec's vec0 rejects an explicit
+    // rowid in the INSERT column list with "Only integers are allows for
+    // primary key values" even when the value is an integer. Let SQLite
+    // assign the rowid and capture it via lastInsertRowid.
+    const insert = db.prepare('INSERT INTO smoke_vec(embedding) VALUES (?)');
+    insert.run(Buffer.from(new Float32Array([0, 0, 0]).buffer));
+    const r2 = insert.run(Buffer.from(new Float32Array([1, 0, 0]).buffer));
     const rows = db
       .prepare(
         'SELECT rowid FROM smoke_vec WHERE embedding MATCH ? ORDER BY distance LIMIT 1',
@@ -179,7 +181,7 @@ describe('SqliteConnectionService — vec0 smoke (skipped without native)', () =
       .all(Buffer.from(new Float32Array([0.9, 0, 0]).buffer)) as Array<{
       rowid: number;
     }>;
-    expect(rows[0].rowid).toBe(2);
+    expect(rows[0].rowid).toBe(Number(r2.lastInsertRowid));
     service.close();
   });
 });
