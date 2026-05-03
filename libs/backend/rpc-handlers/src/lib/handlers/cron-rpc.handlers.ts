@@ -1,4 +1,3 @@
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * Cron Scheduler RPC Handlers (TASK_2026_HERMES Track 3).
  *
@@ -51,6 +50,46 @@ import type {
   ScheduledJobDto,
 } from '@ptah-extension/shared';
 import { JobId } from '@ptah-extension/shared';
+import * as path from 'node:path';
+
+/**
+ * SECURITY: validate user-supplied prompt + workspaceRoot before they reach
+ * the scheduler.
+ *
+ *   - `handler:NAME` prompts dispatch to in-process handlers registered by
+ *     trusted libraries (memory:decay, etc.). We reject them at the RPC
+ *     surface so a UI-driven cron:create cannot invoke arbitrary internal
+ *     handlers — those jobs must be created from within the host process.
+ *   - `workspaceRoot` becomes the `cwd` for the SDK query when the job runs.
+ *     Any non-absolute or `..`-bearing path is rejected — never trust the
+ *     renderer to produce a clean path.
+ */
+function assertSafeCronUserInput(args: {
+  prompt?: string;
+  workspaceRoot?: string | null;
+}): void {
+  if (
+    typeof args.prompt === 'string' &&
+    args.prompt.trim().toLowerCase().startsWith('handler:')
+  ) {
+    throw new Error(
+      "cron RPC: prompts starting with 'handler:' are reserved for internal jobs and cannot be created via RPC",
+    );
+  }
+  if (args.workspaceRoot !== undefined && args.workspaceRoot !== null) {
+    const wr = args.workspaceRoot;
+    if (typeof wr !== 'string' || wr.length === 0) {
+      throw new Error('cron RPC: workspaceRoot must be a non-empty string');
+    }
+    if (!path.isAbsolute(wr)) {
+      throw new Error('cron RPC: workspaceRoot must be an absolute path');
+    }
+    const normalized = path.normalize(wr);
+    if (normalized.split(path.sep).some((seg) => seg === '..')) {
+      throw new Error("cron RPC: workspaceRoot must not contain '..' segments");
+    }
+  }
+}
 
 function toJobDto(job: ScheduledJob): ScheduledJobDto {
   return {
@@ -130,6 +169,10 @@ export class CronRpcHandlers {
         if (!params) {
           throw new Error('cron:create requires params');
         }
+        assertSafeCronUserInput({
+          prompt: params.prompt,
+          workspaceRoot: params.workspaceRoot ?? null,
+        });
         const job = this.scheduler.create({
           name: params.name,
           cronExpr: params.cronExpr,
@@ -149,7 +192,12 @@ export class CronRpcHandlers {
           throw new Error('cron:update requires id');
         }
         const id = JobId.from(params.id);
-        const job = this.scheduler.update(id, params.patch ?? {});
+        const patch = params.patch ?? {};
+        assertSafeCronUserInput({
+          prompt: patch.prompt,
+          workspaceRoot: patch.workspaceRoot ?? null,
+        });
+        const job = this.scheduler.update(id, patch);
         return { job: toJobDto(job) };
       },
     );
@@ -216,4 +264,3 @@ export class CronRpcHandlers {
     this.logger.info('[cron] RPC handlers registered');
   }
 }
-// === TRACK_3_CRON_SCHEDULER_END ===

@@ -34,7 +34,7 @@ async function loadPipeline(): Promise<PipelineFn> {
   if (pipelineLoading) return pipelineLoading;
   pipelineLoading = (async () => {
     // Dynamic import so test envs without the package can stub this file.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const mod = (await import(
       '@xenova/transformers' as unknown as string
     )) as any;

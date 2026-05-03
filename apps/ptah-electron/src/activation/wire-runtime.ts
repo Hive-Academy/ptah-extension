@@ -25,7 +25,6 @@ import type { PtyManagerService } from '../services/pty-manager.service';
 import { syncCliAgentsOnActivation } from './cli-agent-sync';
 import { syncCliSkillsOnActivation } from './cli-skill-sync';
 import { activateSkillJunctions, initPluginLoader } from './plugin-activation';
-// === TRACK_1_MEMORY_CURATOR_BEGIN ===
 import {
   PERSISTENCE_TOKENS,
   type SqliteConnectionService,
@@ -34,26 +33,19 @@ import {
   MEMORY_TOKENS,
   type MemoryCuratorService,
 } from '@ptah-extension/memory-curator';
-// === TRACK_1_MEMORY_CURATOR_END ===
-// === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
 import {
   SKILL_SYNTHESIS_TOKENS,
   type SkillSynthesisService,
 } from '@ptah-extension/skill-synthesis';
-// === TRACK_2_SKILL_SYNTHESIS_END ===
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 import {
   CRON_TOKENS,
   type CronScheduler,
 } from '@ptah-extension/cron-scheduler';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-// === TRACK_3_CRON_SCHEDULER_END ===
-// === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
 import {
   GATEWAY_TOKENS,
   type GatewayService,
 } from '@ptah-extension/messaging-gateway';
-// === TRACK_4_MESSAGING_GATEWAY_END ===
 
 export interface WireRuntimeOptions {
   container: DependencyContainer;
@@ -66,7 +58,6 @@ export interface WireRuntimeResult {
   resolvedStateStorage: IStateStorage | undefined;
   skillJunctionRef: { deactivateSync: () => void } | null;
   gitWatcher: { stop: () => void; switchWorkspace: (p: string) => void } | null;
-  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
   /**
    * SQLite connection service handle for orderly shutdown. Null when
    * Track 0 (persistence-sqlite) registration failed — caller's LIFO
@@ -78,31 +69,24 @@ export interface WireRuntimeResult {
    * Track 1 (memory-curator) registration or `start()` failed.
    */
   memoryCurator: MemoryCuratorService | null;
-  // === TRACK_1_MEMORY_CURATOR_END ===
-  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
   /**
    * Skill synthesis service handle for orderly shutdown. Null when
    * Track 0 (persistence-sqlite) is unavailable or `start()` failed —
    * caller still owns the LIFO will-quit chain and must tolerate null.
    */
   skillSynthesis: SkillSynthesisService | null;
-  // === TRACK_2_SKILL_SYNTHESIS_END ===
-  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
   /**
    * Cron scheduler handle for orderly shutdown. Null when Track 0
    * (persistence-sqlite) is unavailable, croner is missing, or `start()`
    * failed — caller's LIFO will-quit chain must tolerate null.
    */
   cronScheduler: CronScheduler | null;
-  // === TRACK_3_CRON_SCHEDULER_END ===
-  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   /**
    * Messaging gateway service handle for orderly shutdown. Null when
    * Track 0 (persistence-sqlite) is unavailable or `gateway.enabled` is
    * `false` — caller's LIFO will-quit chain must tolerate null.
    */
   messagingGateway: GatewayService | null;
-  // === TRACK_4_MESSAGING_GATEWAY_END ===
 }
 
 export async function wireRuntime(
@@ -114,19 +98,11 @@ export async function wireRuntime(
   let skillJunctionRef: WireRuntimeResult['skillJunctionRef'] = null;
   let gitWatcher: WireRuntimeResult['gitWatcher'] = null;
   let resolvedStateStorage: IStateStorage | undefined;
-  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
   let sqliteConnection: SqliteConnectionService | null = null;
   let memoryCurator: MemoryCuratorService | null = null;
-  // === TRACK_1_MEMORY_CURATOR_END ===
-  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
   let skillSynthesis: SkillSynthesisService | null = null;
-  // === TRACK_2_SKILL_SYNTHESIS_END ===
-  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
   let cronScheduler: CronScheduler | null = null;
-  // === TRACK_3_CRON_SCHEDULER_END ===
-  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   let messagingGateway: GatewayService | null = null;
-  // === TRACK_4_MESSAGING_GATEWAY_END ===
   // PHASE 4: Setup IPC Bridge + WebviewManager
   // The IPC bridge connects ipcMain to the RpcHandler for renderer <-> main communication.
   // It must be initialized BEFORE loading the renderer so that IPC listeners are ready
@@ -189,7 +165,6 @@ export async function wireRuntime(
     '[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized',
   );
 
-  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
   // PHASE 4.51: Open SQLite + run migrations (TASK_2026_HERMES Track 1).
   // The connection is registered in Phase 2.55 but lazy-opened here so
   // `openAndMigrate()` failures (missing better-sqlite3 native build,
@@ -232,9 +207,7 @@ export async function wireRuntime(
     );
     memoryCurator = null;
   }
-  // === TRACK_1_MEMORY_CURATOR_END ===
 
-  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
   // PHASE 4.53: Skill Synthesis cold-start (TASK_2026_HERMES Track 2)
   // Resolve and start the skill synthesis service so the candidate store +
   // sqlite migrations are ready before the first chat session ends.
@@ -253,7 +226,6 @@ export async function wireRuntime(
     );
     skillSynthesis = null;
   }
-  // === TRACK_2_SKILL_SYNTHESIS_END ===
   // PHASE 4.54: Ensure plugin/template content from GitHub (TASK_2025_248)
   // Plugins and templates are no longer bundled in the app package.
   // ContentDownloadService downloads them to ~/.ptah/ on first launch and
@@ -482,7 +454,6 @@ export async function wireRuntime(
     );
   }
 
-  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
   // PHASE 4.94: Cron scheduler cold-start (TASK_2026_HERMES Track 3)
   // Resolve and start the scheduler so persisted jobs re-arm and the
   // CatchupCoordinator runs its missed-run pass against `cron.catchupWindowMs`.
@@ -534,9 +505,7 @@ export async function wireRuntime(
     );
     cronScheduler = null;
   }
-  // === TRACK_3_CRON_SCHEDULER_END ===
 
-  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   // PHASE 4.95: Messaging gateway cold-start (TASK_2026_HERMES Track 4)
   // Resolve and start the gateway service so any enabled adapters
   // (Telegram/Discord/Slack) connect before the first chat message arrives.
@@ -556,24 +525,15 @@ export async function wireRuntime(
     );
     messagingGateway = null;
   }
-  // === TRACK_4_MESSAGING_GATEWAY_END ===
 
   return {
     resolvedStateStorage,
     skillJunctionRef,
     gitWatcher,
-    // === TRACK_1_MEMORY_CURATOR_BEGIN ===
     sqliteConnection,
     memoryCurator,
-    // === TRACK_1_MEMORY_CURATOR_END ===
-    // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
     skillSynthesis,
-    // === TRACK_2_SKILL_SYNTHESIS_END ===
-    // === TRACK_3_CRON_SCHEDULER_BEGIN ===
     cronScheduler,
-    // === TRACK_3_CRON_SCHEDULER_END ===
-    // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
     messagingGateway,
-    // === TRACK_4_MESSAGING_GATEWAY_END ===
   };
 }

@@ -65,7 +65,18 @@
           "chrome-launcher",
           "chrome-remote-interface",
           "gifenc",
-          "jpeg-js"
+          "jpeg-js",
+          "better-sqlite3",
+          "sqlite-vec",
+          "croner",
+          "ulid",
+          "@xenova/transformers",
+          "grammy",
+          "discord.js",
+          "@slack/bolt",
+          "ffmpeg-static",
+          "nodejs-whisper",
+          "bottleneck"
         ],
         "assets": [
           {
@@ -130,12 +141,13 @@
         "outputPath": "dist/apps/ptah-electron",
         "main": "libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts",
         "outputFileName": "embedder-worker.mjs",
-        "tsConfig": "apps/ptah-electron/tsconfig.build.json",
+        "tsConfig": "apps/ptah-electron/tsconfig.embedder-worker.json",
         "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
         "thirdParty": false,
+        "skipTypeCheck": true,
         "deleteOutputPath": false,
         "external": ["@xenova/transformers"]
       }

@@ -64,7 +64,9 @@ export class EmbedderWorkerClient implements IEmbedder {
     const id = this.nextId++;
     const req: EmbedRequest = { id, type: 'embed', texts };
     const reply = await this.send(worker, id, req);
-    if (!reply.ok) throw new Error(`Embedder worker error: ${reply.error}`);
+    if (reply.ok === false) {
+      throw new Error(`Embedder worker error: ${reply.error}`);
+    }
     return reply.vectors.map((v) => Float32Array.from(v));
   }
 

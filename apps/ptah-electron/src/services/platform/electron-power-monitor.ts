@@ -1,4 +1,3 @@
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * ElectronPowerMonitor — `IPowerMonitor` implementation for the Electron host
  * (TASK_2026_HERMES Track 3 — cron scheduler).
@@ -59,4 +58,3 @@ export class ElectronPowerMonitor implements IPowerMonitor {
     };
   }
 }
-// === TRACK_3_CRON_SCHEDULER_END ===

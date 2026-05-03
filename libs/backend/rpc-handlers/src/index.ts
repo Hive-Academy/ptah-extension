@@ -40,18 +40,10 @@ export {
   WorkspaceRpcHandlers,
   // Settings handlers (TASK_2026_107 Bug 6)
   SettingsRpcHandlers,
-  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
   MemoryRpcHandlers,
-  // === TRACK_1_MEMORY_CURATOR_END ===
-  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
   SkillsSynthesisRpcHandlers,
-  // === TRACK_2_SKILL_SYNTHESIS_END ===
-  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
   CronRpcHandlers,
-  // === TRACK_3_CRON_SCHEDULER_END ===
-  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   GatewayRpcHandlers,
-  // === TRACK_4_MESSAGING_GATEWAY_END ===
 } from './lib/handlers';
 
 // Platform abstraction interfaces (TASK_2025_203 Batch 2)

@@ -55,7 +55,18 @@
           "web-tree-sitter",
           "@tavily/core",
           "marked",
-          "commander"
+          "commander",
+          "better-sqlite3",
+          "sqlite-vec",
+          "croner",
+          "ulid",
+          "@xenova/transformers",
+          "grammy",
+          "discord.js",
+          "@slack/bolt",
+          "ffmpeg-static",
+          "nodejs-whisper",
+          "bottleneck"
         ],
         "assets": [
           {

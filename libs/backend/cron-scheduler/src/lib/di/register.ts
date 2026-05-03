@@ -1,4 +1,3 @@
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * cron-scheduler DI registration helper.
  *
@@ -56,4 +55,3 @@ export function registerCronSchedulerServices(
     tokens: Object.keys(CRON_TOKENS),
   });
 }
-// === TRACK_3_CRON_SCHEDULER_END ===

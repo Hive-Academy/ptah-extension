@@ -7,8 +7,20 @@ export type GatewayPlatform = 'telegram' | 'discord' | 'slack';
 
 export type BindingId = string & { readonly __brand: 'BindingId' };
 export const BindingId = {
+  /** Construct a BindingId from a non-empty string. Throws on invalid input. */
   create(value: string): BindingId {
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new TypeError(
+        `BindingId.create: expected non-empty string, received ${typeof value}`,
+      );
+    }
     return value as BindingId;
+  },
+  /** Non-throwing variant — returns null on invalid input. */
+  safeParse(value: unknown): BindingId | null {
+    return typeof value === 'string' && value.length > 0
+      ? (value as BindingId)
+      : null;
   },
 };
 
@@ -16,7 +28,13 @@ export type GatewayMessageId = string & {
   readonly __brand: 'GatewayMessageId';
 };
 export const GatewayMessageId = {
+  /** Construct a GatewayMessageId from a non-empty string. Throws on invalid input. */
   create(value: string): GatewayMessageId {
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new TypeError(
+        `GatewayMessageId.create: expected non-empty string, received ${typeof value}`,
+      );
+    }
     return value as GatewayMessageId;
   },
 };

@@ -38,6 +38,11 @@ function loadMigrations(): readonly Migration[] {
     { version: 3, name: '0003_skills', file: '0003_skills.sql' },
     { version: 4, name: '0004_cron', file: '0004_cron.sql' },
     { version: 5, name: '0005_gateway', file: '0005_gateway.sql' },
+    {
+      version: 6,
+      name: '0006_gateway_pairing_code',
+      file: '0006_gateway_pairing_code.sql',
+    },
   ];
   return files.map(({ version, name, file }) => ({
     version,

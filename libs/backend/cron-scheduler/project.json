@@ -14,7 +14,13 @@
         "tsConfig": "libs/backend/cron-scheduler/tsconfig.lib.json",
         "assets": [],
         "format": ["cjs"],
-        "external": ["vscode", "tsyringe", "croner"]
+        "external": [
+          "vscode",
+          "tsyringe",
+          "croner",
+          "better-sqlite3",
+          "sqlite-vec"
+        ]
       }
     },
     "test": {

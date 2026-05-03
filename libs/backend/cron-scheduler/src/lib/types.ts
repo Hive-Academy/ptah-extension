@@ -1,4 +1,3 @@
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * Public types for the cron scheduler.
  *
@@ -139,4 +138,3 @@ export interface JobHandlerResult {
   /** Short human-readable summary stored in `job_runs.result_summary`. */
   summary?: string;
 }
-// === TRACK_3_CRON_SCHEDULER_END ===

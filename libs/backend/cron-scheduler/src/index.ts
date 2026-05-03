@@ -1,4 +1,3 @@
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * Public barrel for `@ptah-extension/cron-scheduler`.
  *
@@ -16,6 +15,11 @@ export {
   isUniqueConstraintError,
 } from './lib/run.store';
 export { HandlerRegistry } from './lib/handler-registry';
+export {
+  CronSchedulerError,
+  JobNotFoundError,
+  CronConfigError,
+} from './lib/errors';
 
 export type { IPowerMonitor } from './lib/power-monitor.interface';
 export { NoopPowerMonitor } from './lib/power-monitor.interface';
@@ -37,4 +41,3 @@ export type {
   JobHandlerResult,
 } from './lib/types';
 export { CATCHUP_WINDOW_MAX_MS } from './lib/types';
-// === TRACK_3_CRON_SCHEDULER_END ===

@@ -1,4 +1,3 @@
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * JobRunner — claims a slot, dispatches to a handler, and records the outcome.
  *
@@ -25,6 +24,7 @@
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { CRON_TOKENS } from './di/tokens';
+import { CronConfigError } from './errors';
 import type { IJobStore } from './job.store';
 import type { IRunStore } from './run.store';
 import { SlotAlreadyClaimedError } from './run.store';
@@ -84,7 +84,7 @@ export class JobRunner {
    */
   setMaxConcurrent(n: number): void {
     if (!Number.isFinite(n) || n < 1) {
-      throw new Error(
+      throw new CronConfigError(
         `JobRunner.setMaxConcurrent: expected positive integer, got ${n}`,
       );
     }
@@ -247,4 +247,3 @@ export class JobRunner {
     return { summary: summary ?? 'ok' };
   }
 }
-// === TRACK_3_CRON_SCHEDULER_END ===

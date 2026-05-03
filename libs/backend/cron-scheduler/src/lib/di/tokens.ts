@@ -1,4 +1,3 @@
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * DI Token Registry — Cron Scheduler Tokens (TASK_2026_HERMES Track 3).
  *
@@ -34,4 +33,3 @@ export const CRON_TOKENS = {
 } as const;
 
 export type CronDIToken = keyof typeof CRON_TOKENS;
-// === TRACK_3_CRON_SCHEDULER_END ===

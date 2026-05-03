@@ -1,4 +1,3 @@
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * JobStore — CRUD over `scheduled_jobs` (schema 0004_cron.sql).
  *
@@ -176,4 +175,3 @@ function mapRow(row: ScheduledJobRow): ScheduledJob {
     nextRunAt: row.next_run_at,
   };
 }
-// === TRACK_3_CRON_SCHEDULER_END ===

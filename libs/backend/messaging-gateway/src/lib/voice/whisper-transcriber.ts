@@ -27,7 +27,6 @@ export interface NodejsWhisperApi {
 export type NodejsWhisperLoader = () => Promise<NodejsWhisperApi>;
 
 const defaultLoader: NodejsWhisperLoader = async () => {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const mod = require('nodejs-whisper') as
     | NodejsWhisperApi
     | { nodewhisper: NodejsWhisperApi };

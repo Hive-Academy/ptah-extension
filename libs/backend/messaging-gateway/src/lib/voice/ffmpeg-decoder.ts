@@ -19,7 +19,7 @@ export type FfmpegBinaryResolver = () => string;
 
 const defaultResolver: FfmpegBinaryResolver = () => {
   // ffmpeg-static exports the binary path as default export (CJS string).
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+
   const ffmpegPath = require('ffmpeg-static') as string | { default?: string };
   if (typeof ffmpegPath === 'string') return ffmpegPath;
   if (ffmpegPath && typeof ffmpegPath.default === 'string')
@@ -47,16 +47,61 @@ export class FfmpegDecoder {
   /**
    * Decode `inputPath` (typically OGG/Opus) into a 16 kHz mono PCM WAV.
    * Returns the absolute path of the output WAV. Caller owns the file.
+   *
+   * SECURITY: `inputPath` MUST be an absolute path that does not start with
+   * `-` (otherwise ffmpeg would interpret it as a flag — classic ffmpeg
+   * argument-injection / flag-smuggling). We also resolve symlinks to a real
+   * path so a crafted symlink cannot be swapped between validation and
+   * spawn. The resolved file must exist and be a regular file.
    */
   async decodeToPcm16Wav(inputPath: string): Promise<string> {
+    if (typeof inputPath !== 'string' || inputPath.length === 0) {
+      throw new Error('FfmpegDecoder: inputPath must be a non-empty string');
+    }
+    if (!path.isAbsolute(inputPath)) {
+      throw new Error('FfmpegDecoder: inputPath must be absolute');
+    }
+    // Reject any path component that begins with '-' to defeat ffmpeg
+    // flag-smuggling (e.g. `-protocol_whitelist`, `-f concat -i ...`).
+    const basename = path.basename(inputPath);
+    if (basename.startsWith('-') || inputPath.startsWith('-')) {
+      throw new Error(
+        'FfmpegDecoder: inputPath must not start with "-" (flag-injection guard)',
+      );
+    }
+    // Resolve symlinks + verify it is a regular file before spawn.
+    const resolvedInput = await fs.realpath(inputPath);
+    if (!path.isAbsolute(resolvedInput) || resolvedInput.startsWith('-')) {
+      throw new Error('FfmpegDecoder: resolved inputPath failed safety check');
+    }
+    const stat = await fs.stat(resolvedInput);
+    if (!stat.isFile()) {
+      throw new Error('FfmpegDecoder: inputPath is not a regular file');
+    }
+
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ptah-voice-'));
     const outPath = path.join(dir, 'audio.wav');
     const ffmpeg = this.resolver();
     await new Promise<void>((resolve, reject) => {
+      // `--` ends ffmpeg option processing — defence-in-depth so even if the
+      // path validation above is bypassed, no later token is treated as a flag.
       const proc = this.spawnFn(
         ffmpeg,
-        ['-y', '-i', inputPath, '-ac', '1', '-ar', '16000', outPath],
-        { stdio: ['ignore', 'ignore', 'pipe'] },
+        [
+          '-y',
+          '-nostdin',
+          '-loglevel',
+          'error',
+          '-i',
+          resolvedInput,
+          '-ac',
+          '1',
+          '-ar',
+          '16000',
+          '--',
+          outPath,
+        ],
+        { stdio: ['ignore', 'ignore', 'pipe'], shell: false },
       );
       let stderr = '';
       proc.stderr?.on('data', (d) => {

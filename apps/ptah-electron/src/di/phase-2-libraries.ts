@@ -25,7 +25,6 @@ import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
 } from '@ptah-extension/agent-generation';
-// === TRACK_1_MEMORY_CURATOR_BEGIN ===
 import {
   registerPersistenceSqliteServices,
   PERSISTENCE_TOKENS,
@@ -33,20 +32,13 @@ import {
 import { registerMemoryCuratorServices } from '@ptah-extension/memory-curator';
 import * as path from 'node:path';
 import * as os from 'node:os';
-// === TRACK_1_MEMORY_CURATOR_END ===
-// === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
 import { registerSkillSynthesisServices } from '@ptah-extension/skill-synthesis';
-// === TRACK_2_SKILL_SYNTHESIS_END ===
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 import { registerCronSchedulerServices } from '@ptah-extension/cron-scheduler';
-// === TRACK_3_CRON_SCHEDULER_END ===
-// === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
 import {
   registerMessagingGatewayServices,
   GATEWAY_TOKENS,
 } from '@ptah-extension/messaging-gateway';
 import { ElectronSafeStorageVault } from '../services/platform/electron-safe-storage-vault';
-// === TRACK_4_MESSAGING_GATEWAY_END ===
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 
 /**
@@ -129,7 +121,6 @@ export function registerPhase2Libraries(
   // registerSdkServices (called earlier in Phase 2). The llm-abstraction
   // library has been deleted.
 
-  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
   // ========================================
   // PHASE 2.55: Persistence-SQLite + Memory Curator (TASK_2026_HERMES Track 1)
   // ========================================
@@ -178,9 +169,7 @@ export function registerPhase2Libraries(
       },
     );
   }
-  // === TRACK_1_MEMORY_CURATOR_END ===
 
-  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
   // ========================================
   // PHASE 2.6: Skill Synthesis (TASK_2026_HERMES Track 2)
   // ========================================
@@ -190,9 +179,7 @@ export function registerPhase2Libraries(
   // (Track 0) for SQLite + vec0 storage and on agent-sdk's JsonlReader
   // for trajectory extraction; both are registered earlier in Phase 2.
   registerSkillSynthesisServices(container, logger);
-  // === TRACK_2_SKILL_SYNTHESIS_END ===
 
-  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
   // ========================================
   // PHASE 2.65: Cron Scheduler (TASK_2026_HERMES Track 3)
   // ========================================
@@ -213,9 +200,7 @@ export function registerPhase2Libraries(
       },
     );
   }
-  // === TRACK_3_CRON_SCHEDULER_END ===
 
-  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   // ========================================
   // PHASE 2.7: Messaging Gateway (TASK_2026_HERMES Track 4)
   // ========================================
@@ -240,5 +225,4 @@ export function registerPhase2Libraries(
       { error: error instanceof Error ? error.message : String(error) },
     );
   }
-  // === TRACK_4_MESSAGING_GATEWAY_END ===
 }

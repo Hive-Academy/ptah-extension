@@ -29,13 +29,9 @@ import {
   ElectronPlatformAuth,
   ElectronSaveDialog,
   ElectronModelDiscovery,
-  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
   ElectronPowerMonitor,
-  // === TRACK_3_CRON_SCHEDULER_END ===
 } from '../services/platform';
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
-// === TRACK_3_CRON_SCHEDULER_END ===
 
 /**
  * Phase 3: Register storage adapters, platform abstractions, and vscode-lm-tools.
@@ -134,7 +130,6 @@ export function registerPhase3Storage(
     },
   );
 
-  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
   // ========================================
   // PHASE 3.6: Cron Power Monitor (TASK_2026_HERMES Track 3)
   // ========================================
@@ -154,7 +149,6 @@ export function registerPhase3Storage(
       { error: error instanceof Error ? error.message : String(error) },
     );
   }
-  // === TRACK_3_CRON_SCHEDULER_END ===
 
   // ========================================
   // PHASE 4 prelude: Code Execution MCP + Browser Capabilities (TASK_2025_226, TASK_2025_244)

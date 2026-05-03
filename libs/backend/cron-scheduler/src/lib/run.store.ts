@@ -1,4 +1,3 @@
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * RunStore — CRUD over `job_runs` (schema 0004_cron.sql).
  *
@@ -201,4 +200,3 @@ function mapRunRow(row: JobRunRow): JobRun {
     errorMessage: row.error_message,
   };
 }
-// === TRACK_3_CRON_SCHEDULER_END ===

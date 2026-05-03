@@ -89,6 +89,13 @@ export class FakeSqliteDatabase implements SqliteDatabase {
     if (/^CREATE TRIGGER/i.test(normalised)) {
       return;
     }
+    // ALTER TABLE / DROP statements — silently accepted. The fake doesn't
+    // model a column catalog so additive schema changes (e.g. migration 0006
+    // adding `pairing_code`) are inert here; production better-sqlite3
+    // applies them for real.
+    if (/^ALTER TABLE/i.test(normalised) || /^DROP /i.test(normalised)) {
+      return;
+    }
     if (upper.startsWith('NOT VALID SQL')) {
       throw new Error('syntax error in fake SQL');
     }

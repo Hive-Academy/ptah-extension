@@ -1,4 +1,3 @@
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * IPowerMonitor — platform abstraction for OS power events.
  *
@@ -39,4 +38,3 @@ export class NoopPowerMonitor implements IPowerMonitor {
     };
   }
 }
-// === TRACK_3_CRON_SCHEDULER_END ===

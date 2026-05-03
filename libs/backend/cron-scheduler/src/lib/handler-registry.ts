@@ -1,4 +1,3 @@
-// === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * In-memory implementation of {@link IHandlerRegistry}.
  *
@@ -42,4 +41,3 @@ export class HandlerRegistry implements IHandlerRegistry {
     return this.handlers.get(name);
   }
 }
-// === TRACK_3_CRON_SCHEDULER_END ===

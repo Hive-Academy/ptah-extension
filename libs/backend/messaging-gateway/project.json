@@ -18,6 +18,7 @@
           "vscode",
           "tsyringe",
           "better-sqlite3",
+          "sqlite-vec",
           "grammy",
           "discord.js",
           "@slack/bolt",
