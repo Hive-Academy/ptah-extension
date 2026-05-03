@@ -74,6 +74,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'webSearch:', // TASK_2025_235: Web search provider configuration (API key status)
   'harness:', // Harness setup builder (initialize, suggest-config, apply, presets, chat)
   'mcpDirectory:', // MCP Server Directory (search, getDetails, install, uninstall, listInstalled, getPopular)
+  'cron:', // Scheduled cron jobs (list, get, create, update, delete, toggle, runNow, runs, nextFire)
 ] as const;
 
 /**
