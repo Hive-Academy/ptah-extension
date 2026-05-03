@@ -1,0 +1,37 @@
+name: Semgrep
+
+# Lightweight, focused security scanner. Only runs the project's own rules
+# under .semgrep/ — currently the SQL-injection-in-migration guard. Skipping
+# the full p/security-audit ruleset keeps the run under 30s.
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'libs/backend/persistence-sqlite/src/lib/migrations/**'
+      - '.semgrep/**'
+      - '.github/workflows/semgrep.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'libs/backend/persistence-sqlite/src/lib/migrations/**'
+      - '.semgrep/**'
+
+concurrency:
+  group: semgrep-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: semgrep scan --config .semgrep --error

@@ -54,9 +54,7 @@ function buildSuite(): Suite {
     trackSession: jest.fn(),
   } as unknown as Mocked<ChatPtahCliService>;
 
-  const streamBroadcaster = {
-    subscribeToBackgroundAgentEvents: jest.fn(),
-  } as unknown as Mocked<ChatStreamBroadcaster>;
+  const streamBroadcaster = {} as unknown as Mocked<ChatStreamBroadcaster>;
 
   const session = {
     startSession: jest.fn().mockResolvedValue({ success: true }),
@@ -138,16 +136,6 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
     },
   );
 
-  describe('register() — broadcaster wiring', () => {
-    it('subscribes the broadcaster to background-agent events', () => {
-      const suite = buildSuite();
-      suite.handlers.register();
-      expect(
-        suite.streamBroadcaster.subscribeToBackgroundAgentEvents,
-      ).toHaveBeenCalledTimes(1);
-    });
-  });
-
   describe('delegation — happy paths', () => {
     type Delegate = keyof Pick<
       ChatSessionService,
@@ -180,6 +168,37 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
         expect(suite.session[delegate]).toHaveBeenCalledWith(params);
       },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // chat:start mcpServersOverride passthrough
+  // TASK_2026_108 § 2 T2 — verifies the RPC facade does not strip the field.
+  // -------------------------------------------------------------------------
+
+  describe('ChatRpcHandlers chat:start (mcpServersOverride passthrough)', () => {
+    it('forwards mcpServersOverride from RPC params to ChatSessionService.startSession', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+
+      const params = {
+        tabId: 't1',
+        prompt: 'hi',
+        mcpServersOverride: {
+          ptah: {
+            type: 'http' as const,
+            url: 'http://override.example/proxy',
+            headers: { 'X-Trace': 'on' },
+          },
+        },
+      };
+      await getHandler(suite.rpc, 'chat:start')(params);
+
+      // The thin facade must pass the entire params object straight through
+      // to ChatSessionService.startSession without stripping fields — that
+      // service is the layer responsible for forwarding mcpServersOverride
+      // into SdkAgentAdapter.startChatSession.
+      expect(suite.session.startSession).toHaveBeenCalledWith(params);
+    });
   });
 
   describe('runRpc — C7d shape (entry/exit logs + Sentry on throw)', () => {

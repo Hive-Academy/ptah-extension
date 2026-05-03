@@ -52,4 +52,7 @@ export const PLATFORM_TOKENS = {
 
   /** ContentDownloadService — downloads plugins/templates from GitHub (TASK_2025_248) */
   CONTENT_DOWNLOAD: Symbol.for('PlatformContentDownload'),
+
+  /** IHttpServerProvider — platform-agnostic HTTP server (TASK_2026_104 P2 proxy) */
+  HTTP_SERVER_PROVIDER: Symbol.for('PlatformHttpServerProvider'),
 } as const;

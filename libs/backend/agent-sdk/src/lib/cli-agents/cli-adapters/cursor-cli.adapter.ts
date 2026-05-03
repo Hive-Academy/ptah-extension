@@ -93,7 +93,7 @@ export class CursorCliAdapter implements CliAdapter {
           ['--version'],
           { timeout: 5000 },
         );
-        version = versionOutput.trim().split('\n')[0];
+        version = versionOutput.trim().split(/\r?\n/)[0];
       } catch {
         // Version check failed, CLI still usable
       }
@@ -310,7 +310,12 @@ export class CursorCliAdapter implements CliAdapter {
     };
 
     // Spawn using cross-spawn — transparent .cmd handling on Windows.
-    // No needsConsole needed (Cursor does not use node-pty/ConPTY internally).
+    // No `needsConsole: true` because Cursor does not use node-pty/ConPTY
+    // internally for shell execution (Gemini is the only adapter that does).
+    // Cursor's tool execution goes through its own internal subprocess machinery
+    // that does not call AttachConsole(), so the default piped stdio with
+    // CREATE_NO_WINDOW is fine on Windows. Setting `needsConsole: true`
+    // unnecessarily would allocate an extra (hidden) console window per spawn.
     const binary = options.binaryPath ?? 'cursor-agent';
     const child = spawnCli(binary, args, {
       cwd: options.workingDirectory,
@@ -345,7 +350,8 @@ export class CursorCliAdapter implements CliAdapter {
 
     child.stdout?.on('data', (data: string) => {
       lineBuf += data;
-      const lines = lineBuf.split('\n');
+      // Cross-platform line splitting: handle both \n (Unix) and \r\n (Windows).
+      const lines = lineBuf.split(/\r?\n/);
       // Keep the last incomplete line in the buffer
       lineBuf = lines.pop() ?? '';
 

@@ -22,7 +22,6 @@ import {
   ConfigManager,
   SubagentRegistryService,
   LicenseService,
-  AgentSessionWatcherService,
   isPremiumTier,
   type SentryService,
 } from '@ptah-extension/vscode-core';
@@ -86,8 +85,6 @@ export class ChatSessionService {
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
-    @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
-    private readonly agentSessionWatcher: AgentSessionWatcherService,
     @inject(SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR)
     private readonly slashCommandInterceptor: SlashCommandInterceptor,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
@@ -238,6 +235,15 @@ export class ChatSessionService {
         pluginPaths,
         thinking: options?.thinking, // TASK_2025_184
         effort: options?.effort, // TASK_2025_184
+        // Opt-in passthrough for SDK partial-message stream events. When
+        // omitted, the SDK plumbing defaults to ON (preserves historical
+        // Ptah behavior — StreamTransformer already consumes stream_event).
+        includePartialMessages: options?.includePartialMessages,
+        // TASK_2026_108 T2: Caller-supplied MCP HTTP server overrides
+        // (populated by the Anthropic-compatible HTTP proxy via the
+        // X-Ptah-Mcp-Servers header). Identity-preserved when undefined or
+        // empty — see SdkQueryOptionsBuilder.mergeMcpOverride.
+        mcpServersOverride: params.mcpServersOverride,
       });
 
       // Stream ExecutionNodes to webview (background — don't await)
@@ -505,7 +511,7 @@ export class ChatSessionService {
     }
   }
 
-  /** chat:abort - Interrupt session and stop watchers (TASK_2025_175). */
+  /** chat:abort - Interrupt session (TASK_2025_175). */
   async abortSession(params: ChatAbortParams): Promise<ChatAbortResult> {
     try {
       const { sessionId } = params;
@@ -518,7 +524,6 @@ export class ChatSessionService {
       }
 
       await this.sdkAdapter.interruptSession(sessionId);
-      this.agentSessionWatcher.stopAllForSession(sessionId as string);
 
       return { success: true };
     } catch (error) {

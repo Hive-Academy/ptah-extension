@@ -16,7 +16,6 @@ import { TOKENS } from './tokens';
 // Platform-agnostic vscode-core services (verified: no vscode runtime import)
 import { RpcHandler } from '../messaging/rpc-handler';
 import { MessageValidatorService } from '../validation/message-validator.service';
-import { AgentSessionWatcherService } from '../services/agent-session-watcher.service';
 import { SubagentRegistryService } from '../services/subagent-registry.service';
 import { FeatureGateService } from '../services/feature-gate.service';
 import { LicenseService } from '../services/license.service';
@@ -62,10 +61,6 @@ export function registerVsCodeCorePlatformAgnostic(
     TOKENS.MESSAGE_VALIDATOR,
     MessageValidatorService,
   );
-  container.registerSingleton(
-    TOKENS.AGENT_SESSION_WATCHER_SERVICE,
-    AgentSessionWatcherService,
-  );
 
   // TODO(C1 step 2): remove guard once app containers stop double-registering
   // SUBAGENT_REGISTRY_SERVICE. Currently registered by both:
@@ -105,7 +100,6 @@ export function registerVsCodeCorePlatformAgnostic(
     services: [
       'RPC_HANDLER',
       'MESSAGE_VALIDATOR',
-      'AGENT_SESSION_WATCHER_SERVICE',
       'SUBAGENT_REGISTRY_SERVICE',
       'FEATURE_GATE_SERVICE',
       ...(includeLicensingAndAuth

@@ -1,19 +1,33 @@
 /**
  * Git Watcher Service
  *
- * Watches the .git directory for changes and pushes git status updates
- * to the renderer via WebviewManager. Replaces frontend polling with
- * event-driven push — git status is only computed when something actually changes.
+ * Despite the name, this service now drives BOTH git status push updates
+ * AND generic workspace file-tree change notifications to the renderer.
+ * The class name is preserved for backward compatibility with DI wiring
+ * and call sites; functionally it is a workspace + git watcher hybrid.
  *
- * Watches:
+ * Responsibilities:
+ *   1. Watch the .git directory (when present) and push `git:status-update`
+ *      events whenever HEAD, index, or refs change. This replaced the
+ *      frontend `git:info` polling loop with event-driven push.
+ *   2. Watch the workspace root unconditionally (NOT gated on `.git`
+ *      existence) and push `file:tree-changed` events for any create /
+ *      delete / rename, so the renderer's file explorer auto-refreshes
+ *      even in non-git workspaces.
+ *   3. Push `file:content-changed` events when the active editor file
+ *      is modified externally.
+ *
+ * Watches (git side):
  * - .git/HEAD      (branch switches, checkouts)
  * - .git/index     (staging area changes: git add/reset)
  * - .git/refs/     (new commits, remote updates, tag creation)
  *
- * Workspace file changes (unstaged modifications) are detected via a
- * secondary watcher on the workspace root with a longer debounce.
+ * Workspace file changes (unstaged modifications, file/folder CRUD) are
+ * detected via the workspace-root watcher and coalesced through
+ * TREE_DEBOUNCE_MS before being pushed.
  *
  * TASK_2025_240: Replace git:info polling with event-driven push
+ * Later expanded to drive generic workspace file watching as well.
  */
 
 import * as fs from 'fs';
@@ -30,10 +44,19 @@ const FILE_TREE_CHANGED = 'file:tree-changed';
 /** Message type used for pushing file content change notifications to the renderer. */
 const FILE_CONTENT_CHANGED = 'file:content-changed';
 
+/**
+ * Message type used to ask the renderer to re-read every currently open
+ * editor tab from disk. Emitted after a git operation (commit, checkout,
+ * reset, push, branch switch) since git mutates files atomically via
+ * rename, which fs.watch does not always surface as a per-file change.
+ */
+const EDITOR_REREAD_OPEN_TABS = 'editor:reread-open-tabs';
+
 export class GitWatcherService {
   private watchers: fs.FSWatcher[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private treeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private gitOpsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly contentChangeTimers = new Map<
     string,
     ReturnType<typeof setTimeout>
@@ -51,8 +74,8 @@ export class GitWatcherService {
   /** Debounce interval for workspace file changes (ms). Longer to avoid noise. */
   private static readonly WORKSPACE_DEBOUNCE_MS = 2000;
 
-  /** Debounce interval for file tree refresh (ms). Longer to batch bulk operations like git pull. */
-  private static readonly TREE_DEBOUNCE_MS = 3000;
+  /** Debounce interval for file tree refresh (ms). Batches bulk ops (git pull, npm install) without making routine file creation feel laggy. */
+  private static readonly TREE_DEBOUNCE_MS = 500;
 
   constructor(
     private readonly gitInfo: GitInfoService,
@@ -77,45 +100,84 @@ export class GitWatcherService {
     this.broadcastFn = broadcast;
     this.isDisposed = false;
 
-    const gitDir = path.join(workspacePath, '.git');
+    this.logger.info('[GitWatcher] Starting file system watchers', {
+      workspacePath,
+    } as unknown as Error);
 
-    // Check if .git exists (could be a non-git workspace)
-    if (!fs.existsSync(gitDir) || !fs.statSync(gitDir).isDirectory()) {
+    // Watch workspace root recursively for file modifications and structural
+    // changes (file add/delete/rename → tree refresh). This must run for
+    // ALL workspaces, not only git repos — the file explorer depends on it
+    // to stay in sync when files are created via the UI, CLI agents, or
+    // external tools.
+    this.watchWorkspaceRoot(workspacePath);
+
+    // Resolve the real git directory. In a normal repo `.git` is a directory;
+    // in worktrees and submodules it is a FILE containing `gitdir: <path>`
+    // pointing to the actual gitdir under the parent repo's `.git/worktrees/`.
+    // Without this resolution, worktree users get zero git-driven refresh.
+    const gitDir = this.resolveGitDir(workspacePath);
+    if (!gitDir) {
       this.logger.debug(
-        '[GitWatcher] No .git directory found, skipping watch',
+        '[GitWatcher] No .git directory found, skipping git-specific watchers',
         { workspacePath } as unknown as Error,
       );
       return;
     }
 
-    this.logger.info('[GitWatcher] Starting file system watchers', {
-      workspacePath,
-    } as unknown as Error);
+    const onGitOps = (): void => this.scheduleGitOpsRefresh();
 
-    // Watch .git/HEAD (branch switches)
-    this.watchFile(
-      path.join(gitDir, 'HEAD'),
-      GitWatcherService.GIT_DEBOUNCE_MS,
-    );
+    // HEAD (branch switches), index (staging), refs/ (commits & remote updates).
+    this.watchFile(path.join(gitDir, 'HEAD'), onGitOps);
+    this.watchFile(path.join(gitDir, 'index'), onGitOps);
 
-    // Watch .git/index (staging changes)
-    this.watchFile(
-      path.join(gitDir, 'index'),
-      GitWatcherService.GIT_DEBOUNCE_MS,
-    );
-
-    // Watch .git/refs/ directory (commits, remote updates)
     const refsDir = path.join(gitDir, 'refs');
     if (fs.existsSync(refsDir)) {
-      this.watchDirectory(refsDir, GitWatcherService.GIT_DEBOUNCE_MS);
+      this.watchDirectory(refsDir, onGitOps);
     }
 
-    // Watch workspace root recursively for file modifications (unstaged changes)
-    // and structural changes (file add/delete for tree refresh).
-    this.watchWorkspaceRoot(workspacePath);
+    // After `git gc` or on cloned repos, refs live in `packed-refs` and
+    // `git fetch` / `git push` may update only that file. ORIG_HEAD and
+    // FETCH_HEAD cover reset/merge/fetch operations that don't move HEAD.
+    this.watchFile(path.join(gitDir, 'packed-refs'), onGitOps);
+    this.watchFile(path.join(gitDir, 'ORIG_HEAD'), onGitOps);
+    this.watchFile(path.join(gitDir, 'FETCH_HEAD'), onGitOps);
 
-    // Push initial state immediately
+    // Push initial git state immediately
     this.fetchAndPush();
+  }
+
+  /**
+   * Resolve the real git directory for a workspace.
+   *
+   * Returns the directory itself for a normal repo. For worktrees and
+   * submodules, `.git` is a file whose first line is `gitdir: <path>` —
+   * we follow that pointer (resolving relative paths against the workspace).
+   * Returns null when no git context exists.
+   */
+  private resolveGitDir(workspacePath: string): string | null {
+    const dotGit = path.join(workspacePath, '.git');
+    if (!fs.existsSync(dotGit)) return null;
+
+    const stat = fs.statSync(dotGit);
+    if (stat.isDirectory()) return dotGit;
+    if (!stat.isFile()) return null;
+
+    try {
+      const contents = fs.readFileSync(dotGit, 'utf8').trim();
+      const match = contents.match(/^gitdir:\s*(.+)$/m);
+      if (!match) return null;
+      const target = match[1].trim();
+      const resolved = path.isAbsolute(target)
+        ? target
+        : path.resolve(workspacePath, target);
+      return fs.existsSync(resolved) ? resolved : null;
+    } catch (err) {
+      this.logger.warn('[GitWatcher] Failed to resolve gitdir pointer', {
+        dotGit,
+        error: err instanceof Error ? err.message : String(err),
+      } as unknown as Error);
+      return null;
+    }
   }
 
   /**
@@ -144,6 +206,11 @@ export class GitWatcherService {
       this.treeDebounceTimer = null;
     }
 
+    if (this.gitOpsDebounceTimer) {
+      clearTimeout(this.gitOpsDebounceTimer);
+      this.gitOpsDebounceTimer = null;
+    }
+
     for (const timer of this.contentChangeTimers.values()) {
       clearTimeout(timer);
     }
@@ -160,14 +227,16 @@ export class GitWatcherService {
   }
 
   /**
-   * Watch a single file for changes.
+   * Watch a single file for changes. Caller supplies the scheduler
+   * callback (e.g. `scheduleGitOpsRefresh` or `scheduleUpdate`) since
+   * coalescing semantics differ per watcher kind.
    */
-  private watchFile(filePath: string, debounceMs: number): void {
+  private watchFile(filePath: string, onChange: () => void): void {
     if (!fs.existsSync(filePath)) return;
 
     try {
       const watcher = fs.watch(filePath, () => {
-        this.scheduleUpdate(debounceMs);
+        onChange();
       });
 
       watcher.on('error', (err) => {
@@ -187,12 +256,13 @@ export class GitWatcherService {
   }
 
   /**
-   * Watch a directory (non-recursive) for changes.
+   * Watch a directory (non-recursive) for changes. Caller supplies the
+   * scheduler callback.
    */
-  private watchDirectory(dirPath: string, debounceMs: number): void {
+  private watchDirectory(dirPath: string, onChange: () => void): void {
     try {
       const watcher = fs.watch(dirPath, { recursive: false }, () => {
-        this.scheduleUpdate(debounceMs);
+        onChange();
       });
 
       watcher.on('error', (err) => {
@@ -323,6 +393,28 @@ export class GitWatcherService {
         }
       }, GitWatcherService.CONTENT_CHANGE_DEBOUNCE_MS),
     );
+  }
+
+  /**
+   * Schedule a debounced git-operation refresh: pushes git status AND
+   * tells the renderer to re-read every open editor tab from disk.
+   *
+   * Coalesces a flurry of .git/* events (a single git command can write
+   * HEAD, index, and refs in rapid succession) into one broadcast pair.
+   */
+  private scheduleGitOpsRefresh(): void {
+    if (this.isDisposed) return;
+
+    if (this.gitOpsDebounceTimer) {
+      clearTimeout(this.gitOpsDebounceTimer);
+    }
+
+    this.gitOpsDebounceTimer = setTimeout(() => {
+      this.gitOpsDebounceTimer = null;
+      if (this.isDisposed || !this.broadcastFn) return;
+      void this.fetchAndPush();
+      this.broadcastFn(EDITOR_REREAD_OPEN_TABS, {});
+    }, GitWatcherService.GIT_DEBOUNCE_MS);
   }
 
   /**

@@ -20,16 +20,14 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import type {
-  SubagentRegistryService,
-  AgentSessionWatcherService,
-} from '@ptah-extension/vscode-core';
+import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import {
   SessionId,
   AISessionConfig,
   ISdkPermissionHandler,
   InlineImageAttachment,
   type AuthEnv,
+  type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import {
@@ -68,6 +66,21 @@ export interface Query {
   setModel(model?: string): Promise<void>;
   /** Stream input messages to the query */
   streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
+  /**
+   * Rewind tracked files to their state at a specific user message.
+   * Requires the session to have been started with `enableFileCheckpointing: true`.
+   * Throws if checkpointing is disabled.
+   */
+  rewindFiles(
+    userMessageId: string,
+    options?: { dryRun?: boolean },
+  ): Promise<{
+    canRewind: boolean;
+    error?: string;
+    filesChanged?: string[];
+    insertions?: number;
+    deletions?: number;
+  }>;
 }
 
 /**
@@ -143,6 +156,62 @@ export interface ExecuteQueryConfig {
    * the default import.meta.url-based resolution baked at bundle time.
    */
   pathToClaudeCodeExecutable?: string;
+  /**
+   * When true, resume + forkSession together create a NEW session ID instead
+   * of mutating the resumed transcript. Has no effect unless `resumeSessionId`
+   * is also set. Forwarded to `SdkQueryOptionsBuilder.build()`.
+   */
+  forkSession?: boolean;
+  /**
+   * When resuming, only replay messages up to (and including) the message
+   * with this UUID. Maps directly to SDK Options.resumeSessionAt. Forwarded
+   * to `SdkQueryOptionsBuilder.build()`.
+   */
+  resumeSessionAt?: string;
+  /**
+   * Toggle SDK file checkpointing for this session. Defaults to ON when
+   * unspecified — file checkpointing is required by `Query.rewindFiles()`,
+   * which is the underlying mechanism for the rewind feature. Pass `false`
+   * explicitly to opt out (e.g., performance-sensitive contexts).
+   */
+  enableFileCheckpointing?: boolean;
+  /**
+   * When true, the SDK emits `SDKPartialAssistantMessage` events
+   * (`subtype: 'stream_event'`) for finer-grained streaming deltas.
+   * Forwarded to `SdkQueryOptionsBuilder.build()`. Defaults to ON when
+   * unspecified to preserve historical Ptah streaming behavior.
+   */
+  includePartialMessages?: boolean;
+  /**
+   * Caller-supplied MCP HTTP server overrides — merged OVER the registry-
+   * built map by the options builder (caller wins on key collision).
+   * Reserved for the Anthropic-compatible HTTP proxy in P3 (TASK_2026_108
+   * T2). When `undefined` or empty, the SDK's `mcpServers` is identity-
+   * preserved relative to pre-T2 behavior.
+   */
+  mcpServersOverride?: Record<string, McpHttpServerOverride>;
+  /**
+   * Pre-warmed `WarmQuery` handle from `SdkAgentAdapter.prewarm()`. When
+   * provided, the executor uses `warm.query(prompt)` for the very first
+   * query of this session instead of the standard `queryFn(...)` call —
+   * skipping the spawn + initialize handshake.
+   *
+   * **Caller contract**: the caller MUST have already validated (via
+   * `consumeWarmQuery(requirements)`) that this warm handle's option
+   * fingerprint matches the options about to be built for this session.
+   * The executor does NOT re-validate — `WarmQuery.query` accepts only a
+   * prompt and silently inherits every other Option from the original
+   * `startup()` call, so any mismatch produces a session running with the
+   * wrong options. Callers that aren't sure must pass `undefined` here.
+   *
+   * Only meaningful for NEW (non-resume, non-fork) sessions with a string
+   * or iterable prompt. The executor falls back to the normal `queryFn`
+   * path if this is `undefined`, if the session is a resume/fork, or if
+   * `warm.query` is missing on the handle.
+   *
+   * TASK_2026_109 Fix 3 wiring (this commit).
+   */
+  warmQuery?: { close: () => void; query?: unknown };
 }
 
 /**
@@ -161,6 +230,27 @@ export interface SlashCommandConfig {
   onWorktreeRemoved?: WorktreeRemovedCallback;
   /** TASK_2025_194: Explicit path to cli.js */
   pathToClaudeCodeExecutable?: string;
+  /**
+   * Mirrors `ExecuteQueryConfig.forkSession`. Only meaningful in combination
+   * with `resumeSessionId` (always set internally for slash commands since
+   * they resume the existing session). Forwarded to the options builder.
+   */
+  forkSession?: boolean;
+  /**
+   * Mirrors `ExecuteQueryConfig.resumeSessionAt`. When set, the resumed
+   * transcript replay stops at this message UUID.
+   */
+  resumeSessionAt?: string;
+  /**
+   * Mirrors `ExecuteQueryConfig.enableFileCheckpointing`. Defaults to ON in
+   * the builder when unspecified.
+   */
+  enableFileCheckpointing?: boolean;
+  /**
+   * Mirrors `ExecuteQueryConfig.includePartialMessages`. Defaults to ON in
+   * the builder when unspecified.
+   */
+  includePartialMessages?: boolean;
 }
 
 /**
@@ -207,9 +297,6 @@ export class SessionLifecycleManager {
     // TASK_2025_103: SubagentRegistryService for marking subagents as interrupted
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private subagentRegistry: SubagentRegistryService,
-    // TASK_2025_264: AgentSessionWatcherService for stopping file watchers on session end
-    @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
-    private agentSessionWatcher: AgentSessionWatcherService,
     @inject(SDK_TOKENS.SDK_AUTH_ENV)
     private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
@@ -241,7 +328,6 @@ export class SessionLifecycleManager {
       this._registry,
       this.permissionHandler,
       this.subagentRegistry,
-      this.agentSessionWatcher,
       this.modelResolver,
     );
   }
@@ -483,6 +569,14 @@ export class SessionLifecycleManager {
       enhancedPromptsContent: config.enhancedPromptsContent,
       pluginPaths: config.pluginPaths,
       pathToClaudeCodeExecutable: config.pathToClaudeCodeExecutable,
+      // Mirror ExecuteQueryConfig pass-through so slash commands honor the
+      // same fork/rewind/checkpoint/partial-message toggles as regular
+      // resume flows. Without this, callers that set these on
+      // SlashCommandConfig would have them silently dropped.
+      forkSession: config.forkSession,
+      resumeSessionAt: config.resumeSessionAt,
+      enableFileCheckpointing: config.enableFileCheckpointing,
+      includePartialMessages: config.includePartialMessages,
     });
   }
 

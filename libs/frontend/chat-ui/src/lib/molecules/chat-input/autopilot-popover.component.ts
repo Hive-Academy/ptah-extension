@@ -49,9 +49,12 @@ import { type PermissionLevel } from '@ptah-extension/shared';
 
     <!-- Bottom Sheet Modal -->
     @if (isOpen()) {
-      <div class="fixed inset-0 z-50 flex flex-col justify-end">
+      <div class="absolute inset-0 z-50 flex flex-col justify-end">
         <!-- Backdrop -->
-        <div class="absolute inset-0 bg-black/60" (click)="closeModal()"></div>
+        <div
+          class="absolute max-h-max inset-0 bg-black/60"
+          (click)="closeModal()"
+        ></div>
 
         <!-- Sheet Content -->
         <div class="relative bg-base-200 rounded-t-2xl animate-slide-up">

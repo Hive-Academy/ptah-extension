@@ -36,8 +36,8 @@ import {
 import {
   PLATFORM_TOKENS,
   PtahFileSettingsManager,
-  FILE_BASED_SETTINGS_KEYS,
   FILE_BASED_SETTINGS_DEFAULTS,
+  isFileBasedSettingKey,
   ContentDownloadService,
 } from '@ptah-extension/platform-core';
 import type {
@@ -54,7 +54,6 @@ import type { Logger } from '@ptah-extension/vscode-core';
 // Platform-agnostic vscode-core services (verified: no runtime vscode imports)
 import { RpcHandler } from '@ptah-extension/vscode-core';
 import { MessageValidatorService } from '@ptah-extension/vscode-core';
-import { AgentSessionWatcherService } from '@ptah-extension/vscode-core';
 import { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import { FeatureGateService } from '@ptah-extension/vscode-core';
 import { LicenseService } from '@ptah-extension/vscode-core';
@@ -291,10 +290,6 @@ export class CliDIContainer {
       MessageValidatorService,
     );
     container.registerSingleton(
-      TOKENS.AGENT_SESSION_WATCHER_SERVICE,
-      AgentSessionWatcherService,
-    );
-    container.registerSingleton(
       TOKENS.SUBAGENT_REGISTRY_SERVICE,
       SubagentRegistryService,
     );
@@ -404,20 +399,20 @@ export class CliDIContainer {
       );
       const configManagerShim = {
         get: <T>(key: string): T | undefined => {
-          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+          if (isFileBasedSettingKey(key)) {
             return fileSettings.get<T>(key);
           }
           return configStorage.get<T>(`ptah.${key}`);
         },
         getWithDefault: <T>(key: string, defaultValue: T): T => {
-          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+          if (isFileBasedSettingKey(key)) {
             return fileSettings.get<T>(key, defaultValue) ?? defaultValue;
           }
           const value = configStorage.get<T>(`ptah.${key}`);
           return value !== undefined ? value : defaultValue;
         },
         getTyped: <T>(key: string): T | undefined => {
-          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+          if (isFileBasedSettingKey(key)) {
             return fileSettings.get<T>(key);
           }
           return configStorage.get<T>(`ptah.${key}`);
@@ -427,28 +422,28 @@ export class CliDIContainer {
           _schema: unknown,
           defaultValue: T,
         ): T => {
-          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+          if (isFileBasedSettingKey(key)) {
             return fileSettings.get<T>(key, defaultValue) ?? defaultValue;
           }
           const value = configStorage.get<T>(`ptah.${key}`);
           return value !== undefined ? value : defaultValue;
         },
         set: async <T>(key: string, value: T): Promise<void> => {
-          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+          if (isFileBasedSettingKey(key)) {
             await fileSettings.set(key, value);
             return;
           }
           await configStorage.update(`ptah.${key}`, value);
         },
         setTyped: async <T>(key: string, value: T): Promise<void> => {
-          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+          if (isFileBasedSettingKey(key)) {
             await fileSettings.set(key, value);
             return;
           }
           await configStorage.update(`ptah.${key}`, value);
         },
         update: async (key: string, value: unknown): Promise<void> => {
-          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+          if (isFileBasedSettingKey(key)) {
             await fileSettings.set(key, value);
             return;
           }

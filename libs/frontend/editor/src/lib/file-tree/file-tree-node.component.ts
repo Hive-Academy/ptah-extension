@@ -5,6 +5,7 @@ import {
   signal,
   computed,
   ChangeDetectionStrategy,
+  effect,
   inject,
 } from '@angular/core';
 import {
@@ -147,6 +148,27 @@ export class FileTreeNodeComponent {
   readonly isLoadingChildren = signal(false);
   readonly isRenaming = signal(false);
   readonly creatingType = signal<'file' | 'folder' | null>(null);
+
+  constructor() {
+    // Defensive auto-reload: if a node is currently expanded and its `needsLoad`
+    // flag flips back to `true` (e.g., after a tree refresh that didn't preserve
+    // its loaded children), trigger lazy-load of its children so the user
+    // doesn't have to manually collapse + re-expand.
+    effect(() => {
+      if (
+        this.node().type === 'directory' &&
+        this.expanded() &&
+        this.node().needsLoad === true &&
+        !this.isLoadingChildren()
+      ) {
+        const targetPath = this.node().path;
+        this.isLoadingChildren.set(true);
+        void this.editorService
+          .loadDirectoryChildren(targetPath)
+          .finally(() => this.isLoadingChildren.set(false));
+      }
+    });
+  }
 
   /**
    * Look up the git status for this node by converting its absolute path

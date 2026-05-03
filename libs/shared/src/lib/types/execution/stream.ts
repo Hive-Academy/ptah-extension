@@ -216,6 +216,14 @@ export interface CompactionStartEvent extends FlatStreamEvent {
   readonly eventType: 'compaction_start';
   /** Whether compaction was triggered manually or automatically */
   readonly trigger: 'manual' | 'auto';
+  /**
+   * Cumulative pre-compaction token usage (input + output + cache_read +
+   * cache_creation) sampled at PreCompact firing time. Used by the frontend
+   * to freeze the pre-compaction header stats during the compaction window
+   * and to pair this event with the eventual `compact_boundary` for
+   * duration / delta computation. (TASK_2026_109 A2)
+   */
+  readonly preTokens: number;
 }
 
 /**

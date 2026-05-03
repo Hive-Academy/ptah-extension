@@ -1,0 +1,25 @@
+rules:
+  # Defense-in-depth: catches `${...}` interpolation inside SQL migration
+  # template literals before it reaches `db.exec()`. The migration runner
+  # passes each `Migration.sql` straight to better-sqlite3 with no
+  # parameter binding, so any interpolated value is a SQL injection sink.
+  #
+  # Pairs with the ESLint rule in
+  # libs/backend/persistence-sqlite/eslint.config.mjs (TemplateLiteral
+  # with expressions.length>0). Either layer alone is sufficient; running
+  # both makes regression-by-edit effectively impossible.
+  - id: sql-injection-in-migration
+    pattern: |
+      export const sql = `...${...}...`
+    message: |
+      SQL migrations must be static text. `${...}` interpolation in a
+      migration template literal is a SQL injection sink — the runner
+      passes the string straight to db.exec() with no parameter binding.
+      Move dynamic values into the migration runner instead.
+    languages: [typescript]
+    severity: ERROR
+    paths:
+      include:
+        - libs/backend/persistence-sqlite/src/lib/migrations/*.ts
+      exclude:
+        - libs/backend/persistence-sqlite/src/lib/migrations/index.ts

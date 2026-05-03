@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:016322ac9ccce8541ebcd0ba00d44cc4b935f86d3462051115c4eac270e6d0f8",
-  "generatedAt": "2026-03-31T17:54:13.494Z",
+  "contentHash": "sha256:4ea6b3a795557c5d4fc1fe36338e0fec779d7fe19db729dcd3fde17a04ca4bc6",
+  "generatedAt": "2026-05-02T13:32:12.876Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -68,6 +68,7 @@
       "ptah-core/skills/orchestration/references/strategies.md",
       "ptah-core/skills/orchestration/references/task-tracking.md",
       "ptah-core/skills/orchestration/references/team-leader-modes.md",
+      "ptah-core/skills/ptah-cli-usage/SKILL.md",
       "ptah-core/skills/skill-creator/LICENSE.txt",
       "ptah-core/skills/skill-creator/SKILL.md",
       "ptah-core/skills/skill-creator/references/output-patterns.md",

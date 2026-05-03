@@ -16,6 +16,21 @@ import { extractFileName, IMAGE_EXTENSIONS } from './editor-internal-state';
  * concerns co-located with whoever last changed tabs / active file.
  */
 export class EditorWorkspaceHelper {
+  /**
+   * Frontend-side coalescing window for `editor:reread-open-tabs` bursts.
+   * Slightly less than the backend `GIT_DEBOUNCE_MS` (500ms) so back-to-back
+   * git ops fan out as one renderer-side iteration without delaying the
+   * user-visible refresh further.
+   */
+  private static readonly REREAD_OPEN_TABS_DEBOUNCE_MS = 250;
+
+  /**
+   * Frontend-side coalescing window for `file:tree-changed` bursts.
+   * Matches the backend's tree debounce so a quick succession of structural
+   * changes results in a single tree fetch.
+   */
+  private static readonly TREE_REFRESH_DEBOUNCE_MS = 500;
+
   /** Counter for stale-response protection in loadFileTree(). */
   private loadFileTreeRequestId = 0;
 
@@ -24,6 +39,10 @@ export class EditorWorkspaceHelper {
 
   /** Debounce timer for frontend-side tree refresh coalescing. */
   private treeRefreshDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Debounce timer for git-ops-driven reread of all open tabs. */
+  private rereadAllTabsDebounceTimer: ReturnType<typeof setTimeout> | null =
+    null;
 
   public constructor(
     private readonly state: EditorInternalState,
@@ -42,6 +61,20 @@ export class EditorWorkspaceHelper {
   public switchWorkspace(workspacePath: string): void {
     const currentActive = this.state.getActiveWorkspacePath();
     if (currentActive === workspacePath) return;
+
+    // Cancel any pending refresh timers from the outgoing workspace so they
+    // don't fire after the openTabs signal has been replaced — otherwise
+    // a stale reread broadcast could fan out across the new workspace's
+    // tabs and waste RPCs (or overwrite an unsaved buffer that wasn't yet
+    // marked dirty).
+    if (this.treeRefreshDebounceTimer) {
+      clearTimeout(this.treeRefreshDebounceTimer);
+      this.treeRefreshDebounceTimer = null;
+    }
+    if (this.rereadAllTabsDebounceTimer) {
+      clearTimeout(this.rereadAllTabsDebounceTimer);
+      this.rereadAllTabsDebounceTimer = null;
+    }
 
     // Step 1: save current workspace signals into map
     this.saveCurrentWorkspaceState();
@@ -147,10 +180,12 @@ export class EditorWorkspaceHelper {
 
       if (result.success && result.data) {
         const tree = result.data.tree ?? [];
-        this.state.fileTree.set(tree);
+        const previousTree = this.state.fileTree();
+        const merged = this.mergeLoadedSubtrees(tree, previousTree);
+        this.state.fileTree.set(merged);
         const cached = this.state.workspaceEditorState.get(targetWorkspace);
         if (cached) {
-          cached.fileTree = tree;
+          cached.fileTree = merged;
         }
       } else {
         this.state.showError(result.error ?? 'Failed to load file tree');
@@ -217,6 +252,95 @@ export class EditorWorkspaceHelper {
     });
   }
 
+  /**
+   * Preserve lazy-loaded subtrees across a tree refresh.
+   *
+   * The backend `editor:getFileTree` RPC builds the tree to a fixed depth
+   * (currently 6) from the workspace root. Directories deeper than that
+   * boundary come back as `{ needsLoad: true, children: [] }`. When the
+   * user has previously expanded such a directory (triggering
+   * `loadDirectoryChildren` to populate it), a subsequent full-tree
+   * refresh — for example from a file watcher tick or a local CRUD
+   * operation — would WIPE those loaded children, collapsing the user's
+   * expanded view and forcing them to re-expand each deep directory.
+   *
+   * This helper walks the freshly-fetched tree and, for every node that
+   * still reports `needsLoad: true` with no children, looks up the matching
+   * path in the previous tree. If the previous node was already loaded
+   * (had children, or `needsLoad === false`), its children are carried
+   * over into the new node and the flag is cleared. Recursion continues
+   * into the carried-over children so nested expanded subtrees are also
+   * preserved.
+   *
+   * Paths are normalized to forward slashes for matching (consistent with
+   * the rest of the editor code that calls `.replace(/\\/g, '/')`).
+   */
+  public mergeLoadedSubtrees(
+    newTree: FileTreeNode[],
+    previousTree: FileTreeNode[],
+  ): FileTreeNode[] {
+    if (!previousTree || previousTree.length === 0) return newTree;
+
+    // Build a path → node index of the previous tree for O(1) lookup.
+    const prevIndex = new Map<string, FileTreeNode>();
+    const indexNodes = (nodes: FileTreeNode[]): void => {
+      for (const node of nodes) {
+        const key = node.path.replace(/\\/g, '/');
+        prevIndex.set(key, node);
+        if (node.children && node.children.length > 0) {
+          indexNodes(node.children);
+        }
+      }
+    };
+    indexNodes(previousTree);
+
+    const mergeNode = (newNode: FileTreeNode): FileTreeNode => {
+      const key = newNode.path.replace(/\\/g, '/');
+      const prevNode = prevIndex.get(key);
+
+      // Type changed (file ↔ directory) — drop previous, take new as-is.
+      if (prevNode && prevNode.type !== newNode.type) {
+        if (newNode.children && newNode.children.length > 0) {
+          return {
+            ...newNode,
+            children: newNode.children.map(mergeNode),
+          };
+        }
+        return newNode;
+      }
+
+      // Boundary case: backend says needsLoad but we already loaded it before.
+      if (
+        newNode.type === 'directory' &&
+        newNode.needsLoad === true &&
+        (!newNode.children || newNode.children.length === 0) &&
+        prevNode &&
+        prevNode.type === 'directory' &&
+        (prevNode.needsLoad === false ||
+          (prevNode.children && prevNode.children.length > 0))
+      ) {
+        const carriedChildren = (prevNode.children ?? []).map(mergeNode);
+        return {
+          ...newNode,
+          needsLoad: false,
+          children: carriedChildren,
+        };
+      }
+
+      // Default: recurse into any children present on the new node.
+      if (newNode.children && newNode.children.length > 0) {
+        return {
+          ...newNode,
+          children: newNode.children.map(mergeNode),
+        };
+      }
+
+      return newNode;
+    };
+
+    return newTree.map(mergeNode);
+  }
+
   /** Start listening for file:tree-changed and file:content-changed pushes. */
   public startFileTreeWatcher(): void {
     if (this.treeMessageHandler) return;
@@ -230,11 +354,30 @@ export class EditorWorkspaceHelper {
         this.treeRefreshDebounceTimer = setTimeout(() => {
           this.treeRefreshDebounceTimer = null;
           void this.loadFileTree();
-        }, 500);
+        }, EditorWorkspaceHelper.TREE_REFRESH_DEBOUNCE_MS);
       }
 
-      if (data?.type === 'file:content-changed' && data?.data?.filePath) {
-        void this.callbacks.handleFileContentChanged(data.data.filePath);
+      if (data?.type === 'file:content-changed' && data?.payload?.filePath) {
+        void this.callbacks.handleFileContentChanged(data.payload.filePath);
+      }
+
+      // Backend signals that a git operation just finished — every open
+      // editor tab may now be stale on disk. Coalesce bursts (a single
+      // git command writes HEAD, index, and refs in sequence) and then
+      // re-read each non-dirty open tab. The fileOps helper has its own
+      // per-file in-flight guard, so duplicate paths are cheap.
+      if (data?.type === 'editor:reread-open-tabs') {
+        if (this.rereadAllTabsDebounceTimer) {
+          clearTimeout(this.rereadAllTabsDebounceTimer);
+        }
+        this.rereadAllTabsDebounceTimer = setTimeout(() => {
+          this.rereadAllTabsDebounceTimer = null;
+          const tabs = this.state.openTabs();
+          for (const tab of tabs) {
+            if (tab.isDirty) continue;
+            void this.callbacks.handleFileContentChanged(tab.filePath);
+          }
+        }, EditorWorkspaceHelper.REREAD_OPEN_TABS_DEBOUNCE_MS);
       }
     };
     window.addEventListener('message', this.treeMessageHandler);
@@ -249,6 +392,10 @@ export class EditorWorkspaceHelper {
     if (this.treeRefreshDebounceTimer) {
       clearTimeout(this.treeRefreshDebounceTimer);
       this.treeRefreshDebounceTimer = null;
+    }
+    if (this.rereadAllTabsDebounceTimer) {
+      clearTimeout(this.rereadAllTabsDebounceTimer);
+      this.rereadAllTabsDebounceTimer = null;
     }
   }
 }

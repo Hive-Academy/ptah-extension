@@ -466,6 +466,89 @@ describe('ChatBridge — runTurn', () => {
     expectNoListenerLeaks(adapter);
   });
 
+  // P1 Fix 3 — defensive backstop on `{ success: false }` ack from rpcCall.
+  // Without this, the bridge waits forever in `outerPromise` because the
+  // backend never broadcasts a terminal `chat:complete | chat:error`.
+  it('rpcCall ack { success: false } — bridge settles deterministically without hanging', async () => {
+    const { bridge, adapter } = makeBridge();
+
+    const result = await bridge.runTurn({
+      tabId: 'tab-rpc-rejected',
+      rpcCall: async () => ({ success: false }),
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success === true) throw new Error('unreachable');
+    expect(result.error).toContain('rpc rejected');
+    expect(result.sessionId).toBe('tab-rpc-rejected');
+    expectNoListenerLeaks(adapter);
+  });
+
+  it('rpcCall ack { success: false, error: "..." } — bridge preserves ack error string', async () => {
+    const { bridge, adapter } = makeBridge();
+
+    const result = await bridge.runTurn({
+      tabId: 'tab-rpc-rejected-msg',
+      // The ack carries a descriptive error string — bridge must surface it.
+      rpcCall: async () =>
+        ({ success: false, error: 'auth required' }) as {
+          success: boolean;
+        },
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success === true) throw new Error('unreachable');
+    expect(result.error).toBe('auth required');
+    expectNoListenerLeaks(adapter);
+  });
+
+  // P1 Fix 3 — `{ success: false }` ack must clean up the timeout handle so
+  // no dangling setTimeout keeps the test/process event loop alive after the
+  // bridge settles. Use fake timers to assert no pending timers remain.
+  it('rpcCall ack { success: false } with timeoutMs — clears timeout on settle (no dangling timers)', async () => {
+    jest.useFakeTimers();
+    try {
+      const { bridge, adapter } = makeBridge();
+
+      const result = await bridge.runTurn({
+        tabId: 'tab-rpc-rejected-cleanup',
+        rpcCall: async () => ({ success: false }),
+        // Long timeout that, if not cleared, would keep a pending timer alive
+        // after the bridge settles via the {success:false} backstop.
+        timeoutMs: 60_000,
+      });
+
+      expect(result.success).toBe(false);
+      if (result.success === true) throw new Error('unreachable');
+      expect(result.error).toContain('rpc rejected');
+      // Critical: the timeout handle MUST have been cleared by `finally`.
+      // Jest's fake-timer queue is empty when no scheduled timers remain.
+      expect(jest.getTimerCount()).toBe(0);
+      expectNoListenerLeaks(adapter);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('rpcCall throw with timeoutMs — clears timeout on settle (no dangling timers)', async () => {
+    jest.useFakeTimers();
+    try {
+      const { bridge, adapter } = makeBridge();
+      const result = await bridge.runTurn({
+        tabId: 'tab-rpc-throw-cleanup',
+        rpcCall: async () => {
+          throw new Error('rpc transport down');
+        },
+        timeoutMs: 60_000,
+      });
+      expect(result.success).toBe(false);
+      expect(jest.getTimerCount()).toBe(0);
+      expectNoListenerLeaks(adapter);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('timeout — elapsed timeoutMs with no terminal event resolves failure', async () => {
     jest.useFakeTimers();
     try {
@@ -534,7 +617,7 @@ describe('ChatBridge — runTurn', () => {
     expectNoListenerLeaks(adapter);
   });
 
-  it('non-target eventTypes (tool_delta, agent_start, ...) are silently dropped', async () => {
+  it('non-target eventTypes (tool_delta, agent_start, ...) emit no agent.* notifications', async () => {
     const { bridge, adapter, calls } = makeBridge();
 
     await bridge.runTurn({
@@ -560,7 +643,147 @@ describe('ChatBridge — runTurn', () => {
       },
     });
 
-    expect(calls).toHaveLength(0);
+    // Bridge drops unknown chunk types (no `agent.*` for them) but ALWAYS
+    // emits the terminal `task.complete` envelope on chat:complete.
+    const agentCalls = calls.filter((c) => c.method.startsWith('agent.'));
+    expect(agentCalls).toHaveLength(0);
+    const terminal = calls.filter((c) => c.method === 'task.complete');
+    expect(terminal).toHaveLength(1);
+    expectNoListenerLeaks(adapter);
+  });
+
+  // Bug 1+4 — TASK_2026_107. Headless `--json` runs must always end with a
+  // visible turn boundary on stdout; otherwise consumers see only
+  // `session.created` and the process exits 0 with no signal that the turn
+  // finished. The bridge owns the terminal-notification contract so every
+  // caller (session start/resume/send AND interact task.submit) gets the
+  // same envelope shape.
+  it('emits a task.complete notification on chat:complete (success path)', async () => {
+    const { bridge, adapter, calls } = makeBridge();
+
+    await bridge.runTurn({
+      tabId: 'tab-term-ok',
+      command: 'session.start',
+      rpcCall: async () => {
+        queueMicrotask(() => {
+          adapter.emit('chat:chunk', {
+            tabId: 'tab-term-ok',
+            sessionId: 'tab-term-ok',
+            event: {
+              eventType: 'text_delta',
+              messageId: 'm-ok',
+              delta: 'hello',
+            },
+          });
+          adapter.emit('chat:complete', {
+            tabId: 'tab-term-ok',
+            sessionId: 'tab-term-ok',
+            turnId: 'turn-99',
+          });
+        });
+        return { success: true };
+      },
+    });
+
+    const terminal = calls.filter((c) => c.method === 'task.complete');
+    expect(terminal).toHaveLength(1);
+    const params = terminal[0]?.params as Record<string, unknown>;
+    expect(params['command']).toBe('session.start');
+    expect(typeof params['duration_ms']).toBe('number');
+    const summary = params['summary'] as Record<string, unknown>;
+    expect(summary['session_id']).toBe('tab-term-ok');
+    expect(summary['turn_id']).toBe('turn-99');
+    expect(summary['text']).toBe('hello');
+    expectNoListenerLeaks(adapter);
+  });
+
+  it('emits a task.error notification on chat:error (failure path)', async () => {
+    const { bridge, adapter, calls } = makeBridge();
+
+    await bridge.runTurn({
+      tabId: 'tab-term-err',
+      command: 'session.send',
+      rpcCall: async () => {
+        queueMicrotask(() => {
+          adapter.emit('chat:error', {
+            tabId: 'tab-term-err',
+            sessionId: 'tab-term-err',
+            error: 'rate limited',
+          });
+        });
+        return { success: true };
+      },
+    });
+
+    const terminal = calls.filter((c) => c.method === 'task.error');
+    expect(terminal).toHaveLength(1);
+    const params = terminal[0]?.params as Record<string, unknown>;
+    expect(params['command']).toBe('session.send');
+    expect(params['message']).toBe('rate limited');
+    expect(params['ptah_code']).toBe('unknown');
+    expectNoListenerLeaks(adapter);
+  });
+
+  it('emits exactly one terminal notification regardless of settle path', async () => {
+    const { bridge, adapter, calls } = makeBridge();
+
+    await bridge.runTurn({
+      tabId: 'tab-once',
+      rpcCall: async () => {
+        queueMicrotask(() => {
+          adapter.emit('chat:complete', {
+            tabId: 'tab-once',
+            sessionId: 'tab-once',
+          });
+          // Late `chat:error` after settle — must be ignored by the
+          // settled-once guard. No second terminal notification.
+          adapter.emit('chat:error', {
+            tabId: 'tab-once',
+            sessionId: 'tab-once',
+            error: 'late',
+          });
+        });
+        return { success: true };
+      },
+    });
+
+    const terminals = calls.filter(
+      (c) => c.method === 'task.complete' || c.method === 'task.error',
+    );
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]?.method).toBe('task.complete');
+    expectNoListenerLeaks(adapter);
+  });
+
+  it('message_complete with empty text still emits agent.message (envelope-only)', async () => {
+    const { bridge, adapter, calls } = makeBridge();
+
+    await bridge.runTurn({
+      tabId: 'tab-mc-empty',
+      rpcCall: async () => {
+        queueMicrotask(() => {
+          adapter.emit('chat:chunk', {
+            tabId: 'tab-mc-empty',
+            sessionId: 'tab-mc-empty',
+            event: { eventType: 'message_complete', messageId: 'm-empty' },
+          });
+          adapter.emit('chat:complete', {
+            tabId: 'tab-mc-empty',
+            sessionId: 'tab-mc-empty',
+          });
+        });
+        return { success: true };
+      },
+    });
+
+    const messages = calls.filter((c) => c.method === 'agent.message');
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.params).toMatchObject({
+      session_id: 'tab-mc-empty',
+      message_id: 'm-empty',
+      text: '',
+      is_partial: false,
+    });
     expectNoListenerLeaks(adapter);
   });
 });

@@ -473,12 +473,23 @@ export class ProviderModelsService {
    * Call this during authentication setup when a provider is active
    */
   applyPersistedTiers(providerId: string): void {
-    const tiers = this.getModelTiers(providerId);
+    const userTiers = this.getModelTiers(providerId);
+    // Fall back to the provider's curated defaults so providers like Ollama
+    // (where Anthropic's claude-* model IDs are nonsensical) get sensible
+    // tier env vars even when the user has not explicitly mapped tiers.
+    const providerDefaults =
+      getAnthropicProvider(providerId)?.defaultTiers ?? {};
 
-    // Iterate the canonical TIER_ENV_VAR_MAP to ensure all tiers are covered
-    // if new tiers are added in the future
+    const effectiveTiers: Record<string, string | undefined> = {};
+    for (const tier of Object.keys(TIER_ENV_VAR_MAP)) {
+      const key = tier as keyof typeof TIER_ENV_VAR_MAP;
+      effectiveTiers[tier] =
+        userTiers[key as keyof typeof userTiers] ??
+        providerDefaults[key as keyof typeof providerDefaults];
+    }
+
     for (const [tier, envKey] of Object.entries(TIER_ENV_VAR_MAP)) {
-      const value = tiers[tier as keyof typeof tiers];
+      const value = effectiveTiers[tier];
       if (value) {
         this.authEnv[envKey as keyof AuthEnv] = value;
         process.env[envKey] = value;
@@ -487,7 +498,7 @@ export class ProviderModelsService {
 
     this.logger.debug(
       '[ProviderModelsService] Applied persisted tier mappings',
-      { providerId, tiers },
+      { providerId, userTiers, providerDefaults, effectiveTiers },
     );
   }
 

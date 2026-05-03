@@ -205,11 +205,6 @@ export class ChatRpcHandlers {
       this.session.listBackgroundAgents(params),
     );
 
-    // Subscribe to background-agent-completed events; the broadcaster owns
-    // the subscription so the listener stays registered for the extension
-    // host's lifetime.
-    this.streamBroadcaster.subscribeToBackgroundAgentEvents();
-
     this.logger.debug('Chat RPC handlers registered', {
       methods: [
         'chat:start',

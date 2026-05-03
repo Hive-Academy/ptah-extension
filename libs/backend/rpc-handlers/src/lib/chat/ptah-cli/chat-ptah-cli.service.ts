@@ -26,7 +26,6 @@ import {
   Logger,
   TOKENS,
   LicenseService,
-  AgentSessionWatcherService,
   isPremiumTier,
 } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, PtahCliRegistry } from '@ptah-extension/agent-sdk';
@@ -64,8 +63,6 @@ export class ChatPtahCliService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
-    @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
-    private readonly agentSessionWatcher: AgentSessionWatcherService,
     @inject(TOKENS.CODE_EXECUTION_MCP)
     private readonly codeExecutionMcp: CodeExecutionMCP,
     @inject(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)
@@ -261,9 +258,6 @@ export class ChatPtahCliService {
     if (adapter) {
       adapter.endSession(sessionId);
     }
-
-    // TASK_2025_175: Stop all agent session watchers for Ptah CLI sessions too
-    this.agentSessionWatcher.stopAllForSession(sessionId as string);
 
     // Clean up tracking
     this.ptahCliSessions.delete(sessionId as string);

@@ -955,15 +955,41 @@ export class TabManagerService {
   /**
    * Finalize a streaming turn: install the finalized messages array, drop
    * the streaming state, transition to `loaded`, and clear currentMessageId.
-   * Single atomic write — components observing any of those signals see a
-   * consistent end-of-turn snapshot.
+   *
+   * TASK_2026_TREE_STABILITY Fix 7/8: Split into TWO writes (microtask gap)
+   * instead of one atomic write. The previous single-write committed the
+   * finalized messages AND nulled streamingState in the same change-detection
+   * cycle, which forced both transitions (streaming-bubble → finalized-message
+   * + tree disappearance) to land simultaneously and produced a visible
+   * flicker. By committing the finalized messages first (and keeping
+   * streamingState briefly), Angular paints the finalized DOM with the
+   * streaming-tree id reused (track msg.id in chat-view's @for); the second
+   * microtask write then drops streamingState — no more cascade in one frame.
+   *
+   * The id-collision risk is handled in chat-view's `streamingMessages()`
+   * computed: it filters out any tree whose id is in `finalizedMessageIds`,
+   * so a transient state where both exist simply renders the finalized one.
    */
   applyFinalizedTurn(tabId: string, messages: ExecutionChatMessage[]): void {
+    // Write 1: install finalized messages and clear currentMessageId, but
+    // KEEP status='streaming' and streamingState in place. This prevents
+    // `resolvedIsStreaming()` and `[autoAnimateDisabled]` from flipping
+    // mid-DOM-swap, which would re-enable FLIP transforms during the swap
+    // and cause a scroll-vs-FLIP race flicker.
     this.updateTabInternal(tabId, {
       messages,
-      streamingState: null,
-      status: 'loaded',
       currentMessageId: null,
+    });
+
+    // Write 2: drop streamingState and flip status='loaded' in a single
+    // coherent microtask. queueMicrotask is zoneless-safe and runs before
+    // the browser paints — every streaming-derived signal flips on one
+    // boundary, after the DOM has committed the finalized messages.
+    queueMicrotask(() => {
+      this.updateTabInternal(tabId, {
+        streamingState: null,
+        status: 'loaded',
+      });
     });
   }
 
@@ -1117,11 +1143,17 @@ export class TabManagerService {
       messages: [],
       preloadedStats: payload.preloadedStats,
       compactionCount: payload.compactionCount,
+      // TASK_2026_109 B3 — stamp completion time so late SESSION_STATS events
+      // produced for the last pre-compaction turn can be filtered by the
+      // SessionStatsAggregator (see grace-window heuristic there).
+      lastCompactionAt: Date.now(),
       status: 'loaded',
       streamingState: null,
       currentMessageId: null,
       queuedContent: null,
       queuedOptions: null,
+      liveModelStats: null,
+      modelUsageList: [],
     });
   }
 

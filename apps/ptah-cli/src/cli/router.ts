@@ -28,6 +28,7 @@ import * as newProjectCmd from './commands/new-project.js';
 import * as pluginCmd from './commands/plugin.js';
 import * as promptsCmd from './commands/prompts.js';
 import * as providerCmd from './commands/provider.js';
+import * as proxyCmd from './commands/proxy.js';
 import * as qualityCmd from './commands/quality.js';
 import * as runCmd from './commands/run.js';
 import * as sessionCmd from './commands/session.js';
@@ -807,13 +808,24 @@ export function buildRouter(): Command {
       'provider id (e.g. anthropic, openrouter)',
     )
     .requiredOption('--key <value>', 'API key (never echoed back)')
-    .action(async (opts: { provider: string; key: string }) => {
-      const exit = await providerCmd.execute(
-        { subcommand: 'set-key', provider: opts.provider, key: opts.key },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
+    .option(
+      '--base-url <url>',
+      'optional per-provider base URL override (persisted alongside the key)',
+    )
+    .action(
+      async (opts: { provider: string; key: string; baseUrl?: string }) => {
+        const exit = await providerCmd.execute(
+          {
+            subcommand: 'set-key',
+            provider: opts.provider,
+            key: opts.key,
+            baseUrl: opts.baseUrl,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
 
   provider
     .command('remove-key')
@@ -914,6 +926,119 @@ export function buildRouter(): Command {
     .action(async (opts: { tier: string }) => {
       const exit = await providerCmd.execute(
         { subcommand: 'tier', action: 'clear', tier: opts.tier },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah provider base-url -----------------------------------------------
+  // CLI parity with the desktop/extension base-URL override surface. Keys
+  // route to ~/.ptah/settings.json under `provider.<id>.baseUrl` and are
+  // consulted by ApiKeyStrategy.resolveProviderBaseUrl before the registry
+  // default.
+  const providerBaseUrl = provider
+    .command('base-url')
+    .description(
+      'manage per-provider base URL overrides (persisted in ~/.ptah/settings.json)',
+    );
+
+  providerBaseUrl
+    .command('set <url>')
+    .description(
+      'persist a base URL override for a provider and emit provider.base_url.set',
+    )
+    .requiredOption('--provider <id>', 'provider id (e.g. anthropic, ollama)')
+    .action(async (url: string, opts: { provider: string }) => {
+      const exit = await providerCmd.execute(
+        {
+          subcommand: 'base-url',
+          action: 'set',
+          provider: opts.provider,
+          baseUrl: url,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  providerBaseUrl
+    .command('get')
+    .description(
+      'emit provider.base_url with the override (if any) and registry default',
+    )
+    .requiredOption('--provider <id>', 'provider id')
+    .action(async (opts: { provider: string }) => {
+      const exit = await providerCmd.execute(
+        {
+          subcommand: 'base-url',
+          action: 'get',
+          provider: opts.provider,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  providerBaseUrl
+    .command('clear')
+    .description(
+      'clear the base URL override for a provider and emit provider.base_url.cleared',
+    )
+    .requiredOption('--provider <id>', 'provider id')
+    .action(async (opts: { provider: string }) => {
+      const exit = await providerCmd.execute(
+        {
+          subcommand: 'base-url',
+          action: 'clear',
+          provider: opts.provider,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah provider ollama -------------------------------------------------
+  // Convenience facade over `provider base-url ...` for the Ollama provider.
+  // Identical persistence and resolution path; the only difference is the
+  // hard-coded `provider: 'ollama'` and dedicated notification names.
+  const providerOllama = provider
+    .command('ollama')
+    .description(
+      'manage the local/remote Ollama endpoint (alias for `provider base-url --provider ollama`)',
+    );
+
+  providerOllama
+    .command('set-endpoint <url>')
+    .description(
+      'persist the Ollama base URL override and emit provider.ollama.endpoint.set',
+    )
+    .action(async (url: string) => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'ollama', action: 'set-endpoint', baseUrl: url },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  providerOllama
+    .command('get-endpoint')
+    .description('emit provider.ollama.endpoint with override + default URL')
+    .action(async () => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'ollama', action: 'get-endpoint' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  providerOllama
+    .command('clear-endpoint')
+    .description(
+      'clear the Ollama base URL override and emit provider.ollama.endpoint.cleared',
+    )
+    .action(async () => {
+      const exit = await providerCmd.execute(
+        { subcommand: 'ollama', action: 'clear-endpoint' },
         resolveGlobals(program),
       );
       process.exitCode = exit;
@@ -1739,7 +1864,7 @@ export function buildRouter(): Command {
     )
     .option('--profile <name>', 'system prompt preset (claude_code|enhanced)')
     .option('--task <text>', 'initial prompt — when given, streams the turn')
-    .option('--once', 'single-turn mode (informational)', false)
+    .option('--once', 'exit after first turn completes', false)
     .option('--scope <scope>', 'forward-compat scope (e.g. harness-skill)')
     .action(
       async (opts: {
@@ -2069,18 +2194,127 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
+  // -- ptah proxy ------------------------------------------------------------
+  // Anthropic-compatible HTTP proxy (TASK_2026_104 P2). `start` is long-blocking;
+  // `stop` and `status` are deferred to Phase 2.
+  const proxyCommand = program
+    .command('proxy')
+    .description('Anthropic-compatible HTTP proxy (Messages API)');
+
+  proxyCommand
+    .command('start')
+    .description('start the HTTP proxy and block until SIGINT/SIGTERM')
+    .requiredOption(
+      '--port <number>',
+      'TCP port to bind (0 = OS-assigned)',
+      (v) => Number.parseInt(v, 10),
+    )
+    .option('--host <addr>', 'bind address', '127.0.0.1')
+    .option(
+      '--idle-timeout <seconds>',
+      'auto-shutdown after N seconds idle (0 = disabled)',
+      (v) => Number.parseInt(v, 10),
+      0,
+    )
+    .option(
+      '--no-expose-workspace-tools',
+      'disable workspace MCP / plugin-skill tool merging into caller `tools[]`',
+    )
+    .action(
+      async (opts: {
+        port: number;
+        host: string;
+        idleTimeout: number;
+        exposeWorkspaceTools: boolean;
+      }) => {
+        const exit = await proxyCmd.executeStart(
+          {
+            port: opts.port,
+            host: opts.host,
+            idleTimeout: opts.idleTimeout,
+            exposeWorkspaceTools: opts.exposeWorkspaceTools !== false,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  proxyCommand
+    .command('stop')
+    .description(
+      'stop a running proxy registered in ~/.ptah/proxies/<port>.json',
+    )
+    .option('--port <number>', 'port of the proxy to stop', (v) =>
+      Number.parseInt(v, 10),
+    )
+    .action(async (opts: { port?: number }) => {
+      const exit = await proxyCmd.executeStop(
+        { port: opts.port },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  proxyCommand
+    .command('status')
+    .description('list running proxies registered in ~/.ptah/proxies/')
+    .action(async () => {
+      const exit = await proxyCmd.executeStatus({}, resolveGlobals(program));
+      process.exitCode = exit;
+    });
+
   // -- ptah interact ---------------------------------------------------------
   program
     .command('interact')
     .description('persistent JSON-RPC 2.0 stdio session')
     .option('--session <id>', 'resume or create the session with this id')
-    .action(async (opts: { session?: string }) => {
-      const exit = await interactCmd.execute(
-        { session: opts.session },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
+    .option(
+      '--proxy-start',
+      'boot an embedded Anthropic-compatible HTTP proxy alongside the interact loop',
+      false,
+    )
+    .option(
+      '--proxy-port <port>',
+      'TCP port for the embedded proxy (0 = OS-assigned)',
+      (raw) => Number.parseInt(raw, 10),
+      0,
+    )
+    .option(
+      '--proxy-host <host>',
+      'bind host for the embedded proxy',
+      '127.0.0.1',
+    )
+    .option(
+      '--proxy-expose-workspace-tools',
+      'surface workspace MCP tools through the embedded proxy',
+      false,
+    )
+    .action(
+      async (opts: {
+        session?: string;
+        proxyStart?: boolean;
+        proxyPort?: number;
+        proxyHost?: string;
+        proxyExposeWorkspaceTools?: boolean;
+      }) => {
+        const exit = await interactCmd.execute(
+          {
+            session: opts.session,
+            proxyStart: opts.proxyStart === true,
+            proxyPort:
+              typeof opts.proxyPort === 'number' &&
+              Number.isFinite(opts.proxyPort)
+                ? opts.proxyPort
+                : 0,
+            proxyHost: opts.proxyHost ?? '127.0.0.1',
+            proxyExposeWorkspaceTools: opts.proxyExposeWorkspaceTools === true,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
 
   return program;
 }

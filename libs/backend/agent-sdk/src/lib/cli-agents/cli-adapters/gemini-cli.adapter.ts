@@ -90,7 +90,7 @@ export class GeminiCliAdapter implements CliAdapter {
           ['--version'],
           { timeout: 5000 },
         );
-        version = versionOutput.trim().split('\n')[0];
+        version = versionOutput.trim().split(/\r?\n/)[0];
       } catch {
         // Version check failed, CLI still usable
       }
@@ -160,8 +160,11 @@ export class GeminiCliAdapter implements CliAdapter {
       const geminiDir = join(homedir(), '.gemini');
       const trustedPath = join(geminiDir, 'trustedFolders.json');
 
-      // Normalize folder path for comparison (backslashes on Windows)
-      const normalizedFolder = folder.replace(/\//g, '\\');
+      // Normalize folder path for comparison.
+      // On Windows, Gemini CLI stores trusted-folder keys with backslashes;
+      // on Unix, paths use forward slashes natively, so leave them alone.
+      const normalizedFolder =
+        process.platform === 'win32' ? folder.replace(/\//g, '\\') : folder;
 
       let trustedFolders: Record<string, string> = {};
       try {
@@ -260,7 +263,10 @@ export class GeminiCliAdapter implements CliAdapter {
   private writeSystemPromptFile(content: string): string {
     const tmpPath = join(tmpdir(), `ptah-gemini-system-${Date.now()}.md`);
     writeFileSync(tmpPath, content, 'utf8');
-    return tmpPath;
+    // Normalize to forward slashes for the env var. Gemini CLI parses backslashes
+    // in env-var paths as escape sequences on some platforms; forward slashes
+    // are accepted on every supported platform (including Windows).
+    return tmpPath.replace(/\\/g, '/');
   }
 
   /**
@@ -285,14 +291,15 @@ export class GeminiCliAdapter implements CliAdapter {
     // Handle system prompt via Gemini's native mechanism (GEMINI_SYSTEM_MD env var).
     // Prefers full systemPrompt (premium prompt harness) over projectGuidance.
     // This avoids polluting the task prompt and uses the model's system instruction slot.
-    const spawnEnv: Record<string, string> = {
+    const spawnEnv: Record<string, string> = {};
+    if (process.platform === 'win32') {
       // Hint node-pty to skip ConPTY on Windows. ConPTY's AttachConsole() fails
       // when Gemini is spawned as a child process (no real console), causing
       // harmless but noisy "AttachConsole failed" errors in stderr.
       // This env var is respected by some node-pty versions/forks to fall back
       // to winpty, which doesn't need AttachConsole.
-      ...(process.platform === 'win32' ? { NODE_PTY_USE_CONPTY: '0' } : {}),
-    };
+      spawnEnv['NODE_PTY_USE_CONPTY'] = '0';
+    }
     let systemPromptTmpPath: string | undefined;
     const systemContent = options.systemPrompt || options.projectGuidance;
     if (systemContent) {
@@ -423,9 +430,25 @@ export class GeminiCliAdapter implements CliAdapter {
 
     child.stdout?.on('data', (data: string) => {
       lineBuf += data;
-      const lines = lineBuf.split('\n');
+      // Cross-platform line splitting: handle both \n (Unix) and \r\n (Windows).
+      const lines = lineBuf.split(/\r?\n/);
       // Keep the last incomplete line in the buffer
       lineBuf = lines.pop() ?? '';
+
+      // Cap lineBuf at 64KB to defend against pathological JSONL streams
+      // that never emit a newline (e.g., a runaway tool result without LF).
+      // Without this guard, lineBuf could grow unboundedly and OOM the process.
+      const LINE_BUF_CAP = 64 * 1024;
+      if (lineBuf.length > LINE_BUF_CAP) {
+        emitOutput(
+          `[Gemini CLI Warning] Line buffer exceeded ${LINE_BUF_CAP} bytes without a newline; resetting.\n`,
+        );
+        emitSegment({
+          type: 'info',
+          content: `Line buffer exceeded ${LINE_BUF_CAP} bytes without a newline; resetting.`,
+        });
+        lineBuf = '';
+      }
 
       for (const line of lines) {
         const trimmed = line.trim();

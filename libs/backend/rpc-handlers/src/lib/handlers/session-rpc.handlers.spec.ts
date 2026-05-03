@@ -64,6 +64,7 @@ import {
 import type {
   SessionMetadataStore,
   SessionHistoryReaderService,
+  SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
 import type { CliSessionReference, SessionId } from '@ptah-extension/shared';
 import {
@@ -100,6 +101,17 @@ function createMockHistoryReader(): MockHistoryReader {
   } as unknown as MockHistoryReader;
 }
 
+type MockSdkAdapter = jest.Mocked<
+  Pick<SdkAgentAdapter, 'forkSession' | 'rewindFiles'>
+>;
+
+function createMockSdkAdapter(): MockSdkAdapter {
+  return {
+    forkSession: jest.fn(),
+    rewindFiles: jest.fn(),
+  } as unknown as MockSdkAdapter;
+}
+
 /** Factory for minimal metadata fixtures — only fields the handler reads. */
 interface MetadataFixture {
   sessionId: string;
@@ -132,6 +144,10 @@ function makeMetadata(
 // ---------------------------------------------------------------------------
 
 const WORKSPACE = '/fake/workspace';
+/** Valid UUID-shaped session id passing the handler's `/^[0-9a-f-]{36}$/i` guard. */
+const VALID_SESSION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+/** Valid userMessageId passing the handler's 1-100 chars + no path-separator guard. */
+const VALID_USER_MESSAGE_ID = 'msg_01HXYZABCDEF';
 
 interface Harness {
   handlers: SessionRpcHandlers;
@@ -141,6 +157,7 @@ interface Harness {
   historyReader: MockHistoryReader;
   workspace: MockWorkspaceProvider;
   sentry: MockSentryService;
+  sdkAdapter: MockSdkAdapter;
 }
 
 function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
@@ -152,6 +169,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     folders: opts.workspaceFolders ?? [WORKSPACE],
   });
   const sentry = createMockSentryService();
+  const sdkAdapter = createMockSdkAdapter();
 
   const handlers = new SessionRpcHandlers(
     logger as unknown as Logger,
@@ -160,6 +178,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     historyReader as unknown as SessionHistoryReaderService,
     sentry as unknown as SentryService,
     workspace as unknown as IWorkspaceProvider,
+    sdkAdapter as unknown as SdkAgentAdapter,
   );
 
   return {
@@ -170,6 +189,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     historyReader,
     workspace,
     sentry,
+    sdkAdapter,
   };
 }
 
@@ -207,7 +227,7 @@ async function callRaw(
 
 describe('SessionRpcHandlers', () => {
   describe('register()', () => {
-    it('registers all seven session RPC methods', () => {
+    it('registers all session RPC methods (incl. fork + rewind)', () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -215,9 +235,11 @@ describe('SessionRpcHandlers', () => {
         [
           'session:cli-sessions',
           'session:delete',
+          'session:forkSession',
           'session:list',
           'session:load',
           'session:rename',
+          'session:rewindFiles',
           'session:stats-batch',
           'session:validate',
         ].sort(),
@@ -766,6 +788,289 @@ describe('SessionRpcHandlers', () => {
       expect(new Set(result.sessionStats.map((s) => s.sessionId))).toEqual(
         new Set(sessionIds),
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // session:forkSession
+  // -------------------------------------------------------------------------
+
+  describe('session:forkSession', () => {
+    it('delegates to SdkAgentAdapter.forkSession and remaps sessionId → newSessionId', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.forkSession.mockResolvedValue({
+        sessionId: 'forked-uuid',
+      } as never);
+      h.handlers.register();
+
+      const result = await call<{ newSessionId: string }>(
+        h,
+        'session:forkSession',
+        {
+          sessionId: VALID_SESSION_ID,
+          upToMessageId: VALID_USER_MESSAGE_ID,
+          title: 'Branch A',
+        },
+      );
+
+      expect(h.sdkAdapter.forkSession).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        VALID_USER_MESSAGE_ID,
+        'Branch A',
+      );
+      expect(result.newSessionId).toBe('forked-uuid');
+    });
+
+    it('forwards undefined upToMessageId / title (optional params)', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.forkSession.mockResolvedValue({
+        sessionId: 'forked-uuid',
+      } as never);
+      h.handlers.register();
+
+      await call(h, 'session:forkSession', { sessionId: VALID_SESSION_ID });
+
+      expect(h.sdkAdapter.forkSession).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        undefined,
+        undefined,
+      );
+    });
+
+    it('captures + wraps adapter errors with "Failed to fork session:"', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.forkSession.mockRejectedValue(new Error('sdk boom'));
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:forkSession', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/Failed to fork session/);
+      expect(response.error).toMatch(/sdk boom/);
+      expect(h.sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          errorSource: 'SessionRpcHandlers.registerForkSession',
+        }),
+      );
+    });
+
+    it('rejects fork with non-UUID sessionId (invalid-session-id code)', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:forkSession', {
+        sessionId: 'not-a-uuid',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/invalid-session-id/);
+      expect(h.sdkAdapter.forkSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects fork when the session workspace is not in the active folders', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      // Metadata exists but points at a workspace not currently open.
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: '/some/other/workspace',
+        }) as never,
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:forkSession', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/unauthorized-workspace/);
+      expect(h.sdkAdapter.forkSession).not.toHaveBeenCalled();
+    });
+
+    it('sanitizes fork title — strips Windows-illegal chars before calling adapter', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.forkSession.mockResolvedValue({
+        sessionId: 'forked-uuid',
+      } as never);
+      h.handlers.register();
+
+      await call(h, 'session:forkSession', {
+        sessionId: VALID_SESSION_ID,
+        title: 'bad/name:with*illegal?"chars<>|\\',
+      });
+
+      // All [\\/:*?"<>|] removed → "badnamewithillegalchars"
+      expect(h.sdkAdapter.forkSession).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        undefined,
+        'badnamewithillegalchars',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // session:rewindFiles
+  // -------------------------------------------------------------------------
+
+  describe('session:rewindFiles', () => {
+    it('delegates to SdkAgentAdapter.rewindFiles and returns the SDK result shape', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.rewindFiles.mockResolvedValue({
+        canRewind: true,
+        filesChanged: ['/a.ts', '/b.ts'],
+        insertions: 10,
+        deletions: 4,
+      } as never);
+      h.handlers.register();
+
+      const result = await call<{
+        canRewind: boolean;
+        filesChanged?: string[];
+        insertions?: number;
+        deletions?: number;
+      }>(h, 'session:rewindFiles', {
+        sessionId: VALID_SESSION_ID,
+        userMessageId: VALID_USER_MESSAGE_ID,
+        dryRun: true,
+      });
+
+      expect(h.sdkAdapter.rewindFiles).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        VALID_USER_MESSAGE_ID,
+        true,
+      );
+      expect(result.canRewind).toBe(true);
+      expect(result.filesChanged).toEqual(['/a.ts', '/b.ts']);
+      expect(result.insertions).toBe(10);
+      expect(result.deletions).toBe(4);
+    });
+
+    it('returns canRewind=false + error verbatim when checkpointing is disabled', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.rewindFiles.mockResolvedValue({
+        canRewind: false,
+        error: 'File checkpointing is disabled for this session',
+      } as never);
+      h.handlers.register();
+
+      const result = await call<{ canRewind: boolean; error?: string }>(
+        h,
+        'session:rewindFiles',
+        { sessionId: VALID_SESSION_ID, userMessageId: VALID_USER_MESSAGE_ID },
+      );
+
+      expect(result.canRewind).toBe(false);
+      expect(result.error).toMatch(/checkpointing is disabled/);
+    });
+
+    it('translates the SDK\'s "not active" constraint into a stable session-not-active code', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.rewindFiles.mockRejectedValue(
+        new Error(
+          'Cannot rewind files: session dead-id is not active or has no live Query handle.',
+        ),
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:rewindFiles', {
+        sessionId: VALID_SESSION_ID,
+        userMessageId: VALID_USER_MESSAGE_ID,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/^session-not-active:/);
+      expect(h.sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          errorSource: 'SessionRpcHandlers.registerRewindFiles',
+        }),
+      );
+    });
+
+    it('wraps generic adapter errors with "Failed to rewind files:"', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.rewindFiles.mockRejectedValue(new Error('disk full'));
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:rewindFiles', {
+        sessionId: VALID_SESSION_ID,
+        userMessageId: VALID_USER_MESSAGE_ID,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/Failed to rewind files/);
+      expect(response.error).toMatch(/disk full/);
+    });
+
+    it('rejects rewind when userMessageId contains a forward-slash path separator', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:rewindFiles', {
+        sessionId: VALID_SESSION_ID,
+        userMessageId: 'msg/with/slashes',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/invalid-user-message-id/);
+      expect(h.sdkAdapter.rewindFiles).not.toHaveBeenCalled();
     });
   });
 });

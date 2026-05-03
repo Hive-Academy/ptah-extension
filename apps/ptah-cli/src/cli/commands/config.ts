@@ -160,7 +160,7 @@ async function runGet(
     stderr.write('ptah config get: <key> is required\n');
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const provider = resolveWorkspaceProvider(ctx);
     const key = opts.key as string;
     const value = provider.getConfiguration<unknown>('ptah', key);
@@ -190,7 +190,7 @@ async function runSet(
     stderr.write('ptah config set: <value> is required\n');
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const provider = resolveWorkspaceProvider(ctx);
     if (typeof provider.setConfiguration !== 'function') {
       throw new Error(
@@ -212,7 +212,7 @@ async function runList(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const provider = resolveWorkspaceProvider(ctx);
     const snapshot: Record<string, unknown> = {};
     for (const key of FILE_BASED_SETTINGS_KEYS) {
@@ -237,7 +237,7 @@ async function runReset(
     stderr.write('ptah config reset: <key> is required\n');
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const provider = resolveWorkspaceProvider(ctx);
     if (typeof provider.setConfiguration !== 'function') {
       throw new Error(
@@ -271,7 +271,7 @@ async function runModelSwitch(
     stderr.write('ptah config model-switch: <model> is required\n');
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(
       ctx.transport,
       'config:model-switch',
@@ -292,7 +292,7 @@ async function runModelGet(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(
       ctx.transport,
       'config:model-get',
@@ -308,7 +308,7 @@ async function runModelsList(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(
       ctx.transport,
       'config:models-list',
@@ -324,7 +324,7 @@ async function runAutopilotGet(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(
       ctx.transport,
       'config:autopilot-get',
@@ -355,17 +355,43 @@ async function runAutopilotSet(
     );
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
-    const result = await callRpc<unknown>(
-      ctx.transport,
-      'config:autopilot-toggle',
-      { enabled, permissionLevel: enabled ? 'all' : 'none' },
-    );
-    await formatter.writeNotification('config.autopilot', {
-      enabled,
-      ...wrapResult(result),
-    });
-    return ExitCode.Success;
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+    const permissionLevel = enabled ? 'yolo' : 'ask';
+    try {
+      const result = await callRpc<unknown>(
+        ctx.transport,
+        'config:autopilot-toggle',
+        { enabled, permissionLevel },
+      );
+      await formatter.writeNotification('config.autopilot', {
+        enabled,
+        permissionLevel,
+        ...wrapResult(result),
+      });
+      return ExitCode.Success;
+    } catch (error) {
+      // `config:autopilot-toggle` rejects YOLO unless the active license is
+      // Pro. In headless / unlicensed runs the operator can still set the
+      // *intent* — the Pro gate is enforced at session-start time when the
+      // permission handler actually consults the level. Surface the
+      // requested level as a notification with `proRequired: true` so JSON-RPC
+      // clients see the intent (the gate becomes informational, not fatal).
+      const message = error instanceof Error ? error.message : String(error);
+      const isProGate =
+        enabled &&
+        permissionLevel === 'yolo' &&
+        /pro subscription|pro tier|pro-?required/i.test(message);
+      if (isProGate) {
+        await formatter.writeNotification('config.autopilot', {
+          enabled,
+          permissionLevel,
+          proRequired: true,
+          message,
+        });
+        return ExitCode.Success;
+      }
+      throw error;
+    }
   });
 }
 
@@ -374,7 +400,7 @@ async function runEffortGet(
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(
       ctx.transport,
       'config:effort-get',
@@ -405,7 +431,7 @@ async function runEffortSet(
     );
     return ExitCode.UsageError;
   }
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const result = await callRpc<unknown>(ctx.transport, 'config:effort-set', {
       effort: opts.value,
     });

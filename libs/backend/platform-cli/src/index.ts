@@ -20,3 +20,4 @@ export { CliWorkspaceProvider } from './implementations/cli-workspace-provider';
 export { CliUserInteraction } from './implementations/cli-user-interaction';
 export { CliSecretStorage } from './implementations/cli-secret-storage';
 export { CliEditorProvider } from './implementations/cli-editor-provider';
+export { CliHttpServerProvider } from './implementations/cli-http-server-provider';

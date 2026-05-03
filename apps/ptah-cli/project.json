@@ -29,7 +29,6 @@
         },
         "external": [
           "@anthropic-ai/claude-agent-sdk",
-          "@github/copilot-sdk",
           "@openai/codex-sdk",
           "reflect-metadata",
           "tsyringe",
@@ -56,12 +55,43 @@
           "web-tree-sitter",
           "@tavily/core",
           "marked",
-          "commander"
+          "commander",
+          "better-sqlite3",
+          "sqlite-vec",
+          "croner",
+          "ulid",
+          "@xenova/transformers",
+          "grammy",
+          "discord.js",
+          "@slack/bolt",
+          "ffmpeg-static",
+          "nodejs-whisper",
+          "bottleneck"
         ],
         "assets": [
           {
             "glob": "package.json",
             "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "README.md",
+            "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "docs/jsonrpc-schema.md",
+            "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "docs/migration.md",
+            "input": "apps/ptah-cli",
+            "output": "."
+          },
+          {
+            "glob": "LICENSE.md",
+            "input": ".",
             "output": "."
           }
         ]
@@ -105,6 +135,29 @@
       "options": {
         "jestConfig": "apps/ptah-cli/jest.config.cjs",
         "passWithNoTests": true
+      }
+    },
+    "e2e": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "command": "jest --config apps/ptah-cli/jest.e2e.config.cjs --runInBand"
+      }
+    },
+    "publish:dry-run": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "dist/apps/ptah-cli",
+        "command": "npm publish --dry-run --access public"
+      }
+    },
+    "publish": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "dist/apps/ptah-cli",
+        "command": "npm publish --access public --provenance"
       }
     }
   }

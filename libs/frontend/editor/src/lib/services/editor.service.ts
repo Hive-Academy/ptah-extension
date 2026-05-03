@@ -1,5 +1,7 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
+import { type MessageHandler } from '@ptah-extension/core';
 import { VSCodeService } from '@ptah-extension/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { FileTreeNode } from '../models/file-tree.model';
 import type { EditorTab } from './editor/editor-tab.types';
 import {
@@ -35,7 +37,7 @@ export type { EditorTab } from './editor/editor-tab.types';
 @Injectable({
   providedIn: 'root',
 })
-export class EditorService {
+export class EditorService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
 
   // ============================================================================
@@ -392,5 +394,43 @@ export class EditorService {
       this._error.set(null);
       this.errorTimeout = null;
     }, 5000);
+  }
+
+  // ============================================================================
+  // MessageHandler — receives editor:tabContentReverted push from Electron
+  // ============================================================================
+
+  readonly handledMessageTypes = [
+    MESSAGE_TYPES.EDITOR_TAB_CONTENT_REVERTED,
+  ] as const;
+
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    if (message.type !== MESSAGE_TYPES.EDITOR_TAB_CONTENT_REVERTED) return;
+
+    const payload = message.payload as
+      | { files?: Array<{ filePath: string; content: string }> }
+      | undefined;
+    const files = payload?.files ?? [];
+    if (files.length === 0) return;
+
+    const fileMap = new Map(files.map((f) => [f.filePath, f.content]));
+
+    // Update any open tabs whose path was reverted.
+    this._openTabs.update((tabs) =>
+      tabs.map((tab) => {
+        const newContent = fileMap.get(tab.filePath);
+        if (newContent === undefined) return tab;
+        return { ...tab, content: newContent, isDirty: false };
+      }),
+    );
+
+    // If the active file was reverted, update its content signal too.
+    const activePath = this._activeFilePath();
+    if (activePath !== undefined) {
+      const newContent = fileMap.get(activePath);
+      if (newContent !== undefined) {
+        this._activeFileContent.set(newContent);
+      }
+    }
   }
 }

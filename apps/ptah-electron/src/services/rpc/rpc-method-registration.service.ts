@@ -46,7 +46,6 @@ import {
   FileRpcHandlers,
   ConfigExtendedRpcHandlers,
   CommandRpcHandlers,
-  SettingsRpcHandlers,
   AgentRpcHandlers,
   SkillsShRpcHandlers,
   LayoutRpcHandlers,
@@ -80,8 +79,6 @@ export class ElectronRpcMethodRegistrationService {
     private readonly configExtendedHandlers: ConfigExtendedRpcHandlers,
     @inject(CommandRpcHandlers)
     private readonly commandHandlers: CommandRpcHandlers,
-    @inject(SettingsRpcHandlers)
-    private readonly settingsHandlers: SettingsRpcHandlers,
     @inject(AgentRpcHandlers)
     private readonly agentHandlers: AgentRpcHandlers,
     @inject(SkillsShRpcHandlers)
@@ -143,7 +140,6 @@ export class ElectronRpcMethodRegistrationService {
       logger: this.logger,
       platform: 'electron',
       options: {
-        wizardBroadcast: false,
         copilotPermission: true,
         persistCliSession: true,
         getSdkSessionId: (ptahCliId: string) =>
@@ -181,7 +177,6 @@ export class ElectronRpcMethodRegistrationService {
         handler: this.configExtendedHandlers,
       },
       { name: 'CommandRpcHandlers', handler: this.commandHandlers },
-      { name: 'SettingsRpcHandlers', handler: this.settingsHandlers },
       { name: 'AgentRpcHandlers', handler: this.agentHandlers },
       { name: 'SkillsShRpcHandlers', handler: this.skillsShHandlers },
       { name: 'LayoutRpcHandlers', handler: this.layoutHandlers },

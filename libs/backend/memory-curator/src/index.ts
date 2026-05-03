@@ -1,0 +1,50 @@
+/**
+ * @ptah-extension/memory-curator — public API.
+ *
+ * Letta-style tiered memory (core/recall/archival) curated automatically on
+ * SDK PreCompact firings. Hybrid search via FTS5 (BM25) + sqlite-vec with
+ * Reciprocal Rank Fusion fallback to BM25-only.
+ */
+
+// Domain types
+export type {
+  Memory,
+  MemoryChunk,
+  MemoryId,
+  ChunkId,
+  MemoryTier,
+  MemoryKind,
+  MemoryInsert,
+  ChunkInsert,
+  MemorySearchHit,
+  MemorySearchResponse,
+  MemoryListResponse,
+  MemoryStatsResponse,
+} from './lib/memory.types';
+export { memoryId, chunkId } from './lib/memory.types';
+
+// Services
+export { MemoryStore } from './lib/memory.store';
+export { MemorySearchService } from './lib/memory-search.service';
+export { SalienceScorer } from './lib/salience-scorer';
+export type { ScoreInputs } from './lib/salience-scorer';
+export { MemoryDecayJob } from './lib/memory-decay.job';
+export type { DecayJobOptions } from './lib/memory-decay.job';
+export { MemoryCuratorService } from './lib/memory-curator.service';
+export type { CuratorRunStats } from './lib/memory-curator.service';
+
+// Curator LLM contract + default implementation
+export type {
+  ICuratorLLM,
+  ExtractedMemoryDraft,
+  ResolvedMemoryDraft,
+} from './lib/curator-llm/curator-llm.interface';
+export { SdkInternalQueryCuratorLlm } from './lib/curator-llm/sdk-internal-query.curator-llm';
+
+// Embedder (registered under PERSISTENCE_TOKENS.EMBEDDER)
+export { EmbedderWorkerClient } from './lib/embedder/embedder-worker-client';
+
+// DI tokens + registration
+export { MEMORY_TOKENS } from './lib/di/tokens';
+export type { MemoryDIToken } from './lib/di/tokens';
+export { registerMemoryCuratorServices } from './lib/di/register';

@@ -11,7 +11,7 @@
 import { EventEmitter } from 'node:events';
 import type { DependencyContainer } from 'tsyringe';
 
-import { withEngine } from './with-engine.js';
+import { withEngine, SdkInitFailedError } from './with-engine.js';
 import type {
   EngineContext,
   WithEngineGlobals,
@@ -30,10 +30,41 @@ import { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-ad
 
 interface FakeContainer extends Partial<DependencyContainer> {
   clearInstances: jest.Mock<void, []>;
+  // Loose typing — production code calls `resolve(AGENT_ADAPTER_TOKEN)`; tests
+  // override with arbitrary `jest.fn()` flavors and we don't care about the
+  // arity match here.
+  resolve: jest.Mock;
+  /** Adapter returned by `resolve(AGENT_ADAPTER_TOKEN)`; tests can override. */
+  __sdkAdapter: {
+    initialize: jest.Mock;
+    dispose: jest.Mock;
+  };
 }
 
-function makeFakeContainer(): FakeContainer {
-  return { clearInstances: jest.fn() };
+/**
+ * Build a fake DI container. `resolve()` returns the embedded SDK adapter
+ * stub for any token (the production code only resolves
+ * `Symbol.for('AgentAdapter')` from `withEngine`, so per-token routing isn't
+ * needed). Tests override `__sdkAdapter.initialize` to drive failure paths.
+ */
+function makeFakeContainer(
+  initializeReturns: boolean | (() => Promise<boolean>) = true,
+): FakeContainer {
+  const sdkAdapter = {
+    initialize: jest.fn(async () => {
+      if (typeof initializeReturns === 'function') {
+        return initializeReturns();
+      }
+      return initializeReturns;
+    }),
+    dispose: jest.fn(),
+  };
+  const container: FakeContainer = {
+    clearInstances: jest.fn(),
+    resolve: jest.fn(() => sdkAdapter),
+    __sdkAdapter: sdkAdapter,
+  };
+  return container;
 }
 
 interface FakeBootstrapTrace {
@@ -306,6 +337,235 @@ describe('withEngine', () => {
           return undefined;
         },
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // P0 Fix 1 — SDK adapter initialization lifecycle.
+  //
+  // `mode === 'full'` must call AGENT_ADAPTER.initialize() before invoking
+  // `fn`. Failure surfaces a `SdkInitFailedError` so command-level catch
+  // blocks can map it to JSON-RPC `task.error` with `ptah_code: 'sdk_init_failed'`.
+  // `mode === 'minimal'` skips the call entirely (introspection-only commands).
+  // -------------------------------------------------------------------------
+  describe('SDK adapter lifecycle (P0 Fix 1)', () => {
+    it('mode=full calls SDK adapter initialize() before fn', async () => {
+      const { bootstrap, trace } = makeFakeBootstrap();
+      const initSpy = jest.fn(async () => true);
+      // Wrap bootstrap so the next-built container's adapter uses our spy.
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = initSpy;
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', bootstrap: wrapped },
+        async () => {
+          // initialize must have been called before fn runs.
+          expect(initSpy).toHaveBeenCalledTimes(1);
+          return undefined;
+        },
+      );
+
+      expect(trace.results).toHaveLength(1);
+    });
+
+    it('mode=minimal does NOT call SDK adapter initialize()', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const initSpy = jest.fn(async () => true);
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = initSpy;
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'minimal', bootstrap: wrapped },
+        async () => undefined,
+      );
+      expect(initSpy).not.toHaveBeenCalled();
+    });
+
+    it('throws SdkInitFailedError when initialize() returns false', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = jest.fn(async () => false);
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        return result;
+      };
+
+      const stderrSpy = jest
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      await expect(
+        withEngine(
+          baseGlobals,
+          { mode: 'full', bootstrap: wrapped },
+          async () => 'never',
+        ),
+      ).rejects.toBeInstanceOf(SdkInitFailedError);
+
+      // Structured stderr line carries the canonical code.
+      const calls = stderrSpy.mock.calls
+        .map((c) => String(c[0]))
+        .filter((l) => l.includes('sdk_init_failed'));
+      expect(calls.length).toBeGreaterThan(0);
+      const ndjson = calls.find((l) => l.startsWith('{'));
+      expect(ndjson).toBeDefined();
+      const parsed = JSON.parse((ndjson ?? '').trim());
+      expect(parsed.error).toBe('sdk_init_failed');
+
+      stderrSpy.mockRestore();
+    });
+
+    it('throws SdkInitFailedError when initialize() throws', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = jest.fn(async () => {
+          throw new Error('boom');
+        });
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        return result;
+      };
+
+      const stderrSpy = jest
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      await expect(
+        withEngine(
+          baseGlobals,
+          { mode: 'full', bootstrap: wrapped },
+          async () => 'never',
+        ),
+      ).rejects.toMatchObject({
+        name: 'SdkInitFailedError',
+        message: expect.stringContaining('boom'),
+      });
+
+      stderrSpy.mockRestore();
+    });
+
+    it('skips SDK init failure when container.resolve throws (treats as init-failed)', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.resolve = jest.fn(() => {
+          throw new Error('not registered');
+        });
+        return result;
+      };
+
+      const stderrSpy = jest
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      await expect(
+        withEngine(
+          baseGlobals,
+          { mode: 'full', bootstrap: wrapped },
+          async () => 'never',
+        ),
+      ).rejects.toBeInstanceOf(SdkInitFailedError);
+
+      stderrSpy.mockRestore();
+    });
+
+    it('mode=full + requireSdk=false skips initialize() AND dispose()', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      let captured: FakeContainer | undefined;
+      const initSpy = jest.fn(async () => true);
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = initSpy;
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        captured = c;
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', requireSdk: false, bootstrap: wrapped },
+        async () => undefined,
+      );
+
+      // No init, no dispose — auth-bootstrap commands MUST be able to run before
+      // the SDK is configured.
+      expect(initSpy).not.toHaveBeenCalled();
+      expect(captured?.__sdkAdapter.dispose).not.toHaveBeenCalled();
+    });
+
+    it('mode=full + requireSdk=false does NOT throw even if initialize() would have failed', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const initSpy = jest.fn(async () => false);
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = initSpy;
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        return result;
+      };
+
+      await expect(
+        withEngine(
+          baseGlobals,
+          { mode: 'full', requireSdk: false, bootstrap: wrapped },
+          async () => 'ran',
+        ),
+      ).resolves.toBe('ran');
+      expect(initSpy).not.toHaveBeenCalled();
+    });
+
+    it('mode=full + requireSdk=true (explicit) still calls initialize()', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      const initSpy = jest.fn(async () => true);
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.__sdkAdapter.initialize = initSpy;
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', requireSdk: true, bootstrap: wrapped },
+        async () => undefined,
+      );
+      expect(initSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls SDK adapter dispose() on the success teardown path', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      let captured: FakeContainer | undefined;
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.resolve = jest.fn(() => c.__sdkAdapter);
+        captured = c;
+        return result;
+      };
+
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', bootstrap: wrapped },
+        async () => undefined,
+      );
+      expect(captured?.__sdkAdapter.dispose).toHaveBeenCalledTimes(1);
     });
   });
 });

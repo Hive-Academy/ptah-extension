@@ -204,13 +204,15 @@ afterEach(() => {
 
 describe('LlmRpcHandlers', () => {
   describe('register()', () => {
-    it('registers all nine LLM RPC methods', () => {
+    it('registers all twelve LLM RPC methods', () => {
       const h = makeHarness();
       h.handlers.register();
 
       expect(h.rpcHandler.getRegisteredMethods().sort()).toEqual(
         [
+          'llm:clearProviderBaseUrl',
           'llm:getDefaultProvider',
+          'llm:getProviderBaseUrl',
           'llm:getProviderStatus',
           'llm:listProviderModels',
           'llm:listVsCodeModels',
@@ -218,6 +220,7 @@ describe('LlmRpcHandlers', () => {
           'llm:setApiKey',
           'llm:setDefaultModel',
           'llm:setDefaultProvider',
+          'llm:setProviderBaseUrl',
           'llm:validateApiKeyFormat',
         ].sort(),
       );

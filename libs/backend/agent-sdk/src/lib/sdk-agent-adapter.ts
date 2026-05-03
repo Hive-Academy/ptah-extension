@@ -20,7 +20,10 @@ import * as os from 'os';
 import { existsSync } from 'fs';
 import { injectable, inject } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IPlatformInfo } from '@ptah-extension/platform-core';
+import type {
+  IPlatformInfo,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import {
   IAgentAdapter,
   ProviderId,
@@ -32,13 +35,18 @@ import {
   AIMessageOptions,
   SessionId,
   FlatStreamEventUnion,
+  type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
-import { SdkError } from './errors';
+import { SdkError, SessionNotActiveError } from './errors';
 import { SessionMetadataStore } from './session-metadata-store';
-import { ModelInfo } from './types/sdk-types/claude-sdk.types';
+import {
+  ModelInfo,
+  type ForkSessionResult,
+  type RewindFilesResult,
+} from './types/sdk-types/claude-sdk.types';
 import {
   AuthManager,
   SessionLifecycleManager,
@@ -66,6 +74,39 @@ export type {
   WorktreeCreatedCallback,
   WorktreeRemovedCallback,
 } from './helpers';
+
+/**
+ * Minimal shape of the SDK's `WarmQuery` returned by `startup()`. We type
+ * `query` as `unknown` because callers must invoke it via the type-narrow
+ * helper {@link tryUseWarmQuery} which discriminates at the call site —
+ * keeping a tight, dynamic-import-friendly surface here.
+ */
+export interface WarmQueryHandle {
+  close: () => void;
+  query?: unknown;
+}
+
+/**
+ * Description of the options baked into a warm handle at `startup()` time.
+ *
+ * `WarmQuery.query(prompt)` accepts ONLY a prompt — model, cwd,
+ * permissionMode, hooks, canUseTool, agents, systemPrompt, plugins,
+ * file-checkpointing, partial-messages, resume, fork, and per-call MCP
+ * overrides are ALL inherited from `startup()`'s options. So this fingerprint
+ * is the complete description of what the held warm handle can serve.
+ *
+ * `consumeWarmQuery(requirements)` matches the requirements against this
+ * fingerprint; any mismatch (extra hook, non-default permission mode, custom
+ * cwd, MCP override, etc.) discards the handle.
+ *
+ * TASK_2026_109 Fix 3 wiring.
+ */
+export interface WarmPrewarmFingerprint {
+  /** cli.js path baked into startup() — must match the consuming session. */
+  pathToClaudeCodeExecutable: string | null;
+  /** MCP servers map baked at startup — `null` when none were passed. */
+  mcpServers: Record<string, unknown> | null;
+}
 
 /**
  * Provider capabilities for SDK-based integration
@@ -179,6 +220,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly modelService: SdkModelService,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {}
@@ -189,6 +232,304 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   public async preloadSdk(): Promise<void> {
     return this.moduleLoader.preload();
+  }
+
+  /** Idempotency guard for prewarm() — see method docs. */
+  private _prewarmed = false;
+
+  /**
+   * Held WarmQuery handle from `startup()`. When non-null, the next call to
+   * {@link consumeWarmQuery} MAY return this handle (and null the slot) so
+   * a single subsequent `query(prompt)` can amortize the spawn+handshake
+   * cost. After consumption, the slot is empty until a new prewarm runs.
+   *
+   * TASK_2026_109 Fix 3.
+   */
+  private _warmQuery: WarmQueryHandle | null = null;
+
+  /**
+   * Snapshot of the option fingerprint baked into `_warmQuery` at the time
+   * `prewarm()` ran. Compared by {@link consumeWarmQuery} against the
+   * caller-supplied requirement set so we never hand out a warm handle
+   * whose underlying subprocess was started with options that diverge from
+   * what the upcoming session needs.
+   *
+   * The SDK's `WarmQuery.query(prompt)` accepts ONLY a prompt — every other
+   * Option (model, cwd, permissionMode, hooks, canUseTool, mcpServers,
+   * agents, systemPrompt, plugins, file checkpointing, partial messages,
+   * resume/fork) was frozen when `startup()` was called. So this snapshot
+   * is the authoritative description of "what this warm handle can do".
+   *
+   * TASK_2026_109 Fix 3 wiring (this commit).
+   */
+  private _warmQueryFingerprint: WarmPrewarmFingerprint | null = null;
+
+  /**
+   * Wall-clock timestamp (ms) of the most recent successful prewarm. Used by
+   * {@link consumeWarmQuery} to evict warm handles older than 5 minutes —
+   * the underlying CLI subprocess gets stale, and consuming a stale warm
+   * handle risks dead-pipe errors at first send.
+   *
+   * TASK_2026_109 Fix 3.
+   */
+  private _warmQueryCreatedAt = 0;
+
+  /** Maximum age (ms) a held WarmQuery may remain unconsumed before discard. */
+  private static readonly WARM_QUERY_TTL_MS = 5 * 60 * 1000;
+
+  /**
+   * Consume the held WarmQuery, if any, returning it to the caller and
+   * clearing the slot.
+   *
+   * Returns null when ANY of the following is true:
+   *  - no warm handle is held, or
+   *  - the held handle is older than {@link WARM_QUERY_TTL_MS} (the handle
+   *    is discarded — closed and nulled — before returning), or
+   *  - `requirements` is provided AND fails to match the fingerprint baked
+   *    into the warm handle at `prewarm()` time. On mismatch the handle is
+   *    discarded so a fresh `prewarm()` can pick up the new fingerprint.
+   *
+   * **Why a requirements check is mandatory for the wiring path**: the SDK's
+   * `WarmQuery.query(prompt)` accepts ONLY a prompt — every other Option
+   * (model, cwd, permissionMode, hooks, canUseTool, mcpServers, agents,
+   * systemPrompt, plugins, fork/resume, file-checkpointing, partial-messages)
+   * was frozen at `startup()`. Handing out a warm handle to a session whose
+   * options diverge from the fingerprint would produce a session running
+   * with the WRONG cwd / WRONG permissions / NO hooks. Caller-supplied
+   * requirements let `executeQuery` reject the handle defensively.
+   *
+   * Backwards compat: when `requirements` is `undefined` the fingerprint
+   * check is skipped (legacy single-arg behavior preserved for existing
+   * tests and ad-hoc callers).
+   *
+   * TASK_2026_109 Fix 3.
+   */
+  public consumeWarmQuery(
+    requirements?: WarmPrewarmFingerprint,
+  ): WarmQueryHandle | null {
+    if (!this._warmQuery) {
+      return null;
+    }
+    const age = Date.now() - this._warmQueryCreatedAt;
+    if (age > SdkAgentAdapter.WARM_QUERY_TTL_MS) {
+      this.logger.info(
+        `[SdkAgentAdapter] Discarding stale warm query (age=${age}ms > ttl=${SdkAgentAdapter.WARM_QUERY_TTL_MS}ms)`,
+      );
+      this.discardWarmHandle();
+      // Allow re-prewarm next time.
+      this._prewarmed = false;
+      return null;
+    }
+
+    // Fingerprint guard. Skip when the caller doesn't supply requirements
+    // (preserves the legacy single-arg test/usage).
+    if (requirements && this._warmQueryFingerprint) {
+      const reason = SdkAgentAdapter.fingerprintMismatchReason(
+        this._warmQueryFingerprint,
+        requirements,
+      );
+      if (reason) {
+        this.logger.info(
+          `[SdkAgentAdapter] Discarding warm query — fingerprint mismatch: ${reason}`,
+        );
+        this.discardWarmHandle();
+        // Allow re-prewarm with the new desired fingerprint.
+        this._prewarmed = false;
+        return null;
+      }
+    }
+
+    const handle = this._warmQuery;
+    this._warmQuery = null;
+    this._warmQueryFingerprint = null;
+    this._warmQueryCreatedAt = 0;
+    return handle;
+  }
+
+  /**
+   * Close the currently-held warm handle (if any) and null both the handle
+   * slot and its fingerprint. Swallows errors from `close()` because the
+   * SDK has thrown from this path before (e.g. when the underlying socket
+   * is already half-shut by the OS) and we never want a discard to fail
+   * loudly — the caller is already on a fallback path.
+   */
+  private discardWarmHandle(): void {
+    if (!this._warmQuery) {
+      return;
+    }
+    try {
+      this._warmQuery.close();
+    } catch (closeErr) {
+      this.logger.warn(
+        '[SdkAgentAdapter] Stale WarmQuery.close() threw',
+        closeErr instanceof Error ? closeErr : new Error(String(closeErr)),
+      );
+    }
+    this._warmQuery = null;
+    this._warmQueryFingerprint = null;
+    this._warmQueryCreatedAt = 0;
+  }
+
+  /**
+   * Compare a warm-handle's baked fingerprint against the requirements of
+   * an upcoming session. Returns null when the handle satisfies the
+   * requirements (safe to consume), or a short human-readable string
+   * describing the first mismatch (for log lines).
+   *
+   * Equality rules:
+   *  - `pathToClaudeCodeExecutable` must match exactly. A null on either
+   *    side that doesn't match the other is a mismatch — the SDK resolves
+   *    a different cli.js when this is omitted, so a mismatch here means
+   *    the warm subprocess literally is a different binary than the new
+   *    session would have spawned.
+   *  - `mcpServers` must deep-match by JSON serialization. The SDK
+   *    completes the MCP initialize handshake during `startup()`, so a
+   *    different server map means the handshake state on the warm
+   *    subprocess doesn't match what the session needs.
+   *
+   * Anything mutable mid-session (model, permissionMode) is NOT compared
+   * here — those are settable on the live `Query` after consumption (via
+   * `setModel`, `setPermissionMode`).
+   */
+  private static fingerprintMismatchReason(
+    baked: WarmPrewarmFingerprint,
+    required: WarmPrewarmFingerprint,
+  ): string | null {
+    if (
+      baked.pathToClaudeCodeExecutable !== required.pathToClaudeCodeExecutable
+    ) {
+      return (
+        `pathToClaudeCodeExecutable differs ` +
+        `(warm=${baked.pathToClaudeCodeExecutable ?? 'null'}, ` +
+        `required=${required.pathToClaudeCodeExecutable ?? 'null'})`
+      );
+    }
+    const bakedMcp = baked.mcpServers ? JSON.stringify(baked.mcpServers) : '';
+    const requiredMcp = required.mcpServers
+      ? JSON.stringify(required.mcpServers)
+      : '';
+    if (bakedMcp !== requiredMcp) {
+      return 'mcpServers map differs';
+    }
+    return null;
+  }
+
+  /**
+   * Pre-warm the Claude Agent SDK subprocess via the SDK's `startup()` export.
+   *
+   * `startup()` (Claude Agent SDK ≥ 0.2.111) spawns the CLI subprocess and
+   * completes the initialize handshake ahead of time, so the first `query()`
+   * resolves immediately instead of paying the spawn+handshake latency.
+   *
+   * Idempotent: subsequent calls are no-ops (tracked via `_prewarmed`).
+   *
+   * TASK_2026_109 Fix 3: the returned `WarmQuery` is now retained on the
+   * adapter (see {@link _warmQuery}) so the first real chat send can consume
+   * it via {@link consumeWarmQuery} and skip the spawn+handshake entirely.
+   * The handle has a 5-minute TTL — older handles are discarded so subsequent
+   * sessions don't pick up a stale subprocess. MCP server config and the
+   * authoritative tier env vars are passed into `startup()` so the MCP
+   * handshake also amortizes during prewarm.
+   *
+   * Failures are swallowed with `logger.warn` — a failed pre-warm must NOT
+   * block normal flow. The first real `query()` call will retry naturally.
+   */
+  public async prewarm(
+    activeMcpServers?: Record<string, unknown>,
+  ): Promise<void> {
+    if (this._prewarmed) {
+      return;
+    }
+
+    const startTime = performance.now();
+    try {
+      const sdkModule = (await import('@anthropic-ai/claude-agent-sdk')) as {
+        startup?: (params?: {
+          options?: unknown;
+          initializeTimeoutMs?: number;
+        }) => Promise<{ close: () => void; query?: unknown }>;
+      };
+      const startupFn = sdkModule.startup;
+      if (typeof startupFn !== 'function') {
+        this.logger.warn(
+          '[SdkAgentAdapter] SDK startup() export not found - skipping prewarm',
+          new Error(`startup is ${typeof startupFn}`),
+        );
+        return;
+      }
+
+      // Pass pathToClaudeCodeExecutable so startup() resolves the same cli.js
+      // the real query() will use. Without this, startup() falls back to the
+      // SDK's import.meta.url-based resolution (TASK_2025_194 backstory).
+      // Also pass mcpServers so the MCP initialize handshake amortizes here
+      // instead of slowing the first chat send.
+      const startupOptions: Record<string, unknown> = {};
+      if (this.cliJsPath) {
+        startupOptions['pathToClaudeCodeExecutable'] = this.cliJsPath;
+      }
+      if (activeMcpServers && Object.keys(activeMcpServers).length > 0) {
+        startupOptions['mcpServers'] = activeMcpServers;
+      }
+      const warm = await startupFn({
+        options:
+          Object.keys(startupOptions).length > 0 ? startupOptions : undefined,
+      });
+
+      // Retain the warm handle for the first real chat send to consume.
+      // Discard any prior unconsumed handle defensively (should not happen
+      // because we early-return on `_prewarmed`, but TTL eviction may flip
+      // `_prewarmed` back to false).
+      if (this._warmQuery) {
+        try {
+          this._warmQuery.close();
+        } catch {
+          // Ignore — we're replacing it anyway.
+        }
+      }
+      this._warmQuery = warm;
+      this._warmQueryCreatedAt = Date.now();
+      // Record the fingerprint of options baked into THIS warm handle so
+      // `consumeWarmQuery(requirements)` can later validate that the
+      // session about to use it was started with matching options. Any
+      // mismatch (e.g. a session that uses an MCP override the warm handle
+      // doesn't have, or runs against a different cli.js) discards the
+      // handle and falls through to a normal `query()`.
+      this._warmQueryFingerprint = {
+        pathToClaudeCodeExecutable: this.cliJsPath,
+        mcpServers:
+          activeMcpServers && Object.keys(activeMcpServers).length > 0
+            ? activeMcpServers
+            : null,
+      };
+
+      const elapsed = (performance.now() - startTime).toFixed(2);
+      this.logger.info(
+        `[SdkAgentAdapter] SDK subprocess pre-warmed and retained (${elapsed}ms)`,
+      );
+      // Set the idempotency flag ONLY after successful startup. Setting it
+      // before the await would silently swallow retry opportunities — a
+      // failed prewarm would mark itself "done" and the next call would
+      // become a no-op even though the subprocess never warmed up.
+      this._prewarmed = true;
+    } catch (err) {
+      const elapsed = (performance.now() - startTime).toFixed(2);
+      // Redact API key fragments before logging. SDK errors sometimes embed
+      // bearer tokens / sk-ant-* keys in stack traces or messages from
+      // upstream HTTP clients. Log only the error name + redacted message —
+      // never the full Error object (which carries `.stack`).
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      const errorName = err instanceof Error ? err.name : 'UnknownError';
+      const redactedMessage = rawMessage.replace(
+        /sk-ant-[A-Za-z0-9_-]+/g,
+        'sk-ant-***REDACTED***',
+      );
+      this.logger.warn(
+        `[SdkAgentAdapter] SDK prewarm failed after ${elapsed}ms (will resolve on first query): ${errorName}: ${redactedMessage}`,
+      );
+      // Do NOT set _prewarmed in the catch — leave it false so a subsequent
+      // call retries the warmup naturally. Do NOT capture in Sentry — prewarm
+      // is best-effort and benign on failure.
+    }
   }
 
   /**
@@ -476,6 +817,21 @@ export class SdkAgentAdapter implements IAgentAdapter {
        * Resolved by PluginLoaderService for premium users.
        */
       pluginPaths?: string[];
+      /**
+       * Opt-in to SDK `SDKPartialAssistantMessage` (`stream_event`) emissions
+       * for finer streaming deltas. When omitted, the SDK plumbing layer
+       * defaults to ON (preserves historical Ptah behavior). Pass `false`
+       * explicitly to disable partial events on this session.
+       */
+      includePartialMessages?: boolean;
+      /**
+       * Caller-supplied MCP HTTP server overrides (TASK_2026_108 T2).
+       * Keyed by MCP server name; entries are merged OVER the registry-built
+       * map by `SdkQueryOptionsBuilder.mergeMcpOverride` (caller wins on key
+       * collision). Reserved for the Anthropic-compatible HTTP proxy in P3 —
+       * non-proxy callers leave this `undefined` and the merge is a no-op.
+       */
+      mcpServersOverride?: Record<string, McpHttpServerOverride>;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -490,6 +846,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       mcpServerRunning = true,
       enhancedPromptsContent,
       pluginPaths,
+      includePartialMessages,
+      mcpServersOverride,
     } = config;
     const trackingId = tabId as SessionId;
 
@@ -503,6 +861,27 @@ export class SdkAgentAdapter implements IAgentAdapter {
     // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
     // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
     // TASK_2025_236: Pass worktree callbacks for worktree change notifications
+
+    // TASK_2026_109 Fix 3 wiring: try to consume the warm subprocess held by
+    // `prewarm()`. We only ask for the handle when this session has
+    // requirements that match what was baked in at startup() time:
+    //   - same cli.js path (always true for this adapter — `cliJsPath` is
+    //     set once in initialize() and used by both prewarm and queries),
+    //   - no caller-supplied MCP override (the warm handle's MCP map was
+    //     fixed at prewarm). When `mcpServersOverride` is supplied, the
+    //     fingerprint guard discards the handle so we don't end up with a
+    //     subprocess whose MCP set differs from what the session needs.
+    // The executor (SessionQueryExecutor) further restricts to non-resume,
+    // non-fork, non-slash-command sessions before actually using the
+    // handle, and falls back to a normal `query()` (closing the handle)
+    // for any session shape it can't safely serve.
+    const warmHandle = mcpServersOverride
+      ? null // Caller-side MCP override means baked MCP fingerprint can't match.
+      : this.consumeWarmQuery({
+          pathToClaudeCodeExecutable: this.cliJsPath,
+          mcpServers: null,
+        });
+
     const { sdkQuery, initialModel, abortController } =
       await this.sessionLifecycle.executeQuery({
         sessionId: trackingId,
@@ -524,6 +903,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
         enhancedPromptsContent,
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
+        includePartialMessages,
+        // TASK_2026_108 T2: forward caller-supplied MCP HTTP overrides
+        mcpServersOverride,
+        // TASK_2026_109 Fix 3 wiring: hand the warm subprocess (if usable)
+        // to the executor for the very first SDK call of this session.
+        warmQuery: warmHandle ?? undefined,
       });
 
     // projectPath is guaranteed by ChatRpcHandlers (validated before reaching here).
@@ -607,6 +992,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
        * SESSION_STATS can be routed to the correct frontend tab.
        */
       tabId?: string;
+      /**
+       * Opt-in to SDK partial-message stream events. See
+       * `startChatSession.config.includePartialMessages` for semantics.
+       */
+      includePartialMessages?: boolean;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -636,6 +1026,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const mcpServerRunning = config?.mcpServerRunning ?? true;
     const enhancedPromptsContent = config?.enhancedPromptsContent;
     const pluginPaths = config?.pluginPaths;
+    const includePartialMessages = config?.includePartialMessages;
 
     this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`, {
       isPremium,
@@ -662,6 +1053,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         enhancedPromptsContent,
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
+        includePartialMessages,
       });
 
     // For resumed sessions, just update lastActiveAt (metadata already exists)
@@ -869,6 +1261,196 @@ export class SdkAgentAdapter implements IAgentAdapter {
   async interruptSession(sessionId: SessionId): Promise<void> {
     this.logger.info(`[SdkAgentAdapter] Interrupting session: ${sessionId}`);
     await this.sessionLifecycle.endSession(sessionId);
+  }
+
+  /**
+   * Fork an existing session into a new branch.
+   *
+   * Calls the SDK's standalone `forkSession()` export, which copies the
+   * source session's transcript into a brand-new session file (with remapped
+   * UUIDs) and returns the new session ID. Optionally slices the transcript
+   * up to a specific message UUID via `upToMessageId` so the user can branch
+   * mid-conversation.
+   *
+   * The returned session ID can be passed to `resumeSession()` to continue
+   * the forked branch. The original session is left untouched. Forked sessions
+   * do NOT carry file-history snapshots — the SDK only copies transcript data.
+   *
+   * @param sessionId - UUID of the source session to fork from
+   * @param upToMessageId - Optional message UUID to slice the transcript at (inclusive)
+   * @param title - Optional title for the new fork (defaults to "<original> (fork)")
+   * @returns The new forked session ID
+   * @throws SdkError if the SDK module fails to load or fork fails
+   */
+  async forkSession(
+    sessionId: SessionId,
+    upToMessageId?: string,
+    title?: string,
+  ): Promise<ForkSessionResult> {
+    if (!this.initialized) {
+      throw new SdkError(
+        'SdkAgentAdapter not initialized. Call initialize() first.',
+      );
+    }
+
+    this.logger.info(`[SdkAgentAdapter] Forking session: ${sessionId}`, {
+      upToMessageId,
+      title,
+    });
+
+    try {
+      // The SDK's forkSession is a standalone export, not on the Query handle.
+      // Use the same dynamic-import path as SdkModuleLoader so the bundled
+      // SDK is reused (no re-download / re-resolution cost).
+      const sdkModule = (await import('@anthropic-ai/claude-agent-sdk')) as {
+        forkSession?: (
+          sessionId: string,
+          options?: { upToMessageId?: string; title?: string },
+        ) => Promise<ForkSessionResult>;
+      };
+      const fork = sdkModule.forkSession;
+      if (typeof fork !== 'function') {
+        throw new SdkError(
+          `SDK module loaded but 'forkSession' export is ${typeof fork}, expected function`,
+        );
+      }
+
+      const result = await fork(sessionId, {
+        upToMessageId,
+        title,
+      });
+
+      // Create metadata for the new forked session so session:load and
+      // chat:resume can find it. The SDK's standalone forkSession() only
+      // writes the JSONL file — it does not touch our metadata store, so
+      // without this the new session would 404 on session:load.
+      const sourceMetadata = await this.metadataStore.get(sessionId);
+      const forkName =
+        title ??
+        (sourceMetadata ? `${sourceMetadata.name} (fork)` : 'Forked session');
+
+      // Workspace ID resolution chain: source metadata → active workspace.
+      // An empty workspaceId would poison the new record:
+      //   - SessionRpcHandlers.authorizeSessionAccess rejects empty/unknown
+      //     workspaces with `unauthorized-workspace`.
+      //   - SessionMetadataStore.getForWorkspace filters by exact path, so
+      //     '' would never match and the fork would not appear in the sidebar.
+      const workspaceId =
+        sourceMetadata?.workspaceId ??
+        this.workspaceProvider.getWorkspaceRoot();
+      if (!workspaceId) {
+        throw new SdkError(
+          `Cannot fork session ${sessionId}: source metadata has no workspaceId and no active workspace folder is open. Forking would create a poisoned metadata record that the sidebar and authorization layer would reject.`,
+        );
+      }
+      // Pass kind='forked' so the metadata-changed broadcast distinguishes
+      // forked sessions from brand-new ones — the webview can highlight or
+      // scroll-to-fork in the sidebar based on this signal.
+      await this.metadataStore.create(
+        result.sessionId,
+        workspaceId,
+        forkName,
+        'forked',
+      );
+
+      this.logger.info('[SdkAgentAdapter] Session forked successfully', {
+        sourceSessionId: sessionId,
+        newSessionId: result.sessionId,
+        upToMessageId,
+        workspaceId,
+        forkName,
+      });
+      return result;
+    } catch (error) {
+      const errorObj =
+        error instanceof Error ? error : new Error(String(error));
+      this.sentryService.captureException(errorObj, {
+        errorSource: 'SdkAgentAdapter.forkSession',
+      });
+      this.logger.error('[SdkAgentAdapter] Failed to fork session', errorObj);
+      throw new SdkError(
+        `Failed to fork session ${sessionId}: ${errorObj.message}`,
+      );
+    }
+  }
+
+  /**
+   * Rewind tracked files to their state at a specific user message.
+   *
+   * Delegates to `Query.rewindFiles()` on the active SDK query handle for
+   * this session. Requires that the session was started with file
+   * checkpointing enabled (the default — see SdkQueryOptionsBuilder).
+   *
+   * **CONSTRAINT**: This requires a LIVE `Query` handle. The session must
+   * be currently active in `SessionLifecycleManager` (i.e. there's an
+   * in-flight or paused query). If the session has been disposed/ended,
+   * the SDK has no checkpoint state to rewind from and this method will
+   * throw. RPC callers should ensure the session is active (or resume it
+   * first) before invoking rewind.
+   *
+   * @param sessionId - The active session whose files should be rewound
+   * @param userMessageId - UUID of the user message to rewind file state to
+   * @param dryRun - When true, returns the planned changes without modifying files
+   * @returns `RewindFilesResult` with `canRewind`, optional `error`, and change stats
+   * @throws SdkError if the session is not active or has no live Query handle
+   */
+  async rewindFiles(
+    sessionId: SessionId,
+    userMessageId: string,
+    dryRun?: boolean,
+  ): Promise<RewindFilesResult> {
+    if (!this.initialized) {
+      throw new SdkError(
+        'SdkAgentAdapter not initialized. Call initialize() first.',
+      );
+    }
+
+    this.logger.info(`[SdkAgentAdapter] Rewinding files for session`, {
+      sessionId,
+      userMessageId,
+      dryRun: dryRun ?? false,
+    });
+
+    const activeSession = this.sessionLifecycle.getActiveSession(sessionId);
+    if (!activeSession || !activeSession.query) {
+      // Stable error type so RPC handlers can `instanceof`-check rather than
+      // brittle regex-match the message string. The message wording is kept
+      // for the legacy regex fallback at the RPC boundary.
+      throw new SessionNotActiveError(
+        `Cannot rewind files: session ${sessionId} is not active or has no live Query handle. ` +
+          `rewindFiles requires the session to be currently active in SessionLifecycleManager — ` +
+          `resume the session before invoking rewind.`,
+      );
+    }
+
+    // NOTE: the SessionNotActiveError thrown above is intentionally outside
+    // this try/catch — wrapping it would lose the `instanceof` discriminator
+    // the RPC layer relies on.
+    try {
+      const result = await activeSession.query.rewindFiles(userMessageId, {
+        dryRun,
+      });
+      this.logger.info('[SdkAgentAdapter] rewindFiles completed', {
+        sessionId,
+        userMessageId,
+        canRewind: result.canRewind,
+        filesChanged: result.filesChanged?.length ?? 0,
+        insertions: result.insertions,
+        deletions: result.deletions,
+        error: result.error,
+      });
+      return result;
+    } catch (error) {
+      const errorObj =
+        error instanceof Error ? error : new Error(String(error));
+      this.sentryService.captureException(errorObj, {
+        errorSource: 'SdkAgentAdapter.rewindFiles',
+      });
+      this.logger.error('[SdkAgentAdapter] rewindFiles failed', errorObj);
+      throw new SdkError(
+        `Failed to rewind files for session ${sessionId}: ${errorObj.message}`,
+      );
+    }
   }
 
   /**

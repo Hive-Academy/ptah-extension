@@ -24,6 +24,10 @@ export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
 export * from './rpc/rpc-git.types';
 export * from './rpc/rpc-terminal.types';
+export * from './rpc/rpc-editor.types';
+// === TRACK_1_MEMORY_CURATOR_BEGIN ===
+export * from './rpc/rpc-memory.types';
+// === TRACK_1_MEMORY_CURATOR_END ===
 
 // ============================================================
 // Imports for RpcMethodRegistry (types used only in registry entries)
@@ -65,6 +69,10 @@ import type {
   SessionCliSessionsResult,
   SessionStatsBatchParams,
   SessionStatsBatchResult,
+  SessionForkParams,
+  SessionForkResult,
+  SessionRewindParams,
+  SessionRewindResult,
 } from './rpc/rpc-session.types';
 
 import type {
@@ -125,6 +133,12 @@ import type {
   LlmListVsCodeModelsParams,
   LlmListProviderModelsParams,
   LlmListProviderModelsResponse,
+  LlmSetProviderBaseUrlParams,
+  LlmSetProviderBaseUrlResponse,
+  LlmGetProviderBaseUrlParams,
+  LlmGetProviderBaseUrlResponse,
+  LlmClearProviderBaseUrlParams,
+  LlmClearProviderBaseUrlResponse,
 } from './rpc/rpc-providers.types';
 
 import type {
@@ -232,6 +246,30 @@ import type {
   TerminalKillParams,
   TerminalKillResult,
 } from './rpc/rpc-terminal.types';
+
+import type {
+  EditorRevertFilesParams,
+  EditorRevertFilesResult,
+} from './rpc/rpc-editor.types';
+
+// === TRACK_1_MEMORY_CURATOR_BEGIN ===
+import type {
+  MemoryListParams,
+  MemoryListResult,
+  MemorySearchParams,
+  MemorySearchResult,
+  MemoryGetParams,
+  MemoryGetResult,
+  MemoryPinParams,
+  MemoryPinResult,
+  MemoryForgetParams,
+  MemoryForgetResult,
+  MemoryRebuildIndexParams,
+  MemoryRebuildIndexResult,
+  MemoryStatsParams,
+  MemoryStatsResult,
+} from './rpc/rpc-memory.types';
+// === TRACK_1_MEMORY_CURATOR_END ===
 
 import type {
   HarnessInitializeParams,
@@ -351,6 +389,14 @@ export interface RpcMethodRegistry {
   'session:stats-batch': {
     params: SessionStatsBatchParams;
     result: SessionStatsBatchResult;
+  };
+  'session:forkSession': {
+    params: SessionForkParams;
+    result: SessionForkResult;
+  };
+  'session:rewindFiles': {
+    params: SessionRewindParams;
+    result: SessionRewindResult;
   };
 
   // ---- Context Methods ----
@@ -577,6 +623,18 @@ export interface RpcMethodRegistry {
   'llm:listProviderModels': {
     params: LlmListProviderModelsParams;
     result: LlmListProviderModelsResponse;
+  };
+  'llm:setProviderBaseUrl': {
+    params: LlmSetProviderBaseUrlParams;
+    result: LlmSetProviderBaseUrlResponse;
+  };
+  'llm:getProviderBaseUrl': {
+    params: LlmGetProviderBaseUrlParams;
+    result: LlmGetProviderBaseUrlResponse;
+  };
+  'llm:clearProviderBaseUrl': {
+    params: LlmClearProviderBaseUrlParams;
+    result: LlmClearProviderBaseUrlResponse;
   };
 
   // ---- Provider Model Methods (TASK_2025_091 Phase 2, generalized TASK_2025_132) ----
@@ -840,6 +898,12 @@ export interface RpcMethodRegistry {
   'layout:restore': {
     params: Record<string, never>;
     result: { success: boolean };
+  };
+
+  // ---- Editor Methods (M3 — VS Code, post-rewind buffer revert) ----
+  'editor:revertFiles': {
+    params: EditorRevertFilesParams;
+    result: EditorRevertFilesResult;
   };
 
   // ---- Electron Editor Methods (TASK_2025_203) ----
@@ -1113,7 +1177,409 @@ export interface RpcMethodRegistry {
     params: HarnessConverseParams;
     result: HarnessConverseResponse;
   };
+
+  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+  // Letta-style tiered memory curator (TASK_2026_HERMES Track 1)
+  'memory:list': { params: MemoryListParams; result: MemoryListResult };
+  'memory:search': { params: MemorySearchParams; result: MemorySearchResult };
+  'memory:get': { params: MemoryGetParams; result: MemoryGetResult };
+  'memory:pin': { params: MemoryPinParams; result: MemoryPinResult };
+  'memory:unpin': { params: MemoryPinParams; result: MemoryPinResult };
+  'memory:forget': { params: MemoryForgetParams; result: MemoryForgetResult };
+  'memory:rebuildIndex': {
+    params: MemoryRebuildIndexParams;
+    result: MemoryRebuildIndexResult;
+  };
+  'memory:stats': { params: MemoryStatsParams; result: MemoryStatsResult };
+  // === TRACK_1_MEMORY_CURATOR_END ===
+
+  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+  // Autonomous skill synthesis (TASK_2026_HERMES Track 2)
+  'skillSynthesis:listCandidates': {
+    params: SkillSynthesisListCandidatesParams;
+    result: SkillSynthesisListCandidatesResult;
+  };
+  'skillSynthesis:getCandidate': {
+    params: SkillSynthesisGetCandidateParams;
+    result: SkillSynthesisGetCandidateResult;
+  };
+  'skillSynthesis:promote': {
+    params: SkillSynthesisPromoteParams;
+    result: SkillSynthesisPromoteResult;
+  };
+  'skillSynthesis:reject': {
+    params: SkillSynthesisRejectParams;
+    result: SkillSynthesisRejectResult;
+  };
+  'skillSynthesis:invocations': {
+    params: SkillSynthesisInvocationsParams;
+    result: SkillSynthesisInvocationsResult;
+  };
+  'skillSynthesis:stats': {
+    params: SkillSynthesisStatsParams;
+    result: SkillSynthesisStatsResult;
+  };
+  // === TRACK_2_SKILL_SYNTHESIS_END ===
+
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  // Cron scheduler (TASK_2026_HERMES Track 3)
+  'cron:list': { params: CronListParams; result: CronListResult };
+  'cron:get': { params: CronGetParams; result: CronGetResult };
+  'cron:create': { params: CronCreateParams; result: CronCreateResult };
+  'cron:update': { params: CronUpdateParams; result: CronUpdateResult };
+  'cron:delete': { params: CronDeleteParams; result: CronDeleteResult };
+  'cron:toggle': { params: CronToggleParams; result: CronToggleResult };
+  'cron:runNow': { params: CronRunNowParams; result: CronRunNowResult };
+  'cron:runs': { params: CronRunsParams; result: CronRunsResult };
+  'cron:nextFire': { params: CronNextFireParams; result: CronNextFireResult };
+  // === TRACK_3_CRON_SCHEDULER_END ===
+
+  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+  // Messaging gateway (TASK_2026_HERMES Track 4)
+  'gateway:status': {
+    params: GatewayStatusParams;
+    result: GatewayStatusResult;
+  };
+  'gateway:start': {
+    params: GatewayStartParams;
+    result: GatewayStartResult;
+  };
+  'gateway:stop': {
+    params: GatewayStopParams;
+    result: GatewayStopResult;
+  };
+  'gateway:setToken': {
+    params: GatewaySetTokenParams;
+    result: GatewaySetTokenResult;
+  };
+  'gateway:listBindings': {
+    params: GatewayListBindingsParams;
+    result: GatewayListBindingsResult;
+  };
+  'gateway:approveBinding': {
+    params: GatewayApproveBindingParams;
+    result: GatewayApproveBindingResult;
+  };
+  'gateway:blockBinding': {
+    params: GatewayBlockBindingParams;
+    result: GatewayBlockBindingResult;
+  };
+  'gateway:listMessages': {
+    params: GatewayListMessagesParams;
+    result: GatewayListMessagesResult;
+  };
+  // === TRACK_4_MESSAGING_GATEWAY_END ===
 }
+
+// === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+// Skill synthesis RPC param/result types (TASK_2026_HERMES Track 2)
+// Inlined here (rather than a child rpc-skill-synthesis.types.ts) because
+// the surface is small and self-contained — six methods, all reading from
+// or mutating the candidate store / invocation log.
+
+export interface SkillSynthesisCandidateSummary {
+  id: string;
+  name: string;
+  description: string;
+  status: 'candidate' | 'promoted' | 'rejected';
+  successCount: number;
+  failureCount: number;
+  createdAt: number;
+  promotedAt: number | null;
+  rejectedAt: number | null;
+  rejectedReason: string | null;
+}
+
+export interface SkillSynthesisCandidateDetail extends SkillSynthesisCandidateSummary {
+  bodyPath: string;
+  body: string | null;
+  trajectoryHash: string;
+  sourceSessionIds: string[];
+}
+
+export interface SkillSynthesisInvocationEntry {
+  id: string;
+  skillId: string;
+  sessionId: string;
+  succeeded: boolean;
+  invokedAt: number;
+  notes: string | null;
+}
+
+export interface SkillSynthesisListCandidatesParams {
+  status?: 'candidate' | 'promoted' | 'rejected' | 'all';
+  limit?: number;
+}
+export interface SkillSynthesisListCandidatesResult {
+  candidates: SkillSynthesisCandidateSummary[];
+}
+
+export interface SkillSynthesisGetCandidateParams {
+  id: string;
+}
+export interface SkillSynthesisGetCandidateResult {
+  candidate: SkillSynthesisCandidateDetail | null;
+}
+
+export interface SkillSynthesisPromoteParams {
+  id: string;
+}
+export interface SkillSynthesisPromoteResult {
+  promoted: boolean;
+  reason: string | null;
+  filePath: string | null;
+}
+
+export interface SkillSynthesisRejectParams {
+  id: string;
+  reason?: string;
+}
+export interface SkillSynthesisRejectResult {
+  rejected: boolean;
+}
+
+export interface SkillSynthesisInvocationsParams {
+  skillId: string;
+  limit?: number;
+}
+export interface SkillSynthesisInvocationsResult {
+  invocations: SkillSynthesisInvocationEntry[];
+}
+
+export type SkillSynthesisStatsParams = Record<string, never>;
+export interface SkillSynthesisStatsResult {
+  totalCandidates: number;
+  totalPromoted: number;
+  totalRejected: number;
+  totalInvocations: number;
+  activeSkills: number;
+}
+// === TRACK_2_SKILL_SYNTHESIS_END ===
+
+// === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+// Messaging gateway RPC param/result types (TASK_2026_HERMES Track 4)
+//
+// Eight methods covering: status query, start/stop lifecycle, token write,
+// binding list/approve/block (the per-user pairing surface), and message
+// history. All param/result shapes are deliberately small — the heavy
+// payloads (binding rows, message rows) live in the messaging-gateway lib's
+// own types; we mirror the bare DTO fields here so the shared package stays
+// dependency-free.
+
+export type GatewayPlatformId = 'telegram' | 'discord' | 'slack';
+export type GatewayApprovalStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'revoked';
+export type GatewayMessageDirection = 'inbound' | 'outbound';
+
+export interface GatewayBindingDto {
+  id: string;
+  platform: GatewayPlatformId;
+  externalChatId: string;
+  displayName: string | null;
+  approvalStatus: GatewayApprovalStatus;
+  ptahSessionId: string | null;
+  workspaceRoot: string | null;
+  pairingCode: string | null;
+  createdAt: number;
+  approvedAt: number | null;
+  lastActiveAt: number | null;
+}
+
+export interface GatewayMessageDto {
+  id: string;
+  bindingId: string;
+  direction: GatewayMessageDirection;
+  externalMsgId: string | null;
+  ptahMessageId: string | null;
+  body: string;
+  voicePath: string | null;
+  createdAt: number;
+}
+
+export type GatewayStatusParams = Record<string, never>;
+export interface GatewayStatusResult {
+  enabled: boolean;
+  adapters: Array<{
+    platform: GatewayPlatformId;
+    running: boolean;
+    lastError?: string;
+  }>;
+}
+
+export interface GatewayStartParams {
+  platform?: GatewayPlatformId;
+}
+export interface GatewayStartResult {
+  ok: true;
+}
+
+export interface GatewayStopParams {
+  platform?: GatewayPlatformId;
+}
+export interface GatewayStopResult {
+  ok: true;
+}
+
+export interface GatewaySetTokenParams {
+  platform: GatewayPlatformId;
+  token: string;
+  /** Slack only — required for Socket Mode (xapp-...). */
+  slackAppToken?: string;
+}
+export interface GatewaySetTokenResult {
+  ok: true;
+}
+
+export interface GatewayListBindingsParams {
+  platform?: GatewayPlatformId;
+  status?: GatewayApprovalStatus;
+}
+export interface GatewayListBindingsResult {
+  bindings: GatewayBindingDto[];
+}
+
+export interface GatewayApproveBindingParams {
+  bindingId: string;
+  ptahSessionId?: string;
+  workspaceRoot?: string;
+}
+export interface GatewayApproveBindingResult {
+  binding: GatewayBindingDto;
+}
+
+export interface GatewayBlockBindingParams {
+  bindingId: string;
+  /** Optional explicit terminal state — defaults to `'rejected'`. */
+  status?: 'rejected' | 'revoked';
+}
+export interface GatewayBlockBindingResult {
+  binding: GatewayBindingDto;
+}
+
+export interface GatewayListMessagesParams {
+  bindingId: string;
+  limit?: number;
+  /** Cursor: only return messages with createdAt < before. */
+  before?: number;
+}
+export interface GatewayListMessagesResult {
+  messages: GatewayMessageDto[];
+}
+// === TRACK_4_MESSAGING_GATEWAY_END ===
+
+// === TRACK_3_CRON_SCHEDULER_BEGIN ===
+// Cron scheduler RPC param/result types (TASK_2026_HERMES Track 3).
+// Wire-friendly DTOs that mirror the persisted shape from
+// `@ptah-extension/cron-scheduler` types.ts but use plain `string` for ids
+// (frontend bindings don't have access to the JobId / RunId branded types).
+
+export interface ScheduledJobDto {
+  id: string;
+  name: string;
+  cronExpr: string;
+  timezone: string;
+  prompt: string;
+  workspaceRoot: string | null;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+  lastRunAt: number | null;
+  nextRunAt: number | null;
+}
+
+export interface JobRunDto {
+  id: string;
+  jobId: string;
+  scheduledFor: number;
+  startedAt: number | null;
+  endedAt: number | null;
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
+  resultSummary: string | null;
+  errorMessage: string | null;
+}
+
+export interface CronListParams {
+  enabledOnly?: boolean;
+}
+export interface CronListResult {
+  jobs: ScheduledJobDto[];
+}
+
+export interface CronGetParams {
+  id: string;
+}
+export interface CronGetResult {
+  job: ScheduledJobDto | null;
+}
+
+export interface CronCreateParams {
+  name: string;
+  cronExpr: string;
+  timezone?: string;
+  prompt: string;
+  workspaceRoot?: string | null;
+  enabled?: boolean;
+}
+export interface CronCreateResult {
+  job: ScheduledJobDto;
+}
+
+export interface CronUpdateParams {
+  id: string;
+  patch: {
+    name?: string;
+    cronExpr?: string;
+    timezone?: string;
+    prompt?: string;
+    workspaceRoot?: string | null;
+    enabled?: boolean;
+  };
+}
+export interface CronUpdateResult {
+  job: ScheduledJobDto;
+}
+
+export interface CronDeleteParams {
+  id: string;
+}
+export interface CronDeleteResult {
+  ok: boolean;
+}
+
+export interface CronToggleParams {
+  id: string;
+  enabled: boolean;
+}
+export interface CronToggleResult {
+  job: ScheduledJobDto;
+}
+
+export interface CronRunNowParams {
+  id: string;
+}
+export interface CronRunNowResult {
+  run: JobRunDto | null;
+}
+
+export interface CronRunsParams {
+  id: string;
+  limit?: number;
+  offset?: number;
+}
+export interface CronRunsResult {
+  runs: JobRunDto[];
+}
+
+export interface CronNextFireParams {
+  id: string;
+}
+export interface CronNextFireResult {
+  nextRunAt: number | null;
+}
+// === TRACK_3_CRON_SCHEDULER_END ===
 
 /**
  * Valid RPC method names (compile-time enforced)
@@ -1153,6 +1619,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:validate': true,
   'session:cli-sessions': true,
   'session:stats-batch': true,
+  'session:forkSession': true,
+  'session:rewindFiles': true,
 
   // Context Methods
   'context:getAllFiles': true,
@@ -1226,6 +1694,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'llm:validateApiKeyFormat': true,
   'llm:listVsCodeModels': true,
   'llm:listProviderModels': true,
+  'llm:setProviderBaseUrl': true,
+  'llm:getProviderBaseUrl': true,
+  'llm:clearProviderBaseUrl': true,
 
   // Provider Model Methods (TASK_2025_091 Phase 2, generalized TASK_2025_132)
   'provider:listModels': true,
@@ -1302,6 +1773,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'layout:persist': true,
   'layout:restore': true,
 
+  // Editor Methods (M3 — VS Code, post-rewind buffer revert)
+  'editor:revertFiles': true,
+
   // Electron Editor Methods (TASK_2025_203)
   'editor:openFile': true,
   'editor:saveFile': true,
@@ -1374,6 +1848,49 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'harness:generate-document': true,
   'harness:analyze-intent': true,
   'harness:converse': true,
+
+  // === TRACK_1_MEMORY_CURATOR_BEGIN ===
+  'memory:list': true,
+  'memory:search': true,
+  'memory:get': true,
+  'memory:pin': true,
+  'memory:unpin': true,
+  'memory:forget': true,
+  'memory:rebuildIndex': true,
+  'memory:stats': true,
+  // === TRACK_1_MEMORY_CURATOR_END ===
+
+  // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
+  'skillSynthesis:listCandidates': true,
+  'skillSynthesis:getCandidate': true,
+  'skillSynthesis:promote': true,
+  'skillSynthesis:reject': true,
+  'skillSynthesis:invocations': true,
+  'skillSynthesis:stats': true,
+  // === TRACK_2_SKILL_SYNTHESIS_END ===
+
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  'cron:list': true,
+  'cron:get': true,
+  'cron:create': true,
+  'cron:update': true,
+  'cron:delete': true,
+  'cron:toggle': true,
+  'cron:runNow': true,
+  'cron:runs': true,
+  'cron:nextFire': true,
+  // === TRACK_3_CRON_SCHEDULER_END ===
+
+  // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
+  'gateway:status': true,
+  'gateway:start': true,
+  'gateway:stop': true,
+  'gateway:setToken': true,
+  'gateway:listBindings': true,
+  'gateway:approveBinding': true,
+  'gateway:blockBinding': true,
+  'gateway:listMessages': true,
+  // === TRACK_4_MESSAGING_GATEWAY_END ===
 };
 
 /**

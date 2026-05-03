@@ -56,9 +56,12 @@ module.exports = {
     '.js': '.mjs',
   },
   banner: {
-    // The createRequire banner is still useful for `require()` calls esbuild
-    // emits for native modules / dynamic requires elsewhere in the bundle.
-    js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+    // ESM banner: provide `require`, `__filename`, `__dirname` so any
+    // CommonJS shim or third-party code that reaches for them at runtime
+    // resolves to sane values instead of throwing
+    // `ReferenceError: __dirname is not defined in ES module scope`.
+    // Mirrors the apps/ptah-cli banner so both ESM bundles behave the same.
+    js: "import { createRequire as __ptah_createRequire } from 'module'; import { fileURLToPath as __ptah_fileURLToPath } from 'url'; import { dirname as __ptah_dirname } from 'path'; const require = __ptah_createRequire(import.meta.url); const __filename = __ptah_fileURLToPath(import.meta.url); const __dirname = __ptah_dirname(__filename);",
   },
   define: {
     __SENTRY_DSN__: isProd ? `"${SENTRY_DSN_PROD}"` : '""',

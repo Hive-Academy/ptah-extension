@@ -6,6 +6,7 @@ import {
   TOKENS,
   SentryService,
 } from '@ptah-extension/vscode-core';
+import { fixPath } from '@ptah-extension/agent-sdk';
 import { DIContainer } from '../di/container';
 import { handleLicenseBlocking } from './license-gate';
 
@@ -31,6 +32,15 @@ export interface BootstrapResult {
 export async function bootstrapVscode(
   context: vscode.ExtensionContext,
 ): Promise<BootstrapResult> {
+  // STEP 0: Repair process.env.PATH on Linux/macOS when VS Code was
+  // launched from a GUI launcher (Activities, dock, Finder, Spotlight).
+  // GUI-launched processes do not source ~/.bashrc / ~/.zshrc, so npm
+  // global bin (~/.nvm/.../bin, ~/.npm-global/bin, …) is missing from
+  // PATH and CLI detection (Gemini, Codex, Copilot, Cursor) reports
+  // every CLI as "Not Found". Must run before DI/CLI registry creation.
+  // No-op on Windows.
+  fixPath();
+
   // ========================================
   // STEP 1: MINIMAL DI SETUP FOR LICENSE CHECK (TASK_2025_121)
   // ========================================
@@ -126,6 +136,7 @@ export async function bootstrapVscode(
   const agentAdapter = DIContainer.resolve(TOKENS.AGENT_ADAPTER) as {
     initialize: () => Promise<boolean>;
     preloadSdk: () => Promise<void>;
+    prewarm: () => Promise<void>;
   };
   const authInitialized = await agentAdapter.initialize();
 
@@ -140,6 +151,15 @@ export async function bootstrapVscode(
     // This shifts ~100-200ms import cost from first user interaction to activation
     agentAdapter.preloadSdk().catch((err) => {
       logger.warn('SDK preload failed (will retry on first use)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+    // Pre-warm the SDK CLI subprocess via SDK startup() (Claude Agent SDK
+    // ≥ 0.2.111). Fire-and-forget — failure is benign, the first real
+    // query() will spawn on demand. Do NOT await: would slow activation.
+    agentAdapter.prewarm().catch((err) => {
+      logger.warn('SDK prewarm failed (will resolve on first query)', {
         error: err instanceof Error ? err.message : String(err),
       });
     });

@@ -18,8 +18,14 @@ import type { CliCommandOptions } from './cli-adapter.interface';
  * Used by all CLI adapters to clean raw terminal output.
  */
 export function stripAnsiCodes(str: string): string {
-  // eslint-disable-next-line no-control-regex
-  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+  // Strip CSI sequences (e.g., colors, cursor moves) and ESC()/ESC[/ charset
+  // selection codes (e.g., `\x1b(B`, `\x1b)0`) emitted by some terminals on
+  // Linux/macOS that would otherwise show up as garbled `(B` text in output.
+  /* eslint-disable no-control-regex */
+  return str
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+    .replace(/\x1b[()][A-Z0-9]/g, '');
+  /* eslint-enable no-control-regex */
 }
 
 /**
@@ -54,7 +60,13 @@ export function spawnCli(
     env: { ...process.env, ...CLI_CLEAN_ENV, ...options.env },
     // On Windows, CLIs that use node-pty/ConPTY for shell execution (Gemini)
     // need a console. Piped stdio with CREATE_NO_WINDOW prevents this.
-    // windowsHide: false ensures a console is allocated (hidden from user).
+    // windowsHide: false ALLOCATES (rather than hides) a console for the
+    // child process. Despite the name reading as "show the window", Node's
+    // semantics are: `false` = do NOT pass CREATE_NO_WINDOW, so the child
+    // inherits/allocates a console. The console is still hidden from the user
+    // because we don't connect stdio to a TTY — node-pty's ConPTY can then
+    // call AttachConsole() successfully. On Unix this option is ignored, so
+    // the gating on win32 is purely for documentation.
     ...(options.needsConsole && process.platform === 'win32'
       ? { windowsHide: false }
       : {}),

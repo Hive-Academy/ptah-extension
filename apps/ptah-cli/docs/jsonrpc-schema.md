@@ -264,6 +264,64 @@ Example:
 
 > `debug.rpc.routing`, `debug.cli_agent.spawn` (Phase 2 / not yet implemented).
 
+### 1.12 Anthropic-compatible HTTP proxy (`proxy.*`)
+
+Emitted by `apps/ptah-cli/src/services/proxy/anthropic-proxy.service.ts` while
+the `ptah proxy start` command is running. When the proxy is launched embedded
+inside `ptah interact`, these notifications are streamed on stdout via the
+parent JSON-RPC server. When launched standalone (`--auto-approve`), they are
+emitted via the structured stderr formatter only — there is no JSON-RPC peer.
+
+The proxy itself exposes an Anthropic Messages API on a TCP port and accepts
+both `stream: true` (SSE) and `stream: false` (JSON) requests. The caller's
+`model` field is **ignored** in MVP — Ptah's active model resolution wins
+(provider tier). Treat the Anthropic API as **transport-only**. The caller's
+`system` prompt is **appended** to Ptah's core system prompt (Ptah harness
+wins on conflict).
+
+| Method               | Trigger                                                | Key params                                                                                                |
+| -------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `proxy.started`      | HTTP server bound + token issued                       | `{ host, port, token_path, expose_workspace_tools: bool }`                                                |
+| `proxy.token.issued` | Bearer-token mint event (also written 0o600 to disk)   | `{ token, port }` — caller-side notification mirrors `~/.ptah/proxy/<port>.token`. Treat token as secret. |
+| `proxy.request`      | Per-request lifecycle (start + complete)               | `{ request_id, model, tool_count, stream: bool, phase: 'start' \| 'complete', duration_ms? }`             |
+| `proxy.tool_invoked` | Workspace MCP tool surfaced in caller `tools[]`        | `{ request_id, tool_name, source: 'caller' \| 'workspace' }`                                              |
+| `proxy.warning`      | Non-fatal soft-fails (e.g. caller/workspace collision) | `{ request_id?, kind, message, details? }`                                                                |
+| `proxy.error`        | Per-request fatal (HTTP 4xx/5xx surfaced as SSE error) | `{ request_id?, code, message }`                                                                          |
+| `proxy.stopped`      | HTTP server closed (idempotent)                        | `{ port, reason: 'shutdown' \| 'sigint' \| 'rpc' }`                                                       |
+
+Example — proxy startup:
+
+```json
+{ "jsonrpc": "2.0", "method": "proxy.started", "params": { "host": "127.0.0.1", "port": 51234, "token_path": "~/.ptah/proxy/51234.token", "expose_workspace_tools": true } }
+```
+
+Example — token issuance (literal secret — never log):
+
+```json
+{ "jsonrpc": "2.0", "method": "proxy.token.issued", "params": { "token": "1f4d3e...redacted...c7a9", "port": 51234 } }
+```
+
+Example — request lifecycle:
+
+```json
+{ "jsonrpc": "2.0", "method": "proxy.request", "params": { "request_id": "req-9c4e", "model": "claude-3-5-sonnet-20241022", "tool_count": 3, "stream": true, "phase": "start" } }
+{ "jsonrpc": "2.0", "method": "proxy.request", "params": { "request_id": "req-9c4e", "model": "claude-3-5-sonnet-20241022", "tool_count": 3, "stream": true, "phase": "complete", "duration_ms": 4271 } }
+```
+
+Example — tool collision warning (caller-supplied + workspace `Read` collide):
+
+```json
+{ "jsonrpc": "2.0", "method": "proxy.warning", "params": { "request_id": "req-9c4e", "kind": "tool_collision", "message": "1 caller tool name collided with a workspace tool — caller tool wins", "details": { "collisions": ["Read"] } } }
+```
+
+> The proxy listens on `127.0.0.1:<port>` by default and accepts `--host` /
+> `--port` overrides. `GET /healthz` returns `{ ok: true, port, uptime_ms }`
+> with no auth; all other paths require `x-api-key: <token>` (timing-safe
+> compare). `?expose_workspace_tools=false` opts out of workspace MCP +
+> skill injection on a per-request basis.
+
+The peer can also send `proxy.shutdown` as an inbound JSON-RPC request (see § 3) to close the proxy gracefully when running embedded.
+
 ## 2. Outbound requests (CLI → client, response REQUIRED)
 
 These are JSON-RPC requests carrying an `id`. The client MUST reply with a matching response on stdin.
@@ -298,6 +356,7 @@ Wired by `apps/ptah-cli/src/cli/commands/interact.ts` after `session.ready` is e
 | `session.history`     | Retrieve full conversation history; proxies `session:load`.                                                                                                                                          | `{ limit?: number }`                                                                             | `{ messages: unknown[], session_id: string }`                                                |
 | `permission.response` | Reply to a `permission.request` (handled by `ApprovalBridge`). Fire-and-forget — no response.                                                                                                        | `{ id: string\|number, decision: 'allow'\|'deny'\|'always_allow', scope?: 'session'\|'global' }` | (no response)                                                                                |
 | `question.response`   | Reply to a `question.ask` (handled by `ApprovalBridge`). Fire-and-forget — no response.                                                                                                              | `{ id: string\|number, answer: string, custom?: bool }`                                          | (no response)                                                                                |
+| `proxy.shutdown`      | Close the embedded Anthropic-compatible HTTP proxy gracefully. Only registered when `ptah proxy start` is launched inside `ptah interact`. Idempotent — second call returns `{ stopped: false }`.    | `{}`                                                                                             | `{ stopped: bool, port?: number, reason?: string }`                                          |
 
 Example — submit a turn:
 
@@ -331,20 +390,23 @@ Errors are emitted as JSON-RPC error responses on stderr. Notifications never ca
 
 ### 4.2 Ptah-specific codes (`error.data.ptah_code`)
 
-| `ptah_code`             | Meaning                                                                         | Process Exit | Recoverable            |
-| ----------------------- | ------------------------------------------------------------------------------- | ------------ | ---------------------- |
-| `db_lock`               | Prisma DB locked / contention                                                   | `1`          | Yes (retry)            |
-| `provider_unavailable`  | Provider endpoint unreachable                                                   | `1`          | Yes (retry)            |
-| `auth_required`         | No valid credentials                                                            | `3`          | No (user action)       |
-| `rate_limited`          | Provider rate limit                                                             | `1`          | Yes (backoff)          |
-| `license_required`      | Subscription invalid                                                            | `4`          | No                     |
-| `unknown`               | Unrecognized resource                                                           | `1`          | No                     |
-| `internal_failure`      | Unrecoverable internal error                                                    | `5`          | No                     |
-| `wizard_phase_failed`   | Setup wizard phase did not complete (`data.phase` carries the phase name)       | `1`          | Sometimes              |
-| `generation_failed`     | Agent-generation pipeline failed (`data.item_id` carries the failed item)       | `1`          | Sometimes (retry-item) |
-| `harness_invalid`       | `.ptah/` directory in invalid state                                             | `1`          | Yes (re-run init)      |
-| `mcp_install_failed`    | MCP server install rejected by target CLI (`data.target` carries the target id) | `1`          | Sometimes              |
-| `cli_agent_unavailable` | Required CLI agent (gemini/glm) not on PATH OR rejected by allowlist            | `3`          | No (user install)      |
+| `ptah_code`                   | Meaning                                                                                           | Process Exit | Recoverable                      |
+| ----------------------------- | ------------------------------------------------------------------------------------------------- | ------------ | -------------------------------- |
+| `db_lock`                     | Prisma DB locked / contention                                                                     | `1`          | Yes (retry)                      |
+| `provider_unavailable`        | Provider endpoint unreachable                                                                     | `1`          | Yes (retry)                      |
+| `auth_required`               | No valid credentials                                                                              | `3`          | No (user action)                 |
+| `rate_limited`                | Provider rate limit                                                                               | `1`          | Yes (backoff)                    |
+| `license_required`            | Subscription invalid                                                                              | `4`          | No                               |
+| `unknown`                     | Unrecognized resource                                                                             | `1`          | No                               |
+| `internal_failure`            | Unrecoverable internal error                                                                      | `5`          | No                               |
+| `wizard_phase_failed`         | Setup wizard phase did not complete (`data.phase` carries the phase name)                         | `1`          | Sometimes                        |
+| `generation_failed`           | Agent-generation pipeline failed (`data.item_id` carries the failed item)                         | `1`          | Sometimes (retry-item)           |
+| `harness_invalid`             | `.ptah/` directory in invalid state                                                               | `1`          | Yes (re-run init)                |
+| `mcp_install_failed`          | MCP server install rejected by target CLI (`data.target` carries the target id)                   | `1`          | Sometimes                        |
+| `cli_agent_unavailable`       | Required CLI agent (gemini/glm) not on PATH OR rejected by allowlist                              | `3`          | No (user install)                |
+| `proxy_bind_failed`           | Anthropic proxy could not bind requested host/port (`data.host`/`data.port`/`data.cause`)         | `1`          | Sometimes (try a different port) |
+| `proxy_invalid_request`       | Proxy received a malformed Anthropic Messages request (HTTP 400; `data.detail` carries the cause) | `1`          | Yes (caller fix)                 |
+| `permission_gate_unavailable` | `ptah proxy start` invoked without `--auto-approve` and not embedded in `ptah interact`           | `3`          | No (user action)                 |
 
 Example — invalid params on `task.submit`:
 

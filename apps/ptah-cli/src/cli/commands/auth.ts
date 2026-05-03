@@ -11,9 +11,16 @@
  *   login copilot         — Headless device-code OAuth via `headless-flow.ts`.
  *                           Composes JsonRpc opener if a peer is attached,
  *                           stderr opener otherwise.
- *   login codex           — Out-of-band: prints instructions to stderr.
- *                           Codex login writes `~/.codex/auth.json` itself.
- *   login claude          — Settings-based: prints "use provider set-key".
+ *   login codex           — Spawns `codex login --device-auth` via cross-spawn,
+ *                           surfaces the device-code URL via auth.login.url,
+ *                           propagates SIGINT, emits auth.login.complete on
+ *                           exit code 0.
+ *   login claude-cli      — Verifies Claude CLI on PATH via ClaudeCliDetector
+ *                           (alias: `claude`). On success, persists
+ *                           `authMethod=claudeCli` to ~/.ptah/settings.json.
+ *                           On failure emits task.error{ ptah_code:
+ *                           'claude_cli_not_found' } + ExitCode.UsageError.
+ *   login anthropic       — Settings-based: prints "use provider set-key".
  *   logout copilot        — Calls `auth:copilotLogout` over RPC.
  *   logout codex --force  — CLI-local `fs.unlink('~/.codex/auth.json')`.
  *                           No RPC method (per B8b drop decision).
@@ -31,8 +38,12 @@ import { join as pathJoin } from 'node:path';
 
 import {
   SDK_TOKENS,
+  spawnCli,
   type ICopilotAuthService,
+  type ClaudeCliDetector,
 } from '@ptah-extension/agent-sdk';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { ClaudeCliHealth } from '@ptah-extension/shared';
 
 import { withEngine } from '../bootstrap/with-engine.js';
 import {
@@ -56,8 +67,38 @@ export type AuthProvider =
   | 'copilot'
   | 'codex'
   | 'claude'
+  | 'claude-cli'
   | 'anthropic'
   | string;
+
+/**
+ * Narrowed contract for the workspace provider used by auth login flows that
+ * write to `~/.ptah/settings.json` (notably `authMethod`). Mirrors the shape
+ * surfaced by `IWorkspaceProvider` in `@ptah-extension/platform-core` without
+ * pulling the full interface (which adds VS Code-specific overloads we never
+ * exercise from the CLI).
+ */
+export interface AuthWorkspaceProviderLike {
+  setConfiguration?(
+    section: string,
+    key: string,
+    value: unknown,
+  ): Promise<void>;
+}
+
+/**
+ * Subset of `ChildProcess` that the codex login flow needs: exit/error events
+ * and SIGINT propagation. Defining a narrowed type lets tests inject a fake
+ * without polyfilling every Node `ChildProcess` field.
+ */
+export interface CodexChildLike {
+  on(event: 'exit', listener: (code: number | null) => void): unknown;
+  on(event: 'error', listener: (err: Error) => void): unknown;
+  on(event: 'close', listener: (code: number | null) => void): unknown;
+  stdout: NodeJS.ReadableStream | null;
+  stderr: NodeJS.ReadableStream | null;
+  kill(signal?: NodeJS.Signals | number): boolean;
+}
 
 export interface AuthOptions {
   subcommand: AuthSubcommand;
@@ -109,6 +150,36 @@ export interface AuthExecuteHooks {
   resolveCopilotAuth?: (
     container: import('tsyringe').DependencyContainer,
   ) => Promise<ICopilotAuthService> | ICopilotAuthService;
+  /**
+   * Override the ClaudeCliDetector resolver. Production omits — we resolve
+   * `SDK_TOKENS.SDK_CLI_DETECTOR` from the container. Tests pass a stub.
+   */
+  resolveClaudeCliDetector?: (
+    container: import('tsyringe').DependencyContainer,
+  ) => Promise<ClaudeCliDetector> | ClaudeCliDetector;
+  /**
+   * Override the workspace provider resolver. Production omits — we resolve
+   * `PLATFORM_TOKENS.WORKSPACE_PROVIDER` from the container. Tests pass a stub
+   * so the spec doesn't need a real DI graph.
+   */
+  resolveWorkspaceProvider?: (
+    container: import('tsyringe').DependencyContainer,
+  ) => Promise<AuthWorkspaceProviderLike> | AuthWorkspaceProviderLike;
+  /**
+   * Override the codex login spawn. Production uses `spawnCli('codex', ...)`
+   * from `@ptah-extension/agent-sdk`; tests inject a fake that returns a
+   * scripted child.
+   */
+  spawnCodexLogin?: (
+    binary: string,
+    args: string[],
+    options: { env?: NodeJS.ProcessEnv },
+  ) => CodexChildLike;
+  /**
+   * SIGINT-aware process ref for codex login. Production omits and we attach
+   * a one-shot handler to `process`; tests inject an `EventEmitter` stub.
+   */
+  processRefForCodex?: NodeJS.EventEmitter;
 }
 
 /**
@@ -163,7 +234,7 @@ async function runStatus(
   globals: GlobalOptions,
   engine: typeof withEngine,
 ): Promise<number> {
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const transport = ctx.transport;
 
     const status = await callRpc(transport, 'auth:getAuthStatus', {});
@@ -210,29 +281,16 @@ async function runLogin(
   }
 
   if (provider === 'codex') {
-    // Out-of-band login. We DO emit the lifecycle notifications so machine
-    // consumers see consistent envelopes, but we do not poll — the user must
-    // re-run `ptah auth status` to confirm completion.
-    await formatter.writeNotification('auth.login.start', {
-      provider,
-      timestamp: new Date().toISOString(),
-    });
-    const url = 'https://platform.openai.com/account/codex';
-    await formatter.writeNotification('auth.login.url', {
-      provider,
-      verification_uri: url,
-      opened: false,
-      message: 'Run `codex login --device-auth` in a terminal to authenticate.',
-    });
-    stderr.write(
-      'Run `codex login --device-auth` in a terminal, then re-run ' +
-        '`ptah auth status` to verify.\n',
-    );
-    return ExitCode.Success;
+    return runCodexLogin(globals, formatter, stderr, engine, hooks);
   }
 
-  if (provider === 'claude' || provider === 'anthropic') {
-    // Settings-based: print the canonical command for setting the key.
+  if (provider === 'claude' || provider === 'claude-cli') {
+    return runClaudeCliLogin(globals, formatter, stderr, engine, hooks);
+  }
+
+  if (provider === 'anthropic') {
+    // Settings-based: API-key auth flow lives under `provider set-key`.
+    // `claude` and `claude-cli` are now distinct (PATH-detected CLI auth).
     await formatter.writeNotification('auth.login.start', {
       provider: 'anthropic',
       timestamp: new Date().toISOString(),
@@ -246,6 +304,241 @@ async function runLogin(
 
   stderr.write(`ptah auth login: unsupported provider '${provider}'\n`);
   return ExitCode.UsageError;
+}
+
+/**
+ * `auth login claude-cli` (alias: `auth login claude`).
+ *
+ * Verify the Claude CLI is reachable on PATH (or any of the standard install
+ * locations the SDK already probes via `ClaudeCliDetector`), then persist
+ * `authMethod=claudeCli` to `~/.ptah/settings.json` so the SDK adapter picks
+ * the CLI strategy on next bootstrap.
+ *
+ * On failure (CLI not found / health check returns `available: false`) we
+ * emit `task.error{ ptah_code: 'claude_cli_not_found' }` and exit with
+ * `ExitCode.UsageError` — operator action is required (install the CLI or
+ * fix PATH), so `UsageError` is the right semantic, not `InternalFailure`.
+ */
+async function runClaudeCliLogin(
+  globals: GlobalOptions,
+  formatter: Formatter,
+  stderr: AuthStderrLike,
+  engine: typeof withEngine,
+  hooks: AuthExecuteHooks,
+): Promise<number> {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+    await formatter.writeNotification('auth.login.start', {
+      provider: 'claude-cli',
+      timestamp: new Date().toISOString(),
+    });
+
+    const detector = await (hooks.resolveClaudeCliDetector
+      ? hooks.resolveClaudeCliDetector(ctx.container)
+      : ctx.container.resolve<ClaudeCliDetector>(SDK_TOKENS.SDK_CLI_DETECTOR));
+
+    let health: ClaudeCliHealth;
+    try {
+      health = await detector.performHealthCheck();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await formatter.writeNotification('task.error', {
+        provider: 'claude-cli',
+        ptah_code: 'claude_cli_not_found',
+        message: `Claude CLI health check failed: ${message}`,
+      });
+      stderr.write(
+        'Claude CLI not found. Install it (e.g. `npm install -g ' +
+          '@anthropic-ai/claude-code`) and ensure `claude` is on PATH, ' +
+          'then re-run `ptah auth login claude-cli`.\n',
+      );
+      return ExitCode.UsageError;
+    }
+
+    if (!health.available) {
+      await formatter.writeNotification('task.error', {
+        provider: 'claude-cli',
+        ptah_code: 'claude_cli_not_found',
+        message:
+          health.error ??
+          'Claude CLI not found in PATH or known install locations',
+        platform: health.platform,
+        isWSL: health.isWSL,
+      });
+      stderr.write(
+        'Claude CLI not found. Install it (e.g. `npm install -g ' +
+          '@anthropic-ai/claude-code`) and ensure `claude` is on PATH, ' +
+          'then re-run `ptah auth login claude-cli`.\n',
+      );
+      return ExitCode.UsageError;
+    }
+
+    // Persist authMethod=claudeCli via the workspace provider. The
+    // `authMethod` key is part of FILE_BASED_SETTINGS_KEYS so it routes to
+    // ~/.ptah/settings.json automatically.
+    const workspaceProvider = await (hooks.resolveWorkspaceProvider
+      ? hooks.resolveWorkspaceProvider(ctx.container)
+      : (ctx.container.resolve(
+          PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+        ) as AuthWorkspaceProviderLike));
+
+    if (typeof workspaceProvider.setConfiguration !== 'function') {
+      await formatter.writeNotification('task.error', {
+        provider: 'claude-cli',
+        ptah_code: 'internal_failure',
+        message:
+          'IWorkspaceProvider.setConfiguration is not available on this platform',
+      });
+      return ExitCode.InternalFailure;
+    }
+
+    await workspaceProvider.setConfiguration('ptah', 'authMethod', 'claudeCli');
+
+    await formatter.writeNotification('auth.login.complete', {
+      provider: 'claude-cli',
+      success: true,
+      authMethod: 'claudeCli',
+      cliPath: health.path,
+      cliVersion: health.version,
+      platform: health.platform,
+      isWSL: health.isWSL,
+    });
+    return ExitCode.Success;
+  });
+}
+
+/**
+ * `auth login codex` — drives `codex login --device-auth` via cross-spawn.
+ *
+ * The Codex CLI prints a `https://...` device-code URL to its own stdout.
+ * We surface that URL via `auth.login.url` so JSON-RPC peers (and humans
+ * via `--human`) get a consistent envelope, then wait for the child to
+ * exit. SIGINT is propagated to the child so Ctrl-C cleanly cancels the
+ * device-code flow.
+ *
+ * On exit code 0 we emit `auth.login.complete{ success: true }`. On any
+ * non-zero exit we emit `task.error{ ptah_code: 'auth_required' }` and
+ * return `ExitCode.AuthRequired` (the operator never finished the flow).
+ */
+async function runCodexLogin(
+  globals: GlobalOptions,
+  formatter: Formatter,
+  stderr: AuthStderrLike,
+  _engine: typeof withEngine,
+  hooks: AuthExecuteHooks,
+): Promise<number> {
+  await formatter.writeNotification('auth.login.start', {
+    provider: 'codex',
+    timestamp: new Date().toISOString(),
+  });
+
+  const spawn =
+    hooks.spawnCodexLogin ??
+    ((binary: string, args: string[], options: { env?: NodeJS.ProcessEnv }) =>
+      spawnCli(binary, args, {
+        env: options.env,
+      }) as unknown as CodexChildLike);
+
+  let child: CodexChildLike;
+  try {
+    child = spawn('codex', ['login', '--device-auth'], { env: process.env });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await formatter.writeNotification('task.error', {
+      provider: 'codex',
+      ptah_code: 'auth_required',
+      message: `Failed to spawn 'codex login --device-auth': ${message}`,
+    });
+    stderr.write(
+      'Failed to spawn `codex login --device-auth`. Ensure the codex CLI ' +
+        'is installed and on PATH.\n',
+    );
+    return ExitCode.AuthRequired;
+  }
+
+  // Capture stdout to detect the device-code URL. We surface the FIRST
+  // https:// URL we see via `auth.login.url`; subsequent output is only
+  // mirrored to stderr (so humans driving the flow see codex's prompts).
+  let urlEmitted = false;
+  let stdoutBuffer = '';
+  const urlPattern = /(https?:\/\/[^\s'"<>]+)/;
+
+  const onStdoutData = async (chunk: Buffer | string): Promise<void> => {
+    const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    stdoutBuffer += text;
+    // Mirror codex output to stderr so humans see the prompts.
+    stderr.write(text);
+    if (!urlEmitted) {
+      const match = urlPattern.exec(stdoutBuffer);
+      if (match) {
+        urlEmitted = true;
+        await formatter.writeNotification('auth.login.url', {
+          provider: 'codex',
+          verification_uri: match[1],
+          opened: false,
+          message: 'Open the URL above in a browser to complete codex login.',
+        });
+      }
+    }
+  };
+
+  if (child.stdout) {
+    child.stdout.on('data', (chunk) => {
+      // Fire-and-forget — async errors surface via the formatter elsewhere.
+      void onStdoutData(chunk);
+    });
+  }
+  if (child.stderr) {
+    child.stderr.on('data', (chunk) => {
+      const text =
+        typeof chunk === 'string' ? chunk : (chunk as Buffer).toString('utf8');
+      stderr.write(text);
+    });
+  }
+
+  // SIGINT propagation: forward Ctrl-C to the child so the device-code flow
+  // cancels cleanly. We attach a one-shot handler and remove it on exit.
+  const sigintSource: NodeJS.EventEmitter = hooks.processRefForCodex ?? process;
+  const onSigint = (): void => {
+    try {
+      child.kill('SIGINT');
+    } catch {
+      // Ignore — child may already be dead.
+    }
+  };
+  sigintSource.on('SIGINT', onSigint);
+
+  const exitCode = await new Promise<number>((resolve) => {
+    let settled = false;
+    child.on('exit', (code) => {
+      if (settled) return;
+      settled = true;
+      resolve(typeof code === 'number' ? code : 1);
+    });
+    child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      stderr.write(`codex login error: ${err.message}\n`);
+      resolve(1);
+    });
+  });
+
+  // Detach the SIGINT handler.
+  sigintSource.removeListener('SIGINT', onSigint);
+
+  if (exitCode === 0) {
+    await formatter.writeNotification('auth.login.complete', {
+      provider: 'codex',
+      success: true,
+    });
+    return ExitCode.Success;
+  }
+
+  await formatter.writeNotification('task.error', {
+    provider: 'codex',
+    ptah_code: 'auth_required',
+    message: `codex login --device-auth exited with code ${exitCode}`,
+  });
+  return ExitCode.AuthRequired;
 }
 
 /**
@@ -264,7 +557,7 @@ async function runCopilotLogin(
 ): Promise<number> {
   const headless = hooks.runHeadlessLogin ?? runHeadlessLogin;
 
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     // Resolve CopilotAuthService directly from the container — we need the
     // begin/poll/cancel methods, which are not exposed via the RPC surface.
     // The hook lets tests inject a mock without touching the container.
@@ -309,7 +602,7 @@ async function runLogout(
   }
 
   if (provider === 'copilot') {
-    return engine(globals, { mode: 'full' }, async (ctx) => {
+    return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
       await callRpc(ctx.transport, 'auth:copilotLogout', {});
       await formatter.writeNotification('auth.logout.complete', {
         provider: 'copilot',
