@@ -25,6 +25,10 @@ import {
   registerAllRpcHandlers,
   verifyAndReportRpcRegistration,
   WorkspaceRpcHandlers,
+  CronRpcHandlers,
+  GatewayRpcHandlers,
+  MemoryRpcHandlers,
+  SkillsSynthesisRpcHandlers,
   __debugAssertSharedHandlersDisjoint,
 } from '@ptah-extension/rpc-handlers';
 import {
@@ -52,6 +56,10 @@ import {
 /**
  * RPC methods not applicable in VS Code — Electron desktop-app features.
  * Excluded from RPC verification so the shared registry can still enumerate them.
+ *
+ * SQLite-backed handlers (Cron, Gateway, Memory, SkillsSynthesis) are
+ * Electron-only: their DI dependencies are never registered in the VS Code
+ * host. They are also excluded from registerAllRpcHandlers below.
  */
 const ELECTRON_ONLY_METHODS: readonly string[] = [
   'workspace:getInfo',
@@ -80,6 +88,14 @@ const ELECTRON_ONLY_METHODS: readonly string[] = [
   'terminal:create',
   'terminal:kill',
   'license:clearKey',
+  // Cron scheduler (requires SQLite CronScheduler service)
+  ...CronRpcHandlers.METHODS,
+  // Messaging gateway (requires SQLite GatewayService)
+  ...GatewayRpcHandlers.METHODS,
+  // Memory curator (requires SQLite MemoryStore/MemorySearch/MemoryCurator)
+  ...MemoryRpcHandlers.METHODS,
+  // Skills synthesis pipeline (requires SQLite SkillSynthesisService/SkillCandidateStore)
+  ...SkillsSynthesisRpcHandlers.METHODS,
 ];
 
 /**
@@ -115,11 +131,18 @@ export class RpcMethodRegistrationService {
     // `phase-3-handlers.ts` so they fire before `ChatRpcHandlers` is
     // eagerly resolved by this service's constructor.
 
-    // VS Code excludes WorkspaceRpcHandlers: VsCodeWorkspaceProvider has no
-    // lifecycle methods, so IWorkspaceLifecycleProvider is not registered in
-    // this host. The workspace:* methods are listed in ELECTRON_ONLY_METHODS
-    // so the verifier accepts the gap.
-    registerAllRpcHandlers(this.container, { exclude: [WorkspaceRpcHandlers] });
+    // VS Code excludes SQLite-backed handlers — their DI dependencies are never
+    // registered in the VS Code host. All excluded methods are listed in
+    // ELECTRON_ONLY_METHODS so the verifier accepts the gap.
+    registerAllRpcHandlers(this.container, {
+      exclude: [
+        WorkspaceRpcHandlers,
+        CronRpcHandlers,
+        GatewayRpcHandlers,
+        MemoryRpcHandlers,
+        SkillsSynthesisRpcHandlers,
+      ],
+    });
 
     this.fileHandlers.register();
     this.editorHandlers.register();
