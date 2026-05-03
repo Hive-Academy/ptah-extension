@@ -121,6 +121,13 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'skillSynthesis.candidatesDir',
   // === TRACK_2_SKILL_SYNTHESIS_END ===
 
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  // Cron scheduler (TASK_2026_HERMES Track 3)
+  'cron.enabled',
+  'cron.maxConcurrentJobs',
+  'cron.catchupWindowMs',
+  // === TRACK_3_CRON_SCHEDULER_END ===
+
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   // Messaging gateway (TASK_2026_HERMES Track 4)
   'gateway.enabled',
@@ -254,6 +261,13 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.maxActiveSkills': 50,
   'skillSynthesis.candidatesDir': '',
   // === TRACK_2_SKILL_SYNTHESIS_END ===
+
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  // Cron scheduler (TASK_2026_HERMES Track 3)
+  'cron.enabled': true,
+  'cron.maxConcurrentJobs': 3,
+  'cron.catchupWindowMs': 86400000,
+  // === TRACK_3_CRON_SCHEDULER_END ===
 
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   // Messaging gateway (TASK_2026_HERMES Track 4)

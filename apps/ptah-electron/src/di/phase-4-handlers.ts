@@ -51,6 +51,9 @@ import {
   // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
   SkillsSynthesisRpcHandlers,
   // === TRACK_2_SKILL_SYNTHESIS_END ===
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  CronRpcHandlers,
+  // === TRACK_3_CRON_SCHEDULER_END ===
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   GatewayRpcHandlers,
   // === TRACK_4_MESSAGING_GATEWAY_END ===
@@ -206,6 +209,11 @@ export function registerPhase4Handlers(
   // TASK_2026_HERMES Track 2: Skill synthesis RPC handlers.
   container.registerSingleton(SkillsSynthesisRpcHandlers);
   // === TRACK_2_SKILL_SYNTHESIS_END ===
+
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  // TASK_2026_HERMES Track 3: Cron scheduler RPC handlers.
+  container.registerSingleton(CronRpcHandlers);
+  // === TRACK_3_CRON_SCHEDULER_END ===
 
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   // TASK_2026_HERMES Track 4: Messaging gateway RPC handlers.

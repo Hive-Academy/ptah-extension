@@ -5,6 +5,18 @@
   "sourceRoot": "libs/backend/cron-scheduler/src",
   "tags": ["scope:extension", "type:feature"],
   "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/cron-scheduler",
+        "main": "libs/backend/cron-scheduler/src/index.ts",
+        "tsConfig": "libs/backend/cron-scheduler/tsconfig.lib.json",
+        "assets": [],
+        "format": ["cjs"],
+        "external": ["vscode", "tsyringe", "croner"]
+      }
+    },
     "test": {
       "executor": "@nx/jest:jest",
       "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],

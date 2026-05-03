@@ -37,6 +37,9 @@ import * as os from 'node:os';
 // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
 import { registerSkillSynthesisServices } from '@ptah-extension/skill-synthesis';
 // === TRACK_2_SKILL_SYNTHESIS_END ===
+// === TRACK_3_CRON_SCHEDULER_BEGIN ===
+import { registerCronSchedulerServices } from '@ptah-extension/cron-scheduler';
+// === TRACK_3_CRON_SCHEDULER_END ===
 // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
 import {
   registerMessagingGatewayServices,
@@ -188,6 +191,29 @@ export function registerPhase2Libraries(
   // for trajectory extraction; both are registered earlier in Phase 2.
   registerSkillSynthesisServices(container, logger);
   // === TRACK_2_SKILL_SYNTHESIS_END ===
+
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  // ========================================
+  // PHASE 2.65: Cron Scheduler (TASK_2026_HERMES Track 3)
+  // ========================================
+  // Registers CronScheduler, CronJobRunner, CatchupCoordinator, JobStore,
+  // RunStore, HandlerRegistry. The CRON_POWER_MONITOR binding is registered
+  // separately in Phase 3 (storage) using ElectronPowerMonitor. Depends on
+  // persistence-sqlite (Track 0) for SQLite job/run storage. Croner is
+  // lazy-required so the registration itself does not fail without the
+  // optional dependency.
+  try {
+    registerCronSchedulerServices(container, logger);
+    logger.info('[Electron DI] Cron scheduler services registered (Track 3)');
+  } catch (error) {
+    logger.warn(
+      '[Electron DI] Cron scheduler registration skipped (non-fatal)',
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+  // === TRACK_3_CRON_SCHEDULER_END ===
 
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   // ========================================

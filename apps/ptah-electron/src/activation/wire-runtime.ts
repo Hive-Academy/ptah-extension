@@ -41,6 +41,13 @@ import {
   type SkillSynthesisService,
 } from '@ptah-extension/skill-synthesis';
 // === TRACK_2_SKILL_SYNTHESIS_END ===
+// === TRACK_3_CRON_SCHEDULER_BEGIN ===
+import {
+  CRON_TOKENS,
+  type CronScheduler,
+} from '@ptah-extension/cron-scheduler';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+// === TRACK_3_CRON_SCHEDULER_END ===
 // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
 import {
   GATEWAY_TOKENS,
@@ -80,6 +87,14 @@ export interface WireRuntimeResult {
    */
   skillSynthesis: SkillSynthesisService | null;
   // === TRACK_2_SKILL_SYNTHESIS_END ===
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  /**
+   * Cron scheduler handle for orderly shutdown. Null when Track 0
+   * (persistence-sqlite) is unavailable, croner is missing, or `start()`
+   * failed — caller's LIFO will-quit chain must tolerate null.
+   */
+  cronScheduler: CronScheduler | null;
+  // === TRACK_3_CRON_SCHEDULER_END ===
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   /**
    * Messaging gateway service handle for orderly shutdown. Null when
@@ -106,6 +121,9 @@ export async function wireRuntime(
   // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
   let skillSynthesis: SkillSynthesisService | null = null;
   // === TRACK_2_SKILL_SYNTHESIS_END ===
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  let cronScheduler: CronScheduler | null = null;
+  // === TRACK_3_CRON_SCHEDULER_END ===
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   let messagingGateway: GatewayService | null = null;
   // === TRACK_4_MESSAGING_GATEWAY_END ===
@@ -464,6 +482,60 @@ export async function wireRuntime(
     );
   }
 
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  // PHASE 4.94: Cron scheduler cold-start (TASK_2026_HERMES Track 3)
+  // Resolve and start the scheduler so persisted jobs re-arm and the
+  // CatchupCoordinator runs its missed-run pass against `cron.catchupWindowMs`.
+  // Settings are read from IWorkspaceProvider — defaults come from
+  // FILE_BASED_SETTINGS_DEFAULTS (cron.enabled=true, maxConcurrentJobs=3,
+  // catchupWindowMs=86_400_000). Failure is non-fatal: croner is lazy-required
+  // and Track 0 (persistence-sqlite) may be unavailable on some branches.
+  try {
+    if (
+      sqliteConnection !== null &&
+      container.isRegistered(CRON_TOKENS.CRON_SCHEDULER)
+    ) {
+      const workspaceProvider = container.resolve<IWorkspaceProvider>(
+        PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      );
+      const enabled = workspaceProvider.getConfiguration<boolean>(
+        'ptah',
+        'cron.enabled',
+        true,
+      );
+      const maxConcurrentJobs = workspaceProvider.getConfiguration<number>(
+        'ptah',
+        'cron.maxConcurrentJobs',
+        3,
+      );
+      const catchupWindowMs = workspaceProvider.getConfiguration<number>(
+        'ptah',
+        'cron.catchupWindowMs',
+        86_400_000,
+      );
+      cronScheduler = container.resolve<CronScheduler>(
+        CRON_TOKENS.CRON_SCHEDULER,
+      );
+      await cronScheduler.start({
+        enabled: enabled ?? true,
+        maxConcurrentJobs: maxConcurrentJobs ?? 3,
+        catchupWindowMs: catchupWindowMs ?? 86_400_000,
+      });
+      console.log('[Ptah Electron] Cron scheduler started', {
+        enabled,
+        maxConcurrentJobs,
+        catchupWindowMs,
+      });
+    }
+  } catch (error) {
+    console.warn(
+      '[Ptah Electron] Cron scheduler start skipped (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
+    cronScheduler = null;
+  }
+  // === TRACK_3_CRON_SCHEDULER_END ===
+
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   // PHASE 4.95: Messaging gateway cold-start (TASK_2026_HERMES Track 4)
   // Resolve and start the gateway service so any enabled adapters
@@ -497,6 +569,9 @@ export async function wireRuntime(
     // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
     skillSynthesis,
     // === TRACK_2_SKILL_SYNTHESIS_END ===
+    // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+    cronScheduler,
+    // === TRACK_3_CRON_SCHEDULER_END ===
     // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
     messagingGateway,
     // === TRACK_4_MESSAGING_GATEWAY_END ===

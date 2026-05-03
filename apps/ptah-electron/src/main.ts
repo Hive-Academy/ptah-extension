@@ -36,6 +36,9 @@ if (!gotLock) {
   // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
   let skillSynthesis: { stop: () => void } | null = null;
   // === TRACK_2_SKILL_SYNTHESIS_END ===
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  let cronScheduler: { stop: () => void } | null = null;
+  // === TRACK_3_CRON_SCHEDULER_END ===
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   let messagingGateway: { stop: () => Promise<void> } | null = null;
   // === TRACK_4_MESSAGING_GATEWAY_END ===
@@ -60,6 +63,9 @@ if (!gotLock) {
     // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
     skillSynthesis = wired.skillSynthesis;
     // === TRACK_2_SKILL_SYNTHESIS_END ===
+    // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+    cronScheduler = wired.cronScheduler;
+    // === TRACK_3_CRON_SCHEDULER_END ===
     // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
     messagingGateway = wired.messagingGateway;
     // === TRACK_4_MESSAGING_GATEWAY_END ===
@@ -157,6 +163,23 @@ if (!gotLock) {
       );
     }
     // === TRACK_2_SKILL_SYNTHESIS_END ===
+
+    // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+    // 4.53. Stop cron scheduler (TASK_2026_HERMES Track 3).
+    // Stops croner timers and disposes the IPowerMonitor listener. Must run
+    // BEFORE sqliteConnection.close() because in-flight job runs write to
+    // SQLite (cron_runs table). Synchronous — croner.stop() is sync, and
+    // any active runner promises will resolve against an already-closed
+    // connection harmlessly.
+    try {
+      cronScheduler?.stop();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Cron scheduler stop failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    // === TRACK_3_CRON_SCHEDULER_END ===
 
     // === TRACK_1_MEMORY_CURATOR_BEGIN ===
     // 4.55. Stop memory curator + close SQLite (TASK_2026_HERMES Track 1).

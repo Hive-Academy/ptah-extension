@@ -59,6 +59,11 @@ export { MemoryRpcHandlers } from './memory-rpc.handlers';
 export { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
 // === TRACK_2_SKILL_SYNTHESIS_END ===
 
+// === TRACK_3_CRON_SCHEDULER_BEGIN ===
+// Cron scheduler handlers (TASK_2026_HERMES Track 3)
+export { CronRpcHandlers } from './cron-rpc.handlers';
+// === TRACK_3_CRON_SCHEDULER_END ===
+
 // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
 // Messaging gateway handlers (TASK_2026_HERMES Track 4)
 export { GatewayRpcHandlers } from './gateway-rpc.handlers';

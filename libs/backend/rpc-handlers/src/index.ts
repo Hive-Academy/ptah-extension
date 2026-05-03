@@ -46,6 +46,9 @@ export {
   // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
   SkillsSynthesisRpcHandlers,
   // === TRACK_2_SKILL_SYNTHESIS_END ===
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  CronRpcHandlers,
+  // === TRACK_3_CRON_SCHEDULER_END ===
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   GatewayRpcHandlers,
   // === TRACK_4_MESSAGING_GATEWAY_END ===

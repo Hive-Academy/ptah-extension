@@ -18,6 +18,9 @@ import {
   ChatRpcHandlers,
   ConfigRpcHandlers,
   ContextRpcHandlers,
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  CronRpcHandlers,
+  // === TRACK_3_CRON_SCHEDULER_END ===
   EnhancedPromptsRpcHandlers,
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   GatewayRpcHandlers,
@@ -59,6 +62,9 @@ export const SHARED_HANDLERS = [
   ChatRpcHandlers,
   ConfigRpcHandlers,
   ContextRpcHandlers,
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  CronRpcHandlers,
+  // === TRACK_3_CRON_SCHEDULER_END ===
   EnhancedPromptsRpcHandlers,
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   GatewayRpcHandlers,

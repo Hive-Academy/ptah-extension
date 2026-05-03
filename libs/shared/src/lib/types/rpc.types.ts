@@ -1209,6 +1209,19 @@ export interface RpcMethodRegistry {
   };
   // === TRACK_2_SKILL_SYNTHESIS_END ===
 
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  // Cron scheduler (TASK_2026_HERMES Track 3)
+  'cron:list': { params: CronListParams; result: CronListResult };
+  'cron:get': { params: CronGetParams; result: CronGetResult };
+  'cron:create': { params: CronCreateParams; result: CronCreateResult };
+  'cron:update': { params: CronUpdateParams; result: CronUpdateResult };
+  'cron:delete': { params: CronDeleteParams; result: CronDeleteResult };
+  'cron:toggle': { params: CronToggleParams; result: CronToggleResult };
+  'cron:runNow': { params: CronRunNowParams; result: CronRunNowResult };
+  'cron:runs': { params: CronRunsParams; result: CronRunsResult };
+  'cron:nextFire': { params: CronNextFireParams; result: CronNextFireResult };
+  // === TRACK_3_CRON_SCHEDULER_END ===
+
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   // Messaging gateway (TASK_2026_HERMES Track 4)
   'gateway:status': {
@@ -1444,6 +1457,117 @@ export interface GatewayListMessagesResult {
   messages: GatewayMessageDto[];
 }
 // === TRACK_4_MESSAGING_GATEWAY_END ===
+
+// === TRACK_3_CRON_SCHEDULER_BEGIN ===
+// Cron scheduler RPC param/result types (TASK_2026_HERMES Track 3).
+// Wire-friendly DTOs that mirror the persisted shape from
+// `@ptah-extension/cron-scheduler` types.ts but use plain `string` for ids
+// (frontend bindings don't have access to the JobId / RunId branded types).
+
+export interface ScheduledJobDto {
+  id: string;
+  name: string;
+  cronExpr: string;
+  timezone: string;
+  prompt: string;
+  workspaceRoot: string | null;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+  lastRunAt: number | null;
+  nextRunAt: number | null;
+}
+
+export interface JobRunDto {
+  id: string;
+  jobId: string;
+  scheduledFor: number;
+  startedAt: number | null;
+  endedAt: number | null;
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
+  resultSummary: string | null;
+  errorMessage: string | null;
+}
+
+export interface CronListParams {
+  enabledOnly?: boolean;
+}
+export interface CronListResult {
+  jobs: ScheduledJobDto[];
+}
+
+export interface CronGetParams {
+  id: string;
+}
+export interface CronGetResult {
+  job: ScheduledJobDto | null;
+}
+
+export interface CronCreateParams {
+  name: string;
+  cronExpr: string;
+  timezone?: string;
+  prompt: string;
+  workspaceRoot?: string | null;
+  enabled?: boolean;
+}
+export interface CronCreateResult {
+  job: ScheduledJobDto;
+}
+
+export interface CronUpdateParams {
+  id: string;
+  patch: {
+    name?: string;
+    cronExpr?: string;
+    timezone?: string;
+    prompt?: string;
+    workspaceRoot?: string | null;
+    enabled?: boolean;
+  };
+}
+export interface CronUpdateResult {
+  job: ScheduledJobDto;
+}
+
+export interface CronDeleteParams {
+  id: string;
+}
+export interface CronDeleteResult {
+  ok: boolean;
+}
+
+export interface CronToggleParams {
+  id: string;
+  enabled: boolean;
+}
+export interface CronToggleResult {
+  job: ScheduledJobDto;
+}
+
+export interface CronRunNowParams {
+  id: string;
+}
+export interface CronRunNowResult {
+  run: JobRunDto | null;
+}
+
+export interface CronRunsParams {
+  id: string;
+  limit?: number;
+  offset?: number;
+}
+export interface CronRunsResult {
+  runs: JobRunDto[];
+}
+
+export interface CronNextFireParams {
+  id: string;
+}
+export interface CronNextFireResult {
+  nextRunAt: number | null;
+}
+// === TRACK_3_CRON_SCHEDULER_END ===
 
 /**
  * Valid RPC method names (compile-time enforced)
@@ -1729,6 +1853,18 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:invocations': true,
   'skillSynthesis:stats': true,
   // === TRACK_2_SKILL_SYNTHESIS_END ===
+
+  // === TRACK_3_CRON_SCHEDULER_BEGIN ===
+  'cron:list': true,
+  'cron:get': true,
+  'cron:create': true,
+  'cron:update': true,
+  'cron:delete': true,
+  'cron:toggle': true,
+  'cron:runNow': true,
+  'cron:runs': true,
+  'cron:nextFire': true,
+  // === TRACK_3_CRON_SCHEDULER_END ===
 
   // === TRACK_4_MESSAGING_GATEWAY_BEGIN ===
   'gateway:status': true,
