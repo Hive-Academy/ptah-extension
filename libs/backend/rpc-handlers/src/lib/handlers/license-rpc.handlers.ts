@@ -172,12 +172,21 @@ export class LicenseRpcHandlers {
       'license:setKey',
       async (params) => {
         try {
-          const key = params?.licenseKey;
+          let normalizedKey: unknown = params?.licenseKey;
+          if (Array.isArray(normalizedKey)) {
+            normalizedKey = normalizedKey[0];
+          }
 
           // Validate key is provided
-          if (!key || typeof key !== 'string') {
-            return { success: false, error: 'License key is required' };
+          if (!normalizedKey || typeof normalizedKey !== 'string') {
+            return {
+              success: false,
+              error: Array.isArray(params?.licenseKey)
+                ? 'License key must be a single string, received array'
+                : 'License key is required',
+            };
           }
+          const key = normalizedKey;
 
           // Validate format: ptah_lic_ + 64 hex characters
           if (!/^ptah_lic_[a-f0-9]{64}$/.test(key)) {

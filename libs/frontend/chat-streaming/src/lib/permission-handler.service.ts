@@ -118,6 +118,16 @@ export class PermissionHandlerService {
   readonly questionRequests = this._questionRequests.asReadonly();
 
   /**
+   * Per-question list of tab ids the question is targeted at, populated by
+   * `StreamRouter.routeQuestionPrompt` after a question arrives. Mirrors
+   * `_promptTargetTabs` for permissions. When unset for a given question id,
+   * consumers fall back to global visibility (active-tab broadcast) so a
+   * question is never silently dropped — the backend's `awaitQuestionResponse`
+   * has no timeout (`timeoutAt: 0`) and would otherwise hang forever.
+   */
+  private readonly _questionTargetTabs = new Map<string, readonly string[]>();
+
+  /**
    * Constructor - sets up cleanup effect for expired requests
    */
   constructor() {
@@ -545,11 +555,54 @@ export class PermissionHandlerService {
       requests.filter((r) => r.id !== response.id),
     );
 
+    this._questionTargetTabs.delete(response.id);
+
     // Send to backend via VSCodeService
     this.vscodeService.postMessage({
       type: MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE,
       payload: response,
     });
+  }
+
+  /**
+   * Question routing fan-out — mirrors `attachPromptTargets` for permissions.
+   * Called by `StreamRouter.routeQuestionPrompt` once a question arrives and
+   * the resolved tab ids are known. No-op when `tabIds` is empty (router
+   * could not resolve a tab — chat-view falls back to active-tab visibility).
+   */
+  attachQuestionTargets(questionId: string, tabIds: readonly string[]): void {
+    if (!tabIds || tabIds.length === 0) return;
+    this._questionTargetTabs.set(questionId, [...tabIds]);
+    // Force signal-dependent computeds (e.g. `resolvedQuestionRequests`) to
+    // re-evaluate now that targets are known. The Map mutation alone is not
+    // observable, and routeQuestionPrompt runs immediately after the signal
+    // update — without this nudge the filter stays on the fallback path
+    // for one tick longer than necessary.
+    this._questionRequests.update((reqs) => reqs.slice());
+  }
+
+  /**
+   * Read access to per-question target tabs. Returns an empty array when
+   * the router fell back to global visibility or the question has been
+   * resolved.
+   */
+  questionTargetTabsFor(questionId: string): readonly string[] {
+    return this._questionTargetTabs.get(questionId) ?? [];
+  }
+
+  /**
+   * Drop a pending question without sending a response to the backend.
+   * Used by the auto-resolve broadcast (`ASK_USER_QUESTION_AUTO_RESOLVED`):
+   * when the backend's idle timer fires and picks the recommended option,
+   * it resolves the SDK promise itself, then notifies the webview to clear
+   * the stale question card. Sending a response from the UI here would be
+   * a duplicate.
+   */
+  dropQuestionRequest(questionId: string): void {
+    this._questionRequests.update((requests) =>
+      requests.filter((r) => r.id !== questionId),
+    );
+    this._questionTargetTabs.delete(questionId);
   }
 
   /**
@@ -582,6 +635,10 @@ export class PermissionHandlerService {
       .filter((r) => r.sessionId === sessionId)
       .map((r) => r.id);
 
+    const removedQuestionIds = this._questionRequests()
+      .filter((r) => r.sessionId === sessionId)
+      .map((r) => r.id);
+
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.sessionId !== sessionId),
     );
@@ -592,6 +649,9 @@ export class PermissionHandlerService {
 
     for (const id of removedIds) {
       this._promptTargetTabs.delete(id);
+    }
+    for (const id of removedQuestionIds) {
+      this._questionTargetTabs.delete(id);
     }
   }
 }

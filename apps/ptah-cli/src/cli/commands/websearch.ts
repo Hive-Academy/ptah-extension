@@ -144,10 +144,11 @@ async function runSetKey(
     stderr.write('ptah websearch set-key: --key is required\n');
     return ExitCode.UsageError;
   }
+  const key = Array.isArray(opts.key) ? opts.key[0] : opts.key;
   return engine(globals, { mode: 'full' }, async (ctx) => {
     await callRpc<{ success?: boolean }>(ctx.transport, 'webSearch:setApiKey', {
       provider: opts.provider,
-      apiKey: opts.key,
+      apiKey: key,
     });
     await formatter.writeNotification('websearch.updated', {
       provider: opts.provider,

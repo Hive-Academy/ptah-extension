@@ -15,6 +15,16 @@ import type { EditorTabsHelper } from './editor-tabs';
  * concerns co-located.
  */
 export class EditorFileOpsHelper {
+  /**
+   * Set of file paths currently being re-read in response to a
+   * file:content-changed push. Prevents pile-up of concurrent RPCs for
+   * the same file when the backend bursts events (e.g., during a git op
+   * that touches many files in rapid succession). Without this guard,
+   * `editor:openFile` calls can stack up faster than the backend can
+   * service them and eventually time out.
+   */
+  private readonly inFlightRereads = new Set<string>();
+
   public constructor(
     private readonly state: EditorInternalState,
     private readonly tabs: EditorTabsHelper,
@@ -254,36 +264,57 @@ export class EditorFileOpsHelper {
     const tab = tabs.find((t) => t.filePath === filePath);
     if (!tab || tab.isDirty) return;
 
-    const result = await rpcCall<{ content: string; filePath: string }>(
-      this.state.vscodeService,
-      'editor:openFile',
-      { filePath },
-    );
+    // Image tabs render via file:// URL, no content RPC needed.
+    const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
+    if (IMAGE_EXTENSIONS.has(ext)) return;
 
-    if (!result.success || !result.data) return;
+    if (this.inFlightRereads.has(filePath)) return;
+    this.inFlightRereads.add(filePath);
 
-    const newContent = result.data.content ?? '';
-    if (newContent === tab.content) return;
+    // Snapshot the originating workspace so a slow RPC that resolves after
+    // a workspace switch can't write fresh-disk bytes into a same-pathed
+    // tab in the new workspace.
+    const originWorkspace = this.state.getActiveWorkspacePath();
 
-    this.state.openTabs.update((currentTabs: EditorTab[]) =>
-      currentTabs.map((t) =>
-        t.filePath === filePath ? { ...t, content: newContent } : t,
-      ),
-    );
-
-    if (this.state.activeFilePath() === filePath) {
-      this.state.activeFileContent.set(newContent);
-    }
-
-    const activePath = this.state.activeFilePath();
-    if (activePath) {
-      this.tabs.updateCachedActiveFile(
-        activePath,
-        this.state.activeFilePath() === filePath
-          ? newContent
-          : this.state.activeFileContent(),
+    try {
+      const result = await rpcCall<{ content: string; filePath: string }>(
+        this.state.vscodeService,
+        'editor:openFile',
+        { filePath },
       );
+
+      if (!result.success || !result.data) return;
+      if (this.state.getActiveWorkspacePath() !== originWorkspace) return;
+
+      const newContent = result.data.content ?? '';
+
+      // Re-snapshot — tab may have closed or become dirty during the RPC.
+      const liveTab = this.state
+        .openTabs()
+        .find((t) => t.filePath === filePath);
+      if (!liveTab || liveTab.isDirty) return;
+      if (newContent === liveTab.content) return;
+
+      this.state.openTabs.update((currentTabs: EditorTab[]) =>
+        currentTabs.map((t) =>
+          t.filePath === filePath ? { ...t, content: newContent } : t,
+        ),
+      );
+
+      if (this.state.activeFilePath() === filePath) {
+        this.state.activeFileContent.set(newContent);
+      }
+
+      const activePath = this.state.activeFilePath();
+      if (activePath) {
+        this.tabs.updateCachedActiveFile(
+          activePath,
+          activePath === filePath ? newContent : this.state.activeFileContent(),
+        );
+      }
+      this.tabs.syncTabsToCache();
+    } finally {
+      this.inFlightRereads.delete(filePath);
     }
-    this.tabs.syncTabsToCache();
   }
 }

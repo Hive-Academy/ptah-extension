@@ -36,6 +36,9 @@
       ],
       "@ptah-extension/chat-ui": ["libs/frontend/chat-ui/src/index.ts"],
       "@ptah-extension/core": ["libs/frontend/core/src/index.ts"],
+      "@ptah-extension/cron-scheduler": [
+        "libs/backend/cron-scheduler/src/index.ts"
+      ],
       "@ptah-extension/core/testing": [
         "libs/frontend/core/src/testing/index.ts"
       ],
@@ -55,6 +58,18 @@
       ],
       "@ptah-extension/platform-electron": [
         "libs/backend/platform-electron/src/index.ts"
+      ],
+      "@ptah-extension/persistence-sqlite": [
+        "libs/backend/persistence-sqlite/src/index.ts"
+      ],
+      "@ptah-extension/memory-curator": [
+        "libs/backend/memory-curator/src/index.ts"
+      ],
+      "@ptah-extension/messaging-gateway": [
+        "libs/backend/messaging-gateway/src/index.ts"
+      ],
+      "@ptah-extension/skill-synthesis": [
+        "libs/backend/skill-synthesis/src/index.ts"
       ],
       "@ptah-extension/platform-vscode": [
         "libs/backend/platform-vscode/src/index.ts"

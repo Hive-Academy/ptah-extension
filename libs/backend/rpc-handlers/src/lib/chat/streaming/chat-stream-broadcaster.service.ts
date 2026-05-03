@@ -1,9 +1,9 @@
 /**
  * Chat stream broadcaster (Wave C7e).
  *
- * Owns the webview broadcast loop (`streamEventsToWebview`) plus the
- * background-agent-completed event subscription. Both move byte-identically
- * from `chat-rpc.handlers.ts`. The streaming lifecycle preserves:
+ * Owns the webview broadcast loop (`streamEventsToWebview`). Moves
+ * byte-identically from `chat-rpc.handlers.ts`. The streaming lifecycle
+ * preserves:
  *
  *   - `streamExitedNormally` cleanup gate.
  *   - `isUserAbort` substring match (`'aborted by user' | 'abort' | 'cancelled' | 'canceled'`).
@@ -18,7 +18,6 @@ import {
   Logger,
   TOKENS,
   SubagentRegistryService,
-  AgentSessionWatcherService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, SessionMetadataStore } from '@ptah-extension/agent-sdk';
@@ -30,7 +29,6 @@ import type {
   IAgentAdapter,
   SessionId,
   FlatStreamEventUnion,
-  BackgroundAgentCompletedEvent,
   BackgroundAgentStartedEvent,
 } from '@ptah-extension/shared';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
@@ -53,8 +51,6 @@ export class ChatStreamBroadcaster {
     private readonly sdkAdapter: IAgentAdapter,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
-    @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
-    private readonly agentSessionWatcher: AgentSessionWatcherService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
@@ -64,59 +60,6 @@ export class ChatStreamBroadcaster {
     @inject(CHAT_TOKENS.PTAH_CLI)
     private readonly ptahCli: ChatPtahCliService,
   ) {}
-
-  /**
-   * Subscribe to background agent events from AgentSessionWatcherService.
-   *
-   * Background agent events flow through a separate delivery path because
-   * they outlive the main agent's streaming loop (streamExecutionNodesToWebview).
-   * When a background agent completes, the watcher emits 'background-agent-completed'
-   * and we broadcast it directly to the webview.
-   */
-  subscribeToBackgroundAgentEvents(): void {
-    this.agentSessionWatcher.on(
-      'background-agent-completed',
-      (data: {
-        agentId: string;
-        toolCallId: string;
-        agentType: string;
-        duration?: number;
-        summaryContent?: string;
-        sessionId?: string;
-      }) => {
-        this.logger.info('[RPC] Background agent completed event received', {
-          agentId: data.agentId,
-          toolCallId: data.toolCallId,
-          agentType: data.agentType,
-        });
-
-        const event: BackgroundAgentCompletedEvent = {
-          id: `evt_bg_${Date.now()}_${Math.random()
-            .toString(36)
-            .substring(2, 9)}`,
-          eventType: 'background_agent_completed',
-          timestamp: Date.now(),
-          sessionId: data.sessionId || '',
-          messageId: `bg-complete-${data.agentId}`,
-          toolCallId: data.toolCallId,
-          agentId: data.agentId,
-          agentType: data.agentType,
-          result: data.summaryContent,
-          duration: data.duration,
-        };
-
-        // Broadcast to all webview tabs - frontend filters by toolCallId
-        this.webviewManager
-          .broadcastMessage(MESSAGE_TYPES.CHAT_CHUNK, { event })
-          .catch((err) => {
-            this.logger.error(
-              '[RPC] Failed to broadcast background agent completed event',
-              err instanceof Error ? err : new Error(String(err)),
-            );
-          });
-      },
-    );
-  }
 
   /**
    * Stream flat events to webview
@@ -241,10 +184,6 @@ export class ChatStreamBroadcaster {
               outputFilePath: bgEvent.outputFilePath,
               backgroundStartedAt: Date.now(),
             });
-            // Also mark the watcher so it doesn't get stopped prematurely
-            if (bgEvent.agentId) {
-              this.agentSessionWatcher.markAsBackground(bgEvent.agentId);
-            }
             this.logger.info(
               '[RPC] Background agent registered from stream event',
               {

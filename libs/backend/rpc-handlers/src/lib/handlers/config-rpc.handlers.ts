@@ -50,6 +50,7 @@ import type { RpcMethodName } from '@ptah-extension/shared';
 export class ConfigRpcHandlers {
   static readonly METHODS = [
     'config:model-switch',
+    'config:model-set',
     'config:model-get',
     'config:autopilot-toggle',
     'config:autopilot-get',
@@ -82,6 +83,7 @@ export class ConfigRpcHandlers {
    */
   register(): void {
     this.registerModelSwitch();
+    this.registerModelSet();
     this.registerModelGet();
     this.registerAutopilotToggle();
     this.registerAutopilotGet();
@@ -106,6 +108,7 @@ export class ConfigRpcHandlers {
     this.logger.debug('Config RPC handlers registered', {
       methods: [
         'config:model-switch',
+        'config:model-set',
         'config:model-get',
         'config:autopilot-toggle',
         'config:autopilot-get',
@@ -175,6 +178,43 @@ export class ConfigRpcHandlers {
         throw error;
       }
     });
+  }
+
+  /**
+   * config:model-set - Persist model selection and/or autopilot flag.
+   *
+   * TASK_2026_107 Bug 6: Lifted from
+   * `apps/ptah-electron/src/services/rpc/handlers/config-extended-rpc.handlers.ts`
+   * so all three apps (VS Code, Electron, CLI) consume it via
+   * `registerAllRpcHandlers()`. The original used `StorageService`; this shared
+   * version goes through `ConfigManager` which already routes to the same
+   * underlying store on every host.
+   */
+  private registerModelSet(): void {
+    this.rpcHandler.registerMethod(
+      'config:model-set',
+      async (params: { model?: string; autopilot?: boolean } | undefined) => {
+        try {
+          if (params?.model !== undefined) {
+            await this.configManager.set('model.selected', params.model);
+          }
+          if (params?.autopilot !== undefined) {
+            await this.configManager.set('autopilot.enabled', params.autopilot);
+          }
+          return { success: true };
+        } catch (error) {
+          this.logger.error(
+            'RPC: config:model-set failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'ConfigRpcHandlers.registerModelSet' },
+          );
+          throw error;
+        }
+      },
+    );
   }
 
   /**

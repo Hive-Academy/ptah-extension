@@ -100,12 +100,13 @@ async function runSet(
     return ExitCode.UsageError;
   }
   return engine(globals, { mode: 'full' }, async (ctx) => {
+    const key = Array.isArray(opts.key) ? opts.key[0] : opts.key;
     const result = await callRpc<{
       success?: boolean;
       tier?: string;
       plan?: { name?: string };
       error?: string;
-    }>(ctx.transport, 'license:setKey', { licenseKey: opts.key });
+    }>(ctx.transport, 'license:setKey', { licenseKey: key });
     if (result?.success === false) {
       throw new Error(result.error ?? 'license:setKey failed');
     }

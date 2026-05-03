@@ -29,7 +29,9 @@ import {
   ElectronPlatformAuth,
   ElectronSaveDialog,
   ElectronModelDiscovery,
+  ElectronPowerMonitor,
 } from '../services/platform';
+import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
 
 /**
  * Phase 3: Register storage adapters, platform abstractions, and vscode-lm-tools.
@@ -127,6 +129,26 @@ export function registerPhase3Storage(
       services: registeredAbstractions,
     },
   );
+
+  // ========================================
+  // PHASE 3.6: Cron Power Monitor (TASK_2026_HERMES Track 3)
+  // ========================================
+  // CronScheduler's CatchupCoordinator depends on IPowerMonitor to re-arm
+  // jobs after the system resumes from sleep. ElectronPowerMonitor wraps
+  // electron.powerMonitor — registered here (Phase 3) so it is available
+  // before wire-runtime Phase 4.54 calls scheduler.start().
+  try {
+    container.registerSingleton(
+      CRON_TOKENS.CRON_POWER_MONITOR,
+      ElectronPowerMonitor,
+    );
+    logger.info('[Electron DI] ElectronPowerMonitor registered (Track 3)');
+  } catch (error) {
+    logger.warn(
+      '[Electron DI] ElectronPowerMonitor registration failed (non-fatal)',
+      { error: error instanceof Error ? error.message : String(error) },
+    );
+  }
 
   // ========================================
   // PHASE 4 prelude: Code Execution MCP + Browser Capabilities (TASK_2025_226, TASK_2025_244)

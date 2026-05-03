@@ -1,9 +1,8 @@
 /**
  * SubagentHookHandler - Encapsulates SDK subagent hook callbacks
  *
- * Connects SDK lifecycle hooks to AgentSessionWatcherService for
- * real-time subagent text streaming AND SubagentRegistryService for
- * tracking subagent lifecycle state (resumption support).
+ * Connects SDK lifecycle hooks to SubagentRegistryService for tracking
+ * subagent lifecycle state (resumption support).
  *
  * Key behaviors:
  * - Hooks NEVER throw (would break SDK)
@@ -11,21 +10,24 @@
  * - Logging for all lifecycle events (debug level)
  *
  * Flow:
- * 1. SubagentStart hook fires -> startWatching(agentId, sessionId, workspacePath, toolUseId?)
- *    AND registry.register() for resumption tracking
- * 2. AgentSessionWatcherService watches for agent-{agent_id}.jsonl files
- * 3. File grows -> summary chunks emitted to webview
- * 4. SubagentStop hook fires -> setToolUseId(agentId, toolUseId), stopWatching(agentId)
- *    AND registry.update() to mark as 'completed'
+ * 1. SubagentStart hook fires -> registry.register() for resumption tracking
+ * 2. Subagent text streams inline through the parent SDK message stream
+ *    (enabled by `forwardSubagentText: true` in SdkQueryOptionsBuilder).
+ * 3. SubagentStop hook fires -> registry.update() to mark as 'completed'.
+ *
+ * TASK_2026_109 Fix 2: removed dependency on AgentSessionWatcherService —
+ * the JSONL tail-watching path it owned is replaced by inline subagent
+ * forwarding in the SDK stream itself. The watcher is now a no-op stub
+ * that retains its public API for legacy consumers.
  *
  * @see TASK_2025_099 - Real-Time Subagent Text Streaming via SDK Hooks
  * @see TASK_2025_103 - Subagent Resumption Feature
+ * @see TASK_2026_109 - SDK improvement bundle (Fix 2)
  */
 
 import { injectable, inject } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import type { AgentSessionWatcherService } from '@ptah-extension/vscode-core';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import {
   isSubagentStartHook,
@@ -59,8 +61,6 @@ import type {
 export class SubagentHookHandler {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
-    private readonly agentWatcher: AgentSessionWatcherService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
   ) {}
@@ -221,15 +221,10 @@ export class SubagentHookHandler {
         parentSessionId,
       });
 
-      // TASK_2025_100 FIX: Pass agentType so AgentSessionWatcherService can
-      // emit 'agent-start' event with proper agent info
-      await this.agentWatcher.startWatching(
-        input.agent_id,
-        input.session_id,
-        workspacePath,
-        input.agent_type,
-        toolUseId,
-      );
+      // TASK_2026_109 Fix 2: AgentSessionWatcherService is now a no-op stub —
+      // subagent text streams inline through the parent SDK message stream
+      // via `forwardSubagentText: true` in SdkQueryOptionsBuilder. No file
+      // watching is started here.
 
       // TASK_2025_103: Register subagent with registry for resumption tracking
       // Only register if we have both toolUseId and parentSessionId
@@ -313,10 +308,9 @@ export class SubagentHookHandler {
         toolUseId,
       });
 
-      // Set toolUseId if available (for UI routing of summary chunks)
-      if (toolUseId) {
-        this.agentWatcher.setToolUseId(input.agent_id, toolUseId);
-      }
+      // TASK_2026_109 Fix 2: setToolUseId on the watcher is now a no-op
+      // (watcher is a stub). Subagent text routes through the SDK stream
+      // directly with `forwardSubagentText: true`.
 
       // FIX: Resolve the registry record using toolUseId first, then agentId fallback.
       // The SDK may provide different toolUseId formats between SubagentStart (UUID)
@@ -361,15 +355,9 @@ export class SubagentHookHandler {
           },
         );
 
-        // Emit background agent completed event through watcher
-        this.agentWatcher.emitBackgroundAgentCompleted(
-          input.agent_id,
-          resolvedToolCallId,
-          record?.agentType,
-        );
-
-        // Stop watching (now that completion event is emitted)
-        this.agentWatcher.stopWatching(input.agent_id);
+        // TASK_2026_109 Fix 2: watcher event emission and stopWatching are
+        // no-ops now. Background completion is observed solely via
+        // SubagentRegistryService transitions.
 
         // Mark as background_completed (deletes from registry)
         this.subagentRegistry.update(resolvedToolCallId, {
@@ -378,7 +366,7 @@ export class SubagentHookHandler {
         });
       } else {
         // Foreground agent - normal completion flow
-        this.agentWatcher.stopWatching(input.agent_id);
+        // TASK_2026_109 Fix 2: stopWatching is a no-op (watcher stub).
 
         // TASK_2025_103: Mark subagent as completed in registry
         if (resolvedToolCallId) {

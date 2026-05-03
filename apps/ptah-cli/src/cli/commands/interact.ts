@@ -538,6 +538,7 @@ export async function execute(
           try {
             const result = await chatBridge.runTurn({
               tabId,
+              command: 'task.submit',
               rpcCall: async () => {
                 const resp = await ctx.transport.call<unknown, unknown>(
                   rpcMethod,
@@ -639,6 +640,41 @@ export async function execute(
               ? all.slice(all.length - limit)
               : all;
           return { messages: trimmed, session_id: sessionId };
+        },
+      );
+
+      // e2e + scripted-bridge passthrough — forwards an arbitrary in-process
+      // RPC call through the same transport used by chat:start/chat:continue.
+      // Inbound shape: { method: string; params?: unknown }
+      // Returns the raw RpcResponse<unknown> envelope from the in-process handler.
+      server.register(
+        'rpc.call',
+        async (
+          params: unknown,
+        ): Promise<{ success: boolean; data?: unknown; error?: string }> => {
+          if (
+            params === null ||
+            typeof params !== 'object' ||
+            typeof (params as { method?: unknown }).method !== 'string'
+          ) {
+            throw new Error(
+              'rpc.call requires { method: string, params?: unknown }',
+            );
+          }
+          const { method, params: methodParams } = params as {
+            method: string;
+            params?: unknown;
+          };
+          const resp = await ctx.transport.call<unknown, unknown>(
+            method,
+            methodParams ?? {},
+          );
+          const out: { success: boolean; data?: unknown; error?: string } = {
+            success: resp.success === true,
+          };
+          if (resp.data !== undefined) out.data = resp.data;
+          if (typeof resp.error === 'string') out.error = resp.error;
+          return out;
         },
       );
 

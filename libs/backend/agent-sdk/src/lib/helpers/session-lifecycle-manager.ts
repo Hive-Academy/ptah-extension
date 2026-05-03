@@ -20,10 +20,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import type {
-  SubagentRegistryService,
-  AgentSessionWatcherService,
-} from '@ptah-extension/vscode-core';
+import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import {
   SessionId,
   AISessionConfig,
@@ -193,6 +190,28 @@ export interface ExecuteQueryConfig {
    * preserved relative to pre-T2 behavior.
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
+  /**
+   * Pre-warmed `WarmQuery` handle from `SdkAgentAdapter.prewarm()`. When
+   * provided, the executor uses `warm.query(prompt)` for the very first
+   * query of this session instead of the standard `queryFn(...)` call —
+   * skipping the spawn + initialize handshake.
+   *
+   * **Caller contract**: the caller MUST have already validated (via
+   * `consumeWarmQuery(requirements)`) that this warm handle's option
+   * fingerprint matches the options about to be built for this session.
+   * The executor does NOT re-validate — `WarmQuery.query` accepts only a
+   * prompt and silently inherits every other Option from the original
+   * `startup()` call, so any mismatch produces a session running with the
+   * wrong options. Callers that aren't sure must pass `undefined` here.
+   *
+   * Only meaningful for NEW (non-resume, non-fork) sessions with a string
+   * or iterable prompt. The executor falls back to the normal `queryFn`
+   * path if this is `undefined`, if the session is a resume/fork, or if
+   * `warm.query` is missing on the handle.
+   *
+   * TASK_2026_109 Fix 3 wiring (this commit).
+   */
+  warmQuery?: { close: () => void; query?: unknown };
 }
 
 /**
@@ -278,9 +297,6 @@ export class SessionLifecycleManager {
     // TASK_2025_103: SubagentRegistryService for marking subagents as interrupted
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private subagentRegistry: SubagentRegistryService,
-    // TASK_2025_264: AgentSessionWatcherService for stopping file watchers on session end
-    @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
-    private agentSessionWatcher: AgentSessionWatcherService,
     @inject(SDK_TOKENS.SDK_AUTH_ENV)
     private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
@@ -312,7 +328,6 @@ export class SessionLifecycleManager {
       this._registry,
       this.permissionHandler,
       this.subagentRegistry,
-      this.agentSessionWatcher,
       this.modelResolver,
     );
   }

@@ -54,7 +54,6 @@ import type { Logger } from '@ptah-extension/vscode-core';
 // Platform-agnostic vscode-core services (verified: no runtime vscode imports)
 import { RpcHandler } from '@ptah-extension/vscode-core';
 import { MessageValidatorService } from '@ptah-extension/vscode-core';
-import { AgentSessionWatcherService } from '@ptah-extension/vscode-core';
 import { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import { FeatureGateService } from '@ptah-extension/vscode-core';
 import { LicenseService } from '@ptah-extension/vscode-core';
@@ -289,10 +288,6 @@ export class CliDIContainer {
     container.registerSingleton(
       TOKENS.MESSAGE_VALIDATOR,
       MessageValidatorService,
-    );
-    container.registerSingleton(
-      TOKENS.AGENT_SESSION_WATCHER_SERVICE,
-      AgentSessionWatcherService,
     );
     container.registerSingleton(
       TOKENS.SUBAGENT_REGISTRY_SERVICE,

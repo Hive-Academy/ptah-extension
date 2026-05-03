@@ -16,6 +16,21 @@ import { extractFileName, IMAGE_EXTENSIONS } from './editor-internal-state';
  * concerns co-located with whoever last changed tabs / active file.
  */
 export class EditorWorkspaceHelper {
+  /**
+   * Frontend-side coalescing window for `editor:reread-open-tabs` bursts.
+   * Slightly less than the backend `GIT_DEBOUNCE_MS` (500ms) so back-to-back
+   * git ops fan out as one renderer-side iteration without delaying the
+   * user-visible refresh further.
+   */
+  private static readonly REREAD_OPEN_TABS_DEBOUNCE_MS = 250;
+
+  /**
+   * Frontend-side coalescing window for `file:tree-changed` bursts.
+   * Matches the backend's tree debounce so a quick succession of structural
+   * changes results in a single tree fetch.
+   */
+  private static readonly TREE_REFRESH_DEBOUNCE_MS = 500;
+
   /** Counter for stale-response protection in loadFileTree(). */
   private loadFileTreeRequestId = 0;
 
@@ -24,6 +39,10 @@ export class EditorWorkspaceHelper {
 
   /** Debounce timer for frontend-side tree refresh coalescing. */
   private treeRefreshDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Debounce timer for git-ops-driven reread of all open tabs. */
+  private rereadAllTabsDebounceTimer: ReturnType<typeof setTimeout> | null =
+    null;
 
   public constructor(
     private readonly state: EditorInternalState,
@@ -42,6 +61,20 @@ export class EditorWorkspaceHelper {
   public switchWorkspace(workspacePath: string): void {
     const currentActive = this.state.getActiveWorkspacePath();
     if (currentActive === workspacePath) return;
+
+    // Cancel any pending refresh timers from the outgoing workspace so they
+    // don't fire after the openTabs signal has been replaced — otherwise
+    // a stale reread broadcast could fan out across the new workspace's
+    // tabs and waste RPCs (or overwrite an unsaved buffer that wasn't yet
+    // marked dirty).
+    if (this.treeRefreshDebounceTimer) {
+      clearTimeout(this.treeRefreshDebounceTimer);
+      this.treeRefreshDebounceTimer = null;
+    }
+    if (this.rereadAllTabsDebounceTimer) {
+      clearTimeout(this.rereadAllTabsDebounceTimer);
+      this.rereadAllTabsDebounceTimer = null;
+    }
 
     // Step 1: save current workspace signals into map
     this.saveCurrentWorkspaceState();
@@ -321,11 +354,30 @@ export class EditorWorkspaceHelper {
         this.treeRefreshDebounceTimer = setTimeout(() => {
           this.treeRefreshDebounceTimer = null;
           void this.loadFileTree();
-        }, 500);
+        }, EditorWorkspaceHelper.TREE_REFRESH_DEBOUNCE_MS);
       }
 
       if (data?.type === 'file:content-changed' && data?.payload?.filePath) {
         void this.callbacks.handleFileContentChanged(data.payload.filePath);
+      }
+
+      // Backend signals that a git operation just finished — every open
+      // editor tab may now be stale on disk. Coalesce bursts (a single
+      // git command writes HEAD, index, and refs in sequence) and then
+      // re-read each non-dirty open tab. The fileOps helper has its own
+      // per-file in-flight guard, so duplicate paths are cheap.
+      if (data?.type === 'editor:reread-open-tabs') {
+        if (this.rereadAllTabsDebounceTimer) {
+          clearTimeout(this.rereadAllTabsDebounceTimer);
+        }
+        this.rereadAllTabsDebounceTimer = setTimeout(() => {
+          this.rereadAllTabsDebounceTimer = null;
+          const tabs = this.state.openTabs();
+          for (const tab of tabs) {
+            if (tab.isDirty) continue;
+            void this.callbacks.handleFileContentChanged(tab.filePath);
+          }
+        }, EditorWorkspaceHelper.REREAD_OPEN_TABS_DEBOUNCE_MS);
       }
     };
     window.addEventListener('message', this.treeMessageHandler);
@@ -340,6 +392,10 @@ export class EditorWorkspaceHelper {
     if (this.treeRefreshDebounceTimer) {
       clearTimeout(this.treeRefreshDebounceTimer);
       this.treeRefreshDebounceTimer = null;
+    }
+    if (this.rereadAllTabsDebounceTimer) {
+      clearTimeout(this.rereadAllTabsDebounceTimer);
+      this.rereadAllTabsDebounceTimer = null;
     }
   }
 }

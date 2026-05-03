@@ -35,6 +35,7 @@ import {
   ContextRpcHandlers,
   AutocompleteRpcHandlers,
   FileRpcHandlers,
+  EditorRpcHandlers, // M3: editor:revertFiles for post-rewind buffer reload
   ConfigRpcHandlers,
   AuthRpcHandlers,
   SetupRpcHandlers,
@@ -91,6 +92,7 @@ export function registerPhase3Handlers(
   container.registerSingleton(ContextRpcHandlers);
   container.registerSingleton(AutocompleteRpcHandlers);
   container.registerSingleton(FileRpcHandlers);
+  container.registerSingleton(EditorRpcHandlers);
   container.registerSingleton(ConfigRpcHandlers);
   container.registerSingleton(AuthRpcHandlers);
   container.registerSingleton(LicenseRpcHandlers);
@@ -202,6 +204,7 @@ export function registerPhase3Handlers(
         c.resolve(TOKENS.COMMAND_MANAGER),
         c.resolve(ChatRpcHandlers),
         c.resolve(FileRpcHandlers),
+        c.resolve(EditorRpcHandlers),
         c.resolve(CommandRpcHandlers),
         c.resolve(AgentRpcHandlers),
         c.resolve(SkillsShRpcHandlers),

@@ -21,7 +21,8 @@ export { EditorRpcHandlers } from './editor-rpc.handlers';
 export { FileRpcHandlers } from './file-rpc.handlers';
 export { ConfigExtendedRpcHandlers } from './config-extended-rpc.handlers';
 export { CommandRpcHandlers } from './command-rpc.handlers';
-export { SettingsRpcHandlers } from './settings-rpc.handlers';
+// TASK_2026_107 Bug 6: SettingsRpcHandlers lifted to
+// `@ptah-extension/rpc-handlers` SHARED_HANDLERS. No longer Electron-local.
 export { AgentRpcHandlers } from './agent-rpc.handlers';
 export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
 export { LayoutRpcHandlers } from './layout-rpc.handlers';

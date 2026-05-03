@@ -356,16 +356,36 @@ async function runAutopilotSet(
     return ExitCode.UsageError;
   }
   return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
-    const result = await callRpc<unknown>(
-      ctx.transport,
-      'config:autopilot-toggle',
-      { enabled, permissionLevel: enabled ? 'all' : 'none' },
-    );
-    await formatter.writeNotification('config.autopilot', {
-      enabled,
-      ...wrapResult(result),
-    });
-    return ExitCode.Success;
+    const permissionLevel = enabled ? 'yolo' : 'ask';
+    try {
+      const result = await callRpc<unknown>(
+        ctx.transport,
+        'config:autopilot-toggle',
+        { enabled, permissionLevel },
+      );
+      await formatter.writeNotification('config.autopilot', {
+        enabled,
+        permissionLevel,
+        ...wrapResult(result),
+      });
+      return ExitCode.Success;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isProGate =
+        enabled &&
+        permissionLevel === 'yolo' &&
+        /pro subscription|pro tier|pro-?required/i.test(message);
+      if (isProGate) {
+        await formatter.writeNotification('config.autopilot', {
+          enabled,
+          permissionLevel,
+          proRequired: true,
+          message,
+        });
+        return ExitCode.Success;
+      }
+      throw error;
+    }
   });
 }
 

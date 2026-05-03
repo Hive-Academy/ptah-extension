@@ -121,6 +121,8 @@ export interface SessionExecuteHooks {
    * unregistration function. Production: registers on `process`.
    */
   installSigint?: (handler: () => void) => () => void;
+  /** Override the drain timeout (default 5_000 ms). */
+  drainTimeoutMs?: number;
 }
 
 /** Persisted shape under `WORKSPACE_STATE_STORAGE` namespace `'sessions'`. */
@@ -299,7 +301,7 @@ async function runStart(
   const uuid = hooks.randomUUID ?? randomUUID;
   const tabId = uuid();
 
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  const exitCode = await engine(globals, { mode: 'full' }, async (ctx) => {
     const workspaceProvider = ctx.container.resolve<IWorkspaceProvider>(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
     );
@@ -323,7 +325,7 @@ async function runStart(
       tab_id: tabId,
     });
 
-    const exitCode = await runStreamingTurn({
+    return await runStreamingTurn({
       ctx,
       tabId,
       formatter,
@@ -353,8 +355,38 @@ async function runStart(
         });
       },
     });
-    return exitCode;
   });
+
+  if (opts.once === true) {
+    // Windows pipes are async — without flushing the formatter writer and
+    // draining stdout, the tail event is lost on `--once` exit.
+    await formatter.close();
+
+    const drainTimeoutMs = hooks.drainTimeoutMs ?? 5_000;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const drainPromise = new Promise<void>((res) => {
+      process.stdout.write('', () => res());
+    });
+    const timeoutPromise = new Promise<void>((res) => {
+      timeoutHandle = setTimeout(() => {
+        process.stderr.write(
+          `[ptah] stdout drain timeout (${drainTimeoutMs}ms); forcing exit\n`,
+        );
+        res();
+      }, drainTimeoutMs);
+    });
+
+    try {
+      await Promise.race([drainPromise, timeoutPromise]);
+    } finally {
+      if (timeoutHandle !== undefined) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+    process.exit(exitCode);
+  }
+
+  return exitCode;
 }
 
 async function runResume(
@@ -608,6 +640,7 @@ async function runStreamingTurn(args: StreamingTurnArgs): Promise<number> {
   try {
     const result = await chatBridge.runTurn({
       tabId,
+      command,
       rpcCall: async () => {
         const resp = await ctx.transport.call(rpcMethod, buildParams());
         return { success: resp.success === true };
@@ -623,18 +656,13 @@ async function runStreamingTurn(args: StreamingTurnArgs): Promise<number> {
       return ExitCode.Success;
     }
 
-    // result.success === false — narrowed branch.
+    // result.success === false — narrowed branch. The terminal `task.error`
+    // notification was already emitted by ChatBridge.settle() before resolving.
     if (aborted || result.cancelled === true) {
       // SIGINT path — exit 130 (matching the conventional Ctrl+C exit code).
       return 130;
     }
 
-    await formatter.writeNotification('task.error', {
-      ptah_code: 'unknown',
-      command,
-      message: result.error,
-      session_id: result.sessionId ?? tabId,
-    });
     return ExitCode.GeneralError;
   } finally {
     approvalBridge?.detach();

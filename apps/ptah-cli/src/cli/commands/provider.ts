@@ -186,7 +186,8 @@ async function runSetKey(
   engine: typeof withEngine,
 ): Promise<number> {
   const provider = (opts.provider ?? '').trim();
-  const apiKey = opts.key ?? '';
+  const rawKey = Array.isArray(opts.key) ? opts.key[0] : opts.key;
+  const apiKey = rawKey ?? '';
   if (!provider) {
     stderr.write('ptah provider set-key: --provider is required\n');
     return ExitCode.UsageError;

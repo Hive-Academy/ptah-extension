@@ -160,9 +160,15 @@ export const MESSAGE_TYPES = {
   CHAT_ERROR: 'chat:error',
   SESSION_ID_RESOLVED: 'session:id-resolved',
   SESSION_STATS: 'session:stats',
+  /** Push notification: session metadata changed (created/updated/deleted/forked). */
+  SESSION_METADATA_CHANGED: 'session:metadataChanged',
   // TASK_2025_098: SESSION_COMPACTING removed - compaction now flows through CHAT_CHUNK
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
+
+  // ---- Editor Push Messages ----
+  /** Backend → Frontend: reload Monaco tab content after a git rewind (Electron only). */
+  EDITOR_TAB_CONTENT_REVERTED: 'editor:tabContentReverted',
 
   // ---- Setup Wizard Messages ----
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
@@ -175,6 +181,10 @@ export const MESSAGE_TYPES = {
   // Similar to permission system but expects answers instead of approve/deny
   ASK_USER_QUESTION_REQUEST: 'ask-user-question:request',
   ASK_USER_QUESTION_RESPONSE: 'ask-user-question:response',
+  // Backend → webview broadcast when an AskUserQuestion idle-timeout fires
+  // and the handler auto-picked the recommended option. Webview removes the
+  // stale question card so the UI reflects what the agent already knows.
+  ASK_USER_QUESTION_AUTO_RESOLVED: 'ask-user-question:auto-resolved',
 
   // ---- Permission Auto-Resolve Messages ----
   // Sent when "Always Allow" auto-resolves sibling pending requests for the same tool

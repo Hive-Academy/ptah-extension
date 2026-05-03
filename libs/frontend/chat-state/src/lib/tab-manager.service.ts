@@ -1143,11 +1143,17 @@ export class TabManagerService {
       messages: [],
       preloadedStats: payload.preloadedStats,
       compactionCount: payload.compactionCount,
+      // TASK_2026_109 B3 — stamp completion time so late SESSION_STATS events
+      // produced for the last pre-compaction turn can be filtered by the
+      // SessionStatsAggregator (see grace-window heuristic there).
+      lastCompactionAt: Date.now(),
       status: 'loaded',
       streamingState: null,
       currentMessageId: null,
       queuedContent: null,
       queuedOptions: null,
+      liveModelStats: null,
+      modelUsageList: [],
     });
   }
 
