@@ -51,7 +51,11 @@ import {
   ConfirmationDialogService,
 } from '@ptah-extension/chat-state';
 import { SESSION_CONTEXT } from '../../tokens/session-context.token';
-import { VSCodeService, ClaudeRpcService } from '@ptah-extension/core';
+import {
+  VSCodeService,
+  ClaudeRpcService,
+  AppStateManager,
+} from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
   ExecutionChatMessage,
@@ -121,6 +125,7 @@ export class ChatViewComponent {
     optional: true,
   });
   private readonly _tabManager = inject(TabManagerService);
+  private readonly _appState = inject(AppStateManager);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
 
   // TASK_2026_106 Phase 4c — compaction banner is now sourced from the
@@ -900,25 +905,34 @@ export class ChatViewComponent {
 
       if (result.isSuccess()) {
         const newSessionId = result.data.newSessionId;
-        this._tabManager.openSessionTab(newSessionId, 'Branch');
 
-        // S4 — sidebar refresh is now driven by `session:metadataChanged`
-        // (forked) emitted by the backend on forkSession success and
-        // handled by ChatMessageHandler with a 250ms debounce. Removing
-        // the imperative loadSessions() here keeps a single source of
-        // truth for refresh and lets canvas tiles / inactive surfaces
-        // stay in sync without per-call-site plumbing.
-
-        try {
-          await this.chatStore.switchSession(newSessionId);
+        // Layout-aware tab/tile creation. In canvas (grid) mode, tiles are
+        // tracked separately from tabs in `CanvasStore` — calling
+        // `openSessionTab` directly would create an invisible tab with no
+        // backing tile. Use the `appState.requestCanvasSession` signal
+        // bridge so `OrchestraCanvasComponent` adds the tile AND opens the
+        // tab AND switches session in one place. In single mode, fall back
+        // to opening a tab directly.
+        if (this._appState.layoutMode() === 'grid') {
+          this._appState.requestCanvasSession(newSessionId, 'Branch');
           this.showActionInfo('Branch created.');
-        } catch (err) {
-          this.showActionError(
-            `Branch tab opened, but loading history failed: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
+        } else {
+          this._tabManager.openSessionTab(newSessionId, 'Branch');
+          try {
+            await this.chatStore.switchSession(newSessionId);
+            this.showActionInfo('Branch created.');
+          } catch (err) {
+            this.showActionError(
+              `Branch tab opened, but loading history failed: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          }
         }
+
+        // S4 — sidebar refresh is driven by `session:metadataChanged`
+        // (forked) emitted by the backend on forkSession success and
+        // handled by ChatMessageHandler with a 250ms debounce.
       } else {
         this.showActionError(
           `Branch failed: ${result.error ?? 'Unknown error'}`,

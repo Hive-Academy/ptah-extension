@@ -57,8 +57,8 @@ import { VSCodeService, rpcCall } from '@ptah-extension/core';
             class="bg-transparent w-full text-sm outline-none placeholder:text-base-content/30"
             placeholder="Type a file name to open..."
             aria-label="File search query"
-            [(ngModel)]="query"
-            (ngModelChange)="onQueryChanged()"
+            [ngModel]="query()"
+            (ngModelChange)="onQueryChanged($event)"
             (keydown)="onKeydown($event)"
           />
         </div>
@@ -78,9 +78,9 @@ import { VSCodeService, rpcCall } from '@ptah-extension/core';
             <div class="px-3 py-4 text-xs text-error text-center">
               {{ errorMessage() }}
             </div>
-          } @else if (filteredFiles().length === 0 && query) {
+          } @else if (filteredFiles().length === 0 && query()) {
             <div class="px-3 py-4 text-[10px] opacity-40 text-center">
-              No files match "{{ query }}"
+              No files match "{{ query() }}"
             </div>
           } @else if (filteredFiles().length === 0) {
             <div class="px-3 py-4 text-[10px] opacity-40 text-center">
@@ -142,7 +142,7 @@ export class QuickOpenComponent implements OnDestroy {
     viewChild<ElementRef<HTMLInputElement>>('searchInput');
 
   // State
-  protected query = '';
+  protected readonly query = signal('');
   protected readonly isLoading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly selectedIndex = signal(0);
@@ -153,7 +153,7 @@ export class QuickOpenComponent implements OnDestroy {
   /** Filtered and capped results based on query */
   protected readonly filteredFiles = computed(() => {
     const files = this.allFiles();
-    const q = this.query.trim().toLowerCase();
+    const q = this.query().trim().toLowerCase();
 
     if (!q) {
       return files.slice(0, 50);
@@ -223,8 +223,9 @@ export class QuickOpenComponent implements OnDestroy {
     }
   }
 
-  /** Handle query input changes — reset selection to top */
-  protected onQueryChanged(): void {
+  /** Handle query input changes — update signal and reset selection to top */
+  protected onQueryChanged(value: string): void {
+    this.query.set(value);
     this.selectedIndex.set(0);
   }
 
