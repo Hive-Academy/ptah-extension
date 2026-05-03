@@ -73,8 +73,13 @@ export async function launchPtah(
     timeout: opts.timeout ?? 30_000,
   });
 
-  // Surface main-process stderr so a failed launch / crash leaves a trace
-  // in CI logs instead of a bare Playwright timeout.
+  // Surface main-process stdout/stderr so a failed launch leaves a trace
+  // in CI logs instead of a bare Playwright timeout. Bootstrap uses
+  // console.log (stdout) for phase progress, so without stdout capture we
+  // cannot tell which activation phase hung.
+  app.process().stdout?.on('data', (chunk: Buffer) => {
+    process.stderr.write(`[ptah-electron stdout] ${chunk.toString('utf8')}`);
+  });
   app.process().stderr?.on('data', (chunk: Buffer) => {
     process.stderr.write(`[ptah-electron stderr] ${chunk.toString('utf8')}`);
   });
