@@ -1,16 +1,16 @@
 name: Electron E2E
 
-# DISABLED 2026-05-03 — every spec that launches Electron times out at 30s
-# under xvfb because the bundled main.mjs throws
-# `ReferenceError: __dirname is not defined in ES module scope` from
-# persistence-sqlite/migrations/index.ts (loadMigrations). The migration
-# registry was refactored to static `import './*.sql'` (commit 8c835a15),
-# but the .sql text loader is not wired into either the lib's nx esbuild
-# build or the consuming app bundles, so the bundle either fails to build
-# or falls back to a runtime fs.readFileSync(__dirname, ...) that breaks in
-# ESM. Until the loader chain is repaired, only run on-demand via the
-# Actions UI so PRs are not blocked. Tracking: see researcher handoff.
 on:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.vscode/**'
+      - '.claude/**'
+      - 'LICENSE.md'
+      - '.do/**'
   workflow_dispatch:
 
 concurrency:

@@ -93,11 +93,6 @@
             "glob": "LICENSE.md",
             "input": ".",
             "output": "."
-          },
-          {
-            "glob": "*.sql",
-            "input": "libs/backend/persistence-sqlite/src/lib/migrations",
-            "output": "."
           }
         ]
       },

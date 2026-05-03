@@ -1,3 +1,7 @@
+// SQL migration — STATIC TEXT ONLY. Never add ${...} interpolation here.
+// Enforced by ESLint (no-template-curly-in-migration) + Semgrep
+// (sql-injection-in-migration). Adding interpolation = SQL injection by design.
+export const sql = `
 -- 0005_gateway.sql — Messaging Gateway
 -- Per-platform conversation routing. Approval status governs the human-in-
 -- the-loop "did the user authorize this remote chat?" flow.
@@ -29,3 +33,4 @@ CREATE TABLE gateway_messages (
   UNIQUE(binding_id, direction, external_msg_id)
 );
 CREATE INDEX idx_gateway_messages_binding ON gateway_messages(binding_id, created_at DESC);
+`;

@@ -1,3 +1,7 @@
+// SQL migration — STATIC TEXT ONLY. Never add ${...} interpolation here.
+// Enforced by ESLint (no-template-curly-in-migration) + Semgrep
+// (sql-injection-in-migration). Adding interpolation = SQL injection by design.
+export const sql = `
 -- 0003_skills.sql — Skill Synthesis
 CREATE TABLE skill_candidates (
   id                 TEXT PRIMARY KEY,
@@ -35,3 +39,4 @@ CREATE TABLE skill_invocations (
   notes         TEXT
 );
 CREATE INDEX idx_skill_invocations_skill ON skill_invocations(skill_id);
+`;

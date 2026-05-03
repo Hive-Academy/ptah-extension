@@ -12,13 +12,6 @@
         "outputPath": "dist/libs/backend/persistence-sqlite",
         "main": "libs/backend/persistence-sqlite/src/index.ts",
         "tsConfig": "libs/backend/persistence-sqlite/tsconfig.lib.json",
-        "assets": [
-          {
-            "input": "libs/backend/persistence-sqlite/src/lib/migrations",
-            "glob": "**/*.sql",
-            "output": "lib/migrations"
-          }
-        ],
         "format": ["cjs"],
         "external": ["vscode", "tsyringe", "better-sqlite3", "sqlite-vec"]
       }

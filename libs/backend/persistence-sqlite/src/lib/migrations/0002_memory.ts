@@ -1,3 +1,7 @@
+// SQL migration — STATIC TEXT ONLY. Never add ${...} interpolation here.
+// Enforced by ESLint (no-template-curly-in-migration) + Semgrep
+// (sql-injection-in-migration). Adding interpolation = SQL injection by design.
+export const sql = `
 -- 0002_memory.sql — Memory Curator (Letta tiered)
 -- Tier values: 'core' | 'recall' | 'archival'
 CREATE TABLE memories (
@@ -60,3 +64,4 @@ CREATE VIRTUAL TABLE memory_chunks_vec USING vec0(
 -- No triggers - population is explicit by the indexer (it must run the
 -- embedder before insert; firing an embed() inside a SQLite trigger is
 -- impossible in the worker-thread architecture).
+`;

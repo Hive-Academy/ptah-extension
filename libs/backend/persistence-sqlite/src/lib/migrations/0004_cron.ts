@@ -1,3 +1,7 @@
+// SQL migration — STATIC TEXT ONLY. Never add ${...} interpolation here.
+// Enforced by ESLint (no-template-curly-in-migration) + Semgrep
+// (sql-injection-in-migration). Adding interpolation = SQL injection by design.
+export const sql = `
 -- 0004_cron.sql — Scheduler
 CREATE TABLE scheduled_jobs (
   id           TEXT PRIMARY KEY,                  -- ULID
@@ -28,3 +32,4 @@ CREATE TABLE job_runs (
 );
 CREATE INDEX idx_job_runs_job ON job_runs(job_id, scheduled_for DESC);
 CREATE INDEX idx_job_runs_status ON job_runs(status);
+`;
