@@ -166,9 +166,7 @@ describe('SqliteConnectionService — vec0 smoke (skipped without native)', () =
     expect(service.vecExtensionLoaded).toBe(true);
 
     const db = service.db;
-    db.exec(
-      'CREATE VIRTUAL TABLE smoke_vec USING vec0(rowid INTEGER PRIMARY KEY, embedding FLOAT[3])',
-    );
+    db.exec('CREATE VIRTUAL TABLE smoke_vec USING vec0(embedding FLOAT[3])');
     const insert = db.prepare(
       'INSERT INTO smoke_vec(rowid, embedding) VALUES (?, ?)',
     );

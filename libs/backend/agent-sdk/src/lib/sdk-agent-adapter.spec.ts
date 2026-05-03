@@ -92,6 +92,7 @@ import {
 import {
   PlatformType,
   type IPlatformInfo,
+  type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 
 import { SdkAgentAdapter } from './sdk-agent-adapter';
@@ -154,6 +155,23 @@ function createMockSentry(): jest.Mocked<
   };
 }
 
+function createMockWorkspaceProvider(): jest.Mocked<
+  Pick<
+    IWorkspaceProvider,
+    | 'getWorkspaceRoot'
+    | 'getWorkspaceFolders'
+    | 'getConfiguration'
+    | 'setConfiguration'
+  >
+> {
+  return {
+    getWorkspaceRoot: jest.fn().mockReturnValue('/fake/workspace'),
+    getWorkspaceFolders: jest.fn().mockReturnValue(['/fake/workspace']),
+    getConfiguration: jest.fn().mockReturnValue(undefined),
+    setConfiguration: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
 function createMockAuthManager(): jest.Mocked<
   Pick<AuthManager, 'configureAuthentication' | 'clearAuthentication'>
 > {
@@ -206,11 +224,12 @@ function createMockConfigWatcher(): jest.Mocked<
 }
 
 function createMockMetadataStore(): jest.Mocked<
-  Pick<SessionMetadataStore, 'create' | 'touch'>
+  Pick<SessionMetadataStore, 'create' | 'touch' | 'get'>
 > {
   return {
     create: jest.fn().mockResolvedValue(undefined),
     touch: jest.fn().mockResolvedValue(undefined),
+    get: jest.fn().mockResolvedValue(null),
   };
 }
 
@@ -325,6 +344,7 @@ interface AdapterHarness {
   moduleLoader: ReturnType<typeof createMockModuleLoader>;
   modelService: ReturnType<typeof createMockModelService>;
   platformInfo: IPlatformInfo;
+  workspaceProvider: ReturnType<typeof createMockWorkspaceProvider>;
 }
 
 function makeAdapter(
@@ -345,6 +365,7 @@ function makeAdapter(
   const moduleLoader = createMockModuleLoader();
   const modelService = createMockModelService();
   const platformInfo = createMockPlatformInfo(options.platformInfo);
+  const workspaceProvider = createMockWorkspaceProvider();
 
   const adapter = new SdkAgentAdapter(
     asLogger(logger),
@@ -358,6 +379,7 @@ function makeAdapter(
     moduleLoader as unknown as SdkModuleLoader,
     modelService as unknown as SdkModelService,
     platformInfo,
+    workspaceProvider as unknown as IWorkspaceProvider,
     sentry as unknown as SentryService,
   );
 
@@ -375,6 +397,7 @@ function makeAdapter(
     moduleLoader,
     modelService,
     platformInfo,
+    workspaceProvider,
   };
 }
 
