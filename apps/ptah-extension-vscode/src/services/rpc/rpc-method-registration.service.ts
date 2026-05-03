@@ -30,6 +30,7 @@ import {
 import {
   wireSdkCallbacks,
   wireAgentEventListeners,
+  wireSessionMetadataEvents,
   type WorktreeCreatedData,
 } from '@ptah-extension/agent-sdk';
 import { parseWorktreeList } from '@ptah-extension/shared';
@@ -42,6 +43,7 @@ import * as vscode from 'vscode';
 import {
   ChatRpcHandlers,
   FileRpcHandlers,
+  EditorRpcHandlers,
   CommandRpcHandlers,
   AgentRpcHandlers,
   SkillsShRpcHandlers,
@@ -92,6 +94,8 @@ export class RpcMethodRegistrationService {
     private readonly commandManager: CommandManager,
     @inject(ChatRpcHandlers) private readonly chatHandlers: ChatRpcHandlers,
     @inject(FileRpcHandlers) private readonly fileHandlers: FileRpcHandlers,
+    @inject(EditorRpcHandlers)
+    private readonly editorHandlers: EditorRpcHandlers,
     @inject(CommandRpcHandlers)
     private readonly commandHandlers: CommandRpcHandlers,
     @inject(AgentRpcHandlers) private readonly agentHandlers: AgentRpcHandlers,
@@ -118,6 +122,7 @@ export class RpcMethodRegistrationService {
     registerAllRpcHandlers(this.container, { exclude: [WorkspaceRpcHandlers] });
 
     this.fileHandlers.register();
+    this.editorHandlers.register();
     this.commandHandlers.register();
     this.agentHandlers.register();
     this.skillsShHandlers.register();
@@ -174,6 +179,15 @@ export class RpcMethodRegistrationService {
         getSdkSessionId: (ptahCliId: string) =>
           this.chatHandlers.getPtahCliSdkSessionId(ptahCliId),
       },
+    });
+
+    // S4: broadcast session:metadataChanged push events to webviews so
+    // sidebars refresh on create/update/delete/fork without imperative
+    // loadSessions() calls scattered across the frontend. Disposer is
+    // intentionally ignored — extension lifetime === process lifetime.
+    wireSessionMetadataEvents(this.container, {
+      logger: this.logger,
+      platform: 'vscode',
     });
 
     verifyAndReportRpcRegistration({

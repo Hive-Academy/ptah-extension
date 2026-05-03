@@ -20,7 +20,10 @@ import * as os from 'os';
 import { existsSync } from 'fs';
 import { injectable, inject } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IPlatformInfo } from '@ptah-extension/platform-core';
+import type {
+  IPlatformInfo,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import {
   IAgentAdapter,
   ProviderId,
@@ -217,6 +220,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly modelService: SdkModelService,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {}
@@ -1310,7 +1315,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         );
       }
 
-      const result = await fork(sessionId as string, {
+      const result = await fork(sessionId, {
         upToMessageId,
         title,
       });
@@ -1319,12 +1324,34 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // chat:resume can find it. The SDK's standalone forkSession() only
       // writes the JSONL file — it does not touch our metadata store, so
       // without this the new session would 404 on session:load.
-      const sourceMetadata = await this.metadataStore.get(sessionId as string);
+      const sourceMetadata = await this.metadataStore.get(sessionId);
       const forkName =
         title ??
         (sourceMetadata ? `${sourceMetadata.name} (fork)` : 'Forked session');
-      const workspaceId = sourceMetadata?.workspaceId ?? '';
-      await this.metadataStore.create(result.sessionId, workspaceId, forkName);
+
+      // Workspace ID resolution chain: source metadata → active workspace.
+      // An empty workspaceId would poison the new record:
+      //   - SessionRpcHandlers.authorizeSessionAccess rejects empty/unknown
+      //     workspaces with `unauthorized-workspace`.
+      //   - SessionMetadataStore.getForWorkspace filters by exact path, so
+      //     '' would never match and the fork would not appear in the sidebar.
+      const workspaceId =
+        sourceMetadata?.workspaceId ??
+        this.workspaceProvider.getWorkspaceRoot();
+      if (!workspaceId) {
+        throw new SdkError(
+          `Cannot fork session ${sessionId}: source metadata has no workspaceId and no active workspace folder is open. Forking would create a poisoned metadata record that the sidebar and authorization layer would reject.`,
+        );
+      }
+      // Pass kind='forked' so the metadata-changed broadcast distinguishes
+      // forked sessions from brand-new ones — the webview can highlight or
+      // scroll-to-fork in the sidebar based on this signal.
+      await this.metadataStore.create(
+        result.sessionId,
+        workspaceId,
+        forkName,
+        'forked',
+      );
 
       this.logger.info('[SdkAgentAdapter] Session forked successfully', {
         sourceSessionId: sessionId,

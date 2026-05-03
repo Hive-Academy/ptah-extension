@@ -41,6 +41,10 @@ export class ChatMessageHandler implements MessageHandler {
    */
   private readonly streamRouter = inject(StreamRouter);
 
+  private static readonly METADATA_DEBOUNCE_MS = 250;
+
+  private _metadataChangedTimeout: ReturnType<typeof setTimeout> | null = null;
+
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
     // CHAT_COMPLETE intentionally not registered — SESSION_STATS is authoritative (TASK_2025_101)
@@ -54,6 +58,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
     MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
     MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP,
+    MESSAGE_TYPES.SESSION_METADATA_CHANGED,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -85,7 +90,35 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP:
         this.handlePermissionSessionCleanup(message.payload);
         break;
+      case MESSAGE_TYPES.SESSION_METADATA_CHANGED:
+        this.handleSessionMetadataChanged();
+        break;
     }
+  }
+
+  /**
+   * S4 — refresh sidebar session list when backend reports a metadata
+   * mutation (created / updated / deleted / forked). Debounced so a burst of
+   * mutations (e.g. fork + switch) triggers one refresh, not many.
+   *
+   * Replaces the imperative `chatStore.loadSessions()` in
+   * `ChatViewComponent.onBranchRequested` — the event-driven path makes
+   * every surface (canvas tiles, inactive tabs) stay in sync without
+   * per-call-site plumbing.
+   */
+  private handleSessionMetadataChanged(): void {
+    if (this._metadataChangedTimeout) {
+      clearTimeout(this._metadataChangedTimeout);
+    }
+    this._metadataChangedTimeout = setTimeout(() => {
+      this._metadataChangedTimeout = null;
+      this.chatStore.loadSessions().catch((err) => {
+        console.warn(
+          '[ChatMessageHandler] loadSessions after session:metadataChanged failed:',
+          err,
+        );
+      });
+    }, ChatMessageHandler.METADATA_DEBOUNCE_MS);
   }
 
   // CHAT_CHUNK: SDK streaming events with tabId/sessionId extraction
@@ -219,9 +252,19 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    this.chatStore.handleQuestionRequest(
-      payload as import('@ptah-extension/shared').AskUserQuestionRequest,
-    );
+    const question =
+      payload as import('@ptah-extension/shared').AskUserQuestionRequest;
+    // 1. Enqueue the question first so the router-resolved targets land
+    //    on a question that's already in the queue.
+    this.chatStore.handleQuestionRequest(question);
+    // 2. Resolve sessionId → tabs and stash the target tab ids on the
+    //    PermissionHandler. Mirrors the permission prompt path. Without
+    //    this, the chat-view filter falls back to raw payload-id equality,
+    //    which silently drops questions whose session id rotated while
+    //    the user was idle (compaction / late SESSION_ID_RESOLVED) — and
+    //    the backend's `awaitQuestionResponse` has no timeout, so the
+    //    tool call hangs forever.
+    this.streamRouter.routeQuestionPrompt(question);
   }
 
   // PERMISSION_AUTO_RESOLVED: Always Allow sibling resolution

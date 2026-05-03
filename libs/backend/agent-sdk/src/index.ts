@@ -404,6 +404,11 @@ export {
   type WireAgentEventListenersContext,
   type AgentEventPlatform,
 } from './lib/wiring/agent-events';
+export {
+  wireSessionMetadataEvents,
+  type WireSessionMetadataEventsContext,
+  type SessionMetadataEventPlatform,
+} from './lib/wiring/session-metadata-events';
 
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';

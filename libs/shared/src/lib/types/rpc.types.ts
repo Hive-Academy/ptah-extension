@@ -24,6 +24,7 @@ export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
 export * from './rpc/rpc-git.types';
 export * from './rpc/rpc-terminal.types';
+export * from './rpc/rpc-editor.types';
 // === TRACK_1_MEMORY_CURATOR_BEGIN ===
 export * from './rpc/rpc-memory.types';
 // === TRACK_1_MEMORY_CURATOR_END ===
@@ -245,6 +246,11 @@ import type {
   TerminalKillParams,
   TerminalKillResult,
 } from './rpc/rpc-terminal.types';
+
+import type {
+  EditorRevertFilesParams,
+  EditorRevertFilesResult,
+} from './rpc/rpc-editor.types';
 
 // === TRACK_1_MEMORY_CURATOR_BEGIN ===
 import type {
@@ -892,6 +898,12 @@ export interface RpcMethodRegistry {
   'layout:restore': {
     params: Record<string, never>;
     result: { success: boolean };
+  };
+
+  // ---- Editor Methods (M3 — VS Code, post-rewind buffer revert) ----
+  'editor:revertFiles': {
+    params: EditorRevertFilesParams;
+    result: EditorRevertFilesResult;
   };
 
   // ---- Electron Editor Methods (TASK_2025_203) ----
@@ -1760,6 +1772,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   // Layout Methods (Electron desktop)
   'layout:persist': true,
   'layout:restore': true,
+
+  // Editor Methods (M3 — VS Code, post-rewind buffer revert)
+  'editor:revertFiles': true,
 
   // Electron Editor Methods (TASK_2025_203)
   'editor:openFile': true,

@@ -36,6 +36,7 @@ import { ResumeNotificationBannerComponent } from '../molecules/notifications/re
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { AutoAnimateDirective } from '../../directives/auto-animate.directive';
 import { ChatStore } from '../../services/chat.store';
+import { ActionBannerService } from '../../services/action-banner.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
 import {
   AgentMonitorStore,
@@ -142,35 +143,21 @@ export class ChatViewComponent {
   private readonly _confirmDialog = inject(ConfirmationDialogService);
 
   /**
-   * Inline error banner for branch/rewind actions. Mirrors the
-   * `_imageAttachmentError` signal+timeout pattern in ChatInputComponent — no
-   * global toast service exists in this codebase, so per-feature signals are
-   * the convention. Auto-clears after 4s.
+   * Inline banner for branch/rewind actions. Sourced from the shared
+   * `ActionBannerService` (S3) so canvas/tile mode renders the banner on the
+   * surface the user is looking at, not on the originating tile. The service
+   * owns its own auto-clear timer.
    */
-  private readonly _actionError = signal<string | null>(null);
-  readonly actionError = this._actionError.asReadonly();
-  private _actionErrorTimeout: ReturnType<typeof setTimeout> | null = null;
-
-  private readonly _actionInfo = signal<string | null>(null);
-  readonly actionInfo = this._actionInfo.asReadonly();
-  private _actionInfoTimeout: ReturnType<typeof setTimeout> | null = null;
+  private readonly actionBanner = inject(ActionBannerService);
+  readonly actionError = this.actionBanner.error;
+  readonly actionInfo = this.actionBanner.info;
 
   private showActionError(message: string): void {
-    if (this._actionErrorTimeout) clearTimeout(this._actionErrorTimeout);
-    this._actionError.set(message);
-    this._actionErrorTimeout = setTimeout(() => {
-      this._actionError.set(null);
-      this._actionErrorTimeout = null;
-    }, 4000);
+    this.actionBanner.showError(message);
   }
 
   private showActionInfo(message: string): void {
-    if (this._actionInfoTimeout) clearTimeout(this._actionInfoTimeout);
-    this._actionInfo.set(message);
-    this._actionInfoTimeout = setTimeout(() => {
-      this._actionInfo.set(null);
-      this._actionInfoTimeout = null;
-    }, 4000);
+    this.actionBanner.showInfo(message);
   }
 
   /**
@@ -493,13 +480,26 @@ export class ChatViewComponent {
 
   /**
    * Resolved question requests: scoped to this tile's session in canvas mode.
-   * Prevents question cards from appearing in ALL tiles â€” only the session that
-   * triggered the question shows the card.
    *
-   * Matches against BOTH the frontend tab UUID (resolvedTabId) AND the real SDK
-   * session UUID (resolvedSessionId / claudeSessionId). The backend may embed either
-   * identifier depending on whether the session is new or resumed, so checking both
-   * handles all cases without relying on backend routing correctness.
+   * Routing source-of-truth: per-question target tab ids resolved by
+   * `StreamRouter.routeQuestionPrompt` (mirrors permission prompt routing).
+   * The router resolves the question's `sessionId` against the live
+   * conversation/binding registries — robust to compaction-driven session id
+   * rotation, late `SESSION_ID_RESOLVED`, and idle re-binding (the cases
+   * that previously caused silent hangs because the payload's raw ids no
+   * longer matched any tile).
+   *
+   * Fallback ladder (only when the router did NOT resolve any target tabs
+   * for the question — e.g. payload arrived before the binding was visible
+   * to the router):
+   *   1. Legacy id-equality match against the tile's `resolvedTabId` /
+   *      `resolvedSessionId`. Same as before — covers the happy path before
+   *      any rotation/late resolution.
+   *   2. If that yields nothing AND this tile is the active tab (or no
+   *      canvas context is in play), still show the question. This prevents
+   *      silent drops; the backend's `awaitQuestionResponse` has
+   *      `timeoutAt: 0` (block indefinitely) so a dropped question hangs
+   *      the tool call forever.
    */
   readonly resolvedQuestionRequests = computed(() => {
     const allQuestions = this.chatStore.questionRequests();
@@ -507,17 +507,27 @@ export class ChatViewComponent {
 
     const tabId = this.resolvedTabId(); // frontend UUID (e.g. "tab-abc123")
     const sessionId = this.resolvedSessionId(); // real SDK UUID (e.g. "session-xyz")
+    const activeTabId = this._tabManager.activeTabId();
+    const isActiveTile =
+      !this._sessionContext || (tabId !== null && tabId === activeTabId);
 
-    if (!tabId && !sessionId) {
-      if (this._sessionContext) return [];
-      return allQuestions;
-    }
+    return allQuestions.filter((q) => {
+      // 1. Authoritative routing — router-resolved target tabs.
+      const targets = this.chatStore.questionTargetTabsFor(q.id);
+      if (targets.length > 0) {
+        return tabId !== null && targets.includes(tabId);
+      }
 
-    return allQuestions.filter(
-      (q) =>
+      // 2. Legacy id-equality fallback (router has no targets for this q).
+      const legacyMatch =
         (tabId && (q.tabId === tabId || q.sessionId === tabId)) ||
-        (sessionId && (q.tabId === sessionId || q.sessionId === sessionId)),
-    );
+        (sessionId && (q.tabId === sessionId || q.sessionId === sessionId));
+      if (legacyMatch) return true;
+
+      // 3. Last-resort visibility — show on active tile / non-canvas chat
+      //    when nothing matched above. Better than a silent hang.
+      return isActiveTile;
+    });
   });
 
   readonly resolvedQueuedContent = computed(() => {
@@ -890,23 +900,17 @@ export class ChatViewComponent {
 
       if (result.isSuccess()) {
         const newSessionId = result.data.newSessionId;
-        // openSessionTab handles dedup + activation + workspace registration.
-        this._tabManager.openSessionTab(
-          newSessionId as unknown as string,
-          'Branch',
-        );
+        this._tabManager.openSessionTab(newSessionId, 'Branch');
 
-        // Refresh sidebar list so the new fork appears immediately. The
-        // backend now creates a metadata entry inside SdkAgentAdapter.forkSession,
-        // so loadSessions() will pick it up.
-        this.chatStore.loadSessions().catch((err) => {
-          console.warn('[ChatView] Failed to refresh sessions after fork', err);
-        });
+        // S4 — sidebar refresh is now driven by `session:metadataChanged`
+        // (forked) emitted by the backend on forkSession success and
+        // handled by ChatMessageHandler with a 250ms debounce. Removing
+        // the imperative loadSessions() here keeps a single source of
+        // truth for refresh and lets canvas tiles / inactive surfaces
+        // stay in sync without per-call-site plumbing.
 
-        // Switch to the new session — this fires chat:resume which streams
-        // the forked transcript into the new tab's messages and execution tree.
         try {
-          await this.chatStore.switchSession(newSessionId as unknown as string);
+          await this.chatStore.switchSession(newSessionId);
           this.showActionInfo('Branch created.');
         } catch (err) {
           this.showActionError(
@@ -1030,11 +1034,32 @@ export class ChatViewComponent {
         commit.data.error ?? 'Rewind failed without an error message.',
       );
     } else {
-      const changedCount = commit.data.filesChanged?.length ?? 0;
-      this.showActionInfo(
+      // M3 — refresh any open editor tabs/diffs so they reflect the
+      // reverted on-disk content. Failures are non-fatal: the rewind itself
+      // succeeded, so we still show success but note the editor refresh
+      // failure rather than swallowing it silently.
+      let editorRefreshFailed = false;
+      const filesChanged = commit.data.filesChanged ?? [];
+      if (filesChanged.length > 0) {
+        try {
+          const revert = await this._claudeRpc.call('editor:revertFiles', {
+            files: filesChanged,
+          });
+          if (!revert.isSuccess()) {
+            editorRefreshFailed = true;
+          }
+        } catch {
+          editorRefreshFailed = true;
+        }
+      }
+
+      const changedCount = filesChanged.length;
+      const baseMsg =
         changedCount === 0
           ? 'Rewind complete — no files changed.'
-          : `Rewind complete — ${changedCount} file(s) reverted.`,
+          : `Rewind complete — ${changedCount} file(s) reverted.`;
+      this.showActionInfo(
+        editorRefreshFailed ? `${baseMsg} (editor refresh failed)` : baseMsg,
       );
     }
   }
@@ -1076,20 +1101,27 @@ export class ChatViewComponent {
       // is what rewindFiles needs to read its file checkpoint state.
       // session:load is metadata-validation-only and does NOT activate the
       // session — that was the original bug.
-      const tabId =
-        this._tabManager.tabs().find((t) => t.claudeSessionId === sessionId)
-          ?.id ?? this._tabManager.activeTabId();
+      //
+      // Use resolvedTabId() to honour the SESSION_CONTEXT for canvas tiles.
+      // Looking up by `claudeSessionId` would resolve the wrong tab (or none)
+      // when the rewind originates from a non-active tile, and falling back
+      // to `tabId ?? ''` would silently send an empty tabId — losing the
+      // resume stream entirely.
+      const tabId = this.resolvedTabId();
+      if (!tabId) {
+        this.showActionError('Cannot resume — no active tab.');
+        return;
+      }
       const workspacePath = this.vscodeService.config().workspaceRoot;
       const resumed = await this._claudeRpc.call('chat:resume', {
         sessionId,
-        tabId: tabId ?? '',
+        tabId,
         workspacePath,
       });
       if (!resumed.isSuccess()) {
         this.showActionError(`Resume failed: ${resumed.error ?? 'Unknown'}`);
         return;
       }
-      // Re-attempt rewind ONCE after resume. retryCount=1 prevents recursion.
       await this.attemptRewind(sessionId, messageId, retryCount + 1);
       return;
     }
@@ -1207,5 +1239,6 @@ export class ChatViewComponent {
       clearTimeout(this.finalizingTimeoutId);
       this.finalizingTimeoutId = null;
     }
+    // ActionBannerService owns its own timer lifecycle (S3) — nothing to do here.
   }
 }
