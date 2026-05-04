@@ -24,3 +24,13 @@ export {
   LocalProxyStrategy,
   CliStrategy,
 } from './strategies';
+
+// Effective auth-route resolver (Stream B item #7) — single source of truth
+// for "what would happen if I ran an agent right now?" Used by `ptah doctor`
+// and reusable from the Electron settings panel + VS Code status bar.
+export {
+  resolveEffectiveAuthRoute,
+  type EffectiveRouteProvider,
+  type EffectiveRouteConfig,
+  type EffectiveRouteResult,
+} from './effective-route';

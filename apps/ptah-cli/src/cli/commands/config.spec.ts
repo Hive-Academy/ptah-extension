@@ -244,6 +244,75 @@ describe('ptah config list', () => {
     };
     expect(typeof params.settings).toBe('object');
   });
+
+  it('keysOnly emits a sorted key list with no values (CLI bug #13)', async () => {
+    const { formatterTrace, hooks } = buildHooks();
+    const exit = await execute(
+      { subcommand: 'list', keysOnly: true } satisfies ConfigOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.Success);
+    const params = formatterTrace.notifications[0]?.params as {
+      keys: string[];
+      keysOnly: boolean;
+      settings?: unknown;
+    };
+    expect(params.keysOnly).toBe(true);
+    expect(Array.isArray(params.keys)).toBe(true);
+    expect(params.keys.length).toBeGreaterThan(0);
+    expect(params.settings).toBeUndefined();
+    // Keys must be sorted ascending.
+    const sorted = [...params.keys].sort();
+    expect(params.keys).toEqual(sorted);
+  });
+
+  it('prefix filters the snapshot to keys starting with <prefix> (CLI bug #13)', async () => {
+    const { formatterTrace, hooks } = buildHooks();
+    const exit = await execute(
+      {
+        subcommand: 'list',
+        prefix: 'provider.',
+      } satisfies ConfigOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.Success);
+    const params = formatterTrace.notifications[0]?.params as {
+      settings: Record<string, unknown>;
+      prefix: string;
+    };
+    expect(params.prefix).toBe('provider.');
+    const keys = Object.keys(params.settings);
+    expect(keys.length).toBeGreaterThan(0);
+    for (const key of keys) {
+      expect(key.startsWith('provider.')).toBe(true);
+    }
+  });
+
+  it('changedOnly omits keys equal to FILE_BASED_SETTINGS_DEFAULTS (CLI bug #13)', async () => {
+    // Seed an override that diverges from defaults; `llm.defaultProvider` is
+    // a real FILE_BASED_SETTINGS_KEYS entry, and any custom string we write
+    // here is guaranteed to differ from whatever the registered default is.
+    const { formatterTrace, hooks } = buildHooks({
+      initial: { 'llm.defaultProvider': '__custom-override__' },
+    });
+    const exit = await execute(
+      {
+        subcommand: 'list',
+        changedOnly: true,
+      } satisfies ConfigOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.Success);
+    const params = formatterTrace.notifications[0]?.params as {
+      settings: Record<string, unknown>;
+      changedOnly: boolean;
+    };
+    expect(params.changedOnly).toBe(true);
+    expect(params.settings['llm.defaultProvider']).toBe('__custom-override__');
+  });
 });
 
 describe('ptah config reset', () => {

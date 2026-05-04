@@ -200,7 +200,7 @@ function buildHooks(extra: Partial<AuthExecuteHooks> = {}): {
 // ---------------------------------------------------------------------------
 
 describe('ptah auth status', () => {
-  it('emits auth.status / auth.health / auth.api_key.status and exits 0', async () => {
+  it('coalesces status / health / apiKey into a single auth.status frame by default (CLI bug #6)', async () => {
     const { formatterTrace, engine, hooks } = buildHooks();
     engine.scripted.set('auth:getAuthStatus', {
       success: true,
@@ -226,12 +226,9 @@ describe('ptah auth status', () => {
     );
 
     expect(exit).toBe(ExitCode.Success);
+    // Default (non-verbose) — one notification with nested health+apiKey.
     const methods = formatterTrace.notifications.map((n) => n.method);
-    expect(methods).toEqual([
-      'auth.status',
-      'auth.health',
-      'auth.api_key.status',
-    ]);
+    expect(methods).toEqual(['auth.status']);
 
     // Redaction: the literal apiKey field (and any key matching the
     // sensitive pattern, including `hasApiKey`) must be masked when
@@ -245,6 +242,38 @@ describe('ptah auth status', () => {
     expect(status?.['hasApiKey']).toBe('<redacted>');
     // Non-sensitive fields pass through untouched.
     expect(status?.['authMethod']).toBe('apiKey');
+    // Coalesced shape: nested health + (renamed) apiKey fields are present.
+    expect(typeof status?.['health']).toBe('object');
+  });
+
+  it('preserves the 3-frame stream when --verbose is set (CLI bug #6 back-compat)', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('auth:getAuthStatus', {
+      success: true,
+      data: { authMethod: 'apiKey' },
+    });
+    engine.scripted.set('auth:getHealth', {
+      success: true,
+      data: { health: { status: 'available' } },
+    });
+    engine.scripted.set('auth:getApiKeyStatus', {
+      success: true,
+      data: { providers: [] },
+    });
+
+    const exit = await execute(
+      { subcommand: 'status' } satisfies AuthOptions,
+      { ...baseGlobals, verbose: true },
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    const methods = formatterTrace.notifications.map((n) => n.method);
+    expect(methods).toEqual([
+      'auth.status',
+      'auth.health',
+      'auth.api_key.status',
+    ]);
   });
 
   it('honors --reveal: leaves apiKey verbatim', async () => {
@@ -568,10 +597,12 @@ describe('ptah auth login claude-cli', () => {
       hooks,
     );
     expect(exit).toBe(ExitCode.Success);
+    // Canonical value is kebab-case per CLI bug batch item #12; the legacy
+    // camelCase form `'claudeCli'` is now migrated on bootstrap.
     expect(setConfiguration).toHaveBeenCalledWith(
       'ptah',
       'authMethod',
-      'claudeCli',
+      'claude-cli',
     );
 
     const methods = formatterTrace.notifications.map((n) => n.method);
@@ -583,7 +614,7 @@ describe('ptah auth login claude-cli', () => {
     expect(complete).toMatchObject({
       provider: 'claude-cli',
       success: true,
-      authMethod: 'claudeCli',
+      authMethod: 'claude-cli',
       cliPath: '/usr/local/bin/claude',
       cliVersion: '1.2.3',
     });
@@ -611,7 +642,7 @@ describe('ptah auth login claude-cli', () => {
     expect(setConfiguration).toHaveBeenCalledWith(
       'ptah',
       'authMethod',
-      'claudeCli',
+      'claude-cli',
     );
   });
 
@@ -854,6 +885,111 @@ describe('ptah auth test', () => {
       provider: 'anthropic',
       success: true,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `auth set-anthropic-route` (CLI bug batch item #5)
+// ---------------------------------------------------------------------------
+
+describe('ptah auth set-anthropic-route', () => {
+  function makeWorkspace(): {
+    setConfiguration: jest.Mock;
+    resolve: AuthExecuteHooks['resolveWorkspaceProvider'];
+  } {
+    const setConfiguration = jest.fn(async () => undefined);
+    const resolve: AuthExecuteHooks['resolveWorkspaceProvider'] = () => ({
+      setConfiguration,
+    });
+    return { setConfiguration, resolve };
+  }
+
+  it('writes anthropicProviderId for a known provider id and emits applied event', async () => {
+    const ws = makeWorkspace();
+    const { formatterTrace, hooks } = buildHooks({
+      resolveWorkspaceProvider: ws.resolve,
+    });
+    const exit = await execute(
+      {
+        subcommand: 'set-anthropic-route',
+        providerId: 'openrouter',
+      } satisfies AuthOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.Success);
+    expect(ws.setConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'anthropicProviderId',
+      'openrouter',
+    );
+    const last = formatterTrace.notifications.at(-1);
+    expect(last?.method).toBe('auth.set_anthropic_route.applied');
+    expect(last?.params).toMatchObject({
+      anthropicProviderId: 'openrouter',
+      display: 'openrouter',
+    });
+  });
+
+  it('clears the override when the value is `default`', async () => {
+    const ws = makeWorkspace();
+    const { formatterTrace, hooks } = buildHooks({
+      resolveWorkspaceProvider: ws.resolve,
+    });
+    const exit = await execute(
+      {
+        subcommand: 'set-anthropic-route',
+        providerId: 'default',
+      } satisfies AuthOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.Success);
+    expect(ws.setConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'anthropicProviderId',
+      null,
+    );
+    const last = formatterTrace.notifications.at(-1);
+    expect(last?.params).toMatchObject({
+      anthropicProviderId: null,
+      display: '(default)',
+    });
+  });
+
+  it('rejects unknown ids with a `did you mean?` hint and exit 2', async () => {
+    const ws = makeWorkspace();
+    const { stderrTrace, hooks } = buildHooks({
+      resolveWorkspaceProvider: ws.resolve,
+    });
+    const exit = await execute(
+      {
+        subcommand: 'set-anthropic-route',
+        providerId: 'openroutr',
+      } satisfies AuthOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.UsageError);
+    expect(stderrTrace.buffer).toContain("unknown providerId 'openroutr'");
+    expect(stderrTrace.buffer).toContain("Did you mean 'openrouter'");
+    expect(ws.setConfiguration).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty providerId with usage error', async () => {
+    const ws = makeWorkspace();
+    const { hooks } = buildHooks({
+      resolveWorkspaceProvider: ws.resolve,
+    });
+    const exit = await execute(
+      {
+        subcommand: 'set-anthropic-route',
+        providerId: '',
+      } satisfies AuthOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.UsageError);
   });
 });
 

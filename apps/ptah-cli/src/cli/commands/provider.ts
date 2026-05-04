@@ -30,12 +30,18 @@
  * tests inject collaborators via `ProviderExecuteHooks`.
  */
 
+import type {
+  LlmGetProviderStatusEntry,
+  LlmGetProviderStatusResponse,
+} from '@ptah-extension/shared';
+
 import { withEngine } from '../bootstrap/with-engine.js';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { redact } from '../output/redactor.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import { suggestClosest } from './_string-distance.js';
 
 /** Sub-commands accepted by `ptah provider ...`. */
 export type ProviderSubcommand =
@@ -160,7 +166,13 @@ async function runStatus(
   engine: typeof withEngine,
 ): Promise<number> {
   return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
-    const status = await callRpc(
+    // Cast through unknown — the RPC handler now returns the rich shape
+    // (LlmGetProviderStatusResponse) including authType / requiresProxy /
+    // isLocal / baseUrl / baseUrlOverridden for every registered provider
+    // plus the virtual `anthropic` direct entry. The notification payload
+    // forwards all fields verbatim so JSON-RPC consumers can render auth-mode
+    // columns without extra round-trips.
+    const status = await callRpc<LlmGetProviderStatusResponse>(
       ctx.transport,
       'llm:getProviderStatus',
       undefined,
@@ -172,6 +184,24 @@ async function runStatus(
     );
     return ExitCode.Success;
   });
+}
+
+/**
+ * Resolve the available provider id set for `provider default set` validation.
+ * Calls `llm:getProviderStatus` to use the same registry the RPC layer sees,
+ * so virtual providers (`anthropic`) and registry-driven providers stay in
+ * lockstep with the suggestion list.
+ */
+async function fetchAvailableProviderIds(
+  transport: CliMessageTransport,
+): Promise<string[]> {
+  const status = await callRpc<LlmGetProviderStatusResponse>(
+    transport,
+    'llm:getProviderStatus',
+    undefined,
+  );
+  const providers = (status.providers ?? []) as LlmGetProviderStatusEntry[];
+  return providers.map((p) => p.name);
 }
 
 // ---------------------------------------------------------------------------
@@ -518,6 +548,22 @@ async function runDefault(
       return ExitCode.UsageError;
     }
     return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+      // Validate against the live registry before issuing the write. Catches
+      // typos like `openroute` and surfaces a "did you mean…?" hint. We use
+      // the same RPC the user can call themselves so the suggestion list
+      // matches what `provider status` shows.
+      const available = await fetchAvailableProviderIds(ctx.transport);
+      if (!available.includes(provider)) {
+        const hint = suggestClosest(provider, available, 2);
+        const list = available.join(', ');
+        const suggestion = hint ? ` Did you mean '${hint}'?` : '';
+        stderr.write(
+          `ptah provider default set: unknown provider '${provider}'.${suggestion}\n` +
+            `Available providers: ${list}\n`,
+        );
+        return ExitCode.UsageError;
+      }
+
       const result = await callRpc<{ success: boolean; error?: string }>(
         ctx.transport,
         'llm:setDefaultProvider',

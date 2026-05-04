@@ -56,7 +56,7 @@ import { StdinReader } from '../io/stdin-reader.js';
 import { StdoutWriter } from '../io/stdout-writer.js';
 import { ChatBridge } from '../session/chat-bridge.js';
 import { ApprovalBridge } from '../session/approval-bridge.js';
-import { ExitCode } from '../jsonrpc/types.js';
+import { ExitCode, JSONRPC_SCHEMA_VERSION } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 import {
   PLATFORM_TOKENS,
@@ -496,6 +496,14 @@ export async function execute(
         version,
         capabilities: ['chat', 'session', 'permission', 'question'],
         protocol_version: '2.0',
+      });
+
+      // 11a. Stream B item #11 — advertise the Ptah JSON-RPC schema version
+      //      so peers can detect protocol skew. Emitted right after
+      //      `session.ready` so it lands inside the same handshake window.
+      await server.notify('system.schema.version', {
+        version: JSONRPC_SCHEMA_VERSION,
+        cliVersion: version,
       });
 
       // 12. Inbound A2A handlers — task.submit / task.cancel /
