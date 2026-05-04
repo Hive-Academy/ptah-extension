@@ -206,7 +206,7 @@ export class GatewayRpcHandlers {
         params.workspaceRoot,
         params.code,
       );
-      if (!result.ok) {
+      if (result.ok === false) {
         // Do NOT log the supplied code — it's a one-time secret. Only log the
         // structured reason so dashboards can count mismatches.
         this.logger.warn('[gateway] binding approval rejected', {

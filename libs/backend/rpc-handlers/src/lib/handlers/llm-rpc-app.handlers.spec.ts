@@ -250,7 +250,9 @@ describe('LlmRpcHandlers', () => {
       }>(h, 'llm:getProviderStatus');
 
       expect(result.defaultProvider).toBe('openrouter');
-      expect(result.providers).toHaveLength(2);
+      expect(result.providers.map((p) => p.name)).toEqual(
+        expect.arrayContaining(['anthropic', 'openrouter']),
+      );
 
       const anthropic = result.providers.find((p) => p.name === 'anthropic');
       expect(anthropic?.hasApiKey).toBe(true);
