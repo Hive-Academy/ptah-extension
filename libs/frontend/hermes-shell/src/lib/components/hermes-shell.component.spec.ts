@@ -3,8 +3,31 @@ import { signal } from '@angular/core';
 
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { MemoryStateService } from '@ptah-extension/memory-curator-ui';
+import { SkillSynthesisStateService } from '@ptah-extension/skill-synthesis-ui';
 
 import { HermesShellComponent } from './hermes-shell.component';
+
+/**
+ * Minimal stub for {@link SkillSynthesisStateService} so the embedded
+ * `<ptah-skill-synthesis-tab />` component can be constructed by Angular DI
+ * even in non-Electron tests where it renders only the placeholder.
+ */
+const skillStateStub = {
+  candidates: signal([]),
+  invocations: signal([]),
+  stats: signal(null),
+  statusFilter: signal('all'),
+  selectedCandidateId: signal(null),
+  selectedCandidate: signal(null),
+  loading: signal(false),
+  error: signal(null),
+  refreshCandidates: () => Promise.resolve(),
+  loadStats: () => Promise.resolve(),
+  setStatusFilter: () => Promise.resolve(),
+  selectCandidate: () => Promise.resolve(),
+  promote: () => Promise.resolve(),
+  reject: () => Promise.resolve(),
+} as unknown as SkillSynthesisStateService;
 
 /**
  * Minimal stub for {@link MemoryStateService} so the embedded
@@ -59,6 +82,7 @@ describe('HermesShellComponent', () => {
           useValue: { config: signal({ isElectron: true }) },
         },
         { provide: MemoryStateService, useValue: memoryStateStub },
+        { provide: SkillSynthesisStateService, useValue: skillStateStub },
       ],
     }).compileComponents();
   });
@@ -126,5 +150,75 @@ describe('HermesShellComponent', () => {
 
     const text = fixture.nativeElement.textContent ?? '';
     expect(text).toContain('Ptah desktop app');
+  });
+
+  it('shows desktop-only placeholder for memory tab when not on Electron', () => {
+    TestBed.resetTestingModule();
+    activeTabSignal = signal<'memory' | 'skills' | 'cron' | 'gateway'>(
+      'memory',
+    );
+    const stateMock = {
+      hermesActiveTab: activeTabSignal.asReadonly(),
+      setHermesActiveTab: jest.fn(),
+    };
+
+    TestBed.configureTestingModule({
+      imports: [HermesShellComponent],
+      providers: [
+        { provide: AppStateManager, useValue: stateMock },
+        {
+          provide: VSCodeService,
+          useValue: { config: signal({ isElectron: false }) },
+        },
+        { provide: MemoryStateService, useValue: memoryStateStub },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(HermesShellComponent);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent ?? '';
+    expect(text).toContain('Ptah desktop app');
+
+    // Confirm the live memory UI is not rendered.
+    const search = (fixture.nativeElement as HTMLElement).querySelector(
+      'input[type="search"]',
+    );
+    expect(search).toBeNull();
+  });
+
+  it('shows desktop-only placeholder for skills tab when not on Electron', () => {
+    TestBed.resetTestingModule();
+    activeTabSignal = signal<'memory' | 'skills' | 'cron' | 'gateway'>(
+      'skills',
+    );
+    const stateMock = {
+      hermesActiveTab: activeTabSignal.asReadonly(),
+      setHermesActiveTab: jest.fn(),
+    };
+
+    TestBed.configureTestingModule({
+      imports: [HermesShellComponent],
+      providers: [
+        { provide: AppStateManager, useValue: stateMock },
+        {
+          provide: VSCodeService,
+          useValue: { config: signal({ isElectron: false }) },
+        },
+        { provide: SkillSynthesisStateService, useValue: skillStateStub },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(HermesShellComponent);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent ?? '';
+    expect(text).toContain('Ptah desktop app');
+
+    // Filter chips for the live skills UI must not render in placeholder mode.
+    const skillFilterTabs = (
+      fixture.nativeElement as HTMLElement
+    ).querySelectorAll('[aria-label="Status filter"] [role="tab"]');
+    expect(skillFilterTabs.length).toBe(0);
   });
 });

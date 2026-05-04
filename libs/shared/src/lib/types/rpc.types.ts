@@ -1447,12 +1447,19 @@ export interface GatewayListBindingsResult {
 
 export interface GatewayApproveBindingParams {
   bindingId: string;
+  /**
+   * The 6-digit pairing code the bot sent to the user. Compared against the
+   * stored pairing code with a constant-time comparison. The backend NEVER
+   * returns the stored code in `gateway:listBindings`, so the user must
+   * type the code from the bot to approve.
+   */
+  code: string;
   ptahSessionId?: string;
   workspaceRoot?: string;
 }
-export interface GatewayApproveBindingResult {
-  binding: GatewayBindingDto;
-}
+export type GatewayApproveBindingResult =
+  | { ok: true; binding: GatewayBindingDto }
+  | { ok: false; error: 'invalid-code' | 'binding-not-found' };
 
 export interface GatewayBlockBindingParams {
   bindingId: string;

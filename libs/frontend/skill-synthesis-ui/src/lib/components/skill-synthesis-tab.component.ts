@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { VSCodeService } from '@ptah-extension/core';
 import type {
   SkillSynthesisCandidateSummary,
   SkillSynthesisInvocationEntry,
@@ -46,293 +47,317 @@ interface ActionDialogState {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="flex h-full w-full flex-col gap-4">
-      <!-- Stats card -->
-      <section
-        class="card bg-base-200 shadow-sm"
-        aria-label="Skill synthesis stats"
-      >
-        <div class="card-body p-4">
-          <h2 class="card-title text-sm">Stats</h2>
-          @if (stats(); as s) {
-            <div class="stats stats-horizontal w-full bg-base-100">
-              <div class="stat px-3 py-2">
-                <div class="stat-title text-xs">Candidates</div>
-                <div class="stat-value text-lg">{{ s.totalCandidates }}</div>
-              </div>
-              <div class="stat px-3 py-2">
-                <div class="stat-title text-xs">Promoted</div>
-                <div class="stat-value text-lg">{{ s.totalPromoted }}</div>
-              </div>
-              <div class="stat px-3 py-2">
-                <div class="stat-title text-xs">Rejected</div>
-                <div class="stat-value text-lg">{{ s.totalRejected }}</div>
-              </div>
-              <div class="stat px-3 py-2">
-                <div class="stat-title text-xs">Active skills</div>
-                <div class="stat-value text-lg">{{ s.activeSkills }}</div>
-              </div>
-              <div class="stat px-3 py-2">
-                <div class="stat-title text-xs">Invocations</div>
-                <div class="stat-value text-lg">{{ s.totalInvocations }}</div>
-              </div>
-            </div>
-          } @else {
-            <div class="text-xs text-base-content/60">
-              Loading stats&hellip;
-            </div>
-          }
-        </div>
-      </section>
-
-      <!-- Filter chips -->
-      <div
-        role="tablist"
-        aria-label="Status filter"
-        class="tabs tabs-boxed self-start"
-      >
-        @for (f of filters; track f.id) {
-          <button
-            type="button"
-            role="tab"
-            class="tab tab-sm"
-            [class.tab-active]="statusFilter() === f.id"
-            [attr.aria-selected]="statusFilter() === f.id"
-            (click)="onFilterChange(f.id)"
-          >
-            {{ f.label }}
-          </button>
-        }
+    @if (!isElectron()) {
+      <div role="alert" class="alert alert-info">
+        <span class="text-sm">
+          Skill synthesis is only available in the Ptah desktop app.
+          <a
+            class="link link-primary ml-1"
+            href="https://github.com/HiveAcademy/ptah-extension/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Download Ptah desktop</a
+          >.
+        </span>
       </div>
-
-      <!-- Error banner -->
-      @if (error(); as msg) {
-        <div role="alert" class="alert alert-error py-2 text-sm">
-          <span>{{ msg }}</span>
-        </div>
-      }
-
-      <!-- Candidates table -->
-      <section class="card bg-base-200 shadow-sm" aria-label="Skill candidates">
-        <div class="card-body p-0">
-          <div class="overflow-x-auto">
-            <table class="table table-sm">
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col">Status</th>
-                  <th scope="col" class="text-right">Successes</th>
-                  <th scope="col" class="text-right">Failures</th>
-                  <th scope="col" class="w-1">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (c of candidates(); track c.id) {
-                  <tr
-                    class="hover cursor-pointer"
-                    [class.bg-base-300]="selectedCandidateId() === c.id"
-                    (click)="onSelectRow(c.id)"
-                  >
-                    <td>
-                      <div class="flex flex-col">
-                        <span class="font-medium">{{ c.name }}</span>
-                        <span class="text-xs text-base-content/60">
-                          {{ c.description }}
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <span class="badge badge-sm" [class]="statusClass(c)">
-                        {{ c.status }}
-                      </span>
-                    </td>
-                    <td class="text-right tabular-nums">
-                      {{ c.successCount }}
-                    </td>
-                    <td class="text-right tabular-nums">
-                      {{ c.failureCount }}
-                    </td>
-                    <td>
-                      <div class="flex justify-end gap-1">
-                        <button
-                          type="button"
-                          class="btn btn-xs btn-success"
-                          [disabled]="c.status === 'promoted' || loading()"
-                          (click)="onOpenAction('promote', c, $event)"
-                        >
-                          Promote
-                        </button>
-                        <button
-                          type="button"
-                          class="btn btn-xs btn-error btn-outline"
-                          [disabled]="c.status === 'rejected' || loading()"
-                          (click)="onOpenAction('reject', c, $event)"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                } @empty {
-                  <tr>
-                    <td
-                      colspan="5"
-                      class="text-center text-sm text-base-content/60"
-                    >
-                      @if (loading()) {
-                        <span>Loading candidates&hellip;</span>
-                      } @else {
-                        <span>No candidates for this filter.</span>
-                      }
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- Drill-down: invocations for the selected candidate -->
-      @if (selectedCandidate(); as sc) {
+    } @else {
+      <div class="flex h-full w-full flex-col gap-4">
+        <!-- Stats card -->
         <section
           class="card bg-base-200 shadow-sm"
-          aria-label="Invocation history"
+          aria-label="Skill synthesis stats"
         >
           <div class="card-body p-4">
-            <div class="flex items-center justify-between">
-              <h2 class="card-title text-sm">
-                Invocations &mdash;
-                <span class="font-mono text-xs">{{ sc.name }}</span>
-              </h2>
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs"
-                (click)="onClearSelection()"
-              >
-                Close
-              </button>
-            </div>
-
-            @if (invocations().length === 0) {
-              <div class="text-xs text-base-content/60">
-                No invocations recorded for this candidate yet.
+            <h2 class="card-title text-sm">Stats</h2>
+            @if (stats(); as s) {
+              <div class="stats stats-horizontal w-full bg-base-100">
+                <div class="stat px-3 py-2">
+                  <div class="stat-title text-xs">Candidates</div>
+                  <div class="stat-value text-lg">{{ s.totalCandidates }}</div>
+                </div>
+                <div class="stat px-3 py-2">
+                  <div class="stat-title text-xs">Promoted</div>
+                  <div class="stat-value text-lg">{{ s.totalPromoted }}</div>
+                </div>
+                <div class="stat px-3 py-2">
+                  <div class="stat-title text-xs">Rejected</div>
+                  <div class="stat-value text-lg">{{ s.totalRejected }}</div>
+                </div>
+                <div class="stat px-3 py-2">
+                  <div class="stat-title text-xs">Active skills</div>
+                  <div class="stat-value text-lg">{{ s.activeSkills }}</div>
+                </div>
+                <div class="stat px-3 py-2">
+                  <div class="stat-title text-xs">Invocations</div>
+                  <div class="stat-value text-lg">{{ s.totalInvocations }}</div>
+                </div>
               </div>
             } @else {
-              <div class="overflow-x-auto">
-                <table class="table table-xs">
-                  <thead>
-                    <tr>
-                      <th scope="col">When</th>
-                      <th scope="col">Session</th>
-                      <th scope="col">Outcome</th>
-                      <th scope="col">Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (inv of invocations(); track inv.id) {
-                      <tr>
-                        <td class="font-mono text-xs">
-                          {{ formatTime(inv.invokedAt) }}
-                        </td>
-                        <td class="font-mono text-xs">{{ inv.sessionId }}</td>
-                        <td>
-                          <span
-                            class="badge badge-xs"
-                            [class.badge-success]="inv.succeeded"
-                            [class.badge-error]="!inv.succeeded"
-                          >
-                            {{ inv.succeeded ? 'success' : 'failure' }}
-                          </span>
-                        </td>
-                        <td class="text-xs">{{ inv.notes ?? '—' }}</td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
+              <div class="text-xs text-base-content/60">
+                Loading stats&hellip;
               </div>
             }
           </div>
         </section>
-      }
 
-      <!-- Settings panel (read-only) -->
-      <section
-        class="card bg-base-200 shadow-sm"
-        aria-label="Skill synthesis settings"
-      >
-        <div class="card-body p-4">
-          <h2 class="card-title text-sm">Settings (read-only)</h2>
-          <p class="text-xs text-base-content/60">
-            Configure these in your settings file.
-          </p>
-          <ul class="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
-            @for (key of settingsKeys; track key) {
-              <li class="font-mono">
-                <span class="text-base-content/70">{{ key }}</span>
-              </li>
-            }
-          </ul>
+        <!-- Filter chips -->
+        <div
+          role="tablist"
+          aria-label="Status filter"
+          class="tabs tabs-boxed self-start"
+        >
+          @for (f of filters; track f.id) {
+            <button
+              type="button"
+              role="tab"
+              class="tab tab-sm"
+              [class.tab-active]="statusFilter() === f.id"
+              [attr.aria-selected]="statusFilter() === f.id"
+              (click)="onFilterChange(f.id)"
+            >
+              {{ f.label }}
+            </button>
+          }
         </div>
-      </section>
-    </div>
 
-    <!-- Action modal (Promote / Reject with optional reason) -->
-    @if (actionDialog(); as dlg) {
-      <dialog
-        class="modal modal-open"
-        role="dialog"
-        aria-modal="true"
-        [attr.aria-label]="dlg.kind + ' candidate'"
-      >
-        <div class="modal-box">
-          <h3 class="text-base font-semibold">
-            {{ dlg.kind === 'promote' ? 'Promote' : 'Reject' }} candidate
-          </h3>
-          <p class="mt-1 text-sm text-base-content/70">
-            <span class="font-mono">{{ dlg.candidate.name }}</span>
-          </p>
-
-          <label class="form-control mt-3 w-full">
-            <span class="label-text text-xs">
-              Reason
-              <span class="text-base-content/50">(optional)</span>
-            </span>
-            <textarea
-              class="textarea textarea-bordered textarea-sm mt-1 w-full"
-              rows="3"
-              [(ngModel)]="actionReason"
-              [attr.aria-label]="dlg.kind + ' reason'"
-            ></textarea>
-          </label>
-
-          <div class="modal-action">
-            <button
-              type="button"
-              class="btn btn-ghost btn-sm"
-              [disabled]="loading()"
-              (click)="onCloseDialog()"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              class="btn btn-sm"
-              [class.btn-success]="dlg.kind === 'promote'"
-              [class.btn-error]="dlg.kind === 'reject'"
-              [disabled]="loading()"
-              (click)="onConfirmDialog()"
-            >
-              {{ dlg.kind === 'promote' ? 'Promote' : 'Reject' }}
-            </button>
+        <!-- Error banner -->
+        @if (error(); as msg) {
+          <div role="alert" class="alert alert-error py-2 text-sm">
+            <span>{{ msg }}</span>
           </div>
-        </div>
-      </dialog>
+        }
+
+        <!-- Candidates table -->
+        <section
+          class="card bg-base-200 shadow-sm"
+          aria-label="Skill candidates"
+        >
+          <div class="card-body p-0">
+            <div class="overflow-x-auto">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" class="text-right">Successes</th>
+                    <th scope="col" class="text-right">Failures</th>
+                    <th scope="col" class="w-1">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (c of candidates(); track c.id) {
+                    <tr
+                      class="hover cursor-pointer"
+                      [class.bg-base-300]="selectedCandidateId() === c.id"
+                      (click)="onSelectRow(c.id)"
+                    >
+                      <td>
+                        <div class="flex flex-col">
+                          <span class="font-medium">{{ c.name }}</span>
+                          <span class="text-xs text-base-content/60">
+                            {{ c.description }}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <span class="badge badge-sm" [class]="statusClass(c)">
+                          {{ c.status }}
+                        </span>
+                      </td>
+                      <td class="text-right tabular-nums">
+                        {{ c.successCount }}
+                      </td>
+                      <td class="text-right tabular-nums">
+                        {{ c.failureCount }}
+                      </td>
+                      <td>
+                        <div class="flex justify-end gap-1">
+                          <button
+                            type="button"
+                            class="btn btn-xs btn-success"
+                            [disabled]="c.status === 'promoted' || loading()"
+                            (click)="onOpenAction('promote', c, $event)"
+                          >
+                            Promote
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-xs btn-error btn-outline"
+                            [disabled]="c.status === 'rejected' || loading()"
+                            (click)="onOpenAction('reject', c, $event)"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td
+                        colspan="5"
+                        class="text-center text-sm text-base-content/60"
+                      >
+                        @if (loading()) {
+                          <span>Loading candidates&hellip;</span>
+                        } @else {
+                          <span>No candidates for this filter.</span>
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Drill-down: invocations for the selected candidate -->
+        @if (selectedCandidate(); as sc) {
+          <section
+            class="card bg-base-200 shadow-sm"
+            aria-label="Invocation history"
+          >
+            <div class="card-body p-4">
+              <div class="flex items-center justify-between">
+                <h2 class="card-title text-sm">
+                  Invocations &mdash;
+                  <span class="font-mono text-xs">{{ sc.name }}</span>
+                </h2>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  (click)="onClearSelection()"
+                >
+                  Close
+                </button>
+              </div>
+
+              @if (invocations().length === 0) {
+                <div class="text-xs text-base-content/60">
+                  No invocations recorded for this candidate yet.
+                </div>
+              } @else {
+                <div class="overflow-x-auto">
+                  <table class="table table-xs">
+                    <thead>
+                      <tr>
+                        <th scope="col">When</th>
+                        <th scope="col">Session</th>
+                        <th scope="col">Outcome</th>
+                        <th scope="col">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (inv of invocations(); track inv.id) {
+                        <tr>
+                          <td class="font-mono text-xs">
+                            {{ formatTime(inv.invokedAt) }}
+                          </td>
+                          <td class="font-mono text-xs">{{ inv.sessionId }}</td>
+                          <td>
+                            <span
+                              class="badge badge-xs"
+                              [class.badge-success]="inv.succeeded"
+                              [class.badge-error]="!inv.succeeded"
+                            >
+                              {{ inv.succeeded ? 'success' : 'failure' }}
+                            </span>
+                          </td>
+                          <td class="text-xs">{{ inv.notes ?? '—' }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+            </div>
+          </section>
+        }
+
+        <!-- Settings panel (read-only) -->
+        <section
+          class="card bg-base-200 shadow-sm"
+          aria-label="Skill synthesis settings"
+        >
+          <div class="card-body p-4">
+            <h2 class="card-title text-sm">Settings (read-only)</h2>
+            <p class="text-xs text-base-content/60">
+              Configure these in your settings file.
+            </p>
+            <ul class="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
+              @for (key of settingsKeys; track key) {
+                <li class="font-mono">
+                  <span class="text-base-content/70">{{ key }}</span>
+                </li>
+              }
+            </ul>
+          </div>
+        </section>
+      </div>
+
+      <!-- Action modal (Promote / Reject with optional reason) -->
+      @if (actionDialog(); as dlg) {
+        <dialog
+          class="modal modal-open"
+          role="dialog"
+          aria-modal="true"
+          [attr.aria-label]="dlg.kind + ' candidate'"
+        >
+          <div class="modal-box">
+            <h3 class="text-base font-semibold">
+              {{ dlg.kind === 'promote' ? 'Promote' : 'Reject' }} candidate
+            </h3>
+            <p class="mt-1 text-sm text-base-content/70">
+              <span class="font-mono">{{ dlg.candidate.name }}</span>
+            </p>
+
+            <label class="form-control mt-3 w-full">
+              <span class="label-text text-xs">
+                Reason
+                <span class="text-base-content/50">(optional)</span>
+              </span>
+              <textarea
+                class="textarea textarea-bordered textarea-sm mt-1 w-full"
+                rows="3"
+                [(ngModel)]="actionReason"
+                [attr.aria-label]="dlg.kind + ' reason'"
+              ></textarea>
+            </label>
+
+            <div class="modal-action">
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                [disabled]="loading()"
+                (click)="onCloseDialog()"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm"
+                [class.btn-success]="dlg.kind === 'promote'"
+                [class.btn-error]="dlg.kind === 'reject'"
+                [disabled]="loading()"
+                (click)="onConfirmDialog()"
+              >
+                {{ dlg.kind === 'promote' ? 'Promote' : 'Reject' }}
+              </button>
+            </div>
+          </div>
+        </dialog>
+      }
     }
   `,
 })
 export class SkillSynthesisTabComponent implements OnInit {
   private readonly state = inject(SkillSynthesisStateService);
+  private readonly vscodeService = inject(VSCodeService);
+
+  /** Whether the webview is running inside the Electron desktop app. */
+  public readonly isElectron = computed(
+    () => this.vscodeService.config()?.isElectron === true,
+  );
 
   // Re-export state signals for the template.
   public readonly candidates = this.state.candidates;
@@ -378,6 +403,7 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly anyBusy = computed(() => this.loading());
 
   public ngOnInit(): void {
+    if (!this.isElectron()) return;
     void this.state.refreshCandidates();
     void this.state.loadStats();
   }

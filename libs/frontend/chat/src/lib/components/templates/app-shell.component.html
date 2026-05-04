@@ -381,6 +381,51 @@
           <span class="icon-btn-label text-xs">Dashboard</span>
         </button>
 
+        <!--
+          Hermes nav button + first-run hint (TASK_2026_HERMES_FINISH B6).
+          The tooltip uses an inline DaisyUI popover wrapper rather than a new
+          shared primitive (no `<ptah-tooltip>` exists in libs/frontend/ui).
+          It renders only while `!hermesFirstRunDismissed()` and disappears
+          permanently once the user clicks the X or opens Hermes once. The
+          dismissal flag round-trips through `AppStateManager` localStorage.
+        -->
+        <div class="relative">
+          <button
+            class="btn btn-ghost btn-xs gap-1"
+            [class.btn-active]="currentView() === 'hermes'"
+            aria-label="Hermes"
+            title="Hermes — agentic platform"
+            (click)="openHermes()"
+          >
+            <lucide-angular [img]="RadioTowerIcon" class="w-4 h-4" />
+            <span class="icon-btn-label text-xs">Hermes</span>
+          </button>
+
+          @if (!hermesFirstRunDismissed()) {
+            <div
+              role="tooltip"
+              aria-live="polite"
+              class="absolute left-0 top-full mt-1 z-50 w-64 p-3 bg-base-200 border border-primary/30 rounded-lg shadow-lg text-xs"
+            >
+              <div class="flex items-start gap-2">
+                <span class="flex-1 text-base-content/90 leading-snug">
+                  Hermes is your agentic platform — memory, skills, schedules,
+                  and external messaging.
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs btn-circle w-5 h-5 min-h-0 p-0 text-base-content/50 hover:text-base-content"
+                  (click)="dismissHermesFirstRun()"
+                  aria-label="Dismiss Hermes hint"
+                  title="Dismiss"
+                >
+                  <lucide-angular [img]="XIcon" class="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          }
+        </div>
+
         <!-- Layout toggle button (replaces old Canvas navigation button) -->
         <button
           class="btn btn-ghost btn-xs gap-1"

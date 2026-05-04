@@ -32,6 +32,13 @@ export type HermesActiveTabId = 'memory' | 'skills' | 'cron' | 'gateway';
 /** Layout mode for the chat view content area: single tab or canvas grid */
 export type LayoutMode = 'single' | 'grid';
 
+/**
+ * `localStorage` key used to persist the "Hermes first-run hint dismissed"
+ * flag. Same persistence layer as `ptah-layout-mode` — kept as a module
+ * constant so tests can reference it without duplicating the literal.
+ */
+export const HERMES_FIRST_RUN_DISMISSED_KEY = 'ptah-hermes-first-run-dismissed';
+
 /** Request to open/focus a session in a canvas tile */
 export interface CanvasSessionRequest {
   sessionId: string;
@@ -107,7 +114,12 @@ export class AppStateManager implements MessageHandler {
    * the `'hermes'` view restores the user's last tab.
    */
   private readonly _hermesActiveTab = signal<HermesActiveTabId>('memory');
-  /** Whether the user has dismissed the Hermes first-run hint. */
+  /**
+   * Whether the user has dismissed the Hermes first-run hint.
+   * Persisted to `localStorage` under {@link HERMES_FIRST_RUN_DISMISSED_KEY}
+   * (same pattern as `ptah-layout-mode`) so a reload preserves the dismissed
+   * state and the tooltip never reappears after the user closes it once.
+   */
   private readonly _hermesFirstRunDismissed = signal<boolean>(false);
 
   constructor() {
@@ -251,6 +263,17 @@ export class AppStateManager implements MessageHandler {
       this._layoutMode.set(savedLayoutMode);
     }
 
+    // Restore Hermes first-run hint dismissal flag from localStorage.
+    // Stored as the literal string 'true' on dismissal; any other value
+    // (missing, '', 'false') keeps the default `false` so the hint shows.
+    try {
+      if (localStorage.getItem(HERMES_FIRST_RUN_DISMISSED_KEY) === 'true') {
+        this._hermesFirstRunDismissed.set(true);
+      }
+    } catch {
+      /* localStorage unavailable in restricted environments */
+    }
+
     // Backward compat: normalizeView() maps 'orchestra-canvas' → 'chat' + grid layout.
     // This runs AFTER localStorage restore so it can override saved preference when needed.
     initialView = this.normalizeView(initialView);
@@ -347,9 +370,19 @@ export class AppStateManager implements MessageHandler {
     this._hermesActiveTab.set(tab);
   }
 
-  /** Mark the Hermes first-run hint as dismissed. */
+  /**
+   * Mark the Hermes first-run hint as dismissed and persist the flag to
+   * `localStorage` so a reload preserves the dismissed state. Idempotent —
+   * calling this when already dismissed is a no-op for state but still
+   * re-writes the storage key (cheap, keeps the code branch-free).
+   */
   dismissHermesFirstRun(): void {
     this._hermesFirstRunDismissed.set(true);
+    try {
+      localStorage.setItem(HERMES_FIRST_RUN_DISMISSED_KEY, 'true');
+    } catch {
+      /* localStorage unavailable in restricted environments */
+    }
   }
 
   getStateSnapshot(): AppState {

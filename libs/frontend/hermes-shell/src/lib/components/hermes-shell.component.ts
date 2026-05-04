@@ -107,10 +107,15 @@ export class HermesShellComponent {
 
   protected readonly RadioTowerIcon = RadioTower;
 
-  /** All four tabs and their platform requirements. */
+  /**
+   * All four tabs and their platform requirements. Memory and Skill-Synthesis
+   * depend on better-sqlite3 (native) + the embedder-worker, so they are
+   * Electron-only alongside Cron and Gateway. Each tab component owns its own
+   * desktop-only placeholder, mirroring the cron/gateway pattern.
+   */
   protected readonly tabs: readonly HermesTabSpec[] = [
-    { id: 'memory', label: 'Memory', electronOnly: false },
-    { id: 'skills', label: 'Skills', electronOnly: false },
+    { id: 'memory', label: 'Memory', electronOnly: true },
+    { id: 'skills', label: 'Skills', electronOnly: true },
     { id: 'cron', label: 'Schedules', electronOnly: true },
     { id: 'gateway', label: 'Messaging', electronOnly: true },
   ];

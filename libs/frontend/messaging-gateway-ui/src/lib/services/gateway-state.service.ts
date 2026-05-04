@@ -225,12 +225,26 @@ export class GatewayStateService {
     }
   }
 
-  public async approveBinding(bindingId: string): Promise<void> {
+  /**
+   * Approve a pending binding by submitting the user-entered pairing code.
+   * Returns a discriminated result so the caller can distinguish a code
+   * mismatch (clear input + show toast) from a generic transport failure.
+   */
+  public async approveBinding(
+    bindingId: string,
+    code: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
     try {
-      await this.rpc.approveBinding(bindingId);
+      const result = await this.rpc.approveBinding(bindingId, code);
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
       await this.listBindings();
+      return { ok: true };
     } catch (err) {
       this.recordGlobalError(err);
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: message };
     }
   }
 

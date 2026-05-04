@@ -125,7 +125,10 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // Messaging gateway
   'gateway.enabled',
   'gateway.coalesceMs',
+  'gateway.rateLimit.minTimeMs',
+  'gateway.rateLimit.maxConcurrent',
   'gateway.voice.enabled',
+  'gateway.voice.whisperModel',
   'gateway.telegram.enabled',
   'gateway.telegram.tokenCipher',
   'gateway.telegram.allowedUserIds',
@@ -234,13 +237,15 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
 
   // Memory curator
   'memory.curatorEnabled': true,
-  'memory.tierLimits.core': 50,
-  'memory.tierLimits.recall': 500,
-  'memory.tierLimits.archival': 5000,
-  'memory.decayHalflifeDays': 14,
+  'memory.tierLimits.core': 256,
+  'memory.tierLimits.recall': 4096,
+  'memory.tierLimits.archival': 100000,
+  'memory.decayHalflifeDays': 30,
   'memory.embeddingModel': 'Xenova/bge-small-en-v1.5',
-  'memory.curatorModel': 'claude-haiku-4-20251022',
-  'memory.searchTopK': 10,
+  // Empty string delegates curator model selection to the SDK default —
+  // the runtime resolves the actual model from agent-sdk's provider chain.
+  'memory.curatorModel': '',
+  'memory.searchTopK': 20,
   'memory.searchAlpha': 0.5,
 
   // Autonomous skill synthesis
@@ -257,8 +262,11 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
 
   // Messaging gateway
   'gateway.enabled': false,
-  'gateway.coalesceMs': 800,
+  'gateway.coalesceMs': 250,
+  'gateway.rateLimit.minTimeMs': 500,
+  'gateway.rateLimit.maxConcurrent': 2,
   'gateway.voice.enabled': true,
+  'gateway.voice.whisperModel': 'base.en',
   'gateway.telegram.enabled': false,
   'gateway.telegram.tokenCipher': '',
   'gateway.telegram.allowedUserIds': [],

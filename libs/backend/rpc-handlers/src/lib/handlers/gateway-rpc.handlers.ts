@@ -197,16 +197,29 @@ export class GatewayRpcHandlers {
       if (!params?.bindingId) {
         throw new Error('gateway:approveBinding requires bindingId');
       }
-      const binding = this.gateway.approveBinding(
+      if (typeof params.code !== 'string' || params.code.length === 0) {
+        throw new Error('gateway:approveBinding requires code');
+      }
+      const result = this.gateway.approveBinding(
         BindingId.create(params.bindingId),
         params.ptahSessionId,
         params.workspaceRoot,
+        params.code,
       );
+      if (!result.ok) {
+        // Do NOT log the supplied code — it's a one-time secret. Only log the
+        // structured reason so dashboards can count mismatches.
+        this.logger.warn('[gateway] binding approval rejected', {
+          bindingId: params.bindingId,
+          reason: result.error,
+        });
+        return { ok: false, error: result.error };
+      }
       this.logger.info('[gateway] binding approved', {
         bindingId: params.bindingId,
-        platform: binding.platform,
+        platform: result.binding.platform,
       });
-      return { binding: toBindingDto(binding) };
+      return { ok: true, binding: toBindingDto(result.binding) };
     });
   }
 

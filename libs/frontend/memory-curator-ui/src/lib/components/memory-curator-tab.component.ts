@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
+import { VSCodeService } from '@ptah-extension/core';
 import type { MemoryWire } from '@ptah-extension/shared';
 
 import {
@@ -44,198 +45,221 @@ interface TierChip {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule],
   template: `
-    <div class="flex h-full w-full flex-col gap-4">
-      <!-- Search + tier filter -->
-      <div class="flex flex-col gap-2 md:flex-row md:items-center">
-        <input
-          type="search"
-          class="input input-sm input-bordered w-full md:max-w-md"
-          placeholder="Search memory (BM25 + vector hybrid)..."
-          [value]="searchInput()"
-          (input)="onSearchInput($event)"
-          aria-label="Search memory entries"
-        />
-        <div
-          role="tablist"
-          aria-label="Memory tier filter"
-          class="flex flex-wrap gap-1"
-        >
-          @for (chip of tierChips; track chip.id) {
-            <button
-              type="button"
-              role="tab"
-              class="btn btn-xs"
-              [class.btn-primary]="tierFilter() === chip.id"
-              [class.btn-ghost]="tierFilter() !== chip.id"
-              [attr.aria-selected]="tierFilter() === chip.id"
-              (click)="onTierChipClick(chip.id)"
-            >
-              {{ chip.label }}
-            </button>
-          }
-        </div>
-        <button
-          type="button"
-          class="btn btn-sm btn-outline ml-auto"
-          [disabled]="loading()"
-          (click)="onRebuildIndex()"
-        >
-          @if (loading()) {
-            <span class="loading loading-spinner loading-xs"></span>
-          }
-          Rebuild index
-        </button>
+    @if (!isElectron()) {
+      <div role="alert" class="alert alert-info">
+        <span class="text-sm">
+          Memory curation is only available in the Ptah desktop app.
+          <a
+            class="link link-primary ml-1"
+            href="https://github.com/HiveAcademy/ptah-extension/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Download Ptah desktop</a
+          >.
+        </span>
       </div>
-
-      @if (error()) {
-        <div role="alert" class="alert alert-error">
-          <span class="text-sm">{{ error() }}</span>
-        </div>
-      }
-
-      <!-- Stats panel -->
-      <section
-        class="grid grid-cols-2 gap-2 md:grid-cols-4"
-        aria-label="Memory tier statistics"
-      >
-        <div class="rounded-lg bg-base-200 p-3">
-          <div class="text-xs uppercase text-base-content/60">Core</div>
-          <div class="text-2xl font-semibold text-base-content">
-            {{ statCounts().core }}
-          </div>
-        </div>
-        <div class="rounded-lg bg-base-200 p-3">
-          <div class="text-xs uppercase text-base-content/60">Recall</div>
-          <div class="text-2xl font-semibold text-base-content">
-            {{ statCounts().recall }}
-          </div>
-        </div>
-        <div class="rounded-lg bg-base-200 p-3">
-          <div class="text-xs uppercase text-base-content/60">Archival</div>
-          <div class="text-2xl font-semibold text-base-content">
-            {{ statCounts().archival }}
-          </div>
-        </div>
-        <div class="rounded-lg bg-base-200 p-3">
-          <div class="text-xs uppercase text-base-content/60">Last curated</div>
-          <div class="text-sm font-medium text-base-content">
-            {{ lastCuratedAtLabel() }}
-          </div>
-        </div>
-      </section>
-
-      <!-- Entry list -->
-      <section class="flex-1 overflow-auto" aria-label="Memory entries">
-        @if (loading() && filteredEntries().length === 0) {
-          <div class="flex items-center justify-center py-8">
-            <span class="loading loading-spinner loading-md"></span>
-          </div>
-        } @else if (filteredEntries().length === 0) {
+    } @else {
+      <div class="flex h-full w-full flex-col gap-4">
+        <!-- Search + tier filter -->
+        <div class="flex flex-col gap-2 md:flex-row md:items-center">
+          <input
+            type="search"
+            class="input input-sm input-bordered w-full md:max-w-md"
+            placeholder="Search memory (BM25 + vector hybrid)..."
+            [value]="searchInput()"
+            (input)="onSearchInput($event)"
+            aria-label="Search memory entries"
+          />
           <div
-            class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60"
+            role="tablist"
+            aria-label="Memory tier filter"
+            class="flex flex-wrap gap-1"
           >
-            No memory entries match the current filter.
-          </div>
-        } @else {
-          <ul class="flex flex-col gap-2">
-            @for (entry of filteredEntries(); track entry.id) {
-              <li
-                class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-100 p-3 md:flex-row md:items-start"
+            @for (chip of tierChips; track chip.id) {
+              <button
+                type="button"
+                role="tab"
+                class="btn btn-xs"
+                [class.btn-primary]="tierFilter() === chip.id"
+                [class.btn-ghost]="tierFilter() !== chip.id"
+                [attr.aria-selected]="tierFilter() === chip.id"
+                (click)="onTierChipClick(chip.id)"
               >
-                <div class="flex-1">
-                  <div class="flex flex-wrap items-center gap-2">
-                    <span
-                      class="badge badge-sm"
-                      [class]="tierBadgeClass(entry.tier)"
-                    >
-                      {{ entry.tier }}
-                    </span>
-                    <span class="badge badge-sm badge-ghost">
-                      {{ entry.kind }}
-                    </span>
-                    @if (entry.pinned) {
-                      <span class="badge badge-sm badge-warning">pinned</span>
-                    }
-                    <span class="text-xs text-base-content/60">
-                      score {{ entry.salience.toFixed(2) }}
-                    </span>
-                  </div>
-                  @if (entry.subject) {
-                    <div class="mt-1 text-sm font-medium text-base-content">
-                      {{ entry.subject }}
-                    </div>
-                  }
-                  <div class="mt-1 line-clamp-3 text-sm text-base-content/80">
-                    {{ entry.content }}
-                  </div>
-                </div>
-                <div class="flex shrink-0 gap-1">
-                  @if (entry.pinned) {
-                    <button
-                      type="button"
-                      class="btn btn-xs btn-ghost"
-                      (click)="onUnpin(entry.id)"
-                      [attr.aria-label]="'Unpin entry ' + entry.id"
-                    >
-                      Unpin
-                    </button>
-                  } @else {
-                    <button
-                      type="button"
-                      class="btn btn-xs btn-ghost"
-                      (click)="onPin(entry.id)"
-                      [attr.aria-label]="'Pin entry ' + entry.id"
-                    >
-                      Pin
-                    </button>
-                  }
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-ghost text-error"
-                    (click)="onForget(entry.id)"
-                    [attr.aria-label]="'Forget entry ' + entry.id"
-                  >
-                    Forget
-                  </button>
-                </div>
-              </li>
+                {{ chip.label }}
+              </button>
             }
-          </ul>
-        }
-      </section>
-
-      <!-- Settings panel (read-only) -->
-      <section
-        class="rounded-lg border border-base-300 bg-base-200/40 p-3"
-        aria-label="Memory settings (read-only)"
-      >
-        <div class="text-xs uppercase text-base-content/60">
-          Memory settings (edit in Settings → Hermes)
+          </div>
+          <button
+            type="button"
+            class="btn btn-sm btn-outline ml-auto"
+            [disabled]="loading()"
+            (click)="onRebuildIndex()"
+          >
+            @if (loading()) {
+              <span class="loading loading-spinner loading-xs"></span>
+            }
+            Rebuild index
+          </button>
         </div>
-        <dl class="mt-2 grid grid-cols-1 gap-1 text-xs md:grid-cols-3">
-          <div>
-            <dt class="text-base-content/60">Tier limits</dt>
-            <dd class="font-mono text-base-content">
-              core / recall / archival
-            </dd>
+
+        @if (error()) {
+          <div role="alert" class="alert alert-error">
+            <span class="text-sm">{{ error() }}</span>
           </div>
-          <div>
-            <dt class="text-base-content/60">Decay halflife</dt>
-            <dd class="font-mono text-base-content">
-              memory.decayHalflifeDays
-            </dd>
+        }
+
+        <!-- Stats panel -->
+        <section
+          class="grid grid-cols-2 gap-2 md:grid-cols-4"
+          aria-label="Memory tier statistics"
+        >
+          <div class="rounded-lg bg-base-200 p-3">
+            <div class="text-xs uppercase text-base-content/60">Core</div>
+            <div class="text-2xl font-semibold text-base-content">
+              {{ statCounts().core }}
+            </div>
           </div>
-          <div>
-            <dt class="text-base-content/60">Search top-K</dt>
-            <dd class="font-mono text-base-content">memory.searchTopK</dd>
+          <div class="rounded-lg bg-base-200 p-3">
+            <div class="text-xs uppercase text-base-content/60">Recall</div>
+            <div class="text-2xl font-semibold text-base-content">
+              {{ statCounts().recall }}
+            </div>
           </div>
-        </dl>
-      </section>
-    </div>
+          <div class="rounded-lg bg-base-200 p-3">
+            <div class="text-xs uppercase text-base-content/60">Archival</div>
+            <div class="text-2xl font-semibold text-base-content">
+              {{ statCounts().archival }}
+            </div>
+          </div>
+          <div class="rounded-lg bg-base-200 p-3">
+            <div class="text-xs uppercase text-base-content/60">
+              Last curated
+            </div>
+            <div class="text-sm font-medium text-base-content">
+              {{ lastCuratedAtLabel() }}
+            </div>
+          </div>
+        </section>
+
+        <!-- Entry list -->
+        <section class="flex-1 overflow-auto" aria-label="Memory entries">
+          @if (loading() && filteredEntries().length === 0) {
+            <div class="flex items-center justify-center py-8">
+              <span class="loading loading-spinner loading-md"></span>
+            </div>
+          } @else if (filteredEntries().length === 0) {
+            <div
+              class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60"
+            >
+              No memory entries match the current filter.
+            </div>
+          } @else {
+            <ul class="flex flex-col gap-2">
+              @for (entry of filteredEntries(); track entry.id) {
+                <li
+                  class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-100 p-3 md:flex-row md:items-start"
+                >
+                  <div class="flex-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span
+                        class="badge badge-sm"
+                        [class]="tierBadgeClass(entry.tier)"
+                      >
+                        {{ entry.tier }}
+                      </span>
+                      <span class="badge badge-sm badge-ghost">
+                        {{ entry.kind }}
+                      </span>
+                      @if (entry.pinned) {
+                        <span class="badge badge-sm badge-warning">pinned</span>
+                      }
+                      <span class="text-xs text-base-content/60">
+                        score {{ entry.salience.toFixed(2) }}
+                      </span>
+                    </div>
+                    @if (entry.subject) {
+                      <div class="mt-1 text-sm font-medium text-base-content">
+                        {{ entry.subject }}
+                      </div>
+                    }
+                    <div class="mt-1 line-clamp-3 text-sm text-base-content/80">
+                      {{ entry.content }}
+                    </div>
+                  </div>
+                  <div class="flex shrink-0 gap-1">
+                    @if (entry.pinned) {
+                      <button
+                        type="button"
+                        class="btn btn-xs btn-ghost"
+                        (click)="onUnpin(entry.id)"
+                        [attr.aria-label]="'Unpin entry ' + entry.id"
+                      >
+                        Unpin
+                      </button>
+                    } @else {
+                      <button
+                        type="button"
+                        class="btn btn-xs btn-ghost"
+                        (click)="onPin(entry.id)"
+                        [attr.aria-label]="'Pin entry ' + entry.id"
+                      >
+                        Pin
+                      </button>
+                    }
+                    <button
+                      type="button"
+                      class="btn btn-xs btn-ghost text-error"
+                      (click)="onForget(entry.id)"
+                      [attr.aria-label]="'Forget entry ' + entry.id"
+                    >
+                      Forget
+                    </button>
+                  </div>
+                </li>
+              }
+            </ul>
+          }
+        </section>
+
+        <!-- Settings panel (read-only) -->
+        <section
+          class="rounded-lg border border-base-300 bg-base-200/40 p-3"
+          aria-label="Memory settings (read-only)"
+        >
+          <div class="text-xs uppercase text-base-content/60">
+            Memory settings (edit in Settings → Hermes)
+          </div>
+          <dl class="mt-2 grid grid-cols-1 gap-1 text-xs md:grid-cols-3">
+            <div>
+              <dt class="text-base-content/60">Tier limits</dt>
+              <dd class="font-mono text-base-content">
+                core / recall / archival
+              </dd>
+            </div>
+            <div>
+              <dt class="text-base-content/60">Decay halflife</dt>
+              <dd class="font-mono text-base-content">
+                memory.decayHalflifeDays
+              </dd>
+            </div>
+            <div>
+              <dt class="text-base-content/60">Search top-K</dt>
+              <dd class="font-mono text-base-content">memory.searchTopK</dd>
+            </div>
+          </dl>
+        </section>
+      </div>
+    }
   `,
 })
 export class MemoryCuratorTabComponent implements OnInit {
   private readonly state = inject(MemoryStateService);
+  private readonly vscodeService = inject(VSCodeService);
+
+  /** Whether the webview is running inside the Electron desktop app. */
+  public readonly isElectron = computed(
+    () => this.vscodeService.config()?.isElectron === true,
+  );
 
   protected readonly tierChips: readonly TierChip[] = [
     { id: 'all', label: 'All' },
@@ -285,15 +309,18 @@ export class MemoryCuratorTabComponent implements OnInit {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   public constructor() {
-    // Refresh entries whenever the tier filter flips.
+    // Refresh entries whenever the tier filter flips. Skipped in non-Electron
+    // hosts where memory:* RPCs are not registered (placeholder shown instead).
     effect(() => {
       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       this.state.tierFilter();
+      if (!this.isElectron()) return;
       void this.state.refresh();
     });
   }
 
   public ngOnInit(): void {
+    if (!this.isElectron()) return;
     void this.state.loadStats();
     void this.state.refresh();
   }

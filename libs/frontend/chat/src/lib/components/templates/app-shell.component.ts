@@ -20,6 +20,7 @@ import {
   MessageSquare,
   Pencil,
   Plus,
+  RadioTower,
   Search,
   Settings,
   Trash2,
@@ -193,6 +194,11 @@ export class AppShellComponent {
   readonly ExternalLinkIcon = ExternalLink;
   readonly BarChart3Icon = BarChart3;
   readonly LayoutGridIcon = LayoutGrid;
+  readonly RadioTowerIcon = RadioTower;
+
+  // Hermes first-run hint visibility (B6). Sourced from AppStateManager
+  // so the dismissal flag round-trips through localStorage on reload.
+  readonly hermesFirstRunDismissed = this.appState.hermesFirstRunDismissed;
 
   // Inline edit state for session renaming
   readonly editingSessionId = signal<string | null>(null);
@@ -349,6 +355,26 @@ export class AppShellComponent {
    */
   openDashboard(): void {
     this.appState.setCurrentView('analytics');
+  }
+
+  /**
+   * Navigate to the Hermes hub view. Opening Hermes also dismisses the
+   * first-run hint — once the user has clicked through, they don't need
+   * the explanatory tooltip on subsequent visits.
+   */
+  openHermes(): void {
+    if (!this.hermesFirstRunDismissed()) {
+      this.appState.dismissHermesFirstRun();
+    }
+    this.appState.setCurrentView('hermes');
+  }
+
+  /**
+   * Dismiss the Hermes first-run hint without navigating to Hermes.
+   * Triggered by the X button on the tooltip.
+   */
+  dismissHermesFirstRun(): void {
+    this.appState.dismissHermesFirstRun();
   }
 
   /**

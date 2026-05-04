@@ -22,6 +22,7 @@
  *     >60 messages/min (architecture §9.9).
  */
 import { EventEmitter } from 'node:events';
+import { timingSafeEqual } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -38,7 +39,10 @@ import { BindingStore } from './binding.store';
 import { MessageStore } from './message.store';
 import { StreamCoalescer, type FlushPayload } from './stream-coalescer';
 import { FfmpegDecoder } from './voice/ffmpeg-decoder';
-import { WhisperTranscriber } from './voice/whisper-transcriber';
+import {
+  WhisperTranscriber,
+  type WhisperDownloadEvent,
+} from './voice/whisper-transcriber';
 import {
   GrammyTelegramAdapter,
   type TelegramBotFactory,
@@ -67,6 +71,9 @@ const SETTINGS_KEYS = {
   enabled: 'gateway.enabled',
   coalesceMs: 'gateway.coalesceMs',
   voiceEnabled: 'gateway.voice.enabled',
+  whisperModel: 'gateway.voice.whisperModel',
+  rateLimitMinTimeMs: 'gateway.rateLimit.minTimeMs',
+  rateLimitMaxConcurrent: 'gateway.rateLimit.maxConcurrent',
   telegram: {
     enabled: 'gateway.telegram.enabled',
     token: 'gateway.telegram.tokenCipher',
@@ -219,6 +226,9 @@ export class GatewayService extends EventEmitter {
       );
     }
 
+    // Bridge transcriber download lifecycle to the renderer. Idempotent.
+    this.bridgeWhisperEvents();
+
     const masterEnabled =
       this.workspace.getConfiguration<boolean>(
         'ptah',
@@ -307,16 +317,42 @@ export class GatewayService extends EventEmitter {
     this.decryptFailures.delete(args.platform);
   }
 
+  /**
+   * Approve a pending binding only when the supplied `code` matches the
+   * stored pairing code with a constant-time compare. SECURITY: the comparison
+   * uses {@link timingSafeEqual} so an attacker cannot recover the code via a
+   * response-time side-channel.
+   *
+   * Returns a discriminated union rather than throwing because the renderer
+   * surfaces structured error reasons (`invalid-code` clears the input,
+   * `binding-not-found` flags a stale list).
+   */
   approveBinding(
     id: BindingId,
     ptahSessionId?: string,
     workspaceRoot?: string,
-  ): GatewayBinding {
+    code?: string,
+  ):
+    | { ok: true; binding: GatewayBinding }
+    | { ok: false; error: 'invalid-code' | 'binding-not-found' } {
+    const existing = this.bindings.findById(id);
+    if (!existing) {
+      return { ok: false, error: 'binding-not-found' };
+    }
+    const stored = existing.pairingCode ?? '';
+    const supplied = (code ?? '').trim();
+    if (!stored || !supplied || !constantTimeStringEqual(stored, supplied)) {
+      this.logger.warn('[gateway] approveBinding rejected — code mismatch', {
+        bindingId: String(id),
+        platform: existing.platform,
+      });
+      return { ok: false, error: 'invalid-code' };
+    }
     const binding = this.bindings.approve(id, ptahSessionId, workspaceRoot);
     // Binding has left the pending state — drop the one-shot prompt latch so
     // a future revoke→re-pending cycle gets a fresh prompt.
     this.pairingPromptSent.delete(id);
-    return binding;
+    return { ok: true, binding };
   }
 
   setBindingStatus(id: BindingId, status: ApprovalStatus): GatewayBinding {
@@ -699,4 +735,69 @@ export class GatewayService extends EventEmitter {
   static defaultVoiceCacheDir(): string {
     return path.join(os.homedir(), '.ptah', 'voice-cache');
   }
+
+  /**
+   * Subscribe transcriber download events and re-emit them on `gateway:event`
+   * so the renderer's voice-model-download toast lights up. Public so the
+   * activation layer can wire this once after DI registration completes.
+   */
+  bridgeWhisperEvents(): void {
+    if (this.whisperEventsBridged) return;
+    this.whisperEventsBridged = true;
+    // Apply the current settings model name so the next transcribe uses it.
+    const modelName = this.workspace.getConfiguration<string>(
+      'ptah',
+      SETTINGS_KEYS.whisperModel,
+      'base.en',
+    );
+    if (typeof modelName === 'string' && modelName.length > 0) {
+      this.whisper.configure({ modelName });
+    }
+    this.whisper.on('download', (evt: WhisperDownloadEvent) => {
+      switch (evt.kind) {
+        case 'download:start':
+          this.emit('event', {
+            kind: 'voice-model-download',
+            modelName: evt.model,
+            percent: 0,
+          });
+          break;
+        case 'download:progress':
+          this.emit('event', {
+            kind: 'voice-model-download',
+            modelName: evt.model,
+            percent: evt.percent,
+          });
+          break;
+        case 'download:complete':
+          this.emit('event', {
+            kind: 'voice-model-download',
+            modelName: evt.model,
+            percent: 100,
+          });
+          break;
+        case 'download:error':
+          this.emit('event', {
+            kind: 'voice-model-download-error',
+            modelName: evt.model,
+            reason: evt.error,
+          });
+          break;
+      }
+    });
+  }
+
+  private whisperEventsBridged = false;
+}
+
+/**
+ * Constant-time string comparison via {@link timingSafeEqual}. Returns false
+ * on length mismatch (timingSafeEqual itself throws on length mismatch, so
+ * the caller wraps that case explicitly).
+ */
+function constantTimeStringEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a, 'utf8');
+  const bBuf = Buffer.from(b, 'utf8');
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
 }

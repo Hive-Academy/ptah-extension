@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
+import { VSCodeService } from '@ptah-extension/core';
 import type {
   SkillSynthesisCandidateSummary,
   SkillSynthesisInvocationEntry,
@@ -8,6 +9,12 @@ import type {
 
 import { SkillSynthesisTabComponent } from './skill-synthesis-tab.component';
 import { SkillSynthesisStateService } from '../services/skill-synthesis-state.service';
+
+function vscodeServiceStub(isElectron: boolean): Partial<VSCodeService> {
+  return {
+    config: signal({ isElectron }),
+  } as unknown as Partial<VSCodeService>;
+}
 
 interface StubState {
   readonly candidates: ReturnType<
@@ -71,7 +78,10 @@ describe('SkillSynthesisTabComponent', () => {
 
     TestBed.configureTestingModule({
       imports: [SkillSynthesisTabComponent],
-      providers: [{ provide: SkillSynthesisStateService, useValue: stub }],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: stub },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+      ],
     });
 
     const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
@@ -105,7 +115,10 @@ describe('SkillSynthesisTabComponent', () => {
 
     TestBed.configureTestingModule({
       imports: [SkillSynthesisTabComponent],
-      providers: [{ provide: SkillSynthesisStateService, useValue: stub }],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: stub },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+      ],
     });
 
     const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
@@ -115,5 +128,33 @@ describe('SkillSynthesisTabComponent', () => {
     expect(text).toContain('refactor-tests');
     expect(text).toContain('Promote');
     expect(text).toContain('Reject');
+  });
+
+  it('shows desktop-only placeholder when not on Electron and skips RPC init', () => {
+    const stub = makeStub();
+
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: stub },
+        { provide: VSCodeService, useValue: vscodeServiceStub(false) },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Ptah desktop app');
+
+    // No RPC init in placeholder mode.
+    expect(stub.refreshCandidates).not.toHaveBeenCalled();
+    expect(stub.loadStats).not.toHaveBeenCalled();
+
+    // Filter chips are not rendered in placeholder mode.
+    const tabs = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '[role="tab"]',
+    );
+    expect(tabs.length).toBe(0);
   });
 });

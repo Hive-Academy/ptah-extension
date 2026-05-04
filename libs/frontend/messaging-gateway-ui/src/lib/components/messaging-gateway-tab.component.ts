@@ -280,6 +280,19 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           </section>
         }
 
+        @if (approvalToast(); as msg) {
+          <div role="alert" class="alert alert-error">
+            <span class="text-sm">{{ msg }}</span>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              (click)="onDismissApprovalToast()"
+            >
+              Dismiss
+            </button>
+          </div>
+        }
+
         <!-- Pending bindings approval queue -->
         <section
           class="card bg-base-200 shadow-sm"
@@ -451,6 +464,9 @@ export class MessagingGatewayTabComponent implements OnInit {
   /** Pending-binding code-entry inputs, keyed by binding id. */
   private readonly bindingCodes = signal<Record<string, string>>({});
 
+  /** Transient toast for binding-approval feedback (code mismatch, etc.). */
+  protected readonly approvalToast = signal<string | null>(null);
+
   protected readonly testResults = computed(() => this.state.testResult());
 
   public get isElectron(): boolean {
@@ -596,17 +612,37 @@ export class MessagingGatewayTabComponent implements OnInit {
 
   protected async onApprove(binding: GatewayBindingDto): Promise<void> {
     // Architecture §9: codes are NEVER returned by listBindings. The user
-    // must enter the code their bot received; the backend's approveBinding
-    // does the comparison. We still gate the button locally on a non-empty
-    // code so we don't dispatch obviously-empty approvals.
+    // must enter the code their bot received; the backend compares it with
+    // a constant-time check (gateway.service.ts approveBinding). We still
+    // gate the button locally on a non-empty code so we don't dispatch
+    // obviously-empty approvals.
     const code = this.bindingCodes()[binding.id]?.trim();
     if (!code) return;
-    await this.state.approveBinding(binding.id);
+    const result = await this.state.approveBinding(binding.id, code);
+    if (!result.ok) {
+      // Code mismatch — clear the entered code so the user can try again.
+      this.bindingCodes.update((current) => {
+        const next = { ...current };
+        next[binding.id] = '';
+        return next;
+      });
+      this.approvalToast.set(
+        result.error === 'invalid-code'
+          ? 'Code mismatch — try again'
+          : `Approval failed: ${result.error}`,
+      );
+      return;
+    }
+    this.approvalToast.set(null);
     this.bindingCodes.update((current) => {
       const next = { ...current };
       delete next[binding.id];
       return next;
     });
+  }
+
+  protected onDismissApprovalToast(): void {
+    this.approvalToast.set(null);
   }
 
   protected async onReject(binding: GatewayBindingDto): Promise<void> {

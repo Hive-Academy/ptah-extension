@@ -137,13 +137,15 @@ export class GatewayRpcService {
 
   public async approveBinding(
     bindingId: string,
+    code: string,
     opts?: { ptahSessionId?: string; workspaceRoot?: string },
   ): Promise<GatewayApproveBindingResult> {
     const params: {
       bindingId: string;
+      code: string;
       ptahSessionId?: string;
       workspaceRoot?: string;
-    } = { bindingId };
+    } = { bindingId, code };
     if (opts?.ptahSessionId) params.ptahSessionId = opts.ptahSessionId;
     if (opts?.workspaceRoot) params.workspaceRoot = opts.workspaceRoot;
     const result = await this.rpc.call('gateway:approveBinding', params, {

@@ -60,6 +60,10 @@ import {
  * SQLite-backed handlers (Cron, Gateway, Memory, SkillsSynthesis) are
  * Electron-only: their DI dependencies are never registered in the VS Code
  * host. They are also excluded from registerAllRpcHandlers below.
+ *
+ * Memory and Skill-Synthesis depend on better-sqlite3 (native) + the
+ * embedder-worker (vector embeddings); these are Electron-only by design.
+ * VS Code host shows desktop-only placeholders in the Hermes shell tabs.
  */
 const ELECTRON_ONLY_METHODS: readonly string[] = [
   'workspace:getInfo',

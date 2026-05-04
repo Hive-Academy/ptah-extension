@@ -26,6 +26,7 @@ import { TestBed } from '@angular/core/testing';
 import { MESSAGE_TYPES, type WorkspaceInfo } from '@ptah-extension/shared';
 import {
   AppStateManager,
+  HERMES_FIRST_RUN_DISMISSED_KEY,
   type AppState,
   type CanvasSessionRequest,
   type LayoutMode,
@@ -392,6 +393,52 @@ describe('AppStateManager', () => {
 
       service.clearNewCanvasSessionRequest();
       expect(service.newCanvasSessionRequest()).toBeNull();
+    });
+  });
+
+  describe('Hermes first-run hint persistence (B6)', () => {
+    it('defaults hermesFirstRunDismissed to false on a fresh install', () => {
+      const service = createService();
+      expect(service.hermesFirstRunDismissed()).toBe(false);
+      // No localStorage write should have happened yet.
+      expect(localStorage.getItem(HERMES_FIRST_RUN_DISMISSED_KEY)).toBeNull();
+    });
+
+    it('dismissHermesFirstRun() flips the signal AND persists to localStorage', () => {
+      const service = createService();
+
+      service.dismissHermesFirstRun();
+
+      expect(service.hermesFirstRunDismissed()).toBe(true);
+      expect(localStorage.getItem(HERMES_FIRST_RUN_DISMISSED_KEY)).toBe('true');
+    });
+
+    it('round-trips the dismissed flag across a service re-instantiation (reload simulation)', () => {
+      // First instance — user dismisses the hint.
+      const first = createService();
+      first.dismissHermesFirstRun();
+      expect(first.hermesFirstRunDismissed()).toBe(true);
+
+      // Simulate a reload: tear down the TestBed but keep localStorage.
+      TestBed.resetTestingModule();
+
+      // Second instance — should read 'true' from localStorage and start dismissed.
+      const second = createService();
+      expect(second.hermesFirstRunDismissed()).toBe(true);
+    });
+
+    it('treats any non-"true" stored value as "not dismissed" (defensive parsing)', () => {
+      localStorage.setItem(HERMES_FIRST_RUN_DISMISSED_KEY, 'false');
+      const service = createService();
+      expect(service.hermesFirstRunDismissed()).toBe(false);
+    });
+
+    it('is idempotent — calling dismissHermesFirstRun() twice keeps state stable', () => {
+      const service = createService();
+      service.dismissHermesFirstRun();
+      service.dismissHermesFirstRun();
+      expect(service.hermesFirstRunDismissed()).toBe(true);
+      expect(localStorage.getItem(HERMES_FIRST_RUN_DISMISSED_KEY)).toBe('true');
     });
   });
 });

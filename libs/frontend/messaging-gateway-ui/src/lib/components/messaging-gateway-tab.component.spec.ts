@@ -48,7 +48,10 @@ interface StubState {
     Promise<void>,
     ['telegram' | 'discord' | 'slack', string, string?]
   >;
-  readonly approveBinding: jest.Mock<Promise<void>, [string]>;
+  readonly approveBinding: jest.Mock<
+    Promise<{ ok: true } | { ok: false; error: string }>,
+    [string, string]
+  >;
   readonly rejectBinding: jest.Mock<Promise<void>, [string]>;
   readonly revokeBinding: jest.Mock<Promise<void>, [string]>;
   readonly sendTest: jest.Mock<
@@ -83,7 +86,7 @@ function makeStub(): StubState {
     hasApprovedBindingFor: jest.fn(() => false),
     initialize: jest.fn(async () => undefined),
     setToken: jest.fn(async () => undefined),
-    approveBinding: jest.fn(async () => undefined),
+    approveBinding: jest.fn(async () => ({ ok: true as const })),
     rejectBinding: jest.fn(async () => undefined),
     revokeBinding: jest.fn(async () => undefined),
     sendTest: jest.fn(async () => ({
@@ -421,7 +424,7 @@ describe('MessagingGatewayTabComponent', () => {
 
       approveBtn?.click();
       await Promise.resolve();
-      expect(stub.approveBinding).toHaveBeenCalledWith('bind-1');
+      expect(stub.approveBinding).toHaveBeenCalledWith('bind-1', 'ABC123');
     });
   });
 });
