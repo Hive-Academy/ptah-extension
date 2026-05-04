@@ -33,6 +33,7 @@ import {
   type AnthropicProvider,
 } from './providers/_shared/provider-registry';
 import { TIER_ENV_VAR_MAP } from './helpers/sdk-model-service';
+import { normalizeAuthMethod } from './helpers/auth-method.utils';
 import { SDK_TOKENS } from './di/tokens';
 
 /**
@@ -547,10 +548,9 @@ export class ProviderModelsService {
       'authMethod',
       'apiKey',
     );
-    // Normalize legacy values ('oauth', 'auto' → 'apiKey', 'openrouter' → 'thirdParty')
-    let authMethod = rawMethod;
-    if (rawMethod === 'oauth' || rawMethod === 'auto') authMethod = 'apiKey';
-    if (rawMethod === 'openrouter') authMethod = 'thirdParty';
+    // Normalize through the shared helper so new spellings ('claude-cli',
+    // 'oauth') and legacy ones ('openrouter', 'claudeCli') route consistently.
+    const authMethod = normalizeAuthMethod(rawMethod);
 
     if (authMethod === 'apiKey' || authMethod === 'claudeCli') {
       return ANTHROPIC_DIRECT_PROVIDER_ID;

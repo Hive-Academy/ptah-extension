@@ -157,19 +157,37 @@ See [task-tracking.md](references/task-tracking.md) for full phase detection.
 
 ### Agent Invocation Pattern
 
+**MANDATORY**: Every `Task()` invocation MUST include a `**Deliverable**:` line specifying the absolute Windows file path the agent must write to. Sub-agents have no UI channel — if you don't tell them where to write, they may dump their output into the chat response and skip file creation. Use the file-name table below.
+
 ```typescript
 Task({
   subagent_type: '[agent-name]',
   description: '[Brief description] for TASK_[ID]',
   prompt: `You are [agent-name] for TASK_[ID].
 
-**Task Folder**: [absolute path]
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_[ID]
 **User Request**: "[original request]"
+**Deliverable**: Write your output to \`D:/projects/ptah-extension/.ptah/specs/TASK_[ID]/<filename>.md\` using the Write tool. Do NOT return content inline. After writing, reply with a one-line confirmation \`WROTE: <absolute path>\` plus the one-line headline of your verdict. Nothing else.
 
 [Agent-specific instructions]
 See [agent-name].md for detailed instructions.`,
 });
 ```
+
+**Deliverable filename per agent:**
+
+| Agent                  | Filename                         |
+| ---------------------- | -------------------------------- |
+| project-manager        | `task-description.md`            |
+| software-architect     | `implementation-plan.md`         |
+| researcher-expert      | `research-report.md`             |
+| team-leader (MODE 1)   | `tasks.md`                       |
+| senior-tester          | `test-report.md`                 |
+| code-style-reviewer    | `code-style-review.md`           |
+| code-logic-reviewer    | `code-logic-review.md`           |
+| visual-reviewer        | `visual-review.md`               |
+| modernization-detector | `future-enhancements.md`         |
+| ui-ux-designer         | `visual-design-specification.md` |
 
 ---
 
@@ -275,16 +293,16 @@ Tier 2: Team-Leader (Advisory only — NEVER spawns)
 
 ### Quick Reference
 
-| Aspect                  | Detail                                                                    |
-| ----------------------- | ------------------------------------------------------------------------- |
-| **Activation**          | Checkpoint 0.1 (auto-discovered, user-confirmed)                          |
-| **Sole spawner**        | Main orchestrator (Claude) — NO agent spawns sub-agents or CLI agents     |
-| **Team-leader role**    | Advisory: fills `Recommended Executor` + `Execution Mode` on each batch   |
-| **Available agents**    | gemini, codex, copilot, ptah-cli (user-configured)                        |
-| **Concurrency limit**   | Max 3 CLI agents simultaneously                                           |
-| **Selection priority**  | ptah-cli > gemini > codex > copilot                                       |
-| **Decision authority**  | Team-leader recommends; orchestrator executes the recommendation          |
-| **Quality ownership**   | code-logic-reviewer (spawned by orchestrator on team-leader's NEEDS REVIEW) + team-leader verification before commit |
+| Aspect                 | Detail                                                                                                               |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **Activation**         | Checkpoint 0.1 (auto-discovered, user-confirmed)                                                                     |
+| **Sole spawner**       | Main orchestrator (Claude) — NO agent spawns sub-agents or CLI agents                                                |
+| **Team-leader role**   | Advisory: fills `Recommended Executor` + `Execution Mode` on each batch                                              |
+| **Available agents**   | gemini, codex, copilot, ptah-cli (user-configured)                                                                   |
+| **Concurrency limit**  | Max 3 CLI agents simultaneously                                                                                      |
+| **Selection priority** | ptah-cli > gemini > codex > copilot                                                                                  |
+| **Decision authority** | Team-leader recommends; orchestrator executes the recommendation                                                     |
+| **Quality ownership**  | code-logic-reviewer (spawned by orchestrator on team-leader's NEEDS REVIEW) + team-leader verification before commit |
 
 ### Executor Recommendation Heuristics (Applied by Team-Leader in tasks.md)
 

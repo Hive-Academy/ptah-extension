@@ -80,6 +80,37 @@ interface SdkPermissionHandlerLifecycle {
   setPermissionLevel(level: PermissionLevelLite): void;
 }
 
+/**
+ * Symbol token for the workspace provider binding registered by
+ * `CliDIContainer.setup`. Resolved by `Symbol.for('WorkspaceProvider')` to
+ * match `PLATFORM_TOKENS.WORKSPACE_PROVIDER` from `@ptah-extension/platform-core`
+ * without taking a dependency on that import here.
+ *
+ * Used by the `authMethod` value migration shim (CLI bug batch item #12) to
+ * normalize legacy camelCase tokens (`'claudeCli'`) to their kebab-case
+ * canonical form (`'claude-cli'`) on bootstrap.
+ */
+const WORKSPACE_PROVIDER_TOKEN = Symbol.for('WorkspaceProvider');
+
+/**
+ * Lightweight read/write contract for the workspace provider as resolved out
+ * of the DI container. Mirrors the slice used by the auth + config commands
+ * without pulling in the full `IWorkspaceProvider` interface, which carries
+ * VS Code-specific overloads we never exercise from the CLI.
+ */
+interface WorkspaceProviderLite {
+  getConfiguration<T>(
+    section: string,
+    key: string,
+    defaultValue?: T,
+  ): T | undefined;
+  setConfiguration?(
+    section: string,
+    key: string,
+    value: unknown,
+  ): Promise<void>;
+}
+
 /** Subset of resolved `GlobalOptions` `withEngine` cares about. */
 export interface WithEngineGlobals {
   /** When true, propagated to `CliBootstrapOptions.verbose` for `debug.di.phase` events. */
@@ -168,6 +199,32 @@ export async function withEngine<T>(
     transport: result.transport,
     pushAdapter: result.pushAdapter,
   };
+
+  // ---- CLI bug batch item #12: authMethod camelCase → kebab-case migration --
+  //
+  // Older configs persist `authMethod: 'claudeCli'`. The canonical form is
+  // `'claude-cli'` so the value matches the provider id used everywhere else
+  // (registry lookups, RPC handlers, `auth use` / `auth login claude-cli`).
+  //
+  // We rewrite the value in place once at bootstrap so all downstream readers
+  // (SDK adapter, RPC handlers, formatters) see the canonical form. Skipped
+  // under `'minimal'` mode because that path doesn't register the workspace
+  // provider with the file-settings backend.
+  if (opts.mode === 'full') {
+    await migrateLegacyAuthMethod(ctx.container).catch((migrationErr) => {
+      // Migration is best-effort — never block bootstrap on a failed shim.
+      // Surface a stderr breadcrumb under verbose so it's diagnosable.
+      if (globals.verbose === true) {
+        process.stderr.write(
+          `[ptah] withEngine: authMethod migration skipped: ${
+            migrationErr instanceof Error
+              ? migrationErr.message
+              : String(migrationErr)
+          }\n`,
+        );
+      }
+    });
+  }
 
   // ---- P0 Fix 1: initialize the SDK agent adapter under `mode === 'full'` --
   //
@@ -316,6 +373,36 @@ export class SdkInitFailedError extends Error {
     super(message);
     this.name = 'SdkInitFailedError';
   }
+}
+
+/**
+ * Read `authMethod` from the workspace provider; if it is the legacy camelCase
+ * `'claudeCli'`, rewrite it to `'claude-cli'` on disk and return. Idempotent —
+ * subsequent boots see the canonical value and skip the write.
+ *
+ * Note: `'oauth'` and `'apiKey'` are unaffected (kept camelCase for backward
+ * compatibility with persisted Electron configs); only the `'claudeCli'`
+ * spelling drifted from the provider-id format used elsewhere.
+ */
+export async function migrateLegacyAuthMethod(
+  container: DependencyContainer,
+): Promise<void> {
+  let provider: WorkspaceProviderLite;
+  try {
+    provider = container.resolve<WorkspaceProviderLite>(
+      WORKSPACE_PROVIDER_TOKEN,
+    );
+  } catch {
+    // No workspace provider registered (older / partial bootstrap). Bail.
+    return;
+  }
+
+  const current = provider.getConfiguration<string>('ptah', 'authMethod');
+  if (current !== 'claudeCli') return;
+
+  if (typeof provider.setConfiguration !== 'function') return;
+
+  await provider.setConfiguration('ptah', 'authMethod', 'claude-cli');
 }
 
 function defaultBootstrap(options: CliBootstrapOptions): CliBootstrapResult {

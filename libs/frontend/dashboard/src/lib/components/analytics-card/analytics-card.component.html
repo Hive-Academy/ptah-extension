@@ -1,0 +1,82 @@
+<section
+  class="card bg-base-200/40 border border-base-content/10 shadow-sm"
+  aria-label="Session analytics"
+>
+  <div class="card-body p-4 space-y-4">
+    <div class="flex justify-between items-center">
+      <div class="flex items-center gap-2">
+        <h3 class="card-title text-base">Session Analytics</h3>
+        <span
+          class="badge badge-outline badge-sm gap-1 text-[10px] text-base-content/50 border-base-content/20"
+        >
+          Real costs from JSONL
+        </span>
+      </div>
+    </div>
+
+    @if (isLoading()) {
+      <div
+        class="flex flex-col items-center justify-center py-8"
+        aria-label="Loading session analytics"
+      >
+        <span class="loading loading-spinner loading-md"></span>
+        <p class="text-xs text-base-content/50 mt-3">
+          Reading session history...
+        </p>
+      </div>
+    } @else if (loadError()) {
+      <div class="alert alert-error" role="alert">
+        <span>{{ loadError() }}</span>
+        <button
+          class="btn btn-sm"
+          (click)="retry()"
+          aria-label="Retry loading sessions"
+        >
+          Retry
+        </button>
+      </div>
+    } @else if (displayedSessions().length === 0) {
+      <div
+        class="flex flex-col items-center justify-center py-8 text-base-content/50"
+      >
+        <lucide-angular
+          [img]="ChartColumnIcon"
+          class="w-10 h-10 mb-3"
+          aria-hidden="true"
+        ></lucide-angular>
+        <p class="text-xs">No sessions found. Start a chat to see analytics.</p>
+      </div>
+    } @else {
+      <ptah-session-metrics-cards [aggregates]="aggregates()" />
+
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-base-content/50">Show:</span>
+        <div class="join">
+          <button
+            class="join-item btn btn-xs"
+            [class.btn-active]="displayCount() === 5"
+            (click)="setDisplayCount(5)"
+          >
+            5
+          </button>
+          <button
+            class="join-item btn btn-xs"
+            [class.btn-active]="displayCount() === 10"
+            (click)="setDisplayCount(10)"
+          >
+            10
+          </button>
+        </div>
+        <span class="text-[10px] text-base-content/40">
+          of {{ allSessionCount() }} sessions
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        @for (session of displayedSessions(); track session.sessionId) {
+          <ptah-session-stats-card [session]="session" />
+        }
+      </div>
+    }
+  </div>
+</section>

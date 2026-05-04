@@ -196,10 +196,40 @@
     <div
       class="chat-bubble chat-bubble-primary bg-primary text-primary-content shadow-card max-w-[85%] md:max-w-[90%] lg:max-w-[85%]"
     >
-      <markdown
-        [data]="userDisplayContent()"
-        class="prose prose-sm max-w-none [&_*]:text-primary-content"
-      />
+      @if (isCompactionContinuation()) {
+        <button
+          type="button"
+          class="w-full flex items-center gap-2 text-left hover:bg-primary-content/10 rounded transition-colors py-0.5"
+          (click)="toggleContinuationCollapse()"
+          [attr.aria-expanded]="!isContinuationCollapsed()"
+          [attr.aria-label]="
+            isContinuationCollapsed()
+              ? 'Expand compaction summary'
+              : 'Collapse compaction summary'
+          "
+        >
+          <lucide-angular
+            [img]="
+              isContinuationCollapsed() ? ChevronRightIcon : ChevronDownIcon
+            "
+            class="w-3.5 h-3.5 flex-shrink-0"
+          />
+          <span class="text-xs opacity-90 truncate">
+            Continued from previous conversation (compacted)
+          </span>
+        </button>
+        @if (!isContinuationCollapsed()) {
+          <markdown
+            [data]="userDisplayContent()"
+            class="prose prose-sm max-w-none [&_*]:text-primary-content mt-2"
+          />
+        }
+      } @else {
+        <markdown
+          [data]="userDisplayContent()"
+          class="prose prose-sm max-w-none [&_*]:text-primary-content"
+        />
+      }
     </div>
 
     <!-- User message action buttons (hover reveal): branch + rewind -->

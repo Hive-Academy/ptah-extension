@@ -108,20 +108,22 @@ export class SessionStatsAggregatorService {
       this.compactionLifecycle.clearCompactionState(t.id);
     }
     if (targetTabs.length === 0) {
-      const activeTab = this.tabManager.activeTab();
-      if (activeTab) {
-        console.warn(
-          '[ChatStore] handleSessionStats: findTabBySessionId failed, fell back to activeTab',
-          { sessionId: stats.sessionId, activeTabId: activeTab.id },
-        );
-        targetTabs = [activeTab];
-        // Mirror legacy behaviour: clearCompactionState was also called for the
-        // fallback tab.
-        this.compactionLifecycle.clearCompactionState(activeTab.id);
-      } else {
-        // Fallback path with no targets — keep legacy clearCompactionState(undefined) call.
-        this.compactionLifecycle.clearCompactionState(undefined);
-      }
+      // TASK_2026_109_FOLLOWUP N7 — drop the active-tab fallback. When tab
+      // switching during a stream, falling back to `activeTab()` would
+      // pollute the foreground tab with another session's stats (wrong
+      // model name, wrong context %, wrong cumulative cost) and trigger a
+      // stale `clearCompactionState` on the wrong conversation. The correct
+      // behaviour is to drop the event: the originating session no longer
+      // has a tab, so no UI surface needs to update. Downstream
+      // `streamingHandler.handleSessionStats` and `loadSessions` are
+      // intentionally skipped too — `handleSessionStats` operates on the
+      // resolved tab id and would also pollute, and the sidebar refresh is
+      // pointless without a tab to re-time.
+      console.warn(
+        '[ChatStore] handleSessionStats: no tab bound to sessionId, dropping event',
+        { sessionId: stats.sessionId },
+      );
+      return;
     }
     // Process modelUsage to update liveModelStats for context display
     if (stats.modelUsage && stats.modelUsage.length > 0) {
@@ -139,7 +141,23 @@ export class SessionStatsAggregatorService {
           cacheRead: m.cacheReadInputTokens,
         },
       }));
-      const primaryModelName = pickPrimaryModel(entries);
+      // TASK_2026_109_FOLLOWUP N5 — sticky primary model by sessionModel.
+      // The cost-based `pickPrimaryModel` heuristic will flip to whichever
+      // model billed the most tokens this turn — a Haiku subagent burst
+      // can briefly out-cost the user's chosen Opus and the header model
+      // name will visibly switch. The user picked their model and expects
+      // it to remain the displayed primary as long as it is still in
+      // `modelUsage`. Pick the first sessionModel match across all target
+      // tabs; only fall back to the cost heuristic when no target tab has
+      // a sessionModel that appears in this stats payload.
+      const stickyModelName = ((): string | null => {
+        for (const t of targetTabs) {
+          const sm = t.sessionModel;
+          if (sm && stats.modelUsage.some((m) => m.model === sm)) return sm;
+        }
+        return null;
+      })();
+      const primaryModelName = stickyModelName ?? pickPrimaryModel(entries);
       const primaryModel =
         stats.modelUsage.find((m) => m.model === primaryModelName) ??
         stats.modelUsage[0];
@@ -148,32 +166,74 @@ export class SessionStatsAggregatorService {
       // summed across all API calls, but the context window only holds the current
       // conversation state. lastTurnContextTokens captures the last message_start's
       // input + cache_read, which IS the real context window fill level.
-      // Falls back to cumulative tokens for backward compat (loaded sessions).
-      const contextUsed =
-        primaryModel.lastTurnContextTokens != null
-          ? primaryModel.lastTurnContextTokens
-          : primaryModel.inputTokens +
-            (primaryModel.cacheReadInputTokens ?? 0) +
-            primaryModel.outputTokens;
-      const contextPercent =
-        primaryModel.contextWindow > 0
-          ? Math.round((contextUsed / primaryModel.contextWindow) * 1000) / 10
-          : 0;
+      //
+      // TASK_2026_109_FOLLOWUP — When `lastTurnContextTokens` is missing AND
+      // any target tab has compacted at least once, the cumulative fallback
+      // (input + cacheRead + output) over-counts pre-compaction tokens that
+      // are no longer in the context window — producing the 1118%-style
+      // banner the user reported. In that case, suppress this stats update
+      // entirely and let the next `message_start` repopulate liveModelStats
+      // with a real per-turn measurement. The header keeps its prior value
+      // (or stays cleared after compaction reset) instead of flashing a
+      // garbage cumulative number.
+      const tabHasCompacted = targetTabs.some(
+        (t) =>
+          (t.lastCompactionAt ?? null) !== null || (t.compactionCount ?? 0) > 0,
+      );
+      const useCumulativeFallback = primaryModel.lastTurnContextTokens == null;
+      // TASK_2026_109_FOLLOWUP N2 — also skip when the cumulative fallback
+      // exceeds the model's contextWindow. This catches long sessions on
+      // third-party providers (OpenRouter, Moonshot, Ollama) that never
+      // emit `lastTurnContextTokens`: the cumulative sum across all turns
+      // can climb past the contextWindow size, producing 1000%+ CTX badges.
+      // A single turn's context fill is structurally bounded by the window,
+      // so cumulative > window means the value is unusable as a
+      // contextPercent. Better to skip than display garbage. The next
+      // `message_start` (where the SDK does provide a real per-turn count)
+      // will repopulate liveModelStats with a valid measurement.
+      const cumulativeFallback =
+        primaryModel.inputTokens +
+        (primaryModel.cacheReadInputTokens ?? 0) +
+        primaryModel.outputTokens;
+      const cumulativeExceedsWindow =
+        primaryModel.contextWindow > 0 &&
+        cumulativeFallback > primaryModel.contextWindow;
+      const skipLiveStatsUpdate =
+        useCumulativeFallback && (tabHasCompacted || cumulativeExceedsWindow);
 
-      // TASK_2026_106 Phase 4b — fan out liveModelStats to every bound tab.
-      // Stats are an idempotent overwrite, so applying to the same value N
-      // times converges; canvas-grid tiles see the same stats as the legacy
-      // single-tab caller.
-      for (const t of targetTabs) {
-        this.tabManager.setLiveModelStatsAndUsageList(
-          t.id,
+      if (!skipLiveStatsUpdate) {
+        const contextUsed =
+          primaryModel.lastTurnContextTokens != null
+            ? primaryModel.lastTurnContextTokens
+            : primaryModel.inputTokens +
+              (primaryModel.cacheReadInputTokens ?? 0) +
+              primaryModel.outputTokens;
+        const contextPercent =
+          primaryModel.contextWindow > 0
+            ? Math.round((contextUsed / primaryModel.contextWindow) * 1000) / 10
+            : 0;
+
+        // TASK_2026_106 Phase 4b — fan out liveModelStats to every bound tab.
+        for (const t of targetTabs) {
+          this.tabManager.setLiveModelStatsAndUsageList(
+            t.id,
+            {
+              model: primaryModel.model,
+              contextUsed,
+              contextWindow: primaryModel.contextWindow,
+              contextPercent,
+            },
+            stats.modelUsage,
+          );
+        }
+      } else {
+        console.warn(
+          '[ChatStore] handleSessionStats: skipped post-compaction cumulative-fallback update',
           {
+            sessionId: stats.sessionId,
             model: primaryModel.model,
-            contextUsed,
-            contextWindow: primaryModel.contextWindow,
-            contextPercent,
+            inputTokens: primaryModel.inputTokens,
           },
-          stats.modelUsage,
         );
       }
     }

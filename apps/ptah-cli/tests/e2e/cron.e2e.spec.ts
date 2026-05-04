@@ -13,7 +13,7 @@
  *
  *   One-shot subcommand dispatching would work, but the `ptah cron` subcommand
  *   group has not yet been added to `apps/ptah-cli/src/cli/router.ts` as of
- *   the HERMES scaffold. Once that CLI surface exists these tests can be
+ *   the Thoth hub work. Once that CLI surface exists these tests can be
  *   activated without any API calls — cron operations are pure SQLite + croner
  *   and don't require an upstream provider.
  *
@@ -34,7 +34,7 @@
  *
  * Prerequisite: `ptah cron create|list|get|delete|toggle|run-now|runs|next-fire`
  * CLI subcommands added to `apps/ptah-cli/src/cli/router.ts` (not yet present
- * as of HERMES scaffold).
+ * as of the Thoth hub work).
  */
 
 describe.skip('cron scheduler e2e (TASK_2026_HERMES Track 3 — requires ptah cron CLI subcommands)', () => {

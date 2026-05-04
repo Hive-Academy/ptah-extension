@@ -359,6 +359,15 @@ export type {
   AuthConfigureContext,
 } from './lib/auth';
 
+// Effective auth-route resolver (Stream B item #7) — pure function reused by
+// `ptah doctor` and the Electron / VS Code settings UIs.
+export {
+  resolveEffectiveAuthRoute,
+  type EffectiveRouteProvider,
+  type EffectiveRouteConfig,
+  type EffectiveRouteResult,
+} from './lib/auth';
+
 // ============================================================
 // CLI Agents (TASK_2025_291 Wave C5)
 // Relocated from the deleted @ptah-extension/llm-abstraction library.

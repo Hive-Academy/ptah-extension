@@ -536,6 +536,17 @@ export class PermissionHandlerService {
       );
     }
 
+    // TASK_2026_109_FOLLOWUP_QUESTIONS Q9 — collision guard. If a question
+    // with this id is already in the queue, log a warning and return
+    // without appending. Backend retries (e.g. session-resume re-emit)
+    // would otherwise produce duplicate cards; the original entry must
+    // win because it owns the router-resolved target tabs.
+    const existing = this._questionRequests().find((r) => r.id === request.id);
+    if (existing) {
+      console.warn('question.duplicate-id', { id: request.id });
+      return;
+    }
+
     this._questionRequests.update((requests) => [...requests, request]);
   }
 
@@ -572,6 +583,17 @@ export class PermissionHandlerService {
    */
   attachQuestionTargets(questionId: string, tabIds: readonly string[]): void {
     if (!tabIds || tabIds.length === 0) return;
+    // TASK_2026_109_FOLLOWUP_QUESTIONS Q9 — collision guard. If targets
+    // for this question id were already attached, log and skip. Preserve
+    // the original target — re-routing flows (Q6/Q7) call the dedicated
+    // refresh path that reads the existing list before overwriting.
+    if (this._questionTargetTabs.has(questionId)) {
+      console.warn('question.duplicate-id', {
+        id: questionId,
+        scope: 'targets',
+      });
+      return;
+    }
     this._questionTargetTabs.set(questionId, [...tabIds]);
     // Force signal-dependent computeds (e.g. `resolvedQuestionRequests`) to
     // re-evaluate now that targets are known. The Map mutation alone is not
@@ -588,6 +610,35 @@ export class PermissionHandlerService {
    */
   questionTargetTabsFor(questionId: string): readonly string[] {
     return this._questionTargetTabs.get(questionId) ?? [];
+  }
+
+  /**
+   * TASK_2026_109_FOLLOWUP_QUESTIONS Q7 — drop the per-question target tab
+   * list without removing the question itself. Used by the router's
+   * compaction-complete / SESSION_ID_RESOLVED re-route paths so a fresh
+   * `attachQuestionTargets` call is not blocked by the Q9 collision guard.
+   * Idempotent: clearing an already-cleared id is a no-op.
+   */
+  clearQuestionTargets(questionId: string): void {
+    this._questionTargetTabs.delete(questionId);
+  }
+
+  /**
+   * TASK_2026_109_FOLLOWUP_QUESTIONS Q10 — cancellation API used by
+   * `StreamRouter.cancelPendingQuestionOnOtherTabs` to drop a question
+   * resolved on another tab. Mirrors `cancelPrompt` for permissions.
+   * Idempotent: removing an already-removed question is a no-op.
+   *
+   * `_exceptTabId` is reserved for the future per-tab queue model — today
+   * the queue is global, so cancelling on "other tabs" is the same as
+   * removing from the queue entirely. The signature matches `cancelPrompt`
+   * so future per-tab queues drop in without API churn.
+   */
+  cancelQuestion(questionId: string, _exceptTabId: string | null): void {
+    this._questionRequests.update((requests) =>
+      requests.filter((r) => r.id !== questionId),
+    );
+    this._questionTargetTabs.delete(questionId);
   }
 
   /**
