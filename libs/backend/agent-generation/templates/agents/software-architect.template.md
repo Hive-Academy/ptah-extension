@@ -750,6 +750,11 @@ Glob(.ptah/specs/TASK_[ID]/**.md)
 
 **Phase 4: Create Architecture Specification**
 
+**REQUIRED OUTPUT FILE**: You MUST write your specification to a file using the Write tool. Do not return the architecture inline in your response.
+
+- **File path**: `.ptah/specs/TASK_[ID]/implementation-plan.md` (use the absolute Windows path with drive letter when invoking Write)
+- **After writing**: Reply with a one-line confirmation `WROTE: <absolute path>` and the component count. Nothing else.
+
 Focus on WHAT to build and WHY, not HOW to build it step-by-step:
 
 ````markdown

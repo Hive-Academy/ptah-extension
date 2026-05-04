@@ -22,7 +22,7 @@ import { type MessageHandler } from '@ptah-extension/core';
 import { FlatStreamEventUnion, MESSAGE_TYPES } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
-import { TabId } from '@ptah-extension/chat-state';
+import { TabId, type ClaudeSessionId } from '@ptah-extension/chat-state';
 import { StreamRouter } from '@ptah-extension/chat-routing';
 
 @Injectable({ providedIn: 'root' })
@@ -41,6 +41,10 @@ export class ChatMessageHandler implements MessageHandler {
    */
   private readonly streamRouter = inject(StreamRouter);
 
+  private static readonly METADATA_DEBOUNCE_MS = 250;
+
+  private _metadataChangedTimeout: ReturnType<typeof setTimeout> | null = null;
+
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
     // CHAT_COMPLETE intentionally not registered — SESSION_STATS is authoritative (TASK_2025_101)
@@ -52,8 +56,10 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.SESSION_STATS,
     MESSAGE_TYPES.SESSION_ID_RESOLVED,
     MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
+    MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED,
     MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
     MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP,
+    MESSAGE_TYPES.SESSION_METADATA_CHANGED,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -79,13 +85,44 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST:
         this.handleAskUserQuestion(message.payload);
         break;
+      case MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED:
+        this.handleAskUserQuestionAutoResolved(message.payload);
+        break;
       case MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED:
         this.handlePermissionAutoResolved(message.payload);
         break;
       case MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP:
         this.handlePermissionSessionCleanup(message.payload);
         break;
+      case MESSAGE_TYPES.SESSION_METADATA_CHANGED:
+        this.handleSessionMetadataChanged();
+        break;
     }
+  }
+
+  /**
+   * S4 — refresh sidebar session list when backend reports a metadata
+   * mutation (created / updated / deleted / forked). Debounced so a burst of
+   * mutations (e.g. fork + switch) triggers one refresh, not many.
+   *
+   * Replaces the imperative `chatStore.loadSessions()` in
+   * `ChatViewComponent.onBranchRequested` — the event-driven path makes
+   * every surface (canvas tiles, inactive tabs) stay in sync without
+   * per-call-site plumbing.
+   */
+  private handleSessionMetadataChanged(): void {
+    if (this._metadataChangedTimeout) {
+      clearTimeout(this._metadataChangedTimeout);
+    }
+    this._metadataChangedTimeout = setTimeout(() => {
+      this._metadataChangedTimeout = null;
+      this.chatStore.loadSessions().catch((err) => {
+        console.warn(
+          '[ChatMessageHandler] loadSessions after session:metadataChanged failed:',
+          err,
+        );
+      });
+    }, ChatMessageHandler.METADATA_DEBOUNCE_MS);
   }
 
   // CHAT_CHUNK: SDK streaming events with tabId/sessionId extraction
@@ -197,6 +234,15 @@ export class ChatMessageHandler implements MessageHandler {
         realSessionId: realSessionId as string,
       });
 
+      // TASK_2026_109_FOLLOWUP_QUESTIONS Q6 — re-route any pending questions
+      // whose stale tabId targets just got rebound to the real SDK session id.
+      // Without this, a question that arrived during the pending-session
+      // window stays pinned to the placeholder tabId and the chat-view filter
+      // silently drops it once the binding flips.
+      this.streamRouter.refreshQuestionTargetsForSession(
+        realSessionId as ClaudeSessionId,
+      );
+
       // Update parentSessionId on any agents spawned with the tab ID before
       // the real SDK UUID was resolved. Without this, agents spawned early in
       // the session lifecycle have a stale tab ID that never matches the tab's
@@ -219,9 +265,36 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    this.chatStore.handleQuestionRequest(
-      payload as import('@ptah-extension/shared').AskUserQuestionRequest,
+    const question =
+      payload as import('@ptah-extension/shared').AskUserQuestionRequest;
+    // 1. Enqueue the question first so the router-resolved targets land
+    //    on a question that's already in the queue.
+    this.chatStore.handleQuestionRequest(question);
+    // 2. Resolve sessionId → tabs and stash the target tab ids on the
+    //    PermissionHandler. Mirrors the permission prompt path. Without
+    //    this, the chat-view filter falls back to raw payload-id equality,
+    //    which silently drops questions whose session id rotated while
+    //    the user was idle (compaction / late SESSION_ID_RESOLVED) — and
+    //    the backend's `awaitQuestionResponse` has no timeout, so the
+    //    tool call hangs forever.
+    this.streamRouter.routeQuestionPrompt(question);
+  }
+
+  // ASK_USER_QUESTION_AUTO_RESOLVED: idle-timeout fired backend-side and the
+  // recommended option was auto-picked. Drop the now-stale card from the UI
+  // (the agent already received the answer and moved on).
+  private handleAskUserQuestionAutoResolved(payload: unknown): void {
+    const { id, answers } =
+      (payload as {
+        id?: string;
+        answers?: Record<string, string>;
+      }) ?? {};
+    if (!id) return;
+    console.info(
+      '[ChatMessageHandler] AskUserQuestion auto-resolved (idle timeout)',
+      { id, answers },
     );
+    this.chatStore.dropQuestionRequest(id);
   }
 
   // PERMISSION_AUTO_RESOLVED: Always Allow sibling resolution

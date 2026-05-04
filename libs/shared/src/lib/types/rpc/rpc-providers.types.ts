@@ -151,6 +151,51 @@ export interface LlmProviderStatusResponse {
   defaultProvider: LlmProviderName;
 }
 
+/**
+ * Auth modality for a provider entry returned by llm:getProviderStatus.
+ *
+ * - 'apiKey': Traditional API-key entry stored in secret storage
+ * - 'oauth':  OAuth-based device-code or authorization-code flow
+ * - 'cli':    Authentication delegated to a local CLI binary
+ *             (e.g. claude-code) — no key in secret storage
+ * - 'none':   No authentication required (e.g. local Ollama, LM Studio)
+ */
+export type LlmProviderAuthMode = 'apiKey' | 'oauth' | 'cli' | 'none';
+
+/**
+ * Per-provider entry returned by `llm:getProviderStatus` (TASK_2026 CLI bug
+ * batch — items #3 / #14). Surfaces the registry's full provider catalogue
+ * (not just `anthropic` + `openrouter`) and includes the auth mode + per-
+ * provider base-URL override status so the CLI `provider status --human`
+ * table can render columns for every provider.
+ */
+export interface LlmGetProviderStatusEntry {
+  /** Provider id (e.g. 'anthropic', 'openrouter', 'ollama'). */
+  name: LlmProviderName;
+  /** Human-readable display name. */
+  displayName: string;
+  /** Whether an API key is present in secret storage (only meaningful when authType='apiKey'). */
+  hasApiKey: boolean;
+  /** Whether this provider is the active default. */
+  isDefault: boolean;
+  /** Auth modality — derived from the provider registry. */
+  authType: LlmProviderAuthMode;
+  /** Whether this provider needs a local translation proxy (defaults false). */
+  requiresProxy: boolean;
+  /** Whether this is a local provider (no remote inference). Defaults false. */
+  isLocal: boolean;
+  /** Effective base URL — override if set, otherwise registry default. */
+  baseUrl: string | null;
+  /** True when the user has set a `provider.<id>.baseUrl` override. */
+  baseUrlOverridden: boolean;
+}
+
+/** Full payload returned by llm:getProviderStatus (CLI bug fix batch). */
+export interface LlmGetProviderStatusResponse {
+  providers: LlmGetProviderStatusEntry[];
+  defaultProvider: LlmProviderName;
+}
+
 /** Parameters for llm:setDefaultProvider RPC method */
 export interface SetDefaultProviderRequest {
   provider: LlmProviderName;

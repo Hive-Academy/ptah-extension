@@ -25,11 +25,16 @@ import {
   registerAllRpcHandlers,
   verifyAndReportRpcRegistration,
   WorkspaceRpcHandlers,
+  CronRpcHandlers,
+  GatewayRpcHandlers,
+  MemoryRpcHandlers,
+  SkillsSynthesisRpcHandlers,
   __debugAssertSharedHandlersDisjoint,
 } from '@ptah-extension/rpc-handlers';
 import {
   wireSdkCallbacks,
   wireAgentEventListeners,
+  wireSessionMetadataEvents,
   type WorktreeCreatedData,
 } from '@ptah-extension/agent-sdk';
 import { parseWorktreeList } from '@ptah-extension/shared';
@@ -42,6 +47,7 @@ import * as vscode from 'vscode';
 import {
   ChatRpcHandlers,
   FileRpcHandlers,
+  EditorRpcHandlers,
   CommandRpcHandlers,
   AgentRpcHandlers,
   SkillsShRpcHandlers,
@@ -50,6 +56,14 @@ import {
 /**
  * RPC methods not applicable in VS Code — Electron desktop-app features.
  * Excluded from RPC verification so the shared registry can still enumerate them.
+ *
+ * SQLite-backed handlers (Cron, Gateway, Memory, SkillsSynthesis) are
+ * Electron-only: their DI dependencies are never registered in the VS Code
+ * host. They are also excluded from registerAllRpcHandlers below.
+ *
+ * Memory and Skill-Synthesis depend on better-sqlite3 (native) + the
+ * embedder-worker (vector embeddings); these are Electron-only by design.
+ * VS Code host shows desktop-only placeholders in the Thoth shell tabs.
  */
 const ELECTRON_ONLY_METHODS: readonly string[] = [
   'workspace:getInfo',
@@ -66,11 +80,6 @@ const ELECTRON_ONLY_METHODS: readonly string[] = [
   'file:read',
   'file:exists',
   'file:save-dialog',
-  'config:model-set',
-  'auth:setApiKey',
-  'auth:getStatus',
-  'settings:export',
-  'settings:import',
   'git:info',
   'git:worktrees',
   'git:addWorktree',
@@ -83,6 +92,14 @@ const ELECTRON_ONLY_METHODS: readonly string[] = [
   'terminal:create',
   'terminal:kill',
   'license:clearKey',
+  // Cron scheduler (requires SQLite CronScheduler service)
+  ...CronRpcHandlers.METHODS,
+  // Messaging gateway (requires SQLite GatewayService)
+  ...GatewayRpcHandlers.METHODS,
+  // Memory curator (requires SQLite MemoryStore/MemorySearch/MemoryCurator)
+  ...MemoryRpcHandlers.METHODS,
+  // Skills synthesis pipeline (requires SQLite SkillSynthesisService/SkillCandidateStore)
+  ...SkillsSynthesisRpcHandlers.METHODS,
 ];
 
 /**
@@ -97,6 +114,8 @@ export class RpcMethodRegistrationService {
     private readonly commandManager: CommandManager,
     @inject(ChatRpcHandlers) private readonly chatHandlers: ChatRpcHandlers,
     @inject(FileRpcHandlers) private readonly fileHandlers: FileRpcHandlers,
+    @inject(EditorRpcHandlers)
+    private readonly editorHandlers: EditorRpcHandlers,
     @inject(CommandRpcHandlers)
     private readonly commandHandlers: CommandRpcHandlers,
     @inject(AgentRpcHandlers) private readonly agentHandlers: AgentRpcHandlers,
@@ -116,13 +135,21 @@ export class RpcMethodRegistrationService {
     // `phase-3-handlers.ts` so they fire before `ChatRpcHandlers` is
     // eagerly resolved by this service's constructor.
 
-    // VS Code excludes WorkspaceRpcHandlers: VsCodeWorkspaceProvider has no
-    // lifecycle methods, so IWorkspaceLifecycleProvider is not registered in
-    // this host. The workspace:* methods are listed in ELECTRON_ONLY_METHODS
-    // so the verifier accepts the gap.
-    registerAllRpcHandlers(this.container, { exclude: [WorkspaceRpcHandlers] });
+    // VS Code excludes SQLite-backed handlers — their DI dependencies are never
+    // registered in the VS Code host. All excluded methods are listed in
+    // ELECTRON_ONLY_METHODS so the verifier accepts the gap.
+    registerAllRpcHandlers(this.container, {
+      exclude: [
+        WorkspaceRpcHandlers,
+        CronRpcHandlers,
+        GatewayRpcHandlers,
+        MemoryRpcHandlers,
+        SkillsSynthesisRpcHandlers,
+      ],
+    });
 
     this.fileHandlers.register();
+    this.editorHandlers.register();
     this.commandHandlers.register();
     this.agentHandlers.register();
     this.skillsShHandlers.register();
@@ -174,12 +201,20 @@ export class RpcMethodRegistrationService {
       logger: this.logger,
       platform: 'vscode',
       options: {
-        wizardBroadcast: true,
         copilotPermission: true,
         persistCliSession: true,
         getSdkSessionId: (ptahCliId: string) =>
           this.chatHandlers.getPtahCliSdkSessionId(ptahCliId),
       },
+    });
+
+    // S4: broadcast session:metadataChanged push events to webviews so
+    // sidebars refresh on create/update/delete/fork without imperative
+    // loadSessions() calls scattered across the frontend. Disposer is
+    // intentionally ignored — extension lifetime === process lifetime.
+    wireSessionMetadataEvents(this.container, {
+      logger: this.logger,
+      platform: 'vscode',
     });
 
     verifyAndReportRpcRegistration({

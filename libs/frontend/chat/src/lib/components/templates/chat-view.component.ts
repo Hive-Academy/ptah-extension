@@ -36,6 +36,8 @@ import { ResumeNotificationBannerComponent } from '../molecules/notifications/re
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { AutoAnimateDirective } from '../../directives/auto-animate.directive';
 import { ChatStore } from '../../services/chat.store';
+import { ActionBannerService } from '../../services/action-banner.service';
+import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
 import {
   AgentMonitorStore,
   ExecutionTreeBuilderService,
@@ -49,7 +51,11 @@ import {
   ConfirmationDialogService,
 } from '@ptah-extension/chat-state';
 import { SESSION_CONTEXT } from '../../tokens/session-context.token';
-import { VSCodeService, ClaudeRpcService } from '@ptah-extension/core';
+import {
+  VSCodeService,
+  ClaudeRpcService,
+  AppStateManager,
+} from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
   ExecutionChatMessage,
@@ -60,6 +66,32 @@ import type { SubagentRecord } from '@ptah-extension/shared';
 /** Shared empty Set instance to keep `streamingMessageIds()` referentially
  *  stable when no message is streaming (avoids unnecessary template re-evals). */
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
+
+/**
+ * Compaction noise filter — hides post-compaction user messages that the
+ * Claude SDK emits as side-effects of `/compact`:
+ *  1. The slash-command echo (`/compact ...`)
+ *  2. The ANSI-wrapped hook status (`[2mCompacted PreCompact … completed successfully[22m`)
+ * The continuation summary itself ("This session is being continued …") is
+ * kept and rendered collapsed by `MessageBubbleComponent`.
+ */
+function isCompactionNoiseUserMessage(msg: ExecutionChatMessage): boolean {
+  if (msg.role !== 'user') return false;
+  const raw = (msg.rawContent ?? '').trim();
+  if (!raw) return false;
+  if (/^\/compact\b/i.test(raw)) return true;
+  if (/Compacted\s+\w+\s+\[callback\]\s+completed successfully/i.test(raw)) {
+    return true;
+  }
+  return false;
+}
+
+function filterCompactionNoise(
+  msgs: readonly ExecutionChatMessage[],
+): readonly ExecutionChatMessage[] {
+  if (!msgs.some(isCompactionNoiseUserMessage)) return msgs;
+  return msgs.filter((m) => !isCompactionNoiseUserMessage(m));
+}
 
 /**
  * ChatViewComponent - Main chat view with message list and Egyptian themed welcome
@@ -119,6 +151,7 @@ export class ChatViewComponent {
     optional: true,
   });
   private readonly _tabManager = inject(TabManagerService);
+  private readonly _appState = inject(AppStateManager);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
 
   // TASK_2026_106 Phase 4c — compaction banner is now sourced from the
@@ -127,26 +160,35 @@ export class ChatViewComponent {
   // legacy per-tab `isCompacting` flag for tabs not yet registered.
   private readonly _conversationRegistry = inject(ConversationRegistry);
   private readonly _tabSessionBinding = inject(TabSessionBinding);
+  /**
+   * TASK_2026_109 B4 — read the one-tick auto-animate suppression flag set
+   * by `CompactionLifecycleService.handleCompactionComplete`. Combined with
+   * `resolvedIsStreaming()` and `isFinalizingTransition()` in the
+   * `[autoAnimateDisabled]` binding so the FLIP directive skips the
+   * stale→empty diff that produced bubble overlap with sticky headers.
+   */
+  private readonly _compactionLifecycle = inject(CompactionLifecycleService);
+  protected readonly suppressAnimateOnce =
+    this._compactionLifecycle.suppressAnimateOnce;
   private readonly _claudeRpc = inject(ClaudeRpcService);
   private readonly _confirmDialog = inject(ConfirmationDialogService);
 
   /**
-   * Inline error banner for branch/rewind actions. Mirrors the
-   * `_imageAttachmentError` signal+timeout pattern in ChatInputComponent — no
-   * global toast service exists in this codebase, so per-feature signals are
-   * the convention. Auto-clears after 4s.
+   * Inline banner for branch/rewind actions. Sourced from the shared
+   * `ActionBannerService` (S3) so canvas/tile mode renders the banner on the
+   * surface the user is looking at, not on the originating tile. The service
+   * owns its own auto-clear timer.
    */
-  private readonly _actionError = signal<string | null>(null);
-  readonly actionError = this._actionError.asReadonly();
-  private _actionErrorTimeout: ReturnType<typeof setTimeout> | null = null;
+  private readonly actionBanner = inject(ActionBannerService);
+  readonly actionError = this.actionBanner.error;
+  readonly actionInfo = this.actionBanner.info;
 
   private showActionError(message: string): void {
-    if (this._actionErrorTimeout) clearTimeout(this._actionErrorTimeout);
-    this._actionError.set(message);
-    this._actionErrorTimeout = setTimeout(() => {
-      this._actionError.set(null);
-      this._actionErrorTimeout = null;
-    }, 4000);
+    this.actionBanner.showError(message);
+  }
+
+  private showActionInfo(message: string): void {
+    this.actionBanner.showInfo(message);
   }
 
   /**
@@ -444,56 +486,101 @@ export class ChatViewComponent {
    *
    * TASK_2026_106 Phase 4c — sourced from `ConversationRegistry` via
    * `TabSessionBinding`. Compaction is conversation-scoped, so every tab
-   * bound to the conversation sees the banner together (canvas-grid). Falls
-   * back to legacy per-tab `isCompacting` when the tab has no binding yet
-   * (e.g. before StreamRouter has hydrated, or the tab predates the bind).
+   * bound to the conversation sees the banner together (canvas-grid).
+   *
+   * TASK_2026_109 C1 — reads ONLY from the conversation registry. The
+   * previous fallback to `tab.isCompacting` / `chatStore.isCompacting()`
+   * created a second source of truth: when StreamRouter had not yet
+   * registered the conversation by `compaction_complete` time, the registry
+   * stayed `inFlight=true` while the tab cleared (or vice versa) and the
+   * banner stuck on the 120s safety timeout. The lifecycle service now
+   * writes through the registry on every transition, so unresolved
+   * conversations simply render no banner — which is the correct state
+   * for an unrouted tab.
    */
   readonly resolvedIsCompacting = computed(() => {
     const tab = this.resolvedTab();
     const tabId = tab?.id ?? this._tabManager.activeTabId();
-    if (tabId) {
-      const convId = this._tabSessionBinding.conversationFor(tabId as TabId);
-      if (convId) {
-        const compactionState =
-          this._conversationRegistry.compactionStateFor(convId);
-        if (compactionState) {
-          return compactionState.inFlight;
-        }
-      }
-    }
-    // Legacy fallback: tab predates conversation registration, or no binding yet.
-    return tab !== null
-      ? (tab.isCompacting ?? false)
-      : this.chatStore.isCompacting();
+    if (!tabId) return false;
+    const convId = this._tabSessionBinding.conversationFor(tabId as TabId);
+    if (!convId) return false;
+    return (
+      this._conversationRegistry.compactionStateFor(convId)?.inFlight ?? false
+    );
   });
 
   /**
    * Resolved question requests: scoped to this tile's session in canvas mode.
-   * Prevents question cards from appearing in ALL tiles â€” only the session that
-   * triggered the question shows the card.
    *
-   * Matches against BOTH the frontend tab UUID (resolvedTabId) AND the real SDK
-   * session UUID (resolvedSessionId / claudeSessionId). The backend may embed either
-   * identifier depending on whether the session is new or resumed, so checking both
-   * handles all cases without relying on backend routing correctness.
+   * Routing source-of-truth: per-question target tab ids resolved by
+   * `StreamRouter.routeQuestionPrompt` (mirrors permission prompt routing).
+   * The router resolves the question's `sessionId` against the live
+   * conversation/binding registries — robust to compaction-driven session id
+   * rotation, late `SESSION_ID_RESOLVED`, and idle re-binding (the cases
+   * that previously caused silent hangs because the payload's raw ids no
+   * longer matched any tile).
+   *
+   * Fallback ladder (only when the router did NOT resolve any target tabs
+   * for the question — e.g. payload arrived before the binding was visible
+   * to the router):
+   *   1. Legacy id-equality match against the tile's `resolvedTabId` /
+   *      `resolvedSessionId`. Same as before — covers the happy path before
+   *      any rotation/late resolution.
+   *   2. If that yields nothing AND this tile is the active tab (or no
+   *      canvas context is in play), still show the question. This prevents
+   *      silent drops; the backend's `awaitQuestionResponse` has
+   *      `timeoutAt: 0` (block indefinitely) so a dropped question hangs
+   *      the tool call forever.
    */
   readonly resolvedQuestionRequests = computed(() => {
     const allQuestions = this.chatStore.questionRequests();
     if (allQuestions.length === 0) return [];
 
     const tabId = this.resolvedTabId(); // frontend UUID (e.g. "tab-abc123")
-    const sessionId = this.resolvedSessionId(); // real SDK UUID (e.g. "session-xyz")
-
-    if (!tabId && !sessionId) {
-      if (this._sessionContext) return [];
-      return allQuestions;
+    const activeTabId = this._tabManager.activeTabId();
+    // TASK_2026_109_FOLLOWUP_QUESTIONS Q3 — main-panel suppression when
+    // canvas tiles are present. The main chat-view (no SESSION_CONTEXT)
+    // uses `activeTabId` as its `resolvedTabId`, which means the active
+    // tile's `tabId` matches step 1's `targets.includes(tabId)` — both
+    // the main panel AND the active tile would render the same question.
+    // When tiles exist (`layoutMode === 'grid'`), defer to the tile and
+    // suppress the main panel rendering entirely.
+    const isMainPanel = !this._sessionContext;
+    const tilesPresent = this._appState.layoutMode() === 'grid';
+    if (isMainPanel && tilesPresent) {
+      return [];
     }
 
-    return allQuestions.filter(
-      (q) =>
-        (tabId && (q.tabId === tabId || q.sessionId === tabId)) ||
-        (sessionId && (q.tabId === sessionId || q.sessionId === sessionId)),
-    );
+    // TASK_2026_109_FOLLOWUP_QUESTIONS Q5 — strict active-tile narrowing.
+    // The previous `!this._sessionContext || ...` made the main panel
+    // ALWAYS qualify; combined with Q3 above the main panel is now
+    // already suppressed when tiles exist, so this can be the strict
+    // tab-id match. When there are no tiles, the main panel's
+    // `resolvedTabId()` IS `activeTabId` — same condition holds.
+    const isActiveTile = tabId !== null && tabId === activeTabId;
+
+    return allQuestions.filter((q) => {
+      // 1. Authoritative routing — router-resolved target tabs.
+      const targets = this.chatStore.questionTargetTabsFor(q.id);
+      if (targets.length > 0) {
+        return tabId !== null && targets.includes(tabId);
+      }
+
+      // 2. TASK_2026_109_FOLLOWUP_QUESTIONS Q4 — strict tab-id-only legacy
+      //    match. The previous expression matched on `q.sessionId === sessionId`
+      //    too, which double-rendered when two tabs share a `resolvedSessionId`
+      //    (rewind/fork pointing at the same session) and the router didn't
+      //    attach targets in time. Tab-id equality is the only safe legacy
+      //    correlation now that the router owns conversation ↔ tab routing.
+      const legacyMatch =
+        tabId !== null && (q.tabId === tabId || q.sessionId === tabId);
+      if (legacyMatch) return true;
+
+      // 3. Last-resort visibility — show on active tile when nothing matched
+      //    above. Better than a silent hang. Combined with Q3+Q5 the main
+      //    panel never lands here when tiles exist.
+      return isActiveTile;
+    });
   });
 
   readonly resolvedQueuedContent = computed(() => {
@@ -589,8 +676,9 @@ export class ChatViewComponent {
   readonly allMessages = computed((): readonly ExecutionChatMessage[] => {
     const finalized = this.resolvedMessages();
     const streaming = this.streamingMessages();
-    if (streaming.length === 0) return finalized;
-    return [...finalized, ...streaming];
+    const combined =
+      streaming.length === 0 ? finalized : [...finalized, ...streaming];
+    return filterCompactionNoise(combined);
   });
 
   /**
@@ -866,32 +954,34 @@ export class ChatViewComponent {
 
       if (result.isSuccess()) {
         const newSessionId = result.data.newSessionId;
-        // openSessionTab handles dedup + activation + workspace registration.
-        // Whether it auto-loads history depends on the tab manager's
-        // implementation — we explicitly load below to be defensive
-        // (loadSession is idempotent if the session is already cached).
-        this._tabManager.openSessionTab(
-          newSessionId as unknown as string,
-          'Branch',
-        );
 
-        // Defensive history load — see Fix 10. openSessionTab creates the
-        // tab but does not necessarily trigger a session:load RPC for
-        // freshly-forked session IDs unknown to the tab manager. Invoke
-        // loadSession explicitly so the new tab populates its message list
-        // immediately. The call is idempotent (returns metadata only; the
-        // SDK serves message history at chat:resume time) so a duplicate
-        // call from a future openSessionTab change is harmless.
-        const loadResult = await this._claudeRpc.loadSession(
-          newSessionId as SessionId,
-        );
-        if (!loadResult.isSuccess()) {
-          // Don't fail the whole branch — the tab is open and the user can
-          // retry. Just surface the warning.
-          this.showActionError(
-            `Branch tab opened, but loading history failed: ${loadResult.error ?? 'Unknown'}`,
-          );
+        // Layout-aware tab/tile creation. In canvas (grid) mode, tiles are
+        // tracked separately from tabs in `CanvasStore` — calling
+        // `openSessionTab` directly would create an invisible tab with no
+        // backing tile. Use the `appState.requestCanvasSession` signal
+        // bridge so `OrchestraCanvasComponent` adds the tile AND opens the
+        // tab AND switches session in one place. In single mode, fall back
+        // to opening a tab directly.
+        if (this._appState.layoutMode() === 'grid') {
+          this._appState.requestCanvasSession(newSessionId, 'Branch');
+          this.showActionInfo('Branch created.');
+        } else {
+          this._tabManager.openSessionTab(newSessionId, 'Branch');
+          try {
+            await this.chatStore.switchSession(newSessionId);
+            this.showActionInfo('Branch created.');
+          } catch (err) {
+            this.showActionError(
+              `Branch tab opened, but loading history failed: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          }
         }
+
+        // S4 — sidebar refresh is driven by `session:metadataChanged`
+        // (forked) emitted by the backend on forkSession success and
+        // handled by ChatMessageHandler with a 250ms debounce.
       } else {
         this.showActionError(
           `Branch failed: ${result.error ?? 'Unknown error'}`,
@@ -1006,6 +1096,34 @@ export class ChatViewComponent {
       this.showActionError(
         commit.data.error ?? 'Rewind failed without an error message.',
       );
+    } else {
+      // M3 — refresh any open editor tabs/diffs so they reflect the
+      // reverted on-disk content. Failures are non-fatal: the rewind itself
+      // succeeded, so we still show success but note the editor refresh
+      // failure rather than swallowing it silently.
+      let editorRefreshFailed = false;
+      const filesChanged = commit.data.filesChanged ?? [];
+      if (filesChanged.length > 0) {
+        try {
+          const revert = await this._claudeRpc.call('editor:revertFiles', {
+            files: filesChanged,
+          });
+          if (!revert.isSuccess()) {
+            editorRefreshFailed = true;
+          }
+        } catch {
+          editorRefreshFailed = true;
+        }
+      }
+
+      const changedCount = filesChanged.length;
+      const baseMsg =
+        changedCount === 0
+          ? 'Rewind complete — no files changed.'
+          : `Rewind complete — ${changedCount} file(s) reverted.`;
+      this.showActionInfo(
+        editorRefreshFailed ? `${baseMsg} (editor refresh failed)` : baseMsg,
+      );
     }
   }
 
@@ -1041,12 +1159,32 @@ export class ChatViewComponent {
       });
       if (!retry) return;
 
-      const resumed = await this._claudeRpc.loadSession(sessionId);
+      // Use chat:resume (not session:load) — only chat:resume actually starts
+      // a live SDK Query and registers it with SessionLifecycleManager, which
+      // is what rewindFiles needs to read its file checkpoint state.
+      // session:load is metadata-validation-only and does NOT activate the
+      // session — that was the original bug.
+      //
+      // Use resolvedTabId() to honour the SESSION_CONTEXT for canvas tiles.
+      // Looking up by `claudeSessionId` would resolve the wrong tab (or none)
+      // when the rewind originates from a non-active tile, and falling back
+      // to `tabId ?? ''` would silently send an empty tabId — losing the
+      // resume stream entirely.
+      const tabId = this.resolvedTabId();
+      if (!tabId) {
+        this.showActionError('Cannot resume — no active tab.');
+        return;
+      }
+      const workspacePath = this.vscodeService.config().workspaceRoot;
+      const resumed = await this._claudeRpc.call('chat:resume', {
+        sessionId,
+        tabId,
+        workspacePath,
+      });
       if (!resumed.isSuccess()) {
         this.showActionError(`Resume failed: ${resumed.error ?? 'Unknown'}`);
         return;
       }
-      // Re-attempt rewind ONCE after resume. retryCount=1 prevents recursion.
       await this.attemptRewind(sessionId, messageId, retryCount + 1);
       return;
     }
@@ -1164,5 +1302,6 @@ export class ChatViewComponent {
       clearTimeout(this.finalizingTimeoutId);
       this.finalizingTimeoutId = null;
     }
+    // ActionBannerService owns its own timer lifecycle (S3) — nothing to do here.
   }
 }

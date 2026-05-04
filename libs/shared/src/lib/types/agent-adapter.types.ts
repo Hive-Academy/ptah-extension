@@ -47,6 +47,14 @@ export type CompactionStartCallback = (data: {
   sessionId: string;
   trigger: 'manual' | 'auto';
   timestamp: number;
+  /**
+   * Cumulative pre-compaction token usage (input + output + cache_read +
+   * cache_creation) sampled at PreCompact firing time. Forwarded onto the
+   * `compaction_start` stream event so the frontend can freeze the
+   * pre-compaction header stats during the compaction window.
+   * (TASK_2026_109 A2)
+   */
+  preTokens: number;
 }) => void;
 
 export type WorktreeCreatedCallback = (data: {

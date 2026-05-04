@@ -59,9 +59,30 @@ export async function launchPtah(
   // `import { app } from 'electron'` returns nothing usable, breaking the launcher.
   delete env.ELECTRON_RUN_AS_NODE;
 
-  return _electron.launch({
-    args: [entry, ...(opts.args ?? [])],
+  // CI runners (GitHub ubuntu-latest) restrict the unprivileged user-namespace
+  // sandbox via AppArmor / kernel.unprivileged_userns_clone, which makes
+  // Chromium's zygote hang during launch. --no-sandbox bypasses that, and
+  // --disable-dev-shm-usage avoids /dev/shm exhaustion in containerized envs.
+  const ciArgs = process.env['CI']
+    ? ['--no-sandbox', '--disable-dev-shm-usage']
+    : [];
+
+  const app = await _electron.launch({
+    args: [entry, ...ciArgs, ...(opts.args ?? [])],
     env: env as Record<string, string>,
     timeout: opts.timeout ?? 30_000,
   });
+
+  // Surface main-process stdout/stderr so a failed launch leaves a trace
+  // in CI logs instead of a bare Playwright timeout. Bootstrap uses
+  // console.log (stdout) for phase progress, so without stdout capture we
+  // cannot tell which activation phase hung.
+  app.process().stdout?.on('data', (chunk: Buffer) => {
+    process.stderr.write(`[ptah-electron stdout] ${chunk.toString('utf8')}`);
+  });
+  app.process().stderr?.on('data', (chunk: Buffer) => {
+    process.stderr.write(`[ptah-electron stderr] ${chunk.toString('utf8')}`);
+  });
+
+  return app;
 }

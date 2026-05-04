@@ -118,6 +118,16 @@ export class PermissionHandlerService {
   readonly questionRequests = this._questionRequests.asReadonly();
 
   /**
+   * Per-question list of tab ids the question is targeted at, populated by
+   * `StreamRouter.routeQuestionPrompt` after a question arrives. Mirrors
+   * `_promptTargetTabs` for permissions. When unset for a given question id,
+   * consumers fall back to global visibility (active-tab broadcast) so a
+   * question is never silently dropped — the backend's `awaitQuestionResponse`
+   * has no timeout (`timeoutAt: 0`) and would otherwise hang forever.
+   */
+  private readonly _questionTargetTabs = new Map<string, readonly string[]>();
+
+  /**
    * Constructor - sets up cleanup effect for expired requests
    */
   constructor() {
@@ -526,6 +536,17 @@ export class PermissionHandlerService {
       );
     }
 
+    // TASK_2026_109_FOLLOWUP_QUESTIONS Q9 — collision guard. If a question
+    // with this id is already in the queue, log a warning and return
+    // without appending. Backend retries (e.g. session-resume re-emit)
+    // would otherwise produce duplicate cards; the original entry must
+    // win because it owns the router-resolved target tabs.
+    const existing = this._questionRequests().find((r) => r.id === request.id);
+    if (existing) {
+      console.warn('question.duplicate-id', { id: request.id });
+      return;
+    }
+
     this._questionRequests.update((requests) => [...requests, request]);
   }
 
@@ -545,11 +566,94 @@ export class PermissionHandlerService {
       requests.filter((r) => r.id !== response.id),
     );
 
+    this._questionTargetTabs.delete(response.id);
+
     // Send to backend via VSCodeService
     this.vscodeService.postMessage({
       type: MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE,
       payload: response,
     });
+  }
+
+  /**
+   * Question routing fan-out — mirrors `attachPromptTargets` for permissions.
+   * Called by `StreamRouter.routeQuestionPrompt` once a question arrives and
+   * the resolved tab ids are known. No-op when `tabIds` is empty (router
+   * could not resolve a tab — chat-view falls back to active-tab visibility).
+   */
+  attachQuestionTargets(questionId: string, tabIds: readonly string[]): void {
+    if (!tabIds || tabIds.length === 0) return;
+    // TASK_2026_109_FOLLOWUP_QUESTIONS Q9 — collision guard. If targets
+    // for this question id were already attached, log and skip. Preserve
+    // the original target — re-routing flows (Q6/Q7) call the dedicated
+    // refresh path that reads the existing list before overwriting.
+    if (this._questionTargetTabs.has(questionId)) {
+      console.warn('question.duplicate-id', {
+        id: questionId,
+        scope: 'targets',
+      });
+      return;
+    }
+    this._questionTargetTabs.set(questionId, [...tabIds]);
+    // Force signal-dependent computeds (e.g. `resolvedQuestionRequests`) to
+    // re-evaluate now that targets are known. The Map mutation alone is not
+    // observable, and routeQuestionPrompt runs immediately after the signal
+    // update — without this nudge the filter stays on the fallback path
+    // for one tick longer than necessary.
+    this._questionRequests.update((reqs) => reqs.slice());
+  }
+
+  /**
+   * Read access to per-question target tabs. Returns an empty array when
+   * the router fell back to global visibility or the question has been
+   * resolved.
+   */
+  questionTargetTabsFor(questionId: string): readonly string[] {
+    return this._questionTargetTabs.get(questionId) ?? [];
+  }
+
+  /**
+   * TASK_2026_109_FOLLOWUP_QUESTIONS Q7 — drop the per-question target tab
+   * list without removing the question itself. Used by the router's
+   * compaction-complete / SESSION_ID_RESOLVED re-route paths so a fresh
+   * `attachQuestionTargets` call is not blocked by the Q9 collision guard.
+   * Idempotent: clearing an already-cleared id is a no-op.
+   */
+  clearQuestionTargets(questionId: string): void {
+    this._questionTargetTabs.delete(questionId);
+  }
+
+  /**
+   * TASK_2026_109_FOLLOWUP_QUESTIONS Q10 — cancellation API used by
+   * `StreamRouter.cancelPendingQuestionOnOtherTabs` to drop a question
+   * resolved on another tab. Mirrors `cancelPrompt` for permissions.
+   * Idempotent: removing an already-removed question is a no-op.
+   *
+   * `_exceptTabId` is reserved for the future per-tab queue model — today
+   * the queue is global, so cancelling on "other tabs" is the same as
+   * removing from the queue entirely. The signature matches `cancelPrompt`
+   * so future per-tab queues drop in without API churn.
+   */
+  cancelQuestion(questionId: string, _exceptTabId: string | null): void {
+    this._questionRequests.update((requests) =>
+      requests.filter((r) => r.id !== questionId),
+    );
+    this._questionTargetTabs.delete(questionId);
+  }
+
+  /**
+   * Drop a pending question without sending a response to the backend.
+   * Used by the auto-resolve broadcast (`ASK_USER_QUESTION_AUTO_RESOLVED`):
+   * when the backend's idle timer fires and picks the recommended option,
+   * it resolves the SDK promise itself, then notifies the webview to clear
+   * the stale question card. Sending a response from the UI here would be
+   * a duplicate.
+   */
+  dropQuestionRequest(questionId: string): void {
+    this._questionRequests.update((requests) =>
+      requests.filter((r) => r.id !== questionId),
+    );
+    this._questionTargetTabs.delete(questionId);
   }
 
   /**
@@ -582,6 +686,10 @@ export class PermissionHandlerService {
       .filter((r) => r.sessionId === sessionId)
       .map((r) => r.id);
 
+    const removedQuestionIds = this._questionRequests()
+      .filter((r) => r.sessionId === sessionId)
+      .map((r) => r.id);
+
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.sessionId !== sessionId),
     );
@@ -592,6 +700,9 @@ export class PermissionHandlerService {
 
     for (const id of removedIds) {
       this._promptTargetTabs.delete(id);
+    }
+    for (const id of removedQuestionIds) {
+      this._questionTargetTabs.delete(id);
     }
   }
 }

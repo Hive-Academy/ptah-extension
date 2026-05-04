@@ -44,10 +44,19 @@ const FILE_TREE_CHANGED = 'file:tree-changed';
 /** Message type used for pushing file content change notifications to the renderer. */
 const FILE_CONTENT_CHANGED = 'file:content-changed';
 
+/**
+ * Message type used to ask the renderer to re-read every currently open
+ * editor tab from disk. Emitted after a git operation (commit, checkout,
+ * reset, push, branch switch) since git mutates files atomically via
+ * rename, which fs.watch does not always surface as a per-file change.
+ */
+const EDITOR_REREAD_OPEN_TABS = 'editor:reread-open-tabs';
+
 export class GitWatcherService {
   private watchers: fs.FSWatcher[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private treeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private gitOpsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly contentChangeTimers = new Map<
     string,
     ReturnType<typeof setTimeout>
@@ -102,14 +111,12 @@ export class GitWatcherService {
     // external tools.
     this.watchWorkspaceRoot(workspacePath);
 
-    // Git-specific watchers only attach when .git exists. A non-git workspace
-    // still gets workspace-root file watching above; only git status push is
-    // skipped (since there is no git status to report).
-    const gitDir = path.join(workspacePath, '.git');
-    const isGitRepo =
-      fs.existsSync(gitDir) && fs.statSync(gitDir).isDirectory();
-
-    if (!isGitRepo) {
+    // Resolve the real git directory. In a normal repo `.git` is a directory;
+    // in worktrees and submodules it is a FILE containing `gitdir: <path>`
+    // pointing to the actual gitdir under the parent repo's `.git/worktrees/`.
+    // Without this resolution, worktree users get zero git-driven refresh.
+    const gitDir = this.resolveGitDir(workspacePath);
+    if (!gitDir) {
       this.logger.debug(
         '[GitWatcher] No .git directory found, skipping git-specific watchers',
         { workspacePath } as unknown as Error,
@@ -117,26 +124,60 @@ export class GitWatcherService {
       return;
     }
 
-    // Watch .git/HEAD (branch switches)
-    this.watchFile(
-      path.join(gitDir, 'HEAD'),
-      GitWatcherService.GIT_DEBOUNCE_MS,
-    );
+    const onGitOps = (): void => this.scheduleGitOpsRefresh();
 
-    // Watch .git/index (staging changes)
-    this.watchFile(
-      path.join(gitDir, 'index'),
-      GitWatcherService.GIT_DEBOUNCE_MS,
-    );
+    // HEAD (branch switches), index (staging), refs/ (commits & remote updates).
+    this.watchFile(path.join(gitDir, 'HEAD'), onGitOps);
+    this.watchFile(path.join(gitDir, 'index'), onGitOps);
 
-    // Watch .git/refs/ directory (commits, remote updates)
     const refsDir = path.join(gitDir, 'refs');
     if (fs.existsSync(refsDir)) {
-      this.watchDirectory(refsDir, GitWatcherService.GIT_DEBOUNCE_MS);
+      this.watchDirectory(refsDir, onGitOps);
     }
+
+    // After `git gc` or on cloned repos, refs live in `packed-refs` and
+    // `git fetch` / `git push` may update only that file. ORIG_HEAD and
+    // FETCH_HEAD cover reset/merge/fetch operations that don't move HEAD.
+    this.watchFile(path.join(gitDir, 'packed-refs'), onGitOps);
+    this.watchFile(path.join(gitDir, 'ORIG_HEAD'), onGitOps);
+    this.watchFile(path.join(gitDir, 'FETCH_HEAD'), onGitOps);
 
     // Push initial git state immediately
     this.fetchAndPush();
+  }
+
+  /**
+   * Resolve the real git directory for a workspace.
+   *
+   * Returns the directory itself for a normal repo. For worktrees and
+   * submodules, `.git` is a file whose first line is `gitdir: <path>` —
+   * we follow that pointer (resolving relative paths against the workspace).
+   * Returns null when no git context exists.
+   */
+  private resolveGitDir(workspacePath: string): string | null {
+    const dotGit = path.join(workspacePath, '.git');
+    if (!fs.existsSync(dotGit)) return null;
+
+    const stat = fs.statSync(dotGit);
+    if (stat.isDirectory()) return dotGit;
+    if (!stat.isFile()) return null;
+
+    try {
+      const contents = fs.readFileSync(dotGit, 'utf8').trim();
+      const match = contents.match(/^gitdir:\s*(.+)$/m);
+      if (!match) return null;
+      const target = match[1].trim();
+      const resolved = path.isAbsolute(target)
+        ? target
+        : path.resolve(workspacePath, target);
+      return fs.existsSync(resolved) ? resolved : null;
+    } catch (err) {
+      this.logger.warn('[GitWatcher] Failed to resolve gitdir pointer', {
+        dotGit,
+        error: err instanceof Error ? err.message : String(err),
+      } as unknown as Error);
+      return null;
+    }
   }
 
   /**
@@ -165,6 +206,11 @@ export class GitWatcherService {
       this.treeDebounceTimer = null;
     }
 
+    if (this.gitOpsDebounceTimer) {
+      clearTimeout(this.gitOpsDebounceTimer);
+      this.gitOpsDebounceTimer = null;
+    }
+
     for (const timer of this.contentChangeTimers.values()) {
       clearTimeout(timer);
     }
@@ -181,14 +227,16 @@ export class GitWatcherService {
   }
 
   /**
-   * Watch a single file for changes.
+   * Watch a single file for changes. Caller supplies the scheduler
+   * callback (e.g. `scheduleGitOpsRefresh` or `scheduleUpdate`) since
+   * coalescing semantics differ per watcher kind.
    */
-  private watchFile(filePath: string, debounceMs: number): void {
+  private watchFile(filePath: string, onChange: () => void): void {
     if (!fs.existsSync(filePath)) return;
 
     try {
       const watcher = fs.watch(filePath, () => {
-        this.scheduleUpdate(debounceMs);
+        onChange();
       });
 
       watcher.on('error', (err) => {
@@ -208,12 +256,13 @@ export class GitWatcherService {
   }
 
   /**
-   * Watch a directory (non-recursive) for changes.
+   * Watch a directory (non-recursive) for changes. Caller supplies the
+   * scheduler callback.
    */
-  private watchDirectory(dirPath: string, debounceMs: number): void {
+  private watchDirectory(dirPath: string, onChange: () => void): void {
     try {
       const watcher = fs.watch(dirPath, { recursive: false }, () => {
-        this.scheduleUpdate(debounceMs);
+        onChange();
       });
 
       watcher.on('error', (err) => {
@@ -344,6 +393,28 @@ export class GitWatcherService {
         }
       }, GitWatcherService.CONTENT_CHANGE_DEBOUNCE_MS),
     );
+  }
+
+  /**
+   * Schedule a debounced git-operation refresh: pushes git status AND
+   * tells the renderer to re-read every open editor tab from disk.
+   *
+   * Coalesces a flurry of .git/* events (a single git command can write
+   * HEAD, index, and refs in rapid succession) into one broadcast pair.
+   */
+  private scheduleGitOpsRefresh(): void {
+    if (this.isDisposed) return;
+
+    if (this.gitOpsDebounceTimer) {
+      clearTimeout(this.gitOpsDebounceTimer);
+    }
+
+    this.gitOpsDebounceTimer = setTimeout(() => {
+      this.gitOpsDebounceTimer = null;
+      if (this.isDisposed || !this.broadcastFn) return;
+      void this.fetchAndPush();
+      this.broadcastFn(EDITOR_REREAD_OPEN_TABS, {});
+    }, GitWatcherService.GIT_DEBOUNCE_MS);
   }
 
   /**

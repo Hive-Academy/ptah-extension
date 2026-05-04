@@ -318,7 +318,8 @@ export class StreamTransformer {
                   lastTurnContextByModel.set(
                     model,
                     (turnUsage.input_tokens ?? 0) +
-                      (turnUsage.cache_read_input_tokens ?? 0),
+                      (turnUsage.cache_read_input_tokens ?? 0) +
+                      (turnUsage.cache_creation_input_tokens ?? 0),
                   );
                 }
               }
@@ -494,6 +495,13 @@ export class StreamTransformer {
             // Without this, tools remain in __streaming: true state forever.
             // Also process compact_boundary (type: 'system') to emit compaction_complete events.
             // Also process local_command_output (type: 'system') for /cost, /context output.
+            if (isCompactBoundary(sdkMessage)) {
+              // Compaction wipes the per-turn context — the next result that
+              // arrives without a fresh message_start must report undefined,
+              // not the stale pre-compaction tokens.
+              lastTurnContextByModel.clear();
+            }
+
             if (
               sdkMessage.type === 'stream_event' ||
               sdkMessage.type === 'assistant' ||

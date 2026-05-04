@@ -14,7 +14,23 @@
         "tsConfig": "libs/backend/rpc-handlers/tsconfig.lib.json",
         "assets": ["libs/backend/rpc-handlers/*.md"],
         "format": ["cjs"],
-        "external": ["vscode", "tsyringe", "eventemitter3", "rxjs"]
+        "external": [
+          "vscode",
+          "tsyringe",
+          "eventemitter3",
+          "rxjs",
+          "better-sqlite3",
+          "sqlite-vec",
+          "croner",
+          "@xenova/transformers",
+          "ulid",
+          "grammy",
+          "discord.js",
+          "@slack/bolt",
+          "ffmpeg-static",
+          "nodejs-whisper",
+          "node:worker_threads"
+        ]
       }
     },
     "test": {

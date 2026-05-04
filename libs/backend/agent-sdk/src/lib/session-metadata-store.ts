@@ -20,11 +20,16 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import EventEmitter from 'eventemitter3';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { SdkError } from './errors';
-import type { CliSessionReference } from '@ptah-extension/shared';
+import type {
+  CliSessionReference,
+  SessionMetadataChangedNotification,
+  SessionMetadataChangeKind,
+} from '@ptah-extension/shared';
 
 /**
  * Session metadata - UI state only, NOT message storage
@@ -105,6 +110,20 @@ export class SessionMetadataStore {
    */
   private writeQueue: Promise<void> = Promise.resolve();
 
+  /**
+   * Emits `session:metadataChanged` events after each successful mutation
+   * (create / save / rename / delete). The wiring layer
+   * ({@link wireSessionMetadataChangeBroadcast}) subscribes to this and
+   * broadcasts the payload to all open webviews so sidebars refresh
+   * without needing imperative `loadSessions()` calls everywhere.
+   *
+   * Stat-only updates from `addStats()` intentionally do NOT emit — they
+   * fire on every assistant turn and would flood the webview channel.
+   */
+  private readonly events = new EventEmitter<{
+    metadataChanged: (payload: SessionMetadataChangedNotification) => void;
+  }>();
+
   constructor(
     @inject(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
     private storage: IStateStorage,
@@ -112,11 +131,43 @@ export class SessionMetadataStore {
   ) {}
 
   /**
+   * Subscribe to session metadata change events.
+   * Returns an unsubscribe function for symmetric teardown.
+   */
+  onMetadataChanged(
+    listener: (payload: SessionMetadataChangedNotification) => void,
+  ): () => void {
+    this.events.on('metadataChanged', listener);
+    return () => this.events.off('metadataChanged', listener);
+  }
+
+  private emitChange(
+    kind: SessionMetadataChangeKind,
+    sessionId: string,
+    workspaceId: string,
+  ): void {
+    try {
+      this.events.emit('metadataChanged', { kind, sessionId, workspaceId });
+    } catch (err) {
+      // Listener errors must not poison the write path.
+      this.logger.warn(
+        '[SessionMetadataStore] metadataChanged listener threw',
+        err instanceof Error ? err : new Error(String(err)),
+      );
+    }
+  }
+
+  /**
    * Save or update session metadata.
    * Serialized through writeQueue to prevent concurrent read-modify-write races.
+   *
+   * Emits `metadataChanged` with `kind: 'updated'`. Callers that need a
+   * different kind (e.g. `create()` → `'created'` / `'forked'`) bypass this
+   * method and call {@link _saveInternal} directly so they own the emission.
    */
   async save(metadata: SessionMetadata): Promise<void> {
-    return this.enqueueWrite(() => this._saveInternal(metadata));
+    await this.enqueueWrite(() => this._saveInternal(metadata));
+    this.emitChange('updated', metadata.sessionId, metadata.workspaceId);
   }
 
   /**
@@ -315,6 +366,7 @@ export class SessionMetadataStore {
         lastActiveAt: Date.now(),
         cliSessions: updated,
       });
+      this.emitChange('updated', sessionId, metadata.workspaceId);
     });
   }
 
@@ -323,7 +375,13 @@ export class SessionMetadataStore {
    * Serialized through writeQueue to prevent concurrent read-modify-write races.
    */
   async delete(sessionId: string): Promise<void> {
-    return this.enqueueWrite(() => this._deleteInternal(sessionId));
+    // Capture workspaceId BEFORE deletion so the emitted event still carries it.
+    // After _deleteInternal, get() returns null, so we'd lose the workspace context.
+    const existing = await this.get(sessionId);
+    await this.enqueueWrite(() => this._deleteInternal(sessionId));
+    if (existing) {
+      this.emitChange('deleted', sessionId, existing.workspaceId);
+    }
   }
 
   /**
@@ -346,11 +404,18 @@ export class SessionMetadataStore {
    * Create initial metadata for a new session.
    * Called when SDK returns the real session ID from system 'init' message.
    * If metadata already exists (e.g., from a user rename), preserves the existing name.
+   *
+   * Emits `metadataChanged` with the supplied {@link kind} (default `'created'`).
+   * Callers forking an existing session pass `'forked'` so the webview can
+   * distinguish brand-new sessions from forked ones (e.g. for highlight UX).
+   * When metadata already exists, the kind is downgraded to `'updated'` —
+   * a duplicate `create()` is semantically just an activity touch.
    */
   async create(
     sessionId: string,
     workspaceId: string,
     name: string,
+    kind: SessionMetadataChangeKind = 'created',
   ): Promise<SessionMetadata> {
     // Check if metadata already exists — preserve user-renamed name
     const existing = await this.get(sessionId);
@@ -359,7 +424,8 @@ export class SessionMetadataStore {
         `[SessionMetadataStore] Metadata already exists for ${sessionId}, preserving name "${existing.name}"`,
       );
       const updated = { ...existing, lastActiveAt: Date.now() };
-      await this.save(updated);
+      await this.enqueueWrite(() => this._saveInternal(updated));
+      this.emitChange('updated', updated.sessionId, updated.workspaceId);
       return updated;
     }
 
@@ -374,10 +440,11 @@ export class SessionMetadataStore {
       totalTokens: { input: 0, output: 0 },
     };
 
-    await this.save(metadata);
+    await this.enqueueWrite(() => this._saveInternal(metadata));
     this.logger.info(
       `[SessionMetadataStore] Created metadata for session ${sessionId}: "${name}"`,
     );
+    this.emitChange(kind, sessionId, workspaceId);
 
     return metadata;
   }
@@ -405,10 +472,11 @@ export class SessionMetadataStore {
       isChildSession: true,
     };
 
-    await this.save(metadata);
+    await this.enqueueWrite(() => this._saveInternal(metadata));
     this.logger.info(
       `[SessionMetadataStore] Created child session metadata: ${sessionId} "${name}"`,
     );
+    this.emitChange('created', sessionId, workspaceId);
 
     return metadata;
   }
@@ -418,18 +486,22 @@ export class SessionMetadataStore {
    * Serialized through writeQueue to prevent lost updates from concurrent writes.
    */
   async rename(sessionId: string, newName: string): Promise<void> {
-    return this.enqueueWrite(async () => {
+    let renamed: SessionMetadata | null = null;
+    await this.enqueueWrite(async () => {
       const metadata = await this.get(sessionId);
       if (metadata) {
-        await this._saveInternal({
-          ...metadata,
-          name: newName,
-        });
+        const next: SessionMetadata = { ...metadata, name: newName };
+        await this._saveInternal(next);
         this.logger.info(
           `[SessionMetadataStore] Renamed session ${sessionId} to "${newName}"`,
         );
+        renamed = next;
       }
     });
+    if (renamed) {
+      const m = renamed as SessionMetadata;
+      this.emitChange('updated', m.sessionId, m.workspaceId);
+    }
   }
 
   /**

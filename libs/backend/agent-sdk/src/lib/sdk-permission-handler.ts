@@ -109,7 +109,18 @@ interface PendingQuestionRequest {
   resolve: (response: AskUserQuestionResponse | null) => void;
   /** Session ID this request belongs to (for session-scoped cleanup) */
   sessionId?: string;
+  /** Idle-timeout timer that auto-picks the recommended option after
+   *  ASK_USER_QUESTION_IDLE_TIMEOUT_MS. Cleared when a real response or
+   *  abort arrives first. Null when timeout is disabled. */
+  idleTimer?: ReturnType<typeof setTimeout> | null;
 }
+
+/**
+ * Idle timeout for AskUserQuestion. After this long with no user response,
+ * the handler auto-picks the recommended (first) option for every question
+ * so the agent can continue instead of hanging forever. Set to 0 to disable.
+ */
+const ASK_USER_QUESTION_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * WebviewManager interface (avoid circular import)
@@ -368,9 +379,27 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       });
   }
 
+  /**
+   * Create a `canUseTool` callback bound to a routing context.
+   *
+   * @param sessionId - Session/routing ID used to address the originating
+   *   conversation. For the main interactive path this is the frontend tabId
+   *   (see `sdk-query-options-builder.ts` — `routingId = tabId ?? sessionId`),
+   *   so it is also a valid `tabId` for AskUserQuestion routing. For CLI
+   *   sub-agent / Ptah CLI registry paths this is the real SDK session UUID
+   *   and may NOT be a tab — pass `tabId` explicitly when the originating tab
+   *   is known.
+   * @param cliAgentResolver - Optional resolver that maps the active call to a
+   *   CLI agent ID for agent-monitor routing.
+   * @param tabId - Authoritative frontend tab ID. When provided, this is
+   *   stamped onto AskUserQuestion broadcasts so the frontend stream router
+   *   can narrow to the originating tab instead of broadcasting to every tab
+   *   bound to the conversation. TASK_2026_109_FOLLOWUP_QUESTIONS.
+   */
   createCallback(
     sessionId?: string,
     cliAgentResolver?: () => string | undefined,
+    tabId?: string,
   ): CanUseTool {
     return async (
       toolName: string,
@@ -433,6 +462,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           options.toolUseID,
           sessionId,
           options.signal,
+          tabId,
         );
       }
 
@@ -806,6 +836,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     toolUseId: string,
     sessionId?: string,
     signal?: AbortSignal,
+    tabId?: string,
   ): Promise<PermissionResult> {
     if (!isAskUserQuestionToolInput(input)) {
       this.logger.warn('[SdkPermissionHandler] Invalid AskUserQuestion input', {
@@ -820,6 +851,15 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     const requestId = generateRequestId();
     const now = Date.now();
 
+    // TASK_2026_109_FOLLOWUP_QUESTIONS — Always stamp `tabId` when we have a
+    // routing identity. Prefer the explicit `tabId` argument; fall back to
+    // `sessionId` because the main session path passes `routingId` (which is
+    // the frontend tabId — see `sdk-query-options-builder.ts`). The frontend
+    // stream router uses tabId to narrow question delivery to the originating
+    // tab; missing tabId causes the regression where the question card
+    // appears on every tile bound to the conversation.
+    const resolvedTabId = tabId ?? sessionId;
+
     const request: AskUserQuestionRequest = {
       id: requestId,
       toolName: 'AskUserQuestion',
@@ -828,8 +868,19 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       timestamp: now,
       timeoutAt: 0,
       sessionId,
-      tabId: sessionId,
+      tabId: resolvedTabId,
     };
+
+    if (!request.tabId) {
+      // Genuinely no originating tab (sub-agent / CLI flow with no UI).
+      // Frontend will fall back to broadcasting to every tab bound to the
+      // session — surface this so it's traceable when users report the
+      // "question on every tile" symptom in production.
+      this.logger.warn(
+        '[SdkPermissionHandler] AskUserQuestion emitted without tabId — frontend will fall back to all tabs bound to session',
+        { questionId: request.id, sessionId: request.sessionId },
+      );
+    }
 
     this.logger.info('[SdkPermissionHandler] Sending AskUserQuestion request', {
       requestId,
@@ -876,6 +927,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       requestId,
       signal,
       sessionId,
+      input.questions,
+      resolvedTabId,
     );
 
     if (!response) {
@@ -963,6 +1016,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     requestId: string,
     signal?: AbortSignal,
     sessionId?: string,
+    questions?: QuestionItem[],
+    tabId?: string,
   ): Promise<AskUserQuestionResponse | null> {
     return new Promise<AskUserQuestionResponse | null>((resolve) => {
       if (signal?.aborted) {
@@ -971,7 +1026,59 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         return;
       }
 
+      // Idle-timeout fallback — after ASK_USER_QUESTION_IDLE_TIMEOUT_MS with
+      // no response, auto-pick the recommended (first) option for every
+      // question so the agent continues instead of hanging forever.
+      // The agent's next turn naturally surfaces the choice via the tool
+      // result it receives.
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      if (
+        ASK_USER_QUESTION_IDLE_TIMEOUT_MS > 0 &&
+        questions &&
+        questions.length > 0
+      ) {
+        idleTimer = setTimeout(() => {
+          const pending = this.pendingQuestionRequests.get(requestId);
+          if (!pending) return;
+          const answers: Record<string, string> = {};
+          for (const q of questions) {
+            const recommended = q.options?.[0]?.label;
+            if (recommended) answers[q.header] = recommended;
+          }
+          this.logger.warn(
+            '[SdkPermissionHandler] AskUserQuestion idle-timeout reached — auto-picking recommended options',
+            {
+              requestId,
+              timeoutMs: ASK_USER_QUESTION_IDLE_TIMEOUT_MS,
+              answers,
+            },
+          );
+          this.pendingQuestionRequests.delete(requestId);
+          signal?.removeEventListener('abort', onAbort);
+          // Notify the webview to remove the now-stale question card so the
+          // user sees what was auto-answered. handleQuestionResponse on the
+          // frontend already filters the request out of `_questionRequests`.
+          this.webviewManager
+            ?.sendMessage(
+              'ptah.main',
+              MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED,
+              // TASK_2026_109_FOLLOWUP_QUESTIONS — stamp tabId so the
+              // auto-resolution lands on the originating tab, mirroring the
+              // routing applied to the original AskUserQuestion request.
+              { id: requestId, answers, sessionId, tabId },
+            )
+            .catch((error) => {
+              this.logger.error(
+                '[SdkPermissionHandler] Failed to broadcast AskUserQuestion auto-resolution',
+                { error },
+              );
+            });
+          resolve({ id: requestId, answers });
+        }, ASK_USER_QUESTION_IDLE_TIMEOUT_MS);
+      }
+
       const onAbort = () => {
+        if (idleTimer) clearTimeout(idleTimer);
         this.pendingQuestionRequests.delete(requestId);
         resolve(null);
       };
@@ -979,10 +1086,12 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
       this.pendingQuestionRequests.set(requestId, {
         resolve: (response) => {
+          if (idleTimer) clearTimeout(idleTimer);
           signal?.removeEventListener('abort', onAbort);
           resolve(response);
         },
         sessionId,
+        idleTimer,
       });
     });
   }

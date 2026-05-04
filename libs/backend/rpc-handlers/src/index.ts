@@ -38,6 +38,12 @@ export {
   GitRpcHandlers,
   // Workspace handlers (TASK_2026_104 Sub-batch B5a)
   WorkspaceRpcHandlers,
+  // Settings handlers (TASK_2026_107 Bug 6)
+  SettingsRpcHandlers,
+  MemoryRpcHandlers,
+  SkillsSynthesisRpcHandlers,
+  CronRpcHandlers,
+  GatewayRpcHandlers,
 } from './lib/handlers';
 
 // Platform abstraction interfaces (TASK_2025_203 Batch 2)

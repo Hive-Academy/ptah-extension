@@ -18,7 +18,8 @@ import {
   PermissionHandlerService,
   ExecutionTreeBuilderService,
 } from '@ptah-extension/chat-streaming';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import { TabManagerService, TabId } from '@ptah-extension/chat-state';
+import { StreamRouter } from '@ptah-extension/chat-routing';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import { ConversationService } from './chat-store/conversation.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
@@ -62,6 +63,9 @@ export class ChatStore {
   private readonly messageDispatch = inject(MessageDispatchService);
   private readonly statsAggregator = inject(SessionStatsAggregatorService);
   private readonly lifecycle = inject(ChatLifecycleService);
+  // TASK_2026_109_FOLLOWUP_QUESTIONS Q10 — fan-out cancel after the user
+  // answers a question. Mirrors the permission-decision broadcast wiring.
+  private readonly streamRouter = inject(StreamRouter);
 
   private readonly _servicesReady = signal(false);
   readonly servicesReady = this._servicesReady.asReadonly();
@@ -373,7 +377,33 @@ export class ChatStore {
 
   /** TASK_2025_136: User answer to AskUserQuestion. */
   handleQuestionResponse(response: AskUserQuestionResponse): void {
+    // TASK_2026_109_FOLLOWUP_QUESTIONS Q10 — capture the deciding tab BEFORE
+    // dispatching so we can fan a "question resolved" cancel to every OTHER
+    // bound tab. Mirrors the permission-decision broadcast wiring.
+    const decidingTabIdRaw = this.tabManager.activeTabId() ?? null;
+    const decidingTabId = decidingTabIdRaw
+      ? (TabId.safeParse(decidingTabIdRaw) ?? null)
+      : null;
     this.permissionHandler.handleQuestionResponse(response);
+    this.streamRouter.cancelPendingQuestionOnOtherTabs(
+      response.id,
+      decidingTabId,
+    );
+  }
+
+  /** Per-question routing targets resolved by `StreamRouter.routeQuestionPrompt`. */
+  questionTargetTabsFor(questionId: string): readonly string[] {
+    return this.permissionHandler.questionTargetTabsFor(questionId);
+  }
+
+  /**
+   * Drop a pending question from the UI without sending a response. Used by
+   * the backend's idle-timeout auto-resolve broadcast — backend already
+   * resolved the SDK promise with the recommended answer, so the webview
+   * just needs to clear the stale question card.
+   */
+  dropQuestionRequest(questionId: string): void {
+    this.permissionHandler.dropQuestionRequest(questionId);
   }
 
   public queueOrAppendMessage(

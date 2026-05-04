@@ -88,7 +88,14 @@ flowchart LR
 | Invoked automatically when description matches     | Invoked explicitly via `ptah_agent_spawn` or orchestrator |
 | Best for: patterns, checklists, reference material | Best for: multi-step execution, long-running tasks        |
 
+## Auto-discovered skills
+
+Beyond hand-authored skills, Ptah can **generate skills from your own usage**. The [Skill Synthesis](/skill-synthesis/) pipeline watches sessions for repeated successful trajectories and, after the 3rd success, materialises a `SKILL.md` at `~/.ptah/skills/<slug>/`. From that point the auto-skill participates in the same discovery, junctioning, and trigger-matching as any hand-authored skill — there's no second runtime path.
+
+You can review, force-promote, or reject candidates in **Settings → Skill Synthesis**.
+
 ## Next steps
 
 - [Browse the popular skill catalog](/mcp-and-skills/popular-skills/)
 - [Create your own skill](/mcp-and-skills/creating-skills/)
+- [How auto-discovered skills work](/skill-synthesis/)

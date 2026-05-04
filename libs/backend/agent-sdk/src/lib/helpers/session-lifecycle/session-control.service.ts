@@ -6,18 +6,15 @@
  * Wave C7i extracts these from `SessionLifecycleManager` (originally lines
  * 395–451, 462–556, 563–610, 1110–1149, 1162–1207). The cleanup-call order
  * inside `endSession` is spec-asserted (cleanupPendingPermissions →
- * markAllInterrupted → stopAllForSession → interrupt → abort → registry
- * removal) and is preserved byte-identically.
+ * markAllInterrupted → interrupt → abort → registry removal) and is
+ * preserved byte-identically.
  *
  * Plain class — NOT @injectable, NOT registered with tsyringe. Constructed
  * eagerly by the facade.
  */
 
 import type { Logger } from '@ptah-extension/vscode-core';
-import type {
-  SubagentRegistryService,
-  AgentSessionWatcherService,
-} from '@ptah-extension/vscode-core';
+import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import type { SessionId, ISdkPermissionHandler } from '@ptah-extension/shared';
 
 import { SdkError } from '../../errors';
@@ -31,7 +28,6 @@ export class SessionControl {
     private readonly registry: SessionRegistry,
     private readonly permissionHandler: ISdkPermissionHandler,
     private readonly subagentRegistry: SubagentRegistryService,
-    private readonly agentSessionWatcher: AgentSessionWatcherService,
     private readonly modelResolver: ModelResolver,
   ) {}
 
@@ -136,13 +132,8 @@ export class SessionControl {
     const registrySessionId = this.registry.getRealOrTabId(sessionId as string);
     this.subagentRegistry.markAllInterrupted(registrySessionId);
 
-    // TASK_2025_264: Stop all agent session file watchers for this session.
-    // Prevents background agent watchers from tailing files and emitting
-    // events to a dead session after abort.
-    this.agentSessionWatcher.stopAllForSession(registrySessionId);
-
     this.logger.info(
-      `[SessionLifecycle] Marked running subagents as interrupted and stopped watchers for session: ${sessionId}`,
+      `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`,
     );
 
     // TASK_2025_175: Await interrupt() with timeout BEFORE abort()
@@ -206,9 +197,6 @@ export class SessionControl {
       // TASK_2025_186: Use real UUID if resolved
       const registryId = this.registry.getRealOrTabId(sessionId);
       this.subagentRegistry.markAllInterrupted(registryId);
-
-      // TASK_2025_264: Stop all agent session file watchers for this session
-      this.agentSessionWatcher.stopAllForSession(registryId);
 
       // TASK_2025_175: Interrupt BEFORE abort, with timeout
       if (session.query) {

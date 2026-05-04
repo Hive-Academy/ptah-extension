@@ -31,7 +31,10 @@ import {
   WizardViewComponent,
   provideWizardInternalState,
 } from '@ptah-extension/setup-wizard';
-import { provideEditorInternalState } from '@ptah-extension/editor';
+import {
+  provideEditorInternalState,
+  EditorService,
+} from '@ptah-extension/editor';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import {
   HarnessBuilderViewComponent,
@@ -150,6 +153,8 @@ export const appConfig: ApplicationConfig = {
     // EditorInternalState: same pattern, applied to EditorService.
     // TASK_2026_103 Wave F3.
     ...provideEditorInternalState(),
+    // EditorService handles editor:tabContentReverted push events (Electron Monaco revert).
+    { provide: MESSAGE_HANDLERS, useExisting: EditorService, multi: true },
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',

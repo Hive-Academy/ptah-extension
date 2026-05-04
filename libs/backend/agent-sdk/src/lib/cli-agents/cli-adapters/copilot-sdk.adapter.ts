@@ -324,6 +324,10 @@ export class CopilotSdkAdapter implements CliAdapter {
       'json',
       '--allow-all-tools',
       '--no-color',
+      // Suppress Copilot's human-readable stats footer
+      // ("Changes +N -M", "Requests N Premium", "Tokens ↑ ...") that
+      // otherwise leaks to stderr after the JSONL stream completes.
+      '-s',
     ];
 
     // Resume mode: append --resume=<id>. Copilot's --resume accepts a session
@@ -414,18 +418,50 @@ export class CopilotSdkAdapter implements CliAdapter {
       }
     });
 
-    // Stderr: surface meaningful errors. Copilot's stderr is generally quiet
-    // when --output-format json is set, but auth/network failures still land
-    // here.
+    // Stderr: filter aggressively to keep chat clean.
+    // Copilot CLI prints a human-readable stats footer + occasional ConPTY
+    // / pty-host warnings to stderr that are not user-actionable. -s flag
+    // above suppresses most of it; this filter handles whatever remains
+    // and any future variations of the same noise patterns.
+    let stderrBuf = '';
+
+    const isStackFrame = (line: string): boolean =>
+      /^\s*at\s+/.test(line) ||
+      /^\s*file:\/\//.test(line) ||
+      /node_modules[\\/]/.test(line);
+
+    const isStatsFooter = (line: string): boolean =>
+      /^Changes\s+[+-]\d+/.test(line) ||
+      /^Requests\s+\d+\s+(Premium|Free)/i.test(line) ||
+      /^Tokens\s+[↑↓]/.test(line) ||
+      (/\b(cached|reasoning)\b/i.test(line) && /^\s*[↑↓]?\s*\d/.test(line));
+
+    const isPtyNoise = (line: string): boolean =>
+      line.includes('conpty_console_list_agent') ||
+      line.includes('AttachConsole failed') ||
+      line.includes('node-pty');
+
     child.stderr?.on('data', (data: string) => {
-      const cleaned = stripAnsiCodes(data).trim();
-      if (!cleaned) return;
-      emitOutput(`[stderr] ${cleaned}\n`);
-      const isError =
-        /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
-          cleaned,
-        );
-      emitSegment({ type: isError ? 'error' : 'info', content: cleaned });
+      stderrBuf += stripAnsiCodes(data);
+      const lines = stderrBuf.split(/\r?\n/);
+      stderrBuf = lines.pop() ?? '';
+
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line) continue;
+
+        // Drop everything we know is benign noise.
+        if (isStackFrame(line) || isStatsFooter(line) || isPtyNoise(line)) {
+          continue;
+        }
+
+        // Anything else is a real error/warning the user should see.
+        const isError =
+          /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
+            line,
+          );
+        emitSegment({ type: isError ? 'error' : 'info', content: line });
+      }
     });
 
     // Done promise: resolves when the process exits.
@@ -501,11 +537,22 @@ export class CopilotSdkAdapter implements CliAdapter {
     try {
       event = JSON.parse(line) as CopilotCliEvent;
     } catch {
-      // Plain-text fallback: emit non-JSON lines that look meaningful.
-      if (line.length > 0 && !line.startsWith('{')) {
-        emitOutput(line + '\n');
-        emitSegment({ type: 'text', content: line });
+      // Drop noise that occasionally leaks onto stdout: stats footer,
+      // stack frames, banner lines. Only forward truly meaningful text.
+      if (
+        !line ||
+        line.startsWith('{') ||
+        /^\s*at\s+/.test(line) ||
+        /^\s*file:\/\//.test(line) ||
+        /node_modules[\\/]/.test(line) ||
+        /^Changes\s+[+-]\d+/.test(line) ||
+        /^Requests\s+\d+\s+(Premium|Free)/i.test(line) ||
+        /^Tokens\s+[↑↓]/.test(line)
+      ) {
+        return undefined;
       }
+      emitOutput(line + '\n');
+      emitSegment({ type: 'text', content: line });
       return undefined;
     }
 

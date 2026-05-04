@@ -45,6 +45,10 @@ import {
   HarnessRpcHandlers,
   McpDirectoryRpcHandlers,
   GitRpcHandlers,
+  MemoryRpcHandlers,
+  SkillsSynthesisRpcHandlers,
+  CronRpcHandlers,
+  GatewayRpcHandlers,
   registerHarnessServices,
   registerChatServices,
 } from '@ptah-extension/rpc-handlers';
@@ -59,7 +63,6 @@ import {
   FileRpcHandlers,
   ConfigExtendedRpcHandlers,
   CommandRpcHandlers,
-  SettingsRpcHandlers,
   AgentRpcHandlers,
   SkillsShRpcHandlers,
   LayoutRpcHandlers,
@@ -189,6 +192,18 @@ export function registerPhase4Handlers(
   });
   container.registerSingleton(GitRpcHandlers);
 
+  // TASK_2026_HERMES Track 1: Memory curator RPC handlers.
+  container.registerSingleton(MemoryRpcHandlers);
+
+  // TASK_2026_HERMES Track 2: Skill synthesis RPC handlers.
+  container.registerSingleton(SkillsSynthesisRpcHandlers);
+
+  // TASK_2026_HERMES Track 3: Cron scheduler RPC handlers.
+  container.registerSingleton(CronRpcHandlers);
+
+  // TASK_2026_HERMES Track 4: Messaging gateway RPC handlers.
+  container.registerSingleton(GatewayRpcHandlers);
+
   logger.info(
     '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
     {
@@ -230,6 +245,7 @@ export function registerPhase4Handlers(
         c.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
         c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
         c,
+        c.resolve(TOKENS.WEBVIEW_MANAGER),
       ),
   });
   container.registerSingleton(FileRpcHandlers);
@@ -246,7 +262,6 @@ export function registerPhase4Handlers(
       ),
   });
   container.registerSingleton(CommandRpcHandlers);
-  container.registerSingleton(SettingsRpcHandlers);
   container.registerSingleton(AgentRpcHandlers);
   container.registerSingleton(SkillsShRpcHandlers);
   container.registerSingleton(LayoutRpcHandlers);
@@ -273,7 +288,6 @@ export function registerPhase4Handlers(
         'FileRpcHandlers',
         'ConfigExtendedRpcHandlers',
         'CommandRpcHandlers',
-        'SettingsRpcHandlers',
         'AgentRpcHandlers',
         'SkillsShRpcHandlers',
         'LayoutRpcHandlers',

@@ -164,7 +164,11 @@ export class SettingsImportService {
       return 'Missing or invalid exportedAt timestamp';
     }
 
-    if (obj['source'] !== 'vscode' && obj['source'] !== 'electron') {
+    if (
+      obj['source'] !== 'vscode' &&
+      obj['source'] !== 'electron' &&
+      obj['source'] !== 'cli'
+    ) {
       return `Invalid source platform: ${String(obj['source'])}`;
     }
 

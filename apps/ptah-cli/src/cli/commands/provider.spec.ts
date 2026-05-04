@@ -412,6 +412,20 @@ describe('ptah provider default', () => {
 
   it('set <id>: calls llm:setDefaultProvider and emits provider.default.updated', async () => {
     const { formatterTrace, engine, hooks } = buildHooks();
+    // CLI bug item #10: `default set` validates against the live registry
+    // before issuing the write, so the test must script
+    // `llm:getProviderStatus` first.
+    engine.scripted.set('llm:getProviderStatus', {
+      success: true,
+      data: {
+        providers: [
+          { name: 'openrouter' },
+          { name: 'moonshot' },
+          { name: 'anthropic' },
+        ],
+        defaultProvider: 'anthropic',
+      },
+    });
     engine.scripted.set('llm:setDefaultProvider', {
       success: true,
       data: { success: true },
@@ -424,15 +438,36 @@ describe('ptah provider default', () => {
     );
 
     expect(exit).toBe(ExitCode.Success);
-    expect(engine.rpcCalls).toEqual([
-      {
-        method: 'llm:setDefaultProvider',
-        params: { provider: 'openrouter' },
-      },
-    ]);
+    const calls = engine.rpcCalls.map((c) => c.method);
+    expect(calls).toEqual(['llm:getProviderStatus', 'llm:setDefaultProvider']);
+    expect(engine.rpcCalls.at(-1)).toEqual({
+      method: 'llm:setDefaultProvider',
+      params: { provider: 'openrouter' },
+    });
     expect(formatterTrace.notifications.at(-1)?.method).toBe(
       'provider.default.updated',
     );
+  });
+
+  it('set <id>: rejects an unknown id with a `did you mean?` suggestion (CLI bug #10)', async () => {
+    const { stderrTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('llm:getProviderStatus', {
+      success: true,
+      data: {
+        providers: [{ name: 'openrouter' }, { name: 'moonshot' }],
+        defaultProvider: 'openrouter',
+      },
+    });
+
+    const exit = await execute(
+      { subcommand: 'default', action: 'set', provider: 'openroutr' },
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.UsageError);
+    expect(stderrTrace.buffer).toContain("unknown provider 'openroutr'");
+    expect(stderrTrace.buffer).toContain("Did you mean 'openrouter'");
   });
 
   it('set without provider id is a usage error', async () => {

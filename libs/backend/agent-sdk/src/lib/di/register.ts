@@ -44,6 +44,10 @@ import {
   // Compaction configuration and hooks (TASK_2025_098)
   CompactionConfigProvider,
   CompactionHookHandler,
+  // Compaction callback registry (TASK_2026_HERMES Track 1)
+  CompactionCallbackRegistry,
+  // Live usage tracker (TASK_2026_109 cycle-break)
+  LiveUsageTracker,
   // Worktree hook handler (TASK_2025_236)
   WorktreeHookHandler,
   // Slash command interceptor (TASK_2025_184)
@@ -169,6 +173,15 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
+  // Live usage tracker - no deps; shared writer/reader for cumulative
+  // pre-compaction tokens (TASK_2026_109 cycle-break). Registered BEFORE
+  // SdkMessageTransformer and CompactionHookHandler so both can resolve it.
+  container.register(
+    SDK_TOKENS.SDK_LIVE_USAGE_TRACKER,
+    { useClass: LiveUsageTracker },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
   // Message transformer - no special deps
   container.register(
     SDK_TOKENS.SDK_MESSAGE_TRANSFORMER,
@@ -225,8 +238,9 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // Subagent hook handler - depends on Logger, AgentSessionWatcherService (TASK_2025_099)
-  // Connects SDK subagent lifecycle hooks to real-time summary streaming
+  // Subagent hook handler - depends on Logger, SubagentRegistryService.
+  // TASK_2026_109 Fix 2: AgentSessionWatcherService dep removed — subagent
+  // text now streams inline via `forwardSubagentText: true`.
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER,
     { useClass: SubagentHookHandler },
@@ -238,6 +252,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
     { useClass: CompactionConfigProvider },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Compaction callback registry (TASK_2026_HERMES Track 1)
+  // Must be registered BEFORE CompactionHookHandler which injects it.
+  container.register(
+    SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY,
+    { useClass: CompactionCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 

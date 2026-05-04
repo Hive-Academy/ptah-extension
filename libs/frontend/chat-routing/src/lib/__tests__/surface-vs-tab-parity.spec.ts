@@ -227,12 +227,22 @@ function makePermissionHandlerMock() {
     promptId: string;
     decidingTabId: string | null;
   } | null>(null);
+  // TASK_2026_109_FOLLOWUP_QUESTIONS Q7 — compaction_complete now reads
+  // questionRequests() from the router's refreshStaleQuestionTargets.
+  // Empty signal is sufficient — none of the parity events post questions.
+  const questionList = signal<unknown[]>([]);
   return {
     attachPromptTargets: jest.fn(),
     targetTabsFor: jest.fn(() => [] as readonly string[]),
     cancelPrompt: jest.fn(),
     handlePermissionResponse: jest.fn(),
     decisionPulse: pulseSignal.asReadonly(),
+    questionRequests: questionList.asReadonly(),
+    attachQuestionTargets: jest.fn(),
+    questionTargetTabsFor: jest.fn(() => [] as readonly string[]),
+    clearQuestionTargets: jest.fn(),
+    cancelQuestion: jest.fn(),
+    handleQuestionResponse: jest.fn(),
   };
 }
 

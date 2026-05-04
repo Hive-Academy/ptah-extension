@@ -27,16 +27,11 @@
  *   - Zero `as any` casts — only a named `asLogger` bridge cast at the
  *     single nominal-type seam (production `Logger` is a class).
  *
- * Pre-existing failure investigation (W3.B1):
- *   The previous spec constructed the manager with SIX dependencies, but
- *   the production constructor takes NINE (see `session-lifecycle-manager.ts`
- *   constructor signature — logger, permissionHandler, moduleLoader,
- *   queryOptionsBuilder, messageFactory, subagentRegistry,
- *   agentSessionWatcher, authEnv, modelResolver). Every prior test that
- *   exercised `endSession()` crashed with
- *   `Cannot read properties of undefined (reading 'stopAllForSession')`
- *   because `agentSessionWatcher` wasn't injected. This is a fixture gap,
- *   not a source-level bug — fixed here by supplying all nine mocks.
+ * Constructor signature note:
+ *   The production constructor takes EIGHT dependencies — logger,
+ *   permissionHandler, moduleLoader, queryOptionsBuilder, messageFactory,
+ *   subagentRegistry, authEnv, modelResolver. The fixture supplies all eight
+ *   so `endSession()` exercises the full cleanup path.
  *
  * Source-under-test:
  *   `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts`
@@ -45,10 +40,7 @@
 import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
-import type {
-  SubagentRegistryService,
-  AgentSessionWatcherService,
-} from '@ptah-extension/vscode-core';
+import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import type {
   SessionId,
   AISessionConfig,
@@ -174,15 +166,6 @@ function createMockSubagentRegistry(): jest.Mocked<
   };
 }
 
-function createMockAgentSessionWatcher(): jest.Mocked<
-  Pick<AgentSessionWatcherService, 'stopAllForSession' | 'stopWatching'>
-> {
-  return {
-    stopAllForSession: jest.fn(),
-    stopWatching: jest.fn(),
-  };
-}
-
 function createMockModelResolver(): jest.Mocked<
   Pick<ModelResolver, 'resolve'>
 > {
@@ -196,9 +179,9 @@ function createAuthEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
 }
 
 // ---------------------------------------------------------------------------
-// Harness — build a fully-mocked SessionLifecycleManager. All 9 constructor
+// Harness — build a fully-mocked SessionLifecycleManager. All 8 constructor
 // deps are supplied so tests that exercise endSession()/disposeAllSessions()
-// no longer trip over undefined `agentSessionWatcher` (W3.B1 finding).
+// run the full cleanup path.
 // ---------------------------------------------------------------------------
 
 interface Harness {
@@ -209,7 +192,6 @@ interface Harness {
   queryOptionsBuilder: ReturnType<typeof createMockQueryOptionsBuilder>;
   messageFactory: ReturnType<typeof createMockMessageFactory>;
   subagentRegistry: ReturnType<typeof createMockSubagentRegistry>;
-  agentSessionWatcher: ReturnType<typeof createMockAgentSessionWatcher>;
   modelResolver: ReturnType<typeof createMockModelResolver>;
   authEnv: AuthEnv;
   queryFn: jest.Mock;
@@ -232,7 +214,6 @@ function makeHarness(
   const queryOptionsBuilder = createMockQueryOptionsBuilder();
   const messageFactory = createMockMessageFactory();
   const subagentRegistry = createMockSubagentRegistry();
-  const agentSessionWatcher = createMockAgentSessionWatcher();
   const modelResolver = createMockModelResolver();
   const authEnv = createAuthEnv(opts.authEnv);
 
@@ -279,7 +260,6 @@ function makeHarness(
     queryOptionsBuilder as unknown as SdkQueryOptionsBuilder,
     messageFactory as unknown as SdkMessageFactory,
     subagentRegistry as unknown as SubagentRegistryService,
-    agentSessionWatcher as unknown as AgentSessionWatcherService,
     authEnv,
     modelResolver as unknown as ModelResolver,
   );
@@ -292,7 +272,6 @@ function makeHarness(
     queryOptionsBuilder,
     messageFactory,
     subagentRegistry,
-    agentSessionWatcher,
     modelResolver,
     authEnv,
     queryFn,
@@ -498,20 +477,6 @@ describe('SessionLifecycleManager', () => {
 
       expect(harness.manager.getActiveSessionWorkspace()).toBe('/workspace/b');
     });
-
-    it('notifies the agentSessionWatcher to stop all watchers for the ended session (W3.B1 regression guard)', async () => {
-      harness.manager.preRegisterActiveSession(
-        'tab_1' as SessionId,
-        createSessionConfig(),
-        new AbortController(),
-      );
-
-      await harness.manager.endSession('tab_1' as SessionId);
-
-      expect(
-        harness.agentSessionWatcher.stopAllForSession,
-      ).toHaveBeenCalledWith('tab_1');
-    });
   });
 
   // -------------------------------------------------------------------------
@@ -616,9 +581,6 @@ describe('SessionLifecycleManager', () => {
       harness.subagentRegistry.markAllInterrupted.mockImplementation(() => {
         calls.push('markAllInterrupted');
       });
-      harness.agentSessionWatcher.stopAllForSession.mockImplementation(() => {
-        calls.push('stopAllForSession');
-      });
 
       await harness.manager.executeQuery({
         sessionId: 'tab_abort_4' as SessionId,
@@ -633,7 +595,6 @@ describe('SessionLifecycleManager', () => {
       expect(calls).toEqual([
         'cleanupPendingPermissions',
         'markAllInterrupted',
-        'stopAllForSession',
       ]);
     });
 
@@ -861,6 +822,113 @@ describe('SessionLifecycleManager', () => {
       // Sending a message to tab_ws_a re-promotes it to "most recent".
       await harness.manager.sendMessage('tab_ws_a' as SessionId, 'ping');
       expect(harness.manager.getActiveSessionWorkspace()).toBe('/ws/a');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // warmQuery wiring (TASK_2026_109 Fix 3 wiring)
+  // -------------------------------------------------------------------------
+
+  describe('warmQuery handoff (executeQuery)', () => {
+    it('uses warmQuery.query(prompt) instead of queryFn() for an eligible new chat', async () => {
+      const warmedQuery = createFakeQuery().query;
+      const warmQueryFn = jest.fn().mockReturnValue(warmedQuery);
+      const close = jest.fn();
+      const warmQuery = { close, query: warmQueryFn };
+
+      const result = await harness.manager.executeQuery({
+        sessionId: 'tab_warm' as SessionId,
+        sessionConfig: createSessionConfig({ projectPath: '/ws/warm' }),
+        warmQuery,
+      });
+
+      // warmQuery.query was used; queryFn was NOT.
+      expect(warmQueryFn).toHaveBeenCalledTimes(1);
+      expect(harness.queryFn).not.toHaveBeenCalled();
+      // The handle was NOT closed — its lifecycle is now owned by the
+      // returned Query object. (Once the Query terminates the SDK closes
+      // the underlying subprocess on its own.)
+      expect(close).not.toHaveBeenCalled();
+      // The SDK Query the executor returned is the one warmQuery.query
+      // produced (load-bearing reference for stream transformation).
+      expect(result.sdkQuery).toBe(warmedQuery);
+    });
+
+    it('falls back to queryFn (and closes the warm handle) when the session is a resume', async () => {
+      const warmQueryFn = jest.fn();
+      const close = jest.fn();
+      const warmQuery = { close, query: warmQueryFn };
+
+      await harness.manager.executeQuery({
+        sessionId: 'sess_resume' as SessionId,
+        sessionConfig: createSessionConfig(),
+        resumeSessionId: 'sess_resume',
+        warmQuery,
+      });
+
+      // resume sessions can NOT use the warm handle — fall through to
+      // queryFn AND close the handle to avoid leaking the subprocess.
+      expect(warmQueryFn).not.toHaveBeenCalled();
+      expect(harness.queryFn).toHaveBeenCalledTimes(1);
+      expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to queryFn (and closes the warm handle) when the session is a slash command', async () => {
+      const warmQueryFn = jest.fn();
+      const close = jest.fn();
+      const warmQuery = { close, query: warmQueryFn };
+
+      await harness.manager.executeQuery({
+        sessionId: 'tab_slash' as SessionId,
+        sessionConfig: createSessionConfig(),
+        initialPrompt: { content: '/compact', files: [], images: [] },
+        warmQuery,
+      });
+
+      expect(warmQueryFn).not.toHaveBeenCalled();
+      expect(harness.queryFn).toHaveBeenCalledTimes(1);
+      expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to queryFn when warmQuery.query is missing on the handle', async () => {
+      // Defensive guard: handle without a .query function (e.g. SDK
+      // bundled an older WarmQuery shape) must NOT crash — fall through.
+      const close = jest.fn();
+      const warmQuery = { close } as unknown as {
+        close: () => void;
+        query?: unknown;
+      };
+
+      await harness.manager.executeQuery({
+        sessionId: 'tab_noquery' as SessionId,
+        sessionConfig: createSessionConfig(),
+        warmQuery,
+      });
+
+      expect(harness.queryFn).toHaveBeenCalledTimes(1);
+      // The malformed handle is still closed in the fall-through path.
+      expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to queryFn when warmQuery.query() throws, and closes the handle', async () => {
+      const close = jest.fn();
+      const warmQueryFn = jest.fn().mockImplementation(() => {
+        throw new Error('warm subprocess died');
+      });
+      const warmQuery = { close, query: warmQueryFn };
+
+      const result = await harness.manager.executeQuery({
+        sessionId: 'tab_warmfail' as SessionId,
+        sessionConfig: createSessionConfig(),
+        warmQuery,
+      });
+
+      // First the warm path was attempted, then fell back to queryFn.
+      expect(warmQueryFn).toHaveBeenCalledTimes(1);
+      expect(harness.queryFn).toHaveBeenCalledTimes(1);
+      expect(close).toHaveBeenCalledTimes(1);
+      // The fallback Query is what callers see.
+      expect(result.sdkQuery).toBeDefined();
     });
   });
 });

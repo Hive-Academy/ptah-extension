@@ -4,17 +4,13 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - 'apps/ptah-electron/**'
-      - 'apps/ptah-electron-e2e/**'
-      - 'libs/backend/platform-electron/**'
-      - 'libs/frontend/webview-e2e-harness/**'
-      - '.github/workflows/electron-e2e.yml'
-      - 'package.json'
-      - 'package-lock.json'
-  schedule:
-    # Staggered 1h after webview-e2e (06:00 UTC) to avoid concurrent runner pressure.
-    - cron: '0 7 * * *'
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.vscode/**'
+      - '.claude/**'
+      - 'LICENSE.md'
+      - '.do/**'
   workflow_dispatch:
 
 concurrency:

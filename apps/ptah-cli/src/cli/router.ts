@@ -18,6 +18,7 @@ import * as agentCliCmd from './commands/agent-cli.js';
 import * as analyzeCmd from './commands/analyze.js';
 import * as authCmd from './commands/auth.js';
 import * as configCmd from './commands/config.js';
+import * as doctorCmd from './commands/doctor.js';
 import * as executeSpecCmd from './commands/execute-spec.js';
 import * as gitCmd from './commands/git.js';
 import * as harnessCmd from './commands/harness.js';
@@ -225,13 +226,31 @@ export function buildRouter(): Command {
   config
     .command('list')
     .description('list all configuration entries (sensitive values redacted)')
-    .action(async () => {
-      const exit = await configCmd.execute(
-        { subcommand: 'list' },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
+    .option('--keys-only', 'emit only the key list (no values)', false)
+    .option('--prefix <prefix>', 'only include keys starting with <prefix>')
+    .option(
+      '--changed-only',
+      'only include keys whose value differs from the file-backed default',
+      false,
+    )
+    .action(
+      async (opts: {
+        keysOnly?: boolean;
+        prefix?: string;
+        changedOnly?: boolean;
+      }) => {
+        const exit = await configCmd.execute(
+          {
+            subcommand: 'list',
+            keysOnly: opts.keysOnly === true,
+            prefix: opts.prefix,
+            changedOnly: opts.changedOnly === true,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
 
   config
     .command('reset <key>')
@@ -775,6 +794,40 @@ export function buildRouter(): Command {
     .action(async (provider: string) => {
       const exit = await authCmd.execute(
         { subcommand: 'test', provider },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // `auth use <providerId>` (Stream B item #4) — switch the active auth
+  // strategy without going through a full login flow. Writes
+  // ptah.authMethod / ptah.defaultProvider / ptah.anthropicProviderId via
+  // the workspace provider (routed to ~/.ptah/settings.json).
+  auth
+    .command('use <providerId>')
+    .description(
+      'switch active auth strategy (claude-cli | github-copilot | openai-codex | openrouter | moonshot | z-ai)',
+    )
+    .action(async (providerId: string) => {
+      const exit = await authCmd.execute(
+        { subcommand: 'use', providerId },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // `auth set-anthropic-route <providerId>` (CLI bug batch item #5) — set
+  // ONLY the `anthropicProviderId` config value. Pass `default` to clear.
+  // Validates the id against the ANTHROPIC_PROVIDERS registry and emits
+  // a `did-you-mean?` suggestion via Levenshtein distance for typos.
+  auth
+    .command('set-anthropic-route <providerId>')
+    .description(
+      'set the active Anthropic-compatible bridge provider (use `default` to clear)',
+    )
+    .action(async (providerId: string) => {
+      const exit = await authCmd.execute(
+        { subcommand: 'set-anthropic-route', providerId },
         resolveGlobals(program),
       );
       process.exitCode = exit;
@@ -1864,7 +1917,7 @@ export function buildRouter(): Command {
     )
     .option('--profile <name>', 'system prompt preset (claude_code|enhanced)')
     .option('--task <text>', 'initial prompt — when given, streams the turn')
-    .option('--once', 'single-turn mode (informational)', false)
+    .option('--once', 'exit after first turn completes', false)
     .option('--scope <scope>', 'forward-compat scope (e.g. harness-skill)')
     .action(
       async (opts: {
@@ -2193,6 +2246,25 @@ export function buildRouter(): Command {
       );
       process.exitCode = exit;
     });
+
+  // -- ptah doctor / diagnose ------------------------------------------------
+  // Stream B item #7. Top-level diagnostic snapshot. Boots the full DI graph
+  // with `requireSdk: false` so the report still renders when auth is broken.
+  // Emits a single `doctor.report` notification then exits.
+  const doctorAction = async (): Promise<void> => {
+    const exit = await doctorCmd.execute({}, resolveGlobals(program));
+    process.exitCode = exit;
+  };
+  program
+    .command('doctor')
+    .description(
+      'emit a doctor.report snapshot (license, auth, providers, effective route)',
+    )
+    .action(doctorAction);
+  program
+    .command('diagnose')
+    .description('alias for `ptah doctor`')
+    .action(doctorAction);
 
   // -- ptah proxy ------------------------------------------------------------
   // Anthropic-compatible HTTP proxy (TASK_2026_104 P2). `start` is long-blocking;

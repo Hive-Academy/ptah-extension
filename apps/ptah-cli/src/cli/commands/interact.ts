@@ -56,7 +56,7 @@ import { StdinReader } from '../io/stdin-reader.js';
 import { StdoutWriter } from '../io/stdout-writer.js';
 import { ChatBridge } from '../session/chat-bridge.js';
 import { ApprovalBridge } from '../session/approval-bridge.js';
-import { ExitCode } from '../jsonrpc/types.js';
+import { ExitCode, JSONRPC_SCHEMA_VERSION } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 import {
   PLATFORM_TOKENS,
@@ -498,6 +498,14 @@ export async function execute(
         protocol_version: '2.0',
       });
 
+      // 11a. Stream B item #11 — advertise the Ptah JSON-RPC schema version
+      //      so peers can detect protocol skew. Emitted right after
+      //      `session.ready` so it lands inside the same handshake window.
+      await server.notify('system.schema.version', {
+        version: JSONRPC_SCHEMA_VERSION,
+        cliVersion: version,
+      });
+
       // 12. Inbound A2A handlers — task.submit / task.cancel /
       //     session.shutdown / session.history.
 
@@ -538,6 +546,7 @@ export async function execute(
           try {
             const result = await chatBridge.runTurn({
               tabId,
+              command: 'task.submit',
               rpcCall: async () => {
                 const resp = await ctx.transport.call<unknown, unknown>(
                   rpcMethod,
@@ -639,6 +648,41 @@ export async function execute(
               ? all.slice(all.length - limit)
               : all;
           return { messages: trimmed, session_id: sessionId };
+        },
+      );
+
+      // e2e + scripted-bridge passthrough — forwards an arbitrary in-process
+      // RPC call through the same transport used by chat:start/chat:continue.
+      // Inbound shape: { method: string; params?: unknown }
+      // Returns the raw RpcResponse<unknown> envelope from the in-process handler.
+      server.register(
+        'rpc.call',
+        async (
+          params: unknown,
+        ): Promise<{ success: boolean; data?: unknown; error?: string }> => {
+          if (
+            params === null ||
+            typeof params !== 'object' ||
+            typeof (params as { method?: unknown }).method !== 'string'
+          ) {
+            throw new Error(
+              'rpc.call requires { method: string, params?: unknown }',
+            );
+          }
+          const { method, params: methodParams } = params as {
+            method: string;
+            params?: unknown;
+          };
+          const resp = await ctx.transport.call<unknown, unknown>(
+            method,
+            methodParams ?? {},
+          );
+          const out: { success: boolean; data?: unknown; error?: string } = {
+            success: resp.success === true,
+          };
+          if (resp.data !== undefined) out.data = resp.data;
+          if (typeof resp.error === 'string') out.error = resp.error;
+          return out;
         },
       );
 

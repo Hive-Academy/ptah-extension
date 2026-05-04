@@ -15,6 +15,22 @@
 /** JSON-RPC version literal. */
 export const JSON_RPC_VERSION = '2.0' as const;
 
+/**
+ * Ptah JSON-RPC schema version (independent of the JSON-RPC 2.0 wire version).
+ *
+ * This advertises the shape of Ptah-specific notifications, request/response
+ * params, and error data fields. It is bumped whenever an incompatible change
+ * lands in `PtahNotification`, `PtahOutboundRequest`, `PtahInboundRequest`, or
+ * any of their payload schemas.
+ *
+ * The CLI emits a `system.schema.version` notification at the top of every
+ * `ptah interact` session and validates `process.env.PTAH_HOST_SCHEMA_VERSION`
+ * (set by the host that spawned the CLI) at startup — a mismatch is logged
+ * to stderr but does NOT abort the process; callers can opt out of the
+ * stderr warning with the global `--quiet` flag.
+ */
+export const JSONRPC_SCHEMA_VERSION = '0.1' as const;
+
 /** A JSON value that can appear inside `params`, `result`, or `error.data`. */
 export type JsonValue =
   | string
@@ -251,6 +267,11 @@ export type PtahNotification =
   | 'auth.login.complete'
   | 'auth.logout.complete'
   | 'auth.test.result'
+  // Auth provider switch (Stream B item #4) — `ptah auth use <providerId>`.
+  // Emitted after the workspace provider config has been mutated to point
+  // at the target provider. Payload shape:
+  //   { providerId, authMethod, defaultProvider, anthropicProviderId }
+  | 'auth.use.applied'
   // Provider commands (TASK_2026_104 B8d) — task-description.md §4.1.6
   | 'provider.status'
   | 'provider.default'
@@ -310,7 +331,15 @@ export type PtahNotification =
   | 'agent_cli.stopped'
   | 'agent_cli.resumed'
   // Diagnostics (verbose)
-  | 'debug.di.phase';
+  | 'debug.di.phase'
+  // System/diagnostics surface (Stream B items #7 + #11).
+  //   - `doctor.report` — emitted by `ptah doctor` (alias `diagnose`) once
+  //     the diagnostic walk completes. Payload:
+  //       { license, auth, providers[], effective: { route, ready, blockers[] }, timestamp }
+  //   - `system.schema.version` — emitted on `ptah interact` startup so the
+  //     peer can detect protocol skew. Payload: `{ version, cliVersion }`.
+  | 'doctor.report'
+  | 'system.schema.version';
 
 /**
  * Outbound CLI → client requests (require a response on stdin).

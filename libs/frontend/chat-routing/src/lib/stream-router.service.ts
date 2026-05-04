@@ -53,6 +53,7 @@ import {
   type AccumulatorContext,
 } from '@ptah-extension/chat-streaming';
 import type {
+  AskUserQuestionRequest,
   FlatStreamEventUnion,
   PermissionRequest,
 } from '@ptah-extension/shared';
@@ -534,6 +535,158 @@ export class StreamRouter {
   }
 
   /**
+   * AskUserQuestion routing — sibling of `routePermissionPrompt`.
+   *
+   * Resolves the question's `sessionId` to bound tabs and stores the
+   * resolved tab ids on the PermissionHandler so the chat-view filter can
+   * render the question on the correct tile(s) regardless of whether the
+   * payload's raw `tabId`/`sessionId` fields still match (they go stale
+   * after compaction-driven session id rotation, late `SESSION_ID_RESOLVED`,
+   * or idle re-binding — exactly the cases that produced silent hangs).
+   *
+   * Returns the resolved tab list. Empty return paths:
+   *   - No `sessionId` on the question → chat-view falls back to global
+   *     visibility (active tile shows the question).
+   *   - Session unknown to the registry → same global-visibility fallback.
+   *   - Conversation bound to surfaces only (wizard/harness — full-auto
+   *     background mode) → auto-deny so backend's indefinite
+   *     `awaitQuestionResponse` unblocks immediately. Mirrors the defensive
+   *     guard in `routePermissionPrompt`.
+   */
+  routeQuestionPrompt(question: AskUserQuestionRequest): readonly TabId[] {
+    if (!question.sessionId) return [];
+    const sessionId = question.sessionId as ClaudeSessionId;
+    const tabs = this.tabsForSession(sessionId);
+    if (tabs.length > 0) {
+      // TASK_2026_109_FOLLOWUP_QUESTIONS Q2 — narrow to the originating tab
+      // when the payload identifies one bound to this conversation. If
+      // `question.tabId` is set but doesn't match (closed/forked-away tab),
+      // we MUST NOT fall back to the full bound-tab list — broadcasting on
+      // closed-tab fallback re-creates the original duplicate-card regression.
+      // Instead pick the most-recently-active bound tab (via
+      // `TabManagerService.lastActivityAt`); if no signal is available,
+      // fall through to `activeTabId` (when it's in the bound set) and
+      // ultimately the first bound tab. The full broadcast remains the
+      // ONLY safety net when `question.tabId` is missing entirely
+      // (legacy payloads with no originator).
+      const targets = this.resolveQuestionTargets(question, tabs);
+      this.permissionHandler.attachQuestionTargets(question.id, targets);
+      return targets;
+    }
+
+    const containing = this.registry.findContainingSession(sessionId);
+    if (containing) {
+      const surfaces = this.binding.surfacesFor(containing.id);
+      if (surfaces.length > 0) {
+        console.warn('question.received.no-tab-surface-only', {
+          questionId: question.id,
+          sessionId: question.sessionId,
+          conversationId: containing.id,
+          surfaceCount: surfaces.length,
+        });
+        // Auto-resolve with empty answers so the SDK's
+        // `awaitQuestionResponse` (timeoutAt: 0 = block indefinitely)
+        // unblocks. Without this the call hangs forever.
+        this.permissionHandler.handleQuestionResponse({
+          id: question.id,
+          answers: {},
+        });
+        return tabs;
+      }
+    }
+
+    // TASK_2026_109_FOLLOWUP_QUESTIONS Q8 — surface-only auto-resolve race.
+    // No tabs bound and no surfaces: legacy "router didn't see binding yet"
+    // path. The previous code immediately auto-resolved with empty answers,
+    // which races with concurrent tile bootstrap (`onTabCreated` not yet
+    // fired) and produces a flash-then-disappear question card. Defer one
+    // microtask and re-check `tabsForSession` — if a tab arrived in the
+    // meantime, attach targets and SKIP the auto-resolve. This holds the
+    // legacy semantics (no surfaces == no auto-resolve) but fixes the
+    // observable flash.
+    queueMicrotask(() => {
+      const tabsAfterTick = this.tabsForSession(sessionId);
+      if (tabsAfterTick.length > 0) {
+        const targets = this.resolveQuestionTargets(question, tabsAfterTick);
+        this.permissionHandler.attachQuestionTargets(question.id, targets);
+      }
+      // No tabs bound and no surfaces → leave the question alive on the
+      // global fallback path (chat-view's last-resort active-tile path).
+      // No auto-resolve here — that branch is only safe for surface-only
+      // conversations (handled above).
+    });
+
+    return tabs;
+  }
+
+  /**
+   * TASK_2026_109_FOLLOWUP_QUESTIONS Q2 — resolve the target tab list for an
+   * AskUserQuestion request given the live bound-tab set.
+   *
+   * Resolution ladder:
+   *   1. `question.tabId` matches a bound tab → narrow to that tab (happy
+   *      path — originator is alive and bound).
+   *   2. `question.tabId` is set but no longer bound (closed/forked-away)
+   *      → fall back to most-recently-active bound tab. Falling back to
+   *      the full bound-tab list here re-creates the duplicate-card
+   *      regression, so we explicitly do NOT broadcast.
+   *   3. `question.tabId` is missing entirely (legacy payload) → broadcast
+   *      to the full bound-tab list. This is the documented "show on every
+   *      bound tab" safety net for payloads that predate the `tabId` field.
+   */
+  private resolveQuestionTargets(
+    question: AskUserQuestionRequest,
+    tabs: readonly TabId[],
+  ): readonly TabId[] {
+    if (!question.tabId) {
+      return tabs;
+    }
+
+    const originator = tabs.find((t) => (t as string) === question.tabId);
+    if (originator) {
+      return [originator];
+    }
+
+    // Stale `question.tabId` — pick most-recently-active bound tab.
+    const fallback = this.pickMostRecentlyActiveTab(tabs);
+    return fallback ? [fallback] : tabs.slice(0, 1);
+  }
+
+  /**
+   * TASK_2026_109_FOLLOWUP_QUESTIONS Q2 — pick the most-recently-active tab
+   * out of a bound-tab set, using `TabManagerService.tabs()[i].lastActivityAt`
+   * if available. Falls through to `activeTabId` (when it's in `tabs`),
+   * else the first tab in the set. Returns `null` only if `tabs` is empty.
+   */
+  private pickMostRecentlyActiveTab(tabs: readonly TabId[]): TabId | null {
+    if (tabs.length === 0) return null;
+    if (tabs.length === 1) return tabs[0];
+
+    const allTabs = this.tabManager.tabs();
+    let best: TabId | null = null;
+    let bestStamp = -Infinity;
+    for (const t of tabs) {
+      const tab = allTabs.find((x) => x.id === (t as string));
+      const stamp =
+        typeof tab?.lastActivityAt === 'number' ? tab.lastActivityAt : -1;
+      if (stamp > bestStamp) {
+        bestStamp = stamp;
+        best = t;
+      }
+    }
+    if (best && bestStamp > -1) return best;
+
+    // No `lastActivityAt` signal usable — try `activeTabId` if it's in the set.
+    const activeId = this.tabManager.activeTabId();
+    if (activeId) {
+      const active = tabs.find((t) => (t as string) === activeId);
+      if (active) return active;
+    }
+
+    return tabs[0];
+  }
+
+  /**
    * TASK_2026_106 Phase 6a — fan a "prompt resolved" signal out to every
    * other bound tab. Today the prompt list is global, so cancellation is
    * a no-op once the deciding tab has already removed the entry from
@@ -572,6 +725,38 @@ export class StreamRouter {
   }
 
   /**
+   * TASK_2026_109_FOLLOWUP_QUESTIONS Q10 — fan a "question resolved" cancel
+   * out to every other bound tab. Mirrors `cancelPendingPromptOnOtherTabs`
+   * for permissions. Today the question list is global, so cancelling on
+   * "other tabs" is the same as removing from the queue entirely — the
+   * deciding tab already removed the entry via `handleQuestionResponse`,
+   * which is why this method does NOT call it again. The cancel call is
+   * the architectural seam for the future per-tab queue (mirrors permissions).
+   *
+   * Idempotent: cancelling an already-cancelled question is a no-op.
+   */
+  cancelPendingQuestionOnOtherTabs(
+    questionId: string,
+    decidingTabId: TabId | null,
+  ): readonly TabId[] {
+    const tabs = this.permissionHandler.questionTargetTabsFor(questionId);
+    const cancelOn: TabId[] = [];
+    for (const id of tabs) {
+      const tabId = TabId.safeParse(id);
+      if (!tabId) continue;
+      if (decidingTabId && tabId === decidingTabId) continue;
+      cancelOn.push(tabId);
+    }
+    if (cancelOn.length > 0 || tabs.length > 0) {
+      this.permissionHandler.cancelQuestion(
+        questionId,
+        decidingTabId ? (decidingTabId as string) : null,
+      );
+    }
+    return cancelOn;
+  }
+
+  /**
    * Compaction lifecycle is owned by the conversation, not the tab. The
    * router updates the registry flags so consumers observing the registry
    * (Phase 4+ banner UI) can see them populated.
@@ -581,9 +766,98 @@ export class StreamRouter {
     convId: ConversationId,
   ): void {
     if (event.eventType === 'compaction_start') {
-      this.registry.markCompactionStart(convId);
+      // TASK_2026_109 C1 — persist trigger/preTokens/startedAt so consumers
+      // (header freeze, late-event filter) can read full compaction context
+      // from the registry without threading new params through call sites.
+      this.registry.setCompactionState(convId, {
+        inFlight: true,
+        trigger: event.trigger,
+        preTokens: event.preTokens,
+        startedAt: Date.now(),
+      });
     } else if (event.eventType === 'compaction_complete') {
-      this.registry.markCompactionComplete(convId);
+      this.registry.setCompactionState(convId, { inFlight: false });
+      // TASK_2026_109_FOLLOWUP_QUESTIONS Q7 — after a session id rotation
+      // completes, any in-flight question whose target tabs no longer bind
+      // to the same conversation as the question's current `sessionId` is
+      // stale. Re-resolve targets so the question card stays on a tab that
+      // is actually bound to the live conversation.
+      this.refreshStaleQuestionTargets(convId);
+    }
+  }
+
+  /**
+   * TASK_2026_109_FOLLOWUP_QUESTIONS Q6 + Q7 — re-route any pending
+   * AskUserQuestion whose target tabs went stale after a session re-bind.
+   *
+   * Q6 entry point: called by the chat-message-handler after
+   * `SESSION_ID_RESOLVED` triggers a tab → conversation re-bind. For each
+   * pending question whose `sessionId` matches the resolved session AND
+   * whose router-resolved targets are empty (router couldn't resolve a
+   * conversation when the question first arrived), re-run target
+   * resolution and call `attachQuestionTargets`.
+   *
+   * Q7 entry point: called from `handleLifecycleEvents` on
+   * `compaction_complete`. Walks every pending question whose current
+   * `_questionTargetTabs` no longer binds to `convId` (the conversation
+   * that just completed compaction) and re-resolves.
+   *
+   * Idempotent — re-resolving with the same target list is a harmless
+   * `attachQuestionTargets` overwrite. The Q9 collision guard further
+   * prevents stomping a fresh resolution with a duplicate.
+   */
+  refreshQuestionTargetsForSession(sessionId: ClaudeSessionId): void {
+    const tabs = this.tabsForSession(sessionId);
+    if (tabs.length === 0) return;
+
+    const pending = this.permissionHandler.questionRequests();
+    for (const q of pending) {
+      if (q.sessionId !== (sessionId as unknown as string)) continue;
+      const existing = this.permissionHandler.questionTargetTabsFor(q.id);
+      if (existing.length > 0) continue;
+      const targets = this.resolveQuestionTargets(q, tabs);
+      // TASK_2026_109_FOLLOWUP_QUESTIONS Q7 — explicit clear before
+      // re-attach. The Q9 collision guard refuses to overwrite an
+      // existing target list; the refresh path is the documented exception
+      // and must drop the stale targets first.
+      this.permissionHandler.clearQuestionTargets(q.id);
+      this.permissionHandler.attachQuestionTargets(q.id, targets);
+    }
+  }
+
+  /**
+   * TASK_2026_109_FOLLOWUP_QUESTIONS Q7 — re-resolve targets for any
+   * pending question whose existing `_questionTargetTabs` no longer
+   * binds to the conversation the question's current `sessionId` resolves
+   * to. Used by `handleLifecycleEvents` on `compaction_complete`.
+   */
+  private refreshStaleQuestionTargets(convId: ConversationId): void {
+    const pending = this.permissionHandler.questionRequests();
+    if (pending.length === 0) return;
+    for (const q of pending) {
+      if (!q.sessionId) continue;
+      const sessionId = q.sessionId as ClaudeSessionId;
+      const containing = this.registry.findContainingSession(sessionId);
+      if (!containing || containing.id !== convId) continue;
+
+      const tabs = this.tabsForSession(sessionId);
+      if (tabs.length === 0) continue;
+
+      const existing = this.permissionHandler.questionTargetTabsFor(q.id);
+      // Stale if any existing target is no longer in the bound tab list,
+      // or if the existing list is empty (router never resolved).
+      const stale =
+        existing.length === 0 ||
+        existing.some((t) => !tabs.some((b) => (b as string) === t));
+      if (!stale) continue;
+
+      const targets = this.resolveQuestionTargets(q, tabs);
+      // TASK_2026_109_FOLLOWUP_QUESTIONS Q7 — explicit clear before
+      // re-attach. The Q9 collision guard refuses to overwrite an
+      // existing target list; the refresh path is the documented exception
+      // and must drop the stale targets first.
+      this.permissionHandler.clearQuestionTargets(q.id);
+      this.permissionHandler.attachQuestionTargets(q.id, targets);
     }
   }
 
