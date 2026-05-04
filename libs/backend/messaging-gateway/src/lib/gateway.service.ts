@@ -349,6 +349,66 @@ export class GatewayService extends EventEmitter {
   }
 
   /**
+   * Fire a single canned test message at an approved binding for the given
+   * platform. Powers the "Send test" button in the gateway UI. Returns a
+   * structured result so the UI can surface a precise reason on failure
+   * (no-approved-binding, adapter-not-running, etc.) without throwing.
+   */
+  async sendTest(args: {
+    platform: GatewayPlatform;
+    bindingId?: BindingId;
+  }): Promise<
+    | { ok: true; bindingId: string; externalMsgId: string | null }
+    | { ok: false; error: string }
+  > {
+    const adapter = this.adapters.get(args.platform);
+    if (!adapter) {
+      return { ok: false, error: 'adapter-not-running' };
+    }
+
+    let binding: GatewayBinding | undefined;
+    if (args.bindingId) {
+      binding = this.bindings
+        .list({ platform: args.platform, status: 'approved' })
+        .find((b) => String(b.id) === String(args.bindingId));
+      if (!binding) {
+        return { ok: false, error: 'binding-not-approved' };
+      }
+    } else {
+      binding = this.bindings
+        .list({ platform: args.platform, status: 'approved' })
+        .at(0);
+      if (!binding) {
+        return { ok: false, error: 'no-approved-binding' };
+      }
+    }
+
+    const body = 'Ptah test message — gateway is wired up correctly.';
+    try {
+      const res = await adapter.sendMessage(binding.externalChatId, body);
+      this.messages.insert({
+        bindingId: binding.id,
+        direction: 'outbound',
+        externalMsgId: res.externalMsgId,
+        body,
+      });
+      this.bindings.touch(binding.id);
+      return {
+        ok: true,
+        bindingId: String(binding.id),
+        externalMsgId: res.externalMsgId,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn('[gateway] sendTest failed', {
+        platform: args.platform,
+        error: message,
+      });
+      return { ok: false, error: message };
+    }
+  }
+
+  /**
    * Append assistant text for a given conversation. The coalescer will
    * flush via {@link flushOutbound} which sends/edits via the adapter.
    */

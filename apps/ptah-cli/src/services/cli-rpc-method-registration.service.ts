@@ -103,6 +103,7 @@ const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   'gateway:approveBinding',
   'gateway:blockBinding',
   'gateway:listMessages',
+  'gateway:test',
   'memory:list',
   'memory:search',
   'memory:get',

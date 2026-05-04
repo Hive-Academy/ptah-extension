@@ -35,6 +35,8 @@ import type {
   GatewayStatusResult,
   GatewayStopParams,
   GatewayStopResult,
+  GatewayTestParams,
+  GatewayTestResult,
 } from '@ptah-extension/shared';
 import {
   GATEWAY_TOKENS,
@@ -57,6 +59,7 @@ export class GatewayRpcHandlers {
     'gateway:approveBinding',
     'gateway:blockBinding',
     'gateway:listMessages',
+    'gateway:test',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -75,6 +78,7 @@ export class GatewayRpcHandlers {
     this.registerApproveBinding();
     this.registerBlockBinding();
     this.registerListMessages();
+    this.registerTest();
 
     this.logger.debug('Gateway RPC handlers registered', {
       methods: GatewayRpcHandlers.METHODS,
@@ -243,6 +247,31 @@ export class GatewayRpcHandlers {
       });
       return { messages: messages.map(toMessageDto) };
     });
+  }
+
+  private registerTest(): void {
+    this.rpcHandler.registerMethod<GatewayTestParams, GatewayTestResult>(
+      'gateway:test',
+      async (params) => {
+        if (
+          !params?.platform ||
+          (params.platform !== 'telegram' &&
+            params.platform !== 'discord' &&
+            params.platform !== 'slack')
+        ) {
+          return {
+            ok: false,
+            error: `gateway:test: unknown platform '${String(params?.platform)}'`,
+          };
+        }
+        return this.gateway.sendTest({
+          platform: params.platform as GatewayPlatform,
+          ...(params.bindingId
+            ? { bindingId: BindingId.create(params.bindingId) }
+            : {}),
+        });
+      },
+    );
   }
 }
 
