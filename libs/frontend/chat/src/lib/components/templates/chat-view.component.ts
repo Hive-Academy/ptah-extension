@@ -511,10 +511,27 @@ export class ChatViewComponent {
     if (allQuestions.length === 0) return [];
 
     const tabId = this.resolvedTabId(); // frontend UUID (e.g. "tab-abc123")
-    const sessionId = this.resolvedSessionId(); // real SDK UUID (e.g. "session-xyz")
     const activeTabId = this._tabManager.activeTabId();
-    const isActiveTile =
-      !this._sessionContext || (tabId !== null && tabId === activeTabId);
+    // TASK_2026_109_FOLLOWUP_QUESTIONS Q3 — main-panel suppression when
+    // canvas tiles are present. The main chat-view (no SESSION_CONTEXT)
+    // uses `activeTabId` as its `resolvedTabId`, which means the active
+    // tile's `tabId` matches step 1's `targets.includes(tabId)` — both
+    // the main panel AND the active tile would render the same question.
+    // When tiles exist (`layoutMode === 'grid'`), defer to the tile and
+    // suppress the main panel rendering entirely.
+    const isMainPanel = !this._sessionContext;
+    const tilesPresent = this._appState.layoutMode() === 'grid';
+    if (isMainPanel && tilesPresent) {
+      return [];
+    }
+
+    // TASK_2026_109_FOLLOWUP_QUESTIONS Q5 — strict active-tile narrowing.
+    // The previous `!this._sessionContext || ...` made the main panel
+    // ALWAYS qualify; combined with Q3 above the main panel is now
+    // already suppressed when tiles exist, so this can be the strict
+    // tab-id match. When there are no tiles, the main panel's
+    // `resolvedTabId()` IS `activeTabId` — same condition holds.
+    const isActiveTile = tabId !== null && tabId === activeTabId;
 
     return allQuestions.filter((q) => {
       // 1. Authoritative routing — router-resolved target tabs.
@@ -523,14 +540,19 @@ export class ChatViewComponent {
         return tabId !== null && targets.includes(tabId);
       }
 
-      // 2. Legacy id-equality fallback (router has no targets for this q).
+      // 2. TASK_2026_109_FOLLOWUP_QUESTIONS Q4 — strict tab-id-only legacy
+      //    match. The previous expression matched on `q.sessionId === sessionId`
+      //    too, which double-rendered when two tabs share a `resolvedSessionId`
+      //    (rewind/fork pointing at the same session) and the router didn't
+      //    attach targets in time. Tab-id equality is the only safe legacy
+      //    correlation now that the router owns conversation ↔ tab routing.
       const legacyMatch =
-        (tabId && (q.tabId === tabId || q.sessionId === tabId)) ||
-        (sessionId && (q.tabId === sessionId || q.sessionId === sessionId));
+        tabId !== null && (q.tabId === tabId || q.sessionId === tabId);
       if (legacyMatch) return true;
 
-      // 3. Last-resort visibility — show on active tile / non-canvas chat
-      //    when nothing matched above. Better than a silent hang.
+      // 3. Last-resort visibility — show on active tile when nothing matched
+      //    above. Better than a silent hang. Combined with Q3+Q5 the main
+      //    panel never lands here when tiles exist.
       return isActiveTile;
     });
   });

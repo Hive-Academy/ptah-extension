@@ -585,4 +585,81 @@ describe('PermissionHandlerService', () => {
       });
     });
   });
+
+  // ============================================================================
+  // TASK_2026_109_FOLLOWUP_QUESTIONS — Q9 duplicate-id guard + Q10 cancellation
+  // ============================================================================
+
+  describe('TASK_2026_109_FOLLOWUP_QUESTIONS Q9 — duplicate-id guard', () => {
+    it('Q9: handleQuestionRequest skips a request whose id already exists in the queue (warn + no double-append)', () => {
+      const q1 = makeQuestionRequest({ id: 'dup' });
+      const q2 = makeQuestionRequest({ id: 'dup', question: 'second arrival' });
+
+      service.handleQuestionRequest(q1);
+      service.handleQuestionRequest(q2);
+
+      expect(service.questionRequests()).toHaveLength(1);
+      // First-arrival wins — second arrival is dropped.
+      expect(service.questionRequests()[0]).toBe(q1);
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining('question.duplicate-id'),
+        expect.objectContaining({ id: 'dup' }),
+      );
+    });
+
+    it('Q9: attachQuestionTargets refuses to overwrite an existing resolved target list (warn + skip)', () => {
+      service.handleQuestionRequest(makeQuestionRequest({ id: 'q-attach' }));
+      service.attachQuestionTargets('q-attach', ['tab-A']);
+
+      // Second attach with a DIFFERENT target list — must be ignored to
+      // avoid stomping a fresh resolution with a duplicate.
+      service.attachQuestionTargets('q-attach', ['tab-B', 'tab-C']);
+
+      expect(service.questionTargetTabsFor('q-attach')).toEqual(['tab-A']);
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining('question.duplicate-id'),
+        expect.objectContaining({
+          id: 'q-attach',
+          scope: 'targets',
+        }),
+      );
+    });
+
+    it('Q9: clearQuestionTargets allows attachQuestionTargets to install a fresh list (refresh path)', () => {
+      service.handleQuestionRequest(makeQuestionRequest({ id: 'q-refresh' }));
+      service.attachQuestionTargets('q-refresh', ['tab-A']);
+
+      // Documented escape hatch for the Q6/Q7 refresh paths — clear before
+      // re-attaching is the contract.
+      service.clearQuestionTargets('q-refresh');
+      service.attachQuestionTargets('q-refresh', ['tab-B']);
+
+      expect(service.questionTargetTabsFor('q-refresh')).toEqual(['tab-B']);
+    });
+  });
+
+  describe('TASK_2026_109_FOLLOWUP_QUESTIONS Q10 — cancelQuestion + clearQuestionTargets', () => {
+    it('Q10: cancelQuestion removes the question from the queue AND drops its targets', () => {
+      service.handleQuestionRequest(makeQuestionRequest({ id: 'q-cancel' }));
+      service.attachQuestionTargets('q-cancel', ['tab-A', 'tab-B']);
+
+      service.cancelQuestion('q-cancel', 'tab-A');
+
+      expect(service.questionRequests()).toHaveLength(0);
+      expect(service.questionTargetTabsFor('q-cancel')).toEqual([]);
+    });
+
+    it('Q10: cancelQuestion is idempotent — second call on already-cancelled id is a no-op', () => {
+      service.handleQuestionRequest(makeQuestionRequest({ id: 'q-idem' }));
+      service.cancelQuestion('q-idem', null);
+      // Second cancel must not throw and must keep the queue empty.
+      expect(() => service.cancelQuestion('q-idem', null)).not.toThrow();
+      expect(service.questionRequests()).toHaveLength(0);
+    });
+
+    it('Q10: clearQuestionTargets is idempotent — clearing an unresolved target list is a no-op', () => {
+      expect(() => service.clearQuestionTargets('never-existed')).not.toThrow();
+      expect(service.questionTargetTabsFor('never-existed')).toEqual([]);
+    });
+  });
 });
