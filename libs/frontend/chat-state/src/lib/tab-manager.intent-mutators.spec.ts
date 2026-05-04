@@ -336,6 +336,45 @@ describe('TabManagerService — intent-named mutators', () => {
       const tab = service.tabs().find((t) => t.id === id);
       expect(tab?.sessionModel).toBe('claude-3-5-sonnet');
     });
+
+    // TASK_2026_109_FOLLOWUP N6 — applyLoadedSessionStats also synthesizes
+    // a best-effort liveModelStats so the header renders the model name
+    // and context window immediately on resume, instead of staying empty
+    // until the first live SESSION_STATS arrives.
+    it('N6 — synthesizes liveModelStats from sessionModel on session resume', () => {
+      const id = service.createTab('resume');
+      const stats = {
+        totalCost: 1.25,
+        tokens: { input: 100, output: 50, cacheRead: 10, cacheCreation: 0 },
+        messageCount: 8,
+      };
+      // claude-opus-4-7 is a known model in the shared pricing registry
+      // (1_000_000 token window — see pricing.utils.spec.ts).
+      service.applyLoadedSessionStats(id, stats, 'claude-opus-4-7');
+
+      const tab = service.tabs().find((t) => t.id === id);
+      expect(tab?.sessionModel).toBe('claude-opus-4-7');
+      expect(tab?.liveModelStats).not.toBeNull();
+      expect(tab?.liveModelStats?.model).toBe('claude-opus-4-7');
+      expect(tab?.liveModelStats?.contextUsed).toBe(0);
+      expect(tab?.liveModelStats?.contextPercent).toBe(0);
+      // Window populated from the shared getModelContextWindow lookup.
+      expect(tab?.liveModelStats?.contextWindow).toBeGreaterThan(0);
+    });
+
+    it('N6 — leaves liveModelStats null when sessionModel is null', () => {
+      const id = service.createTab('resume-null-model');
+      const stats = {
+        totalCost: 0,
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 0,
+      };
+      service.applyLoadedSessionStats(id, stats, null);
+
+      const tab = service.tabs().find((t) => t.id === id);
+      expect(tab?.sessionModel).toBeNull();
+      expect(tab?.liveModelStats).toBeNull();
+    });
   });
 
   describe('queue helpers', () => {

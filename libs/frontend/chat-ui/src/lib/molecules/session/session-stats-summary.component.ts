@@ -90,9 +90,7 @@ export interface ModelUsageEntry {
                   <span class="text-[10px] uppercase text-base-content/50"
                     >Ctx</span
                   >
-                  <span class="text-cyan-400"
-                    >{{ liveModelStats()!.contextPercent }}%</span
-                  >
+                  <span class="text-cyan-400">{{ contextPercentLabel() }}</span>
                 </span>
               }
               <span
@@ -307,7 +305,7 @@ export interface ModelUsageEntry {
                 <div
                   class="text-sm font-semibold text-cyan-400 leading-tight mt-0.5"
                 >
-                  {{ liveModelStats()!.contextPercent }}%
+                  {{ contextPercentLabel() }}
                   <span class="text-[10px] font-normal text-base-content/40">
                     ({{ formatTokens(liveModelStats()!.contextUsed) }})
                   </span>
@@ -534,8 +532,12 @@ export interface ModelUsageEntry {
           }
         }
 
-        <!-- Context usage progress bar — always visible when context data exists -->
-        @if (liveModelStats()) {
+        <!-- Context usage progress bar — always visible when context data
+             exists AND the model's context window is known. When the window
+             is unknown (third-party providers) we suppress the bar entirely;
+             a 0%-width track would otherwise look like a stuck zero usage.
+             TASK_2026_109_FOLLOWUP N4. -->
+        @if (liveModelStats() && hasKnownContextWindow()) {
           <div class="mt-1.5" [title]="contextTooltip()">
             <div class="context-bar-track">
               <div
@@ -682,10 +684,43 @@ export class SessionStatsSummaryComponent {
   /** Whether the per-model breakdown table is expanded */
   readonly isExpanded = signal(false);
 
-  /** Whether context usage exceeds the warning threshold (70%) */
-  readonly showContextWarning = computed(
-    () => (this.liveModelStats()?.contextPercent ?? 0) >= 70,
+  /**
+   * Whether the live stats payload carries a known context window. A
+   * `contextWindow` of 0 means the model is unknown to the pricing/limits
+   * registry (typically third-party providers). In that case we render
+   * "—" instead of "0%" and suppress the warning + progress bar so the UI
+   * does not falsely signal a near-empty context.
+   * TASK_2026_109_FOLLOWUP N4.
+   */
+  readonly hasKnownContextWindow = computed(
+    () => (this.liveModelStats()?.contextWindow ?? 0) > 0,
   );
+
+  /**
+   * Display label for the context percentage. Falls back to an em-dash when
+   * the context window is unknown, so the badge visibly communicates
+   * "no data" rather than a misleading "0%".
+   * TASK_2026_109_FOLLOWUP N4.
+   */
+  readonly contextPercentLabel = computed(() => {
+    const stats = this.liveModelStats();
+    if (!stats) return '—';
+    if (stats.contextWindow <= 0) return '—';
+    return `${stats.contextPercent}%`;
+  });
+
+  /**
+   * Whether context usage exceeds the warning threshold (70%). Suppressed
+   * when the context window is unknown — we cannot meaningfully warn about
+   * a fill ratio we have no denominator for.
+   * TASK_2026_109_FOLLOWUP N4.
+   */
+  readonly showContextWarning = computed(() => {
+    const stats = this.liveModelStats();
+    if (!stats) return false;
+    if (stats.contextWindow <= 0) return false;
+    return stats.contextPercent >= 70;
+  });
 
   /** Whether there are multiple models to display */
   readonly hasMultipleModels = computed(
@@ -767,6 +802,11 @@ export class SessionStatsSummaryComponent {
   readonly contextTooltip = computed(() => {
     const stats = this.liveModelStats();
     if (!stats) return '';
+    // TASK_2026_109_FOLLOWUP N4 — when the context window is unknown,
+    // explain why the badge is "—" instead of showing misleading numbers.
+    if (stats.contextWindow <= 0) {
+      return 'Context window unknown for this model.';
+    }
     return [
       `Context Used: ${stats.contextUsed.toLocaleString()} tokens`,
       `Context Window: ${stats.contextWindow.toLocaleString()} tokens`,

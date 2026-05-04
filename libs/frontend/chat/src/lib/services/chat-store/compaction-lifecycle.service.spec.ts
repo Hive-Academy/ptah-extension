@@ -314,7 +314,7 @@ describe('CompactionLifecycleService', () => {
       expect(service.suppressAnimateOnce()).toBe(false);
     });
 
-    it('C1 — writes through ConversationRegistry.setCompactionState on complete (clears inFlight)', () => {
+    it('C1 — writes through ConversationRegistry.setCompactionState on complete (clears inFlight)', async () => {
       tabs = [
         makeTab({
           messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
@@ -325,6 +325,14 @@ describe('CompactionLifecycleService', () => {
         tabId: 'tab-1',
         compactionSessionId: 'reload-sess',
       });
+
+      // TASK_2026_109_FOLLOWUP — inFlight is cleared in the
+      // `switchSession(...).finally(...)` settle handler, so we must drain
+      // the microtask queue before asserting. Both timer queues advance to
+      // ensure the finally handler in the fan-out path fires.
+      jest.runAllTicks();
+      await Promise.resolve();
+      await Promise.resolve();
 
       // The complete path goes through `clearCompactionState(tabId)` which
       // resolves the conversation id via the binding and writes
@@ -341,7 +349,7 @@ describe('CompactionLifecycleService', () => {
   // already covers `inFlight:true` above; this test pins the pair.
   // -------------------------------------------------------------------
   describe('C1 registry write-through (start + complete)', () => {
-    it('writes inFlight=true on start and inFlight=false on complete for the same conversation id', () => {
+    it('writes inFlight=true on start and inFlight=false on complete for the same conversation id', async () => {
       tabs = [
         makeTab({
           messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
@@ -360,9 +368,87 @@ describe('CompactionLifecycleService', () => {
         tabId: 'tab-1',
         compactionSessionId: 'reload-sess',
       });
+      // TASK_2026_109_FOLLOWUP — inFlight clear is now async (settles after
+      // the switchSession reload promise). Drain microtasks before asserting.
+      jest.runAllTicks();
+      await Promise.resolve();
+      await Promise.resolve();
       expect(setCompactionStateMock).toHaveBeenCalledWith(tabToConv['tab-1'], {
         inFlight: false,
       });
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // TASK_2026_109_FOLLOWUP N1 — symmetric fan-out on handleCompactionComplete.
+  // Start fanned out to all session-bound tabs but Complete only reset the
+  // originating tab; siblings kept stale messages + banners. The Complete
+  // path now resolves all tabs bound to compactionSessionId and applies
+  // applyCompactionComplete + markTabIdle to each. Reload via switchSession
+  // is deduped by unique claudeSessionId.
+  // -------------------------------------------------------------------
+  describe('N1 — handleCompactionComplete fans out to sibling tabs', () => {
+    it('applies applyCompactionComplete + markTabIdle to every tab bound to compactionSessionId', () => {
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: 'shared-sess',
+          messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
+          compactionCount: 0,
+        }),
+        makeTab({
+          id: 'tab-2',
+          claudeSessionId: 'shared-sess',
+          messages: [{ id: 'm2' } as unknown as TabState['messages'][number]],
+          compactionCount: 4,
+        }),
+      ];
+
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: 'shared-sess',
+      });
+
+      // Both tabs reset; per-tab compactionCount incremented from its own value.
+      const calls = applyCompactionCompleteMock.mock.calls.map(
+        (c) =>
+          [
+            c[0],
+            (c[1] as { compactionCount: number }).compactionCount,
+          ] as const,
+      );
+      expect(calls).toEqual(
+        expect.arrayContaining([
+          ['tab-1', 1],
+          ['tab-2', 5],
+        ] as const),
+      );
+      expect(markTabIdleMock).toHaveBeenCalledWith('tab-1');
+      expect(markTabIdleMock).toHaveBeenCalledWith('tab-2');
+    });
+
+    it('dedupes switchSession reload by unique claudeSessionId', () => {
+      // Both tiles share the same on-disk session — only one reload should fire.
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: 'shared-sess',
+          messages: [{ id: 'm1' } as unknown as TabState['messages'][number]],
+        }),
+        makeTab({
+          id: 'tab-2',
+          claudeSessionId: 'shared-sess',
+          messages: [],
+        }),
+      ];
+
+      service.handleCompactionComplete({
+        tabId: 'tab-1',
+        compactionSessionId: 'shared-sess',
+      });
+
+      expect(switchSessionMock).toHaveBeenCalledTimes(1);
+      expect(switchSessionMock).toHaveBeenCalledWith('shared-sess');
     });
   });
 

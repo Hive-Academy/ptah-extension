@@ -6,7 +6,11 @@ import {
   StreamingState,
   SendMessageOptions,
 } from '@ptah-extension/chat-types';
-import { ExecutionChatMessage, EffortLevel } from '@ptah-extension/shared';
+import {
+  ExecutionChatMessage,
+  EffortLevel,
+  getModelContextWindow,
+} from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
 import {
@@ -1205,9 +1209,28 @@ export class TabManagerService {
     stats: PreloadedStatsPayload,
     sessionModel: string | null,
   ): void {
+    // TASK_2026_109_FOLLOWUP N6 — synthesize a best-effort `liveModelStats`
+    // snapshot from the loaded session metadata. Without this, the header's
+    // model + context badge stays empty until the next live SESSION_STATS
+    // arrives — which on a paused-and-resumed session might never happen
+    // until the user sends a new message. Populating contextWindow from the
+    // shared `getModelContextWindow` lookup gives the header a non-null
+    // shape immediately so the model name renders. `contextUsed` and
+    // `contextPercent` start at 0 because the on-disk stats payload has no
+    // per-turn breakdown; the next live SESSION_STATS replaces this stub
+    // with real per-turn values.
+    const liveModelStats: LiveModelStatsPayload | null = sessionModel
+      ? {
+          model: sessionModel,
+          contextUsed: 0,
+          contextWindow: getModelContextWindow(sessionModel),
+          contextPercent: 0,
+        }
+      : null;
     this.updateTabInternal(tabId, {
       preloadedStats: stats,
       sessionModel,
+      liveModelStats,
     });
   }
 
