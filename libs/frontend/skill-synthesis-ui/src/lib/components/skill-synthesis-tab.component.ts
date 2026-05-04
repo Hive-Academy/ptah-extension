@@ -29,7 +29,7 @@ interface ActionDialogState {
 /**
  * SkillSynthesisTabComponent
  *
- * Skills tab inside the Hermes shell. Renders:
+ * Skills tab inside the Thoth shell. Renders:
  * - a candidate table filtered by `pending | promoted | rejected | all`
  * - per-row Promote / Reject buttons (each opens a small DaisyUI modal
  *   for an optional reason)

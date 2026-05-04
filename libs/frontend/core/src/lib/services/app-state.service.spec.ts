@@ -26,7 +26,7 @@ import { TestBed } from '@angular/core/testing';
 import { MESSAGE_TYPES, type WorkspaceInfo } from '@ptah-extension/shared';
 import {
   AppStateManager,
-  HERMES_FIRST_RUN_DISMISSED_KEY,
+  THOTH_FIRST_RUN_DISMISSED_KEY,
   type AppState,
   type CanvasSessionRequest,
   type LayoutMode,
@@ -396,49 +396,99 @@ describe('AppStateManager', () => {
     });
   });
 
-  describe('Hermes first-run hint persistence (B6)', () => {
-    it('defaults hermesFirstRunDismissed to false on a fresh install', () => {
+  describe('Thoth first-run hint persistence (B6)', () => {
+    it('defaults thothFirstRunDismissed to false on a fresh install', () => {
       const service = createService();
-      expect(service.hermesFirstRunDismissed()).toBe(false);
+      expect(service.thothFirstRunDismissed()).toBe(false);
       // No localStorage write should have happened yet.
-      expect(localStorage.getItem(HERMES_FIRST_RUN_DISMISSED_KEY)).toBeNull();
+      expect(localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY)).toBeNull();
     });
 
-    it('dismissHermesFirstRun() flips the signal AND persists to localStorage', () => {
+    it('dismissThothFirstRun() flips the signal AND persists to localStorage', () => {
       const service = createService();
 
-      service.dismissHermesFirstRun();
+      service.dismissThothFirstRun();
 
-      expect(service.hermesFirstRunDismissed()).toBe(true);
-      expect(localStorage.getItem(HERMES_FIRST_RUN_DISMISSED_KEY)).toBe('true');
+      expect(service.thothFirstRunDismissed()).toBe(true);
+      expect(localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY)).toBe('true');
     });
 
     it('round-trips the dismissed flag across a service re-instantiation (reload simulation)', () => {
       // First instance — user dismisses the hint.
       const first = createService();
-      first.dismissHermesFirstRun();
-      expect(first.hermesFirstRunDismissed()).toBe(true);
+      first.dismissThothFirstRun();
+      expect(first.thothFirstRunDismissed()).toBe(true);
 
       // Simulate a reload: tear down the TestBed but keep localStorage.
       TestBed.resetTestingModule();
 
       // Second instance — should read 'true' from localStorage and start dismissed.
       const second = createService();
-      expect(second.hermesFirstRunDismissed()).toBe(true);
+      expect(second.thothFirstRunDismissed()).toBe(true);
     });
 
     it('treats any non-"true" stored value as "not dismissed" (defensive parsing)', () => {
-      localStorage.setItem(HERMES_FIRST_RUN_DISMISSED_KEY, 'false');
+      localStorage.setItem(THOTH_FIRST_RUN_DISMISSED_KEY, 'false');
       const service = createService();
-      expect(service.hermesFirstRunDismissed()).toBe(false);
+      expect(service.thothFirstRunDismissed()).toBe(false);
     });
 
-    it('is idempotent — calling dismissHermesFirstRun() twice keeps state stable', () => {
+    it('is idempotent — calling dismissThothFirstRun() twice keeps state stable', () => {
       const service = createService();
-      service.dismissHermesFirstRun();
-      service.dismissHermesFirstRun();
-      expect(service.hermesFirstRunDismissed()).toBe(true);
-      expect(localStorage.getItem(HERMES_FIRST_RUN_DISMISSED_KEY)).toBe('true');
+      service.dismissThothFirstRun();
+      service.dismissThothFirstRun();
+      expect(service.thothFirstRunDismissed()).toBe(true);
+      expect(localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY)).toBe('true');
+    });
+  });
+
+  describe('Thoth rename — legacy localStorage migration', () => {
+    const LEGACY_KEY = 'ptah-hermes-first-run-dismissed';
+
+    it('migrates a legacy "true" hermes flag to the new thoth key on init', () => {
+      // Simulate a user who dismissed the hint before the rename.
+      localStorage.setItem(LEGACY_KEY, 'true');
+      // Sanity: the new key starts absent.
+      expect(localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY)).toBeNull();
+
+      const service = createService();
+
+      expect(service.thothFirstRunDismissed()).toBe(true);
+      expect(localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY)).toBe('true');
+      // Legacy key must be removed after the migration runs.
+      expect(localStorage.getItem(LEGACY_KEY)).toBeNull();
+    });
+
+    it('migrates a legacy non-"true" value forward without dismissing the hint', () => {
+      localStorage.setItem(LEGACY_KEY, 'false');
+
+      const service = createService();
+
+      expect(service.thothFirstRunDismissed()).toBe(false);
+      expect(localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY)).toBe('false');
+      expect(localStorage.getItem(LEGACY_KEY)).toBeNull();
+    });
+
+    it('prefers the new key when both are present and leaves the legacy key untouched', () => {
+      localStorage.setItem(THOTH_FIRST_RUN_DISMISSED_KEY, 'true');
+      localStorage.setItem(LEGACY_KEY, 'false');
+
+      const service = createService();
+
+      expect(service.thothFirstRunDismissed()).toBe(true);
+      // New key is the source of truth — legacy key is not touched once the
+      // new key already exists, so it lingers harmlessly until eventually
+      // overwritten by some unrelated cleanup. We only assert state, not
+      // legacy removal in this branch.
+      expect(localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY)).toBe('true');
+    });
+
+    it('is a no-op when neither key is present', () => {
+      const service = createService();
+
+      expect(service.thothFirstRunDismissed()).toBe(false);
+      expect(localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY)).toBeNull();
+      expect(localStorage.getItem(LEGACY_KEY)).toBeNull();
     });
   });
 });

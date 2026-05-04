@@ -13,27 +13,27 @@ import { SkillSynthesisTabComponent } from '@ptah-extension/skill-synthesis-ui';
 import { CronSchedulerTabComponent } from '@ptah-extension/cron-scheduler-ui';
 import { MessagingGatewayTabComponent } from '@ptah-extension/messaging-gateway-ui';
 
-/** Tab identifiers for the Hermes hub. */
-export type HermesActiveTabId = 'memory' | 'skills' | 'cron' | 'gateway';
+/** Tab identifiers for the Thoth hub. */
+export type ThothActiveTabId = 'memory' | 'skills' | 'cron' | 'gateway';
 
-interface HermesTabSpec {
-  readonly id: HermesActiveTabId;
+interface ThothTabSpec {
+  readonly id: ThothActiveTabId;
   readonly label: string;
   /** When true, this tab requires the Electron desktop platform. */
   readonly electronOnly: boolean;
 }
 
 /**
- * HermesShellComponent — the four-tab hub for the agentic platform features
+ * ThothShellComponent — the four-tab hub for the agentic platform features
  * (Memory, Skills, Schedules, Messaging). Tab switching is signal-based and
- * persists across navigations via {@link AppStateManager.hermesActiveTab}.
+ * persists across navigations via {@link AppStateManager.thothActiveTab}.
  *
  * Cron and Gateway tabs are Electron-only. When running inside the VS Code
  * webview, they render an "Open in Ptah desktop app" placeholder. The actual
  * tab content components are wired in batches B1–B4.
  */
 @Component({
-  selector: 'ptah-hermes-shell',
+  selector: 'ptah-thoth-shell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
@@ -50,7 +50,7 @@ interface HermesTabSpec {
         class="flex items-center gap-2 border-b border-base-300 px-4 py-3"
       >
         <lucide-angular [img]="RadioTowerIcon" class="h-5 w-5 text-primary" />
-        <h1 class="text-base font-semibold text-base-content">Hermes</h1>
+        <h1 class="text-base font-semibold text-base-content">Thoth</h1>
         <span class="text-xs text-base-content/60">
           Memory · Skills · Schedules · Messaging
         </span>
@@ -58,7 +58,7 @@ interface HermesTabSpec {
 
       <div
         role="tablist"
-        aria-label="Hermes feature tabs"
+        aria-label="Thoth feature tabs"
         class="tabs tabs-bordered px-4 pt-2"
       >
         @for (tab of visibleTabs(); track tab.id) {
@@ -68,8 +68,8 @@ interface HermesTabSpec {
             class="tab"
             [class.tab-active]="activeTab() === tab.id"
             [attr.aria-selected]="activeTab() === tab.id"
-            [attr.aria-controls]="'hermes-panel-' + tab.id"
-            [id]="'hermes-tab-' + tab.id"
+            [attr.aria-controls]="'thoth-panel-' + tab.id"
+            [id]="'thoth-tab-' + tab.id"
             (click)="selectTab(tab.id)"
           >
             {{ tab.label }}
@@ -80,8 +80,8 @@ interface HermesTabSpec {
       <section
         class="flex-1 overflow-auto p-4"
         role="tabpanel"
-        [id]="'hermes-panel-' + activeTab()"
-        [attr.aria-labelledby]="'hermes-tab-' + activeTab()"
+        [id]="'thoth-panel-' + activeTab()"
+        [attr.aria-labelledby]="'thoth-tab-' + activeTab()"
       >
         @switch (activeTab()) {
           @case ('memory') {
@@ -101,7 +101,7 @@ interface HermesTabSpec {
     </div>
   `,
 })
-export class HermesShellComponent {
+export class ThothShellComponent {
   private readonly appState = inject(AppStateManager);
   private readonly vscodeService = inject(VSCodeService);
 
@@ -113,7 +113,7 @@ export class HermesShellComponent {
    * Electron-only alongside Cron and Gateway. Each tab component owns its own
    * desktop-only placeholder, mirroring the cron/gateway pattern.
    */
-  protected readonly tabs: readonly HermesTabSpec[] = [
+  protected readonly tabs: readonly ThothTabSpec[] = [
     { id: 'memory', label: 'Memory', electronOnly: true },
     { id: 'skills', label: 'Skills', electronOnly: true },
     { id: 'cron', label: 'Schedules', electronOnly: true },
@@ -132,11 +132,11 @@ export class HermesShellComponent {
    */
   public readonly visibleTabs = computed(() => this.tabs);
 
-  /** Active tab signal sourced from {@link AppStateManager.hermesActiveTab}. */
-  public readonly activeTab = this.appState.hermesActiveTab;
+  /** Active tab signal sourced from {@link AppStateManager.thothActiveTab}. */
+  public readonly activeTab = this.appState.thothActiveTab;
 
   /** Switch to a different tab. */
-  public selectTab(tabId: HermesActiveTabId): void {
-    this.appState.setHermesActiveTab(tabId);
+  public selectTab(tabId: ThothActiveTabId): void {
+    this.appState.setThothActiveTab(tabId);
   }
 }

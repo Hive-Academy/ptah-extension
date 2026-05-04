@@ -5,7 +5,7 @@ import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { MemoryStateService } from '@ptah-extension/memory-curator-ui';
 import { SkillSynthesisStateService } from '@ptah-extension/skill-synthesis-ui';
 
-import { HermesShellComponent } from './hermes-shell.component';
+import { ThothShellComponent } from './thoth-shell.component';
 
 /**
  * Minimal stub for {@link SkillSynthesisStateService} so the embedded
@@ -54,9 +54,9 @@ const memoryStateStub = {
   loadStats: () => Promise.resolve(),
 } as unknown as MemoryStateService;
 
-describe('HermesShellComponent', () => {
+describe('ThothShellComponent', () => {
   let appState: jest.Mocked<
-    Pick<AppStateManager, 'hermesActiveTab' | 'setHermesActiveTab'>
+    Pick<AppStateManager, 'thothActiveTab' | 'setThothActiveTab'>
   >;
   let activeTabSignal: ReturnType<
     typeof signal<'memory' | 'skills' | 'cron' | 'gateway'>
@@ -67,14 +67,14 @@ describe('HermesShellComponent', () => {
       'memory',
     );
     appState = {
-      hermesActiveTab: activeTabSignal.asReadonly(),
-      setHermesActiveTab: jest.fn((tab) => activeTabSignal.set(tab)),
+      thothActiveTab: activeTabSignal.asReadonly(),
+      setThothActiveTab: jest.fn((tab) => activeTabSignal.set(tab)),
     } as unknown as jest.Mocked<
-      Pick<AppStateManager, 'hermesActiveTab' | 'setHermesActiveTab'>
+      Pick<AppStateManager, 'thothActiveTab' | 'setThothActiveTab'>
     >;
 
     await TestBed.configureTestingModule({
-      imports: [HermesShellComponent],
+      imports: [ThothShellComponent],
       providers: [
         { provide: AppStateManager, useValue: appState },
         {
@@ -88,11 +88,11 @@ describe('HermesShellComponent', () => {
   });
 
   it('renders four tabs by default with Memory active', () => {
-    const fixture = TestBed.createComponent(HermesShellComponent);
+    const fixture = TestBed.createComponent(ThothShellComponent);
     fixture.detectChanges();
 
     const tablist = fixture.nativeElement.querySelector(
-      '[role="tablist"][aria-label="Hermes feature tabs"]',
+      '[role="tablist"][aria-label="Thoth feature tabs"]',
     ) as HTMLElement;
     const tabs = tablist.querySelectorAll(
       ':scope > [role="tab"]',
@@ -107,12 +107,12 @@ describe('HermesShellComponent', () => {
     expect(active?.textContent?.trim()).toBe('Memory');
   });
 
-  it('switches active tab via setHermesActiveTab when a tab is clicked', () => {
-    const fixture = TestBed.createComponent(HermesShellComponent);
+  it('switches active tab via setThothActiveTab when a tab is clicked', () => {
+    const fixture = TestBed.createComponent(ThothShellComponent);
     fixture.detectChanges();
 
     const tablist = fixture.nativeElement.querySelector(
-      '[role="tablist"][aria-label="Hermes feature tabs"]',
+      '[role="tablist"][aria-label="Thoth feature tabs"]',
     ) as HTMLElement;
     const tabs = tablist.querySelectorAll(
       ':scope > [role="tab"]',
@@ -120,7 +120,7 @@ describe('HermesShellComponent', () => {
     tabs[1].click();
     fixture.detectChanges();
 
-    expect(appState.setHermesActiveTab).toHaveBeenCalledWith('skills');
+    expect(appState.setThothActiveTab).toHaveBeenCalledWith('skills');
     expect(activeTabSignal()).toBe('skills');
   });
 
@@ -130,12 +130,12 @@ describe('HermesShellComponent', () => {
       'gateway',
     );
     const stateMock = {
-      hermesActiveTab: activeTabSignal.asReadonly(),
-      setHermesActiveTab: jest.fn(),
+      thothActiveTab: activeTabSignal.asReadonly(),
+      setThothActiveTab: jest.fn(),
     };
 
     TestBed.configureTestingModule({
-      imports: [HermesShellComponent],
+      imports: [ThothShellComponent],
       providers: [
         { provide: AppStateManager, useValue: stateMock },
         {
@@ -145,7 +145,7 @@ describe('HermesShellComponent', () => {
       ],
     });
 
-    const fixture = TestBed.createComponent(HermesShellComponent);
+    const fixture = TestBed.createComponent(ThothShellComponent);
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent ?? '';
@@ -158,12 +158,12 @@ describe('HermesShellComponent', () => {
       'memory',
     );
     const stateMock = {
-      hermesActiveTab: activeTabSignal.asReadonly(),
-      setHermesActiveTab: jest.fn(),
+      thothActiveTab: activeTabSignal.asReadonly(),
+      setThothActiveTab: jest.fn(),
     };
 
     TestBed.configureTestingModule({
-      imports: [HermesShellComponent],
+      imports: [ThothShellComponent],
       providers: [
         { provide: AppStateManager, useValue: stateMock },
         {
@@ -174,7 +174,7 @@ describe('HermesShellComponent', () => {
       ],
     });
 
-    const fixture = TestBed.createComponent(HermesShellComponent);
+    const fixture = TestBed.createComponent(ThothShellComponent);
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent ?? '';
@@ -193,12 +193,12 @@ describe('HermesShellComponent', () => {
       'skills',
     );
     const stateMock = {
-      hermesActiveTab: activeTabSignal.asReadonly(),
-      setHermesActiveTab: jest.fn(),
+      thothActiveTab: activeTabSignal.asReadonly(),
+      setThothActiveTab: jest.fn(),
     };
 
     TestBed.configureTestingModule({
-      imports: [HermesShellComponent],
+      imports: [ThothShellComponent],
       providers: [
         { provide: AppStateManager, useValue: stateMock },
         {
@@ -209,7 +209,7 @@ describe('HermesShellComponent', () => {
       ],
     });
 
-    const fixture = TestBed.createComponent(HermesShellComponent);
+    const fixture = TestBed.createComponent(ThothShellComponent);
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent ?? '';

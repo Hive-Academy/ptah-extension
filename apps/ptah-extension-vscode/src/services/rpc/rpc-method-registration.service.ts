@@ -63,7 +63,7 @@ import {
  *
  * Memory and Skill-Synthesis depend on better-sqlite3 (native) + the
  * embedder-worker (vector embeddings); these are Electron-only by design.
- * VS Code host shows desktop-only placeholders in the Hermes shell tabs.
+ * VS Code host shows desktop-only placeholders in the Thoth shell tabs.
  */
 const ELECTRON_ONLY_METHODS: readonly string[] = [
   'workspace:getInfo',

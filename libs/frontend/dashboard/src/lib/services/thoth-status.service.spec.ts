@@ -14,7 +14,7 @@ import type {
   SkillSynthesisCandidateSummary,
 } from '@ptah-extension/shared';
 
-import { HermesStatusService } from './hermes-status.service';
+import { ThothStatusService } from './thoth-status.service';
 
 interface VscodeStub {
   config: ReturnType<typeof signal<{ isElectron: boolean }>>;
@@ -36,7 +36,7 @@ function makeJob(over: Partial<ScheduledJobDto>): ScheduledJobDto {
   };
 }
 
-describe('HermesStatusService', () => {
+describe('ThothStatusService', () => {
   let memoryRpc: jest.Mocked<MemoryRpcService>;
   let skillsRpc: jest.Mocked<SkillSynthesisRpcService>;
   let cronRpc: jest.Mocked<CronRpcService>;
@@ -61,7 +61,7 @@ describe('HermesStatusService', () => {
 
     TestBed.configureTestingModule({
       providers: [
-        HermesStatusService,
+        ThothStatusService,
         { provide: VSCodeService, useValue: vscode },
         { provide: MemoryRpcService, useValue: memoryRpc },
         { provide: SkillSynthesisRpcService, useValue: skillsRpc },
@@ -117,7 +117,7 @@ describe('HermesStatusService', () => {
     gatewayRpc.status.mockResolvedValue(status);
     gatewayRpc.listBindings.mockResolvedValue(bindings);
 
-    const service = TestBed.inject(HermesStatusService);
+    const service = TestBed.inject(ThothStatusService);
     await service.refresh();
 
     const summary = service.summary();
@@ -176,7 +176,7 @@ describe('HermesStatusService', () => {
     });
     skillsRpc.listCandidates.mockResolvedValue([]);
 
-    const service = TestBed.inject(HermesStatusService);
+    const service = TestBed.inject(ThothStatusService);
     await service.refresh();
 
     const summary = service.summary();
@@ -204,7 +204,7 @@ describe('HermesStatusService', () => {
     });
     skillsRpc.listCandidates.mockResolvedValue([]);
 
-    const service = TestBed.inject(HermesStatusService);
+    const service = TestBed.inject(ThothStatusService);
     await service.refreshIfNeeded();
     await service.refreshIfNeeded();
     await service.refreshIfNeeded();
@@ -222,7 +222,7 @@ describe('HermesStatusService', () => {
     gatewayRpc.status.mockResolvedValue({ enabled: false, adapters: [] });
     gatewayRpc.listBindings.mockResolvedValue({ bindings: [] });
 
-    const service = TestBed.inject(HermesStatusService);
+    const service = TestBed.inject(ThothStatusService);
     await service.refresh();
 
     const summary = service.summary();

@@ -27,7 +27,7 @@ interface TierChip {
 /**
  * MemoryCuratorTabComponent
  *
- * Memory tab content for the Hermes hub. Renders four logical sections:
+ * Memory tab content for the Thoth hub. Renders four logical sections:
  *
  * 1. Search input + tier filter chips (debounced search at {@link SEARCH_DEBOUNCE_MS} ms).
  * 2. Stats panel with core / recall / archival counts (from `memory:stats` with
@@ -227,7 +227,7 @@ interface TierChip {
           aria-label="Memory settings (read-only)"
         >
           <div class="text-xs uppercase text-base-content/60">
-            Memory settings (edit in Settings → Hermes)
+            Memory settings (edit in Settings → Thoth)
           </div>
           <dl class="mt-2 grid grid-cols-1 gap-1 text-xs md:grid-cols-3">
             <div>

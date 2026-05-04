@@ -47,7 +47,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
 /**
  * MessagingGatewayTabComponent
  *
- * Gateway tab inside the Hermes shell. Renders:
+ * Gateway tab inside the Thoth shell. Renders:
  * - master enable toggle
  * - per-platform card with token input (cleared after dispatch),
  *   status chip, and "Send test" button

@@ -196,9 +196,9 @@ export class AppShellComponent {
   readonly LayoutGridIcon = LayoutGrid;
   readonly RadioTowerIcon = RadioTower;
 
-  // Hermes first-run hint visibility (B6). Sourced from AppStateManager
+  // Thoth first-run hint visibility (B6). Sourced from AppStateManager
   // so the dismissal flag round-trips through localStorage on reload.
-  readonly hermesFirstRunDismissed = this.appState.hermesFirstRunDismissed;
+  readonly thothFirstRunDismissed = this.appState.thothFirstRunDismissed;
 
   // Inline edit state for session renaming
   readonly editingSessionId = signal<string | null>(null);
@@ -358,23 +358,23 @@ export class AppShellComponent {
   }
 
   /**
-   * Navigate to the Hermes hub view. Opening Hermes also dismisses the
+   * Navigate to the Thoth hub view. Opening Thoth also dismisses the
    * first-run hint — once the user has clicked through, they don't need
    * the explanatory tooltip on subsequent visits.
    */
-  openHermes(): void {
-    if (!this.hermesFirstRunDismissed()) {
-      this.appState.dismissHermesFirstRun();
+  openThoth(): void {
+    if (!this.thothFirstRunDismissed()) {
+      this.appState.dismissThothFirstRun();
     }
-    this.appState.setCurrentView('hermes');
+    this.appState.setCurrentView('thoth');
   }
 
   /**
-   * Dismiss the Hermes first-run hint without navigating to Hermes.
+   * Dismiss the Thoth first-run hint without navigating to Thoth.
    * Triggered by the X button on the tooltip.
    */
-  dismissHermesFirstRun(): void {
-    this.appState.dismissHermesFirstRun();
+  dismissThothFirstRun(): void {
+    this.appState.dismissThothFirstRun();
   }
 
   /**

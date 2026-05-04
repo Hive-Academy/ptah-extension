@@ -5,7 +5,7 @@ import {
   computed,
   inject,
 } from '@angular/core';
-import { AppStateManager, type HermesActiveTabId } from '@ptah-extension/core';
+import { AppStateManager, type ThothActiveTabId } from '@ptah-extension/core';
 import {
   LucideAngularModule,
   Brain,
@@ -14,19 +14,19 @@ import {
   RadioTower,
   ChevronRight,
 } from 'lucide-angular';
-import { HermesStatusService } from '../../services/hermes-status.service';
+import { ThothStatusService } from '../../services/thoth-status.service';
 import type {
-  HermesGatewayBadge,
-  HermesStatusSummary,
-} from '../../services/hermes-status.service';
+  ThothGatewayBadge,
+  ThothStatusSummary,
+} from '../../services/thoth-status.service';
 
-interface HermesRow {
-  readonly id: HermesActiveTabId;
+interface ThothRow {
+  readonly id: ThothActiveTabId;
   readonly label: string;
   readonly icon: typeof Brain;
 }
 
-const ROWS: readonly HermesRow[] = [
+const ROWS: readonly ThothRow[] = [
   { id: 'memory', label: 'Memory', icon: Brain },
   { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'cron', label: 'Cron', icon: Clock3 },
@@ -34,27 +34,27 @@ const ROWS: readonly HermesRow[] = [
 ];
 
 /**
- * HermesStatusCardComponent
+ * ThothStatusCardComponent
  *
- * Dashboard card summarising the four Hermes pillars (memory, skills, cron,
+ * Dashboard card summarising the four Thoth pillars (memory, skills, cron,
  * gateway). Each row is keyboard-reachable and clickable; activating a row
- * sets `activeView='hermes'` AND `hermesActiveTab=<row.id>` via
+ * sets `activeView='thoth'` AND `thothActiveTab=<row.id>` via
  * {@link AppStateManager}, so the user lands directly on the corresponding
- * tab inside the Hermes shell.
+ * tab inside the Thoth shell.
  *
- * Data source: {@link HermesStatusService.summary} computed signal. The card
+ * Data source: {@link ThothStatusService.summary} computed signal. The card
  * triggers a one-shot lazy refresh on init via `refreshIfNeeded()` — there
  * is no polling.
  */
 @Component({
-  selector: 'ptah-hermes-status-card',
+  selector: 'ptah-thoth-status-card',
   standalone: true,
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  templateUrl: './hermes-status-card.component.html',
+  templateUrl: './thoth-status-card.component.html',
 })
-export class HermesStatusCardComponent implements OnInit {
-  private readonly hermesStatus = inject(HermesStatusService);
+export class ThothStatusCardComponent implements OnInit {
+  private readonly thothStatus = inject(ThothStatusService);
   private readonly appState = inject(AppStateManager);
 
   readonly ChevronRightIcon = ChevronRight;
@@ -62,7 +62,7 @@ export class HermesStatusCardComponent implements OnInit {
 
   readonly rows = ROWS;
 
-  readonly summary = this.hermesStatus.summary;
+  readonly summary = this.thothStatus.summary;
   readonly isLoading = computed(() => this.summary().isLoading);
 
   readonly memoryDescription = computed(() => {
@@ -107,15 +107,15 @@ export class HermesStatusCardComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    void this.hermesStatus.refreshIfNeeded();
+    void this.thothStatus.refreshIfNeeded();
   }
 
-  openTab(tabId: HermesActiveTabId): void {
-    this.appState.setHermesActiveTab(tabId);
-    this.appState.setCurrentView('hermes');
+  openTab(tabId: ThothActiveTabId): void {
+    this.appState.setThothActiveTab(tabId);
+    this.appState.setCurrentView('thoth');
   }
 
-  onRowKeydown(event: KeyboardEvent, tabId: HermesActiveTabId): void {
+  onRowKeydown(event: KeyboardEvent, tabId: ThothActiveTabId): void {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       this.openTab(tabId);
@@ -126,7 +126,7 @@ export class HermesStatusCardComponent implements OnInit {
     return this.summary().errors[pillar];
   }
 
-  badgeClassFor(state: HermesGatewayBadge): string {
+  badgeClassFor(state: ThothGatewayBadge): string {
     switch (state) {
       case 'running':
         return 'badge badge-success badge-sm';
@@ -141,7 +141,7 @@ export class HermesStatusCardComponent implements OnInit {
   }
 
   isUnavailable(
-    pillarSummary: HermesStatusSummary['cron'] | HermesStatusSummary['gateway'],
+    pillarSummary: ThothStatusSummary['cron'] | ThothStatusSummary['gateway'],
   ): boolean {
     return !pillarSummary.available;
   }

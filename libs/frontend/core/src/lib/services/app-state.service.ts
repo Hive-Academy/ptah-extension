@@ -20,24 +20,33 @@ export type ViewType =
   | 'orchestra-canvas'
   | 'harness-builder'
   | 'setup-hub'
-  | 'hermes';
+  | 'thoth';
 
 /**
- * Active tab id within the Hermes hub. Mirrors the union exported from
- * `@ptah-extension/hermes-shell`; declared here so app-state callers
+ * Active tab id within the Thoth hub. Mirrors the union exported from
+ * `@ptah-extension/thoth-shell`; declared here so app-state callers
  * (dashboard, app-shell) don't require a cross-library import for the type.
  */
-export type HermesActiveTabId = 'memory' | 'skills' | 'cron' | 'gateway';
+export type ThothActiveTabId = 'memory' | 'skills' | 'cron' | 'gateway';
 
 /** Layout mode for the chat view content area: single tab or canvas grid */
 export type LayoutMode = 'single' | 'grid';
 
 /**
- * `localStorage` key used to persist the "Hermes first-run hint dismissed"
+ * `localStorage` key used to persist the "Thoth first-run hint dismissed"
  * flag. Same persistence layer as `ptah-layout-mode` — kept as a module
  * constant so tests can reference it without duplicating the literal.
  */
-export const HERMES_FIRST_RUN_DISMISSED_KEY = 'ptah-hermes-first-run-dismissed';
+export const THOTH_FIRST_RUN_DISMISSED_KEY = 'ptah-thoth-first-run-dismissed';
+
+/**
+ * Legacy `localStorage` key used before TASK_2026_THOTH_RENAME. The
+ * migration shim in {@link AppStateManager.initializeState} reads this key
+ * once on startup if the new key is missing, copies it forward, and removes
+ * the old entry so user state is preserved across the rename upgrade.
+ */
+export const LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY =
+  'ptah-hermes-first-run-dismissed';
 
 /** Request to open/focus a session in a canvas tile */
 export interface CanvasSessionRequest {
@@ -78,7 +87,7 @@ export class AppStateManager implements MessageHandler {
       'orchestra-canvas',
       'harness-builder',
       'setup-hub',
-      'hermes',
+      'thoth',
     ];
     if (view && validViews.includes(view as ViewType)) {
       this.handleViewSwitch(view as ViewType);
@@ -110,17 +119,17 @@ export class AppStateManager implements MessageHandler {
   private readonly _newCanvasSessionRequest = signal<string | null>(null);
 
   /**
-   * Active tab inside the Hermes hub. Persisted via setter so re-entering
-   * the `'hermes'` view restores the user's last tab.
+   * Active tab inside the Thoth hub. Persisted via setter so re-entering
+   * the `'thoth'` view restores the user's last tab.
    */
-  private readonly _hermesActiveTab = signal<HermesActiveTabId>('memory');
+  private readonly _thothActiveTab = signal<ThothActiveTabId>('memory');
   /**
-   * Whether the user has dismissed the Hermes first-run hint.
-   * Persisted to `localStorage` under {@link HERMES_FIRST_RUN_DISMISSED_KEY}
+   * Whether the user has dismissed the Thoth first-run hint.
+   * Persisted to `localStorage` under {@link THOTH_FIRST_RUN_DISMISSED_KEY}
    * (same pattern as `ptah-layout-mode`) so a reload preserves the dismissed
    * state and the tooltip never reappears after the user closes it once.
    */
-  private readonly _hermesFirstRunDismissed = signal<boolean>(false);
+  private readonly _thothFirstRunDismissed = signal<boolean>(false);
 
   constructor() {
     this.initializeState();
@@ -159,10 +168,10 @@ export class AppStateManager implements MessageHandler {
   readonly canvasSessionRequest = this._canvasSessionRequest.asReadonly();
   /** Pending request to create a new canvas tile (consumed by OrchestraCanvasComponent) */
   readonly newCanvasSessionRequest = this._newCanvasSessionRequest.asReadonly();
-  /** Active tab id inside the Hermes hub (memory / skills / cron / gateway). */
-  readonly hermesActiveTab = this._hermesActiveTab.asReadonly();
-  /** Whether the Hermes first-run hint has been dismissed. */
-  readonly hermesFirstRunDismissed = this._hermesFirstRunDismissed.asReadonly();
+  /** Active tab id inside the Thoth hub (memory / skills / cron / gateway). */
+  readonly thothActiveTab = this._thothActiveTab.asReadonly();
+  /** Whether the Thoth first-run hint has been dismissed. */
+  readonly thothFirstRunDismissed = this._thothFirstRunDismissed.asReadonly();
 
   // Computed signals
   // TASK_2025_126: Added welcome view check to prevent license bypass
@@ -263,12 +272,29 @@ export class AppStateManager implements MessageHandler {
       this._layoutMode.set(savedLayoutMode);
     }
 
-    // Restore Hermes first-run hint dismissal flag from localStorage.
+    // Restore Thoth first-run hint dismissal flag from localStorage.
     // Stored as the literal string 'true' on dismissal; any other value
     // (missing, '', 'false') keeps the default `false` so the hint shows.
+    //
+    // Migration shim (post-Thoth rename): if the new key is absent, fall
+    // back to the legacy `ptah-hermes-first-run-dismissed` key, copy the
+    // value forward, and remove the old entry. This preserves the user's
+    // dismissed state across the rename upgrade.
     try {
-      if (localStorage.getItem(HERMES_FIRST_RUN_DISMISSED_KEY) === 'true') {
-        this._hermesFirstRunDismissed.set(true);
+      const newValue = localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY);
+      if (newValue === null) {
+        const legacyValue = localStorage.getItem(
+          LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY,
+        );
+        if (legacyValue !== null) {
+          localStorage.setItem(THOTH_FIRST_RUN_DISMISSED_KEY, legacyValue);
+          localStorage.removeItem(LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY);
+          if (legacyValue === 'true') {
+            this._thothFirstRunDismissed.set(true);
+          }
+        }
+      } else if (newValue === 'true') {
+        this._thothFirstRunDismissed.set(true);
       }
     } catch {
       /* localStorage unavailable in restricted environments */
@@ -365,21 +391,21 @@ export class AppStateManager implements MessageHandler {
     this.setStatusMessage(`Error: ${error}`);
   }
 
-  /** Update the active Hermes hub tab. */
-  setHermesActiveTab(tab: HermesActiveTabId): void {
-    this._hermesActiveTab.set(tab);
+  /** Update the active Thoth hub tab. */
+  setThothActiveTab(tab: ThothActiveTabId): void {
+    this._thothActiveTab.set(tab);
   }
 
   /**
-   * Mark the Hermes first-run hint as dismissed and persist the flag to
+   * Mark the Thoth first-run hint as dismissed and persist the flag to
    * `localStorage` so a reload preserves the dismissed state. Idempotent —
    * calling this when already dismissed is a no-op for state but still
    * re-writes the storage key (cheap, keeps the code branch-free).
    */
-  dismissHermesFirstRun(): void {
-    this._hermesFirstRunDismissed.set(true);
+  dismissThothFirstRun(): void {
+    this._thothFirstRunDismissed.set(true);
     try {
-      localStorage.setItem(HERMES_FIRST_RUN_DISMISSED_KEY, 'true');
+      localStorage.setItem(THOTH_FIRST_RUN_DISMISSED_KEY, 'true');
     } catch {
       /* localStorage unavailable in restricted environments */
     }

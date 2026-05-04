@@ -10,7 +10,7 @@ import type {
 } from '@ptah-extension/shared';
 
 /**
- * Per-platform gateway state surfaced by the Hermes status card.
+ * Per-platform gateway state surfaced by the Thoth status card.
  *
  * `state` is a coarse-grained badge value:
  * - `'running'`   — adapter is started and healthy
@@ -18,15 +18,15 @@ import type {
  * - `'error'`     — adapter reported `lastError`
  * - `'disabled'`  — gateway not enabled / no adapter row
  */
-export type HermesGatewayBadge = 'running' | 'enabled' | 'error' | 'disabled';
+export type ThothGatewayBadge = 'running' | 'enabled' | 'error' | 'disabled';
 
-export interface HermesGatewayPlatformSummary {
+export interface ThothGatewayPlatformSummary {
   readonly platform: GatewayPlatformId;
-  readonly state: HermesGatewayBadge;
+  readonly state: ThothGatewayBadge;
   readonly lastError?: string;
 }
 
-export interface HermesMemorySummary {
+export interface ThothMemorySummary {
   readonly available: true;
   readonly totalFacts: number;
   /**
@@ -38,12 +38,12 @@ export interface HermesMemorySummary {
   readonly queueLength: number;
 }
 
-export interface HermesSkillsSummary {
+export interface ThothSkillsSummary {
   readonly available: true;
   readonly pendingCandidates: number;
 }
 
-export type HermesCronSummary =
+export type ThothCronSummary =
   | {
       readonly available: true;
       readonly totalJobs: number;
@@ -51,24 +51,24 @@ export type HermesCronSummary =
     }
   | { readonly available: false; readonly reason: 'desktop-only' | 'error' };
 
-export type HermesGatewaySummary =
+export type ThothGatewaySummary =
   | {
       readonly available: true;
-      readonly platforms: readonly HermesGatewayPlatformSummary[];
+      readonly platforms: readonly ThothGatewayPlatformSummary[];
       readonly pendingBindings: number;
     }
   | { readonly available: false; readonly reason: 'desktop-only' | 'error' };
 
-export type HermesUnavailable<T extends string> = {
+export type ThothUnavailable<T extends string> = {
   readonly available: false;
   readonly reason: T;
 };
 
-export interface HermesStatusSummary {
-  readonly memory: HermesMemorySummary | HermesUnavailable<'error'>;
-  readonly skills: HermesSkillsSummary | HermesUnavailable<'error'>;
-  readonly cron: HermesCronSummary;
-  readonly gateway: HermesGatewaySummary;
+export interface ThothStatusSummary {
+  readonly memory: ThothMemorySummary | ThothUnavailable<'error'>;
+  readonly skills: ThothSkillsSummary | ThothUnavailable<'error'>;
+  readonly cron: ThothCronSummary;
+  readonly gateway: ThothGatewaySummary;
   readonly isLoading: boolean;
   readonly lastUpdatedAt: number | null;
   readonly errors: Readonly<
@@ -83,8 +83,8 @@ const PLATFORMS: readonly GatewayPlatformId[] = [
 ];
 
 /**
- * Aggregates the four Hermes pillars into a single computed signal that
- * powers the dashboard's `HermesStatusCardComponent`.
+ * Aggregates the four Thoth pillars into a single computed signal that
+ * powers the dashboard's `ThothStatusCardComponent`.
  *
  * Refresh strategy: lazy. The card component calls {@link refresh} on first
  * render. Cron and gateway calls are gated by `vscodeService.config().isElectron`
@@ -93,7 +93,7 @@ const PLATFORMS: readonly GatewayPlatformId[] = [
  * No polling — re-call `refresh()` on user interaction (e.g. window focus).
  */
 @Injectable({ providedIn: 'root' })
-export class HermesStatusService {
+export class ThothStatusService {
   private readonly vscode = inject(VSCodeService);
   private readonly memoryRpc = inject(MemoryRpcService);
   private readonly skillsRpc = inject(SkillSynthesisRpcService);
@@ -105,13 +105,13 @@ export class HermesStatusService {
   private readonly _hasLoadedOnce = signal<boolean>(false);
 
   private readonly _memory = signal<
-    HermesMemorySummary | HermesUnavailable<'error'> | null
+    ThothMemorySummary | ThothUnavailable<'error'> | null
   >(null);
   private readonly _skills = signal<
-    HermesSkillsSummary | HermesUnavailable<'error'> | null
+    ThothSkillsSummary | ThothUnavailable<'error'> | null
   >(null);
-  private readonly _cron = signal<HermesCronSummary | null>(null);
-  private readonly _gateway = signal<HermesGatewaySummary | null>(null);
+  private readonly _cron = signal<ThothCronSummary | null>(null);
+  private readonly _gateway = signal<ThothGatewaySummary | null>(null);
 
   private readonly _errors = signal<{
     memory: string | null;
@@ -121,13 +121,13 @@ export class HermesStatusService {
   }>({ memory: null, skills: null, cron: null, gateway: null });
 
   /** Single computed summary signal consumed by the status card. */
-  readonly summary = computed<HermesStatusSummary>(() => {
+  readonly summary = computed<ThothStatusSummary>(() => {
     const isElectron = this.vscode.config()?.isElectron === true;
 
-    const cronFallback: HermesCronSummary = isElectron
+    const cronFallback: ThothCronSummary = isElectron
       ? { available: false, reason: 'error' }
       : { available: false, reason: 'desktop-only' };
-    const gatewayFallback: HermesGatewaySummary = isElectron
+    const gatewayFallback: ThothGatewaySummary = isElectron
       ? { available: false, reason: 'error' }
       : { available: false, reason: 'desktop-only' };
 
@@ -149,7 +149,7 @@ export class HermesStatusService {
    *
    * Failures on individual RPCs are isolated — one pillar failing does not
    * cancel the others. Each pillar's error message is surfaced via
-   * {@link HermesStatusSummary.errors}.
+   * {@link ThothStatusSummary.errors}.
    */
   async refresh(): Promise<void> {
     this._isLoading.set(true);
@@ -256,7 +256,7 @@ export class HermesStatusService {
 
   private derivePlatformSummaries(
     status: GatewayStatusResult,
-  ): readonly HermesGatewayPlatformSummary[] {
+  ): readonly ThothGatewayPlatformSummary[] {
     const adaptersByPlatform = new Map(
       status.adapters.map((a) => [a.platform, a]),
     );
@@ -264,26 +264,26 @@ export class HermesStatusService {
     return PLATFORMS.map((platform) => {
       const adapter = adaptersByPlatform.get(platform);
       if (!status.enabled || !adapter) {
-        return { platform, state: 'disabled' as HermesGatewayBadge };
+        return { platform, state: 'disabled' as ThothGatewayBadge };
       }
       if (adapter.lastError) {
         return {
           platform,
-          state: 'error' as HermesGatewayBadge,
+          state: 'error' as ThothGatewayBadge,
           lastError: adapter.lastError,
         };
       }
       return {
         platform,
         state: adapter.running
-          ? ('running' as HermesGatewayBadge)
-          : ('enabled' as HermesGatewayBadge),
+          ? ('running' as ThothGatewayBadge)
+          : ('enabled' as ThothGatewayBadge),
       };
     });
   }
 
   private markDesktopOnly(pillar: 'cron' | 'gateway'): void {
-    const value: HermesUnavailable<'desktop-only'> = {
+    const value: ThothUnavailable<'desktop-only'> = {
       available: false,
       reason: 'desktop-only',
     };

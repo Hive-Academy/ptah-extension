@@ -1,8 +1,8 @@
 export default {
-  displayName: 'hermes-shell',
+  displayName: 'thoth-shell',
   preset: '../../../jest.preset.js',
   setupFilesAfterEnv: ['<rootDir>/src/test-setup.ts'],
-  coverageDirectory: '../../../coverage/libs/frontend/hermes-shell',
+  coverageDirectory: '../../../coverage/libs/frontend/thoth-shell',
   transform: {
     '^.+\\.(ts|mjs|js|html)$': [
       'jest-preset-angular',

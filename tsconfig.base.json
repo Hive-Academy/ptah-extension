@@ -42,9 +42,7 @@
       "@ptah-extension/cron-scheduler-ui": [
         "libs/frontend/cron-scheduler-ui/src/index.ts"
       ],
-      "@ptah-extension/hermes-shell": [
-        "libs/frontend/hermes-shell/src/index.ts"
-      ],
+      "@ptah-extension/thoth-shell": ["libs/frontend/thoth-shell/src/index.ts"],
       "@ptah-extension/memory-curator-ui": [
         "libs/frontend/memory-curator-ui/src/index.ts"
       ],
