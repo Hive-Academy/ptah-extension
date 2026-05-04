@@ -1,0 +1,23 @@
+<div class="bg-base-100 min-h-full p-4 space-y-4">
+  <header class="flex justify-between items-center">
+    <h2 class="text-xl font-bold">Dashboard</h2>
+    <button
+      type="button"
+      class="btn btn-sm btn-ghost gap-1"
+      (click)="navigateBack()"
+      aria-label="Back to chat"
+    >
+      <lucide-angular
+        [img]="ArrowLeftIcon"
+        class="w-4 h-4"
+        aria-hidden="true"
+      ></lucide-angular>
+      Back
+    </button>
+  </header>
+
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+    <ptah-analytics-card />
+    <ptah-hermes-status-card />
+  </div>
+</div>

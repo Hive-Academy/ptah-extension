@@ -19,7 +19,15 @@ export type ViewType =
   | 'welcome'
   | 'orchestra-canvas'
   | 'harness-builder'
-  | 'setup-hub';
+  | 'setup-hub'
+  | 'hermes';
+
+/**
+ * Active tab id within the Hermes hub. Mirrors the union exported from
+ * `@ptah-extension/hermes-shell`; declared here so app-state callers
+ * (dashboard, app-shell) don't require a cross-library import for the type.
+ */
+export type HermesActiveTabId = 'memory' | 'skills' | 'cron' | 'gateway';
 
 /** Layout mode for the chat view content area: single tab or canvas grid */
 export type LayoutMode = 'single' | 'grid';
@@ -63,6 +71,7 @@ export class AppStateManager implements MessageHandler {
       'orchestra-canvas',
       'harness-builder',
       'setup-hub',
+      'hermes',
     ];
     if (view && validViews.includes(view as ViewType)) {
       this.handleViewSwitch(view as ViewType);
@@ -92,6 +101,14 @@ export class AppStateManager implements MessageHandler {
   );
   /** Signal bridge: request to create a new session as a canvas tile (from "New Session" in grid mode) */
   private readonly _newCanvasSessionRequest = signal<string | null>(null);
+
+  /**
+   * Active tab inside the Hermes hub. Persisted via setter so re-entering
+   * the `'hermes'` view restores the user's last tab.
+   */
+  private readonly _hermesActiveTab = signal<HermesActiveTabId>('memory');
+  /** Whether the user has dismissed the Hermes first-run hint. */
+  private readonly _hermesFirstRunDismissed = signal<boolean>(false);
 
   constructor() {
     this.initializeState();
@@ -130,6 +147,10 @@ export class AppStateManager implements MessageHandler {
   readonly canvasSessionRequest = this._canvasSessionRequest.asReadonly();
   /** Pending request to create a new canvas tile (consumed by OrchestraCanvasComponent) */
   readonly newCanvasSessionRequest = this._newCanvasSessionRequest.asReadonly();
+  /** Active tab id inside the Hermes hub (memory / skills / cron / gateway). */
+  readonly hermesActiveTab = this._hermesActiveTab.asReadonly();
+  /** Whether the Hermes first-run hint has been dismissed. */
+  readonly hermesFirstRunDismissed = this._hermesFirstRunDismissed.asReadonly();
 
   // Computed signals
   // TASK_2025_126: Added welcome view check to prevent license bypass
@@ -319,6 +340,16 @@ export class AppStateManager implements MessageHandler {
 
   handleError(error: string): void {
     this.setStatusMessage(`Error: ${error}`);
+  }
+
+  /** Update the active Hermes hub tab. */
+  setHermesActiveTab(tab: HermesActiveTabId): void {
+    this._hermesActiveTab.set(tab);
+  }
+
+  /** Mark the Hermes first-run hint as dismissed. */
+  dismissHermesFirstRun(): void {
+    this._hermesFirstRunDismissed.set(true);
   }
 
   getStateSnapshot(): AppState {

@@ -1,0 +1,83 @@
+<section
+  class="card bg-base-200/40 border border-base-content/10 shadow-sm"
+  aria-label="Hermes status"
+>
+  <div class="card-body p-4 space-y-3">
+    <header class="flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <lucide-angular
+          [img]="RadioTowerIcon"
+          class="w-4 h-4 text-primary"
+          aria-hidden="true"
+        ></lucide-angular>
+        <h3 class="card-title text-base">Hermes</h3>
+      </div>
+      @if (isLoading()) {
+        <span class="loading loading-spinner loading-xs" aria-label="Refreshing"></span>
+      }
+    </header>
+
+    <ul class="flex flex-col gap-1" role="list">
+      @for (row of rows; track row.id) {
+        <li>
+          <button
+            type="button"
+            class="w-full flex items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-base-300/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            (click)="openTab(row.id)"
+            (keydown)="onRowKeydown($event, row.id)"
+            [attr.aria-label]="'Open ' + row.label + ' tab'"
+          >
+            <lucide-angular
+              [img]="row.icon"
+              class="w-4 h-4 text-base-content/70 shrink-0"
+              aria-hidden="true"
+            ></lucide-angular>
+
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium">{{ row.label }}</span>
+
+                @if (row.id === 'gateway' && summary().gateway.available) {
+                  <div class="flex items-center gap-1">
+                    @for (platform of gatewayPlatforms(); track platform.platform) {
+                      <span
+                        [class]="badgeClassFor(platform.state)"
+                        [attr.title]="platform.lastError ?? platform.state"
+                      >
+                        {{ platform.platform }}
+                      </span>
+                    }
+                  </div>
+                }
+              </div>
+
+              <p class="text-xs text-base-content/60 truncate">
+                {{
+                  row.id === 'memory'
+                    ? memoryDescription()
+                    : row.id === 'skills'
+                      ? skillsDescription()
+                      : row.id === 'cron'
+                        ? cronDescription()
+                        : gatewayDescription()
+                }}
+              </p>
+
+              @if (errorFor(row.id); as err) {
+                <p class="text-[10px] text-error mt-0.5 truncate" role="alert">
+                  {{ err }}
+                </p>
+              }
+            </div>
+
+            <lucide-angular
+              [img]="ChevronRightIcon"
+              class="w-4 h-4 text-base-content/40 shrink-0"
+              aria-hidden="true"
+            ></lucide-angular>
+          </button>
+        </li>
+      }
+    </ul>
+  </div>
+</section>
