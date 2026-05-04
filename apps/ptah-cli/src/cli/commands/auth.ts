@@ -37,6 +37,7 @@ import { homedir } from 'node:os';
 import { join as pathJoin } from 'node:path';
 
 import {
+  ANTHROPIC_PROVIDERS,
   SDK_TOKENS,
   spawnCli,
   type ICopilotAuthService,
@@ -46,6 +47,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ClaudeCliHealth } from '@ptah-extension/shared';
 
 import { withEngine } from '../bootstrap/with-engine.js';
+import { suggestClosest } from './_string-distance.js';
 import {
   runHeadlessLogin,
   type HeadlessProcessLike,
@@ -60,7 +62,13 @@ import type { GlobalOptions } from '../router.js';
 import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
 
 /** Sub-commands accepted by `ptah auth ...`. */
-export type AuthSubcommand = 'status' | 'login' | 'logout' | 'test';
+export type AuthSubcommand =
+  | 'status'
+  | 'login'
+  | 'logout'
+  | 'test'
+  | 'use'
+  | 'set-anthropic-route';
 
 /** Providers accepted by `auth login` / `auth logout` / `auth test`. */
 export type AuthProvider =
@@ -106,6 +114,16 @@ export interface AuthOptions {
   provider?: AuthProvider;
   /** For `logout codex --force`: skip confirmation. */
   force?: boolean;
+  /**
+   * For `auth use <providerId>`. Accepts:
+   *   - `claude-cli`              → authMethod=claude-cli
+   *   - `github-copilot`/`copilot`→ authMethod=oauth, anthropicProviderId=...
+   *   - `openai-codex`/`codex`    → authMethod=oauth, anthropicProviderId=...
+   *   - `openrouter`              → authMethod=apiKey, defaultProvider=openrouter
+   *   - `moonshot`                → authMethod=apiKey, defaultProvider=moonshot
+   *   - `z-ai`                    → authMethod=apiKey, defaultProvider=z-ai
+   */
+  providerId?: string;
 }
 
 /**
@@ -209,6 +227,17 @@ export async function execute(
         return await runLogout(opts, globals, formatter, stderr, engine, hooks);
       case 'test':
         return await runTest(opts, formatter, globals, engine);
+      case 'use':
+        return await runUse(opts, globals, formatter, stderr, engine, hooks);
+      case 'set-anthropic-route':
+        return await runSetAnthropicRoute(
+          opts,
+          globals,
+          formatter,
+          stderr,
+          engine,
+          hooks,
+        );
       default:
         stderr.write(
           `ptah auth: unknown sub-command '${String(opts.subcommand)}'\n`,
@@ -237,22 +266,63 @@ async function runStatus(
   return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const transport = ctx.transport;
 
-    const status = await callRpc(transport, 'auth:getAuthStatus', {});
-    const health = await callRpc(transport, 'auth:getHealth', undefined);
-    const apiKey = await callRpc(transport, 'auth:getApiKeyStatus', {});
+    const status = await callRpc<Record<string, unknown>>(
+      transport,
+      'auth:getAuthStatus',
+      {},
+    );
+    const health = await callRpc<Record<string, unknown>>(
+      transport,
+      'auth:getHealth',
+      undefined,
+    );
+    const apiKey = await callRpc<Record<string, unknown>>(
+      transport,
+      'auth:getApiKeyStatus',
+      {},
+    );
 
     const reveal = globals.reveal === true;
+
+    // Default (non-verbose) emits ONE coalesced `auth.status` notification.
+    // The formatter's `renderAuthStatus` understands the nested `health` and
+    // `apiKey` fields, so `--human` users see a single table instead of three
+    // disjoint envelopes. Operators driving the CLI from JSON-RPC also get a
+    // single deterministic frame, simplifying their state machine.
+    //
+    // `--verbose` preserves the legacy 3-frame stream for parity with older
+    // tooling that depends on `auth.health` / `auth.api_key.status` being
+    // separate envelopes (e.g. the doctor stream).
+    if (globals.verbose) {
+      await formatter.writeNotification(
+        'auth.status',
+        redact(status, { reveal }),
+      );
+      await formatter.writeNotification(
+        'auth.health',
+        redact(health, { reveal }),
+      );
+      await formatter.writeNotification(
+        'auth.api_key.status',
+        redact(apiKey, { reveal }),
+      );
+      return ExitCode.Success;
+    }
+
+    // Nested keys are namespaced (`health`, `apiKeyStatus`) to avoid colliding
+    // with any top-level field on the auth-status payload. Naming the nested
+    // RPC result `apiKeyStatus` keeps it disjoint from the redactor's
+    // sensitive-key heuristics (which match `/apikey/i`) — the nested object
+    // gets walked and `hasApiKey`/`apiKey` fields inside it still redact
+    // correctly via the recursion.
+    const coalesced = {
+      ...(status ?? {}),
+      health: health ?? null,
+      apiKeyStatus: apiKey ?? null,
+    };
     await formatter.writeNotification(
       'auth.status',
-      redact(status, { reveal }),
-    );
-    await formatter.writeNotification(
-      'auth.health',
-      redact(health, { reveal }),
-    );
-    await formatter.writeNotification(
-      'auth.api_key.status',
-      redact(apiKey, { reveal }),
+      redact(coalesced, { reveal }),
     );
     return ExitCode.Success;
   });
@@ -391,12 +461,19 @@ async function runClaudeCliLogin(
       return ExitCode.InternalFailure;
     }
 
-    await workspaceProvider.setConfiguration('ptah', 'authMethod', 'claudeCli');
+    // Stream A migrates `claudeCli` → `claude-cli` (kebab) across the
+    // codebase. Always write the canonical kebab token; Stream A's read-back
+    // shim in `with-engine.ts` normalizes legacy values for older configs.
+    await workspaceProvider.setConfiguration(
+      'ptah',
+      'authMethod',
+      'claude-cli',
+    );
 
     await formatter.writeNotification('auth.login.complete', {
       provider: 'claude-cli',
       success: true,
-      authMethod: 'claudeCli',
+      authMethod: 'claude-cli',
       cliPath: health.path,
       cliVersion: health.version,
       platform: health.platform,
@@ -670,6 +747,268 @@ async function runTest(
       ...((typeof result === 'object' && result !== null
         ? (result as Record<string, unknown>)
         : {}) as Record<string, unknown>),
+    });
+    return ExitCode.Success;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// `auth use <providerId>`
+// ---------------------------------------------------------------------------
+
+/**
+ * Provider-id → settings-shape resolution table for `ptah auth use`.
+ *
+ * The CLI writes three coordinated keys under the `ptah` config namespace:
+ *
+ *   - `authMethod`            — strategy selector consumed by `resolveStrategy`.
+ *                               One of `'claude-cli' | 'oauth' | 'apiKey'`.
+ *   - `defaultProvider`       — the provider id consumed by the SDK adapter
+ *                               when `authMethod !== 'oauth'`. For oauth flows
+ *                               this is the anthropic-compatible upstream
+ *                               (`'anthropic'`) so the proxy still routes
+ *                               messages.create requests correctly.
+ *   - `anthropicProviderId`   — the bridge provider id used by the oauth
+ *                               proxy to forge upstream calls. Only relevant
+ *                               for `authMethod=oauth`. Cleared (set to
+ *                               `null`) for non-oauth strategies.
+ *
+ * The mapping below is intentionally narrow — only the providers the doctor
+ * surface and the marketplace agree on are accepted. Extending it requires a
+ * new `auth.use.applied` payload field, so it must stay in lockstep with the
+ * `task-description.md` §3.1 `auth use` table.
+ */
+interface AuthUsePlan {
+  authMethod: 'claude-cli' | 'oauth' | 'apiKey';
+  defaultProvider: string;
+  anthropicProviderId: string | null;
+}
+
+function resolveAuthUsePlan(providerId: string): AuthUsePlan | null {
+  const id = providerId.toLowerCase().trim();
+  switch (id) {
+    case 'claude-cli':
+    case 'claude':
+      return {
+        authMethod: 'claude-cli',
+        defaultProvider: 'anthropic',
+        anthropicProviderId: null,
+      };
+    case 'github-copilot':
+    case 'copilot':
+      return {
+        authMethod: 'oauth',
+        defaultProvider: 'anthropic',
+        anthropicProviderId: 'github-copilot',
+      };
+    case 'openai-codex':
+    case 'codex':
+      return {
+        authMethod: 'oauth',
+        defaultProvider: 'anthropic',
+        anthropicProviderId: 'openai-codex',
+      };
+    case 'openrouter':
+      return {
+        authMethod: 'apiKey',
+        defaultProvider: 'openrouter',
+        anthropicProviderId: null,
+      };
+    case 'moonshot':
+      return {
+        authMethod: 'apiKey',
+        defaultProvider: 'moonshot',
+        anthropicProviderId: null,
+      };
+    case 'z-ai':
+    case 'zai':
+      return {
+        authMethod: 'apiKey',
+        defaultProvider: 'z-ai',
+        anthropicProviderId: null,
+      };
+    default:
+      return null;
+  }
+}
+
+/**
+ * `auth use <providerId>` — switch the active auth strategy without going
+ * through a full login flow. This is the headless equivalent of the
+ * "Switch Provider" UX in the VS Code/Electron settings panel.
+ *
+ * Writes three settings via `IWorkspaceProvider.setConfiguration`:
+ *   - ptah.authMethod
+ *   - ptah.defaultProvider
+ *   - ptah.anthropicProviderId
+ *
+ * Each key is part of `FILE_BASED_SETTINGS_KEYS` so writes are routed to
+ * `~/.ptah/settings.json` automatically (transparent to the caller).
+ *
+ * Does NOT remove or invalidate existing OAuth tokens or API keys — it only
+ * mutates which strategy the SDK selects on next bootstrap. Use
+ * `ptah auth logout <provider>` to revoke credentials.
+ */
+async function runUse(
+  opts: AuthOptions,
+  globals: GlobalOptions,
+  formatter: Formatter,
+  stderr: AuthStderrLike,
+  engine: typeof withEngine,
+  hooks: AuthExecuteHooks,
+): Promise<number> {
+  const providerId = (opts.providerId ?? '').trim();
+  if (!providerId) {
+    stderr.write('ptah auth use: <providerId> is required\n');
+    return ExitCode.UsageError;
+  }
+
+  const plan = resolveAuthUsePlan(providerId);
+  if (!plan) {
+    stderr.write(
+      `ptah auth use: unsupported provider '${providerId}'. ` +
+        'Accepted: claude-cli, github-copilot, openai-codex, openrouter, moonshot, z-ai\n',
+    );
+    return ExitCode.UsageError;
+  }
+
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+    const workspaceProvider = await (hooks.resolveWorkspaceProvider
+      ? hooks.resolveWorkspaceProvider(ctx.container)
+      : (ctx.container.resolve(
+          PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+        ) as AuthWorkspaceProviderLike));
+
+    if (typeof workspaceProvider.setConfiguration !== 'function') {
+      await formatter.writeNotification('task.error', {
+        ptah_code: 'internal_failure',
+        message:
+          'IWorkspaceProvider.setConfiguration is not available on this platform',
+      });
+      return ExitCode.InternalFailure;
+    }
+
+    // Write all three keys before emitting the notification so callers see a
+    // consistent post-state. Order matters less here than atomicity within
+    // ~/.ptah/settings.json — `PtahFileSettingsManager` serializes writes.
+    await workspaceProvider.setConfiguration(
+      'ptah',
+      'authMethod',
+      plan.authMethod,
+    );
+    await workspaceProvider.setConfiguration(
+      'ptah',
+      'defaultProvider',
+      plan.defaultProvider,
+    );
+    await workspaceProvider.setConfiguration(
+      'ptah',
+      'anthropicProviderId',
+      plan.anthropicProviderId,
+    );
+
+    await formatter.writeNotification('auth.use.applied', {
+      providerId,
+      authMethod: plan.authMethod,
+      defaultProvider: plan.defaultProvider,
+      anthropicProviderId: plan.anthropicProviderId,
+    });
+    return ExitCode.Success;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// `auth set-anthropic-route <providerId>`
+// ---------------------------------------------------------------------------
+
+/**
+ * `ptah auth set-anthropic-route <providerId>`.
+ *
+ * Headless-friendly setter for the `anthropicProviderId` config key — i.e.
+ * which Anthropic-compatible bridge the SDK should route `messages.create`
+ * traffic through when the agent talks to Claude. Mirrors the "Anthropic
+ * route" picker in the Settings webview.
+ *
+ * Pass `default` (or an empty string / `null`) to clear the override and
+ * fall back to direct Anthropic. Any other value is validated against the
+ * `ANTHROPIC_PROVIDERS` registry; unknown ids are rejected with a
+ * `did-you-mean?` suggestion via Levenshtein distance.
+ *
+ * Writes only `anthropicProviderId` — `authMethod` and `defaultProvider`
+ * are left untouched so existing OAuth/CLI strategies keep working. Use
+ * `ptah auth use` if you need to flip the strategy as well.
+ */
+async function runSetAnthropicRoute(
+  opts: AuthOptions,
+  globals: GlobalOptions,
+  formatter: Formatter,
+  stderr: AuthStderrLike,
+  engine: typeof withEngine,
+  hooks: AuthExecuteHooks,
+): Promise<number> {
+  const raw = (opts.providerId ?? '').trim();
+  if (!raw) {
+    stderr.write(
+      'ptah auth set-anthropic-route: <providerId> is required ' +
+        '(use `default` to clear)\n',
+    );
+    return ExitCode.UsageError;
+  }
+
+  const validIds = ANTHROPIC_PROVIDERS.map((p) => p.id);
+  const lowered = raw.toLowerCase();
+
+  // Treat "default" / "none" / "clear" / "null" as a clear instruction.
+  const isClear =
+    lowered === 'default' ||
+    lowered === 'none' ||
+    lowered === 'clear' ||
+    lowered === 'null';
+
+  let nextValue: string | null;
+  let displayValue: string;
+
+  if (isClear) {
+    nextValue = null;
+    displayValue = '(default)';
+  } else if (validIds.includes(lowered)) {
+    nextValue = lowered;
+    displayValue = lowered;
+  } else {
+    const suggestion = suggestClosest(lowered, validIds, 2);
+    const hint = suggestion ? ` Did you mean '${suggestion}'?` : '';
+    stderr.write(
+      `ptah auth set-anthropic-route: unknown providerId '${raw}'.${hint} ` +
+        `Available: default, ${validIds.join(', ')}\n`,
+    );
+    return ExitCode.UsageError;
+  }
+
+  return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
+    const workspaceProvider = await (hooks.resolveWorkspaceProvider
+      ? hooks.resolveWorkspaceProvider(ctx.container)
+      : (ctx.container.resolve(
+          PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+        ) as AuthWorkspaceProviderLike));
+
+    if (typeof workspaceProvider.setConfiguration !== 'function') {
+      await formatter.writeNotification('task.error', {
+        ptah_code: 'internal_failure',
+        message:
+          'IWorkspaceProvider.setConfiguration is not available on this platform',
+      });
+      return ExitCode.InternalFailure;
+    }
+
+    await workspaceProvider.setConfiguration(
+      'ptah',
+      'anthropicProviderId',
+      nextValue,
+    );
+
+    await formatter.writeNotification('auth.set_anthropic_route.applied', {
+      anthropicProviderId: nextValue,
+      display: displayValue,
     });
     return ExitCode.Success;
   });

@@ -168,6 +168,11 @@ def sophisticated_research(topic):
 
 ### 4. Sophisticated Research Report
 
+**REQUIRED OUTPUT FILE**: You MUST write your research to a file using the Write tool. Do not return the research inline in your response.
+
+- **File path**: `.ptah/specs/TASK_[ID]/research-report.md` (use the absolute Windows path with drive letter when invoking Write)
+- **After writing**: Reply with a one-line confirmation `WROTE: <absolute path>` and the headline insight. Nothing else.
+
 Create `research-report.md` with depth:
 
 ````markdown

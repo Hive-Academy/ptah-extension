@@ -1,0 +1,27 @@
+{
+  "name": "@ptah-extension/cron-scheduler-ui",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/frontend/cron-scheduler-ui/src",
+  "prefix": "ptah",
+  "projectType": "library",
+  "tags": ["scope:webview", "type:feature", "platform:angular"],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/frontend/cron-scheduler-ui/jest.config.ts",
+        "tsConfig": "libs/frontend/cron-scheduler-ui/tsconfig.spec.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ngc --noEmit --project libs/frontend/cron-scheduler-ui/tsconfig.lib.json"
+      }
+    }
+  }
+}

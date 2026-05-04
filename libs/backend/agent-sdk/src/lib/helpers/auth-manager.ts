@@ -29,6 +29,7 @@ import {
   DEFAULT_PROVIDER_ID,
   ANTHROPIC_DIRECT_PROVIDER_ID,
 } from '../providers/_shared/provider-registry';
+import { normalizeAuthMethod } from './auth-method.utils';
 
 export interface AuthResult {
   configured: boolean;
@@ -123,13 +124,10 @@ export class AuthManager {
   private async doConfigureAuthentication(
     rawAuthMethod: string,
   ): Promise<AuthResult> {
-    // Step 1: Normalize legacy method (migrate 'openrouter' → 'thirdParty')
-    const normalized =
-      rawAuthMethod === 'openrouter' ? 'thirdParty' : rawAuthMethod;
-    const validMethods = new Set<string>(['apiKey', 'claudeCli', 'thirdParty']);
-    const authMethod = (
-      validMethods.has(normalized) ? normalized : 'apiKey'
-    ) as LegacyAuthMethod;
+    // Step 1: Normalize any persisted spelling (legacy or new) to the canonical
+    // LegacyAuthMethod triad via the shared helper. Centralizes mapping for
+    // 'claude-cli', 'oauth', 'openrouter', etc.
+    const authMethod = normalizeAuthMethod(rawAuthMethod);
 
     if (rawAuthMethod !== authMethod) {
       this.logger.warn(

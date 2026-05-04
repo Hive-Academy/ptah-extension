@@ -20,6 +20,7 @@ import { SDK_TOKENS } from '../di/tokens';
 import { ModelInfo } from '../types/sdk-types/claude-sdk.types';
 import { SdkModuleLoader } from './sdk-module-loader';
 import type { ModelResolver } from '../auth/model-resolver';
+import { normalizeAuthMethod } from './auth-method.utils';
 
 /**
  * Model entry from the Anthropic /v1/models API
@@ -224,12 +225,9 @@ export class SdkModelService {
 
   private async fetchSupportedModelsInternal(): Promise<ModelInfo[]> {
     const rawAuthMethod = this.config.get<string>('authMethod') || 'apiKey';
-    let authMethod = rawAuthMethod;
-    if (rawAuthMethod === 'openrouter') authMethod = 'thirdParty';
-    else if (rawAuthMethod === 'oauth' || rawAuthMethod === 'auto')
-      authMethod = 'apiKey';
-    else if (!['apiKey', 'claudeCli', 'thirdParty'].includes(rawAuthMethod))
-      authMethod = 'apiKey';
+    // Route through the shared normalizer so new spellings ('claude-cli',
+    // 'oauth') and legacy ones ('openrouter', 'claudeCli') resolve identically.
+    const authMethod = normalizeAuthMethod(rawAuthMethod);
 
     this.logger.info('[SdkModelService] Fetching models', {
       authMethod,

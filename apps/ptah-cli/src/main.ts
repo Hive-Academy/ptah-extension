@@ -27,6 +27,7 @@ import 'reflect-metadata';
 
 import { fixPath } from '@ptah-extension/agent-sdk';
 import { buildRouter } from './cli/router.js';
+import { JSONRPC_SCHEMA_VERSION } from './cli/jsonrpc/types.js';
 
 // Repair process.env.PATH on Linux/macOS for parity with the Electron app
 // and the VS Code extension. Most CLI invocations inherit PATH from the
@@ -57,8 +58,55 @@ function installSignalHandlers(): void {
   process.on('SIGTERM', onSignal('SIGTERM', 143));
 }
 
+/**
+ * Stream B item #11 — schema version skew check.
+ *
+ * The host that spawned us (Electron, an A2A bridge, a CI driver) may set
+ * `PTAH_HOST_SCHEMA_VERSION` to advertise the protocol version it speaks.
+ * If that doesn't match `JSONRPC_SCHEMA_VERSION`, we surface a yellow
+ * warning to stderr so the operator knows requests/notifications may be
+ * mis-shaped. We do NOT abort — the CLI must still run for `doctor`-style
+ * diagnostics to work after a host upgrade lands ahead of a CLI upgrade.
+ *
+ * Suppression rules:
+ *   - `--quiet` (resolved via `process.argv.includes('--quiet')` since we
+ *     run before `commander` parsing) silences the warning entirely.
+ *   - `NO_COLOR` (any non-empty value) silences the warning entirely —
+ *     hosts that disable ANSI typically also want clean stderr.
+ *
+ * The check runs once at process startup; subsequent skews mid-session
+ * surface via `system.schema.version` notifications emitted by `interact`.
+ */
+function checkSchemaVersionSkew(): void {
+  const hostVersion = process.env['PTAH_HOST_SCHEMA_VERSION'];
+  if (!hostVersion || hostVersion === JSONRPC_SCHEMA_VERSION) return;
+
+  // Honour `--quiet` (set on root program) without parsing the full argv.
+  // Commander will still process the flag normally below; this is a
+  // best-effort early read that avoids importing the router twice.
+  if (process.argv.includes('--quiet') || process.argv.includes('-q')) {
+    return;
+  }
+
+  // Fully suppress under NO_COLOR — hosts that disable ANSI almost always
+  // also want stderr free of warning chatter (CI logs, A2A bridges).
+  const noColorEnv = process.env['NO_COLOR'];
+  if (noColorEnv !== undefined && noColorEnv !== '') {
+    return;
+  }
+
+  const noColor = process.env['PTAH_NO_TTY'] === '1';
+  const colorOpen = noColor ? '' : '\u001b[33m';
+  const colorClose = noColor ? '' : '\u001b[0m';
+  process.stderr.write(
+    `${colorOpen}[ptah] schema version skew: host='${hostVersion}' cli='${JSONRPC_SCHEMA_VERSION}'. ` +
+      `JSON-RPC payloads may not match — upgrade one side.${colorClose}\n`,
+  );
+}
+
 async function main(): Promise<void> {
   installSignalHandlers();
+  checkSchemaVersionSkew();
 
   try {
     const router = buildRouter();

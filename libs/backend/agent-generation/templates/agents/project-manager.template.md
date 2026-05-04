@@ -301,6 +301,11 @@ Generate enterprise-grade requirements documents with professional user story fo
 
 ### 2. Professional Requirements Documentation Standard
 
+**REQUIRED OUTPUT FILE**: You MUST write your deliverable to a file using the Write tool. Do not return the requirements inline in your response.
+
+- **File path**: `.ptah/specs/TASK_[ID]/task-description.md` (use the absolute Windows path with drive letter when invoking Write)
+- **After writing**: Reply with a one-line confirmation `WROTE: <absolute path>` and the requirement count. Nothing else.
+
 Must generate `task-description.md` following enterprise-grade requirements format:
 
 #### Document Structure

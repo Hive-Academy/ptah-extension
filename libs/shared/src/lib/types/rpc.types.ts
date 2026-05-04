@@ -1268,6 +1268,10 @@ export interface RpcMethodRegistry {
     params: GatewayListMessagesParams;
     result: GatewayListMessagesResult;
   };
+  'gateway:test': {
+    params: GatewayTestParams;
+    result: GatewayTestResult;
+  };
   // === TRACK_4_MESSAGING_GATEWAY_END ===
 }
 
@@ -1443,12 +1447,19 @@ export interface GatewayListBindingsResult {
 
 export interface GatewayApproveBindingParams {
   bindingId: string;
+  /**
+   * The 6-digit pairing code the bot sent to the user. Compared against the
+   * stored pairing code with a constant-time comparison. The backend NEVER
+   * returns the stored code in `gateway:listBindings`, so the user must
+   * type the code from the bot to approve.
+   */
+  code: string;
   ptahSessionId?: string;
   workspaceRoot?: string;
 }
-export interface GatewayApproveBindingResult {
-  binding: GatewayBindingDto;
-}
+export type GatewayApproveBindingResult =
+  | { ok: true; binding: GatewayBindingDto }
+  | { ok: false; error: 'invalid-code' | 'binding-not-found' };
 
 export interface GatewayBlockBindingParams {
   bindingId: string;
@@ -1468,6 +1479,24 @@ export interface GatewayListMessagesParams {
 export interface GatewayListMessagesResult {
   messages: GatewayMessageDto[];
 }
+
+/**
+ * `gateway:test` accepts a platform identifier — same set as
+ * {@link GatewayPlatformId}. Kept as a separate alias so the frontend service
+ * can reason about the test-call surface independently of the broader platform
+ * type if it diverges in the future.
+ */
+export type GatewayTestPlatform = GatewayPlatformId;
+
+export interface GatewayTestParams {
+  platform: GatewayTestPlatform;
+  /** Optional binding override — when omitted, the first approved binding is used. */
+  bindingId?: string;
+}
+
+export type GatewayTestResult =
+  | { ok: true; bindingId: string; externalMsgId: string | null }
+  | { ok: false; error: string };
 // === TRACK_4_MESSAGING_GATEWAY_END ===
 
 // === TRACK_3_CRON_SCHEDULER_BEGIN ===
@@ -1890,6 +1919,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'gateway:approveBinding': true,
   'gateway:blockBinding': true,
   'gateway:listMessages': true,
+  'gateway:test': true,
   // === TRACK_4_MESSAGING_GATEWAY_END ===
 };
 

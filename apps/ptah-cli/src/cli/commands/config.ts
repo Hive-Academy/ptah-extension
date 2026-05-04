@@ -61,6 +61,18 @@ export interface ConfigOptions {
   key?: string;
   /** For set / autopilot-set / effort-set / model-switch: the new value. */
   value?: string;
+  /**
+   * `list` filters (CLI bug batch item #13). Combine freely:
+   *   - `keysOnly`     → emit `{ keys: [...] }` instead of full key/value map
+   *   - `prefix`       → only include keys starting with this dotted prefix
+   *   - `changedOnly`  → only include keys whose current value differs from
+   *                      `FILE_BASED_SETTINGS_DEFAULTS[key]`
+   * Filters apply BEFORE redaction, so `--keys-only` never leaks values
+   * regardless of `--reveal`.
+   */
+  keysOnly?: boolean;
+  prefix?: string;
+  changedOnly?: boolean;
 }
 
 /** Stderr stream contract — narrowed for testability. */
@@ -94,7 +106,7 @@ export async function execute(
       case 'set':
         return await runSet(opts, globals, formatter, stderr, engine);
       case 'list':
-        return await runList(globals, formatter, engine);
+        return await runList(opts, globals, formatter, engine);
       case 'reset':
         return await runReset(opts, globals, formatter, stderr, engine);
       case 'model-switch':
@@ -208,22 +220,86 @@ async function runSet(
 }
 
 async function runList(
+  opts: ConfigOptions,
   globals: GlobalOptions,
   formatter: Formatter,
   engine: typeof withEngine,
 ): Promise<number> {
   return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
     const provider = resolveWorkspaceProvider(ctx);
-    const snapshot: Record<string, unknown> = {};
+    const defaults = FILE_BASED_SETTINGS_DEFAULTS as Record<string, unknown>;
+    const prefix = opts.prefix?.trim();
+    const keysOnly = opts.keysOnly === true;
+    const changedOnly = opts.changedOnly === true;
+
+    // Step 1: gather raw key/value pairs honouring `--prefix` and
+    // `--changed-only`. Both filters apply BEFORE redaction so `--keys-only`
+    // gives a strict guarantee that no values leave the process.
+    const filtered: Record<string, unknown> = {};
+    const keys: string[] = [];
     for (const key of FILE_BASED_SETTINGS_KEYS) {
-      snapshot[key] = provider.getConfiguration<unknown>('ptah', key);
+      if (prefix && !key.startsWith(prefix)) continue;
+      const current = provider.getConfiguration<unknown>('ptah', key);
+      if (changedOnly && deepEquals(current, defaults[key])) continue;
+      filtered[key] = current;
+      keys.push(key);
     }
+
+    if (keysOnly) {
+      // Keys-only output: deterministic, redactor-free. We still emit the
+      // applied filters so consumers can reason about absences.
+      await formatter.writeNotification('config.list', {
+        keys: keys.slice().sort(),
+        keysOnly: true,
+        prefix: prefix ?? null,
+        changedOnly,
+      });
+      return ExitCode.Success;
+    }
+
+    const payload: Record<string, unknown> = {
+      settings: filtered,
+    };
+    if (prefix) payload['prefix'] = prefix;
+    if (changedOnly) payload['changedOnly'] = true;
+
     await formatter.writeNotification(
       'config.list',
-      redact({ settings: snapshot }, { reveal: globals.reveal }),
+      redact(payload, { reveal: globals.reveal }),
     );
     return ExitCode.Success;
   });
+}
+
+/**
+ * Structural equality check for `--changed-only`. We deliberately keep this
+ * shallow-friendly (handles primitives, plain objects, arrays) rather than
+ * pulling in a deep-equal dep — the FILE_BASED_SETTINGS_DEFAULTS values are
+ * scalars or short arrays, never circular graphs.
+ */
+function deepEquals(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (typeof a !== typeof b) return false;
+  if (typeof a !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!deepEquals(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
+  const aKeys = Object.keys(ao);
+  const bKeys = Object.keys(bo);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) {
+    if (!Object.prototype.hasOwnProperty.call(bo, k)) return false;
+    if (!deepEquals(ao[k], bo[k])) return false;
+  }
+  return true;
 }
 
 async function runReset(

@@ -1,0 +1,27 @@
+{
+  "name": "@ptah-extension/messaging-gateway-ui",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/frontend/messaging-gateway-ui/src",
+  "prefix": "ptah",
+  "projectType": "library",
+  "tags": ["scope:webview", "type:feature", "platform:angular"],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/frontend/messaging-gateway-ui/jest.config.ts",
+        "tsConfig": "libs/frontend/messaging-gateway-ui/tsconfig.spec.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ngc --noEmit --project libs/frontend/messaging-gateway-ui/tsconfig.lib.json"
+      }
+    }
+  }
+}
