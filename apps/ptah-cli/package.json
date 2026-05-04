@@ -61,6 +61,7 @@
     "picomatch": "^4.0.0",
     "reflect-metadata": "^0.2.2",
     "tsyringe": "^4.10.0",
+    "ulid": "^2.4.0",
     "uuid": "^11.1.0",
     "web-tree-sitter": "^0.26.8",
     "which": "^6.0.1",

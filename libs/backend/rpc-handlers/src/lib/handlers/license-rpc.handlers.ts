@@ -341,12 +341,41 @@ export class LicenseRpcHandlers {
       }
     }
 
+    // Defensive expiry warning for paid Pro licenses.
+    //
+    // Server-side root cause documented at
+    // apps/ptah-license-server/src/license/services/license.service.ts:324-328
+    // — `daysRemaining` is computed unconditionally from `license.expiresAt`
+    // even after a trial is upgraded to a paid Pro subscription. Pro plan
+    // config has `expiresAfterDays: null`, but the License row may still
+    // carry the original trial expiry date. As a result, a freshly-upgraded
+    // Pro user can see e.g. `daysRemaining: 8` despite an active subscription.
+    //
+    // We surface a structured `expiryWarning` here so CLI/UI surfaces can
+    // render a defensive warning, and we log a backend warning so support
+    // can correlate user reports with stale `expiresAt` rows server-side.
+    const daysRemaining = status.daysRemaining ?? null;
+    let expiryWarning: 'near_expiry' | 'critical' | null = null;
+    // Defensive against stale `expiresAt` rows on PAID Pro plans only. Trials
+    // expiring is the expected case and should not surface this warning.
+    // Thresholds match the user-facing spec: <7d critical, <30d near_expiry.
+    if (
+      status.tier === 'pro' &&
+      typeof daysRemaining === 'number' &&
+      daysRemaining < 30
+    ) {
+      expiryWarning = daysRemaining < 7 ? 'critical' : 'near_expiry';
+      this.logger.warn(
+        `License nearing expiry: tier=${status.tier} daysRemaining=${daysRemaining} warning=${expiryWarning}`,
+      );
+    }
+
     return {
       valid: status.valid,
       tier: status.tier as LicenseTier,
       isPremium,
       isCommunity,
-      daysRemaining: status.daysRemaining ?? null,
+      daysRemaining,
       trialActive,
       trialDaysRemaining: status.trialDaysRemaining ?? null,
       plan: status.plan
@@ -365,6 +394,7 @@ export class LicenseRpcHandlers {
             lastName: status.user.lastName,
           }
         : undefined,
+      expiryWarning,
     };
   }
 }

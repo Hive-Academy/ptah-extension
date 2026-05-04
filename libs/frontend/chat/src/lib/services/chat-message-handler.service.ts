@@ -22,7 +22,7 @@ import { type MessageHandler } from '@ptah-extension/core';
 import { FlatStreamEventUnion, MESSAGE_TYPES } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
-import { TabId } from '@ptah-extension/chat-state';
+import { TabId, type ClaudeSessionId } from '@ptah-extension/chat-state';
 import { StreamRouter } from '@ptah-extension/chat-routing';
 
 @Injectable({ providedIn: 'root' })
@@ -233,6 +233,15 @@ export class ChatMessageHandler implements MessageHandler {
         tabId: tabId as string,
         realSessionId: realSessionId as string,
       });
+
+      // TASK_2026_109_FOLLOWUP_QUESTIONS Q6 — re-route any pending questions
+      // whose stale tabId targets just got rebound to the real SDK session id.
+      // Without this, a question that arrived during the pending-session
+      // window stays pinned to the placeholder tabId and the chat-view filter
+      // silently drops it once the binding flips.
+      this.streamRouter.refreshQuestionTargetsForSession(
+        realSessionId as ClaudeSessionId,
+      );
 
       // Update parentSessionId on any agents spawned with the tab ID before
       // the real SDK UUID was resolved. Without this, agents spawned early in

@@ -31,7 +31,7 @@
  *
  * Prerequisite: `ptah skill-synthesis list|promote|reject|invocations|stats`
  * CLI subcommands added to `apps/ptah-cli/src/cli/router.ts` (not yet present
- * as of HERMES scaffold).
+ * as of the Thoth hub work).
  */
 
 describe.skip('skill synthesis e2e (TASK_2026_HERMES Track 2 — requires real session invocations)', () => {

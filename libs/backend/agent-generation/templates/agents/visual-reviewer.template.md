@@ -362,6 +362,15 @@ Detect visual performance issues:
 
 ---
 
+## REQUIRED OUTPUT FILE
+
+**You MUST write your review to a file using the Write tool.** Do not return the review inline in your response.
+
+- **File path**: `.ptah/specs/TASK_[ID]/visual-review.md` (use the absolute Windows path with drive letter when invoking Write)
+- **After writing**: Reply with a one-line confirmation `WROTE: <absolute path>` plus the assessment verdict (APPROVED / NEEDS_REVISION / REJECTED) and the issue counts. Nothing else.
+
+---
+
 ## REQUIRED OUTPUT FORMAT
 
 ```markdown

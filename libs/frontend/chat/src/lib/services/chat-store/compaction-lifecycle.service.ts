@@ -183,12 +183,33 @@ export class CompactionLifecycleService {
    * Dismisses banner, clears tree-builder cache, snapshots preloadedStats,
    * clears messages on the tab, increments compactionCount, and reloads
    * the session from disk so the post-compaction state is visible.
+   *
+   * TASK_2026_109_FOLLOWUP N1 — symmetric fan-out. `handleCompactionStart`
+   * fans out to every tab bound to the session, but the legacy complete
+   * path only reset `result.tabId`. In canvas-grid scenarios with multiple
+   * tiles sharing a conversation, sibling tiles kept a stale post-compaction
+   * banner + stale messages until the user manually switched tabs. We now
+   * resolve all tabs bound to the same `compactionSessionId` (or, fallback,
+   * the same conversation as the originating tab) and apply the
+   * preloadedStats reset + `markTabIdle` to each. The disk reload via
+   * `switchSession` is fired once per unique `claudeSessionId` to avoid
+   * redundant JSONL re-reads.
    */
   handleCompactionComplete(result: {
     tabId: string;
     compactionSessionId: string;
   }): void {
-    this.clearCompactionState(result.tabId);
+    // TASK_2026_109_FOLLOWUP — do NOT clear `inFlight` upfront. We pin
+    // compaction-in-flight through the entire reset + reload cycle so the
+    // SESSION_STATS late-event filter (`isLateAfterCompaction`) drops every
+    // stat event that arrives while we are reloading. The `inFlight` flag is
+    // cleared in the `switchSession` settle handler below, after which the
+    // 2s `lastCompactionAt` grace window takes over for any final tail
+    // events. Only the safety timeout is cancelled here.
+    if (this.compactionTimeoutId) {
+      clearTimeout(this.compactionTimeoutId);
+      this.compactionTimeoutId = null;
+    }
     // TASK_2026_109 B4.1 — clear the execution-tree cache BEFORE messages are
     // cleared on the tab. OnPush change detection then sees an empty tree
     // first, eliminating the diff between stale pre-compaction nodes and the
@@ -196,11 +217,31 @@ export class CompactionLifecycleService {
     // agent-message headers.
     this.treeBuilder.clearCache();
 
-    // Clear finalized messages for the tab - stale pre-compaction messages
-    // Verify tab still exists before clearing (it may have been closed during compaction)
-    const compactionTab = this.tabManager
+    // TASK_2026_109_FOLLOWUP N1 — resolve sibling tabs that share the same
+    // session. Prefer the compactionSessionId from the SDK event (which is
+    // the canonical post-compaction session id); fall back to the
+    // originating tab's claudeSessionId when the lookup is empty (e.g. the
+    // SDK emitted a fresh id we have not bound yet). The originating tab is
+    // always included even when not in the lookup, so a never-bound tile
+    // does not silently miss its own reset.
+    const originatingTab = this.tabManager
       .tabs()
       .find((t) => t.id === result.tabId);
+    const sessionTabs = this.tabManager.findTabsBySessionId(
+      result.compactionSessionId,
+    );
+    const fanoutMap = new Map<string, typeof originatingTab>();
+    for (const t of sessionTabs) fanoutMap.set(t.id, t);
+    if (originatingTab && !fanoutMap.has(originatingTab.id)) {
+      fanoutMap.set(originatingTab.id, originatingTab);
+    }
+    const fanoutTabs = Array.from(fanoutMap.values()).filter(
+      (t): t is NonNullable<typeof originatingTab> => t != null,
+    );
+
+    // Clear finalized messages for the tab - stale pre-compaction messages
+    // Verify tab still exists before clearing (it may have been closed during compaction)
+    const compactionTab = originatingTab;
     if (compactionTab) {
       // TASK_2026_109 B2 — Split lifetime cost vs current context tokens.
       //
@@ -250,29 +291,97 @@ export class CompactionLifecycleService {
       // TASK_2025_COMPACT_FIX: Also clears any queued message so the
       // "Message queued (will send when Claude finishes)" banner disappears
       // and the next user message is sent fresh instead of draining a stale queue.
-      this.tabManager.applyCompactionComplete(result.tabId, {
-        preloadedStats,
-        compactionCount: (compactionTab.compactionCount ?? 0) + 1,
-      });
-
-      // Also clear the visual streaming indicator and session manager state
-      this.tabManager.markTabIdle(result.tabId);
+      //
+      // TASK_2026_109_FOLLOWUP N1 — fan out applyCompactionComplete +
+      // markTabIdle to every sibling tab bound to this session. Each tab's
+      // `compactionCount` is incremented from its own current value. The
+      // preloadedStats payload is shared (lifetime cost is per-session, not
+      // per-tab — every tile sees the same accounting surface).
+      for (const t of fanoutTabs) {
+        this.tabManager.applyCompactionComplete(t.id, {
+          preloadedStats,
+          compactionCount: (t.compactionCount ?? 0) + 1,
+        });
+        this.tabManager.markTabIdle(t.id);
+      }
       this.sessionManager.setStatus('loaded');
 
       // Reload session from disk to show the post-compaction state.
       // The SDK writes the compaction summary as a user message to the
       // session JSONL, but it's NOT emitted in the live stream. Without
       // this reload, the tab shows a clean slate until manually reopened.
-      const reloadSessionId =
-        compactionTab.claudeSessionId ?? result.compactionSessionId;
-      if (reloadSessionId) {
-        this.sessionLoader.switchSession(reloadSessionId).catch((err) => {
-          console.warn(
-            '[ChatStore] Failed to reload session after compaction:',
-            err,
-          );
-        });
+      //
+      // TASK_2026_109_FOLLOWUP N1 — reload is keyed by unique
+      // claudeSessionId across all fan-out tabs. Sibling tiles bound to
+      // the same session share the JSONL on disk, so a single switchSession
+      // is enough; tiles bound to a different post-compaction session id
+      // get their own reload.
+      const reloadIds = new Set<string>();
+      for (const t of fanoutTabs) {
+        const id = t.claudeSessionId ?? result.compactionSessionId;
+        if (id) reloadIds.add(id);
       }
+      if (reloadIds.size === 0) {
+        // No session id to reload — clear state so the banner doesn't stick.
+        this.clearCompactionStateForFanout(fanoutTabs);
+        return;
+      }
+
+      // Pin inFlight on the conversation through the reload settle. We use
+      // a shared counter so `inFlight` is only cleared once every reload
+      // completes — otherwise the first settle would prematurely re-open
+      // the SESSION_STATS late-event filter for sibling tiles still mid-
+      // reload. The conversation registry is the single source of truth
+      // (per C1) so we do NOT duplicate per-tab pinning.
+      let pending = reloadIds.size;
+      const onSettle = (): void => {
+        pending -= 1;
+        if (pending > 0) return;
+        // TASK_2026_109_FOLLOWUP — clear inFlight only after every reload
+        // settles. From this point the 2s `lastCompactionAt` grace window
+        // in `isLateAfterCompaction` covers any final tail events that
+        // race the settle.
+        this.clearCompactionStateForFanout(fanoutTabs);
+      };
+      for (const sid of reloadIds) {
+        this.sessionLoader
+          .switchSession(sid)
+          .catch((err) => {
+            console.warn(
+              '[ChatStore] Failed to reload session after compaction:',
+              err,
+            );
+          })
+          .finally(onSettle);
+      }
+    } else {
+      // Tab was closed mid-compaction. Drop the in-flight flag so any
+      // surviving conversation-bound siblings don't keep the banner up.
+      this.clearCompactionState(result.tabId);
+    }
+  }
+
+  /**
+   * TASK_2026_109_FOLLOWUP N1 — clear conversation-level inFlight for the
+   * union of conversations covered by the fan-out tab list. Per C1, the
+   * conversation registry is the single source of truth, so de-duping by
+   * conversation id (not tab id) avoids redundant writes when multiple
+   * tiles share the same conversation binding.
+   */
+  private clearCompactionStateForFanout(
+    fanoutTabs: ReadonlyArray<{ id: string }>,
+  ): void {
+    const convIds = this.collectConversationIdsForTabs(
+      fanoutTabs.map((t) => t.id as TabId),
+    );
+    if (convIds.length === 0) {
+      // No conversation bindings yet — fall back to the per-tab clear which
+      // also handles the "no binding" case via the sweep path.
+      for (const t of fanoutTabs) this.clearCompactionState(t.id);
+      return;
+    }
+    for (const convId of convIds) {
+      this.conversationRegistry.setCompactionState(convId, { inFlight: false });
     }
   }
 

@@ -122,17 +122,34 @@ function compactionComplete(
  * the mock exposes both as signals plus a `_emitClosedTab` test helper.
  */
 function makeTabManagerMock(
-  initialTabs: { id: string; claudeSessionId: string | null }[] = [],
+  initialTabs: {
+    id: string;
+    claudeSessionId: string | null;
+    lastActivityAt?: number;
+  }[] = [],
 ) {
   const tabsSignal =
-    signal<{ id: string; claudeSessionId: string | null }[]>(initialTabs);
+    signal<
+      { id: string; claudeSessionId: string | null; lastActivityAt?: number }[]
+    >(initialTabs);
   const closedTabSignal = signal<ClosedTabEvent | null>(null);
+  // TASK_2026_109_FOLLOWUP_QUESTIONS Q2 — router reads activeTabId() as a
+  // last-resort fallback in pickMostRecentlyActiveTab. Default null (no
+  // active tab) — tests opt in via _setActiveTabId.
+  const activeTabIdSignal = signal<string | null>(null);
   return {
     tabs: tabsSignal.asReadonly(),
     closedTab: closedTabSignal.asReadonly(),
-    _setTabs: (next: { id: string; claudeSessionId: string | null }[]) =>
-      tabsSignal.set(next),
+    activeTabId: activeTabIdSignal.asReadonly(),
+    _setTabs: (
+      next: {
+        id: string;
+        claudeSessionId: string | null;
+        lastActivityAt?: number;
+      }[],
+    ) => tabsSignal.set(next),
     _emitClosedTab: (evt: ClosedTabEvent) => closedTabSignal.set(evt),
+    _setActiveTabId: (id: string | null) => activeTabIdSignal.set(id),
   };
 }
 
@@ -151,6 +168,21 @@ function makePermissionHandlerMock() {
     promptId: string;
     decidingTabId: string | null;
   } | null>(null);
+  // TASK_2026_109_FOLLOWUP_QUESTIONS — question-side mock state. Mirrors the
+  // permission-side signature so the router can resolve / cancel /
+  // refresh question targets through the same indirection.
+  const questionTargets = new Map<string, readonly string[]>();
+  const questionResponses: { id: string; answers: Record<string, string> }[] =
+    [];
+  const questionList = signal<
+    {
+      id: string;
+      sessionId?: string;
+      tabId?: string;
+      question: string;
+      options: { value: string; label: string }[];
+    }[]
+  >([]);
   return {
     attachPromptTargets: jest.fn(
       (promptId: string, tabIds: readonly string[]) => {
@@ -172,12 +204,75 @@ function makePermissionHandlerMock() {
         targets.delete(response.id);
       },
     ),
+    // TASK_2026_109_FOLLOWUP_QUESTIONS — question-side surface used by the
+    // router for Q2/Q6/Q7/Q10.
+    attachQuestionTargets: jest.fn(
+      (questionId: string, tabIds: readonly string[]) => {
+        if (tabIds.length === 0) return;
+        questionTargets.set(questionId, [...tabIds]);
+      },
+    ),
+    questionTargetTabsFor: jest.fn(
+      (questionId: string) => questionTargets.get(questionId) ?? [],
+    ),
+    clearQuestionTargets: jest.fn((questionId: string) => {
+      questionTargets.delete(questionId);
+    }),
+    cancelQuestion: jest.fn(
+      (questionId: string, _exceptTabId: string | null) => {
+        questionTargets.delete(questionId);
+        questionList.update((reqs) => reqs.filter((r) => r.id !== questionId));
+      },
+    ),
+    handleQuestionResponse: jest.fn(
+      (response: { id: string; answers: Record<string, string> }) => {
+        questionResponses.push({ ...response });
+        questionTargets.delete(response.id);
+        questionList.update((reqs) => reqs.filter((r) => r.id !== response.id));
+      },
+    ),
+    questionRequests: questionList.asReadonly(),
     decisionPulse: pulseSignal.asReadonly(),
     _emitDecision: (promptId: string, decidingTabId: string | null, seq = 1) =>
       pulseSignal.set({ seq, promptId, decidingTabId }),
     _cancelled: cancelled,
     _responses: responses,
     _targets: targets,
+    _questionTargets: questionTargets,
+    _questionResponses: questionResponses,
+    _setQuestions: (
+      next: {
+        id: string;
+        sessionId?: string;
+        tabId?: string;
+        question: string;
+        options: { value: string; label: string }[];
+      }[],
+    ) => questionList.set(next),
+  };
+}
+
+// TASK_2026_109_FOLLOWUP_QUESTIONS — minimal AskUserQuestionRequest factory.
+// Mirrors the shared/AskUserQuestionRequest shape but only fills the fields
+// the router reads (`id`, `sessionId`, `tabId`).
+function makeQuestion(overrides: {
+  id: string;
+  sessionId?: string;
+  tabId?: string;
+}): {
+  id: string;
+  sessionId?: string;
+  tabId?: string;
+  question: string;
+  options: { value: string; label: string }[];
+} {
+  return {
+    question: 'pick one',
+    options: [
+      { value: 'a', label: 'A' },
+      { value: 'b', label: 'B' },
+    ],
+    ...overrides,
   };
 }
 
@@ -550,6 +645,230 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
         'perm-headless',
         null,
       );
+    });
+  });
+
+  // =============================================================================
+  // TASK_2026_109_FOLLOWUP_QUESTIONS — AskUserQuestion routing hardening
+  // =============================================================================
+
+  describe('routeQuestionPrompt — Q2 stale-tabId fallback', () => {
+    it('Q2: when question.tabId is stale (closed), targets fall back to most-recently-active bound tab', () => {
+      const tabA = newTabId();
+      const tabB = newTabId();
+      // Both tabs bound to SESSION_A; tabB has the most recent activity stamp.
+      router.onTabCreated(tabA, SESSION_A);
+      router.routeStreamEvent(textDelta(SESSION_A), tabB);
+      tabManager._setTabs([
+        {
+          id: tabA as unknown as string,
+          claudeSessionId: SESSION_A as unknown as string,
+          lastActivityAt: 100,
+        },
+        {
+          id: tabB as unknown as string,
+          claudeSessionId: SESSION_A as unknown as string,
+          lastActivityAt: 500,
+        },
+      ]);
+
+      // Stale originator id — neither tabA nor tabB.
+      const q = makeQuestion({
+        id: 'q-stale',
+        sessionId: SESSION_A as unknown as string,
+        tabId: 'tab-already-closed',
+      });
+
+      const targets = router.routeQuestionPrompt(q);
+
+      // Most-recent (tabB) wins; we must NOT broadcast to both (that's the
+      // duplicate-card regression Q2 explicitly prevents).
+      expect(targets).toEqual([tabB]);
+      expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+        'q-stale',
+        [tabB],
+      );
+    });
+
+    it('Q2: when question.tabId matches a bound tab, targets narrow to that single tab', () => {
+      const tabA = newTabId();
+      const tabB = newTabId();
+      router.onTabCreated(tabA, SESSION_A);
+      router.routeStreamEvent(textDelta(SESSION_A), tabB);
+
+      const q = makeQuestion({
+        id: 'q-narrow',
+        sessionId: SESSION_A as unknown as string,
+        tabId: tabA as unknown as string,
+      });
+
+      const targets = router.routeQuestionPrompt(q);
+
+      expect(targets).toEqual([tabA]);
+    });
+
+    it('Q2: when question.tabId is missing entirely (legacy payload), targets broadcast to all bound tabs', () => {
+      const tabA = newTabId();
+      const tabB = newTabId();
+      router.onTabCreated(tabA, SESSION_A);
+      router.routeStreamEvent(textDelta(SESSION_A), tabB);
+
+      const q = makeQuestion({
+        id: 'q-legacy',
+        sessionId: SESSION_A as unknown as string,
+      });
+
+      const targets = router.routeQuestionPrompt(q);
+
+      expect(new Set(targets)).toEqual(new Set([tabA, tabB]));
+    });
+  });
+
+  describe('refreshQuestionTargetsForSession — Q6 SESSION_ID_RESOLVED rebind', () => {
+    it('Q6: re-resolves targets for pending questions whose router targets were empty', () => {
+      const tabA = newTabId();
+
+      // Question arrives BEFORE the tab is bound to SESSION_A — router can't
+      // resolve targets, list stays empty.
+      const q = makeQuestion({
+        id: 'q-rebind',
+        sessionId: SESSION_A as unknown as string,
+      });
+      permissionHandler._setQuestions([q]);
+      expect(permissionHandler.questionTargetTabsFor('q-rebind')).toEqual([]);
+
+      // Now SESSION_A binds to tabA (e.g. SESSION_ID_RESOLVED arrived).
+      router.onTabCreated(tabA, SESSION_A);
+
+      router.refreshQuestionTargetsForSession(SESSION_A);
+
+      // Refresh path clears stale (empty) targets first, then re-attaches.
+      expect(permissionHandler.clearQuestionTargets).toHaveBeenCalledWith(
+        'q-rebind',
+      );
+      expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+        'q-rebind',
+        [tabA],
+      );
+    });
+
+    it('Q6: skips questions whose targets are already resolved (avoids stomping fresh resolution)', () => {
+      const tabA = newTabId();
+      router.onTabCreated(tabA, SESSION_A);
+
+      const q = makeQuestion({
+        id: 'q-already-resolved',
+        sessionId: SESSION_A as unknown as string,
+      });
+      permissionHandler._setQuestions([q]);
+      // Pre-seed a target list — this simulates the router having already
+      // resolved targets earlier.
+      permissionHandler.attachQuestionTargets('q-already-resolved', [
+        tabA as unknown as string,
+      ]);
+      permissionHandler.attachQuestionTargets.mockClear();
+      permissionHandler.clearQuestionTargets.mockClear();
+
+      router.refreshQuestionTargetsForSession(SESSION_A);
+
+      expect(permissionHandler.clearQuestionTargets).not.toHaveBeenCalled();
+      expect(permissionHandler.attachQuestionTargets).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('compaction_complete — Q7 stale-target refresh', () => {
+    it('Q7: re-resolves targets when compaction_complete fires and existing targets are stale', () => {
+      const tabA = newTabId();
+      const tabB = newTabId();
+      // Both tabs bound to SESSION_A.
+      router.onTabCreated(tabA, SESSION_A);
+      router.routeStreamEvent(textDelta(SESSION_A), tabB);
+
+      // Pending question with a stale target (refers to a tab no longer bound).
+      const q = makeQuestion({
+        id: 'q-compact',
+        sessionId: SESSION_A as unknown as string,
+      });
+      permissionHandler._setQuestions([q]);
+      permissionHandler.attachQuestionTargets('q-compact', [
+        'tab-stale-removed-from-binding',
+      ]);
+      permissionHandler.attachQuestionTargets.mockClear();
+      permissionHandler.clearQuestionTargets.mockClear();
+
+      // compaction_complete on a tab that's bound to SESSION_A's conversation.
+      router.routeStreamEvent(compactionComplete(SESSION_A), tabA);
+
+      expect(permissionHandler.clearQuestionTargets).toHaveBeenCalledWith(
+        'q-compact',
+      );
+      expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+        'q-compact',
+        expect.arrayContaining([tabA, tabB]),
+      );
+    });
+  });
+
+  describe('Q8 — surface-only auto-resolve race', () => {
+    it('Q8: defers no-tabs / no-surfaces auto-resolve via microtask; re-checks tabsForSession before resolving', async () => {
+      const tabA = newTabId();
+      const q = makeQuestion({
+        id: 'q-race',
+        sessionId: SESSION_A as unknown as string,
+      });
+
+      // No tabs/surfaces bound yet — router should defer instead of
+      // immediately auto-resolving.
+      const targets = router.routeQuestionPrompt(q);
+      expect(targets).toEqual([]);
+      expect(permissionHandler.handleQuestionResponse).not.toHaveBeenCalled();
+
+      // Bind tab BEFORE the microtask drains — simulates the tile-bootstrap
+      // race the fix targets.
+      router.onTabCreated(tabA, SESSION_A);
+
+      // Drain microtasks.
+      await Promise.resolve();
+
+      // Microtask should have re-resolved targets for tabA, NOT auto-resolved.
+      expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+        'q-race',
+        [tabA],
+      );
+      expect(permissionHandler.handleQuestionResponse).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cancelPendingQuestionOnOtherTabs — Q10', () => {
+    it('Q10: excludes the deciding tab and cancels the question on the others', () => {
+      const tabA = newTabId();
+      const tabB = newTabId();
+      router.onTabCreated(tabA, SESSION_A);
+      router.routeStreamEvent(textDelta(SESSION_A), tabB);
+
+      // Seed targets directly (router would have done this on routeQuestionPrompt
+      // for a legacy / no-tabId payload).
+      permissionHandler.attachQuestionTargets('q-decide', [
+        tabA as unknown as string,
+        tabB as unknown as string,
+      ]);
+
+      const cancelOn = router.cancelPendingQuestionOnOtherTabs(
+        'q-decide',
+        tabA,
+      );
+
+      expect(cancelOn).toEqual([tabB]);
+      expect(permissionHandler.cancelQuestion).toHaveBeenCalledWith(
+        'q-decide',
+        tabA as unknown as string,
+      );
+    });
+
+    it('Q10: is a no-op when no targets are resolved for the question', () => {
+      const result = router.cancelPendingQuestionOnOtherTabs('q-orphan', null);
+      expect(result).toEqual([]);
+      expect(permissionHandler.cancelQuestion).not.toHaveBeenCalled();
     });
   });
 });

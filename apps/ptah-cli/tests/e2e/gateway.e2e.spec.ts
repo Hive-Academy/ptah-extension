@@ -12,7 +12,7 @@
  *
  *   One-shot subcommand dispatching would work, but the `ptah gateway`
  *   subcommand group has not yet been added to `apps/ptah-cli/src/cli/router.ts`
- *   as of the HERMES scaffold.
+ *   as of the Thoth hub work.
  *
  *   A direct in-process integration test (instantiating GatewayService with a
  *   fake IMessagingAdapter without the CLI) is also feasible but requires

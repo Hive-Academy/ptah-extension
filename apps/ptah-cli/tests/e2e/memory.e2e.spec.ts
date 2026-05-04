@@ -26,8 +26,8 @@
  *   6. runner.shutdown() + tmp.cleanup().
  *
  * Prerequisite: `ptah memory list|stats|search|get|pin|forget` CLI subcommands
- * added to `apps/ptah-cli/src/cli/router.ts` (not yet present as of HERMES
- * scaffold).
+ * added to `apps/ptah-cli/src/cli/router.ts` (not yet present as of the
+ * Thoth hub work).
  */
 
 describe.skip('memory curator e2e (TASK_2026_HERMES Track 1 — requires real compaction)', () => {

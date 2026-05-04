@@ -138,13 +138,23 @@ describe('SessionStatsAggregatorService', () => {
     expect(clearCompactionStateMock).toHaveBeenCalledWith('tab-1');
   });
 
-  it('falls back to active tab when sessionId lookup fails (warns)', () => {
+  // TASK_2026_109_FOLLOWUP N7 — drop active-tab fallback. Was: fall back
+  // to activeTab when findTabsBySessionId returned empty. Now: warn and
+  // drop the event so foreign-session stats cannot pollute the active tab
+  // during a tab switch.
+  it('N7 — drops the event without active-tab fallback when no tab is bound', () => {
     findTabsBySessionIdMock.mockReturnValue([]);
     service.handleSessionStats({ ...baseStats, sessionId: 'unknown' });
     expect(warn).toHaveBeenCalledWith(
-      '[ChatStore] handleSessionStats: findTabBySessionId failed, fell back to activeTab',
-      { sessionId: 'unknown', activeTabId: 'tab-1' },
+      '[ChatStore] handleSessionStats: no tab bound to sessionId, dropping event',
+      { sessionId: 'unknown' },
     );
+    // None of the downstream side-effects fire — the event is fully dropped.
+    expect(setLiveModelStatsAndUsageListMock).not.toHaveBeenCalled();
+    expect(setPreloadedStatsMock).not.toHaveBeenCalled();
+    expect(streamHandleStatsMock).not.toHaveBeenCalled();
+    expect(loadSessionsMock).not.toHaveBeenCalled();
+    expect(clearCompactionStateMock).not.toHaveBeenCalled();
   });
 
   describe('primary-model selection', () => {
@@ -339,6 +349,141 @@ describe('SessionStatsAggregatorService', () => {
         '[ChatStore] handleSessionStats: dropped late event after compaction',
         expect.objectContaining({ sessionId: 'sess-1' }),
       );
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // TASK_2026_109_FOLLOWUP N2 — extend cumulative-fallback skip rule to
+  // non-compacted sessions when the cumulative sum exceeds contextWindow.
+  // Long sessions on third-party providers (OpenRouter, Moonshot, Ollama)
+  // never emit `lastTurnContextTokens`, so the cumulative input + output +
+  // cacheRead can climb past contextWindow and produce 1000%+ CTX badges.
+  // ------------------------------------------------------------------
+  describe('N2 — skip cumulative-fallback when cumulative > contextWindow', () => {
+    it('drops the live-stats update without compaction when cumulative exceeds the window', () => {
+      // No lastTurnContextTokens, no compaction history — only the new
+      // "cumulative > window" rule should engage.
+      service.handleSessionStats({
+        ...baseStats,
+        modelUsage: [
+          {
+            model: 'openrouter/long-context',
+            inputTokens: 150_000,
+            outputTokens: 60_000,
+            cacheReadInputTokens: 20_000,
+            contextWindow: 200_000,
+            costUSD: 0.5,
+          },
+        ],
+      });
+      // 150k + 20k + 60k = 230k > 200k window → skip.
+      expect(setLiveModelStatsAndUsageListMock).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        '[ChatStore] handleSessionStats: skipped post-compaction cumulative-fallback update',
+        expect.any(Object),
+      );
+    });
+
+    it('still publishes live stats when cumulative is within the window', () => {
+      service.handleSessionStats({
+        ...baseStats,
+        modelUsage: [
+          {
+            model: 'openrouter/long-context',
+            inputTokens: 50_000,
+            outputTokens: 10_000,
+            cacheReadInputTokens: 5_000,
+            contextWindow: 200_000,
+            costUSD: 0.5,
+          },
+        ],
+      });
+      // 50k + 5k + 10k = 65k ≤ 200k → publish.
+      expect(setLiveModelStatsAndUsageListMock).toHaveBeenCalledTimes(1);
+      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      expect((liveStats as { contextUsed: number }).contextUsed).toBe(65_000);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // TASK_2026_109_FOLLOWUP N5 — sticky primary model. Prefer the tab's
+  // sessionModel over the cost-based pickPrimaryModel when sessionModel is
+  // present in the modelUsage array. Stops Haiku-via-subagent bursts from
+  // visibly flipping the displayed primary model away from the user's pick.
+  // ------------------------------------------------------------------
+  describe('N5 — sticky primary model by sessionModel', () => {
+    it('prefers tab sessionModel over the higher-cost cost-based pick', () => {
+      tabs = [
+        makeTab({
+          claudeSessionId: 'sess-1',
+          // The user picked Opus for this session.
+          sessionModel: 'claude-opus-4',
+        } as Partial<TabState>),
+      ];
+      findTabsBySessionIdMock.mockImplementation((sid: string) =>
+        tabs.filter((t) => t.claudeSessionId === sid),
+      );
+
+      service.handleSessionStats({
+        ...baseStats,
+        modelUsage: [
+          // Subagent burst: Haiku out-bills Opus this turn.
+          {
+            model: 'claude-haiku',
+            inputTokens: 100,
+            outputTokens: 100,
+            contextWindow: 200_000,
+            costUSD: 5.0,
+            lastTurnContextTokens: 1000,
+          },
+          {
+            model: 'claude-opus-4',
+            inputTokens: 50,
+            outputTokens: 50,
+            contextWindow: 200_000,
+            costUSD: 1.0,
+            lastTurnContextTokens: 500,
+          },
+        ],
+      });
+      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      expect((liveStats as { model: string }).model).toBe('claude-opus-4');
+    });
+
+    it('falls back to cost-based primary when sessionModel is absent from modelUsage', () => {
+      tabs = [
+        makeTab({
+          claudeSessionId: 'sess-1',
+          sessionModel: 'claude-opus-4',
+        } as Partial<TabState>),
+      ];
+      findTabsBySessionIdMock.mockImplementation((sid: string) =>
+        tabs.filter((t) => t.claudeSessionId === sid),
+      );
+
+      service.handleSessionStats({
+        ...baseStats,
+        modelUsage: [
+          {
+            model: 'claude-haiku',
+            inputTokens: 100,
+            outputTokens: 100,
+            contextWindow: 200_000,
+            costUSD: 5.0,
+          },
+          {
+            model: 'claude-sonnet',
+            inputTokens: 50,
+            outputTokens: 50,
+            contextWindow: 200_000,
+            costUSD: 1.0,
+          },
+        ],
+      });
+      const [, liveStats] = setLiveModelStatsAndUsageListMock.mock.calls[0];
+      // sessionModel ("claude-opus-4") is not in modelUsage, so the
+      // cost-based heuristic wins (haiku has the highest costUSD).
+      expect((liveStats as { model: string }).model).toBe('claude-haiku');
     });
   });
 

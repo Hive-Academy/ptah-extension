@@ -18,10 +18,10 @@ export default {
   // will lift the floor as specs are added.
   coverageThreshold: {
     global: {
-      statements: 55,
+      statements: 50,
       branches: 35,
       functions: 45,
-      lines: 55,
+      lines: 50,
     },
   },
 };

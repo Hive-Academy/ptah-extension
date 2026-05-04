@@ -379,9 +379,27 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       });
   }
 
+  /**
+   * Create a `canUseTool` callback bound to a routing context.
+   *
+   * @param sessionId - Session/routing ID used to address the originating
+   *   conversation. For the main interactive path this is the frontend tabId
+   *   (see `sdk-query-options-builder.ts` — `routingId = tabId ?? sessionId`),
+   *   so it is also a valid `tabId` for AskUserQuestion routing. For CLI
+   *   sub-agent / Ptah CLI registry paths this is the real SDK session UUID
+   *   and may NOT be a tab — pass `tabId` explicitly when the originating tab
+   *   is known.
+   * @param cliAgentResolver - Optional resolver that maps the active call to a
+   *   CLI agent ID for agent-monitor routing.
+   * @param tabId - Authoritative frontend tab ID. When provided, this is
+   *   stamped onto AskUserQuestion broadcasts so the frontend stream router
+   *   can narrow to the originating tab instead of broadcasting to every tab
+   *   bound to the conversation. TASK_2026_109_FOLLOWUP_QUESTIONS.
+   */
   createCallback(
     sessionId?: string,
     cliAgentResolver?: () => string | undefined,
+    tabId?: string,
   ): CanUseTool {
     return async (
       toolName: string,
@@ -444,6 +462,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           options.toolUseID,
           sessionId,
           options.signal,
+          tabId,
         );
       }
 
@@ -817,6 +836,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     toolUseId: string,
     sessionId?: string,
     signal?: AbortSignal,
+    tabId?: string,
   ): Promise<PermissionResult> {
     if (!isAskUserQuestionToolInput(input)) {
       this.logger.warn('[SdkPermissionHandler] Invalid AskUserQuestion input', {
@@ -831,6 +851,15 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     const requestId = generateRequestId();
     const now = Date.now();
 
+    // TASK_2026_109_FOLLOWUP_QUESTIONS — Always stamp `tabId` when we have a
+    // routing identity. Prefer the explicit `tabId` argument; fall back to
+    // `sessionId` because the main session path passes `routingId` (which is
+    // the frontend tabId — see `sdk-query-options-builder.ts`). The frontend
+    // stream router uses tabId to narrow question delivery to the originating
+    // tab; missing tabId causes the regression where the question card
+    // appears on every tile bound to the conversation.
+    const resolvedTabId = tabId ?? sessionId;
+
     const request: AskUserQuestionRequest = {
       id: requestId,
       toolName: 'AskUserQuestion',
@@ -839,8 +868,19 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       timestamp: now,
       timeoutAt: 0,
       sessionId,
-      tabId: sessionId,
+      tabId: resolvedTabId,
     };
+
+    if (!request.tabId) {
+      // Genuinely no originating tab (sub-agent / CLI flow with no UI).
+      // Frontend will fall back to broadcasting to every tab bound to the
+      // session — surface this so it's traceable when users report the
+      // "question on every tile" symptom in production.
+      this.logger.warn(
+        '[SdkPermissionHandler] AskUserQuestion emitted without tabId — frontend will fall back to all tabs bound to session',
+        { questionId: request.id, sessionId: request.sessionId },
+      );
+    }
 
     this.logger.info('[SdkPermissionHandler] Sending AskUserQuestion request', {
       requestId,
@@ -888,6 +928,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       signal,
       sessionId,
       input.questions,
+      resolvedTabId,
     );
 
     if (!response) {
@@ -976,6 +1017,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     signal?: AbortSignal,
     sessionId?: string,
     questions?: QuestionItem[],
+    tabId?: string,
   ): Promise<AskUserQuestionResponse | null> {
     return new Promise<AskUserQuestionResponse | null>((resolve) => {
       if (signal?.aborted) {
@@ -1020,7 +1062,10 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
             ?.sendMessage(
               'ptah.main',
               MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED,
-              { id: requestId, answers, sessionId },
+              // TASK_2026_109_FOLLOWUP_QUESTIONS — stamp tabId so the
+              // auto-resolution lands on the originating tab, mirroring the
+              // routing applied to the original AskUserQuestion request.
+              { id: requestId, answers, sessionId, tabId },
             )
             .catch((error) => {
               this.logger.error(

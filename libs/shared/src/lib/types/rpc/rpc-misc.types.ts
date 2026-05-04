@@ -171,6 +171,13 @@ export interface LicenseGetStatusResponse {
     firstName: string | null;
     lastName: string | null;
   };
+  /**
+   * Defensive expiry warning surfaced when daysRemaining indicates an upcoming
+   * lapse. 'critical' = < 7 days, 'near_expiry' = < 14 days, null/undefined =
+   * no warning. Computed client-side in mapLicenseStatusToResponse so CLI/UI
+   * can render warnings even when the server omits expiry context.
+   */
+  expiryWarning?: 'near_expiry' | 'critical' | null;
 }
 
 /** Parameters for license:setKey RPC method */

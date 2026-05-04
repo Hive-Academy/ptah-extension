@@ -23,10 +23,18 @@ import type {
   LlmGetProviderBaseUrlResponse,
   LlmClearProviderBaseUrlParams,
   LlmClearProviderBaseUrlResponse,
+  LlmGetProviderStatusEntry,
+  LlmGetProviderStatusResponse,
+  LlmProviderAuthMode,
 } from '@ptah-extension/shared';
 import type { IModelDiscovery } from '@ptah-extension/platform-core';
 import type { RpcMethodName } from '@ptah-extension/shared';
-import { getProviderBaseUrl as getRegistryProviderBaseUrl } from '@ptah-extension/agent-sdk';
+import {
+  getProviderBaseUrl as getRegistryProviderBaseUrl,
+  ANTHROPIC_PROVIDERS,
+  ANTHROPIC_DIRECT_PROVIDER_ID,
+  type AnthropicProvider,
+} from '@ptah-extension/agent-sdk';
 
 /** Secret storage key prefix for provider API keys */
 const API_KEY_PREFIX = 'ptah.apiKey';
@@ -64,8 +72,66 @@ const PROVIDER_INFO: Record<string, ProviderInfo> = {
   },
 };
 
-/** Providers shown in the status UI */
-const STATUS_PROVIDERS = ['anthropic', 'openrouter'];
+/**
+ * Build the per-provider status entry list.
+ *
+ * Iterates the full ANTHROPIC_PROVIDERS registry plus the virtual
+ * `anthropic` direct provider so callers see every available provider, not
+ * just the legacy `['anthropic', 'openrouter']` pair. Each entry surfaces:
+ *   - authType: derived from registry (`apiKey` is the default when undefined)
+ *               — except `anthropic`, which is `'cli'` when the user picked
+ *               authMethod=claudeCli/claude-cli, otherwise `'apiKey'`.
+ *   - hasApiKey: secretStorage presence — only meaningful for apiKey providers
+ *   - baseUrl: registry default OR per-provider override at
+ *              `provider.<id>.baseUrl` in ~/.ptah/settings.json
+ *   - baseUrlOverridden: true iff the override is set
+ */
+function buildStatusProviderList(): Array<{
+  id: string;
+  displayName: string;
+  authTypeDefault: LlmProviderAuthMode;
+  requiresProxy: boolean;
+  isLocal: boolean;
+  defaultBaseUrl: string | null;
+}> {
+  const entries: Array<{
+    id: string;
+    displayName: string;
+    authTypeDefault: LlmProviderAuthMode;
+    requiresProxy: boolean;
+    isLocal: boolean;
+    defaultBaseUrl: string | null;
+  }> = [
+    // Virtual "Anthropic Direct" entry — not in the registry but surfaced
+    // so users see the route they hit when auth = direct API key.
+    {
+      id: ANTHROPIC_DIRECT_PROVIDER_ID,
+      displayName:
+        PROVIDER_INFO[ANTHROPIC_DIRECT_PROVIDER_ID]?.displayName ??
+        'Anthropic (Claude)',
+      authTypeDefault: 'apiKey',
+      requiresProxy: false,
+      isLocal: false,
+      defaultBaseUrl: null,
+    },
+  ];
+
+  // Widen the per-entry type to the registry's interface so optional fields
+  // (`authType`, `requiresProxy`, `isLocal`) on entries that omit them
+  // narrow to `undefined` instead of being absent at the type level.
+  const registry: readonly AnthropicProvider[] = ANTHROPIC_PROVIDERS;
+  for (const p of registry) {
+    entries.push({
+      id: p.id,
+      displayName: p.name,
+      authTypeDefault: (p.authType ?? 'apiKey') as LlmProviderAuthMode,
+      requiresProxy: p.requiresProxy === true,
+      isLocal: p.isLocal === true,
+      defaultBaseUrl: p.baseUrl,
+    });
+  }
+  return entries;
+}
 
 /**
  * RPC handlers for LLM provider operations (platform-agnostic)
@@ -162,10 +228,14 @@ export class LlmRpcHandlers {
   }
 
   /**
-   * llm:getProviderStatus - Get status of all LLM providers (without exposing API keys)
+   * llm:getProviderStatus - Get status of all LLM providers (without exposing API keys).
+   *
+   * Returns the full registry, not the legacy `['anthropic', 'openrouter']`
+   * pair. Each entry includes auth mode (apiKey/oauth/cli/none), proxy +
+   * locality flags, and the resolved base URL with override status.
    */
   private registerGetProviderStatus(): void {
-    this.rpcHandler.registerMethod<void, unknown>(
+    this.rpcHandler.registerMethod<void, LlmGetProviderStatusResponse>(
       'llm:getProviderStatus',
       async () => {
         try {
@@ -176,17 +246,52 @@ export class LlmRpcHandlers {
           const defaultProvider =
             configManager.get<string>('llm.defaultProvider') ?? 'anthropic';
 
-          const providers = await Promise.all(
-            STATUS_PROVIDERS.map(async (provider) => {
-              const key = await secretStorage.get(
-                `${API_KEY_PREFIX}.${provider}`,
+          // authMethod drives the virtual `anthropic` entry's authType:
+          // 'claudeCli' / 'claude-cli' → 'cli' (no key needed), else 'apiKey'.
+          const rawAuthMethod = configManager.get<string>('authMethod');
+          const isClaudeCli =
+            rawAuthMethod === 'claudeCli' || rawAuthMethod === 'claude-cli';
+
+          const catalogue = buildStatusProviderList();
+
+          const providers: LlmGetProviderStatusEntry[] = await Promise.all(
+            catalogue.map(async (entry) => {
+              const overrideRaw = configManager.get<string>(
+                `provider.${entry.id}.baseUrl`,
               );
-              const info = PROVIDER_INFO[provider];
+              const override =
+                typeof overrideRaw === 'string' && overrideRaw.trim().length > 0
+                  ? overrideRaw.trim()
+                  : null;
+
+              const baseUrlOverridden = override !== null;
+              const baseUrl = override ?? entry.defaultBaseUrl;
+
+              // Resolve auth type — virtual anthropic entry honors authMethod.
+              let authType: LlmProviderAuthMode = entry.authTypeDefault;
+              if (entry.id === ANTHROPIC_DIRECT_PROVIDER_ID && isClaudeCli) {
+                authType = 'cli';
+              }
+
+              // hasApiKey is only meaningful when authType === 'apiKey'.
+              let hasApiKey = false;
+              if (authType === 'apiKey') {
+                const stored = await secretStorage.get(
+                  `${API_KEY_PREFIX}.${entry.id}`,
+                );
+                hasApiKey = !!stored;
+              }
+
               return {
-                name: provider,
-                displayName: info.displayName,
-                hasApiKey: !!key,
-                isDefault: provider === defaultProvider,
+                name: entry.id,
+                displayName: entry.displayName,
+                hasApiKey,
+                isDefault: entry.id === defaultProvider,
+                authType,
+                requiresProxy: entry.requiresProxy,
+                isLocal: entry.isLocal,
+                baseUrl,
+                baseUrlOverridden,
               };
             }),
           );
@@ -201,7 +306,7 @@ export class LlmRpcHandlers {
             error instanceof Error ? error : new Error(String(error)),
             { errorSource: 'LlmRpcHandlers.registerGetProviderStatus' },
           );
-          return { providers: [] };
+          return { providers: [], defaultProvider: 'anthropic' };
         }
       },
     );
