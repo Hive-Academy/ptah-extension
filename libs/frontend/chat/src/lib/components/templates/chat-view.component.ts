@@ -68,6 +68,32 @@ import type { SubagentRecord } from '@ptah-extension/shared';
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 
 /**
+ * Compaction noise filter — hides post-compaction user messages that the
+ * Claude SDK emits as side-effects of `/compact`:
+ *  1. The slash-command echo (`/compact ...`)
+ *  2. The ANSI-wrapped hook status (`[2mCompacted PreCompact … completed successfully[22m`)
+ * The continuation summary itself ("This session is being continued …") is
+ * kept and rendered collapsed by `MessageBubbleComponent`.
+ */
+function isCompactionNoiseUserMessage(msg: ExecutionChatMessage): boolean {
+  if (msg.role !== 'user') return false;
+  const raw = (msg.rawContent ?? '').trim();
+  if (!raw) return false;
+  if (/^\/compact\b/i.test(raw)) return true;
+  if (/Compacted\s+\w+\s+\[callback\]\s+completed successfully/i.test(raw)) {
+    return true;
+  }
+  return false;
+}
+
+function filterCompactionNoise(
+  msgs: readonly ExecutionChatMessage[],
+): readonly ExecutionChatMessage[] {
+  if (!msgs.some(isCompactionNoiseUserMessage)) return msgs;
+  return msgs.filter((m) => !isCompactionNoiseUserMessage(m));
+}
+
+/**
  * ChatViewComponent - Main chat view with message list and Egyptian themed welcome
  *
  * Complexity Level: 2 (Template with auto-scroll and empty state composition)
@@ -650,8 +676,9 @@ export class ChatViewComponent {
   readonly allMessages = computed((): readonly ExecutionChatMessage[] => {
     const finalized = this.resolvedMessages();
     const streaming = this.streamingMessages();
-    if (streaming.length === 0) return finalized;
-    return [...finalized, ...streaming];
+    const combined =
+      streaming.length === 0 ? finalized : [...finalized, ...streaming];
+    return filterCompactionNoise(combined);
   });
 
   /**

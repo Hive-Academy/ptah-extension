@@ -155,6 +155,24 @@ export class MessageBubbleComponent {
   readonly isCollapsed = signal(false);
 
   /**
+   * True for the user message the Claude SDK injects after `/compact`:
+   *   "This session is being continued from a previous conversation …"
+   * Rendered inside a collapsible wrapper that defaults to collapsed so the
+   * multi-screen continuation summary doesn't dominate the scrollback.
+   */
+  readonly isCompactionContinuation = computed((): boolean => {
+    const msg = this.message();
+    if (msg.role !== 'user') return false;
+    const raw = (msg.rawContent ?? '').trimStart();
+    return raw.startsWith(
+      'This session is being continued from a previous conversation',
+    );
+  });
+
+  /** Collapse state for the compaction continuation user bubble. Defaults to collapsed. */
+  readonly isContinuationCollapsed = signal(true);
+
+  /**
    * Whether the user has manually toggled collapse state.
    * Deliberately NOT a signal — the auto-collapse effect reads shouldAutoCollapse()
    * but must NOT re-trigger when userToggled changes. Using a plain boolean
@@ -248,6 +266,11 @@ export class MessageBubbleComponent {
   protected toggleCollapse(): void {
     this.userToggled = true;
     this.isCollapsed.update((v) => !v);
+  }
+
+  /** Toggle the collapsed state of the compaction-continuation user bubble. */
+  protected toggleContinuationCollapse(): void {
+    this.isContinuationCollapsed.update((v) => !v);
   }
 
   // TASK_2025_109: onResumeRequested removed - now uses context injection
