@@ -32,6 +32,13 @@ export interface Migration {
   readonly name: string;
   /** Raw SQL text — may contain multiple statements separated by semicolons. */
   readonly sql: string;
+  /**
+   * When true the migration creates `vec0` virtual tables that require the
+   * sqlite-vec extension. If the extension is not loaded the migration runner
+   * skips this migration with a warning instead of throwing, so non-vec
+   * migrations (cron, gateway) can still be applied.
+   */
+  readonly requiresVec?: boolean;
 }
 
 /**
@@ -44,8 +51,8 @@ export interface Migration {
  */
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: '0001_init', sql: sql0001Init },
-  { version: 2, name: '0002_memory', sql: sql0002Memory },
-  { version: 3, name: '0003_skills', sql: sql0003Skills },
+  { version: 2, name: '0002_memory', sql: sql0002Memory, requiresVec: true },
+  { version: 3, name: '0003_skills', sql: sql0003Skills, requiresVec: true },
   { version: 4, name: '0004_cron', sql: sql0004Cron },
   { version: 5, name: '0005_gateway', sql: sql0005Gateway },
   {

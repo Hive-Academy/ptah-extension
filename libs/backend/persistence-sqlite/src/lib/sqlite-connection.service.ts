@@ -108,6 +108,10 @@ export class SqliteConnectionService {
    * Open the database, apply pragmas, attempt to load sqlite-vec, then run
    * any pending migrations. Idempotent: a second call with an already-open
    * connection is a no-op.
+   *
+   * Migrations marked `requiresVec: true` are skipped gracefully when
+   * sqlite-vec is unavailable, so cron / gateway / basic memory operations
+   * still work even without vector search support.
    */
   async openAndMigrate(): Promise<void> {
     if (this.database?.open) {
@@ -122,7 +126,9 @@ export class SqliteConnectionService {
     this.loadVecExtension(db);
     this.database = db;
     this.migrationRunner = new SqliteMigrationRunner(db, this.logger);
-    const result = this.migrationRunner.applyAll(MIGRATIONS);
+    const result = this.migrationRunner.applyAll(MIGRATIONS, {
+      vecExtensionLoaded: this.vecLoaded,
+    });
     this.logger.info('[persistence-sqlite] openAndMigrate complete', {
       dbPath: this.dbPath,
       vecExtensionLoaded: this.vecLoaded,
