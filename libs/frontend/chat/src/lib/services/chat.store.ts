@@ -406,21 +406,6 @@ export class ChatStore {
     this.permissionHandler.dropQuestionRequest(questionId);
   }
 
-  /** Per-question routing targets resolved by `StreamRouter.routeQuestionPrompt`. */
-  questionTargetTabsFor(questionId: string): readonly string[] {
-    return this.permissionHandler.questionTargetTabsFor(questionId);
-  }
-
-  /**
-   * Drop a pending question from the UI without sending a response. Used by
-   * the backend's idle-timeout auto-resolve broadcast — backend already
-   * resolved the SDK promise with the recommended answer, so the webview
-   * just needs to clear the stale question card.
-   */
-  dropQuestionRequest(questionId: string): void {
-    this.permissionHandler.dropQuestionRequest(questionId);
-  }
-
   public queueOrAppendMessage(
     content: string,
     options?: SendMessageOptions,
