@@ -308,6 +308,124 @@ export class CliPluginSyncService {
   }
 
   /**
+   * Sync synthesized skills from ~/.ptah/skills/ to installed CLI agent directories.
+   * TASK_2026_THOTH_SKILL_LIFECYCLE
+   *
+   * Strategy: pass path.join(os.homedir(), '.ptah') as a fake plugin path so the
+   * installer scans ~/.ptah/skills/ for skill directories (installer reads pluginPath/skills/).
+   * The _candidates directory is explicitly excluded before constructing the plugin path.
+   * Non-fatal — failures never block activation.
+   *
+   * @param synthesizedSkillsRoot - Absolute path to ~/.ptah/skills/
+   * @returns Per-CLI sync status array; empty on error
+   */
+  async syncSynthesizedSkillsOnActivation(
+    synthesizedSkillsRoot: string,
+  ): Promise<CliSkillSyncStatus[]> {
+    if (!this.initialized || !this.extensionPath) {
+      this.logger.warn(
+        '[cli-plugin-sync] syncSynthesizedSkillsOnActivation called before initialize()',
+      );
+      return [];
+    }
+
+    try {
+      // Enumerate entries in the synthesized skills root to check it's non-empty
+      // and to explicitly filter _candidates (R7)
+      let entries: string[];
+      try {
+        entries = await readdir(synthesizedSkillsRoot);
+      } catch {
+        // Directory doesn't exist yet — nothing to sync
+        this.logger.debug(
+          '[CliPluginSync] Synthesized skills root does not exist, skipping',
+          { synthesizedSkillsRoot },
+        );
+        return [];
+      }
+
+      // R7: explicit exclusion of _candidates directory
+      const validEntries = entries.filter((e) => e !== '_candidates');
+      if (validEntries.length === 0) {
+        this.logger.debug(
+          '[CliPluginSync] No synthesized skills found (only _candidates or empty)',
+        );
+        return [];
+      }
+
+      // The installer scans join(pluginPath, 'skills') for skill dirs.
+      // Since synthesizedSkillsRoot IS ~/.ptah/skills/, pass ~/.ptah as the fake plugin path.
+      // The installer's accessSync(join(entryPath, 'SKILL.md')) check naturally skips
+      // _candidates (which has no SKILL.md at its root), but we guard explicitly above too.
+      const fakePtahPluginPath = join(homedir(), '.ptah');
+
+      // Detect installed CLIs
+      const installedClis = await this.getInstalledCliTargets();
+      if (installedClis.length === 0) {
+        this.logger.debug(
+          '[CliPluginSync] No supported CLIs installed, skipping synthesized skill sync',
+        );
+        return [];
+      }
+
+      this.logger.info(
+        '[CliPluginSync] Syncing synthesized skills to installed CLIs',
+        {
+          synthesizedSkillsRoot,
+          validEntryCount: validEntries.length,
+          clis: installedClis,
+        },
+      );
+
+      const results: CliSkillSyncStatus[] = [];
+
+      for (const cli of installedClis) {
+        try {
+          const installer = this.installers.get(cli);
+          if (!installer) {
+            this.logger.debug(
+              `[CliPluginSync] No installer for ${cli}, skipping synthesized sync`,
+            );
+            continue;
+          }
+
+          const status = await installer.install([fakePtahPluginPath]);
+          this.logger.info(
+            `[CliPluginSync] Synthesized skill sync result for ${cli}`,
+            {
+              synced: status.synced,
+              skillCount: status.skillCount,
+              error: status.error,
+            },
+          );
+          results.push(status);
+        } catch (error: unknown) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          this.logger.warn(
+            `[CliPluginSync] Synthesized skill sync failed for ${cli}`,
+            { error: err.message },
+          );
+          results.push({
+            cli,
+            synced: false,
+            skillCount: 0,
+            error: err.message,
+          });
+        }
+      }
+
+      return results;
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.logger.warn(
+        '[CliPluginSync] syncSynthesizedSkillsOnActivation failed (non-fatal)',
+        { error: err.message },
+      );
+      return [];
+    }
+  }
+
+  /**
    * Sync skills for a single CLI target.
    */
   private async syncForCli(

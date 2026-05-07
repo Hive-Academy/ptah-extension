@@ -138,7 +138,7 @@ export class SkillsSynthesisRpcHandlers {
         if (!id) {
           return { promoted: false, reason: 'missing-id', filePath: null };
         }
-        const decision = this.synthesis.promote(id);
+        const decision = await this.synthesis.promote(id);
         return {
           promoted: decision.promoted,
           reason: decision.reason ?? null,
