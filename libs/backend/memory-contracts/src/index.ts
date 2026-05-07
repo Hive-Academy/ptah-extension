@@ -12,4 +12,5 @@ export type {
   ResolvedMemoryDraft,
 } from './lib/curator-llm.port';
 export type { ICompactionCallbackRegistry } from './lib/compaction-callback.port';
+export type { ISymbolSink, SymbolChunkInsert } from './lib/symbol-sink.port';
 export { MEMORY_CONTRACT_TOKENS } from './lib/tokens';

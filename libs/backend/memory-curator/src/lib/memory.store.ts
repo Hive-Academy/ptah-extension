@@ -341,6 +341,21 @@ export class MemoryStore implements IMemoryLister {
     this.connection.db.prepare(`DELETE FROM memories WHERE id = ?`).run(id);
   }
 
+  /**
+   * Delete all memory rows whose subject starts with `prefix` and matches workspaceRoot.
+   * Used by CodeSymbolIndexer to clear stale file symbols before re-indexing.
+   * Returns count of deleted rows.
+   * TASK_2026_THOTH_CODE_INDEX
+   */
+  deleteBySubjectPrefix(prefix: string, workspaceRoot: string): number {
+    const result = this.connection.db
+      .prepare(
+        `DELETE FROM memories WHERE subject LIKE ? AND workspace_root IS ? AND kind = 'entity'`,
+      )
+      .run(prefix + '%', workspaceRoot);
+    return result.changes;
+  }
+
   recordHit(id: MemoryId): void {
     this.connection.db
       .prepare(

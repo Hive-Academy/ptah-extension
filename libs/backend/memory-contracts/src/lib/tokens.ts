@@ -3,4 +3,5 @@ export const MEMORY_CONTRACT_TOKENS = {
   MEMORY_LISTER: Symbol.for('PtahMemoryLister'),
   CURATOR_LLM: Symbol.for('PtahCuratorLlm'),
   COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
+  SYMBOL_SINK: Symbol.for('PtahSymbolSink'),
 } as const;

@@ -116,6 +116,13 @@ export * from './ast/ast.types';
 export * from './ast/ast-analysis.interfaces';
 export * from './ast/tree-sitter.config';
 
+// Code Symbol Indexer (TASK_2026_THOTH_CODE_INDEX)
+export {
+  CodeSymbolIndexer,
+  type CodeSymbolIndexerOptions,
+  type IndexingStats,
+} from './services/code-symbol-indexer.service';
+
 export * from './autocomplete/agent-discovery.service';
 export * from './autocomplete/command-discovery.service';
 

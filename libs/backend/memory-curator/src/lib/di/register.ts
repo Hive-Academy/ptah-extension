@@ -8,9 +8,11 @@
  *   4. MemorySearchService (depends on EMBEDDER, MEMORY_STORE)
  *   5. MemoryDecayJob (depends on MEMORY_STORE, SCORER)
  *   6. MemoryCuratorService (depends on registry, store, scorer, llm)
- *      The CURATOR_LLM is now registered by agent-sdk under
- *      SDK_TOKENS.SDK_CURATOR_LLM_ADAPTER (Symbol.for('PtahCuratorLlm'))
- *      which matches MEMORY_CONTRACT_TOKENS.CURATOR_LLM.
+ *      The CURATOR_LLM (Symbol.for('PtahCuratorLlm')) is registered by agent-sdk
+ *      under SDK_TOKENS.SDK_CURATOR_LLM_ADAPTER — NOT by this function.
+ *      registerSdkServices() MUST be called before this function (or before
+ *      MemoryCuratorService is first resolved), otherwise tsyringe will throw
+ *      a missing-token error at construction time.
  *
  * SQLite + sqlite-vec are owned by `persistence-sqlite`; this module assumes
  * `registerPersistenceSqliteServices()` has already been called.
@@ -26,6 +28,7 @@ import { MemoryStore } from '../memory.store';
 import { MemorySearchService } from '../memory-search.service';
 import { MemoryDecayJob } from '../memory-decay.job';
 import { MemoryCuratorService } from '../memory-curator.service';
+import { MemoryStoreSymbolSink } from '../symbol-sink.adapter';
 
 export function registerMemoryCuratorServices(
   container: DependencyContainer,
@@ -78,6 +81,15 @@ export function registerMemoryCuratorServices(
   container.register(
     MEMORY_TOKENS.MEMORY_CURATOR,
     { useClass: MemoryCuratorService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // TASK_2026_THOTH_CODE_INDEX: Register MemoryStoreSymbolSink under the
+  // shared ISymbolSink port token so workspace-intelligence can inject it
+  // without a direct dependency on memory-curator.
+  container.register(
+    MEMORY_CONTRACT_TOKENS.SYMBOL_SINK,
+    { useClass: MemoryStoreSymbolSink },
     { lifecycle: Lifecycle.Singleton },
   );
 

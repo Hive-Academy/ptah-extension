@@ -24,6 +24,7 @@ import { sql as sql0004Cron } from './0004_cron';
 import { sql as sql0005Gateway } from './0005_gateway';
 import { sql as sql0006GatewayPairingCode } from './0006_gateway_pairing_code';
 import { sql as sql0007FixVec0Rowid } from './0007_fix_vec0_rowid';
+import { sql as sql0008SymbolIndex } from './0008_symbol_index';
 
 export interface Migration {
   /** Monotonically increasing integer version (matches schema_migrations.version). */
@@ -64,5 +65,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 7,
     name: '0007_fix_vec0_rowid',
     sql: sql0007FixVec0Rowid,
+  },
+  {
+    version: 8,
+    name: '0008_symbol_index',
+    sql: sql0008SymbolIndex,
   },
 ];

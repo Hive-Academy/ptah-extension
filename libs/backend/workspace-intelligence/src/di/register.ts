@@ -55,6 +55,9 @@ import { CommandDiscoveryService } from '../autocomplete/command-discovery.servi
 // Quality assessment services registration (TASK_2025_141)
 import { registerQualityServices } from '../quality/di';
 
+// Code symbol indexer (TASK_2026_THOTH_CODE_INDEX)
+import { CodeSymbolIndexer } from '../services/code-symbol-indexer.service';
+
 // TASK_2025_291 Wave B (B2): AST-backed architecture rules need the
 // TreeSitterParserService. `configureArchitectureRules` is a module-level
 // setter called once during bootstrap (see Tier 6 below) to wire the
@@ -223,6 +226,17 @@ export function registerWorkspaceIntelligenceServices(
   // ============================================================
   registerQualityServices(container, logger);
 
+  // ============================================================
+  // Tier 9: Code Symbol Indexer (TASK_2026_THOTH_CODE_INDEX)
+  // Depends on: AstAnalysisService (Tier 6), WorkspaceIndexerService (Tier 3),
+  // IFileSystemProvider (platform), SYMBOL_SINK (memory-contracts token — wired
+  // by memory-curator registration, which runs before this in the host app)
+  // ============================================================
+  container.registerSingleton(
+    Symbol.for('PtahCodeSymbolIndexer'),
+    CodeSymbolIndexer,
+  );
+
   logger.info('[Workspace Intelligence] Services registered', {
     services: [
       'PATTERN_MATCHER_SERVICE',
@@ -247,6 +261,7 @@ export function registerWorkspaceIntelligenceServices(
       'DEPENDENCY_GRAPH_SERVICE',
       'AGENT_DISCOVERY_SERVICE',
       'COMMAND_DISCOVERY_SERVICE',
+      'CODE_SYMBOL_INDEXER',
       'ANTI_PATTERN_DETECTION_SERVICE',
       'CODE_QUALITY_ASSESSMENT_SERVICE',
       'PRESCRIPTIVE_GUIDANCE_SERVICE',
