@@ -220,7 +220,21 @@ To discover available Ptah CLI agents:
 2. **Continue**: Work on your main task
 3. **Check**: \`ptah_agent_status {}\` — check all agents at once
 4. **Read**: \`ptah_agent_read { agentId: "..." }\` — get results from each
-5. **Use**: Incorporate findings into your work`;
+5. **Use**: Incorporate findings into your work
+
+## Promoted Skills — ptah.skill
+
+Promoted skills are curated SKILL.md documents stored in ~/.ptah/skills/. Each skill is a directory with a SKILL.md file containing a description, usage guidance, and step-by-step instructions.
+
+### ptah.skill.list() (via execute_code)
+List all promoted skills in ~/.ptah/skills/. Returns { skills: [{ slug, description, path }] }.
+Use to discover available skills before reading their content. Returns empty array if no skills promoted yet.
+Example: const { skills } = await ptah.skill.list();
+
+### ptah.skill.describe(skillId) (via execute_code)
+Read full SKILL.md content for a promoted skill. skillId is the skill's slug (the directory name, same as the slug field from list()). Do NOT pass the path field from list() — use the slug field.
+Returns { slug, content } on success, or { error } if not found.
+Example: const info = await ptah.skill.describe('my-skill');`;
 
 export const PTAH_SYSTEM_PROMPT_TOKENS = Math.ceil(
   PTAH_SYSTEM_PROMPT.length / 4,

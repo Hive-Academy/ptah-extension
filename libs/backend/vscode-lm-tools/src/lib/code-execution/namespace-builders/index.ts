@@ -75,3 +75,11 @@ export {
   type BrowserNamespaceDependencies,
   validateBrowserUrl,
 } from './browser-namespace.builder';
+
+// Skill namespace (TASK_2026_THOTH_SKILL_LIFECYCLE - ptah.skill.list + ptah.skill.describe)
+export {
+  buildSkillNamespace,
+  type SkillNamespaceDependencies,
+  type SkillNamespace,
+  type PromotedSkillRecord,
+} from './skill-namespace.builder';
