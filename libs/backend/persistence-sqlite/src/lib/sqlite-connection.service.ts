@@ -88,7 +88,12 @@ export class SqliteConnectionService {
   constructor(
     @inject(PERSISTENCE_TOKENS.SQLITE_DB_PATH) private readonly dbPath: string,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-  ) {}
+  ) {
+    this.logger.info(
+      '[persistence-sqlite] SqliteConnectionService constructed',
+      { dbPath },
+    );
+  }
 
   /**
    * Test/integration seam — override the Database factory and (optionally)
@@ -120,12 +125,22 @@ export class SqliteConnectionService {
       );
       return;
     }
+    this.logger.info('[persistence-sqlite] Starting openAndMigrate...', {
+      dbPath: this.dbPath,
+    });
     this.ensureParentDirectory(this.dbPath);
+    this.logger.debug('[persistence-sqlite] Parent directory ensured');
     const db = this.factory(this.dbPath);
+    this.logger.debug('[persistence-sqlite] Database factory created');
     this.applyPragmas(db);
+    this.logger.debug('[persistence-sqlite] Pragmas applied');
     this.loadVecExtension(db);
+    this.logger.debug('[persistence-sqlite] Vec extension loaded (or skipped)');
     this.database = db;
     this.migrationRunner = new SqliteMigrationRunner(db, this.logger);
+    this.logger.debug(
+      '[persistence-sqlite] Migration runner created, applying migrations...',
+    );
     const result = this.migrationRunner.applyAll(MIGRATIONS, {
       vecExtensionLoaded: this.vecLoaded,
     });
@@ -176,8 +191,18 @@ export class SqliteConnectionService {
 
   private ensureParentDirectory(filePath: string): void {
     const dir = path.dirname(filePath);
+    this.logger.debug('[persistence-sqlite] ensureParentDirectory', {
+      filePath,
+      dir,
+    });
     if (filePath !== ':memory:' && !fs.existsSync(dir)) {
+      this.logger.info('[persistence-sqlite] Creating directory', { dir });
       fs.mkdirSync(dir, { recursive: true });
+      this.logger.info('[persistence-sqlite] Directory created', { dir });
+    } else {
+      this.logger.debug('[persistence-sqlite] Directory already exists', {
+        dir,
+      });
     }
   }
 
