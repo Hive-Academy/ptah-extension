@@ -85,6 +85,7 @@ Use execute_code with the \`ptah\` global object for operations only available t
 - **Structural summaries**: ptah.context.enrichFile(file) — import signatures + class outlines
 - **LSP actions**: ptah.ide.actions.organizeImports(file), ptah.ide.actions.rename(file, line, col, newName)
 - **Self-docs**: ptah.help() / ptah.help('namespace')
+- **Memory recall**: ptah.memory.search(query, maxResults?) — hybrid BM25+vector search over persistent memory from past sessions; ptah.memory.list({tier?, limit?, offset?}) — list stored memories. Call ptah.memory.search when the user references past context, prior decisions, or asks what you remember.
 
 ### Workflow: Start Every Task With Ptah
 
@@ -241,7 +242,7 @@ The Ptah extension renders your markdown with enhanced visual styling. To produc
  * Based on ~4 characters per token
  */
 export const PTAH_CORE_SYSTEM_PROMPT_TOKENS = Math.ceil(
-  PTAH_CORE_SYSTEM_PROMPT.length / 4
+  PTAH_CORE_SYSTEM_PROMPT.length / 4,
 );
 
 /**
@@ -284,6 +285,7 @@ Use execute_code with the \`ptah\` global object for operations only available t
 - **Structural summaries**: ptah.context.enrichFile(file) — import signatures + class outlines
 - **LSP actions**: ptah.ide.actions.organizeImports(file), ptah.ide.actions.rename(file, line, col, newName)
 - **Self-docs**: ptah.help() / ptah.help('namespace')
+- **Memory recall**: ptah.memory.search(query, maxResults?) — hybrid BM25+vector search over persistent memory from past sessions; ptah.memory.list({tier?, limit?, offset?}) — list stored memories. Call ptah.memory.search when the user references past context, prior decisions, or asks what you remember.
 
 ### Workflow: Start Every Task With Ptah
 

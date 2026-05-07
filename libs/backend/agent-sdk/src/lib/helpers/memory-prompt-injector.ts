@@ -15,7 +15,9 @@ import {
 } from '@ptah-extension/memory-contracts';
 
 const MAX_HITS = 5;
-const MAX_CHUNK_CHARS = 200;
+const MAX_CHUNK_CHARS = 400;
+const MIN_QUERY_LENGTH = 8;
+const MIN_SCORE = 0.05;
 
 @injectable()
 export class MemoryPromptInjector {
@@ -30,20 +32,25 @@ export class MemoryPromptInjector {
    * Returns '' when no hits, store unavailable, or any error occurs.
    */
   async buildBlock(query: string, workspaceRoot?: string): Promise<string> {
-    if (!query.trim()) return '';
+    if (query.trim().length < MIN_QUERY_LENGTH) return '';
     try {
       const result = await this.memoryReader.search(
         query,
         MAX_HITS,
         workspaceRoot,
       );
-      if (result.hits.length === 0) return '';
-      const lines = result.hits.map((h, i) => {
+      const hits = result.hits.filter((h) => h.score >= MIN_SCORE);
+      if (hits.length === 0) return '';
+      const lines = hits.map((h, i) => {
         const label = h.subject ? `[${h.subject}]` : '[memory]';
+        const raw = h.chunkText;
         const text =
-          h.chunkText.length > MAX_CHUNK_CHARS
-            ? h.chunkText.slice(0, MAX_CHUNK_CHARS) + '…'
-            : h.chunkText;
+          raw.length > MAX_CHUNK_CHARS
+            ? raw.slice(
+                0,
+                raw.lastIndexOf(' ', MAX_CHUNK_CHARS) || MAX_CHUNK_CHARS,
+              ) + '…'
+            : raw;
         return `${i + 1}. ${label}: ${text}`;
       });
       return [
