@@ -191,6 +191,13 @@ export interface ExecuteQueryConfig {
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
   /**
+   * The user's initial message text for this turn (TASK_2026_THOTH_MEMORY_READ).
+   * Used by SdkQueryOptionsBuilder to drive a memory recall search so the
+   * top-K hits are prepended to the system prompt. Only used for premium users
+   * with a non-empty query.
+   */
+  initialUserQuery?: string;
+  /**
    * Pre-warmed `WarmQuery` handle from `SdkAgentAdapter.prewarm()`. When
    * provided, the executor uses `warm.query(prompt)` for the very first
    * query of this session instead of the standard `queryFn(...)` call —

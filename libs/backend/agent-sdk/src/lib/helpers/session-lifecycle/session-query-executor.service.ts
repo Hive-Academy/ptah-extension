@@ -89,6 +89,7 @@ export class SessionQueryExecutor {
       enableFileCheckpointing,
       includePartialMessages,
       mcpServersOverride,
+      initialUserQuery,
       warmQuery,
     } = config;
 
@@ -198,6 +199,9 @@ export class SessionQueryExecutor {
         // Identity-preserved when undefined or empty — see
         // SdkQueryOptionsBuilder.mergeMcpOverride.
         mcpServersOverride,
+        // Memory recall query for system prompt injection (TASK_2026_THOTH_MEMORY_READ).
+        // Falls back gracefully when undefined or empty.
+        initialUserQuery: initialUserQuery ?? initialPrompt?.content,
         onProviderError: (stderrChunk: string) => {
           if (providerErrorAborted || abortController.signal.aborted) return;
           providerErrorAborted = true;

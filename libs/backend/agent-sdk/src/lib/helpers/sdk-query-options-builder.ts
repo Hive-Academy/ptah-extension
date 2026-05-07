@@ -17,6 +17,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { MemoryPromptInjector } from './memory-prompt-injector';
 import {
   AISessionConfig,
   AuthEnv,
@@ -386,6 +387,13 @@ export interface QueryOptionsInput {
    * byte-identical to the pre-T2 behavior.
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
+  /**
+   * The user's initial message text for this turn (TASK_2026_THOTH_MEMORY_READ).
+   * Used to drive a memory recall search so the top-K hits can be prepended to
+   * the system prompt. Only used when `isPremium === true` and the string is
+   * non-empty. Multi-turn sessions should pass the most recent user message.
+   */
+  initialUserQuery?: string;
 }
 
 /**
@@ -516,6 +524,8 @@ export class SdkQueryOptionsBuilder {
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
     private readonly modelService: SdkModelService,
+    @inject(SDK_TOKENS.SDK_MEMORY_PROMPT_INJECTOR)
+    private readonly memoryPromptInjector: MemoryPromptInjector,
   ) {}
 
   /**
@@ -558,6 +568,7 @@ export class SdkQueryOptionsBuilder {
       enableFileCheckpointing,
       includePartialMessages,
       mcpServersOverride,
+      initialUserQuery,
     } = input;
 
     // Model is required - SDK sets default in config at startup
@@ -617,11 +628,13 @@ export class SdkQueryOptionsBuilder {
     }
 
     // Build system prompt configuration
-    const systemPrompt = this.buildSystemPrompt(
+    const systemPrompt = await this.buildSystemPrompt(
       sessionConfig,
       isPremium,
       enhancedPromptsContent,
       mcpServerRunning,
+      initialUserQuery,
+      cwd,
     );
 
     // Create permission callback with tabId for UI routing (TASK_2025_187).
@@ -920,19 +933,24 @@ export class SdkQueryOptionsBuilder {
    * environment context). For premium users, appends PTAH_CORE_SYSTEM_PROMPT with
    * Ptah-specific MCP mandates, orchestration, and formatting rules. Enhanced prompts
    * (project-specific guidance) are also appended when available.
+   * Memory recall block injected for premium users with a non-empty initialUserQuery.
    *
    * @param sessionConfig - Session configuration with optional custom system prompt and preset selection
    * @param isPremium - Whether user has premium features enabled
    * @param enhancedPromptsContent - Optional AI-generated guidance from EnhancedPromptsService
    * @param mcpServerRunning - Whether MCP server is running
+   * @param initialUserQuery - First user message text for memory recall (TASK_2026_THOTH_MEMORY_READ)
+   * @param cwd - Workspace root for workspace-scoped memory recall
    * @returns System prompt configuration for SDK (always preset+append)
    */
-  private buildSystemPrompt(
+  private async buildSystemPrompt(
     sessionConfig?: AISessionConfig,
     isPremium = false,
     enhancedPromptsContent?: string,
     mcpServerRunning = true,
-  ): SdkQueryOptions['systemPrompt'] {
+    initialUserQuery?: string,
+    cwd?: string,
+  ): Promise<SdkQueryOptions['systemPrompt']> {
     const activeProviderId = getActiveProviderId(this.authEnv);
 
     if (activeProviderId) {
@@ -951,6 +969,20 @@ export class SdkQueryOptionsBuilder {
       preset: sessionConfig?.preset,
     });
 
+    // Memory recall — premium only, requires user query (TASK_2026_THOTH_MEMORY_READ)
+    let memoryBlock = '';
+    if (isPremium && initialUserQuery?.trim()) {
+      memoryBlock = await this.memoryPromptInjector.buildBlock(
+        initialUserQuery,
+        cwd,
+      );
+    }
+
+    // Combine base content with memory block (memory first for highest visibility)
+    const finalContent = memoryBlock
+      ? memoryBlock + (result.content ? '\n\n' + result.content : '')
+      : result.content;
+
     this.logger.info('[SdkQueryOptionsBuilder] System prompt assembled', {
       isPremium,
       mcpServerRunning,
@@ -960,7 +992,9 @@ export class SdkQueryOptionsBuilder {
       hasPtahCorePrompt: isPremium,
       hasIdentityPrompt: !!activeProviderId,
       hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
-      totalAppendLength: result.content?.length ?? 0,
+      hasMemoryBlock: !!memoryBlock,
+      memoryBlockLength: memoryBlock.length,
+      totalAppendLength: finalContent?.length ?? 0,
     });
 
     // Always use claude_code preset as base — it provides critical MCP handling,
@@ -968,7 +1002,7 @@ export class SdkQueryOptionsBuilder {
     return {
       type: 'preset' as const,
       preset: 'claude_code' as const,
-      append: result.content,
+      append: finalContent,
     };
   }
 

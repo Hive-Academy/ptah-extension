@@ -7,8 +7,10 @@
  *   3. MemoryStore (depends on EMBEDDER)
  *   4. MemorySearchService (depends on EMBEDDER, MEMORY_STORE)
  *   5. MemoryDecayJob (depends on MEMORY_STORE, SCORER)
- *   6. SdkInternalQueryCuratorLlm under MEMORY_TOKENS.CURATOR_LLM
- *   7. MemoryCuratorService (depends on registry, store, scorer, llm)
+ *   6. MemoryCuratorService (depends on registry, store, scorer, llm)
+ *      The CURATOR_LLM is now registered by agent-sdk under
+ *      SDK_TOKENS.SDK_CURATOR_LLM_ADAPTER (Symbol.for('PtahCuratorLlm'))
+ *      which matches MEMORY_CONTRACT_TOKENS.CURATOR_LLM.
  *
  * SQLite + sqlite-vec are owned by `persistence-sqlite`; this module assumes
  * `registerPersistenceSqliteServices()` has already been called.
@@ -16,13 +18,13 @@
 import { Lifecycle, type DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
+import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { MEMORY_TOKENS } from './tokens';
 import { EmbedderWorkerClient } from '../embedder/embedder-worker-client';
 import { SalienceScorer } from '../salience-scorer';
 import { MemoryStore } from '../memory.store';
 import { MemorySearchService } from '../memory-search.service';
 import { MemoryDecayJob } from '../memory-decay.job';
-import { SdkInternalQueryCuratorLlm } from '../curator-llm/sdk-internal-query.curator-llm';
 import { MemoryCuratorService } from '../memory-curator.service';
 
 export function registerMemoryCuratorServices(
@@ -58,15 +60,18 @@ export function registerMemoryCuratorServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
+  // Cross-layer aliases — consumed by agent-sdk and vscode-lm-tools
+  // via MEMORY_CONTRACT_TOKENS without importing memory-curator directly.
+  container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
+    useToken: MEMORY_TOKENS.MEMORY_SEARCH,
+  });
+  container.register(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER, {
+    useToken: MEMORY_TOKENS.MEMORY_STORE,
+  });
+
   container.register(
     MEMORY_TOKENS.MEMORY_DECAY_JOB,
     { useClass: MemoryDecayJob },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    MEMORY_TOKENS.CURATOR_LLM,
-    { useClass: SdkInternalQueryCuratorLlm },
     { lifecycle: Lifecycle.Singleton },
   );
 
