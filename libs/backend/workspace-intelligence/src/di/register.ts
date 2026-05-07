@@ -58,6 +58,13 @@ import { registerQualityServices } from '../quality/di';
 // Code symbol indexer (TASK_2026_THOTH_CODE_INDEX)
 import { CodeSymbolIndexer } from '../services/code-symbol-indexer.service';
 
+/**
+ * DI token for the CodeSymbolIndexer singleton.
+ * Exported so all host apps and consumers can import one canonical value
+ * instead of duplicating the Symbol.for() string literal.
+ */
+export const CODE_SYMBOL_INDEXER = Symbol.for('PtahCodeSymbolIndexer');
+
 // TASK_2025_291 Wave B (B2): AST-backed architecture rules need the
 // TreeSitterParserService. `configureArchitectureRules` is a module-level
 // setter called once during bootstrap (see Tier 6 below) to wire the
@@ -232,10 +239,7 @@ export function registerWorkspaceIntelligenceServices(
   // IFileSystemProvider (platform), SYMBOL_SINK (memory-contracts token — wired
   // by memory-curator registration, which runs before this in the host app)
   // ============================================================
-  container.registerSingleton(
-    Symbol.for('PtahCodeSymbolIndexer'),
-    CodeSymbolIndexer,
-  );
+  container.registerSingleton(CODE_SYMBOL_INDEXER, CodeSymbolIndexer);
 
   logger.info('[Workspace Intelligence] Services registered', {
     services: [

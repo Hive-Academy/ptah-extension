@@ -3,4 +3,7 @@
  * TASK_2025_071 Batch 2C: Export registration function
  */
 
-export { registerWorkspaceIntelligenceServices } from './register';
+export {
+  registerWorkspaceIntelligenceServices,
+  CODE_SYMBOL_INDEXER,
+} from './register';

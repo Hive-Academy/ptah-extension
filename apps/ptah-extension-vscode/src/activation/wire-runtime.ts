@@ -14,6 +14,8 @@ import {
   PERSISTENCE_TOKENS,
   type SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
+import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
+import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
 import { DIContainer } from '../di/container';
 import { SettingsCommands } from '../commands/settings-commands';
 import { activateSkillJunctions, initPluginLoader } from './plugin-activation';
@@ -206,10 +208,9 @@ export async function wireRuntimeVscode(
         PERSISTENCE_TOKENS.SQLITE_CONNECTION,
       ).isOpen;
 
-    if (sqliteOk && DIContainer.isRegistered(Symbol.for('PtahCodeSymbolIndexer'))) {
-      const symbolIndexer = DIContainer.resolve<
-        import('@ptah-extension/workspace-intelligence').CodeSymbolIndexer
-      >(Symbol.for('PtahCodeSymbolIndexer'));
+    if (sqliteOk && DIContainer.isRegistered(CODE_SYMBOL_INDEXER)) {
+      const symbolIndexer =
+        DIContainer.resolve<CodeSymbolIndexer>(CODE_SYMBOL_INDEXER);
 
       const workspaceRoot =
         vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
@@ -217,14 +218,19 @@ export async function wireRuntimeVscode(
       if (workspaceRoot) {
         // Fire-and-forget full workspace index — must NOT block activation.
         void symbolIndexer.indexWorkspace(workspaceRoot).catch((err) => {
-          logger.warn('[wire-runtime] CodeSymbolIndexer.indexWorkspace failed (non-fatal)', {
-            error: err instanceof Error ? err.message : String(err),
-          });
+          logger.warn(
+            '[wire-runtime] CodeSymbolIndexer.indexWorkspace failed (non-fatal)',
+            {
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
         });
       }
 
-      // Incremental re-index on file save.
+      // Incremental re-index on file save — debounced 500ms to prevent
+      // concurrent delete+insert races on rapid saves.
       const allowedExts = new Set(['.ts', '.tsx', '.js', '.jsx']);
+      const reindexDebounce = new Map<string, ReturnType<typeof setTimeout>>();
       const saveWatcher = vscode.workspace.onDidSaveTextDocument((doc) => {
         const fsPath = doc.uri.fsPath;
         const lastDot = fsPath.lastIndexOf('.');
@@ -232,21 +238,39 @@ export async function wireRuntimeVscode(
         if (allowedExts.has(ext)) {
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
           if (root) {
-            void symbolIndexer.reindexFile(fsPath, root).catch((err) => {
-              logger.warn('[wire-runtime] reindexFile failed (non-fatal)', {
-                error: err instanceof Error ? err.message : String(err),
-              });
-            });
+            const existingTimer = reindexDebounce.get(fsPath);
+            if (existingTimer) clearTimeout(existingTimer);
+            reindexDebounce.set(
+              fsPath,
+              setTimeout(() => {
+                reindexDebounce.delete(fsPath);
+                void symbolIndexer
+                  .reindexFile(fsPath, root)
+                  .catch((err: unknown) => {
+                    logger.warn(
+                      '[wire-runtime] reindexFile failed (non-fatal)',
+                      {
+                        error: err instanceof Error ? err.message : String(err),
+                      },
+                    );
+                  });
+              }, 500),
+            );
           }
         }
       });
       context.subscriptions.push(saveWatcher);
 
-      logger.info('[wire-runtime] Code symbol indexer wired (index + save-handler)');
+      logger.info(
+        '[wire-runtime] Code symbol indexer wired (index + save-handler)',
+      );
     }
   } catch (err) {
-    logger.warn('[wire-runtime] Code symbol indexer wiring skipped (non-fatal)', {
-      error: err instanceof Error ? err.message : String(err),
-    });
+    logger.warn(
+      '[wire-runtime] Code symbol indexer wiring skipped (non-fatal)',
+      {
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
   }
 }

@@ -34,6 +34,7 @@ import type {
   IMemoryLister,
 } from '@ptah-extension/memory-contracts';
 import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
+import { CODE_SYMBOL_INDEXER as CODE_SYMBOL_INDEXER_TOKEN } from '@ptah-extension/workspace-intelligence';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -156,17 +157,6 @@ const MEMORY_SEARCH_TOKEN = Symbol.for('PtahMemorySearch');
  * @warning Keep Symbol.for() string value in sync with the canonical definition
  */
 const MEMORY_STORE_TOKEN = Symbol.for('PtahMemoryStore');
-
-/**
- * Duplicated from Symbol.for('PtahCodeSymbolIndexer') registered by
- * workspace-intelligence DI to avoid circular dependency between
- * vscode-lm-tools -> workspace-intelligence token leakage.
- * Must match the string used in workspace-intelligence/src/di/register.ts.
- *
- * @see CodeSymbolIndexer registration in libs/backend/workspace-intelligence/src/di/register.ts
- * @warning Keep Symbol.for() string value in sync with the canonical definition
- */
-const CODE_SYMBOL_INDEXER_TOKEN = Symbol.for('PtahCodeSymbolIndexer');
 
 /**
  * DI token for IDE capabilities (VS Code-specific).

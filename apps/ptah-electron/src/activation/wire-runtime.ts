@@ -30,6 +30,10 @@ import {
   type SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
 import {
+  CODE_SYMBOL_INDEXER,
+  type CodeSymbolIndexer,
+} from '@ptah-extension/workspace-intelligence';
+import {
   MEMORY_TOKENS,
   type MemoryCuratorService,
 } from '@ptah-extension/memory-curator';
@@ -42,10 +46,7 @@ import {
   type CronScheduler,
 } from '@ptah-extension/cron-scheduler';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import {
-  GATEWAY_TOKENS,
-  type GatewayService,
-} from '@ptah-extension/messaging-gateway';
+import type { GatewayService } from '@ptah-extension/messaging-gateway';
 
 export interface WireRuntimeOptions {
   container: DependencyContainer;
@@ -91,6 +92,12 @@ export interface WireRuntimeResult {
      * `false` — caller's LIFO will-quit chain must tolerate null.
      */
     messagingGateway: GatewayService | null;
+    /**
+     * Chokidar file-system watcher for incremental code symbol re-indexing.
+     * Null when SQLite is unavailable or CodeSymbolIndexer is not registered.
+     * Must be closed on will-quit to avoid keeping the process alive.
+     */
+    symbolWatcher: import('chokidar').FSWatcher | null;
   };
 }
 
@@ -108,6 +115,7 @@ export async function wireRuntime(
     skillSynthesis: null,
     cronScheduler: null,
     messagingGateway: null,
+    symbolWatcher: null,
   };
 
   let resolvedStateStorage: IStateStorage | undefined;
@@ -277,12 +285,10 @@ export async function wireRuntime(
       if (
         refs.sqliteConnection !== null &&
         refs.sqliteConnection.isOpen &&
-        container.isRegistered(Symbol.for('PtahCodeSymbolIndexer'))
+        container.isRegistered(CODE_SYMBOL_INDEXER)
       ) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const symbolIndexer = container.resolve<any>(
-          Symbol.for('PtahCodeSymbolIndexer'),
-        );
+        const symbolIndexer =
+          container.resolve<CodeSymbolIndexer>(CODE_SYMBOL_INDEXER);
 
         if (workspaceRoot) {
           // Fire-and-forget full workspace index — must NOT block activation.
@@ -296,22 +302,36 @@ export async function wireRuntime(
             });
 
           // Incremental re-index on file change (chokidar — same pattern as PHASE 4.8).
+          // Debounced 500ms to prevent concurrent delete+insert races on rapid saves.
           const chokidar = await import('chokidar');
           const allowedExts = ['.ts', '.tsx', '.js', '.jsx'];
+          const reindexDebounce = new Map<
+            string,
+            ReturnType<typeof setTimeout>
+          >();
           const symbolWatcher = chokidar.watch(
             allowedExts.map((ext) => `${workspaceRoot}/**/*${ext}`),
-            { ignoreInitial: true, persistent: false },
+            { ignoreInitial: true, persistent: true },
           );
           symbolWatcher.on('change', (filePath: string) => {
-            void symbolIndexer
-              .reindexFile(filePath, workspaceRoot as string)
-              .catch((err: unknown) => {
-                console.warn(
-                  '[Ptah Electron] reindexFile failed (non-fatal):',
-                  err instanceof Error ? err.message : String(err),
-                );
-              });
+            const existingTimer = reindexDebounce.get(filePath);
+            if (existingTimer) clearTimeout(existingTimer);
+            reindexDebounce.set(
+              filePath,
+              setTimeout(() => {
+                reindexDebounce.delete(filePath);
+                void symbolIndexer
+                  .reindexFile(filePath, workspaceRoot as string)
+                  .catch((err: unknown) => {
+                    console.warn(
+                      '[Ptah Electron] reindexFile failed (non-fatal):',
+                      err instanceof Error ? err.message : String(err),
+                    );
+                  });
+              }, 500),
+            );
           });
+          refs.symbolWatcher = symbolWatcher;
           console.log('[Ptah Electron] Code symbol indexer started');
         }
       }
@@ -590,26 +610,6 @@ export async function wireRuntime(
         error instanceof Error ? error.message : String(error),
       );
       refs.cronScheduler = null;
-    }
-
-    // PHASE 4.95: Messaging gateway cold-start (TASK_2026_HERMES Track 4)
-    // Resolve and start the gateway service so any enabled adapters
-    // (Telegram/Discord/Slack) connect before the first chat message arrives.
-    // Failure is non-fatal — Track 0 (persistence-sqlite) may not be available
-    // and `gateway.enabled` defaults to false, so most users will see start()
-    // become a no-op that simply runs the voice GC pass.
-    try {
-      refs.messagingGateway = container.resolve<GatewayService>(
-        GATEWAY_TOKENS.GATEWAY_SERVICE,
-      );
-      await refs.messagingGateway.start();
-      console.log('[Ptah Electron] Messaging gateway started');
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] Messaging gateway start skipped (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-      refs.messagingGateway = null;
     }
   }; // end of bootHeavyServices
 

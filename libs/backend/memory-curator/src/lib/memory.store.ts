@@ -346,13 +346,21 @@ export class MemoryStore implements IMemoryLister {
    * Used by CodeSymbolIndexer to clear stale file symbols before re-indexing.
    * Returns count of deleted rows.
    * TASK_2026_THOTH_CODE_INDEX
+   *
+   * Uses ESCAPE clause to prevent LIKE metacharacters (`%`, `_`, `\`) in file paths
+   * from silently over-matching and deleting symbols from the wrong files.
    */
   deleteBySubjectPrefix(prefix: string, workspaceRoot: string): number {
+    // Escape backslashes first, then % and _ so SQLite LIKE treats them literally.
+    const escaped = prefix
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_');
     const result = this.connection.db
       .prepare(
-        `DELETE FROM memories WHERE subject LIKE ? AND workspace_root IS ? AND kind = 'entity'`,
+        `DELETE FROM memories WHERE subject LIKE ? ESCAPE '\\' AND workspace_root IS ? AND kind = 'entity'`,
       )
-      .run(prefix + '%', workspaceRoot);
+      .run(escaped + '%', workspaceRoot);
     return result.changes;
   }
 

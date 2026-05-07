@@ -64,6 +64,7 @@ function yieldToEventLoop(): Promise<void> {
 interface FileStats {
   symbolsIndexed: number;
   errors: number;
+  durationMs: number;
 }
 
 @injectable()
@@ -166,71 +167,94 @@ export class CodeSymbolIndexer {
 
   /**
    * Re-index a single file (called on file save events).
-   * Non-fatal — errors are logged as warnings.
+   * Returns per-file stats including a durationMs measurement.
+   * Non-fatal — errors are logged as warnings and reflected in returned stats.
    */
   async reindexFile(
     absoluteFilePath: string,
     workspaceRoot: string,
-  ): Promise<void> {
+  ): Promise<{ symbolsIndexed: number; errors: number; durationMs: number }> {
+    const normalizedFilePath = absoluteFilePath.replace(/\\/g, '/');
+    const startMs = Date.now();
     try {
-      await this._indexFile(absoluteFilePath, workspaceRoot);
+      const stats = await this._indexFile(normalizedFilePath, workspaceRoot);
+      return stats;
     } catch (error: unknown) {
       this.logger.warn('[CodeSymbolIndexer] reindexFile failed (non-fatal)', {
-        file: absoluteFilePath,
+        file: normalizedFilePath,
         error: error instanceof Error ? error.message : String(error),
       });
+      return { symbolsIndexed: 0, errors: 1, durationMs: Date.now() - startMs };
     }
   }
 
   /**
    * Index a single file: parse AST, delete stale symbols, insert new ones.
-   * Returns per-file stats.
+   * Returns per-file stats including durationMs.
+   *
+   * `absoluteFilePath` must already be normalized to forward slashes before
+   * calling this method (callers are responsible for normalization).
    */
   private async _indexFile(
     absoluteFilePath: string,
     workspaceRoot: string,
   ): Promise<FileStats> {
-    const ext = path.extname(absoluteFilePath);
+    const startMs = Date.now();
+
+    // Normalize path separators to forward slashes for consistent SQLite subject keys
+    // across Windows and Unix — prevents stale entries when paths are compared.
+    const normalizedFilePath = absoluteFilePath.replace(/\\/g, '/');
+
+    const ext = path.extname(normalizedFilePath);
     const language = extensionToLanguage(ext);
 
     // Silently skip files with unsupported extensions
     if (!language) {
-      return { symbolsIndexed: 0, errors: 0 };
+      return { symbolsIndexed: 0, errors: 0, durationMs: Date.now() - startMs };
     }
 
     let content: string;
     try {
-      content = await this.fs.readFile(absoluteFilePath);
+      content = await this.fs.readFile(normalizedFilePath);
     } catch (error: unknown) {
       this.logger.warn('[CodeSymbolIndexer] Could not read file (non-fatal)', {
-        file: absoluteFilePath,
+        file: normalizedFilePath,
         error: error instanceof Error ? error.message : String(error),
       });
-      return { symbolsIndexed: 0, errors: 1 };
+      return { symbolsIndexed: 0, errors: 1, durationMs: Date.now() - startMs };
     }
 
     const result = await this.astAnalysis.analyzeSource(
       content,
       language,
-      absoluteFilePath,
+      normalizedFilePath,
     );
 
-    const insights = result.value;
-    if (result.isErr() || insights === undefined) {
+    // Fix 5: check isErr() BEFORE accessing result.value to avoid crashing
+    // if the Result implementation throws on .value when in error state.
+    if (result.isErr()) {
       this.logger.warn(
-        '[CodeSymbolIndexer] AST analysis failed for file (non-fatal)',
-        {
-          file: absoluteFilePath,
-          error: result.error?.message ?? 'Unknown error',
-        },
+        `[CodeSymbolIndexer] AST parse failed for ${normalizedFilePath}: ${result.error?.message ?? 'Unknown error'}`,
       );
-      return { symbolsIndexed: 0, errors: 1 };
+      return { symbolsIndexed: 0, errors: 1, durationMs: Date.now() - startMs };
+    }
+    const insights = result.value;
+    if (insights === undefined) {
+      return { symbolsIndexed: 0, errors: 1, durationMs: Date.now() - startMs };
     }
 
-    const relPath = path.relative(workspaceRoot, absoluteFilePath);
+    const relPath = path.relative(workspaceRoot, normalizedFilePath);
 
-    // Clear stale symbols for this file before re-inserting
-    this.sink.deleteSymbolsForFile(absoluteFilePath, workspaceRoot);
+    // Clear stale symbols for this file before re-inserting (minor: log count)
+    const deletedCount = this.sink.deleteSymbolsForFile(
+      normalizedFilePath,
+      workspaceRoot,
+    );
+    if (deletedCount > 0) {
+      this.logger.debug?.(
+        `[CodeSymbolIndexer] Cleared ${deletedCount} stale entries for ${normalizedFilePath}`,
+      );
+    }
 
     const chunks: SymbolChunkInsert[] = [];
 
@@ -241,10 +265,10 @@ export class CodeSymbolIndexer {
       const endLine = fn.endLine ?? startLine;
       const text = `function ${name} in ${relPath}:${startLine}-${endLine}`;
       chunks.push({
-        subject: `code:function:${absoluteFilePath}:${name}`,
+        subject: `code:function:${normalizedFilePath}:${name}`,
         text,
         tokenCount: Math.ceil(text.length / 4),
-        filePath: absoluteFilePath,
+        filePath: normalizedFilePath,
         workspaceRoot,
       });
     }
@@ -256,10 +280,10 @@ export class CodeSymbolIndexer {
       const classEndLine = cls.endLine ?? classStartLine;
       const classText = `class ${className} in ${relPath}:${classStartLine}-${classEndLine}`;
       chunks.push({
-        subject: `code:class:${absoluteFilePath}:${className}`,
+        subject: `code:class:${normalizedFilePath}:${className}`,
         text: classText,
         tokenCount: Math.ceil(classText.length / 4),
-        filePath: absoluteFilePath,
+        filePath: normalizedFilePath,
         workspaceRoot,
       });
 
@@ -271,10 +295,10 @@ export class CodeSymbolIndexer {
           const methodEndLine = method.endLine ?? methodStartLine;
           const methodText = `method ${className}.${methodName} in ${relPath}:${methodStartLine}-${methodEndLine}`;
           chunks.push({
-            subject: `code:method:${absoluteFilePath}:${className}.${methodName}`,
+            subject: `code:method:${normalizedFilePath}:${className}.${methodName}`,
             text: methodText,
             tokenCount: Math.ceil(methodText.length / 4),
-            filePath: absoluteFilePath,
+            filePath: normalizedFilePath,
             workspaceRoot,
           });
         }
@@ -282,9 +306,30 @@ export class CodeSymbolIndexer {
     }
 
     if (chunks.length > 0) {
-      await this.sink.insertSymbols(chunks);
+      // Fix 6: wrap insertSymbols in its own try/catch so a failed insert after
+      // a successful delete is clearly diagnosed (symbols are gone, re-index recovers).
+      try {
+        await this.sink.insertSymbols(chunks);
+      } catch (insertError: unknown) {
+        const msg =
+          insertError instanceof Error
+            ? insertError.message
+            : String(insertError);
+        this.logger.warn(
+          `[CodeSymbolIndexer] Symbols deleted but insert failed for ${normalizedFilePath}: ${msg}. Re-index this file to recover.`,
+        );
+        return {
+          symbolsIndexed: 0,
+          errors: 1,
+          durationMs: Date.now() - startMs,
+        };
+      }
     }
 
-    return { symbolsIndexed: chunks.length, errors: 0 };
+    return {
+      symbolsIndexed: chunks.length,
+      errors: 0,
+      durationMs: Date.now() - startMs,
+    };
   }
 }

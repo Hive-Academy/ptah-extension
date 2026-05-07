@@ -129,5 +129,8 @@ export * from './autocomplete/command-discovery.service';
 // Quality Assessment (TASK_2025_141)
 export * from './quality';
 
-// DI registration function
-export { registerWorkspaceIntelligenceServices } from './di';
+// DI registration function + tokens
+export {
+  registerWorkspaceIntelligenceServices,
+  CODE_SYMBOL_INDEXER,
+} from './di';

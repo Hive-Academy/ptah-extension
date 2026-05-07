@@ -111,12 +111,15 @@ export function buildCodeNamespace(
       try {
         const workspaceRoot = getWorkspaceRoot();
         if (options.filePath != null) {
-          await indexer.reindexFile(options.filePath, workspaceRoot);
+          const stats = await indexer.reindexFile(
+            options.filePath,
+            workspaceRoot,
+          );
           return {
             filesScanned: 1,
-            symbolsIndexed: 0,
-            errors: 0,
-            durationMs: 0,
+            symbolsIndexed: stats.symbolsIndexed,
+            errors: stats.errors,
+            durationMs: stats.durationMs,
           };
         } else {
           const stats: IndexingStats =
