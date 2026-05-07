@@ -23,6 +23,37 @@ import type {
   SkillSynthesisSettings,
 } from './types';
 
+/**
+ * Cross-library token for InternalQueryService.
+ * Matches SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE = Symbol.for('SdkInternalQueryService').
+ * Defined locally to avoid importing from @ptah-extension/agent-sdk (circular-dep risk).
+ */
+const INTERNAL_QUERY_SERVICE_TOKEN = Symbol.for('SdkInternalQueryService');
+
+/**
+ * Minimal interface for one-shot text generation via InternalQueryService.
+ * We only need the `execute()` method surface used for polish queries.
+ */
+interface IInternalQuery {
+  execute(config: {
+    cwd: string;
+    model: string;
+    prompt: string;
+    systemPromptAppend?: string;
+    isPremium: boolean;
+    mcpServerRunning: boolean;
+    maxTurns: number;
+    abortController?: AbortController;
+  }): Promise<{
+    stream: AsyncIterable<{
+      type: string;
+      message?: { content?: Array<{ type: string; text?: string }> };
+    }>;
+    abort(): void;
+    close(): void;
+  }>;
+}
+
 export interface PromotionDecision {
   promoted: boolean;
   reason:
@@ -50,17 +81,23 @@ export class SkillPromotionService {
     private readonly store: SkillCandidateStore,
     @inject(SkillMdGenerator)
     private readonly mdGenerator: SkillMdGenerator,
+    @inject(INTERNAL_QUERY_SERVICE_TOKEN, { isOptional: true })
+    private readonly internalQuery: IInternalQuery | null,
   ) {}
 
   /**
    * Evaluate a candidate and promote it if all rules pass. Idempotent:
    * already-promoted candidates short-circuit with reason='already-promoted'.
+   *
+   * When InternalQueryService is available, the candidate body is polished via
+   * a one-shot LLM query before materialization (R5: skipped silently when
+   * InternalQueryService is not registered in the container).
    */
-  evaluate(
+  async evaluate(
     candidateId: CandidateId,
     settings: SkillSynthesisSettings,
     nowFn: () => number = () => Date.now(),
-  ): PromotionDecision {
+  ): Promise<PromotionDecision> {
     const candidate = this.store.findById(candidateId);
     if (!candidate) {
       return { promoted: false, reason: 'not-found', candidate: null };
@@ -108,6 +145,17 @@ export class SkillPromotionService {
       });
     }
 
+    // Optionally polish the candidate body with a one-shot LLM query before
+    // materializing — R5: silently skipped when InternalQueryService is absent.
+    let rawBody = this.readCandidateBody(candidate);
+    if (this.internalQuery) {
+      rawBody = await this.polishBody(
+        rawBody,
+        candidate.name,
+        candidate.description,
+      );
+    }
+
     // Re-materialize SKILL.md at the active root and capture the new body_path.
     let bodyPath = candidate.bodyPath;
     try {
@@ -115,7 +163,7 @@ export class SkillPromotionService {
         {
           slug: candidate.name,
           description: candidate.description,
-          body: this.readCandidateBody(candidate),
+          body: rawBody,
         },
         settings.candidatesDir,
       );
@@ -162,6 +210,80 @@ export class SkillPromotionService {
       isDuplicate: top.similarity >= threshold,
       similarity: top.similarity,
     };
+  }
+
+  /**
+   * Use InternalQueryService to produce a polished SKILL.md body from a raw
+   * draft. Non-fatal: on LLM failure or empty output, returns `rawBody`
+   * unchanged.
+   *
+   * TASK_2026_THOTH_SKILL_LIFECYCLE — called at promotion time only.
+   */
+  private async polishBody(
+    rawBody: string,
+    slug: string,
+    description: string,
+  ): Promise<string> {
+    if (!this.internalQuery) return rawBody;
+
+    const systemPromptAppend = `You are a technical writer. Rewrite the SKILL.md body below as a clean, concise markdown document (no YAML frontmatter). Include exactly three sections:
+
+## Description
+(One paragraph describing what the skill does.)
+
+## When to use
+(2–4 bullet points listing situations where this skill applies.)
+
+## Steps
+(Numbered list of steps to apply the skill.)
+
+Keep the total under 400 words. Preserve technical accuracy. Output only the body markdown — no frontmatter, no preamble.
+
+Skill slug: ${slug}
+Skill description: ${description}`;
+
+    try {
+      const handle = await this.internalQuery.execute({
+        cwd: process.cwd(),
+        model: 'claude-haiku-4-20251022',
+        prompt: rawBody,
+        systemPromptAppend,
+        isPremium: false,
+        mcpServerRunning: false,
+        maxTurns: 1,
+      });
+
+      let collected = '';
+      for await (const msg of handle.stream) {
+        if (msg.type === 'assistant') {
+          for (const block of msg.message?.content ?? []) {
+            if (block.type === 'text' && typeof block.text === 'string') {
+              collected += block.text;
+            }
+          }
+        }
+        if (msg.type === 'result') break;
+      }
+
+      if (collected.length > 50) {
+        this.logger.info('[skill-synthesis] polishBody succeeded', { slug });
+        return collected;
+      }
+      this.logger.warn(
+        '[skill-synthesis] polishBody: LLM returned empty or too-short content; using raw body',
+        { slug },
+      );
+      return rawBody;
+    } catch (err: unknown) {
+      this.logger.warn(
+        '[skill-synthesis] polishBody: LLM call failed; using raw body',
+        {
+          slug,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+      return rawBody;
+    }
   }
 
   private readCandidateBody(candidate: SkillCandidateRow): string {

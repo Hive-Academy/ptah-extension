@@ -100,6 +100,9 @@ describe('SkillSynthesisService', () => {
         slug: 'do-thing',
       }),
     } as unknown as jest.Mocked<TrajectoryExtractor>;
+    const sessionEndRegistry = {
+      register: jest.fn(() => jest.fn()),
+    } as unknown as ConstructorParameters<typeof SkillSynthesisService>[7];
     const svc = new SkillSynthesisService(
       noopLogger,
       connection,
@@ -108,6 +111,7 @@ describe('SkillSynthesisService', () => {
       md,
       promotion,
       extractor,
+      sessionEndRegistry,
     );
     return {
       svc,
@@ -233,6 +237,8 @@ describe('SkillSynthesisService', () => {
       'cand_x',
       expect.objectContaining({ enabled: true, successesToPromote: 3 }),
     );
+    // nowFn is NOT passed — promotion service handles its own default
+    expect((promotion.evaluate as jest.Mock).mock.calls[0]).toHaveLength(2);
   });
 
   it('reject() flips the candidate to rejected with the supplied reason', () => {

@@ -4,13 +4,9 @@
  * Lifecycle:
  *   - `start()` is invoked by Electron `wire-runtime.ts` Phase 4.53. It
  *     ensures the underlying SQLite connection is open and migrations are
- *     applied. It does NOT subscribe to any event bus — `SessionLifecycle-
- *     Manager` does not expose a public 'sessionEnded' emitter. Callers
- *     trigger analysis explicitly via `analyzeSession(sessionId, root)`
- *     once they decide a session ended (typically the chat RPC handler
- *     when a session is closed/forked/rewound).
- *   - `stop()` is a no-op today; reserved for future timer / subscription
- *     teardown so the activation cleanup contract is stable.
+ *     applied. It subscribes to the session-end registry so that every
+ *     completed session is automatically analyzed for skill candidates.
+ *   - `stop()` unsubscribes from the session-end registry and resets state.
  *
  * Settings are read on demand from the platform `IWorkspaceProvider`
  * (file-based settings) so changes apply without restart.
@@ -38,6 +34,15 @@ import type {
   SkillSynthesisSettings,
 } from './types';
 
+/**
+ * Cross-library token for the session-end callback registry.
+ * R2 mitigation: use Symbol.for() directly instead of importing from
+ * @ptah-extension/agent-sdk to avoid circular dependency.
+ */
+const SESSION_END_CALLBACK_REGISTRY = Symbol.for(
+  'SdkSessionEndCallbackRegistry',
+);
+
 const SETTINGS_DEFAULTS: SkillSynthesisSettings = {
   enabled: true,
   successesToPromote: 3,
@@ -51,6 +56,8 @@ export class SkillSynthesisService {
   private started = false;
   /** Sessions already analyzed in this process (≤1 candidate per session). */
   private readonly analyzedSessions = new Set<string>();
+  /** Disposer returned by the session-end registry — called in stop(). */
+  private _sessionEndDisposer?: () => void;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -66,6 +73,12 @@ export class SkillSynthesisService {
     private readonly promotion: SkillPromotionService,
     @inject(TrajectoryExtractor)
     private readonly extractor: TrajectoryExtractor,
+    @inject(SESSION_END_CALLBACK_REGISTRY)
+    private readonly sessionEndRegistry: {
+      register: (
+        cb: (data: { sessionId: string; workspaceRoot: string }) => void,
+      ) => () => void;
+    },
   ) {}
 
   /**
@@ -85,13 +98,27 @@ export class SkillSynthesisService {
       await this.connection.openAndMigrate();
     }
     this.started = true;
+    this._sessionEndDisposer = this.sessionEndRegistry.register(
+      (data: { sessionId: string; workspaceRoot: string }) => {
+        void this.analyzeSession(data.sessionId, data.workspaceRoot).catch(
+          (err: unknown) => {
+            this.logger.warn('[skill-synthesis] analyzeSession error', {
+              sessionId: data.sessionId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          },
+        );
+      },
+    );
     this.logger.info('[skill-synthesis] started', {
       vecExtensionLoaded: this.connection.vecExtensionLoaded,
     });
   }
 
-  /** Reserved for future teardown. Currently a no-op. */
+  /** Unsubscribes from the session-end registry and resets state. */
   stop(): void {
+    this._sessionEndDisposer?.();
+    this._sessionEndDisposer = undefined;
     this.started = false;
   }
 
@@ -118,6 +145,10 @@ export class SkillSynthesisService {
 
     const trajectory = await this.extractor.extract(sessionId, workspaceRoot);
     if (!trajectory) {
+      this.logger.info(
+        '[skill-synthesis] session ineligible (trajectory null — <5 turns or no success marker)',
+        { sessionId },
+      );
       return null;
     }
 
