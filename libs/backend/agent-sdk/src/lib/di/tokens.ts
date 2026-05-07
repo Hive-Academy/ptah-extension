@@ -61,6 +61,15 @@ export const SDK_TOKENS = {
    */
   SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
 
+  /**
+   * Session end callback registry (TASK_2026_THOTH_SKILL_LIFECYCLE).
+   * Fan-out registry for session-end subscribers (e.g. skill synthesis).
+   * Fired by SessionControl.endSession() after session is fully removed.
+   */
+  SDK_SESSION_END_CALLBACK_REGISTRY: Symbol.for(
+    'SdkSessionEndCallbackRegistry',
+  ),
+
   // Worktree hook handler (TASK_2025_236)
   SDK_WORKTREE_HOOK_HANDLER: Symbol.for('SdkWorktreeHookHandler'),
 

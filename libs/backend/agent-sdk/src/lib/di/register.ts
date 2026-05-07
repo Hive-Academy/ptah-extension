@@ -46,6 +46,8 @@ import {
   CompactionHookHandler,
   // Compaction callback registry (TASK_2026_HERMES Track 1)
   CompactionCallbackRegistry,
+  // Session end callback registry (TASK_2026_THOTH_SKILL_LIFECYCLE)
+  SessionEndCallbackRegistry,
   // Live usage tracker (TASK_2026_109 cycle-break)
   LiveUsageTracker,
   // Worktree hook handler (TASK_2025_236)
@@ -207,6 +209,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_CONFIG_WATCHER,
     { useClass: ConfigWatcher },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Session end callback registry (TASK_2026_THOTH_SKILL_LIFECYCLE)
+  // Must be registered BEFORE SessionControl (built inside SessionLifecycleManager facade)
+  container.register(
+    SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY,
+    { useClass: SessionEndCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 
