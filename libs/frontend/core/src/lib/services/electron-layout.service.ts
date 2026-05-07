@@ -221,7 +221,15 @@ export class ElectronLayoutService {
 
   async addFolder(): Promise<void> {
     try {
-      const result = await this.rpcService.call('workspace:addFolder', {});
+      // 5-minute timeout: the native file-picker dialog waits for user input
+      // and can easily exceed the default 30-second RPC timeout.
+      const result = await this.rpcService.call(
+        'workspace:addFolder',
+        {},
+        {
+          timeout: 300_000,
+        },
+      );
       if (!result.isSuccess() || !result.data) return;
 
       const data = result.data;
