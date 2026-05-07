@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Behavioral system prompt for Ptah MCP Server
  * Appended to AI agent context for premium+MCP users
  *
@@ -220,7 +220,84 @@ To discover available Ptah CLI agents:
 2. **Continue**: Work on your main task
 3. **Check**: \`ptah_agent_status {}\` — check all agents at once
 4. **Read**: \`ptah_agent_read { agentId: "..." }\` — get results from each
-5. **Use**: Incorporate findings into your work`;
+5. **Use**: Incorporate findings into your work
+
+## Code Symbol Search
+
+The \`ptah.code\` namespace provides semantic search over indexed code symbols (functions, classes, methods) using hybrid BM25+vector search. Symbols are indexed from the workspace at boot and re-indexed on file save.
+
+### ptah.code — Code Symbol Search
+
+**Use \`ptah.code.searchSymbols\` instead of \`ptah.ast.analyze\` for cross-file symbol discovery.**
+
+| Tool | Purpose | When to Use |
+|------|---------|-------------|
+| \`ptah.code.searchSymbols(query, opts?)\` | Hybrid BM25 + vector search over indexed workspace symbols | Finding functions/classes by semantic description across files |
+| \`ptah.code.reindex(opts?)\` | Trigger full or file-level workspace re-index | After large refactors or to force a fresh index |
+
+**\`ptah.code.searchSymbols(query, { maxResults? })\`**
+- Returns \`{ hits: SymbolHit[], bm25Only: false }\` on success
+- Returns \`{ hits: [], error: "index unavailable" }\` when SQLite is not running
+- Each \`SymbolHit\`: \`{ subject: "code:<kind>:<absoluteFilePath>:<symbolName>", filePath, score, snippet }\`
+- Post-filtered to code symbols only — no conversational memory contamination
+
+Example:
+\`\`\`javascript
+const result = await ptah.code.searchSymbols("validate token");
+if (result.error) { /* fall back to ptah.ast.analyze */ }
+else { result.hits.forEach(h => console.log(h.subject, h.score)); }
+\`\`\`
+
+**\`ptah.code.reindex({ filePath? })\`**
+- No \`filePath\`: full workspace re-index (background, returns \`IndexingStats\`)
+- With \`filePath\`: incremental re-index for a single file
+- Returns \`{ error: "index unavailable" }\` when indexer is not registered
+
+### ptah.code.searchSymbols(query, options?)
+
+Search indexed code symbols by semantic query. Returns symbol hits with scores and locations.
+
+\`\`\`typescript
+const result = await ptah.code.searchSymbols("authenticate user", { maxResults: 10 });
+if ('error' in result) {
+  console.log('Search unavailable:', result.error);
+} else {
+  // result.hits: MemoryHit[] filtered to code symbols
+  // result.bm25Only: true if vector search was unavailable
+  for (const hit of result.hits) {
+    console.log(hit.subject, hit.chunkText, hit.score);
+    // subject format: "code:<kind>:<absoluteFilePath>:<symbolName>"
+    // e.g. "code:function:/workspace/src/auth.ts:authenticateUser"
+  }
+}
+\`\`\`
+
+Options:
+- \`maxResults\` (default: 20) — maximum hits to return
+- \`filePath\` — filter results to a specific file path
+
+### ptah.code.reindex(options?)
+
+Trigger workspace re-indexing or re-index a single file.
+
+\`\`\`typescript
+// Full workspace re-index (fire-and-forget is OK for large workspaces)
+const stats = await ptah.code.reindex();
+if ('error' in stats) {
+  console.log('Reindex unavailable:', stats.error);
+} else {
+  console.log(\`Indexed \${stats.symbolsIndexed} symbols in \${stats.durationMs}ms\`);
+}
+
+// Single file re-index
+await ptah.code.reindex({ filePath: '/absolute/path/to/file.ts' });
+\`\`\`
+
+Both methods return \`{ error: "..." }\` when SQLite or the indexer is unavailable — always check for the error variant before accessing stats fields.
+
+**When to use**:
+- \`searchSymbols\` — before modifying a function/class, to find all usages or related symbols across the workspace
+- \`reindex\` — after bulk code generation, to ensure the symbol index is up-to-date before searching`;
 
 export const PTAH_SYSTEM_PROMPT_TOKENS = Math.ceil(
   PTAH_SYSTEM_PROMPT.length / 4,

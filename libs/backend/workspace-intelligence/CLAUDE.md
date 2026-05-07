@@ -71,7 +71,8 @@ libs/backend/workspace-intelligence/src/
 │   └── tree-sitter.config.ts               # Language mappings
 ├── services/
 │   ├── file-system.service.ts              # VS Code workspace.fs wrapper
-│   └── token-counter.service.ts            # Native token counting
+│   ├── token-counter.service.ts            # Native token counting
+│   └── code-symbol-indexer.service.ts      # Walks workspace, extracts JS/TS symbols via AstAnalysisService, stores as entity memory chunks; exposed via ptah.code.searchSymbols + ptah.code.reindex (TASK_2026_THOTH_CODE_INDEX)
 ├── types/
 │   └── workspace.types.ts                  # Domain type definitions
 └── index.ts                                # Public exports
@@ -187,7 +188,7 @@ const index = await indexer.indexWorkspace(
     respectIgnoreFiles: true,
     estimateTokens: true,
   },
-  (progress) => console.log(`${progress.percentComplete}%`)
+  (progress) => console.log(`${progress.percentComplete}%`),
 );
 
 // Streaming for large workspaces
@@ -384,10 +385,11 @@ This library powers the Ptah MCP server (`@ptah-extension/vscode-lm-tools`) thro
 
 ### Exposed via PtahAPIBuilder
 
-| Namespace        | Methods                                                         | Source Service              |
-| ---------------- | --------------------------------------------------------------- | --------------------------- |
-| `ptah.workspace` | `analyze()`, `getInfo()`, `getProjectType()`, `getFrameworks()` | WorkspaceAnalyzerService    |
-| `ptah.search`    | `findFiles()`, `getRelevantFiles()`                             | ContextOrchestrationService |
+| Namespace        | Methods                                                         | Source Service                                 |
+| ---------------- | --------------------------------------------------------------- | ---------------------------------------------- |
+| `ptah.workspace` | `analyze()`, `getInfo()`, `getProjectType()`, `getFrameworks()` | WorkspaceAnalyzerService                       |
+| `ptah.search`    | `findFiles()`, `getRelevantFiles()`                             | ContextOrchestrationService                    |
+| `ptah.code`      | `searchSymbols()`, `reindex()`                                  | CodeSymbolIndexer (TASK_2026_THOTH_CODE_INDEX) |
 
 ### Current MCP Tool Description (execute_code)
 
@@ -424,7 +426,7 @@ This library powers the Ptah MCP server (`@ptah-extension/vscode-lm-tools`) thro
 - ❌ ContextSizeOptimizerService - Token budget management
 - ❌ MonorepoDetectorService - Monorepo type detection
 - ❌ ProjectDetectorService - Project type detection
-- ❌ TreeSitterParserService - AST parsing
+- ✅ TreeSitterParserService - AST parsing (now exposed indirectly via `CodeSymbolIndexer` → `ptah.code.*`; agents can search symbols extracted by tree-sitter without calling the parser directly)
 - ❌ AgentDiscoveryService - Agent autocomplete
 - ❌ MCPDiscoveryService - MCP server discovery
 - ❌ CommandDiscoveryService - Command autocomplete
