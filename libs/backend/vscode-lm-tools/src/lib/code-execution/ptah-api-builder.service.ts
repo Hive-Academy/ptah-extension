@@ -29,6 +29,10 @@ import * as os from 'os';
 import { injectable, inject, container } from 'tsyringe';
 import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
+import type {
+  IMemoryReader,
+  IMemoryLister,
+} from '@ptah-extension/memory-contracts';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -82,6 +86,8 @@ import {
   // Browser namespace builder (TASK_2025_244)
   buildBrowserNamespace,
   type IBrowserCapabilities,
+  // Memory namespace builder (TASK_2026_THOTH_MEMORY_READ)
+  buildMemoryNamespace,
 } from './namespace-builders';
 import {
   AgentProcessManager,
@@ -127,6 +133,26 @@ const SDK_PTAH_CLI_REGISTRY = Symbol.for('SdkPtahCliRegistry');
  * @warning Keep Symbol.for() string value in sync with the canonical definition
  */
 const SDK_PLUGIN_LOADER = Symbol.for('SdkPluginLoader');
+
+/**
+ * Duplicated from MEMORY_TOKENS.MEMORY_SEARCH to avoid circular dependency
+ * between vscode-lm-tools -> memory-curator. Must match the string in:
+ * libs/backend/memory-curator/src/lib/di/tokens.ts
+ *
+ * @see MEMORY_TOKENS.MEMORY_SEARCH in libs/backend/memory-curator/src/lib/di/tokens.ts
+ * @warning Keep Symbol.for() string value in sync with the canonical definition
+ */
+const MEMORY_SEARCH_TOKEN = Symbol.for('PtahMemorySearch');
+
+/**
+ * Duplicated from MEMORY_TOKENS.MEMORY_STORE to avoid circular dependency
+ * between vscode-lm-tools -> memory-curator. Must match the string in:
+ * libs/backend/memory-curator/src/lib/di/tokens.ts
+ *
+ * @see MEMORY_TOKENS.MEMORY_STORE in libs/backend/memory-curator/src/lib/di/tokens.ts
+ * @warning Keep Symbol.for() string value in sync with the canonical definition
+ */
+const MEMORY_STORE_TOKEN = Symbol.for('PtahMemoryStore');
 
 /**
  * DI token for IDE capabilities (VS Code-specific).
@@ -541,6 +567,33 @@ export class PtahAPIBuilder {
             workspaceProvider: this.workspaceProvider,
             logger: this.logger,
           }),
+      ),
+
+      // Memory namespace (TASK_2026_THOTH_MEMORY_READ)
+      // Resolved lazily: if MEMORY_SEARCH_TOKEN / MEMORY_STORE_TOKEN are not registered
+      // (VS Code without SQLite support), the namespace returns graceful error objects.
+      memory: this.buildNamespaceSafe('memory', () =>
+        buildMemoryNamespace({
+          getMemorySearch: () => {
+            try {
+              return container.isRegistered(MEMORY_SEARCH_TOKEN)
+                ? container.resolve<IMemoryReader>(MEMORY_SEARCH_TOKEN)
+                : undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          getMemoryStore: () => {
+            try {
+              return container.isRegistered(MEMORY_STORE_TOKEN)
+                ? container.resolve<IMemoryLister>(MEMORY_STORE_TOKEN)
+                : undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          getWorkspaceRoot: () => this.getWorkspaceRoot(),
+        }),
       ),
 
       // Help method at root level (ptah.help())

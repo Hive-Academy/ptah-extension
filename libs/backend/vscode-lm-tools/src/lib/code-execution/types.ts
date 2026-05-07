@@ -22,6 +22,7 @@ import type {
   StructuralSummaryResult,
 } from '@ptah-extension/workspace-intelligence';
 import type { HarnessNamespace } from './namespace-builders/harness-namespace.builder';
+import type { MemoryNamespace } from './namespace-builders/memory-namespace.builder';
 
 // ========================================
 // Ptah API - Main Interface
@@ -86,6 +87,9 @@ export interface PtahAPI {
 
   // Harness builder namespace (TASK_2025_285 - skill search, creation, MCP registry)
   harness?: HarnessNamespace;
+
+  // Memory namespace (TASK_2026_THOTH_MEMORY_READ - ptah.memory.search + ptah.memory.list)
+  memory?: MemoryNamespace;
 
   /**
    * Get help documentation for Ptah API namespaces

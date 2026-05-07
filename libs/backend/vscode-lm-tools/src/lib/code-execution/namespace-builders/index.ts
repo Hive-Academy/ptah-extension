@@ -75,3 +75,10 @@ export {
   type BrowserNamespaceDependencies,
   validateBrowserUrl,
 } from './browser-namespace.builder';
+
+// Memory namespace (TASK_2026_THOTH_MEMORY_READ - ptah.memory.search + ptah.memory.list)
+export {
+  buildMemoryNamespace,
+  type MemoryNamespaceDependencies,
+  type MemoryNamespace,
+} from './memory-namespace.builder';
