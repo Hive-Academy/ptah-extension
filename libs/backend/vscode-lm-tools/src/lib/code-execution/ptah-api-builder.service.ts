@@ -33,6 +33,7 @@ import type {
   IMemoryReader,
   IMemoryLister,
 } from '@ptah-extension/memory-contracts';
+import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -88,6 +89,8 @@ import {
   type IBrowserCapabilities,
   // Memory namespace builder (TASK_2026_THOTH_MEMORY_READ)
   buildMemoryNamespace,
+  // Code symbol indexer namespace builder (TASK_2026_THOTH_CODE_INDEX)
+  buildCodeNamespace,
 } from './namespace-builders';
 import {
   AgentProcessManager,
@@ -153,6 +156,17 @@ const MEMORY_SEARCH_TOKEN = Symbol.for('PtahMemorySearch');
  * @warning Keep Symbol.for() string value in sync with the canonical definition
  */
 const MEMORY_STORE_TOKEN = Symbol.for('PtahMemoryStore');
+
+/**
+ * Duplicated from Symbol.for('PtahCodeSymbolIndexer') registered by
+ * workspace-intelligence DI to avoid circular dependency between
+ * vscode-lm-tools -> workspace-intelligence token leakage.
+ * Must match the string used in workspace-intelligence/src/di/register.ts.
+ *
+ * @see CodeSymbolIndexer registration in libs/backend/workspace-intelligence/src/di/register.ts
+ * @warning Keep Symbol.for() string value in sync with the canonical definition
+ */
+const CODE_SYMBOL_INDEXER_TOKEN = Symbol.for('PtahCodeSymbolIndexer');
 
 /**
  * DI token for IDE capabilities (VS Code-specific).
@@ -587,6 +601,35 @@ export class PtahAPIBuilder {
             try {
               return container.isRegistered(MEMORY_STORE_TOKEN)
                 ? container.resolve<IMemoryLister>(MEMORY_STORE_TOKEN)
+                : undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          getWorkspaceRoot: () => this.getWorkspaceRoot(),
+        }),
+      ),
+
+      // Code symbol indexer namespace (TASK_2026_THOTH_CODE_INDEX)
+      // Resolved lazily: if CODE_SYMBOL_INDEXER_TOKEN or MEMORY_SEARCH_TOKEN are not registered
+      // (SQLite unavailable), all methods return { error: "..." } graceful degradation objects.
+      code: this.buildNamespaceSafe('code', () =>
+        buildCodeNamespace({
+          getMemorySearch: () => {
+            try {
+              return container.isRegistered(MEMORY_SEARCH_TOKEN)
+                ? container.resolve<IMemoryReader>(MEMORY_SEARCH_TOKEN)
+                : undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          getSymbolIndexer: () => {
+            try {
+              return container.isRegistered(CODE_SYMBOL_INDEXER_TOKEN)
+                ? container.resolve<CodeSymbolIndexer>(
+                    CODE_SYMBOL_INDEXER_TOKEN,
+                  )
                 : undefined;
             } catch {
               return undefined;

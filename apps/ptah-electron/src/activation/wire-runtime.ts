@@ -279,21 +279,21 @@ export async function wireRuntime(
         refs.sqliteConnection.isOpen &&
         container.isRegistered(Symbol.for('PtahCodeSymbolIndexer'))
       ) {
-        const { CodeSymbolIndexer } = await import(
-          '@ptah-extension/workspace-intelligence'
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const symbolIndexer = container.resolve<any>(
+          Symbol.for('PtahCodeSymbolIndexer'),
         );
-        const symbolIndexer = container.resolve<
-          InstanceType<typeof CodeSymbolIndexer>
-        >(Symbol.for('PtahCodeSymbolIndexer'));
 
         if (workspaceRoot) {
           // Fire-and-forget full workspace index — must NOT block activation.
-          void symbolIndexer.indexWorkspace(workspaceRoot).catch((err: unknown) => {
-            console.warn(
-              '[Ptah Electron] CodeSymbolIndexer.indexWorkspace failed (non-fatal):',
-              err instanceof Error ? err.message : String(err),
-            );
-          });
+          void symbolIndexer
+            .indexWorkspace(workspaceRoot)
+            .catch((err: unknown) => {
+              console.warn(
+                '[Ptah Electron] CodeSymbolIndexer.indexWorkspace failed (non-fatal):',
+                err instanceof Error ? err.message : String(err),
+              );
+            });
 
           // Incremental re-index on file change (chokidar — same pattern as PHASE 4.8).
           const chokidar = await import('chokidar');

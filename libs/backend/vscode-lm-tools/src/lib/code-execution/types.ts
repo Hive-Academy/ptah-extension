@@ -23,6 +23,7 @@ import type {
 } from '@ptah-extension/workspace-intelligence';
 import type { HarnessNamespace } from './namespace-builders/harness-namespace.builder';
 import type { MemoryNamespace } from './namespace-builders/memory-namespace.builder';
+import type { CodeNamespace } from './namespace-builders/code-namespace.builder';
 
 // ========================================
 // Ptah API - Main Interface
@@ -90,6 +91,9 @@ export interface PtahAPI {
 
   // Memory namespace (TASK_2026_THOTH_MEMORY_READ - ptah.memory.search + ptah.memory.list)
   memory?: MemoryNamespace;
+
+  // Code symbol indexer namespace (TASK_2026_THOTH_CODE_INDEX - ptah.code.searchSymbols + ptah.code.reindex)
+  code?: CodeNamespace;
 
   /**
    * Get help documentation for Ptah API namespaces
