@@ -270,6 +270,58 @@ export async function wireRuntime(
       );
       refs.skillSynthesis = null;
     }
+    // PHASE 4.53b: Code Symbol Indexer cold-start (TASK_2026_THOTH_CODE_INDEX).
+    // Fire-and-forget workspace index + chokidar file-save handler for incremental
+    // re-indexing. Non-fatal — SQLite may be unavailable on first run.
+    try {
+      if (
+        refs.sqliteConnection !== null &&
+        refs.sqliteConnection.isOpen &&
+        container.isRegistered(Symbol.for('PtahCodeSymbolIndexer'))
+      ) {
+        const { CodeSymbolIndexer } = await import(
+          '@ptah-extension/workspace-intelligence'
+        );
+        const symbolIndexer = container.resolve<
+          InstanceType<typeof CodeSymbolIndexer>
+        >(Symbol.for('PtahCodeSymbolIndexer'));
+
+        if (workspaceRoot) {
+          // Fire-and-forget full workspace index — must NOT block activation.
+          void symbolIndexer.indexWorkspace(workspaceRoot).catch((err: unknown) => {
+            console.warn(
+              '[Ptah Electron] CodeSymbolIndexer.indexWorkspace failed (non-fatal):',
+              err instanceof Error ? err.message : String(err),
+            );
+          });
+
+          // Incremental re-index on file change (chokidar — same pattern as PHASE 4.8).
+          const chokidar = await import('chokidar');
+          const allowedExts = ['.ts', '.tsx', '.js', '.jsx'];
+          const symbolWatcher = chokidar.watch(
+            allowedExts.map((ext) => `${workspaceRoot}/**/*${ext}`),
+            { ignoreInitial: true, persistent: false },
+          );
+          symbolWatcher.on('change', (filePath: string) => {
+            void symbolIndexer
+              .reindexFile(filePath, workspaceRoot as string)
+              .catch((err: unknown) => {
+                console.warn(
+                  '[Ptah Electron] reindexFile failed (non-fatal):',
+                  err instanceof Error ? err.message : String(err),
+                );
+              });
+          });
+          console.log('[Ptah Electron] Code symbol indexer started');
+        }
+      }
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Code symbol indexer start skipped (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+
     // PHASE 4.54: Ensure plugin/template content from GitHub (TASK_2025_248)
     // Plugins and templates are no longer bundled in the app package.
     // ContentDownloadService downloads them to ~/.ptah/ on first launch and

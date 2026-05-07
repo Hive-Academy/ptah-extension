@@ -10,6 +10,10 @@ import {
   ContentDownloadService,
 } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  PERSISTENCE_TOKENS,
+  type SqliteConnectionService,
+} from '@ptah-extension/persistence-sqlite';
 import { DIContainer } from '../di/container';
 import { SettingsCommands } from '../commands/settings-commands';
 import { activateSkillJunctions, initPluginLoader } from './plugin-activation';
@@ -189,6 +193,60 @@ export async function wireRuntimeVscode(
         settingsError instanceof Error
           ? settingsError.message
           : String(settingsError),
+    });
+  }
+
+  // Step 9: Code symbol indexer cold-start (TASK_2026_THOTH_CODE_INDEX).
+  // Fire-and-forget workspace index + onDidSaveTextDocument handler for
+  // incremental re-indexing. Non-fatal — SQLite may be unavailable.
+  try {
+    const sqliteOk =
+      DIContainer.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION) &&
+      DIContainer.resolve<SqliteConnectionService>(
+        PERSISTENCE_TOKENS.SQLITE_CONNECTION,
+      ).isOpen;
+
+    if (sqliteOk && DIContainer.isRegistered(Symbol.for('PtahCodeSymbolIndexer'))) {
+      const symbolIndexer = DIContainer.resolve<
+        import('@ptah-extension/workspace-intelligence').CodeSymbolIndexer
+      >(Symbol.for('PtahCodeSymbolIndexer'));
+
+      const workspaceRoot =
+        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+
+      if (workspaceRoot) {
+        // Fire-and-forget full workspace index — must NOT block activation.
+        void symbolIndexer.indexWorkspace(workspaceRoot).catch((err) => {
+          logger.warn('[wire-runtime] CodeSymbolIndexer.indexWorkspace failed (non-fatal)', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+
+      // Incremental re-index on file save.
+      const allowedExts = new Set(['.ts', '.tsx', '.js', '.jsx']);
+      const saveWatcher = vscode.workspace.onDidSaveTextDocument((doc) => {
+        const fsPath = doc.uri.fsPath;
+        const lastDot = fsPath.lastIndexOf('.');
+        const ext = lastDot >= 0 ? fsPath.slice(lastDot) : '';
+        if (allowedExts.has(ext)) {
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+          if (root) {
+            void symbolIndexer.reindexFile(fsPath, root).catch((err) => {
+              logger.warn('[wire-runtime] reindexFile failed (non-fatal)', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+          }
+        }
+      });
+      context.subscriptions.push(saveWatcher);
+
+      logger.info('[wire-runtime] Code symbol indexer wired (index + save-handler)');
+    }
+  } catch (err) {
+    logger.warn('[wire-runtime] Code symbol indexer wiring skipped (non-fatal)', {
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 }
