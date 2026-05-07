@@ -21,6 +21,7 @@ import { SdkError } from '../../errors';
 import type { ModelResolver } from '../../auth/model-resolver';
 import type { SessionRegistry } from './session-registry.service';
 import { PERMISSION_MODE_MAP } from './permission-mode-map';
+import type { SessionEndCallbackRegistry } from '../session-end-callback-registry';
 
 export class SessionControl {
   constructor(
@@ -29,6 +30,7 @@ export class SessionControl {
     private readonly permissionHandler: ISdkPermissionHandler,
     private readonly subagentRegistry: SubagentRegistryService,
     private readonly modelResolver: ModelResolver,
+    private readonly sessionEndRegistry: SessionEndCallbackRegistry,
   ) {}
 
   /**
@@ -132,6 +134,10 @@ export class SessionControl {
     const registrySessionId = this.registry.getRealOrTabId(sessionId as string);
     this.subagentRegistry.markAllInterrupted(registrySessionId);
 
+    // Capture workspaceRoot BEFORE registry removal (R6 mitigation).
+    // session.config.projectPath may be undefined for sessions that never set a workspace.
+    const workspaceRoot = session.config.projectPath ?? '';
+
     this.logger.info(
       `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`,
     );
@@ -174,6 +180,19 @@ export class SessionControl {
     this.registry.removeSession(sessionId as string);
 
     this.logger.info(`[SessionLifecycle] Session ended: ${sessionId}`);
+
+    // TASK_2026_THOTH_SKILL_LIFECYCLE: notify session-end subscribers (e.g. skill synthesis).
+    // workspaceRoot was captured BEFORE removeSession() to avoid registry tombstone lookups.
+    if (workspaceRoot) {
+      this.sessionEndRegistry.notifyAll({
+        sessionId: registrySessionId,
+        workspaceRoot,
+      });
+    } else {
+      this.logger.debug(
+        `[SessionLifecycle] Skipping session-end notification — no workspaceRoot for session: ${sessionId}`,
+      );
+    }
   }
 
   /**
@@ -187,6 +206,11 @@ export class SessionControl {
     // TASK_2025_102: Cleanup all pending permissions FIRST
     this.permissionHandler.cleanupPendingPermissions();
 
+    // TASK_2026_THOTH_SKILL_LIFECYCLE R6: capture session data BEFORE clearAll()
+    // so that workspaceRoot is available for session-end notifications.
+    const endedSessions: Array<{ sessionId: string; workspaceRoot: string }> =
+      [];
+
     // TASK_2025_175: Interrupt all sessions first, then abort
     const interruptPromises: Promise<void>[] = [];
 
@@ -197,6 +221,12 @@ export class SessionControl {
       // TASK_2025_186: Use real UUID if resolved
       const registryId = this.registry.getRealOrTabId(sessionId);
       this.subagentRegistry.markAllInterrupted(registryId);
+
+      // Capture workspace root BEFORE clearAll() removes the registry entries (R6 mitigation).
+      const root = session.config.projectPath ?? '';
+      if (root) {
+        endedSessions.push({ sessionId: registryId, workspaceRoot: root });
+      }
 
       // TASK_2025_175: Interrupt BEFORE abort, with timeout
       if (session.query) {
@@ -224,6 +254,12 @@ export class SessionControl {
 
     this.registry.clearAll();
     this.logger.info('[SessionLifecycle] All sessions disposed');
+
+    // TASK_2026_THOTH_SKILL_LIFECYCLE: notify session-end subscribers for each disposed session.
+    // Fires AFTER clearAll() — session data was captured in endedSessions above.
+    for (const ended of endedSessions) {
+      this.sessionEndRegistry.notifyAll(ended);
+    }
   }
 
   /**

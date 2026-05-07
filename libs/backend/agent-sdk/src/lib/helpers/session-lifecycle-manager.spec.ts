@@ -253,6 +253,10 @@ function makeHarness(
     },
   );
 
+  // Minimal stub for SessionEndCallbackRegistry — notifyAll is fire-and-forget;
+  // tests that care about session-end notifications can assert on this mock.
+  const sessionEndRegistryStub = { notifyAll: jest.fn() };
+
   const manager = new SessionLifecycleManager(
     asLogger(logger),
     permissionHandler,
@@ -262,6 +266,7 @@ function makeHarness(
     subagentRegistry as unknown as SubagentRegistryService,
     authEnv,
     modelResolver as unknown as ModelResolver,
+    sessionEndRegistryStub as unknown as import('./session-end-callback-registry').SessionEndCallbackRegistry,
   );
 
   return {
