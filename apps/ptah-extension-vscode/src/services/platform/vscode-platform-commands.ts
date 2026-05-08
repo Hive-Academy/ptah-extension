@@ -21,4 +21,8 @@ export class VsCodePlatformCommands implements IPlatformCommands {
     terminal.sendText(command, true);
     terminal.show();
   }
+
+  async focusChat(): Promise<void> {
+    await vscode.commands.executeCommand('ptah.main.focus');
+  }
 }

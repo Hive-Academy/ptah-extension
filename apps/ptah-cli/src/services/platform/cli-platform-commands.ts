@@ -18,4 +18,9 @@ export class CliPlatformCommands implements IPlatformCommands {
     // No-op: CLI is already running in a terminal.
     // Auth flows that need a terminal redirect are not applicable in CLI mode.
   }
+
+  async focusChat(): Promise<void> {
+    // No-op: CLI has no UI surface to focus. Chat is driven via JSON-RPC
+    // `task.submit` notifications.
+  }
 }

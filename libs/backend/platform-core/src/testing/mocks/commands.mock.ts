@@ -18,6 +18,9 @@ export function createMockPlatformCommands(
     openTerminal: jest.fn((_name: string, _command: string): void => {
       /* noop */
     }),
+    focusChat: jest.fn(async (): Promise<void> => {
+      /* noop */
+    }),
   };
 
   if (overrides?.reloadWindow) {
@@ -25,6 +28,9 @@ export function createMockPlatformCommands(
   }
   if (overrides?.openTerminal) {
     mock.openTerminal = jest.fn(overrides.openTerminal);
+  }
+  if (overrides?.focusChat) {
+    mock.focusChat = jest.fn(overrides.focusChat);
   }
 
   return mock;
