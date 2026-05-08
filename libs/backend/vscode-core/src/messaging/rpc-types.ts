@@ -37,6 +37,8 @@ export interface RpcResponse<T = unknown> {
    * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
    * - 'PRO_TIER_REQUIRED': Pro subscription required for this feature
    * - 'WORKSPACE_NOT_OPEN': No workspace folder is open (expected, not a bug)
+   * - 'MESSAGE_ID_NOT_FOUND': upToMessageId not found in session history (user recoverable)
+   * - 'MODEL_NOT_AVAILABLE': Requested model not in provider's available list (user recoverable)
    *
    * @example
    * ```typescript
@@ -46,10 +48,19 @@ export interface RpcResponse<T = unknown> {
    *   showUpgradePrompt();
    * } else if (response.errorCode === 'WORKSPACE_NOT_OPEN') {
    *   showOpenFolderPrompt();
+   * } else if (response.errorCode === 'MESSAGE_ID_NOT_FOUND') {
+   *   showForkCheckpointError();
+   * } else if (response.errorCode === 'MODEL_NOT_AVAILABLE') {
+   *   showModelUnavailableError();
    * }
    * ```
    */
-  errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED' | 'WORKSPACE_NOT_OPEN';
+  errorCode?:
+    | 'LICENSE_REQUIRED'
+    | 'PRO_TIER_REQUIRED'
+    | 'WORKSPACE_NOT_OPEN'
+    | 'MESSAGE_ID_NOT_FOUND'
+    | 'MODEL_NOT_AVAILABLE';
   /** Correlation ID matching the original request */
   correlationId: string;
 }
@@ -89,11 +100,18 @@ export class RpcUserError extends Error {
   readonly errorCode:
     | 'LICENSE_REQUIRED'
     | 'PRO_TIER_REQUIRED'
-    | 'WORKSPACE_NOT_OPEN';
+    | 'WORKSPACE_NOT_OPEN'
+    | 'MESSAGE_ID_NOT_FOUND'
+    | 'MODEL_NOT_AVAILABLE';
 
   constructor(
     message: string,
-    errorCode: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED' | 'WORKSPACE_NOT_OPEN',
+    errorCode:
+      | 'LICENSE_REQUIRED'
+      | 'PRO_TIER_REQUIRED'
+      | 'WORKSPACE_NOT_OPEN'
+      | 'MESSAGE_ID_NOT_FOUND'
+      | 'MODEL_NOT_AVAILABLE',
   ) {
     super(message);
     this.name = 'RpcUserError';

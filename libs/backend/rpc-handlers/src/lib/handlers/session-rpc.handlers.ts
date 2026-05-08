@@ -11,7 +11,12 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  RpcHandler,
+  RpcUserError,
+  TOKENS,
+} from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
@@ -23,6 +28,7 @@ import {
   SessionHistoryReaderService,
   SdkAgentAdapter,
   SessionNotActiveError,
+  SdkError,
 } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
@@ -867,6 +873,23 @@ export class SessionRpcHandlers {
         } catch (error) {
           const errorObj =
             error instanceof Error ? error : new Error(String(error));
+
+          // Distinguish user-recoverable ID-resolution failures (expected,
+          // no Sentry) from true infrastructure bugs (reported to Sentry).
+          // SdkError messages from resolveNativeMessageId contain the phrase
+          // "not found in session history" when the upToMessageId could not
+          // be matched in the JSONL transcript.
+          if (
+            error instanceof SdkError &&
+            errorObj.message.includes('not found in session history')
+          ) {
+            this.logger.warn(
+              'RPC: session:forkSession upToMessageId not found in history',
+              { message: errorObj.message },
+            );
+            throw new RpcUserError(errorObj.message, 'MESSAGE_ID_NOT_FOUND');
+          }
+
           this.logger.error('RPC: session:forkSession failed', errorObj);
           this.sentryService.captureException(errorObj, {
             errorSource: 'SessionRpcHandlers.registerForkSession',

@@ -66,6 +66,7 @@ import type {
   SessionHistoryReaderService,
   SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
+import { SdkError } from '@ptah-extension/agent-sdk';
 import type { CliSessionReference, SessionId } from '@ptah-extension/shared';
 import {
   createMockLogger,
@@ -213,7 +214,12 @@ async function callRaw(
   h: Harness,
   method: string,
   params: unknown = {},
-): Promise<{ success: boolean; data?: unknown; error?: string }> {
+): Promise<{
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  errorCode?: string;
+}> {
   return h.rpcHandler.handleMessage({
     method,
     params: params as Record<string, unknown>,
@@ -990,6 +996,71 @@ describe('SessionRpcHandlers', () => {
         VALID_SESSION_ID,
         undefined,
         'badnamewithillegalchars',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // MESSAGE_ID_NOT_FOUND RpcUserError (Fix: NODE-NESTJS-3A/39)
+    // -----------------------------------------------------------------------
+
+    it('returns MESSAGE_ID_NOT_FOUND errorCode (no Sentry) when SdkError says upToMessageId not found in history', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      // Simulate what resolveNativeMessageId throws when the Ptah ID is absent
+      // from the JSONL transcript.
+      h.sdkAdapter.forkSession.mockRejectedValue(
+        new SdkError(
+          `upToMessageId 'msg_1778055502540_cegogbr' not found in session history for session '${VALID_SESSION_ID}'.`,
+        ),
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:forkSession', {
+        sessionId: VALID_SESSION_ID,
+        upToMessageId: 'msg_1778055502540_cegogbr',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('MESSAGE_ID_NOT_FOUND');
+      // Sentry must NOT be called — this is a user-recoverable condition
+      // (the fork checkpoint no longer exists, e.g. after history compaction).
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
+    });
+
+    it('still reports to Sentry and wraps with "Failed to fork session:" for non-history-lookup SdkErrors', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      // A different SdkError — workspace not found, or SDK module missing.
+      h.sdkAdapter.forkSession.mockRejectedValue(
+        new SdkError(
+          `Cannot fork session ${VALID_SESSION_ID}: source metadata has no workspaceId`,
+        ),
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:forkSession', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/Failed to fork session/);
+      // No MESSAGE_ID_NOT_FOUND errorCode — this is an infrastructure error.
+      expect(response.errorCode).toBeUndefined();
+      expect(h.sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          errorSource: 'SessionRpcHandlers.registerForkSession',
+        }),
       );
     });
   });
