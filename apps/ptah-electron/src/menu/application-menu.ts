@@ -192,6 +192,35 @@ export function createApplicationMenu(
         },
       },
       { type: 'separator' },
+      {
+        label: 'Database',
+        submenu: [
+          {
+            label: 'Reset Database...',
+            click: async () => {
+              const win = getWindow();
+              if (!win) return;
+              const { response } = await dialog.showMessageBox(win, {
+                type: 'warning',
+                title: 'Reset Database',
+                message:
+                  'This will wipe all memories, skills, cron jobs, and gateway data.',
+                detail:
+                  'A backup will be taken first. This cannot be undone easily.',
+                buttons: ['Cancel', 'Reset Database'],
+                defaultId: 0,
+                cancelId: 0,
+              });
+              if (response !== 1) return;
+              win.webContents.send('rpc:invoke', {
+                method: 'db:reset',
+                params: { confirm: 'CONFIRM' },
+                correlationId: `reset-${Date.now()}`,
+              });
+            },
+          },
+        ],
+      },
       ...(!isMac
         ? [
             {

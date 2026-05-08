@@ -112,12 +112,12 @@ export class SqliteConnectionService {
   private backupService: IBackupService | undefined = undefined;
 
   constructor(
-    @inject(PERSISTENCE_TOKENS.SQLITE_DB_PATH) private readonly dbPath: string,
+    @inject(PERSISTENCE_TOKENS.SQLITE_DB_PATH) private readonly _dbPath: string,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
   ) {
     this.logger.info(
       '[persistence-sqlite] SqliteConnectionService constructed',
-      { dbPath },
+      { dbPath: this._dbPath },
     );
   }
 
@@ -164,14 +164,14 @@ export class SqliteConnectionService {
       return;
     }
     this.logger.info('[persistence-sqlite] Starting openAndMigrate...', {
-      dbPath: this.dbPath,
+      dbPath: this._dbPath,
     });
-    this.ensureParentDirectory(this.dbPath);
+    this.ensureParentDirectory(this._dbPath);
     this.logger.debug('[persistence-sqlite] Parent directory ensured');
 
     let db: SqliteDatabase;
     try {
-      db = this.factory(this.dbPath);
+      db = this.factory(this._dbPath);
       this.logger.debug('[persistence-sqlite] Database factory created');
     } catch (err: unknown) {
       this.classifyOpenFailure(err);
@@ -199,7 +199,7 @@ export class SqliteConnectionService {
       vecExtensionLoaded: this.vecLoaded,
     });
     this.logger.info('[persistence-sqlite] openAndMigrate complete', {
-      dbPath: this.dbPath,
+      dbPath: this._dbPath,
       vecExtensionLoaded: this.vecLoaded,
       applied: result.appliedVersions,
       finalVersion: result.finalVersion,
@@ -336,6 +336,25 @@ export class SqliteConnectionService {
   /** True iff the underlying connection is open. */
   get isOpen(): boolean {
     return Boolean(this.database?.open);
+  }
+
+  /**
+   * The absolute path to the SQLite database file.
+   * Used by `PersistenceRpcHandlers` to compute the WAL file path and the
+   * `.deleted-<ts>` rename target during a reset.
+   */
+  get dbPath(): string {
+    return this._dbPath;
+  }
+
+  /**
+   * The highest migration version successfully applied, or 0 if no migrations
+   * have run yet. Delegates to the migration runner's `lastAppliedVersion`.
+   * Note: reflects the highest *applied* version; `user_version` may skip
+   * numbers when vec-required migrations were skipped.
+   */
+  get lastMigrationVersion(): number {
+    return this.migrationRunner?.lastAppliedVersion ?? 0;
   }
 
   /** Close the connection. Idempotent — calling twice is safe. */

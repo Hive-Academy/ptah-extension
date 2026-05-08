@@ -28,6 +28,7 @@ import {
   CronRpcHandlers,
   GatewayRpcHandlers,
   MemoryRpcHandlers,
+  PersistenceRpcHandlers,
   SkillsSynthesisRpcHandlers,
   __debugAssertSharedHandlersDisjoint,
 } from '@ptah-extension/rpc-handlers';
@@ -100,6 +101,8 @@ const ELECTRON_ONLY_METHODS: readonly string[] = [
   ...MemoryRpcHandlers.METHODS,
   // Skills synthesis pipeline (requires SQLite SkillSynthesisService/SkillCandidateStore)
   ...SkillsSynthesisRpcHandlers.METHODS,
+  // Persistence health + reset (requires SqliteConnectionService — Electron-only)
+  ...PersistenceRpcHandlers.METHODS,
 ];
 
 /**
@@ -149,6 +152,9 @@ export class RpcMethodRegistrationService {
         GatewayRpcHandlers,
         MemoryRpcHandlers,
         SkillsSynthesisRpcHandlers,
+        // PersistenceRpcHandlers requires SqliteConnectionService which is
+        // never registered in the VS Code extension host.
+        PersistenceRpcHandlers,
       ],
     });
 

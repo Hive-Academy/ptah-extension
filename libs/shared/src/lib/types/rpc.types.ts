@@ -1255,6 +1255,39 @@ export interface RpcMethodRegistry {
     result: GatewayTestResult;
   };
   // === TRACK_4_MESSAGING_GATEWAY_END ===
+
+  // === THOTH_PERSISTENCE_HARDENING_BEGIN ===
+  // DB health introspection + reset (TASK_2026_THOTH_PERSISTENCE_HARDENING Batch 4)
+  'db:health': {
+    params: { fullCheck?: boolean };
+    result: {
+      isOpen: boolean;
+      quickCheckPassed: boolean | null;
+      foreignKeyViolations: number | null;
+      foreignKeyViolationSample: Array<{
+        table: string;
+        rowid: number;
+        parent: string;
+        fkid: number;
+      }>;
+      dbSizeMb: number | null;
+      freelistRatio: number | null;
+      walSizeKb: number | null;
+      vecExtensionLoaded: boolean;
+      lastMigrationVersion: number;
+      fullCheckRun: boolean;
+      integrityCheckPassed: boolean | null;
+    };
+  };
+  'db:reset': {
+    params: { confirm: string };
+    result: {
+      backupPath: string | null;
+      success: boolean;
+      message: string;
+    };
+  };
+  // === THOTH_PERSISTENCE_HARDENING_END ===
 }
 
 // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
@@ -1900,6 +1933,11 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'gateway:listMessages': true,
   'gateway:test': true,
   // === TRACK_4_MESSAGING_GATEWAY_END ===
+
+  // === THOTH_PERSISTENCE_HARDENING_BEGIN ===
+  'db:health': true,
+  'db:reset': true,
+  // === THOTH_PERSISTENCE_HARDENING_END ===
 };
 
 /**

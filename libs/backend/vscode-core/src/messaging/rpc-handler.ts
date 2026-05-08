@@ -29,11 +29,12 @@ import type {
   LicenseStatus,
 } from '../services/license.service';
 import type { SentryService } from '../services/sentry.service';
-import type {
-  RpcMessage,
-  RpcResponse,
-  RpcMethodHandler,
-  BaseRpcMethodHandler,
+import {
+  RpcUserError,
+  type RpcMessage,
+  type RpcResponse,
+  type RpcMethodHandler,
+  type BaseRpcMethodHandler,
 } from './rpc-types';
 
 /**
@@ -78,6 +79,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'gateway:', // MCP gateway status, bindings, and messages
   'memory:', // Memory curator (list, search, get, pin, unpin, forget, rebuildIndex, stats)
   'skillSynthesis:', // Skills synthesis pipeline (listCandidates, getCandidate, promote, reject, invocations, stats)
+  'db:', // DB health + reset (TASK_2026_THOTH_PERSISTENCE_HARDENING — maintenance commands)
 ] as const;
 
 /**
@@ -131,6 +133,7 @@ const LICENSE_EXEMPT_PREFIXES = [
   'auth:', // Must work for login/authentication flow
   'command:', // TASK_2025_126: Must work for unlicensed users (welcome page actions)
   'settings:', // Must work for settings import on welcome page (cross-platform onboarding)
+  'db:', // DB health + reset are maintenance/recovery commands; must work without a license
 ] as const;
 
 /**
@@ -277,6 +280,18 @@ export class RpcHandler {
       });
       return { success: true, data, correlationId };
     } catch (error) {
+      if (error instanceof RpcUserError) {
+        this.logger.debug(
+          `RpcHandler: Method "${method}" returned user error (${error.errorCode})`,
+          { correlationId },
+        );
+        return {
+          success: false,
+          error: error.message,
+          errorCode: error.errorCode,
+          correlationId,
+        };
+      }
       const errorObj =
         error instanceof Error ? error : new Error(String(error));
       this.logger.error(`RpcHandler: Method "${method}" failed`, errorObj);
