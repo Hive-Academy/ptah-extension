@@ -64,6 +64,9 @@ export type SqliteVecPathResolver = () => string;
  * mandated by architecture §3 (TASK_2026_HERMES) — `temp_store = MEMORY`
  * and `mmap_size = 256 MiB` are required so vec0 + FTS5 scratch tables stay
  * off-disk and large workspaces benefit from zero-copy reads.
+ *
+ * D4: `busy_timeout = 5000` goes last — it is a connection-level pragma with
+ * no ordering dependency on WAL/FK/sync.
  */
 const PRAGMAS_ON_OPEN = [
   'journal_mode = WAL',
@@ -71,6 +74,7 @@ const PRAGMAS_ON_OPEN = [
   'synchronous = NORMAL',
   'temp_store = MEMORY',
   'mmap_size = 268435456', // 256 MiB — matches architecture §3
+  'busy_timeout = 5000', // D4 — prevents SQLITE_BUSY on concurrent access
 ] as const;
 
 /**
@@ -149,7 +153,7 @@ export class SqliteConnectionService {
     try {
       db = this.factory(this.dbPath);
       this.logger.debug('[persistence-sqlite] Database factory created');
-    } catch (err) {
+    } catch (err: unknown) {
       this.classifyOpenFailure(err);
       throw err;
     }
@@ -161,6 +165,8 @@ export class SqliteConnectionService {
     this.database = db;
     this.unavailableReason = 'not_initialized';
     this.unavailableDetail = null;
+    this.logConnectionHealth(db);
+    this.runBootChecks(db);
     this.migrationRunner = new SqliteMigrationRunner(db, this.logger);
     this.logger.debug(
       '[persistence-sqlite] Migration runner created, applying migrations...',
@@ -281,9 +287,24 @@ export class SqliteConnectionService {
   close(): void {
     if (!this.database) return;
     if (this.database.open) {
+      // D1: Truncate the WAL before closing so the DB file is self-contained.
+      // Non-fatal — a checkpoint failure must not prevent the close.
+      try {
+        this.database.pragma('wal_checkpoint(TRUNCATE)');
+        this.logger.debug(
+          '[persistence-sqlite] WAL checkpoint (TRUNCATE) completed',
+        );
+      } catch (err: unknown) {
+        this.logger.warn(
+          '[persistence-sqlite] WAL checkpoint failed (non-fatal)',
+          {
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
       try {
         this.database.close();
-      } catch (err) {
+      } catch (err: unknown) {
         this.logger.warn('[persistence-sqlite] error closing database', {
           error: stringifyError(err),
         });
@@ -317,12 +338,62 @@ export class SqliteConnectionService {
     for (const pragma of PRAGMAS_ON_OPEN) {
       try {
         db.pragma(pragma);
-      } catch (err) {
+      } catch (err: unknown) {
         this.logger.warn('[persistence-sqlite] failed to apply pragma', {
           pragma,
           error: stringifyError(err),
         });
       }
+    }
+  }
+
+  /**
+   * D6 — Emit one structured info log with key DB file statistics.
+   * Called after vec extension load so `vecExtensionLoaded` is accurate.
+   * Failure is non-fatal: logs a warn and returns.
+   */
+  private logConnectionHealth(db: SqliteDatabase): void {
+    try {
+      const pageCount = db.pragma('page_count', { simple: true }) as number;
+      const pageSize = db.pragma('page_size', { simple: true }) as number;
+      const freelist = db.pragma('freelist_count', { simple: true }) as number;
+      const journalMode = db.pragma('journal_mode', { simple: true }) as string;
+      const dbSizeMb = (pageCount * pageSize) / (1024 * 1024);
+      this.logger.info('[persistence-sqlite] connection health', {
+        dbSizeMb: Math.round(dbSizeMb * 100) / 100,
+        pageCount,
+        pageSize,
+        freelistCount: freelist,
+        journalMode,
+        vecExtensionLoaded: this.vecLoaded,
+      });
+    } catch (err: unknown) {
+      this.logger.warn('[persistence-sqlite] logConnectionHealth failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * D3 — Run `quick_check` (and in a later batch, FK check) after pragmas
+   * and before migrations. Non-fatal: any failure logs and returns without
+   * throwing or marking the connection unavailable.
+   */
+  private runBootChecks(db: SqliteDatabase): void {
+    try {
+      const result = db.pragma('quick_check', { simple: true }) as string;
+      if (result === 'ok') {
+        this.logger.info('[persistence-sqlite] quick_check passed');
+      } else {
+        this.logger.error('[persistence-sqlite] quick_check FAILED', {
+          result,
+        });
+        // Non-fatal: log only; do NOT throw; do NOT set unavailableReason.
+      }
+    } catch (err: unknown) {
+      this.logger.warn('[persistence-sqlite] quick_check error', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -346,7 +417,7 @@ export class SqliteConnectionService {
       db.loadExtension(extPath);
       this.vecLoaded = true;
       this.logger.info('[persistence-sqlite] sqlite-vec loaded', { extPath });
-    } catch (err) {
+    } catch (err: unknown) {
       this.vecLoaded = false;
       this.logger.warn(
         '[persistence-sqlite] sqlite-vec load failed; vector search disabled',

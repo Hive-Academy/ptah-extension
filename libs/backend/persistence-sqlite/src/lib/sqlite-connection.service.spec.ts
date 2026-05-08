@@ -156,6 +156,153 @@ describe('SqliteConnectionService', () => {
 
     expect(fs.existsSync(path.dirname(nested))).toBe(true);
   });
+
+  // --- D4: busy_timeout pragma ---
+
+  it('D4: applies busy_timeout = 5000 pragma on open', async () => {
+    const fake = new FakeSqliteDatabase();
+    const service = new SqliteConnectionService(':memory:', createMockLogger());
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await service.openAndMigrate();
+
+    expect(fake.pragmas).toContain('busy_timeout = 5000');
+  });
+
+  // --- D1: WAL checkpoint on close ---
+
+  it('D1: wal_checkpoint(TRUNCATE) is called before close()', async () => {
+    const fake = new FakeSqliteDatabase();
+    const service = new SqliteConnectionService(':memory:', createMockLogger());
+    service.configure({ factory: () => fake, vecPathResolver: null });
+    await service.openAndMigrate();
+
+    service.close();
+
+    expect(fake.walCheckpointCalls).toHaveLength(1);
+    expect(fake.walCheckpointCalls[0]).toBe('wal_checkpoint(TRUNCATE)');
+  });
+
+  it('D1: WAL checkpoint failure is non-fatal — close() still completes', async () => {
+    const fake = new FakeSqliteDatabase();
+    // Override pragma to throw on WAL checkpoint only.
+    const originalPragma = fake.pragma.bind(fake);
+    (fake as unknown as Record<string, unknown>)['pragma'] = (
+      p: string,
+      opts?: { simple?: boolean },
+    ) => {
+      if (/wal_checkpoint/i.test(p)) {
+        throw new Error('WAL checkpoint error (fake)');
+      }
+      return originalPragma(p, opts);
+    };
+
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+    await service.openAndMigrate();
+
+    expect(() => service.close()).not.toThrow();
+    expect(service.isOpen).toBe(false);
+    expect(
+      logger.entries.some(
+        (e) => e.level === 'warn' && /WAL checkpoint failed/.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  // --- D3: quick_check + boot continues ---
+
+  it('D3: quick_check pass logs info and boot continues normally', async () => {
+    const fake = new FakeSqliteDatabase(); // default: quick_check returns 'ok'
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await service.openAndMigrate();
+
+    expect(service.isOpen).toBe(true);
+    expect(
+      logger.entries.some(
+        (e) => e.level === 'info' && /quick_check passed/.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  it('D3: quick_check failure logs error but boot continues and db is accessible', async () => {
+    const fake = new FakeSqliteDatabase();
+    fake.setQuickCheckResult('row 42 missing from index');
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await service.openAndMigrate();
+
+    // Connection must still be open — quick_check failure is non-fatal.
+    expect(service.isOpen).toBe(true);
+    expect(() => service.db).not.toThrow();
+    expect(
+      logger.entries.some(
+        (e) => e.level === 'error' && /quick_check FAILED/.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  // --- D6: logConnectionHealth ---
+
+  it('D6: logConnectionHealth emits one info log with required health fields', async () => {
+    const fake = new FakeSqliteDatabase();
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await service.openAndMigrate();
+
+    const healthLogs = logger.entries.filter(
+      (e) => e.level === 'info' && /connection health/.test(e.message),
+    );
+    expect(healthLogs).toHaveLength(1);
+    const ctx = healthLogs[0].context as Record<string, unknown>;
+    expect(typeof ctx['dbSizeMb']).toBe('number');
+    expect(typeof ctx['pageCount']).toBe('number');
+    expect(typeof ctx['pageSize']).toBe('number');
+    expect(typeof ctx['freelistCount']).toBe('number');
+    expect(typeof ctx['journalMode']).toBe('string');
+    expect(typeof ctx['vecExtensionLoaded']).toBe('boolean');
+  });
+
+  it('D6: logConnectionHealth failure is non-fatal — boot continues', async () => {
+    const fake = new FakeSqliteDatabase();
+    // Make every pragma call throw to trigger logConnectionHealth failure.
+    let pragmaCallCount = 0;
+    const originalPragma = fake.pragma.bind(fake);
+    (fake as unknown as Record<string, unknown>)['pragma'] = (
+      p: string,
+      opts?: { simple?: boolean },
+    ) => {
+      // Only throw for the health-check simple pragmas to avoid breaking applyPragmas.
+      if (opts?.simple) {
+        pragmaCallCount += 1;
+        if (pragmaCallCount === 1) {
+          throw new Error('pragma failed (fake health error)');
+        }
+      }
+      return originalPragma(p, opts);
+    };
+
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await expect(service.openAndMigrate()).resolves.not.toThrow();
+    expect(service.isOpen).toBe(true);
+    expect(
+      logger.entries.some(
+        (e) =>
+          e.level === 'warn' && /logConnectionHealth failed/.test(e.message),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe('SqliteConnectionService — vec0 smoke (skipped without native)', () => {

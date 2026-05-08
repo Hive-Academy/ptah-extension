@@ -121,4 +121,40 @@ describe('SqliteMigrationRunner', () => {
       expect(row.applied_at).toBeGreaterThanOrEqual(before);
     }
   });
+
+  // --- D3: PRAGMA user_version written inside applyOne ---
+
+  it('D3: user_version is bumped to the last applied migration version', () => {
+    const db = new FakeSqliteDatabase();
+    const runner = new SqliteMigrationRunner(db, createMockLogger());
+
+    runner.applyAll(FIXTURE_MIGRATIONS);
+
+    // After applying versions 1, 2, 3 the user_version should be 3.
+    expect(db.getUserVersion()).toBe(3);
+  });
+
+  it('D3: user_version reflects the highest applied version after partial run', () => {
+    const db = new FakeSqliteDatabase();
+    const runner = new SqliteMigrationRunner(db, createMockLogger());
+
+    runner.applyAll(FIXTURE_MIGRATIONS.slice(0, 2));
+    expect(db.getUserVersion()).toBe(2);
+
+    runner.applyAll(FIXTURE_MIGRATIONS);
+    expect(db.getUserVersion()).toBe(3);
+  });
+
+  it('D3: user_version is not bumped when a migration rolls back on failure', () => {
+    const db = new FakeSqliteDatabase();
+    const runner = new SqliteMigrationRunner(db, createMockLogger());
+    const withBroken: Migration[] = [
+      FIXTURE_MIGRATIONS[0],
+      { version: 2, name: 'broken', sql: 'NOT VALID SQL;' },
+    ];
+
+    expect(() => runner.applyAll(withBroken)).toThrow(/migration 2.*failed/);
+    // Only version 1 was applied successfully before the failure.
+    expect(db.getUserVersion()).toBe(1);
+  });
 });

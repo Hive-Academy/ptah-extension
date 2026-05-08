@@ -5,11 +5,14 @@
  *
  * Supported:
  *  - `exec(sql)` parses simple `CREATE TABLE`, `BEGIN`, `COMMIT`,
- *    `ROLLBACK` statements; multi-statement strings are split on `;`.
+ *    `ROLLBACK`, `PRAGMA user_version = N` statements; multi-statement
+ *    strings are split on `;`.
  *  - `prepare(sql)` recognises `INSERT INTO schema_migrations(...) VALUES (?, ?)`
  *    and `SELECT version FROM schema_migrations` for the runner's needs.
- *  - `pragma(...)` is a no-op accumulator.
+ *  - `pragma(...)` is an accumulator that returns configurable values.
  *  - `loadExtension` is configurable via `setLoadExtensionBehavior`.
+ *  - WAL checkpoint calls via `pragma('wal_checkpoint(TRUNCATE)')` are
+ *    recorded in `walCheckpointCalls` for assertion in tests.
  *
  * Anything outside that grammar throws — that is intentional. Tests should
  * exercise real better-sqlite3 once Track 1+ install it. This fake is for
@@ -29,18 +32,33 @@ interface MigrationRow {
 export class FakeSqliteDatabase implements SqliteDatabase {
   readonly tables = new Set<string>();
   readonly pragmas: string[] = [];
+  /** Records every `wal_checkpoint(TRUNCATE)` call — asserted in D1 tests. */
+  readonly walCheckpointCalls: string[] = [];
   private migrationRows: MigrationRow[] = [];
   private isOpen = true;
   private inTxn = false;
   private loadExtensionBehavior: 'available' | 'unavailable' | 'throw' =
     'available';
   private loadedExtensions: string[] = [];
+  private userVersion = 0;
+  /** When set, `pragma('quick_check', ...)` returns this value instead of 'ok'. */
+  private quickCheckResult = 'ok';
 
   /** Configure how `loadExtension` behaves: present, unavailable, or throwing. */
   setLoadExtensionBehavior(
     behavior: 'available' | 'unavailable' | 'throw',
   ): void {
     this.loadExtensionBehavior = behavior;
+  }
+
+  /** Override the value returned by `pragma('quick_check', { simple: true })`. */
+  setQuickCheckResult(result: string): void {
+    this.quickCheckResult = result;
+  }
+
+  /** Read the current user_version as set by `PRAGMA user_version = N`. */
+  getUserVersion(): number {
+    return this.userVersion;
   }
 
   get loadedExtensionPaths(): readonly string[] {
@@ -72,6 +90,14 @@ export class FakeSqliteDatabase implements SqliteDatabase {
     }
     if (upper === 'ROLLBACK' || upper === 'ROLLBACK;') {
       this.inTxn = false;
+      return;
+    }
+    // PRAGMA user_version = N — track the value.
+    const userVersionMatch = /^PRAGMA\s+USER_VERSION\s*=\s*(\d+)$/i.exec(
+      normalised,
+    );
+    if (userVersionMatch) {
+      this.userVersion = Number(userVersionMatch[1]);
       return;
     }
     const createMatch =
@@ -119,8 +145,31 @@ export class FakeSqliteDatabase implements SqliteDatabase {
     return new FakeStatement(this, trimmed);
   }
 
-  pragma(pragma: string, _options?: { simple?: boolean }): unknown {
+  pragma(pragma: string, options?: { simple?: boolean }): unknown {
     this.pragmas.push(pragma);
+
+    // WAL checkpoint calls are tracked separately for D1 test assertions.
+    if (/wal_checkpoint/i.test(pragma)) {
+      this.walCheckpointCalls.push(pragma);
+      return [];
+    }
+
+    // Return structured values for health/boot pragmas when simple=true.
+    if (options?.simple) {
+      const key = pragma.trim().toLowerCase();
+      if (key === 'quick_check') return this.quickCheckResult;
+      if (key === 'page_count') return 10;
+      if (key === 'page_size') return 4096;
+      if (key === 'freelist_count') return 0;
+      if (key === 'journal_mode') return 'wal';
+      if (key === 'user_version') return this.userVersion;
+    }
+
+    // foreign_key_check — return empty array (clean DB by default).
+    if (/^foreign_key_check/i.test(pragma.trim())) {
+      return [];
+    }
+
     return [];
   }
 

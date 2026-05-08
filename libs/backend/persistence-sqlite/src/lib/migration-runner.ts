@@ -122,9 +122,12 @@ export class SqliteMigrationRunner {
 
   /**
    * Apply a single migration inside an IMMEDIATE transaction, recording the
-   * bookkeeping row only if the SQL succeeds. The 0001 migration also creates
-   * the bookkeeping table — handled by `ensureBookkeepingTable` running
-   * first.
+   * bookkeeping row only if the SQL succeeds. D3: `PRAGMA user_version = N`
+   * is written inside the same transaction so it rolls back atomically with
+   * the bookkeeping INSERT if the migration fails.
+   *
+   * The 0001 migration also creates the bookkeeping table — handled by
+   * `ensureBookkeepingTable` running first.
    */
   private applyOne(migration: Migration): void {
     this.db.exec('BEGIN IMMEDIATE');
@@ -135,8 +138,11 @@ export class SqliteMigrationRunner {
           'INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)',
         )
         .run(migration.version, Date.now());
+      // D3: persist the schema fingerprint inside this transaction so
+      // user_version stays consistent with schema_migrations on rollback.
+      this.db.exec(`PRAGMA user_version = ${migration.version}`);
       this.db.exec('COMMIT');
-    } catch (err) {
+    } catch (err: unknown) {
       try {
         this.db.exec('ROLLBACK');
       } catch {
