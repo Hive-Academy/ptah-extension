@@ -39,6 +39,9 @@ export interface RpcResponse<T = unknown> {
    * - 'WORKSPACE_NOT_OPEN': No workspace folder is open (expected, not a bug)
    * - 'MESSAGE_ID_NOT_FOUND': upToMessageId not found in session history (user recoverable)
    * - 'MODEL_NOT_AVAILABLE': Requested model not in provider's available list (user recoverable)
+   * - 'PERSISTENCE_UNAVAILABLE': SQLite connection is closed (native module ABI mismatch, disk error, etc.)
+   *                              The action requires persistence (Memory / Skills / Cron / Gateway features)
+   *                              but the connection failed to open. Error message names the recovery step.
    *
    * @example
    * ```typescript
@@ -60,7 +63,8 @@ export interface RpcResponse<T = unknown> {
     | 'PRO_TIER_REQUIRED'
     | 'WORKSPACE_NOT_OPEN'
     | 'MESSAGE_ID_NOT_FOUND'
-    | 'MODEL_NOT_AVAILABLE';
+    | 'MODEL_NOT_AVAILABLE'
+    | 'PERSISTENCE_UNAVAILABLE';
   /** Correlation ID matching the original request */
   correlationId: string;
 }
@@ -96,23 +100,19 @@ export type BaseRpcMethodHandler = (params: unknown) => Promise<unknown>;
  *   'WORKSPACE_NOT_OPEN',
  * );
  */
-export class RpcUserError extends Error {
-  readonly errorCode:
-    | 'LICENSE_REQUIRED'
-    | 'PRO_TIER_REQUIRED'
-    | 'WORKSPACE_NOT_OPEN'
-    | 'MESSAGE_ID_NOT_FOUND'
-    | 'MODEL_NOT_AVAILABLE';
+/** Single source of truth for the structured RPC error code union. */
+export type RpcUserErrorCode =
+  | 'LICENSE_REQUIRED'
+  | 'PRO_TIER_REQUIRED'
+  | 'WORKSPACE_NOT_OPEN'
+  | 'MESSAGE_ID_NOT_FOUND'
+  | 'MODEL_NOT_AVAILABLE'
+  | 'PERSISTENCE_UNAVAILABLE';
 
-  constructor(
-    message: string,
-    errorCode:
-      | 'LICENSE_REQUIRED'
-      | 'PRO_TIER_REQUIRED'
-      | 'WORKSPACE_NOT_OPEN'
-      | 'MESSAGE_ID_NOT_FOUND'
-      | 'MODEL_NOT_AVAILABLE',
-  ) {
+export class RpcUserError extends Error {
+  readonly errorCode: RpcUserErrorCode;
+
+  constructor(message: string, errorCode: RpcUserErrorCode) {
     super(message);
     this.name = 'RpcUserError';
     this.errorCode = errorCode;

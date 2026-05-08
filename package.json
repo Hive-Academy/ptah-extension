@@ -69,6 +69,7 @@
     "electron:build:dev": "nx build-dev ptah-electron",
     "electron:package": "nx package ptah-electron",
     "electron:rebuild": "node apps/ptah-electron/scripts/rebuild-native.js",
+    "postinstall": "node apps/ptah-electron/scripts/rebuild-native.js",
     "cli:build": "nx build ptah-cli",
     "cli:dev": "nx dev ptah-cli",
     "cli:serve": "nx build ptah-cli && node dist/apps/ptah-cli/main.mjs"

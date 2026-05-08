@@ -14,7 +14,7 @@
 import { inject, injectable } from 'tsyringe';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger, RpcUserError } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from './di/tokens';
 import { SqliteMigrationRunner } from './migration-runner';
 import { MIGRATIONS } from './migrations';
@@ -73,11 +73,25 @@ const PRAGMAS_ON_OPEN = [
   'mmap_size = 268435456', // 256 MiB — matches architecture §3
 ] as const;
 
+/**
+ * Why the SQLite connection isn't currently open. Used by the typed
+ * {@link RpcUserError} thrown from the `db` getter so callers (and the
+ * UI) get a structured, actionable signal instead of a raw stack trace.
+ */
+export type SqliteUnavailableReason =
+  | 'not_initialized'
+  | 'native_abi_mismatch'
+  | 'native_module_missing'
+  | 'open_failed'
+  | 'closed';
+
 @injectable()
 export class SqliteConnectionService {
   private database: SqliteDatabase | null = null;
   private migrationRunner: SqliteMigrationRunner | null = null;
   private vecLoaded = false;
+  private unavailableReason: SqliteUnavailableReason = 'not_initialized';
+  private unavailableDetail: string | null = null;
 
   /** Test seam: injectable factory for the underlying Database. */
   private factory: SqliteDatabaseFactory = defaultBetterSqlite3Factory;
@@ -130,13 +144,23 @@ export class SqliteConnectionService {
     });
     this.ensureParentDirectory(this.dbPath);
     this.logger.debug('[persistence-sqlite] Parent directory ensured');
-    const db = this.factory(this.dbPath);
-    this.logger.debug('[persistence-sqlite] Database factory created');
+
+    let db: SqliteDatabase;
+    try {
+      db = this.factory(this.dbPath);
+      this.logger.debug('[persistence-sqlite] Database factory created');
+    } catch (err) {
+      this.classifyOpenFailure(err);
+      throw err;
+    }
+
     this.applyPragmas(db);
     this.logger.debug('[persistence-sqlite] Pragmas applied');
     this.loadVecExtension(db);
     this.logger.debug('[persistence-sqlite] Vec extension loaded (or skipped)');
     this.database = db;
+    this.unavailableReason = 'not_initialized';
+    this.unavailableDetail = null;
     this.migrationRunner = new SqliteMigrationRunner(db, this.logger);
     this.logger.debug(
       '[persistence-sqlite] Migration runner created, applying migrations...',
@@ -152,14 +176,95 @@ export class SqliteConnectionService {
     });
   }
 
-  /** Throws if the connection isn't open — protects callers from silent nulls. */
+  /**
+   * Inspect a Database-construction failure and stash a typed reason so
+   * the `db` getter can emit a {@link RpcUserError} with an actionable
+   * message instead of a raw stack trace.
+   *
+   * The most common failure on Electron is `NODE_MODULE_VERSION` mismatch
+   * — surfaced as `dlopen` reporting "compiled against a different Node.js
+   * version". We detect that string and tell the user exactly which
+   * command rebuilds the native module.
+   */
+  private classifyOpenFailure(err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err);
+    if (
+      /NODE_MODULE_VERSION|compiled against a different Node\.js version/i.test(
+        message,
+      )
+    ) {
+      this.unavailableReason = 'native_abi_mismatch';
+      this.unavailableDetail =
+        'better-sqlite3 was built for a different Node ABI than the host runtime. Run `npm run electron:rebuild` and restart.';
+    } else if (/Cannot find module|MODULE_NOT_FOUND/i.test(message)) {
+      this.unavailableReason = 'native_module_missing';
+      this.unavailableDetail =
+        'better-sqlite3 native binary is missing. Run `npm install` followed by `npm run electron:rebuild`.';
+    } else {
+      this.unavailableReason = 'open_failed';
+      this.unavailableDetail = message;
+    }
+    this.logger.error(
+      '[persistence-sqlite] openAndMigrate failed — persistence disabled',
+      { reason: this.unavailableReason, detail: this.unavailableDetail },
+    );
+  }
+
+  /**
+   * Throws a typed {@link RpcUserError} if the connection isn't open.
+   *
+   * RPC handlers that hit this path will get a structured
+   * `{ success: false, errorCode: 'PERSISTENCE_UNAVAILABLE' }` response —
+   * the frontend can render an actionable message instead of a generic
+   * stack trace, and Sentry skips the report (this is an expected
+   * environment failure, not a bug).
+   */
   get db(): SqliteDatabase {
     if (!this.database || !this.database.open) {
-      throw new Error(
-        'SqliteConnectionService: database is not open. Call openAndMigrate() first.',
+      throw new RpcUserError(
+        this.buildUnavailableMessage(),
+        'PERSISTENCE_UNAVAILABLE',
       );
     }
     return this.database;
+  }
+
+  /**
+   * Why the connection isn't open. `'not_initialized'` while booting,
+   * a more specific reason after a failed {@link openAndMigrate}, or
+   * `null` once the connection is healthy.
+   */
+  get unavailable(): {
+    reason: SqliteUnavailableReason;
+    detail: string | null;
+  } | null {
+    if (this.database?.open) return null;
+    return {
+      reason: this.unavailableReason,
+      detail: this.unavailableDetail,
+    };
+  }
+
+  private buildUnavailableMessage(): string {
+    switch (this.unavailableReason) {
+      case 'native_abi_mismatch':
+        return (
+          this.unavailableDetail ??
+          'Persistence is offline: native module ABI mismatch. Run `npm run electron:rebuild` and restart.'
+        );
+      case 'native_module_missing':
+        return (
+          this.unavailableDetail ??
+          'Persistence is offline: better-sqlite3 native binary is missing.'
+        );
+      case 'open_failed':
+        return `Persistence is offline: ${this.unavailableDetail ?? 'failed to open SQLite database.'}`;
+      case 'closed':
+        return 'Persistence is offline: SQLite connection has been closed.';
+      case 'not_initialized':
+      default:
+        return 'Persistence is offline: SQLite connection has not been initialized yet.';
+    }
   }
 
   /** True if `sqlite-vec` was loaded successfully on the current connection. */
@@ -187,6 +292,8 @@ export class SqliteConnectionService {
     this.database = null;
     this.migrationRunner = null;
     this.vecLoaded = false;
+    this.unavailableReason = 'closed';
+    this.unavailableDetail = null;
   }
 
   private ensureParentDirectory(filePath: string): void {

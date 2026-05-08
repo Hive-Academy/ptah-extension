@@ -105,9 +105,23 @@ describe('SqliteConnectionService', () => {
     expect(service.vecExtensionLoaded).toBe(false);
   });
 
-  it('throws when callers access db before opening', () => {
+  it('throws a typed RpcUserError when callers access db before opening', () => {
     const service = new SqliteConnectionService(':memory:', createMockLogger());
-    expect(() => service.db).toThrow(/not open/);
+    expect(() => service.db).toThrow(/Persistence is offline/);
+    try {
+      void service.db;
+      throw new Error('expected db getter to throw');
+    } catch (err) {
+      // Surface as PERSISTENCE_UNAVAILABLE so the RPC layer returns a
+      // structured response instead of a raw stack trace.
+      expect((err as { errorCode?: string }).errorCode).toBe(
+        'PERSISTENCE_UNAVAILABLE',
+      );
+    }
+    expect(service.unavailable).toEqual({
+      reason: 'not_initialized',
+      detail: null,
+    });
   });
 
   it('close() releases the connection and is idempotent', async () => {
@@ -148,10 +162,20 @@ describe('SqliteConnectionService — vec0 smoke (skipped without native)', () =
   // Real better-sqlite3 + sqlite-vec smoke test. Skipped when the native
   // modules aren't installed (Track 0 exit criteria forbids `npm install`).
   // Track 1 / 2 will land alongside the deps and these will execute.
+  // require.resolve only checks the JS shim exists — it doesn't validate
+  // that the .node binary matches the host runtime's ABI. We need to
+  // actually open a database to confirm the native module loads.
+  // Without this, an Electron-ABI build (`npm run electron:rebuild`)
+  // crashes Jest with NODE_MODULE_VERSION 143 vs 137 instead of skipping.
   let nativeAvailable = false;
   try {
     require.resolve('better-sqlite3');
     require.resolve('sqlite-vec');
+    const Database = require('better-sqlite3') as new (file: string) => {
+      close(): void;
+    };
+    const probe = new Database(':memory:');
+    probe.close();
     nativeAvailable = true;
   } catch {
     nativeAvailable = false;

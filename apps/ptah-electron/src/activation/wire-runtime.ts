@@ -228,12 +228,36 @@ export async function wireRuntime(
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : '';
+      const isAbiMismatch =
+        /NODE_MODULE_VERSION|compiled against a different Node\.js version/i.test(
+          errorMessage,
+        );
+      // ONE prominent, actionable line — not a buried stack trace. The
+      // detailed failure reason now lives on `sqliteConnection.unavailable`,
+      // and every persistence-backed RPC will return a structured
+      // `PERSISTENCE_UNAVAILABLE` errorCode the UI can render as a single
+      // notice instead of N raw stack traces.
       console.error(
-        '[Ptah Electron] SQLite openAndMigrate FAILED (non-fatal):',
-        errorMessage,
+        '\n' +
+          '╔═══════════════════════════════════════════════════════════════════╗\n' +
+          '║  [Ptah] PERSISTENCE OFFLINE — Memory / Skills / Cron / Gateway   ║\n' +
+          '║  features will report PERSISTENCE_UNAVAILABLE until this is      ║\n' +
+          '║  resolved. The rest of the app will continue to boot.            ║\n' +
+          (isAbiMismatch
+            ? '║                                                                   ║\n' +
+              '║  CAUSE:  better-sqlite3 native module ABI mismatch.              ║\n' +
+              '║  FIX:    npm run electron:rebuild   (then restart Ptah)          ║\n'
+            : '║                                                                   ║\n' +
+              `║  CAUSE:  ${errorMessage.slice(0, 56).padEnd(56)}     ║\n`) +
+          '╚═══════════════════════════════════════════════════════════════════╝\n',
       );
-      console.error('[Ptah Electron] Error stack:', errorStack);
+      // The DI-registered SqliteConnectionService is still in the
+      // container — the typed `db` getter throws
+      // RpcUserError(PERSISTENCE_UNAVAILABLE) on access, which the RPC
+      // layer auto-converts to a structured response. We null this local
+      // ref only so the next phases (memory curator / skill synthesis /
+      // code symbol indexer) skip their start() calls — they'd just fail
+      // again at the same point.
       refs.sqliteConnection = null;
     }
 
