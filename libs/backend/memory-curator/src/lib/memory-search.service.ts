@@ -1,8 +1,11 @@
 /**
  * MemorySearchService — hybrid BM25 (FTS5) + vector (sqlite-vec) search
- * with Reciprocal Rank Fusion (RRF, k=60). Falls back to BM25-only when
- * sqlite-vec is unavailable.
+ * with Reciprocal Rank Fusion (RRF). Falls back to BM25-only when
+ * sqlite-vec is unavailable. Results are cached in an LRU cache keyed by
+ * query + workspaceRoot + write-counter so stale entries are auto-evicted
+ * on any write to the memory store.
  */
+import { LRUCache } from 'lru-cache';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
@@ -24,7 +27,8 @@ import {
 } from './memory.types';
 import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
 
-const RRF_K = 60;
+/** Default k for RRF — lowered from 60 to 25 for tighter ranking at memory scales of 100-5000 chunks. */
+const RRF_K_DEFAULT = 25;
 
 interface FtsRow {
   rowid: number;
@@ -43,6 +47,12 @@ interface VecRow {
 
 @injectable()
 export class MemorySearchService implements IMemoryReader {
+  /** LRU result cache — keyed by `${query}|${workspaceRoot}|${writeCounter}`. */
+  private readonly cache = new LRUCache<string, MemorySearchResponse>({
+    max: 100,
+    ttl: 60_000,
+  });
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
@@ -50,6 +60,19 @@ export class MemorySearchService implements IMemoryReader {
     @inject(PERSISTENCE_TOKENS.EMBEDDER) private readonly embedder: IEmbedder,
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
   ) {}
+
+  /**
+   * Build the LRU cache key. Embeds the write-counter so cached entries
+   * from before a store write are never returned after it.
+   */
+  private makeCacheKey(
+    normalizedQuery: string,
+    workspaceRoot: string | undefined,
+  ): string {
+    const ws = workspaceRoot ?? '';
+    const counter = this.store.getWriteCounter(ws);
+    return `${normalizedQuery}|${ws}|${counter}`;
+  }
 
   async search(
     query: string,
@@ -80,6 +103,14 @@ export class MemorySearchService implements IMemoryReader {
     if (!trimmed)
       return { hits: [], bm25Only: !this.connection.vecExtensionLoaded };
 
+    // R3: LRU cache — short-circuit the full pipeline on repeated identical queries.
+    const cacheKey = this.makeCacheKey(trimmed, workspaceRoot);
+    const cached = this.cache.get(cacheKey);
+    if (cached) {
+      this.logger.debug('[memory-curator] cache hit', { query: trimmed });
+      return cached;
+    }
+
     const bm25Rows = this.bm25Search(trimmed, limit * 4, workspaceRoot);
     let vecRows: Array<FtsRow & { distance: number }> = [];
     let bm25Only = !this.connection.vecExtensionLoaded;
@@ -97,11 +128,18 @@ export class MemorySearchService implements IMemoryReader {
       }
     }
 
+    // R5: Token-count-based weight heuristic.
+    // Short queries (< 4 tokens) favour exact BM25 term matching;
+    // longer queries with context favour semantic vector similarity.
+    const tokenCount = trimmed.split(/\s+/).filter((t) => t.length > 0).length;
+    const bm25Weight = tokenCount < 4 ? 0.6 : 0.3;
+    const weights = { bm25: bm25Weight, vec: 1 - bm25Weight };
+
     // R1: Reranker — skip if too few candidates, fall back to RRF order on error.
     // EmbedderWorkerClient is registered as the concrete impl under EMBEDDER;
     // cast once here instead of widening IEmbedder (VS Code + CLI environments
     // may use a non-worker embedder that has no rerank capability).
-    let fused = this.rrfFuse(bm25Rows, vecRows, limit);
+    let fused = this.rrfFuse(bm25Rows, vecRows, limit, { k: 25, weights });
     if (fused.length >= 5) {
       const workerClient = this.workerClient;
       if (workerClient !== null) {
@@ -154,7 +192,9 @@ export class MemorySearchService implements IMemoryReader {
       }
     }
 
-    return { hits, bm25Only };
+    const response: MemorySearchResponse = { hits, bm25Only };
+    this.cache.set(cacheKey, response);
+    return response;
   }
 
   /**
@@ -242,16 +282,29 @@ export class MemorySearchService implements IMemoryReader {
     return out;
   }
 
+  /**
+   * Reciprocal Rank Fusion over BM25 and vector result lists.
+   * Pure function: no side-effects, no logger calls.
+   *
+   * @param opts.k - Ranking smoothing constant (default 25). Lower values
+   *   preserve more differentiation between top and bottom ranks.
+   * @param opts.weights - Per-source weights summing to 1.0 (default 0.5/0.5).
+   *   `searchRich` computes these from query token count before calling.
+   */
   private rrfFuse(
     bm25: readonly FtsRow[],
     vec: readonly (FtsRow & { distance: number })[],
     limit: number,
+    opts: { k?: number; weights?: { bm25: number; vec: number } } = {},
   ): Array<{
     row: FtsRow;
     score: number;
     bm25Rank: number | null;
     vecRank: number | null;
   }> {
+    const k = opts.k ?? RRF_K_DEFAULT;
+    const w = opts.weights ?? { bm25: 0.5, vec: 0.5 };
+
     const acc = new Map<
       number,
       {
@@ -265,7 +318,7 @@ export class MemorySearchService implements IMemoryReader {
       const rank = idx + 1;
       acc.set(row.rowid, {
         row,
-        score: 1 / (RRF_K + rank),
+        score: w.bm25 / (k + rank),
         bm25Rank: rank,
         vecRank: null,
       });
@@ -274,12 +327,12 @@ export class MemorySearchService implements IMemoryReader {
       const rank = idx + 1;
       const existing = acc.get(row.rowid);
       if (existing) {
-        existing.score += 1 / (RRF_K + rank);
+        existing.score += w.vec / (k + rank);
         existing.vecRank = rank;
       } else {
         acc.set(row.rowid, {
           row,
-          score: 1 / (RRF_K + rank),
+          score: w.vec / (k + rank),
           bm25Rank: null,
           vecRank: rank,
         });

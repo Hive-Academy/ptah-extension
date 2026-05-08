@@ -103,12 +103,30 @@ function rowToChunk(row: ChunkRow): MemoryChunk {
 
 @injectable()
 export class MemoryStore implements IMemoryLister {
+  /** Per-workspace write generation counter. Key '' = global (no workspace). */
+  private readonly writeCounts = new Map<string, number>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
     private readonly connection: SqliteConnectionService,
     @inject(PERSISTENCE_TOKENS.EMBEDDER) private readonly embedder: IEmbedder,
   ) {}
+
+  /**
+   * Returns the current write generation for a workspace root.
+   * The empty string key covers memories with no workspaceRoot.
+   * Used by MemorySearchService to build cache keys.
+   */
+  getWriteCounter(workspaceRoot: string): number {
+    return this.writeCounts.get(workspaceRoot) ?? 0;
+  }
+
+  /** Increment the write counter for the given workspaceRoot (or '' if null). */
+  private bumpWriteCounter(workspaceRoot: string | null | undefined): void {
+    const key = workspaceRoot ?? '';
+    this.writeCounts.set(key, (this.writeCounts.get(key) ?? 0) + 1);
+  }
 
   /** Insert a Memory + its chunks atomically. Embeddings are computed if vec is available. */
   async insertMemoryWithChunks(
@@ -203,7 +221,9 @@ export class MemoryStore implements IMemoryLister {
       return id;
     }) as unknown as (...args: unknown[]) => unknown;
     const txn = db.transaction(txnFn) as unknown as TxnFn;
-    return txn(memoryParams);
+    const result = txn(memoryParams);
+    this.bumpWriteCounter(insert.workspaceRoot);
+    return result;
   }
 
   private async embedderEmbed(
@@ -332,13 +352,17 @@ export class MemoryStore implements IMemoryLister {
   }
 
   setPinned(id: MemoryId, pinned: boolean): void {
+    const ws = this.lookupWorkspaceRoot(id);
     this.connection.db
       .prepare(`UPDATE memories SET pinned = ?, updated_at = ? WHERE id = ?`)
       .run(pinned ? 1 : 0, Date.now(), id);
+    this.bumpWriteCounter(ws);
   }
 
   forget(id: MemoryId): void {
+    const ws = this.lookupWorkspaceRoot(id);
     this.connection.db.prepare(`DELETE FROM memories WHERE id = ?`).run(id);
+    this.bumpWriteCounter(ws);
   }
 
   /**
@@ -361,6 +385,9 @@ export class MemoryStore implements IMemoryLister {
         `DELETE FROM memories WHERE subject LIKE ? ESCAPE '\\' AND workspace_root IS ? AND kind = 'entity'`,
       )
       .run(escaped + '%', workspaceRoot);
+    if (result.changes > 0) {
+      this.bumpWriteCounter(workspaceRoot);
+    }
     return result.changes;
   }
 
@@ -373,6 +400,7 @@ export class MemoryStore implements IMemoryLister {
   }
 
   updateSalience(id: MemoryId, salience: number, tier?: MemoryTier): void {
+    const ws = this.lookupWorkspaceRoot(id);
     if (tier) {
       this.connection.db
         .prepare(
@@ -386,6 +414,7 @@ export class MemoryStore implements IMemoryLister {
         )
         .run(salience, Date.now(), id);
     }
+    this.bumpWriteCounter(ws);
   }
 
   /** Append source content to an existing memory's chunk list (used on merge). */
@@ -394,6 +423,7 @@ export class MemoryStore implements IMemoryLister {
     additional: readonly Omit<ChunkInsert, 'memoryId'>[],
   ): Promise<void> {
     if (additional.length === 0) return;
+    const ws = this.lookupWorkspaceRoot(id);
     const now = Date.now();
     const vecAvailable = this.connection.vecExtensionLoaded;
     const embeddings: Float32Array[] = vecAvailable
@@ -451,6 +481,7 @@ export class MemoryStore implements IMemoryLister {
       updateMemoryStmt.run(now, now, id);
     }) as (...args: unknown[]) => unknown);
     txn();
+    this.bumpWriteCounter(ws);
   }
 
   stats(workspaceRoot?: string | null): MemoryStatsResponse {
@@ -522,5 +553,17 @@ export class MemoryStore implements IMemoryLister {
       rebuiltVec = true;
     }
     return { rebuiltFts: true, rebuiltVec };
+  }
+
+  /**
+   * Fetch just the workspace_root for a memory by its ID.
+   * Returns null when the memory is not found or has no workspace.
+   * Used by write methods to scope the write-counter bump.
+   */
+  private lookupWorkspaceRoot(id: MemoryId): string | null {
+    const row = this.connection.db
+      .prepare(`SELECT workspace_root FROM memories WHERE id = ?`)
+      .get(id) as { workspace_root: string | null } | undefined;
+    return row?.workspace_root ?? null;
   }
 }

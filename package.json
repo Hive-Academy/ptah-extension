@@ -142,6 +142,7 @@
     "jpeg-js": "^0.4.4",
     "json2md": "^2.0.3",
     "jsonrepair": "3.13.3",
+    "lru-cache": "^10.4.3",
     "lucide-angular": "^1.0.0",
     "marked": "^17.0.0",
     "minimatch": "10.2.4",
