@@ -313,7 +313,12 @@ export class CliPluginSyncService {
    *
    * Strategy: pass path.join(os.homedir(), '.ptah') as a fake plugin path so the
    * installer scans ~/.ptah/skills/ for skill directories (installer reads pluginPath/skills/).
-   * The _candidates directory is explicitly excluded before constructing the plugin path.
+   *
+   * Uses a distinct `ptahsynth-` folder prefix so this call's stale-cleanup pass
+   * does NOT delete plugin-installed `ptah-*` skills (and vice-versa). Also
+   * skips `syncCommands` (synthesized skills have no commands) and gates copy
+   * on a top-level SKILL.md so the `_candidates/` subtree is excluded by content.
+   *
    * Non-fatal — failures never block activation.
    *
    * @param synthesizedSkillsRoot - Absolute path to ~/.ptah/skills/
@@ -344,7 +349,8 @@ export class CliPluginSyncService {
         return [];
       }
 
-      // R7: explicit exclusion of _candidates directory
+      // R7: explicit exclusion of _candidates directory at the enumeration boundary.
+      // The installer also enforces this content-side via requireSkillMdAtRoot (defense in depth).
       const validEntries = entries.filter((e) => e !== '_candidates');
       if (validEntries.length === 0) {
         this.logger.debug(
@@ -355,8 +361,6 @@ export class CliPluginSyncService {
 
       // The installer scans join(pluginPath, 'skills') for skill dirs.
       // Since synthesizedSkillsRoot IS ~/.ptah/skills/, pass ~/.ptah as the fake plugin path.
-      // The installer's accessSync(join(entryPath, 'SKILL.md')) check naturally skips
-      // _candidates (which has no SKILL.md at its root), but we guard explicitly above too.
       const fakePtahPluginPath = join(homedir(), '.ptah');
 
       // Detect installed CLIs
@@ -389,7 +393,11 @@ export class CliPluginSyncService {
             continue;
           }
 
-          const status = await installer.install([fakePtahPluginPath]);
+          const status = await installer.install([fakePtahPluginPath], {
+            folderPrefix: 'ptahsynth-',
+            syncCommands: false,
+            requireSkillMdAtRoot: true,
+          });
           this.logger.info(
             `[CliPluginSync] Synthesized skill sync result for ${cli}`,
             {

@@ -31,6 +31,19 @@ import type {
 const INTERNAL_QUERY_SERVICE_TOKEN = Symbol.for('SdkInternalQueryService');
 
 /**
+ * Mirrors `TIER_TO_MODEL_ID.haiku` from `@ptah-extension/agent-sdk`. Inlined
+ * here for the same circular-dep reason as the IInternalQuery shape above —
+ * keep this value in sync with `helpers/sdk-model-service.ts:TIER_TO_MODEL_ID`.
+ */
+const POLISH_MODEL_ID = 'claude-haiku-4-5-20251001';
+
+/** Hard cap on a single polish LLM call — protects the synchronous promote RPC from a hung provider. */
+const POLISH_TIMEOUT_MS = 30_000;
+
+/** Lower bound on accepted polish output length — under this we discard and keep the raw body. */
+const POLISH_MIN_LENGTH = 50;
+
+/**
  * Minimal interface for one-shot text generation via InternalQueryService.
  * We only need the `execute()` method surface used for polish queries.
  */
@@ -147,13 +160,9 @@ export class SkillPromotionService {
 
     // Optionally polish the candidate body with a one-shot LLM query before
     // materializing — R5: silently skipped when InternalQueryService is absent.
-    let rawBody = this.readCandidateBody(candidate);
+    let body = this.readCandidateBody(candidate);
     if (this.internalQuery) {
-      rawBody = await this.polishBody(
-        rawBody,
-        candidate.name,
-        candidate.description,
-      );
+      body = await this.polishBody(body, candidate.name, candidate.description);
     }
 
     // Re-materialize SKILL.md at the active root and capture the new body_path.
@@ -163,7 +172,7 @@ export class SkillPromotionService {
         {
           slug: candidate.name,
           description: candidate.description,
-          body: rawBody,
+          body,
         },
         settings.candidatesDir,
       );
@@ -214,17 +223,17 @@ export class SkillPromotionService {
 
   /**
    * Use InternalQueryService to produce a polished SKILL.md body from a raw
-   * draft. Non-fatal: on LLM failure or empty output, returns `rawBody`
-   * unchanged.
+   * draft. Non-fatal: on LLM failure, timeout, or output that fails the
+   * structural sanity check, returns the input body unchanged.
    *
    * TASK_2026_THOTH_SKILL_LIFECYCLE — called at promotion time only.
    */
   private async polishBody(
-    rawBody: string,
+    body: string,
     slug: string,
     description: string,
   ): Promise<string> {
-    if (!this.internalQuery) return rawBody;
+    if (!this.internalQuery) return body;
 
     const systemPromptAppend = `You are a technical writer. Rewrite the SKILL.md body below as a clean, concise markdown document (no YAML frontmatter). Include exactly three sections:
 
@@ -242,15 +251,22 @@ Keep the total under 400 words. Preserve technical accuracy. Output only the bod
 Skill slug: ${slug}
 Skill description: ${description}`;
 
+    const abortController = new AbortController();
+    const timeoutHandle = setTimeout(
+      () => abortController.abort(),
+      POLISH_TIMEOUT_MS,
+    );
+
     try {
       const handle = await this.internalQuery.execute({
         cwd: process.cwd(),
-        model: 'claude-haiku-4-20251022',
-        prompt: rawBody,
+        model: POLISH_MODEL_ID,
+        prompt: body,
         systemPromptAppend,
         isPremium: false,
         mcpServerRunning: false,
         maxTurns: 1,
+        abortController,
       });
 
       let collected = '';
@@ -265,15 +281,16 @@ Skill description: ${description}`;
         if (msg.type === 'result') break;
       }
 
-      if (collected.length > 50) {
-        this.logger.info('[skill-synthesis] polishBody succeeded', { slug });
-        return collected;
+      const polished = collected.trim();
+      if (!this.isValidPolishedBody(polished)) {
+        this.logger.warn(
+          '[skill-synthesis] polishBody: output failed structural check; using raw body',
+          { slug, length: polished.length },
+        );
+        return body;
       }
-      this.logger.warn(
-        '[skill-synthesis] polishBody: LLM returned empty or too-short content; using raw body',
-        { slug },
-      );
-      return rawBody;
+      this.logger.debug('[skill-synthesis] polishBody succeeded', { slug });
+      return polished;
     } catch (err: unknown) {
       this.logger.warn(
         '[skill-synthesis] polishBody: LLM call failed; using raw body',
@@ -282,8 +299,25 @@ Skill description: ${description}`;
           error: err instanceof Error ? err.message : String(err),
         },
       );
-      return rawBody;
+      return body;
+    } finally {
+      clearTimeout(timeoutHandle);
     }
+  }
+
+  /**
+   * Sanity-check the LLM polish output before accepting it. Rejects too-short
+   * content, leaked YAML frontmatter, and outputs that don't include at least
+   * one of the three required section headings.
+   */
+  private isValidPolishedBody(content: string): boolean {
+    if (content.length <= POLISH_MIN_LENGTH) return false;
+    if (content.startsWith('---')) return false; // leaked frontmatter
+    return (
+      content.includes('## Description') ||
+      content.includes('## When to use') ||
+      content.includes('## Steps')
+    );
   }
 
   private readCandidateBody(candidate: SkillCandidateRow): string {

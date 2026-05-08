@@ -69,7 +69,7 @@ export class SessionEndCallbackRegistry {
             );
           });
         }
-      } catch (err) {
+      } catch (err: unknown) {
         this.logger.error(
           '[SessionEndCallbackRegistry] subscriber threw',
           err instanceof Error ? err : new Error(String(err)),

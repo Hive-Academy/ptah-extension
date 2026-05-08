@@ -88,10 +88,12 @@ export class SkillSynthesisService {
   async start(): Promise<void> {
     if (this.started) return;
     if (!this.readSettings().enabled) {
+      // Do NOT latch `started` here — leave it false so a later start() call
+      // (after the user toggles `skillSynthesis.enabled` to true at runtime)
+      // re-evaluates the setting and wires up the subscription.
       this.logger.info(
         '[skill-synthesis] disabled via settings; skipping start',
       );
-      this.started = true;
       return;
     }
     if (!this.connection.isOpen) {
@@ -120,6 +122,10 @@ export class SkillSynthesisService {
     this._sessionEndDisposer?.();
     this._sessionEndDisposer = undefined;
     this.started = false;
+    // Reset the per-process dedup so a future start() re-analyzes sessions
+    // that were skipped during a prior on/off/on cycle. The DB-level dedup
+    // via findByTrajectoryHash keeps this safe across restarts.
+    this.analyzedSessions.clear();
   }
 
   /**

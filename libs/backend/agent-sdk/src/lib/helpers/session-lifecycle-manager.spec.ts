@@ -28,10 +28,10 @@
  *     single nominal-type seam (production `Logger` is a class).
  *
  * Constructor signature note:
- *   The production constructor takes EIGHT dependencies — logger,
+ *   The production constructor takes NINE dependencies — logger,
  *   permissionHandler, moduleLoader, queryOptionsBuilder, messageFactory,
- *   subagentRegistry, authEnv, modelResolver. The fixture supplies all eight
- *   so `endSession()` exercises the full cleanup path.
+ *   subagentRegistry, authEnv, modelResolver, sessionEndRegistry. The fixture
+ *   supplies all nine so `endSession()` exercises the full cleanup path.
  *
  * Source-under-test:
  *   `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts`
