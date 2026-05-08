@@ -19,6 +19,7 @@
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { Migration } from './migrations';
 import type { SqliteDatabase } from './sqlite-connection.service';
+import type { IBackupService } from './backup.service';
 
 /** Result of an `applyAll` run — useful for telemetry. */
 export interface MigrationRunResult {
@@ -31,9 +32,17 @@ export interface MigrationRunResult {
 }
 
 export class SqliteMigrationRunner {
+  private _lastAppliedVersion = 0;
+
+  /** Returns the last migration version applied during this session, or 0 if none. */
+  get lastAppliedVersion(): number {
+    return this._lastAppliedVersion;
+  }
+
   constructor(
     private readonly db: SqliteDatabase,
     private readonly logger: Logger,
+    private readonly backupService?: IBackupService,
   ) {}
 
   /**
@@ -50,10 +59,10 @@ export class SqliteMigrationRunner {
    * @throws Error if the DB reports a version higher than the bundled max
    *         (forward-only invariant per architecture §8.5).
    */
-  applyAll(
+  async applyAll(
     migrations: readonly Migration[],
     options: { vecExtensionLoaded?: boolean } = {},
-  ): MigrationRunResult {
+  ): Promise<MigrationRunResult> {
     const vecLoaded = options.vecExtensionLoaded !== false; // default true for backward compat
     if (migrations.length === 0) {
       return { appliedVersions: [], skippedVersions: [], finalVersion: 0 };
@@ -70,6 +79,22 @@ export class SqliteMigrationRunner {
           `but this build only bundles up to ${bundledMaxVersion}. Refusing to downgrade. ` +
           `Upgrade the application or restore an older database file.`,
       );
+    }
+
+    const pending = sorted.filter((m) => !applied.has(m.version));
+
+    // D2: Take a pre-migration backup before applying any pending migrations.
+    // Non-fatal — backup failure must not abort the migration run.
+    if (pending.length > 0 && this.backupService) {
+      await this.backupService
+        .backup(this.db, 'pre-migration')
+        .catch((err: unknown) => {
+          this.logger.warn(
+            '[persistence-sqlite] pre-migration backup failed (non-fatal)',
+            { error: err instanceof Error ? err.message : String(err) },
+          );
+        });
+      this.backupService.rotate('pre-migration', 3);
     }
 
     const appliedNow: number[] = [];
@@ -92,6 +117,7 @@ export class SqliteMigrationRunner {
     }
 
     const finalVersion = Math.max(dbMaxVersion, ...appliedNow, 0);
+    this._lastAppliedVersion = finalVersion;
     if (appliedNow.length > 0) {
       this.logger.info('[persistence-sqlite] migrations applied', {
         appliedVersions: appliedNow,

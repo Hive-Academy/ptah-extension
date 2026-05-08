@@ -303,6 +303,153 @@ describe('SqliteConnectionService', () => {
       ),
     ).toBe(true);
   });
+
+  // --- D5: classifyOpenFailure ENOSPC / EPERM ---
+
+  it('D5: classifyOpenFailure sets open_failed + disk-full detail on ENOSPC', async () => {
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({
+      factory: () => {
+        throw new Error('ENOSPC: no space left on device');
+      },
+      vecPathResolver: null,
+    });
+
+    await expect(service.openAndMigrate()).rejects.toThrow();
+
+    expect(service.unavailable?.reason).toBe('open_failed');
+    expect(service.unavailable?.detail).toMatch(/Disk is full/);
+  });
+
+  it('D5: classifyOpenFailure sets open_failed + disk-full detail on SQLITE_FULL', async () => {
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({
+      factory: () => {
+        throw new Error('SQLITE_FULL: database or disk is full');
+      },
+      vecPathResolver: null,
+    });
+
+    await expect(service.openAndMigrate()).rejects.toThrow();
+
+    expect(service.unavailable?.reason).toBe('open_failed');
+    expect(service.unavailable?.detail).toMatch(/Disk is full/);
+  });
+
+  it('D5: classifyOpenFailure sets open_failed + antivirus detail on EPERM', async () => {
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({
+      factory: () => {
+        throw new Error('EPERM: operation not permitted');
+      },
+      vecPathResolver: null,
+    });
+
+    await expect(service.openAndMigrate()).rejects.toThrow();
+
+    expect(service.unavailable?.reason).toBe('open_failed');
+    expect(service.unavailable?.detail).toMatch(/antivirus/i);
+  });
+
+  it('D5: classifyOpenFailure sets open_failed + antivirus detail on "permission denied"', async () => {
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({
+      factory: () => {
+        throw new Error('permission denied, open ptah.sqlite');
+      },
+      vecPathResolver: null,
+    });
+
+    await expect(service.openAndMigrate()).rejects.toThrow();
+
+    expect(service.unavailable?.reason).toBe('open_failed');
+    expect(service.unavailable?.detail).toMatch(/antivirus/i);
+  });
+
+  it('D5: classifyOpenFailure sets open_failed + antivirus detail on "access is denied" (Windows)', async () => {
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({
+      factory: () => {
+        throw new Error('access is denied');
+      },
+      vecPathResolver: null,
+    });
+
+    await expect(service.openAndMigrate()).rejects.toThrow();
+
+    expect(service.unavailable?.reason).toBe('open_failed');
+    expect(service.unavailable?.detail).toMatch(/antivirus/i);
+  });
+
+  // --- D5: handleFatalWriteError ---
+
+  it('D5: handleFatalWriteError closes + marks unavailable on SQLITE_FULL', async () => {
+    const fake = new FakeSqliteDatabase();
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+    await service.openAndMigrate();
+    expect(service.isOpen).toBe(true);
+
+    const acted = service.handleFatalWriteError(
+      new Error('SQLITE_FULL: database or disk is full'),
+    );
+
+    expect(acted).toBe(true);
+    expect(service.isOpen).toBe(false);
+    expect(
+      logger.entries.some(
+        (e) => e.level === 'error' && /fatal write error/.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  it('D5: handleFatalWriteError closes + marks unavailable on ENOSPC', async () => {
+    const fake = new FakeSqliteDatabase();
+    const service = new SqliteConnectionService(':memory:', createMockLogger());
+    service.configure({ factory: () => fake, vecPathResolver: null });
+    await service.openAndMigrate();
+
+    const acted = service.handleFatalWriteError(
+      new Error('ENOSPC: no space left on device'),
+    );
+
+    expect(acted).toBe(true);
+    expect(service.isOpen).toBe(false);
+  });
+
+  it('D5: handleFatalWriteError returns false and does not close on unrelated errors', async () => {
+    const fake = new FakeSqliteDatabase();
+    const service = new SqliteConnectionService(':memory:', createMockLogger());
+    service.configure({ factory: () => fake, vecPathResolver: null });
+    await service.openAndMigrate();
+
+    const acted = service.handleFatalWriteError(
+      new Error('UNIQUE constraint failed: memories.id'),
+    );
+
+    expect(acted).toBe(false);
+    expect(service.isOpen).toBe(true);
+  });
+
+  it('D5: handleFatalWriteError returns false and does NOT close on EPERM (DB still readable)', async () => {
+    const fake = new FakeSqliteDatabase();
+    const service = new SqliteConnectionService(':memory:', createMockLogger());
+    service.configure({ factory: () => fake, vecPathResolver: null });
+    await service.openAndMigrate();
+
+    const acted = service.handleFatalWriteError(
+      new Error('EPERM: operation not permitted'),
+    );
+
+    expect(acted).toBe(false);
+    expect(service.isOpen).toBe(true);
+  });
 });
 
 describe('SqliteConnectionService — vec0 smoke (skipped without native)', () => {

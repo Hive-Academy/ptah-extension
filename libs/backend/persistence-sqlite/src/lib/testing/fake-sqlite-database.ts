@@ -19,6 +19,7 @@
  * the prep track only.
  */
 
+import * as fs from 'node:fs';
 import type {
   SqliteDatabase,
   SqliteStatement,
@@ -49,6 +50,15 @@ export class FakeSqliteDatabase implements SqliteDatabase {
     behavior: 'available' | 'unavailable' | 'throw',
   ): void {
     this.loadExtensionBehavior = behavior;
+  }
+
+  /**
+   * Stub implementation of the better-sqlite3 Online Backup API.
+   * Writes a tiny placeholder file at `destPath` so specs can assert on
+   * file existence. Returns a resolved Promise to match the real API shape.
+   */
+  async backup(destPath: string): Promise<void> {
+    fs.writeFileSync(destPath, 'FAKE_BACKUP');
   }
 
   /** Override the value returned by `pragma('quick_check', { simple: true })`. */

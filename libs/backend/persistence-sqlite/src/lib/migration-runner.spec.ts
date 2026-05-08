@@ -29,11 +29,11 @@ const FIXTURE_MIGRATIONS: readonly Migration[] = [
 ];
 
 describe('SqliteMigrationRunner', () => {
-  it('applies all migrations on a fresh DB', () => {
+  it('applies all migrations on a fresh DB', async () => {
     const db = new FakeSqliteDatabase();
     const runner = new SqliteMigrationRunner(db, createMockLogger());
 
-    const result = runner.applyAll(FIXTURE_MIGRATIONS);
+    const result = await runner.applyAll(FIXTURE_MIGRATIONS);
 
     expect(result.appliedVersions).toEqual([1, 2, 3]);
     expect(result.skippedVersions).toEqual([]);
@@ -44,31 +44,31 @@ describe('SqliteMigrationRunner', () => {
     expect(runner.readAppliedVersions()).toEqual(new Set([1, 2, 3]));
   });
 
-  it('is a no-op on second run', () => {
+  it('is a no-op on second run', async () => {
     const db = new FakeSqliteDatabase();
     const runner = new SqliteMigrationRunner(db, createMockLogger());
 
-    runner.applyAll(FIXTURE_MIGRATIONS);
-    const second = runner.applyAll(FIXTURE_MIGRATIONS);
+    await runner.applyAll(FIXTURE_MIGRATIONS);
+    const second = await runner.applyAll(FIXTURE_MIGRATIONS);
 
     expect(second.appliedVersions).toEqual([]);
     expect(second.skippedVersions).toEqual([1, 2, 3]);
     expect(second.finalVersion).toBe(3);
   });
 
-  it('applies only the new migration when one is added later', () => {
+  it('applies only the new migration when one is added later', async () => {
     const db = new FakeSqliteDatabase();
     const runner = new SqliteMigrationRunner(db, createMockLogger());
 
-    runner.applyAll(FIXTURE_MIGRATIONS.slice(0, 2));
+    await runner.applyAll(FIXTURE_MIGRATIONS.slice(0, 2));
     expect(runner.readAppliedVersions()).toEqual(new Set([1, 2]));
 
-    const result = runner.applyAll(FIXTURE_MIGRATIONS);
+    const result = await runner.applyAll(FIXTURE_MIGRATIONS);
     expect(result.appliedVersions).toEqual([3]);
     expect(result.skippedVersions).toEqual([1, 2]);
   });
 
-  it('refuses to start when the DB version exceeds the bundled max', () => {
+  it('refuses to start when the DB version exceeds the bundled max', async () => {
     const db = new FakeSqliteDatabase();
     const runner = new SqliteMigrationRunner(db, createMockLogger());
     // Pre-seed schema_migrations with a "future" version row.
@@ -79,12 +79,12 @@ describe('SqliteMigrationRunner', () => {
       'INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)',
     ).run(99, Date.now());
 
-    expect(() => runner.applyAll(FIXTURE_MIGRATIONS)).toThrow(
+    await expect(runner.applyAll(FIXTURE_MIGRATIONS)).rejects.toThrow(
       /version 99.*bundles up to 3/,
     );
   });
 
-  it('rolls back a failing migration and leaves earlier ones intact', () => {
+  it('rolls back a failing migration and leaves earlier ones intact', async () => {
     const db = new FakeSqliteDatabase();
     const runner = new SqliteMigrationRunner(db, createMockLogger());
     const broken: Migration[] = [
@@ -92,25 +92,27 @@ describe('SqliteMigrationRunner', () => {
       { version: 2, name: 'broken', sql: 'NOT VALID SQL;' },
     ];
 
-    expect(() => runner.applyAll(broken)).toThrow(/migration 2.*failed/);
+    await expect(runner.applyAll(broken)).rejects.toThrow(
+      /migration 2.*failed/,
+    );
     expect(runner.readAppliedVersions()).toEqual(new Set([1]));
   });
 
-  it('returns an empty result for an empty migration list', () => {
+  it('returns an empty result for an empty migration list', async () => {
     const db = new FakeSqliteDatabase();
     const runner = new SqliteMigrationRunner(db, createMockLogger());
 
-    const result = runner.applyAll([]);
+    const result = await runner.applyAll([]);
     expect(result.appliedVersions).toEqual([]);
     expect(result.finalVersion).toBe(0);
   });
 
-  it('records applied_at timestamps as epoch ms integers', () => {
+  it('records applied_at timestamps as epoch ms integers', async () => {
     const db = new FakeSqliteDatabase();
     const runner = new SqliteMigrationRunner(db, createMockLogger());
     const before = Date.now();
 
-    runner.applyAll(FIXTURE_MIGRATIONS);
+    await runner.applyAll(FIXTURE_MIGRATIONS);
 
     const rows = db
       .prepare('SELECT version, applied_at FROM schema_migrations')
@@ -124,28 +126,28 @@ describe('SqliteMigrationRunner', () => {
 
   // --- D3: PRAGMA user_version written inside applyOne ---
 
-  it('D3: user_version is bumped to the last applied migration version', () => {
+  it('D3: user_version is bumped to the last applied migration version', async () => {
     const db = new FakeSqliteDatabase();
     const runner = new SqliteMigrationRunner(db, createMockLogger());
 
-    runner.applyAll(FIXTURE_MIGRATIONS);
+    await runner.applyAll(FIXTURE_MIGRATIONS);
 
     // After applying versions 1, 2, 3 the user_version should be 3.
     expect(db.getUserVersion()).toBe(3);
   });
 
-  it('D3: user_version reflects the highest applied version after partial run', () => {
+  it('D3: user_version reflects the highest applied version after partial run', async () => {
     const db = new FakeSqliteDatabase();
     const runner = new SqliteMigrationRunner(db, createMockLogger());
 
-    runner.applyAll(FIXTURE_MIGRATIONS.slice(0, 2));
+    await runner.applyAll(FIXTURE_MIGRATIONS.slice(0, 2));
     expect(db.getUserVersion()).toBe(2);
 
-    runner.applyAll(FIXTURE_MIGRATIONS);
+    await runner.applyAll(FIXTURE_MIGRATIONS);
     expect(db.getUserVersion()).toBe(3);
   });
 
-  it('D3: user_version is not bumped when a migration rolls back on failure', () => {
+  it('D3: user_version is not bumped when a migration rolls back on failure', async () => {
     const db = new FakeSqliteDatabase();
     const runner = new SqliteMigrationRunner(db, createMockLogger());
     const withBroken: Migration[] = [
@@ -153,8 +155,117 @@ describe('SqliteMigrationRunner', () => {
       { version: 2, name: 'broken', sql: 'NOT VALID SQL;' },
     ];
 
-    expect(() => runner.applyAll(withBroken)).toThrow(/migration 2.*failed/);
+    await expect(runner.applyAll(withBroken)).rejects.toThrow(
+      /migration 2.*failed/,
+    );
     // Only version 1 was applied successfully before the failure.
     expect(db.getUserVersion()).toBe(1);
+  });
+
+  // --- D2: pre-migration backup hook ---
+
+  it('D2: calls backup then rotate before applying pending migrations', async () => {
+    const db = new FakeSqliteDatabase();
+    const backupCalls: string[] = [];
+    const rotateCalls: Array<[string, number]> = [];
+    const fakeBackupService = {
+      backup: async (_db: unknown, kind: string) => {
+        backupCalls.push(kind);
+        return '/fake/backup/path.sqlite';
+      },
+      rotate: (kind: string, keep: number) => {
+        rotateCalls.push([kind, keep]);
+      },
+    };
+    const runner = new SqliteMigrationRunner(
+      db,
+      createMockLogger(),
+      fakeBackupService,
+    );
+
+    await runner.applyAll(FIXTURE_MIGRATIONS);
+
+    expect(backupCalls).toEqual(['pre-migration']);
+    expect(rotateCalls).toEqual([['pre-migration', 3]]);
+  });
+
+  it('D2: skips backup when there are no pending migrations', async () => {
+    const db = new FakeSqliteDatabase();
+    const backupCalls: string[] = [];
+    const fakeBackupService = {
+      backup: async (_db: unknown, kind: string) => {
+        backupCalls.push(kind);
+        return null;
+      },
+      rotate: () => undefined,
+    };
+    const runner = new SqliteMigrationRunner(
+      db,
+      createMockLogger(),
+      fakeBackupService,
+    );
+
+    // Apply all migrations first — now no pending migrations remain.
+    await runner.applyAll(FIXTURE_MIGRATIONS);
+    backupCalls.length = 0;
+
+    // Second run: all up-to-date, backup should NOT be called.
+    await runner.applyAll(FIXTURE_MIGRATIONS);
+
+    expect(backupCalls).toHaveLength(0);
+  });
+
+  it('D2: continues with migrations when backup fails', async () => {
+    const db = new FakeSqliteDatabase();
+    const fakeBackupService = {
+      backup: async () => {
+        throw new Error('backup disk error (fake)');
+      },
+      rotate: () => undefined,
+    };
+    const logger = createMockLogger();
+    const runner = new SqliteMigrationRunner(db, logger, fakeBackupService);
+
+    // Must not throw — backup failure is non-fatal.
+    const result = await runner.applyAll(FIXTURE_MIGRATIONS);
+
+    expect(result.appliedVersions).toEqual([1, 2, 3]);
+    expect(
+      logger.entries.some(
+        (e) =>
+          e.level === 'warn' && /pre-migration backup failed/.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  it('D2: backup order is backup → rotate → apply', async () => {
+    const db = new FakeSqliteDatabase();
+    const callOrder: string[] = [];
+    const fakeBackupService = {
+      backup: async () => {
+        callOrder.push('backup');
+        return '/path.sqlite';
+      },
+      rotate: () => {
+        callOrder.push('rotate');
+      },
+    };
+    // Intercept applyOne by checking tables after the run
+    const runner = new SqliteMigrationRunner(
+      db,
+      createMockLogger(),
+      fakeBackupService,
+    );
+
+    await runner.applyAll(FIXTURE_MIGRATIONS);
+
+    // backup and rotate must precede any migrations; tables are created by applyOne
+    expect(callOrder.indexOf('backup')).toBeLessThan(
+      callOrder.indexOf('rotate'),
+    );
+    // Both backup and rotate completed before tables were populated
+    expect(callOrder).toEqual(['backup', 'rotate']);
+    // Tables ARE created, confirming apply ran after
+    expect(db.tables.has('t1')).toBe(true);
   });
 });

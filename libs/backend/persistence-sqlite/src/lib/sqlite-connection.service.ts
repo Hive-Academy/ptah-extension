@@ -18,6 +18,7 @@ import { TOKENS, type Logger, RpcUserError } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from './di/tokens';
 import { SqliteMigrationRunner } from './migration-runner';
 import { MIGRATIONS } from './migrations';
+import type { IBackupService } from './backup.service';
 
 /**
  * Minimal subset of better-sqlite3's `Database` surface that this lib uses.
@@ -29,6 +30,11 @@ export interface SqliteDatabase {
   prepare(sql: string): SqliteStatement;
   pragma(pragma: string, options?: { simple?: boolean }): unknown;
   loadExtension?(file: string): void;
+  /**
+   * better-sqlite3 Online Backup API. Optional — test fakes omit this to
+   * trigger the non-fatal guard in `SqliteBackupService.backup()`.
+   */
+  backup?(destPath: string): Promise<void>;
   close(): void;
   readonly open: boolean;
   readonly inTransaction: boolean;
@@ -102,6 +108,8 @@ export class SqliteConnectionService {
   /** Test seam: resolver for the sqlite-vec extension path. */
   private vecPathResolver: SqliteVecPathResolver | null =
     defaultSqliteVecPathResolver;
+  /** Optional backup service — set via configure() or DI post-construction. */
+  private backupService: IBackupService | undefined = undefined;
 
   constructor(
     @inject(PERSISTENCE_TOKENS.SQLITE_DB_PATH) private readonly dbPath: string,
@@ -114,17 +122,29 @@ export class SqliteConnectionService {
   }
 
   /**
-   * Test/integration seam — override the Database factory and (optionally)
-   * the sqlite-vec extension path resolver before calling
-   * {@link openAndMigrate}. Production callers never need this.
+   * Test/integration seam — override the Database factory, vec path resolver,
+   * and backup service before calling {@link openAndMigrate}.
+   * Production callers use `setBackupService()` instead of this method.
    */
   configure(options: {
     factory?: SqliteDatabaseFactory;
     vecPathResolver?: SqliteVecPathResolver | null;
+    backupService?: IBackupService;
   }): void {
     if (options.factory) this.factory = options.factory;
     if (options.vecPathResolver !== undefined)
       this.vecPathResolver = options.vecPathResolver;
+    if (options.backupService !== undefined)
+      this.backupService = options.backupService;
+  }
+
+  /**
+   * Wire the backup service after construction. Called by the DI registration
+   * helper after both `SqliteConnectionService` and `SqliteBackupService` are
+   * resolved from the container.
+   */
+  setBackupService(svc: IBackupService): void {
+    this.backupService = svc;
   }
 
   /**
@@ -167,11 +187,15 @@ export class SqliteConnectionService {
     this.unavailableDetail = null;
     this.logConnectionHealth(db);
     this.runBootChecks(db);
-    this.migrationRunner = new SqliteMigrationRunner(db, this.logger);
+    this.migrationRunner = new SqliteMigrationRunner(
+      db,
+      this.logger,
+      this.backupService,
+    );
     this.logger.debug(
       '[persistence-sqlite] Migration runner created, applying migrations...',
     );
-    const result = this.migrationRunner.applyAll(MIGRATIONS, {
+    const result = await this.migrationRunner.applyAll(MIGRATIONS, {
       vecExtensionLoaded: this.vecLoaded,
     });
     this.logger.info('[persistence-sqlite] openAndMigrate complete', {
@@ -206,6 +230,14 @@ export class SqliteConnectionService {
       this.unavailableReason = 'native_module_missing';
       this.unavailableDetail =
         'better-sqlite3 native binary is missing. Run `npm install` followed by `npm run electron:rebuild`.';
+    } else if (/SQLITE_FULL|ENOSPC|no space left on device/i.test(message)) {
+      this.unavailableReason = 'open_failed';
+      this.unavailableDetail =
+        'Disk is full. Free space at ~/.ptah and restart.';
+    } else if (/EPERM|permission denied|access is denied/i.test(message)) {
+      this.unavailableReason = 'open_failed';
+      this.unavailableDetail =
+        'Permission denied opening ~/.ptah/state/ptah.sqlite. Check antivirus exclusions for the ~/.ptah directory.';
     } else {
       this.unavailableReason = 'open_failed';
       this.unavailableDetail = message;
@@ -214,6 +246,29 @@ export class SqliteConnectionService {
       '[persistence-sqlite] openAndMigrate failed — persistence disabled',
       { reason: this.unavailableReason, detail: this.unavailableDetail },
     );
+  }
+
+  /**
+   * Called by write-path callers when they encounter a fatal write error.
+   * If the error indicates a full disk, closes the connection and marks it
+   * unavailable so subsequent `db` getter calls surface a clear message.
+   * Returns `true` if action was taken, `false` otherwise.
+   * EPERM at write-time: the DB is still readable, so the connection is NOT
+   * closed — log and let the caller surface the error.
+   */
+  handleFatalWriteError(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/SQLITE_FULL|ENOSPC|no space left on device/i.test(message)) {
+      this.unavailableDetail =
+        'Disk full — persistence suspended. Free space and restart Ptah.';
+      this.close(); // sets unavailableReason = 'closed'
+      this.logger.error(
+        '[persistence-sqlite] fatal write error — connection closed',
+        { detail: this.unavailableDetail },
+      );
+      return true;
+    }
+    return false;
   }
 
   /**
