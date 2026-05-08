@@ -5,12 +5,6 @@
  */
 
 import type { ProjectAnalysisResult, AgentRecommendation } from '../wizard';
-import type {
-  NewProjectType,
-  QuestionGroup,
-  DiscoveryAnswers,
-  MasterPlan,
-} from '../new-project.types';
 
 // ============================================================
 // Setup Status RPC Types
@@ -361,49 +355,14 @@ export interface WizardInstallPackAgentsResult {
 }
 
 // ============================================================
-// New Project Wizard RPC Types
+// New Project Chat Handoff RPC Types
 // ============================================================
 
-/** Parameters for wizard:new-project-select-type RPC method */
-export interface WizardNewProjectSelectTypeParams {
-  projectType: NewProjectType;
-}
+/** Parameters for wizard:start-new-project-chat RPC method */
+export type WizardStartNewProjectChatParams = Record<string, never>;
 
-/** Response from wizard:new-project-select-type RPC method */
-export interface WizardNewProjectSelectTypeResult {
-  groups: QuestionGroup[];
-}
-
-/** Parameters for wizard:new-project-submit-answers RPC method */
-export interface WizardNewProjectSubmitAnswersParams {
-  projectType: NewProjectType;
-  answers: DiscoveryAnswers;
-  projectName: string;
-  /** When true, delete any existing plan and regenerate from scratch. */
-  force?: boolean;
-}
-
-/** Response from wizard:new-project-submit-answers RPC method */
-export interface WizardNewProjectSubmitAnswersResult {
+/** Response from wizard:start-new-project-chat RPC method */
+export interface WizardStartNewProjectChatResult {
   success: boolean;
   error?: string;
-}
-
-/** Parameters for wizard:new-project-get-plan RPC method */
-export type WizardNewProjectGetPlanParams = Record<string, never>;
-
-/** Response from wizard:new-project-get-plan RPC method */
-export interface WizardNewProjectGetPlanResult {
-  plan: MasterPlan;
-}
-
-/** Parameters for wizard:new-project-approve-plan RPC method */
-export interface WizardNewProjectApprovePlanParams {
-  approved: boolean;
-}
-
-/** Response from wizard:new-project-approve-plan RPC method */
-export interface WizardNewProjectApprovePlanResult {
-  success: boolean;
-  planPath: string;
 }

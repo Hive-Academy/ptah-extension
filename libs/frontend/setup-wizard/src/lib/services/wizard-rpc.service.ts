@@ -3,15 +3,12 @@ import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
 import type {
   AgentPackInfoDto,
   AgentRecommendation,
-  DiscoveryAnswers,
   EnhancedPromptsRunWizardResponse,
   EnhancedPromptsGetStatusResponse,
-  MasterPlan,
   MultiPhaseAnalysisResponse,
-  NewProjectType,
-  QuestionGroup,
   SavedAnalysisMetadata,
   WizardInstallPackAgentsResult,
+  WizardStartNewProjectChatResult,
 } from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
 
@@ -23,14 +20,12 @@ import { AgentSelection } from './setup-wizard-state.service';
  * - PACK_INSTALL: download + write of a community agent pack.
  * - SHORT_LLM: bounded LLM completion (≤ a minute of model latency).
  * - GENERATION: full agent generation across selections.
- * - PLAN_GENERATION: master-plan synthesis from discovery answers.
  * - DEEP_ANALYSIS: end-to-end agentic workspace analysis (1h + buffer).
  */
 const WIZARD_RPC_TIMEOUTS = {
   LIST_MS: 10_000,
   PACK_LIST_MS: 30_000,
   SHORT_LLM_MS: 60_000,
-  PLAN_GENERATION_MS: 120_000,
   GENERATION_MS: 300_000,
   PACK_INSTALL_MS: 60_000,
   DEEP_ANALYSIS_MS: 3_660_000,
@@ -474,85 +469,26 @@ export class WizardRpcService {
     };
   }
 
-  // === New Project RPC Methods ===
+  // === New Project Chat Handoff ===
 
   /**
-   * Select a new project type and receive discovery question groups.
-   * Calls the wizard:new-project-select-type backend handler.
-   *
-   * @param projectType - The selected project type (e.g., 'full-saas', 'angular-app')
-   * @returns Array of question groups for the discovery step
+   * Hand off the new-project flow to the chat surface.
+   * Calls the wizard:start-new-project-chat backend handler — the backend
+   * enables the saas-workspace-initializer plugin, focuses chat, broadcasts
+   * the seed prompt via SETUP_WIZARD_START_NEW_PROJECT_CHAT, and disposes
+   * the wizard webview.
    */
-  public async selectNewProjectType(
-    projectType: NewProjectType,
-  ): Promise<QuestionGroup[]> {
+  public async startNewProjectChat(): Promise<void> {
     const result = await this.rpcService.call(
-      'wizard:new-project-select-type',
-      { projectType },
-    );
-    if (result.isSuccess() && result.data) {
-      return (result.data as { groups: QuestionGroup[] }).groups;
-    }
-    throw new Error(result.error || 'Failed to select project type');
-  }
-
-  /**
-   * Submit discovery answers and trigger master plan generation.
-   * Calls the wizard:new-project-submit-answers backend handler.
-   * Uses a 2-minute timeout since plan generation involves LLM processing.
-   *
-   * @param projectType - The selected project type
-   * @param answers - Accumulated discovery answers keyed by question ID
-   * @param projectName - User-provided project name
-   */
-  public async submitDiscoveryAnswers(
-    projectType: NewProjectType,
-    answers: DiscoveryAnswers,
-    projectName: string,
-    force?: boolean,
-  ): Promise<void> {
-    const result = await this.rpcService.call(
-      'wizard:new-project-submit-answers',
-      { projectType, answers, projectName, force },
-      { timeout: WIZARD_RPC_TIMEOUTS.PLAN_GENERATION_MS },
-    );
-    if (!result.isSuccess()) {
-      throw new Error(result.error || 'Failed to generate plan');
-    }
-  }
-
-  /**
-   * Retrieve the generated master plan.
-   * Calls the wizard:new-project-get-plan backend handler.
-   *
-   * @returns The generated master plan
-   */
-  public async getMasterPlan(): Promise<MasterPlan> {
-    const result = await this.rpcService.call(
-      'wizard:new-project-get-plan',
+      'wizard:start-new-project-chat',
       {},
     );
-    if (result.isSuccess() && result.data) {
-      return (result.data as { plan: MasterPlan }).plan;
+    if (!result.isSuccess()) {
+      throw new Error(result.error || 'Failed to start new project chat');
     }
-    throw new Error(result.error || 'Failed to get plan');
-  }
-
-  /**
-   * Approve or reject the generated master plan.
-   * Calls the wizard:new-project-approve-plan backend handler.
-   *
-   * @param approved - Whether the user approved the plan
-   * @returns Object containing the path where the plan was saved
-   */
-  public async approvePlan(approved: boolean): Promise<{ planPath: string }> {
-    const result = await this.rpcService.call(
-      'wizard:new-project-approve-plan',
-      { approved },
-    );
-    if (result.isSuccess() && result.data) {
-      return { planPath: (result.data as { planPath: string }).planPath };
+    const data = result.data as WizardStartNewProjectChatResult | undefined;
+    if (data && data.success === false) {
+      throw new Error(data.error || 'Failed to start new project chat');
     }
-    throw new Error(result.error || 'Failed to approve plan');
   }
 }

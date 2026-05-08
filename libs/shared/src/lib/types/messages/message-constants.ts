@@ -175,6 +175,8 @@ export const MESSAGE_TYPES = {
   SETUP_WIZARD_COMPLETE: 'setup-wizard:complete',
   SETUP_WIZARD_SCAN_PROGRESS: 'setup-wizard:scan-progress',
   SETUP_WIZARD_ANALYSIS_STREAM: 'setup-wizard:analysis-stream',
+  /** Backend → Frontend: seed a new chat session with a pre-populated user turn (new-project handoff). */
+  SETUP_WIZARD_START_NEW_PROJECT_CHAT: 'setup-wizard:start-new-project-chat',
 
   // ---- AskUserQuestion Messages ----
   // Used by SDK's AskUserQuestion tool to prompt user with clarifying questions

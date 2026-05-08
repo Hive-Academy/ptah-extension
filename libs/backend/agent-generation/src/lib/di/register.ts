@@ -39,9 +39,6 @@ import {
   MultiPhaseAnalysisService,
 } from '../services/wizard';
 import { AnalysisStorageService } from '../services/analysis-storage.service';
-import { NewProjectDiscoveryService } from '../services/new-project/new-project-discovery.service';
-import { MasterPlanGenerationService } from '../services/new-project/master-plan-generation.service';
-import { NewProjectStorageService } from '../services/new-project/new-project-storage.service';
 
 /**
  * Register all agent-generation services in DI container
@@ -158,31 +155,6 @@ export function registerAgentGenerationServices(
   );
 
   // ============================================================
-  // New Project Wizard Services
-  // ============================================================
-
-  // New project discovery service - static question groups and answer validation
-  container.register(
-    AGENT_GENERATION_TOKENS.NEW_PROJECT_DISCOVERY_SERVICE,
-    { useClass: NewProjectDiscoveryService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // Master plan generation service - LLM-powered project plan generation
-  container.register(
-    AGENT_GENERATION_TOKENS.MASTER_PLAN_GENERATION_SERVICE,
-    { useClass: MasterPlanGenerationService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // New project storage service - master plan persistence to workspace disk
-  container.register(
-    AGENT_GENERATION_TOKENS.NEW_PROJECT_STORAGE_SERVICE,
-    { useClass: NewProjectStorageService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  // ============================================================
   // High-level Services (orchestration layer)
   // ============================================================
 
@@ -220,9 +192,6 @@ export function registerAgentGenerationServices(
       'CONTENT_GENERATION_SERVICE',
       'AGENT_FILE_WRITER_SERVICE',
       'MULTI_CLI_AGENT_WRITER_SERVICE',
-      'NEW_PROJECT_DISCOVERY_SERVICE',
-      'MASTER_PLAN_GENERATION_SERVICE',
-      'NEW_PROJECT_STORAGE_SERVICE',
       'AGENT_GENERATION_ORCHESTRATOR',
       'SETUP_STATUS_SERVICE',
       'SETUP_WIZARD_SERVICE',

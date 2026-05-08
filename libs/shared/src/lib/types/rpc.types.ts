@@ -171,14 +171,8 @@ import type {
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
   WizardInstallPackAgentsResult,
-  WizardNewProjectSelectTypeParams,
-  WizardNewProjectSelectTypeResult,
-  WizardNewProjectSubmitAnswersParams,
-  WizardNewProjectSubmitAnswersResult,
-  WizardNewProjectGetPlanParams,
-  WizardNewProjectGetPlanResult,
-  WizardNewProjectApprovePlanParams,
-  WizardNewProjectApprovePlanResult,
+  WizardStartNewProjectChatParams,
+  WizardStartNewProjectChatResult,
 } from './rpc/rpc-setup.types';
 
 import type {
@@ -552,22 +546,10 @@ export interface RpcMethodRegistry {
     params: WizardInstallPackAgentsParams;
     result: WizardInstallPackAgentsResult;
   };
-  // New Project Wizard Methods
-  'wizard:new-project-select-type': {
-    params: WizardNewProjectSelectTypeParams;
-    result: WizardNewProjectSelectTypeResult;
-  };
-  'wizard:new-project-submit-answers': {
-    params: WizardNewProjectSubmitAnswersParams;
-    result: WizardNewProjectSubmitAnswersResult;
-  };
-  'wizard:new-project-get-plan': {
-    params: WizardNewProjectGetPlanParams;
-    result: WizardNewProjectGetPlanResult;
-  };
-  'wizard:new-project-approve-plan': {
-    params: WizardNewProjectApprovePlanParams;
-    result: WizardNewProjectApprovePlanResult;
+  // New Project Chat Handoff
+  'wizard:start-new-project-chat': {
+    params: WizardStartNewProjectChatParams;
+    result: WizardStartNewProjectChatResult;
   };
 
   // ---- License Methods ----
@@ -1699,11 +1681,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   // Agent Pack Browser Methods (TASK_2025_258)
   'wizard:list-agent-packs': true,
   'wizard:install-pack-agents': true,
-  // New Project Wizard Methods
-  'wizard:new-project-select-type': true,
-  'wizard:new-project-submit-answers': true,
-  'wizard:new-project-get-plan': true,
-  'wizard:new-project-approve-plan': true,
+  // New Project Chat Handoff
+  'wizard:start-new-project-chat': true,
 
   // License Methods
   'license:getStatus': true,

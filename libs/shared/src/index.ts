@@ -38,10 +38,6 @@ export * from './lib/utils/git.utils';
 // Setup wizard types
 export * from './lib/types/wizard';
 
-// New project wizard types and data
-export * from './lib/types/new-project.types';
-export * from './lib/data/new-project-questions';
-
 // Harness builder types
 export * from './lib/types/rpc/rpc-harness.types';
 

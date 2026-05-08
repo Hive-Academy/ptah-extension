@@ -13,16 +13,11 @@ import type {
   AgentPackInfoDto,
   AgentRecommendation,
   AnalysisStreamPayload,
-  AnswerValue,
-  DiscoveryAnswers,
   EnhancedPromptsSummary,
   FlatStreamEventUnion,
   GenerationStreamPayload,
-  MasterPlan,
   MultiPhaseAnalysisResponse,
-  NewProjectType,
   ProjectAnalysisResult,
-  QuestionGroup,
   SavedAnalysisMetadata,
 } from '@ptah-extension/shared';
 import { WizardMessageDispatcher } from './setup-wizard/wizard-message-dispatcher';
@@ -46,7 +41,6 @@ import type {
   ProjectContext,
   ScanProgress,
   SkillGenerationProgressItem,
-  WizardPath,
   WizardStep,
 } from './setup-wizard-state.types';
 
@@ -93,7 +87,6 @@ export type {
 // to resolve unchanged.
 export type {
   WizardStep,
-  WizardPath,
   ProjectContext,
   AgentSelection,
   GenerationProgress,
@@ -238,16 +231,6 @@ export class SetupWizardStateService {
   >({});
   private readonly expandedPackSourceSignal = signal<string | null>(null);
 
-  // New Project Path
-  private readonly wizardPathSignal = signal<WizardPath>(null);
-  private readonly newProjectTypeSignal = signal<NewProjectType | null>(null);
-  private readonly questionGroupsSignal = signal<QuestionGroup[]>([]);
-  private readonly currentGroupIndexSignal = signal<number>(0);
-  private readonly discoveryAnswersSignal = signal<DiscoveryAnswers>({});
-  private readonly masterPlanSignal = signal<MasterPlan | null>(null);
-  private readonly planGeneratingSignal = signal<boolean>(false);
-  private readonly forceRegenerateSignal = signal<boolean>(false);
-
   // === Public Readonly Projections ===
   // One-line projections for each writable signal above. Per-field JSDoc was
   // intentionally removed in Wave C7h to keep the coordinator under the LOC
@@ -304,16 +287,6 @@ export class SetupWizardStateService {
   public readonly expandedPackSource =
     this.expandedPackSourceSignal.asReadonly();
 
-  // New Project Path
-  public readonly wizardPath = this.wizardPathSignal.asReadonly();
-  public readonly newProjectType = this.newProjectTypeSignal.asReadonly();
-  public readonly questionGroups = this.questionGroupsSignal.asReadonly();
-  public readonly currentGroupIndex = this.currentGroupIndexSignal.asReadonly();
-  public readonly discoveryAnswers = this.discoveryAnswersSignal.asReadonly();
-  public readonly masterPlan = this.masterPlanSignal.asReadonly();
-  public readonly planGenerating = this.planGeneratingSignal.asReadonly();
-  public readonly forceRegenerate = this.forceRegenerateSignal.asReadonly();
-
   // Multi-Phase Analysis (TASK_2025_154)
   public readonly currentPhaseNumber = this._currentPhaseNumber.asReadonly();
   public readonly totalPhaseCount = this._totalPhaseCount.asReadonly();
@@ -355,9 +328,6 @@ export class SetupWizardStateService {
   public readonly installedCommunityAgentCount: WizardComputeds['installedCommunityAgentCount'];
   public readonly isMultiPhaseAnalysis: WizardComputeds['isMultiPhaseAnalysis'];
   public readonly hasMultiPhaseResult: WizardComputeds['hasMultiPhaseResult'];
-  public readonly currentQuestionGroup: WizardComputeds['currentQuestionGroup'];
-  public readonly currentGroupComplete: WizardComputeds['currentGroupComplete'];
-  public readonly isLastGroup: WizardComputeds['isLastGroup'];
   public readonly activeStepConfig: WizardComputeds['activeStepConfig'];
   public readonly selectedCount: WizardComputeds['selectedCount'];
   public readonly canProceed: WizardComputeds['canProceed'];
@@ -396,16 +366,8 @@ export class SetupWizardStateService {
           this.currentStepSignal.set('enhance');
         }
       },
-      // C7h: wizard step + new-project flow
+      // C7h: wizard step
       currentStep: this.currentStepSignal,
-      wizardPath: this.wizardPathSignal,
-      newProjectType: this.newProjectTypeSignal,
-      questionGroups: this.questionGroupsSignal,
-      currentGroupIndex: this.currentGroupIndexSignal,
-      discoveryAnswers: this.discoveryAnswersSignal,
-      masterPlan: this.masterPlanSignal,
-      planGenerating: this.planGeneratingSignal,
-      forceRegenerate: this.forceRegenerateSignal,
       // C7h: deep analysis + recommendations + selection + history
       deepAnalysis: this.deepAnalysisSignal,
       recommendations: this.recommendationsSignal,
@@ -486,9 +448,6 @@ export class SetupWizardStateService {
       this.computeds.installedCommunityAgentCount;
     this.isMultiPhaseAnalysis = this.computeds.isMultiPhaseAnalysis;
     this.hasMultiPhaseResult = this.computeds.hasMultiPhaseResult;
-    this.currentQuestionGroup = this.computeds.currentQuestionGroup;
-    this.currentGroupComplete = this.computeds.currentGroupComplete;
-    this.isLastGroup = this.computeds.isLastGroup;
     this.activeStepConfig = this.computeds.activeStepConfig;
     this.selectedCount = this.computeds.selectedCount;
     this.canProceed = this.computeds.canProceed;
@@ -634,44 +593,6 @@ export class SetupWizardStateService {
 
   public toggleExpandedPack(source: string): void {
     this.communityPacksState.toggleExpandedPack(source);
-  }
-
-  // === New Project State Mutations ===
-
-  public setWizardPath(path: WizardPath): void {
-    this.flowState.setWizardPath(path);
-  }
-
-  public setNewProjectType(type: NewProjectType): void {
-    this.flowState.setNewProjectType(type);
-  }
-
-  public setQuestionGroups(groups: QuestionGroup[]): void {
-    this.flowState.setQuestionGroups(groups);
-  }
-
-  public setDiscoveryAnswer(questionId: string, value: AnswerValue): void {
-    this.flowState.setDiscoveryAnswer(questionId, value);
-  }
-
-  public nextQuestionGroup(): void {
-    this.flowState.nextQuestionGroup();
-  }
-
-  public previousQuestionGroup(): void {
-    this.flowState.previousQuestionGroup();
-  }
-
-  public setMasterPlan(plan: MasterPlan | null): void {
-    this.flowState.setMasterPlan(plan);
-  }
-
-  public setPlanGenerating(generating: boolean): void {
-    this.flowState.setPlanGenerating(generating);
-  }
-
-  public setForceRegenerate(force: boolean): void {
-    this.flowState.setForceRegenerate(force);
   }
 
   // === Deep Analysis State Mutations (TASK_2025_111) ===
