@@ -19,6 +19,7 @@
 import 'reflect-metadata';
 
 import { SdkQueryOptionsBuilder } from './sdk-query-options-builder';
+import { ModelNotAvailableError } from '../errors';
 import type {
   McpHttpServerConfig,
   HookEvent,
@@ -257,5 +258,237 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
 
     const optsOff = await buildWith({ enableFileCheckpointing: false });
     expect(optsOff.forwardSubagentText).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SdkQueryOptionsBuilder.validateModelAvailability (Fix: NODE-NESTJS-3B/2W)
+//
+// Pre-flight model existence check executed inside build() for third-party
+// providers (non-Anthropic base URL) when models are already cached.
+//
+// The helper is private, so we drive it through the public build() API,
+// injecting tailored modelService stubs into the builder constructor.
+// ---------------------------------------------------------------------------
+
+describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via build)', () => {
+  /** Build a full SdkQueryOptionsBuilder whose modelService is controlled by the caller. */
+  function makeBuilderWithModelService(modelService: {
+    resolveModelId: jest.Mock;
+    hasCachedModels?: jest.Mock;
+    getSupportedModels?: jest.Mock;
+  }): SdkQueryOptionsBuilder {
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as const;
+
+    const permissionHandler = {
+      createCallback: jest.fn().mockReturnValue(() => ({ behavior: 'allow' })),
+    };
+    const subagentHookHandler = {
+      createHooks: jest
+        .fn()
+        .mockReturnValue(
+          {} as Partial<Record<HookEvent, HookCallbackMatcher[]>>,
+        ),
+    };
+    const compactionConfigProvider = {
+      getConfig: jest
+        .fn()
+        .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+    };
+    const compactionHookHandler = {
+      createHooks: jest
+        .fn()
+        .mockReturnValue(
+          {} as Partial<Record<HookEvent, HookCallbackMatcher[]>>,
+        ),
+    };
+    const worktreeHookHandler = {
+      createHooks: jest
+        .fn()
+        .mockReturnValue(
+          {} as Partial<Record<HookEvent, HookCallbackMatcher[]>>,
+        ),
+    };
+
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    return new ctor(
+      logger,
+      permissionHandler,
+      subagentHookHandler,
+      compactionConfigProvider,
+      compactionHookHandler,
+      worktreeHookHandler,
+      // Third-party provider: non-Anthropic base URL triggers model validation.
+      { ANTHROPIC_BASE_URL: 'https://api.moonshot.cn/v1' } as AuthEnv,
+      modelService,
+    );
+  }
+
+  async function buildWithModel(
+    builder: SdkQueryOptionsBuilder,
+    model: string,
+  ): Promise<void> {
+    const sessionConfig = {
+      model,
+      projectPath: 'D:/tmp/ws',
+    } as AISessionConfig;
+    const userMessageStream = (async function* () {
+      // Intentionally empty.
+    })();
+    await builder.build({
+      userMessageStream,
+      abortController: new AbortController(),
+      sessionConfig,
+    });
+  }
+
+  it('skips validation and succeeds when no models are cached yet (hasCachedModels = false)', async () => {
+    const modelService = {
+      resolveModelId: jest
+        .fn()
+        .mockImplementation((m: string) => m || 'kimi-k2.6'),
+      hasCachedModels: jest.fn().mockReturnValue(false),
+      getSupportedModels: jest.fn(),
+    };
+    const builder = makeBuilderWithModelService(modelService);
+
+    // Should NOT throw — cache miss is always a skip, not a failure.
+    await expect(buildWithModel(builder, 'kimi-k2.6')).resolves.not.toThrow();
+    expect(modelService.getSupportedModels).not.toHaveBeenCalled();
+  });
+
+  it('passes through when the model IS in the cached list', async () => {
+    const modelService = {
+      resolveModelId: jest
+        .fn()
+        .mockImplementation((m: string) => m || 'kimi-k2.6'),
+      hasCachedModels: jest.fn().mockReturnValue(true),
+      getSupportedModels: jest
+        .fn()
+        .mockResolvedValue([
+          { value: 'kimi-k2.6' },
+          { value: 'moonshot-v1-8k' },
+        ]),
+    };
+    const builder = makeBuilderWithModelService(modelService);
+
+    await expect(buildWithModel(builder, 'kimi-k2.6')).resolves.not.toThrow();
+  });
+
+  it('throws ModelNotAvailableError when the model is NOT in the cached list', async () => {
+    const modelService = {
+      resolveModelId: jest
+        .fn()
+        .mockImplementation((m: string) => m || 'devstral'),
+      hasCachedModels: jest.fn().mockReturnValue(true),
+      getSupportedModels: jest
+        .fn()
+        .mockResolvedValue([
+          { value: 'moonshot-v1-8k' },
+          { value: 'moonshot-v1-32k' },
+        ]),
+    };
+    const builder = makeBuilderWithModelService(modelService);
+
+    await expect(buildWithModel(builder, 'devstral')).rejects.toBeInstanceOf(
+      ModelNotAvailableError,
+    );
+  });
+
+  it('falls through gracefully when getSupportedModels() throws (never blocks the query)', async () => {
+    const modelService = {
+      resolveModelId: jest
+        .fn()
+        .mockImplementation((m: string) => m || 'kimi-k2.6'),
+      hasCachedModels: jest.fn().mockReturnValue(true),
+      getSupportedModels: jest
+        .fn()
+        .mockRejectedValue(new Error('network error')),
+    };
+    const builder = makeBuilderWithModelService(modelService);
+
+    // An error in getSupportedModels must NOT block the build — the SDK will
+    // surface any real model error when the subprocess starts.
+    await expect(buildWithModel(builder, 'kimi-k2.6')).resolves.not.toThrow();
+  });
+
+  it('skips validation for direct Anthropic base URL (authoritative — never validate)', async () => {
+    // Rebuild builder with direct Anthropic URL.
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as const;
+    const permissionHandler = {
+      createCallback: jest.fn().mockReturnValue(() => ({ behavior: 'allow' })),
+    };
+    const subagentHookHandler = {
+      createHooks: jest.fn().mockReturnValue({}),
+    };
+    const compactionConfigProvider = {
+      getConfig: jest
+        .fn()
+        .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+    };
+    const compactionHookHandler = {
+      createHooks: jest.fn().mockReturnValue({}),
+    };
+    const worktreeHookHandler = { createHooks: jest.fn().mockReturnValue({}) };
+    const modelService = {
+      resolveModelId: jest
+        .fn()
+        .mockImplementation((m: string) => m || 'claude-3-opus-20240229'),
+      hasCachedModels: jest.fn().mockReturnValue(true),
+      getSupportedModels: jest
+        .fn()
+        .mockResolvedValue([{ value: 'claude-3-5-sonnet-20241022' }]),
+    };
+    const builder = new ctor(
+      logger,
+      permissionHandler,
+      subagentHookHandler,
+      compactionConfigProvider,
+      compactionHookHandler,
+      worktreeHookHandler,
+      { ANTHROPIC_BASE_URL: 'https://api.anthropic.com' } as AuthEnv,
+      modelService,
+    );
+
+    const sessionConfig = {
+      model: 'claude-3-opus-20240229',
+      projectPath: 'D:/tmp/ws',
+    } as AISessionConfig;
+    const userMessageStream = (async function* (): AsyncGenerator<
+      never,
+      void,
+      unknown
+    > {
+      // empty stream — build-only test, no user messages required
+      if (false as boolean) yield undefined as never;
+    })();
+    // claude-3-opus-20240229 is NOT in the cached list, but Anthropic is
+    // direct — validation must be skipped entirely.
+    await expect(
+      builder.build({
+        userMessageStream,
+        abortController: new AbortController(),
+        sessionConfig,
+      }),
+    ).resolves.not.toThrow();
+
+    // hasCachedModels / getSupportedModels must NOT be consulted.
+    expect(modelService.hasCachedModels).not.toHaveBeenCalled();
+    expect(modelService.getSupportedModels).not.toHaveBeenCalled();
   });
 });
