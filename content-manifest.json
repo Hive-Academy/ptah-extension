@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:4ea6b3a795557c5d4fc1fe36338e0fec779d7fe19db729dcd3fde17a04ca4bc6",
-  "generatedAt": "2026-05-02T13:32:12.876Z",
+  "contentHash": "sha256:cb94751eb77608b576fdf73b03aa5e7d53f82d010e401880581e0ba0b9d899a8",
+  "generatedAt": "2026-05-08T14:32:34.547Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -122,6 +122,7 @@
       "ptah-nx-saas/skills/saas-platform-patterns/references/license-lifecycle.md",
       "ptah-nx-saas/skills/saas-platform-patterns/references/subscription-state-machine.md",
       "ptah-nx-saas/skills/saas-workspace-initializer/SKILL.md",
+      "ptah-nx-saas/skills/saas-workspace-initializer/references/roadmap-format.md",
       "ptah-nx-saas/skills/webhook-architecture/SKILL.md",
       "ptah-nx-saas/skills/webhook-architecture/references/resilience-and-recovery.md",
       "ptah-nx-saas/skills/webhook-architecture/references/signature-verification.md",
