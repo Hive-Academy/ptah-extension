@@ -301,6 +301,21 @@ export class TabManagerService {
     { equal: (a, b) => a === b },
   );
 
+  /**
+   * Whether the active tab's session has been activated this run (sticky
+   * flag set the first time the tab transitions through `streaming` or
+   * `resuming`). Mirrors backend `SessionLifecycleManager.getActiveSession`
+   * lifetime. Used by the chat view to gate the rewind action — rewinding
+   * a session loaded purely from disk (no live `Query`) throws
+   * `SessionNotActiveError`. See TabState.hasLiveSession.
+   */
+  readonly activeTabHasLiveSession = computed(
+    () =>
+      this._tabs().find((t) => t.id === this._activeTabId())?.hasLiveSession ??
+      false,
+    { equal: (a, b) => a === b },
+  );
+
   // ============================================================================
   // TAB LOOKUP
   // ============================================================================
@@ -829,7 +844,14 @@ export class TabManagerService {
 
   /** Transition the tab into the `streaming` status. */
   markStreaming(tabId: string): void {
-    this.updateTabInternal(tabId, { status: 'streaming' });
+    // Sticky `hasLiveSession` flag — set true on first streaming transition
+    // and never cleared. Mirrors backend `SessionLifecycleManager` lifetime
+    // (kept in memory until disposal). Used to gate rewind/other actions
+    // that require a live SDK Query handle. See TabState.hasLiveSession doc.
+    this.updateTabInternal(tabId, {
+      status: 'streaming',
+      hasLiveSession: true,
+    });
   }
 
   /** Transition the tab into the `loaded` status. */
@@ -839,7 +861,13 @@ export class TabManagerService {
 
   /** Transition the tab into the `resuming` status. */
   markResuming(tabId: string): void {
-    this.updateTabInternal(tabId, { status: 'resuming' });
+    // Resume installs a fresh live Query handle in the SDK — flip the
+    // sticky `hasLiveSession` flag so post-resume rewind requests pass
+    // the UI guard. See TabState.hasLiveSession doc.
+    this.updateTabInternal(tabId, {
+      status: 'resuming',
+      hasLiveSession: true,
+    });
   }
 
   /**
@@ -867,6 +895,7 @@ export class TabManagerService {
       title: name,
       status: 'streaming',
       isDirty: false,
+      hasLiveSession: true,
     });
   }
 

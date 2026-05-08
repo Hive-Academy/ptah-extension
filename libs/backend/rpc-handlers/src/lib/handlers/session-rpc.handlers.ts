@@ -85,17 +85,38 @@ export class SessionRpcHandlers {
 
   /**
    * Verify that a workspacePath supplied by the frontend is one of the
-   * currently open workspace folders. Prevents the webview from reading or
-   * operating on arbitrary paths outside the active workspace.
+   * currently open workspace folders, OR is a sub-path of one of them.
+   *
+   * Sub-path check is needed because the webview may serialize paths with
+   * trailing slashes or mixed separators after JSON round-trips. A path is
+   * accepted when:
+   *   - It matches an open folder exactly (after normalization), OR
+   *   - It starts with an open folder path followed by a separator boundary
+   *     (prevents `/foo/barbaz` from matching `/foo/bar`).
+   *
+   * Both sides are normalized (path.resolve + backslash-to-slash + lowercase +
+   * trailing-separator stripped) before comparison.
    */
   private isAuthorizedWorkspace(workspacePath: string): boolean {
     if (!workspacePath) return false;
     const folders = this.workspaceProvider.getWorkspaceFolders();
     if (!folders || folders.length === 0) return false;
+
+    /** Normalize: resolve, forward-slashes, lowercase, strip trailing slash. */
     const normalize = (p: string) =>
-      path.resolve(p).replace(/\\/g, '/').toLowerCase();
+      path.resolve(p).replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+
     const target = normalize(workspacePath);
-    return folders.some((f) => normalize(f) === target);
+
+    return folders.some((f) => {
+      const folder = normalize(f);
+      // Exact match after normalization (handles trailing slash + separator drift)
+      if (folder === target) return true;
+      // Sub-path: target starts with folder + separator boundary
+      // e.g. folder="/c/foo", target="/c/foo/bar" — prevents "/c/foo" matching "/c/foobaz"
+      if (target.startsWith(folder + '/')) return true;
+      return false;
+    });
   }
 
   /**

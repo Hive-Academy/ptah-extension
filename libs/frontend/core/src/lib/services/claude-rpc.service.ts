@@ -49,8 +49,12 @@ export class RpcResult<T> {
      * Error code for programmatic handling (TASK_2025_124)
      * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
      * - 'PRO_TIER_REQUIRED': Pro subscription required for this feature
+     * - 'WORKSPACE_NOT_OPEN': No workspace folder is open (expected user condition)
      */
-    public readonly errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED',
+    public readonly errorCode?:
+      | 'LICENSE_REQUIRED'
+      | 'PRO_TIER_REQUIRED'
+      | 'WORKSPACE_NOT_OPEN',
   ) {}
 
   /**
@@ -97,8 +101,9 @@ interface RpcResponse<T = unknown> {
    * Error code for programmatic handling (TASK_2025_124)
    * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
    * - 'PRO_TIER_REQUIRED': Pro subscription required for this feature
+   * - 'WORKSPACE_NOT_OPEN': No workspace folder is open (expected user condition)
    */
-  errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED';
+  errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED' | 'WORKSPACE_NOT_OPEN';
   correlationId: string;
 }
 

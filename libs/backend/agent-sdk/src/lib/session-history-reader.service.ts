@@ -272,6 +272,120 @@ export class SessionHistoryReaderService {
   }
 
   // ==========================================================================
+  // FORK RESOLUTION
+  // ==========================================================================
+
+  /**
+   * Regex that matches native Anthropic message UUIDs (base64url, 24+ chars).
+   * Examples: msg_01AbCdEfGhIjKlMnOpQrStUv, msg_bdrk_01AbC...
+   * Ptah-generated IDs use `msg_<timestamp>_<random>` (digits, NOT base64 chars at pos 4+).
+   */
+  private readonly NATIVE_SDK_UUID_PATTERN = /^msg_[0-9A-Za-z_]{20,}$/;
+
+  /**
+   * Resolve a message ID sent by the frontend to a native SDK message UUID
+   * that the Claude Agent SDK's `forkSession()` will accept.
+   *
+   * Background:
+   *   - Live streaming events carry `messageId = message.id || sdkMessage.uuid`
+   *     which are Anthropic-native UUIDs (msg_01...). These pass through
+   *     unchanged.
+   *   - History-loaded sessions replay JSONL lines. When a JSONL line has no
+   *     `uuid` field the replay assigns a Ptah-generated fallback ID
+   *     (`msg_<timestamp>_<random>`). The SDK rejects these.
+   *   - Some legacy JSONL files may also store non-standard UUID values.
+   *
+   * Resolution strategy:
+   *   1. If `upToMessageId` already looks native (matches NATIVE_SDK_UUID_PATTERN
+   *      with a base64url-only suffix), return it unchanged.
+   *   2. Read raw JSONL for the session. If a JSONL line's `uuid` field exactly
+   *      matches `upToMessageId` but isn't native, walk *backward* from that
+   *      position to find the nearest preceding line with a native `uuid` and
+   *      return that. This preserves the user's intent (fork "around here")
+   *      while giving the SDK a valid anchor point.
+   *   3. If no JSONL line matches `upToMessageId` at all, throw SdkError with
+   *      a descriptive message ("upToMessageId not found in session history").
+   *
+   * @param sessionId - Session to search in
+   * @param workspacePath - Workspace root for locating the JSONL file
+   * @param upToMessageId - ID provided by the frontend (may be native or Ptah-generated)
+   * @returns Resolved native SDK message UUID
+   * @throws SdkError if the ID cannot be resolved
+   */
+  async resolveNativeMessageId(
+    sessionId: string,
+    workspacePath: string,
+    upToMessageId: string,
+  ): Promise<string> {
+    // Fast path: already a native UUID — pass through unchanged.
+    if (this.NATIVE_SDK_UUID_PATTERN.test(upToMessageId)) {
+      return upToMessageId;
+    }
+
+    this.logger.info(
+      '[SessionHistoryReader] Non-native upToMessageId — resolving via JSONL scan',
+      { sessionId, upToMessageId },
+    );
+
+    // 0. Validate sessionId before any file I/O.
+    this.validateSessionId(sessionId);
+
+    // 1. Locate the sessions directory.
+    const sessionsDir =
+      await this.jsonlReader.findSessionsDirectory(workspacePath);
+    if (!sessionsDir) {
+      throw new SdkError(
+        `upToMessageId '${upToMessageId}' cannot be resolved: sessions directory not found for workspace '${workspacePath}'`,
+      );
+    }
+
+    // 2. Read raw JSONL messages.
+    const sessionPath = path.join(sessionsDir, `${sessionId}.jsonl`);
+    let messages: SessionHistoryMessage[];
+    try {
+      messages = await this.jsonlReader.readJsonlMessages(sessionPath);
+    } catch {
+      throw new SdkError(
+        `upToMessageId '${upToMessageId}' cannot be resolved: session file not found for session '${sessionId}'`,
+      );
+    }
+
+    // 3. Find the index of the JSONL line whose `uuid` matches upToMessageId.
+    const matchIndex = messages.findIndex((m) => m.uuid === upToMessageId);
+    if (matchIndex === -1) {
+      throw new SdkError(
+        `upToMessageId '${upToMessageId}' not found in session history for session '${sessionId}'. ` +
+          'The message may belong to a different session or the history may have been compacted.',
+      );
+    }
+
+    // 4. Walk backward from matchIndex (inclusive) to find nearest native UUID.
+    for (let i = matchIndex; i >= 0; i--) {
+      const candidate = messages[i].uuid;
+      if (candidate && this.NATIVE_SDK_UUID_PATTERN.test(candidate)) {
+        this.logger.info(
+          '[SessionHistoryReader] Resolved non-native upToMessageId to nearest native UUID',
+          {
+            sessionId,
+            upToMessageId,
+            resolvedId: candidate,
+            matchIndex,
+            resolvedIndex: i,
+          },
+        );
+        return candidate;
+      }
+    }
+
+    // 5. No native UUID found anywhere before (or at) the target message.
+    throw new SdkError(
+      `upToMessageId '${upToMessageId}' found in session history at index ${matchIndex} ` +
+        `but no native SDK UUID exists at or before that position in session '${sessionId}'. ` +
+        'Fork is not supported at this checkpoint.',
+    );
+  }
+
+  // ==========================================================================
   // PRIVATE HELPERS
   // ==========================================================================
 

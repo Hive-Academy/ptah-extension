@@ -267,6 +267,65 @@ describe('SessionRpcHandlers', () => {
       expect(h.metadataStore.getForWorkspace).not.toHaveBeenCalled();
     });
 
+    it('rejects a path that shares a prefix but is NOT a sub-path (separator boundary)', async () => {
+      // /fake/workspacebaz must NOT match /fake/workspace
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:list', {
+        workspacePath: `${WORKSPACE}baz`,
+        limit: 10,
+        offset: 0,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/workspace-not-authorized/);
+    });
+
+    it('accepts a workspace path with a trailing slash (exact-folder with separator drift)', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.getForWorkspace.mockResolvedValue([]);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:list', {
+        workspacePath: `${WORKSPACE}/`,
+        limit: 10,
+        offset: 0,
+      });
+
+      expect(response.success).toBe(true);
+    });
+
+    it('accepts a sub-path of an open folder (webview sends stale child path)', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.getForWorkspace.mockResolvedValue([]);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:list', {
+        workspacePath: `${WORKSPACE}/subdir/nested`,
+        limit: 10,
+        offset: 0,
+      });
+
+      expect(response.success).toBe(true);
+    });
+
+    it('accepts a path with mixed separators (backslash drift from JSON serialization)', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.getForWorkspace.mockResolvedValue([]);
+      h.handlers.register();
+
+      // Replace forward slashes with backslashes to simulate Windows serialization drift
+      const mixedPath = WORKSPACE.replace(/\//g, '\\');
+      const response = await callRaw(h, 'session:list', {
+        workspacePath: mixedPath,
+        limit: 10,
+        offset: 0,
+      });
+
+      expect(response.success).toBe(true);
+    });
+
     it('paginates metadataStore.getForWorkspace() results and sets hasMore correctly', async () => {
       const h = makeHarness();
       const items = Array.from({ length: 5 }, (_, i) =>

@@ -42,6 +42,7 @@ import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from './di/tokens';
 import { SdkError, SessionNotActiveError } from './errors';
 import { SessionMetadataStore } from './session-metadata-store';
+import type { SessionHistoryReaderService } from './session-history-reader.service';
 import {
   ModelInfo,
   type ForkSessionResult,
@@ -224,6 +225,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
+    private readonly historyReader: SessionHistoryReaderService,
   ) {}
 
   /**
@@ -1315,8 +1318,41 @@ export class SdkAgentAdapter implements IAgentAdapter {
         );
       }
 
+      // Fetch source metadata once — used both for workspace path resolution
+      // (needed during message ID resolution) and for naming the fork.
+      const sourceMetadata = await this.metadataStore.get(sessionId);
+
+      // Resolve the message ID: the frontend may send a Ptah-generated ID
+      // (msg_<timestamp>_<random>) obtained from a history-loaded session
+      // replay. The SDK only accepts native Anthropic UUIDs (msg_01...).
+      // We resolve the ID before calling fork() so the SDK never sees an
+      // invalid ID — instead a clear, actionable SdkError is thrown here.
+      let resolvedUpToMessageId: string | undefined = upToMessageId;
+      if (upToMessageId !== undefined) {
+        const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+        const forkWorkspacePath = sourceMetadata?.workspaceId ?? workspaceRoot;
+        if (forkWorkspacePath) {
+          resolvedUpToMessageId =
+            await this.historyReader.resolveNativeMessageId(
+              sessionId,
+              forkWorkspacePath,
+              upToMessageId,
+            );
+          if (resolvedUpToMessageId !== upToMessageId) {
+            this.logger.info(
+              '[SdkAgentAdapter] Resolved Ptah message ID to native SDK UUID for fork',
+              {
+                sessionId,
+                originalUpToMessageId: upToMessageId,
+                resolvedUpToMessageId,
+              },
+            );
+          }
+        }
+      }
+
       const result = await fork(sessionId, {
-        upToMessageId,
+        upToMessageId: resolvedUpToMessageId,
         title,
       });
 
@@ -1324,7 +1360,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // chat:resume can find it. The SDK's standalone forkSession() only
       // writes the JSONL file — it does not touch our metadata store, so
       // without this the new session would 404 on session:load.
-      const sourceMetadata = await this.metadataStore.get(sessionId);
       const forkName =
         title ??
         (sourceMetadata ? `${sourceMetadata.name} (fork)` : 'Forked session');
@@ -1357,6 +1392,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sourceSessionId: sessionId,
         newSessionId: result.sessionId,
         upToMessageId,
+        resolvedUpToMessageId,
         workspaceId,
         forkName,
       });

@@ -414,6 +414,30 @@ export class ChatViewComponent {
     return this.chatStore.isStreaming();
   });
 
+  /**
+   * Resolved "session is active in the SDK this run" — tile-scoped when
+   * SESSION_CONTEXT is provided, otherwise reads from the active tab.
+   *
+   * Sticky-true once the tab has streamed/resumed at least once. Used to
+   * gate the rewind action: rewind requires a live `Query` handle on the
+   * backend (`SessionLifecycleManager.getActiveSession`), which sessions
+   * loaded purely from disk via `session:load` do NOT have. Without this
+   * guard the user can click rewind on a historical session and the SDK
+   * throws `SessionNotActiveError` (Sentry NODE-NESTJS-2Y / 2N / 2X).
+   */
+  readonly resolvedSessionIsActive = computed(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const tabId = ctx();
+      if (!tabId) return false;
+      return (
+        this._tabManager.tabs().find((t) => t.id === tabId)?.hasLiveSession ??
+        false
+      );
+    }
+    return this.chatStore.sessionIsActive();
+  });
+
   private resolvedTab = computed(() => {
     const ctx = this._sessionContext;
     if (!ctx) return null;
@@ -1006,6 +1030,20 @@ export class ChatViewComponent {
     const sessionId = this.resolvedSessionId();
     if (!sessionId) {
       this.showActionError('No active session to rewind.');
+      return;
+    }
+
+    // UI guard mirroring the backend `SessionLifecycleManager.getActiveSession`
+    // contract. Rewind requires a live SDK `Query` handle; sessions loaded
+    // purely from disk via `session:load` do not have one and the SDK throws
+    // `SessionNotActiveError`. The button is also disabled in the template
+    // when this signal is false, but we re-check here so programmatic /
+    // keyboard-driven invocations don't bypass the gate. See Sentry
+    // NODE-NESTJS-2Y / 2N / 2X.
+    if (!this.resolvedSessionIsActive()) {
+      this.showActionError(
+        'Rewind is only available during an active conversation. Send a message or resume the session first.',
+      );
       return;
     }
 
