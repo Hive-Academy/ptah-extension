@@ -26,6 +26,7 @@ import { sql as sql0006GatewayPairingCode } from './0006_gateway_pairing_code';
 import { sql as sql0007FixVec0Rowid } from './0007_fix_vec0_rowid';
 import { sql as sql0008SymbolIndex } from './0008_symbol_index';
 import { run as run0009AutoVacuum } from './0009_auto_vacuum';
+import { sql as sql0010Fts5Porter } from './0010_fts5_porter';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -90,5 +91,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 9,
     name: '0009_auto_vacuum',
     run: run0009AutoVacuum,
+  },
+  {
+    version: 10,
+    name: '0010_fts5_porter',
+    sql: sql0010Fts5Porter,
   },
 ];

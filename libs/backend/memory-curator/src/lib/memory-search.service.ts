@@ -252,15 +252,29 @@ export class MemorySearchService implements IMemoryReader {
     return this.store.getById(memoryId(id));
   }
 
-  private escapeFtsQuery(q: string): string {
-    // Strip FTS5 special characters; wrap multi-token query in OR.
-    const tokens = q
-      .replace(/["'()]/g, ' ')
+  /**
+   * Build an FTS5 MATCH expression from raw user query text.
+   *
+   * - Strips FTS5 metacharacters (", *, (, )) so user input cannot break out
+   *   of the query expression.
+   * - Drops single-character tokens (low signal, high noise).
+   * - Prefix-matches the LAST token: "<token>"* — accommodates partial words
+   *   the user is mid-typing.
+   * - Joins all tokens with OR for recall (RAG context injection prefers
+   *   recall over precision; reranker handles precision in a later step).
+   * - Empty-after-stripping -> returns '""' which won't match anything.
+   */
+  private escapeFtsQuery(rawQuery: string): string {
+    const tokens = rawQuery
+      .toLowerCase()
+      .replace(/["*()]/g, ' ')
       .split(/\s+/)
-      .filter((t) => t.length > 1)
-      .map((t) => `"${t.replace(/"/g, '')}"`);
-    if (tokens.length === 0)
-      return `"${q.replace(/["'()]/g, ' ').trim() || 'memory'}"`;
-    return tokens.join(' OR ');
+      .filter((t) => t.length > 1);
+
+    if (tokens.length === 0) return '""';
+
+    return tokens
+      .map((t, i) => (i === tokens.length - 1 ? `"${t}"*` : `"${t}"`))
+      .join(' OR ');
   }
 }
