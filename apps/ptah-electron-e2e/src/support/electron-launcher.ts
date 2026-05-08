@@ -57,7 +57,7 @@ export async function launchPtah(
   };
   // Strip ELECTRON_RUN_AS_NODE: when set, electron.exe impersonates Node and
   // `import { app } from 'electron'` returns nothing usable, breaking the launcher.
-  delete env.ELECTRON_RUN_AS_NODE;
+  delete env['ELECTRON_RUN_AS_NODE'];
 
   // CI runners (GitHub ubuntu-latest) restrict the unprivileged user-namespace
   // sandbox via AppArmor / kernel.unprivileged_userns_clone, which makes
