@@ -36,6 +36,7 @@ export interface RpcResponse<T = unknown> {
    *
    * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
    * - 'PRO_TIER_REQUIRED': Pro subscription required for this feature
+   * - 'WORKSPACE_NOT_OPEN': No workspace folder is open (expected, not a bug)
    *
    * @example
    * ```typescript
@@ -43,10 +44,12 @@ export interface RpcResponse<T = unknown> {
    *   showLicensePrompt();
    * } else if (response.errorCode === 'PRO_TIER_REQUIRED') {
    *   showUpgradePrompt();
+   * } else if (response.errorCode === 'WORKSPACE_NOT_OPEN') {
+   *   showOpenFolderPrompt();
    * }
    * ```
    */
-  errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED';
+  errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED' | 'WORKSPACE_NOT_OPEN';
   /** Correlation ID matching the original request */
   correlationId: string;
 }
@@ -56,7 +59,7 @@ export interface RpcResponse<T = unknown> {
  * Allows type-safe parameter and return types
  */
 export type RpcMethodHandler<TParams = unknown, TResult = unknown> = (
-  params: TParams
+  params: TParams,
 ) => Promise<TResult>;
 
 /**
@@ -64,3 +67,36 @@ export type RpcMethodHandler<TParams = unknown, TResult = unknown> = (
  * Used internally by RpcHandler - external code should use typed handlers
  */
 export type BaseRpcMethodHandler = (params: unknown) => Promise<unknown>;
+
+/**
+ * RpcUserError — a typed, user-recoverable RPC error.
+ *
+ * Throw this (instead of a plain Error) inside an RPC handler when the
+ * failure is an expected user-facing condition, not a bug.  The RpcHandler
+ * will:
+ *   1. Convert it to a structured { success: false, error, errorCode } response
+ *      (so the frontend can render an actionable message), and
+ *   2. **Skip** Sentry reporting — because the error is expected and already
+ *      surfaced to the user.
+ *
+ * @example
+ * throw new RpcUserError(
+ *   'Open a folder first to configure agents.',
+ *   'WORKSPACE_NOT_OPEN',
+ * );
+ */
+export class RpcUserError extends Error {
+  readonly errorCode:
+    | 'LICENSE_REQUIRED'
+    | 'PRO_TIER_REQUIRED'
+    | 'WORKSPACE_NOT_OPEN';
+
+  constructor(
+    message: string,
+    errorCode: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED' | 'WORKSPACE_NOT_OPEN',
+  ) {
+    super(message);
+    this.name = 'RpcUserError';
+    this.errorCode = errorCode;
+  }
+}

@@ -68,7 +68,7 @@ export type {
 // to break circular dependency between vscode-core and agent-sdk
 // TASK_2025_092: SdkRpcHandlers deleted (dead code - permission emitter moved to SdkPermissionHandler)
 // TASK_2025_124: RpcLicenseValidationResult added for license middleware testing
-export { RpcHandler } from './messaging';
+export { RpcHandler, RpcUserError } from './messaging';
 export type {
   RpcMessage,
   RpcResponse,

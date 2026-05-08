@@ -19,6 +19,7 @@ import { injectable, inject, DependencyContainer } from 'tsyringe';
 import {
   Logger,
   RpcHandler,
+  RpcUserError,
   TOKENS,
   LicenseService,
   type LicenseStatus,
@@ -238,8 +239,9 @@ export class SetupRpcHandlers {
 
         const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
         if (!workspaceRoot) {
-          throw new Error(
+          throw new RpcUserError(
             'No workspace folder open. Please open a folder to configure agents.',
+            'WORKSPACE_NOT_OPEN',
           );
         }
 
@@ -276,8 +278,9 @@ export class SetupRpcHandlers {
 
         const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
         if (!workspaceRoot) {
-          throw new Error(
+          throw new RpcUserError(
             'No workspace folder open. Please open a folder first.',
+            'WORKSPACE_NOT_OPEN',
           );
         }
 
@@ -314,8 +317,9 @@ export class SetupRpcHandlers {
 
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
-        throw new Error(
+        throw new RpcUserError(
           'No workspace folder open. Please open a folder to analyze.',
+          'WORKSPACE_NOT_OPEN',
         );
       }
 
@@ -761,7 +765,10 @@ export class SetupRpcHandlers {
 
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
-        throw new Error('No workspace folder open.');
+        throw new RpcUserError(
+          'No workspace folder open.',
+          'WORKSPACE_NOT_OPEN',
+        );
       }
 
       const storageService = this.resolveService<AnalysisStorageService>(
@@ -826,7 +833,10 @@ export class SetupRpcHandlers {
 
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
-        throw new Error('No workspace folder open.');
+        throw new RpcUserError(
+          'No workspace folder open.',
+          'WORKSPACE_NOT_OPEN',
+        );
       }
 
       const path = await import('path');

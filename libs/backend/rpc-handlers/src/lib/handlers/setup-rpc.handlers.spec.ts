@@ -336,7 +336,12 @@ async function callRaw(
   h: Harness,
   method: string,
   params: unknown = {},
-): Promise<{ success: boolean; data?: unknown; error?: string }> {
+): Promise<{
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  errorCode?: string;
+}> {
   return h.rpcHandler.handleMessage({
     method,
     params: params as Record<string, unknown>,
@@ -376,16 +381,23 @@ describe('SetupRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('setup-status:get-status', () => {
-    it('throws when no workspace is open', async () => {
+    it('returns WORKSPACE_NOT_OPEN typed error (not a Sentry-reported throw) when no workspace is open', async () => {
       const h = makeHarness({ workspaceFolders: [] });
       h.handlers.register();
 
       const response = await callRaw(h, 'setup-status:get-status');
+
+      // Must be a structured error response, not an unhandled exception.
       expect(response.success).toBe(false);
       expect(response.error).toMatch(/No workspace folder/);
+      // The typed errorCode must be present so the frontend can show a
+      // friendly "Open Folder" prompt instead of a generic error toast.
+      expect(response.errorCode).toBe('WORKSPACE_NOT_OPEN');
+      // Sentry must NOT be called — this is an expected user condition.
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
     });
 
-    it('delegates to SetupStatusService and returns its .value on Ok', async () => {
+    it('delegates to SetupStatusService and returns its .value when workspace is open', async () => {
       const h = makeHarness();
       const expected = {
         isConfigured: true,
@@ -404,9 +416,11 @@ describe('SetupRpcHandlers', () => {
 
       const result = await call<typeof expected>(h, 'setup-status:get-status');
       expect(result).toEqual(expected);
+      // No errors on the happy path.
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
     });
 
-    it('throws when SetupStatusService returns an Err result', async () => {
+    it('returns error response when SetupStatusService returns an Err result', async () => {
       const h = makeHarness();
       h.container.__register(AGENT_GENERATION_TOKENS.SETUP_STATUS_SERVICE, {
         getStatus: jest.fn().mockResolvedValue({
@@ -427,13 +441,15 @@ describe('SetupRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('setup-wizard:launch', () => {
-    it('throws when no workspace is open', async () => {
+    it('returns WORKSPACE_NOT_OPEN typed error (no Sentry) when no workspace is open', async () => {
       const h = makeHarness({ workspaceFolders: [] });
       h.handlers.register();
 
       const response = await callRaw(h, 'setup-wizard:launch');
       expect(response.success).toBe(false);
       expect(response.error).toMatch(/No workspace folder/);
+      expect(response.errorCode).toBe('WORKSPACE_NOT_OPEN');
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
     });
 
     it('delegates to SetupWizardService and returns { success: true } on Ok', async () => {
@@ -455,13 +471,15 @@ describe('SetupRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('wizard:deep-analyze', () => {
-    it('throws when no workspace is open', async () => {
+    it('returns WORKSPACE_NOT_OPEN typed error (no Sentry) when no workspace is open', async () => {
       const h = makeHarness({ workspaceFolders: [] });
       h.handlers.register();
 
       const response = await callRaw(h, 'wizard:deep-analyze', {});
       expect(response.success).toBe(false);
       expect(response.error).toMatch(/No workspace folder/);
+      expect(response.errorCode).toBe('WORKSPACE_NOT_OPEN');
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
     });
 
     it('throws when license service / MCP cannot be resolved (free tier)', async () => {
