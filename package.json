@@ -72,7 +72,9 @@
     "postinstall": "node apps/ptah-electron/scripts/rebuild-native.js",
     "cli:build": "nx build ptah-cli",
     "cli:dev": "nx dev ptah-cli",
-    "cli:serve": "nx build ptah-cli && node dist/apps/ptah-cli/main.mjs"
+    "cli:serve": "nx build ptah-cli && node dist/apps/ptah-cli/main.mjs",
+    "eval:build": "npx ts-node --project scripts/tsconfig.json scripts/build-eval-harness.ts --build",
+    "eval:run": "npx ts-node --project scripts/tsconfig.json scripts/build-eval-harness.ts --evaluate"
   },
   "private": true,
   "dependencies": {

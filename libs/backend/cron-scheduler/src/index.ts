@@ -33,6 +33,7 @@ export type {
   JobRunStatus,
   CreateJobInput,
   UpdateJobPatch,
+  UpsertJobInput,
   CronSchedulerOptions,
   CatchupPolicy,
   IHandlerRegistry,

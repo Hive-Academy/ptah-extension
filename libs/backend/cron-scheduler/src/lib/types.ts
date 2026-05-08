@@ -77,6 +77,24 @@ export interface CreateJobInput {
   nextRunAt: number | null;
 }
 
+/**
+ * Args for `IJobStore.upsert`. Like {@link CreateJobInput} but with a
+ * caller-supplied `id` (may be any string — not required to be a ULID).
+ * Used for system jobs with deterministic IDs (e.g. `@ptah/daily-backup`).
+ */
+export interface UpsertJobInput {
+  id: string;
+  name: string;
+  cronExpr: string;
+  /** Defaults to 'UTC' if omitted. */
+  timezone?: string;
+  prompt: string;
+  workspaceRoot?: string | null;
+  enabled?: boolean;
+  /** Pre-computed next run at, or null to leave unset. */
+  nextRunAt?: number | null;
+}
+
 /** Args for `IJobStore.update`. */
 export interface UpdateJobPatch {
   name?: string;

@@ -17,7 +17,12 @@ import {
 } from '@ptah-extension/persistence-sqlite';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { JobId } from '@ptah-extension/shared';
-import type { CreateJobInput, ScheduledJob, UpdateJobPatch } from './types';
+import type {
+  CreateJobInput,
+  ScheduledJob,
+  UpdateJobPatch,
+  UpsertJobInput,
+} from './types';
 
 interface ScheduledJobRow {
   id: string;
@@ -39,6 +44,16 @@ export interface IJobStore {
   list(filter?: { enabledOnly?: boolean }): ScheduledJob[];
   update(id: JobId, patch: UpdateJobPatch): ScheduledJob;
   delete(id: JobId): boolean;
+  /**
+   * Insert-or-replace a job with a caller-supplied ID. When a row with the
+   * same `id` already exists the existing row is fully replaced. Used for
+   * system jobs (e.g. `@ptah/daily-backup`) whose IDs are deterministic and
+   * must survive repeated boot cycles without creating duplicates.
+   *
+   * System job IDs are arbitrary strings (not required to be ULIDs). The
+   * returned `ScheduledJob.id` carries the raw string cast to `JobId`.
+   */
+  upsert(input: UpsertJobInput): ScheduledJob;
 }
 
 @injectable()
@@ -157,6 +172,66 @@ export class JobStore implements IJobStore {
       .prepare('DELETE FROM scheduled_jobs WHERE id = ?')
       .run(id);
     return result.changes > 0;
+  }
+
+  /**
+   * Insert-or-replace a job using a caller-supplied ID.
+   * If a row with the same `id` already exists it is fully replaced
+   * (timestamps reset to now). Subsequent boots calling `upsert` with the
+   * same `id` update the schedule without creating duplicates.
+   */
+  upsert(input: UpsertJobInput): ScheduledJob {
+    const now = Date.now();
+    const tz = input.timezone ?? 'UTC';
+    const enabled = input.enabled === false ? 0 : 1;
+    const workspaceRoot = input.workspaceRoot ?? null;
+    const nextRunAt = input.nextRunAt ?? null;
+    this.sqlite.db
+      .prepare(
+        `INSERT INTO scheduled_jobs
+         (id, name, cron_expr, timezone, prompt, workspace_root, enabled,
+          created_at, updated_at, last_run_at, next_run_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name          = excluded.name,
+           cron_expr     = excluded.cron_expr,
+           timezone      = excluded.timezone,
+           prompt        = excluded.prompt,
+           workspace_root = excluded.workspace_root,
+           enabled       = excluded.enabled,
+           updated_at    = excluded.updated_at,
+           next_run_at   = excluded.next_run_at`,
+      )
+      .run(
+        input.id,
+        input.name,
+        input.cronExpr,
+        tz,
+        input.prompt,
+        workspaceRoot,
+        enabled,
+        now,
+        now,
+        nextRunAt,
+      );
+    this.logger.debug('[cron-scheduler] job upserted', {
+      id: input.id,
+      name: input.name,
+    });
+    return {
+      // System job IDs are arbitrary strings; cast to JobId brand directly.
+      id: input.id as unknown as JobId,
+      name: input.name,
+      cronExpr: input.cronExpr,
+      timezone: tz,
+      prompt: input.prompt,
+      workspaceRoot,
+      enabled: enabled === 1,
+      createdAt: now,
+      updatedAt: now,
+      lastRunAt: null,
+      nextRunAt,
+    };
   }
 }
 

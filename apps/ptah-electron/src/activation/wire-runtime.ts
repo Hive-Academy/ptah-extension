@@ -44,7 +44,10 @@ import {
 import {
   CRON_TOKENS,
   type CronScheduler,
+  type IJobStore,
+  type IHandlerRegistry,
 } from '@ptah-extension/cron-scheduler';
+import type { IBackupService } from '@ptah-extension/persistence-sqlite';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { GatewayService } from '@ptah-extension/messaging-gateway';
 
@@ -634,6 +637,98 @@ export async function wireRuntime(
         error instanceof Error ? error.message : String(error),
       );
       refs.cronScheduler = null;
+    }
+
+    // PHASE 4.95: Daily backup cron job registration (D7).
+    // Registers the @ptah/daily-backup system job idempotently on every boot.
+    // Uses JobStore.upsert so repeated boots update the schedule without
+    // creating duplicate rows. The handler is wired into IHandlerRegistry so
+    // the JobRunner can dispatch it by name when the cron fires.
+    // Entire phase is non-fatal — failure does not prevent the app from running.
+    try {
+      if (
+        refs.cronScheduler !== null &&
+        refs.sqliteConnection !== null &&
+        container.isRegistered(CRON_TOKENS.CRON_JOB_STORE) &&
+        container.isRegistered(CRON_TOKENS.CRON_HANDLER_REGISTRY)
+      ) {
+        const jobStore = container.resolve<IJobStore>(
+          CRON_TOKENS.CRON_JOB_STORE,
+        );
+        const handlerRegistry = container.resolve<IHandlerRegistry>(
+          CRON_TOKENS.CRON_HANDLER_REGISTRY,
+        );
+
+        // Register the backup handler into the in-process registry.
+        // Use unregister+register to be idempotent across restarts in dev
+        // mode where bootHeavyServices may be called more than once.
+        const BACKUP_HANDLER_NAME = 'backup:daily';
+        if (!handlerRegistry.has(BACKUP_HANDLER_NAME)) {
+          handlerRegistry.register(BACKUP_HANDLER_NAME, async () => {
+            const sqliteConn = refs.sqliteConnection;
+            if (!sqliteConn) {
+              return { summary: 'skipped: no sqlite connection' };
+            }
+            const backupSvc = container.resolve<IBackupService>(
+              PERSISTENCE_TOKENS.BACKUP_SERVICE,
+            );
+            const backupPath = await backupSvc.backup(sqliteConn.db, 'daily');
+            try {
+              backupSvc.rotate('daily', 7);
+            } catch (rotateErr: unknown) {
+              console.warn(
+                '[Ptah Electron] Daily backup rotation failed (non-fatal):',
+                rotateErr instanceof Error
+                  ? rotateErr.message
+                  : String(rotateErr),
+              );
+            }
+            try {
+              sqliteConn.db.pragma('incremental_vacuum(100)');
+            } catch (vacuumErr: unknown) {
+              console.warn(
+                '[Ptah Electron] Post-backup incremental_vacuum failed (non-fatal):',
+                vacuumErr instanceof Error
+                  ? vacuumErr.message
+                  : String(vacuumErr),
+              );
+            }
+            try {
+              sqliteConn.db.pragma('optimize');
+            } catch (optimizeErr: unknown) {
+              console.warn(
+                '[Ptah Electron] Post-backup optimize failed (non-fatal):',
+                optimizeErr instanceof Error
+                  ? optimizeErr.message
+                  : String(optimizeErr),
+              );
+            }
+            return {
+              summary: backupPath
+                ? `backup written to ${backupPath}`
+                : 'backup skipped (db.backup unavailable)',
+            };
+          });
+        }
+
+        // Upsert the job definition — idempotent across every boot.
+        jobStore.upsert({
+          id: '@ptah/daily-backup',
+          name: 'Daily SQLite Backup',
+          cronExpr: '0 3 * * *', // 03:00 UTC daily
+          timezone: 'UTC',
+          prompt: `handler:${BACKUP_HANDLER_NAME}`,
+          enabled: true,
+        });
+        console.log(
+          '[Ptah Electron] Daily backup cron job registered (@ptah/daily-backup)',
+        );
+      }
+    } catch (err: unknown) {
+      console.warn(
+        '[Ptah Electron] Daily backup cron registration failed (non-fatal):',
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }; // end of bootHeavyServices
 
