@@ -26,7 +26,7 @@ import {
   type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
-import { SdkError } from '../errors';
+import { SdkError, ModelNotAvailableError } from '../errors';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
 import { CompactionConfigProvider } from './compaction-config-provider';
@@ -612,6 +612,14 @@ export class SdkQueryOptionsBuilder {
     // misconfiguration immediately so the user sees a clear, actionable error.
     this.validateBaseUrlForProvider();
 
+    // Pre-flight model existence check (cache-only, never blocks the query path
+    // with a fresh fetch). Only runs when models are already cached from a
+    // previous getSupportedModels() call — avoids adding latency on first query.
+    // Catches provider-reported "model not found" failures (e.g. kimi-k2.6 /
+    // devstral on Moonshot) before the SDK starts the subprocess, so the UI
+    // gets a typed ModelNotAvailableError rather than a raw SDK error result.
+    await this.validateModelAvailability(model);
+
     // Warn when main model is non-Claude but tier env vars still point to Claude.
     // This means subagents will silently use Claude models at higher premium rates.
     if (!model.startsWith('claude-')) {
@@ -890,6 +898,80 @@ export class SdkQueryOptionsBuilder {
       });
       throw new SdkError(message);
     }
+  }
+
+  /**
+   * Pre-flight model availability check (cache-only).
+   *
+   * Only runs when models are already cached from a previous getSupportedModels()
+   * call — avoids adding latency or a subprocess spawn on the query hot path.
+   *
+   * Logic:
+   *   - Skip when cache is empty (first query, or cache was cleared). The SDK
+   *     will surface the error naturally if the model is truly unavailable.
+   *   - Tier names ('opus', 'sonnet', 'haiku', 'default') are always valid
+   *     because they are resolved to full IDs before this check is reached.
+   *   - Skip for direct Anthropic connections — the API is authoritative and
+   *     the cached list may lag new model releases.
+   *   - For third-party providers (Moonshot, Z.AI, OpenRouter, Ollama …) the
+   *     cached list reflects what their endpoint advertises; validate against it.
+   *
+   * @param resolvedModel - Full model ID after tier resolution (never a bare tier name)
+   * @throws ModelNotAvailableError when the model is absent from the cached list
+   */
+  private async validateModelAvailability(
+    resolvedModel: string,
+  ): Promise<void> {
+    // Only validate for third-party providers — Anthropic's list is authoritative
+    // and may include models added after the cache was last populated.
+    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+    const isDirectAnthropic =
+      !baseUrl || /^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
+    if (isDirectAnthropic) {
+      return;
+    }
+
+    // Cache-only: don't trigger a fresh model fetch on the query hot path.
+    if (!this.modelService.hasCachedModels()) {
+      this.logger.debug(
+        '[SdkQueryOptionsBuilder] Skipping model pre-flight: no cached models yet',
+        { resolvedModel },
+      );
+      return;
+    }
+
+    let supportedModels: { value: string }[];
+    try {
+      supportedModels = await this.modelService.getSupportedModels();
+    } catch {
+      // If the model service throws, don't block the query — fall through
+      // and let the SDK surface any real error.
+      this.logger.warn(
+        '[SdkQueryOptionsBuilder] Model pre-flight: getSupportedModels() threw — skipping check',
+        { resolvedModel },
+      );
+      return;
+    }
+
+    if (supportedModels.length === 0) {
+      return;
+    }
+
+    const modelIds = supportedModels.map((m) => m.value);
+    if (modelIds.includes(resolvedModel)) {
+      return;
+    }
+
+    // Model not found in cached list — throw a typed error the UI can handle.
+    this.logger.error(
+      `[SdkQueryOptionsBuilder] Model pre-flight failed: '${resolvedModel}' not in cached model list`,
+      {
+        resolvedModel,
+        available: modelIds.slice(0, 10),
+        baseUrl,
+      },
+    );
+    throw new ModelNotAvailableError(resolvedModel, modelIds);
   }
 
   /**

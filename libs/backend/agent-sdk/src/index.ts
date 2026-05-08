@@ -53,8 +53,12 @@ export {
   type DynamicModelFetcher,
 } from './lib/provider-models.service';
 
-// Errors (TASK_2025_291 Wave C8)
-export { SdkError, SessionNotActiveError } from './lib/errors';
+// Errors (TASK_2025_291 Wave C8; ModelNotAvailableError added for Sentry NODE-NESTJS-3B/2W)
+export {
+  SdkError,
+  SessionNotActiveError,
+  ModelNotAvailableError,
+} from './lib/errors';
 
 // DI registration exports
 export { registerSdkServices } from './lib/di/register';

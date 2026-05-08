@@ -276,11 +276,18 @@ export class SessionHistoryReaderService {
   // ==========================================================================
 
   /**
-   * Regex that matches native Anthropic message UUIDs (base64url, 24+ chars).
-   * Examples: msg_01AbCdEfGhIjKlMnOpQrStUv, msg_bdrk_01AbC...
-   * Ptah-generated IDs use `msg_<timestamp>_<random>` (digits, NOT base64 chars at pos 4+).
+   * Regex that matches native Anthropic message UUIDs.
+   * Anthropic UUIDs: msg_01<base64url> (e.g. msg_01AbCdEfGhIjKlMnOpQrStUv)
+   *   or bedrock variants: msg_bdrk_01... (non-digit second char after msg_).
+   *
+   * Ptah-generated IDs: msg_<unix-timestamp>_<random>
+   *   e.g. msg_1778055502540_cegogbr — starts with 10+ consecutive digits after msg_.
+   *
+   * Negative lookahead `(?!\d{10,}_)` rejects Ptah-format IDs while accepting
+   * all known Anthropic UUID variants (always start with a non-digit char after msg_).
    */
-  private readonly NATIVE_SDK_UUID_PATTERN = /^msg_[0-9A-Za-z_]{20,}$/;
+  private readonly NATIVE_SDK_UUID_PATTERN =
+    /^msg_(?!\d{10,}_)[0-9A-Za-z][0-9A-Za-z_]{19,}$/;
 
   /**
    * Resolve a message ID sent by the frontend to a native SDK message UUID
