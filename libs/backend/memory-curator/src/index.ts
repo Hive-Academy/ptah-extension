@@ -48,3 +48,19 @@ export { EmbedderWorkerClient } from './lib/embedder/embedder-worker-client';
 export { MEMORY_TOKENS } from './lib/di/tokens';
 export type { MemoryDIToken } from './lib/di/tokens';
 export { registerMemoryCuratorServices } from './lib/di/register';
+
+// IMemoryWriter adapter (registered under PLATFORM_TOKENS.MEMORY_WRITER) and
+// its prefix-line helpers — exported for unit-test consumption.
+export {
+  MemoryWriterAdapter,
+  sha256Hex,
+  formatSeedPrefix,
+  parseSeedPrefix,
+} from './lib/memory-writer.adapter';
+
+// Workspace fingerprint helper (used by the wizard seeder in rpc-handlers).
+export { deriveWorkspaceFingerprint } from './lib/workspace-fingerprint';
+export type {
+  FingerprintResult,
+  FingerprintSource,
+} from './lib/workspace-fingerprint';
