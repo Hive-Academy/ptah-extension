@@ -450,6 +450,81 @@ describe('SqliteConnectionService', () => {
     expect(acted).toBe(false);
     expect(service.isOpen).toBe(true);
   });
+
+  // --- D10: foreign_key_check at boot ---
+
+  it('D10: foreign_key_check is silent when there are no violations', async () => {
+    const fake = new FakeSqliteDatabase();
+    // Default: empty FK violations.
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await service.openAndMigrate();
+
+    // No warn log mentioning foreign_key_check violations.
+    expect(
+      logger.entries.some(
+        (e) =>
+          e.level === 'warn' && /foreign_key_check violations/.test(e.message),
+      ),
+    ).toBe(false);
+  });
+
+  it('D10: foreign_key_check logs warn with count and sample when violations found', async () => {
+    const fake = new FakeSqliteDatabase();
+    fake.setForeignKeyViolations([
+      { table: 'memories', rowid: 1, parent: 'workspaces', fkid: 0 },
+      { table: 'memories', rowid: 2, parent: 'workspaces', fkid: 0 },
+      { table: 'memories', rowid: 3, parent: 'workspaces', fkid: 0 },
+      { table: 'memories', rowid: 4, parent: 'workspaces', fkid: 0 },
+    ]);
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await service.openAndMigrate();
+
+    // Must still open successfully — FK violations are non-fatal.
+    expect(service.isOpen).toBe(true);
+
+    const fkWarnLogs = logger.entries.filter(
+      (e) =>
+        e.level === 'warn' && /foreign_key_check violations/.test(e.message),
+    );
+    expect(fkWarnLogs).toHaveLength(1);
+    const ctx = fkWarnLogs[0].context as Record<string, unknown>;
+    expect(ctx['count']).toBe(4);
+    const sample = ctx['sample'] as unknown[];
+    // Sample is capped at 3.
+    expect(sample).toHaveLength(3);
+  });
+
+  it('D10: foreign_key_check pragma error is swallowed — non-fatal', async () => {
+    const fake = new FakeSqliteDatabase();
+    const originalPragma = fake.pragma.bind(fake);
+    (fake as unknown as Record<string, unknown>)['pragma'] = (
+      p: string,
+      opts?: { simple?: boolean },
+    ) => {
+      if (/^foreign_key_check/i.test(p.trim())) {
+        throw new Error('foreign_key_check failed (fake)');
+      }
+      return originalPragma(p, opts);
+    };
+
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await expect(service.openAndMigrate()).resolves.not.toThrow();
+    expect(service.isOpen).toBe(true);
+    expect(
+      logger.entries.some(
+        (e) => e.level === 'warn' && /foreign_key_check error/.test(e.message),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe('SqliteConnectionService — vec0 smoke (skipped without native)', () => {

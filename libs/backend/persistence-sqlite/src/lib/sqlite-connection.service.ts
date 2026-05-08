@@ -430,11 +430,13 @@ export class SqliteConnectionService {
   }
 
   /**
-   * D3 — Run `quick_check` (and in a later batch, FK check) after pragmas
-   * and before migrations. Non-fatal: any failure logs and returns without
-   * throwing or marking the connection unavailable.
+   * D3/D10 — Run integrity checks after pragmas and before migrations.
+   * Runs `quick_check` then `foreign_key_check` sequentially; each is
+   * independent and non-fatal. Any failure logs and returns without throwing
+   * or marking the connection unavailable.
    */
   private runBootChecks(db: SqliteDatabase): void {
+    // quick_check — D3
     try {
       const result = db.pragma('quick_check', { simple: true }) as string;
       if (result === 'ok') {
@@ -447,6 +449,27 @@ export class SqliteConnectionService {
       }
     } catch (err: unknown) {
       this.logger.warn('[persistence-sqlite] quick_check error', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // foreign_key_check — D10
+    try {
+      const rows = db.pragma('foreign_key_check') as Array<{
+        table: string;
+        rowid: number;
+        parent: string;
+        fkid: number;
+      }>;
+      if (rows.length > 0) {
+        this.logger.warn('[persistence-sqlite] foreign_key_check violations', {
+          count: rows.length,
+          sample: rows.slice(0, 3),
+        });
+      }
+      // else: silent on a clean DB
+    } catch (err: unknown) {
+      this.logger.warn('[persistence-sqlite] foreign_key_check error', {
         error: err instanceof Error ? err.message : String(err),
       });
     }

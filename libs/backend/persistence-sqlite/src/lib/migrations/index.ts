@@ -25,14 +25,29 @@ import { sql as sql0005Gateway } from './0005_gateway';
 import { sql as sql0006GatewayPairingCode } from './0006_gateway_pairing_code';
 import { sql as sql0007FixVec0Rowid } from './0007_fix_vec0_rowid';
 import { sql as sql0008SymbolIndex } from './0008_symbol_index';
+import { run as run0009AutoVacuum } from './0009_auto_vacuum';
+import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
   /** Monotonically increasing integer version (matches schema_migrations.version). */
   readonly version: number;
   /** Human-readable name (matches the migration's filename without extension). */
   readonly name: string;
-  /** Raw SQL text — may contain multiple statements separated by semicolons. */
-  readonly sql: string;
+  /**
+   * Raw SQL text — may contain multiple statements separated by semicolons.
+   * Mutually exclusive with {@link run}: a migration must provide exactly one
+   * of `sql` or `run`, never both.
+   */
+  readonly sql?: string;
+  /**
+   * Imperative migration function that runs OUTSIDE any transaction. Use only
+   * for statements that cannot run inside a transaction (e.g. `VACUUM`).
+   * The runner executes `run(db)` first, then records bookkeeping inside a
+   * separate post-run transaction. If `run` throws, bookkeeping is NOT written.
+   *
+   * Mutually exclusive with {@link sql}.
+   */
+  readonly run?: (db: SqliteDatabase) => void;
   /**
    * When true the migration creates `vec0` virtual tables that require the
    * sqlite-vec extension. If the extension is not loaded the migration runner
@@ -70,5 +85,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 8,
     name: '0008_symbol_index',
     sql: sql0008SymbolIndex,
+  },
+  {
+    version: 9,
+    name: '0009_auto_vacuum',
+    run: run0009AutoVacuum,
   },
 ];

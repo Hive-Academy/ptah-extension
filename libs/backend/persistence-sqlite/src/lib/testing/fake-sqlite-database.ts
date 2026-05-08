@@ -44,12 +44,46 @@ export class FakeSqliteDatabase implements SqliteDatabase {
   private userVersion = 0;
   /** When set, `pragma('quick_check', ...)` returns this value instead of 'ok'. */
   private quickCheckResult = 'ok';
+  private foreignKeyViolations: Array<{
+    table: string;
+    rowid: number;
+    parent: string;
+    fkid: number;
+  }> = [];
+  /**
+   * Tracks the auto_vacuum mode. 0=NONE (default), 1=FULL, 2=INCREMENTAL.
+   * `pragma('auto_vacuum = INCREMENTAL')` sets this to 2.
+   */
+  private autoVacuumMode = 0;
 
   /** Configure how `loadExtension` behaves: present, unavailable, or throwing. */
   setLoadExtensionBehavior(
     behavior: 'available' | 'unavailable' | 'throw',
   ): void {
     this.loadExtensionBehavior = behavior;
+  }
+
+  /**
+   * Seed FK violations returned by `pragma('foreign_key_check')`.
+   * Default: empty array (clean DB).
+   */
+  setForeignKeyViolations(
+    rows: Array<{ table: string; rowid: number; parent: string; fkid: number }>,
+  ): void {
+    this.foreignKeyViolations = rows;
+  }
+
+  /**
+   * Pre-seed the auto_vacuum mode (0=NONE, 1=FULL, 2=INCREMENTAL).
+   * Default: 0 (NONE). Used by migration 0009 tests.
+   */
+  setAutoVacuumMode(mode: 0 | 1 | 2): void {
+    this.autoVacuumMode = mode;
+  }
+
+  /** Read the current auto_vacuum mode as set by `pragma('auto_vacuum = ...')`. */
+  getAutoVacuumMode(): number {
+    return this.autoVacuumMode;
   }
 
   /**
@@ -132,6 +166,16 @@ export class FakeSqliteDatabase implements SqliteDatabase {
     if (/^ALTER TABLE/i.test(normalised) || /^DROP /i.test(normalised)) {
       return;
     }
+    // VACUUM — no-op in the fake (no page rewriting needed), but enforces the
+    // real SQLite constraint that VACUUM cannot run inside a transaction.
+    if (/^VACUUM$/i.test(normalised) || /^VACUUM\b/i.test(normalised)) {
+      if (this.inTxn) {
+        throw new Error(
+          'cannot VACUUM from within a transaction (FakeSqliteDatabase)',
+        );
+      }
+      return;
+    }
     if (upper.startsWith('NOT VALID SQL')) {
       throw new Error('syntax error in fake SQL');
     }
@@ -175,8 +219,23 @@ export class FakeSqliteDatabase implements SqliteDatabase {
       if (key === 'user_version') return this.userVersion;
     }
 
-    // foreign_key_check — return empty array (clean DB by default).
+    // foreign_key_check — return seeded violations (empty by default).
     if (/^foreign_key_check/i.test(pragma.trim())) {
+      return this.foreignKeyViolations;
+    }
+
+    // auto_vacuum read — return current mode (0=NONE by default).
+    if (/^auto_vacuum$/i.test(pragma.trim())) {
+      return this.autoVacuumMode;
+    }
+
+    // auto_vacuum set — update mode from pragma string like 'auto_vacuum = INCREMENTAL'.
+    const avSetMatch = /^auto_vacuum\s*=\s*(\w+)$/i.exec(pragma.trim());
+    if (avSetMatch) {
+      const val = avSetMatch[1].toUpperCase();
+      if (val === 'NONE') this.autoVacuumMode = 0;
+      else if (val === 'FULL') this.autoVacuumMode = 1;
+      else if (val === 'INCREMENTAL') this.autoVacuumMode = 2;
       return [];
     }
 

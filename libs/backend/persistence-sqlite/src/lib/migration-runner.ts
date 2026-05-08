@@ -147,18 +147,72 @@ export class SqliteMigrationRunner {
   }
 
   /**
-   * Apply a single migration inside an IMMEDIATE transaction, recording the
-   * bookkeeping row only if the SQL succeeds. D3: `PRAGMA user_version = N`
-   * is written inside the same transaction so it rolls back atomically with
-   * the bookkeeping INSERT if the migration fails.
+   * Apply a single migration. Branches on whether the migration declares `run`
+   * or `sql`:
    *
-   * The 0001 migration also creates the bookkeeping table — handled by
-   * `ensureBookkeepingTable` running first.
+   * - `sql` path (standard): executes inside a single `BEGIN IMMEDIATE`
+   *   transaction that also records bookkeeping and bumps `user_version`.
+   * - `run` path (VACUUM-safe): calls `migration.run(db)` OUTSIDE any
+   *   transaction, then records bookkeeping in a separate post-run transaction.
+   *   If `run()` throws, the bookkeeping transaction is NOT attempted.
+   *
+   * A migration providing both `sql` and `run` is a configuration error — this
+   * method throws immediately so the misconfiguration surfaces at apply-time.
+   *
+   * D3: `PRAGMA user_version = N` is written inside the bookkeeping transaction
+   * so it rolls back atomically with the INSERT if something goes wrong.
    */
   private applyOne(migration: Migration): void {
+    const hasSql = migration.sql !== undefined;
+    const hasRun = migration.run !== undefined;
+
+    if (hasSql && hasRun) {
+      throw new Error(
+        `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) ` +
+          'defines both sql and run — a migration must provide exactly one.',
+      );
+    }
+
+    if (hasRun && migration.run !== undefined) {
+      const runFn = migration.run;
+      // run() path — executes OUTSIDE a transaction.
+      try {
+        runFn(this.db);
+      } catch (err: unknown) {
+        throw new Error(
+          `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) run() failed: ` +
+            stringifyError(err),
+        );
+      }
+      // Post-run bookkeeping in its own transaction — only reached if run() succeeded.
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        this.db
+          .prepare(
+            'INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)',
+          )
+          .run(migration.version, Date.now());
+        this.db.exec(`PRAGMA user_version = ${migration.version}`);
+        this.db.exec('COMMIT');
+      } catch (err: unknown) {
+        try {
+          this.db.exec('ROLLBACK');
+        } catch {
+          /* ignore — original error is what matters */
+        }
+        throw new Error(
+          `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) bookkeeping failed: ` +
+            stringifyError(err),
+        );
+      }
+      return;
+    }
+
+    // sql path (standard) — everything in one IMMEDIATE transaction.
+    const sql = migration.sql ?? '';
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.db.exec(migration.sql);
+      this.db.exec(sql);
       this.db
         .prepare(
           'INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)',
