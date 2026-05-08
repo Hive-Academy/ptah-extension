@@ -1,9 +1,11 @@
 /**
  * Unit tests for MemorySearchService.
  *
- * Covers `escapeFtsQuery` behaviour (Batch 6 / R2) and a native integration
- * test that verifies Porter stemming end-to-end.  The integration test is
- * skipped when better-sqlite3 is not available (Track 0 constraint).
+ * Covers:
+ *   - `escapeFtsQuery` behaviour (Batch 6 / R2)
+ *   - Reranker integration (Batch 7 / R1): happy path, skip on <5 candidates,
+ *     error fallback to RRF order
+ *   - Porter stemming integration test (skipped without native better-sqlite3)
  */
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -11,6 +13,7 @@ import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
 import { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 import type { MemoryStore } from './memory.store';
 import { MemorySearchService } from './memory-search.service';
+import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -30,6 +33,24 @@ function makeEmbedder(): IEmbedder {
     embed: jest.fn(async () => []),
     dim: 384,
   } as unknown as IEmbedder;
+}
+
+/**
+ * Build a fake EmbedderWorkerClient so `instanceof EmbedderWorkerClient`
+ * returns true inside MemorySearchService.workerClient.
+ */
+function makeWorkerClient(rerankImpl?: jest.Mock): EmbedderWorkerClient {
+  const rerank = rerankImpl ?? jest.fn(async () => []);
+  const fake = Object.create(
+    EmbedderWorkerClient.prototype,
+  ) as EmbedderWorkerClient;
+  (fake as unknown as { embed: jest.Mock }).embed = jest.fn(async () => []);
+  (fake as unknown as { rerank: jest.Mock }).rerank = rerank;
+  (fake as unknown as { warmup: jest.Mock }).warmup = jest.fn(
+    async () => undefined,
+  );
+  (fake as unknown as { dim: number }).dim = 384;
+  return fake;
 }
 
 function makeConnection(): SqliteConnectionService {
@@ -62,6 +83,51 @@ function makeService(): MemorySearchService {
     makeEmbedder(),
     makeStore(),
   );
+}
+
+/** Build a service with vec search disabled and a controllable reranker. */
+function makeServiceWithReranker(options: {
+  rerankImpl?: jest.Mock;
+  rows?: Array<{
+    rowid: number;
+    chunk_id: string;
+    memory_id: string;
+    ord: number;
+    text: string;
+    token_count: number;
+    created_at: number;
+  }>;
+  memoryLookup?: (id: string) => unknown;
+}): { service: MemorySearchService; rerankMock: jest.Mock; logger: Logger } {
+  const rerankMock = options.rerankImpl ?? jest.fn(async () => []);
+  const workerClient = makeWorkerClient(rerankMock);
+  const logger = makeLogger();
+
+  const rows = options.rows ?? [];
+  const connection: SqliteConnectionService = {
+    vecExtensionLoaded: false,
+    db: {
+      prepare: jest.fn(() => ({
+        all: jest.fn(() => rows),
+      })),
+    },
+  } as unknown as SqliteConnectionService;
+
+  const { memoryLookup } = options;
+  const store: MemoryStore = {
+    getById: memoryLookup
+      ? jest.fn((id) => memoryLookup(String(id)))
+      : jest.fn(() => undefined),
+    recordHit: jest.fn(),
+  } as unknown as MemoryStore;
+
+  const service = new MemorySearchService(
+    logger,
+    connection,
+    workerClient,
+    store,
+  );
+  return { service, rerankMock, logger };
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +210,141 @@ describe('MemorySearchService.escapeFtsQuery', () => {
   it('lowercases tokens before quoting', () => {
     const result = escape(service, 'Hello World');
     expect(result).toBe('"hello" OR "world"*');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reranker integration (R1)
+// ---------------------------------------------------------------------------
+
+/** Build a minimal FTS row for test use. */
+function ftsRow(
+  rowid: number,
+  text: string,
+): {
+  rowid: number;
+  chunk_id: string;
+  memory_id: string;
+  ord: number;
+  text: string;
+  token_count: number;
+  created_at: number;
+} {
+  return {
+    rowid,
+    chunk_id: `ck${rowid}`,
+    memory_id: `mem${rowid}`,
+    ord: 0,
+    text,
+    token_count: text.split(' ').length,
+    created_at: 1_000_000,
+  };
+}
+
+describe('MemorySearchService.searchRich — reranker (R1)', () => {
+  it('happy path: 5+ candidates => reranker called, output reordered', async () => {
+    const rows = [1, 2, 3, 4, 5].map((i) => ftsRow(i, `candidate text ${i}`));
+
+    // Reranker returns a reversed order: rowid 5 first, rowid 1 last.
+    const rerankImpl = jest.fn(async () =>
+      [5, 4, 3, 2, 1].map((id) => ({
+        id: String(id),
+        score: (5 - id + 1) * 0.1,
+      })),
+    );
+
+    const { service, rerankMock } = makeServiceWithReranker({
+      rerankImpl,
+      rows,
+      memoryLookup: (id) =>
+        id.startsWith('mem')
+          ? {
+              id,
+              subject: `subject ${id}`,
+              content: `content ${id}`,
+              tier: 'core',
+            }
+          : undefined,
+    });
+
+    const result = await service.searchRich('test query', 5);
+
+    // Reranker must have been invoked.
+    expect(rerankMock).toHaveBeenCalledTimes(1);
+
+    // The first hit should be the one the reranker ranked first (rowid 5).
+    expect(result.hits.length).toBeGreaterThan(0);
+    expect(result.hits[0].chunk.text).toBe('candidate text 5');
+  });
+
+  it('fewer than 5 candidates => reranker is skipped', async () => {
+    const rows = [1, 2, 3, 4].map((i) => ftsRow(i, `text ${i}`));
+    const rerankImpl = jest.fn(async () => []);
+    const { service, rerankMock } = makeServiceWithReranker({
+      rerankImpl,
+      rows,
+    });
+
+    await service.searchRich('test query', 4);
+
+    expect(rerankMock).not.toHaveBeenCalled();
+  });
+
+  it('worker rerank error => falls back to RRF order, search resolves', async () => {
+    const rows = [1, 2, 3, 4, 5].map((i) => ftsRow(i, `text ${i}`));
+    const rerankImpl = jest.fn(async () => {
+      throw new Error('model load timeout');
+    });
+    const { service, logger } = makeServiceWithReranker({
+      rerankImpl,
+      rows,
+      memoryLookup: (id) =>
+        id.startsWith('mem')
+          ? { id, subject: `s${id}`, content: `c${id}`, tier: 'core' }
+          : undefined,
+    });
+
+    // Should resolve (not reject) even when reranker throws.
+    const result = await service.searchRich('test query', 5);
+
+    // Result still has hits from RRF.
+    expect(result.hits.length).toBeGreaterThan(0);
+
+    // Warning was logged.
+    expect(
+      (logger.warn as jest.Mock).mock.calls.some((c) =>
+        (c[0] as string).includes('reranker failed'),
+      ),
+    ).toBe(true);
+  });
+
+  it('existing embedder (non-worker) => reranker not called', async () => {
+    // makeService() injects a plain IEmbedder stub, not an EmbedderWorkerClient.
+    // MemorySearchService.workerClient returns null in this case.
+    const rows = [1, 2, 3, 4, 5].map((i) => ftsRow(i, `text ${i}`));
+    const logger = makeLogger();
+    const connection: SqliteConnectionService = {
+      vecExtensionLoaded: false,
+      db: {
+        prepare: jest.fn(() => ({ all: jest.fn(() => rows) })),
+      },
+    } as unknown as SqliteConnectionService;
+    const embedder = makeEmbedder(); // plain IEmbedder — no rerank()
+    const store: MemoryStore = {
+      getById: jest.fn(() => undefined),
+      recordHit: jest.fn(),
+    } as unknown as MemoryStore;
+
+    const service = new MemorySearchService(
+      logger,
+      connection,
+      embedder,
+      store,
+    );
+
+    // Should resolve without error (workerClient is null, reranker skipped).
+    const result = await service.searchRich('test query', 5);
+    expect(result).toBeDefined();
   });
 });
 

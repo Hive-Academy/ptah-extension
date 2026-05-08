@@ -22,6 +22,7 @@ import {
   type MemorySearchHit,
   type MemorySearchResponse,
 } from './memory.types';
+import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
 
 const RRF_K = 60;
 
@@ -96,7 +97,38 @@ export class MemorySearchService implements IMemoryReader {
       }
     }
 
-    const fused = this.rrfFuse(bm25Rows, vecRows, limit);
+    // R1: Reranker — skip if too few candidates, fall back to RRF order on error.
+    // EmbedderWorkerClient is registered as the concrete impl under EMBEDDER;
+    // cast once here instead of widening IEmbedder (VS Code + CLI environments
+    // may use a non-worker embedder that has no rerank capability).
+    let fused = this.rrfFuse(bm25Rows, vecRows, limit);
+    if (fused.length >= 5) {
+      const workerClient = this.workerClient;
+      if (workerClient !== null) {
+        try {
+          const rerankInput = fused
+            .slice(0, limit * 4)
+            .map((e) => ({ id: String(e.row.rowid), text: e.row.text }));
+          const ranked = await workerClient.rerank(trimmed, rerankInput, limit);
+          const byId = new Map(fused.map((e) => [String(e.row.rowid), e]));
+          const reranked = ranked
+            .map((r) => byId.get(r.id))
+            .filter((e): e is NonNullable<typeof e> => e !== undefined);
+          if (reranked.length > 0) {
+            fused = reranked;
+          }
+        } catch (err: unknown) {
+          this.logger.warn(
+            '[memory-curator] reranker failed; using RRF order',
+            {
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
+          // fused unchanged — fall through with RRF order
+        }
+      }
+    }
+
     const hits: MemorySearchHit[] = [];
     for (const entry of fused) {
       const memory = this.lookupMemory(entry.row.memory_id);
@@ -123,6 +155,16 @@ export class MemorySearchService implements IMemoryReader {
     }
 
     return { hits, bm25Only };
+  }
+
+  /**
+   * Returns the concrete EmbedderWorkerClient when the injected embedder is
+   * one, or null in environments (VS Code extension, unit tests) where a
+   * non-worker embedder is used. Keeps IEmbedder narrow — rerank/warmup are
+   * EmbedderWorkerClient-specific capabilities.
+   */
+  private get workerClient(): EmbedderWorkerClient | null {
+    return this.embedder instanceof EmbedderWorkerClient ? this.embedder : null;
   }
 
   private bm25Search(

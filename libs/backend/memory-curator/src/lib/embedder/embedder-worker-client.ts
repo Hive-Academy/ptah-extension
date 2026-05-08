@@ -24,10 +24,26 @@ interface DisposeRequest {
   readonly id: number;
   readonly type: 'dispose';
 }
+interface RerankRequest {
+  readonly id: number;
+  readonly type: 'rerank';
+  readonly query: string;
+  readonly candidates: ReadonlyArray<{ id: string; text: string }>;
+  readonly topK: number;
+}
+interface WarmupRequest {
+  readonly id: number;
+  readonly type: 'warmup';
+}
 interface EmbedResponse {
   readonly id: number;
   readonly ok: true;
   readonly vectors: number[][]; // structured-clone friendly
+}
+interface RerankResponse {
+  readonly id: number;
+  readonly ok: true;
+  readonly ranked: ReadonlyArray<{ id: string; score: number }>;
 }
 interface ErrorResponse {
   readonly id: number;
@@ -35,7 +51,7 @@ interface ErrorResponse {
   readonly error: string;
 }
 
-type WorkerResponse = EmbedResponse | ErrorResponse;
+type WorkerResponse = EmbedResponse | RerankResponse | ErrorResponse;
 
 const MODEL_ID = 'Xenova/bge-small-en-v1.5';
 const DIM = 384;
@@ -67,7 +83,40 @@ export class EmbedderWorkerClient implements IEmbedder {
     if (reply.ok === false) {
       throw new Error(`Embedder worker error: ${reply.error}`);
     }
+    if (!('vectors' in reply)) {
+      throw new Error('Embedder worker returned unexpected response shape');
+    }
     return reply.vectors.map((v) => Float32Array.from(v));
+  }
+
+  /** Send a RERANK message to the worker. Returns ranked IDs with scores. */
+  async rerank(
+    query: string,
+    candidates: ReadonlyArray<{ id: string; text: string }>,
+    topK: number,
+  ): Promise<ReadonlyArray<{ id: string; score: number }>> {
+    const worker = this.ensureWorker();
+    const id = this.nextId++;
+    const req: RerankRequest = { id, type: 'rerank', query, candidates, topK };
+    const reply = await this.send(worker, id, req);
+    if (reply.ok === false) {
+      throw new Error(`Reranker worker error: ${reply.error}`);
+    }
+    if (!('ranked' in reply)) {
+      throw new Error('Reranker worker returned unexpected response shape');
+    }
+    return reply.ranked;
+  }
+
+  /** Send a WARMUP message — pre-loads both models in the worker. */
+  async warmup(): Promise<void> {
+    const worker = this.ensureWorker();
+    const id = this.nextId++;
+    const req: WarmupRequest = { id, type: 'warmup' };
+    const reply = await this.send(worker, id, req);
+    if (reply.ok === false) {
+      throw new Error(`Warmup worker error: ${reply.error}`);
+    }
   }
 
   async dispose(): Promise<void> {
@@ -120,7 +169,7 @@ export class EmbedderWorkerClient implements IEmbedder {
   private send(
     worker: Worker,
     id: number,
-    payload: EmbedRequest | DisposeRequest,
+    payload: EmbedRequest | DisposeRequest | RerankRequest | WarmupRequest,
   ): Promise<WorkerResponse> {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
