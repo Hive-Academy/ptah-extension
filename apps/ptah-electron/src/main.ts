@@ -34,6 +34,7 @@ if (!gotLock) {
   let skillSynthesis: { stop: () => void } | null = null;
   let cronScheduler: { stop: () => void } | null = null;
   let messagingGateway: { stop: () => Promise<void> } | null = null;
+  let symbolWatcher: { close: () => void } | null = null;
 
   app.whenReady().then(async () => {
     const boot = await bootstrapElectron(() => mainWindow);
@@ -46,13 +47,13 @@ if (!gotLock) {
       startupLicenseTier: boot.startupLicenseTier,
     });
     resolvedStateStorage = wired.resolvedStateStorage;
-    skillJunctionRef = wired.skillJunctionRef;
-    gitWatcher = wired.gitWatcher;
-    sqliteConnection = wired.sqliteConnection;
-    memoryCurator = wired.memoryCurator;
-    skillSynthesis = wired.skillSynthesis;
-    cronScheduler = wired.cronScheduler;
-    messagingGateway = wired.messagingGateway;
+    skillJunctionRef = wired.refs.skillJunctionRef;
+    gitWatcher = wired.refs.gitWatcher;
+    sqliteConnection = wired.refs.sqliteConnection;
+    memoryCurator = wired.refs.memoryCurator;
+    skillSynthesis = wired.refs.skillSynthesis;
+    cronScheduler = wired.refs.cronScheduler;
+    symbolWatcher = wired.refs.symbolWatcher;
     // Back-fill the mutable ref so bootstrap's onDidChangeWorkspaceFolders
     // subscription can call gitWatcher.switchWorkspace on folder changes.
     boot.gitWatcherRef.current = gitWatcher;
@@ -69,6 +70,7 @@ if (!gotLock) {
       getMainWindow: () => mainWindow,
     });
     revalidationInterval = post.revalidationInterval;
+    messagingGateway = post.messagingGateway;
   });
 
   // Handle second instance (focus existing window).
@@ -120,6 +122,16 @@ if (!gotLock) {
 
     // 3. Stop git file system watcher (TASK_2025_240)
     gitWatcher?.stop();
+
+    // 3.1. Close code symbol chokidar watcher (TASK_2026_THOTH_CODE_INDEX)
+    try {
+      symbolWatcher?.close();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Symbol watcher close failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
 
     // 4. Deactivate skill junctions
     try {

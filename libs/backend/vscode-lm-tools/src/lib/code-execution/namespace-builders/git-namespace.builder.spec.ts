@@ -19,7 +19,7 @@ import { EventEmitter } from 'events';
 
 // Must mock before importing the SUT.
 jest.mock('cross-spawn', () => jest.fn());
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+
 const crossSpawnMock = require('cross-spawn') as jest.Mock;
 
 import {

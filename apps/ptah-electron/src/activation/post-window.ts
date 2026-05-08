@@ -12,6 +12,10 @@ import type { DependencyContainer } from 'tsyringe';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { createMainWindow } from '../windows/main-window';
+import {
+  GATEWAY_TOKENS,
+  type GatewayService,
+} from '@ptah-extension/messaging-gateway';
 
 // @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,6 +33,12 @@ export interface PostWindowOptions {
 
 export interface PostWindowResult {
   revalidationInterval: ReturnType<typeof setInterval> | null;
+  /**
+   * Messaging gateway service handle for orderly shutdown. Started after
+   * window creation so adapters have a stable mainWindow for approval prompts.
+   * Null when gateway.enabled is false or start() fails.
+   */
+  messagingGateway: GatewayService | null;
 }
 
 export async function registerPostWindow(
@@ -45,6 +55,7 @@ export async function registerPostWindow(
   } = options;
 
   let revalidationInterval: PostWindowResult['revalidationInterval'] = null;
+  let messagingGateway: GatewayService | null = null;
   // PHASE 4.95: Startup Config IPC Handler
   // Register a synchronous IPC handler that the preload script queries
   // (via ipcRenderer.sendSync) to get license status and workspace info
@@ -118,6 +129,23 @@ export async function registerPostWindow(
   // Open DevTools in development
   if (process.env['NODE_ENV'] === 'development') {
     mainWindow.webContents.openDevTools();
+  }
+  // PHASE 5.5: Messaging gateway cold-start
+  // Started here (after window creation) so gateway adapters have a stable
+  // mainWindow reference for approval prompt dialogs. Failure is non-fatal —
+  // gateway.enabled defaults to false so most users will see start() as a no-op.
+  try {
+    messagingGateway = container.resolve<GatewayService>(
+      GATEWAY_TOKENS.GATEWAY_SERVICE,
+    );
+    await messagingGateway.start();
+    console.log('[Ptah Electron] Messaging gateway started');
+  } catch (error) {
+    console.warn(
+      '[Ptah Electron] Messaging gateway start skipped (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
+    messagingGateway = null;
   }
   // PHASE 6: Auto-Updater (production only)
   // Check for updates after the window is loaded. Failures must NOT crash the app.
@@ -222,5 +250,5 @@ export async function registerPostWindow(
     );
   }
 
-  return { revalidationInterval };
+  return { revalidationInterval, messagingGateway };
 }

@@ -1,5 +1,9 @@
 ﻿import { Injectable, signal, inject } from '@angular/core';
-import { ClaudeRpcService, AuthStateService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  AuthStateService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import { LicenseGetStatusResponse } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
@@ -32,6 +36,7 @@ import { TabState } from '@ptah-extension/chat-types';
 export class ChatLifecycleService {
   private readonly claudeRpcService = inject(ClaudeRpcService);
   private readonly authState = inject(AuthStateService);
+  private readonly vscodeService = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
   private readonly sessionLoader = inject(SessionLoaderService);
@@ -52,16 +57,22 @@ export class ChatLifecycleService {
     try {
       setServicesReady();
 
-      // Auto-load sessions after services are ready
-      this.sessionLoader.loadSessions().catch((err) => {
-        console.error('[ChatStore] Failed to auto-load sessions:', err);
-      });
+      // Only auto-load sessions if a workspace is already available at bootstrap.
+      // When no workspace is open (fresh Electron launch, welcome screen), skip
+      // these calls — sessions are loaded via SessionLoaderService.switchWorkspace()
+      // once the user selects a folder.
+      const workspaceRoot = this.vscodeService.config().workspaceRoot;
+      if (workspaceRoot) {
+        this.sessionLoader.loadSessions().catch((err) => {
+          console.error('[ChatStore] Failed to auto-load sessions:', err);
+        });
 
-      // Restore CLI agent sessions for the active tab (restored from localStorage)
-      // so the agent monitor panel shows agents from the previous session.
-      this.sessionLoader.restoreCliSessionsForActiveTab().catch((err) => {
-        console.warn('[ChatStore] Failed to restore CLI sessions:', err);
-      });
+        // Restore CLI agent sessions for the active tab (restored from localStorage)
+        // so the agent monitor panel shows agents from the previous session.
+        this.sessionLoader.restoreCliSessionsForActiveTab().catch((err) => {
+          console.warn('[ChatStore] Failed to restore CLI sessions:', err);
+        });
+      }
 
       // Load auth state so persistedAuthMethod() is populated for slash command checks
       this.authState.loadAuthStatus().catch((err) => {

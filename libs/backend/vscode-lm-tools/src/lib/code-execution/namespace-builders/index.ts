@@ -83,3 +83,19 @@ export {
   type SkillNamespace,
   type PromotedSkillRecord,
 } from './skill-namespace.builder';
+
+// Memory namespace (TASK_2026_THOTH_MEMORY_READ - ptah.memory.search + ptah.memory.list)
+export {
+  buildMemoryNamespace,
+  type MemoryNamespaceDependencies,
+  type MemoryNamespace,
+} from './memory-namespace.builder';
+
+// Code symbol indexer namespace (TASK_2026_THOTH_CODE_INDEX - ptah.code.searchSymbols + ptah.code.reindex)
+export {
+  buildCodeNamespace,
+  type CodeNamespaceDependencies,
+  type CodeNamespace,
+  type SymbolSearchResult,
+  type ReindexResult,
+} from './code-namespace.builder';

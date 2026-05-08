@@ -160,6 +160,22 @@ export const SDK_TOKENS = {
    * `CompactionHookHandler` at PreCompact firing time.
    */
   SDK_LIVE_USAGE_TRACKER: Symbol.for('SdkLiveUsageTracker'),
+
+  /**
+   * MemoryPromptInjector — recalls top-K memories and formats them for system prompt
+   * injection at session start. Registered as a singleton; depends on TOKENS.MEMORY_READER
+   * (cross-layer alias resolved by memory-curator DI registration, with a no-op fallback
+   * registered here for hosts where memory-curator is not loaded).
+   * TASK_2026_THOTH_MEMORY_READ
+   */
+  SDK_MEMORY_PROMPT_INJECTOR: Symbol.for('SdkMemoryPromptInjector'),
+
+  /**
+   * SdkInternalQueryCuratorLlm — implements ICuratorLLM by routing curator prompts
+   * through InternalQueryService. Symbol.for('PtahCuratorLlm') matches
+   * MEMORY_CONTRACT_TOKENS.CURATOR_LLM so memory-curator resolves the same registration.
+   */
+  SDK_CURATOR_LLM_ADAPTER: Symbol.for('PtahCuratorLlm'),
 } as const;
 
 /**

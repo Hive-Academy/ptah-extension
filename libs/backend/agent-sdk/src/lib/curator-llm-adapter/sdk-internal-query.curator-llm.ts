@@ -1,18 +1,14 @@
-/**
- * SdkInternalQueryCuratorLlm — implements ICuratorLLM by routing extract /
- * resolve prompts through `SdkInternalQueryService` (one-shot, bypass-perm,
- * no chat-session pollution). Parses the model's JSON output defensively.
- */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import type { InternalQueryService } from '@ptah-extension/agent-sdk';
-import type { SDKMessage } from '@ptah-extension/agent-sdk';
-import type {
-  ExtractedMemoryDraft,
-  ICuratorLLM,
-  ResolvedMemoryDraft,
-} from './curator-llm.interface';
+import {
+  MEMORY_CONTRACT_TOKENS,
+  type ICuratorLLM,
+  type ExtractedMemoryDraft,
+  type ResolvedMemoryDraft,
+} from '@ptah-extension/memory-contracts';
+import { SDK_TOKENS } from '../di/tokens';
+import type { InternalQueryService } from '../internal-query';
+import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 import {
   EXTRACT_SYSTEM_PROMPT,
   buildExtractUserPrompt,
@@ -21,7 +17,8 @@ import {
   RESOLVE_SYSTEM_PROMPT,
   buildResolveUserPrompt,
 } from './resolve-prompt';
-import type { MemoryKind } from '../memory.types';
+
+type MemoryKind = 'fact' | 'preference' | 'event' | 'entity';
 
 const KIND_VALUES = new Set<MemoryKind>([
   'fact',
@@ -94,7 +91,6 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       let collected = '';
       for await (const msg of handle.stream as AsyncIterable<SDKMessage>) {
         if (msg.type === 'assistant') {
-          // SDKAssistantMessage.message.content is an array of blocks
           const message = (
             msg as unknown as {
               message?: { content?: Array<{ type: string; text?: string }> };
@@ -176,7 +172,6 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     return { kind, subject, content, salienceHint };
   }
 
-  /** Extract the first balanced { … } JSON object from `text`. */
   private extractJsonObject(text: string): unknown | null {
     if (!text) return null;
     const start = text.indexOf('{');

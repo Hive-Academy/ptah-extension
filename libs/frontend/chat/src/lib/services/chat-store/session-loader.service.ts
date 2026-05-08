@@ -614,22 +614,34 @@ export class SessionLoaderService {
         // Populate liveModelStats for context usage display.
         // During live streaming this comes from SDK's modelUsage, but when loading
         // from JSONL we compute it from aggregate stats + known context window sizes.
+        //
+        // IMPORTANT: stats.tokens here are cumulative across the entire session
+        // history, not per-turn context fill. For long sessions the cumulative
+        // sum will exceed the context window, producing >100% CTX badges.
+        // Since lastTurnContextTokens is not available in the resume response,
+        // we skip setting liveModelStats when the cumulative sum exceeds the
+        // window — the same guard used in session-stats-aggregator.service.ts.
         if (stats.model) {
+          const contextWindow = getModelContextWindow(stats.model);
           const contextUsed =
             stats.tokens.input +
             (stats.tokens.cacheRead ?? 0) +
             stats.tokens.output;
-          const contextWindow = getModelContextWindow(stats.model);
-          const contextPercent =
-            contextWindow > 0
-              ? Math.round((contextUsed / contextWindow) * 1000) / 10
-              : 0;
-          this.tabManager.setLiveModelStats(activeTabId, {
-            model: stats.model,
-            contextUsed,
-            contextWindow,
-            contextPercent,
-          });
+          const cumulativeExceedsWindow =
+            contextWindow > 0 && contextUsed > contextWindow;
+
+          if (!cumulativeExceedsWindow) {
+            const contextPercent =
+              contextWindow > 0
+                ? Math.round((contextUsed / contextWindow) * 1000) / 10
+                : 0;
+            this.tabManager.setLiveModelStats(activeTabId, {
+              model: stats.model,
+              contextUsed,
+              contextWindow,
+              contextPercent,
+            });
+          }
         }
 
         // TASK_2025_217: Populate modelUsageList from backend per-model breakdown.

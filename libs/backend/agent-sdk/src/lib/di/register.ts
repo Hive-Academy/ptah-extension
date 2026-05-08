@@ -15,6 +15,10 @@ import { DependencyContainer, Lifecycle } from 'tsyringe';
 import { createEmptyAuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  MEMORY_CONTRACT_TOKENS,
+  type IMemoryReader,
+} from '@ptah-extension/memory-contracts';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { CliDetectionService } from '../cli-agents/cli-detection.service';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
@@ -36,6 +40,8 @@ import {
   SdkQueryOptionsBuilder,
   SdkModuleLoader,
   SdkModelService,
+  MemoryPromptInjector,
+  SdkInternalQueryCuratorLlm,
   // History reader child services (TASK_2025_106)
   HistoryEventFactory,
   JsonlReaderService,
@@ -308,6 +314,33 @@ export function registerSdkServices(
     SDK_TOKENS.SDK_MESSAGE_FACTORY,
     { useClass: SdkMessageFactory },
     { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Curator LLM adapter — SdkInternalQueryCuratorLlm implements ICuratorLLM.
+  // Symbol.for('PtahCuratorLlm') matches MEMORY_CONTRACT_TOKENS.CURATOR_LLM so
+  // memory-curator resolves this registration when it injects CURATOR_LLM.
+  container.register(
+    SDK_TOKENS.SDK_CURATOR_LLM_ADAPTER,
+    { useClass: SdkInternalQueryCuratorLlm },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Memory prompt injector (TASK_2026_THOTH_MEMORY_READ)
+  // Register a no-op fallback for hosts where memory-curator is not registered
+  // (e.g. VS Code pre-HERMES_FINISH landing SQLite support). This prevents the
+  // @inject(MEMORY_CONTRACT_TOKENS.MEMORY_READER) in MemoryPromptInjector from
+  // throwing at construction time when the token is absent.
+  if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_READER)) {
+    const noopReader: IMemoryReader = {
+      search: async () => ({ hits: [], bm25Only: true }),
+    };
+    container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
+      useValue: noopReader,
+    });
+  }
+  container.registerSingleton(
+    SDK_TOKENS.SDK_MEMORY_PROMPT_INJECTOR,
+    MemoryPromptInjector,
   );
 
   // Query options builder - constructs SDK query config (TASK_2025_102)

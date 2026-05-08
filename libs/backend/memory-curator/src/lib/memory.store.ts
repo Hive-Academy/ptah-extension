@@ -10,6 +10,10 @@ import { inject, injectable } from 'tsyringe';
 import { ulid } from 'ulid';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
+  type IMemoryLister,
+  type MemoryListPage,
+} from '@ptah-extension/memory-contracts';
+import {
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
   type IEmbedder,
@@ -98,7 +102,7 @@ function rowToChunk(row: ChunkRow): MemoryChunk {
 }
 
 @injectable()
-export class MemoryStore {
+export class MemoryStore implements IMemoryLister {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
@@ -264,6 +268,60 @@ export class MemoryStore {
     };
   }
 
+  /**
+   * IMemoryLister implementation — read-only list for cross-layer consumers.
+   * Returns a page of memories with a total count for pagination, sorted by salience.
+   */
+  listAll(
+    workspaceRoot?: string,
+    tier?: string,
+    limit = 50,
+    offset = 0,
+  ): MemoryListPage {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (workspaceRoot) {
+      conditions.push('(workspace_root IS NULL OR workspace_root = ?)');
+      params.push(workspaceRoot);
+    }
+    if (tier) {
+      conditions.push('tier = ?');
+      params.push(tier);
+    }
+    const where =
+      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const clampedLimit = Math.max(1, Math.min(500, limit));
+    const clampedOffset = Math.max(0, offset);
+    const rows = this.connection.db
+      .prepare(
+        `SELECT id, subject, content, tier, kind, salience, created_at FROM memories ${where} ORDER BY salience DESC LIMIT ? OFFSET ?`,
+      )
+      .all(...params, clampedLimit, clampedOffset) as Array<{
+      id: string;
+      subject: string | null;
+      content: string;
+      tier: string;
+      kind: string;
+      salience: number;
+      created_at: number;
+    }>;
+    const countRow = this.connection.db
+      .prepare(`SELECT COUNT(*) as n FROM memories ${where}`)
+      .get(...params) as { n: number } | undefined;
+    return {
+      memories: rows.map((r) => ({
+        id: r.id,
+        subject: r.subject,
+        content: r.content,
+        tier: r.tier,
+        kind: r.kind,
+        salience: r.salience,
+        createdAt: r.created_at,
+      })),
+      total: countRow?.n ?? rows.length,
+    };
+  }
+
   getChunks(id: MemoryId): readonly MemoryChunk[] {
     const rows = this.connection.db
       .prepare(
@@ -281,6 +339,29 @@ export class MemoryStore {
 
   forget(id: MemoryId): void {
     this.connection.db.prepare(`DELETE FROM memories WHERE id = ?`).run(id);
+  }
+
+  /**
+   * Delete all memory rows whose subject starts with `prefix` and matches workspaceRoot.
+   * Used by CodeSymbolIndexer to clear stale file symbols before re-indexing.
+   * Returns count of deleted rows.
+   * TASK_2026_THOTH_CODE_INDEX
+   *
+   * Uses ESCAPE clause to prevent LIKE metacharacters (`%`, `_`, `\`) in file paths
+   * from silently over-matching and deleting symbols from the wrong files.
+   */
+  deleteBySubjectPrefix(prefix: string, workspaceRoot: string): number {
+    // Escape backslashes first, then % and _ so SQLite LIKE treats them literally.
+    const escaped = prefix
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_');
+    const result = this.connection.db
+      .prepare(
+        `DELETE FROM memories WHERE subject LIKE ? ESCAPE '\\' AND workspace_root IS ? AND kind = 'entity'`,
+      )
+      .run(escaped + '%', workspaceRoot);
+    return result.changes;
   }
 
   recordHit(id: MemoryId): void {

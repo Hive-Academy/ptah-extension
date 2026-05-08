@@ -13,8 +13,10 @@
  */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import type { CompactionCallbackRegistry } from '@ptah-extension/agent-sdk';
+import {
+  MEMORY_CONTRACT_TOKENS,
+  type ICompactionCallbackRegistry,
+} from '@ptah-extension/memory-contracts';
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryStore } from './memory.store';
 import { SalienceScorer } from './salience-scorer';
@@ -38,8 +40,8 @@ export class MemoryCuratorService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY)
-    private readonly registry: CompactionCallbackRegistry,
+    @inject(MEMORY_CONTRACT_TOKENS.COMPACTION_CALLBACK_REGISTRY)
+    private readonly registry: ICompactionCallbackRegistry,
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
     @inject(MEMORY_TOKENS.MEMORY_SALIENCE_SCORER)
     private readonly scorer: SalienceScorer,

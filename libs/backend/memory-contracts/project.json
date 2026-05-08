@@ -1,0 +1,25 @@
+{
+  "name": "memory-contracts",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "libs/backend/memory-contracts/src",
+  "tags": ["scope:extension", "type:core"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/memory-contracts",
+        "main": "libs/backend/memory-contracts/src/index.ts",
+        "tsConfig": "libs/backend/memory-contracts/tsconfig.lib.json",
+        "format": ["cjs"]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/memory-contracts/tsconfig.lib.json"
+      }
+    }
+  }
+}

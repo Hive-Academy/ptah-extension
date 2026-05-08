@@ -41,10 +41,20 @@ export class SqliteMigrationRunner {
    * `schema_migrations`. Migrations are processed in ascending `version`
    * order regardless of input order.
    *
+   * @param migrations - List of migrations to apply.
+   * @param options.vecExtensionLoaded - When `false`, migrations marked
+   *   `requiresVec: true` are skipped with a warning instead of throwing.
+   *   This allows cron / gateway / core migrations to succeed even when
+   *   the sqlite-vec native extension is unavailable.
+   *
    * @throws Error if the DB reports a version higher than the bundled max
    *         (forward-only invariant per architecture §8.5).
    */
-  applyAll(migrations: readonly Migration[]): MigrationRunResult {
+  applyAll(
+    migrations: readonly Migration[],
+    options: { vecExtensionLoaded?: boolean } = {},
+  ): MigrationRunResult {
+    const vecLoaded = options.vecExtensionLoaded !== false; // default true for backward compat
     if (migrations.length === 0) {
       return { appliedVersions: [], skippedVersions: [], finalVersion: 0 };
     }
@@ -67,6 +77,13 @@ export class SqliteMigrationRunner {
 
     for (const migration of sorted) {
       if (applied.has(migration.version)) {
+        skippedNow.push(migration.version);
+        continue;
+      }
+      if (migration.requiresVec && !vecLoaded) {
+        this.logger.warn(
+          `[persistence-sqlite] skipping migration ${migration.version} (${migration.name}) — requires sqlite-vec which is not loaded`,
+        );
         skippedNow.push(migration.version);
         continue;
       }

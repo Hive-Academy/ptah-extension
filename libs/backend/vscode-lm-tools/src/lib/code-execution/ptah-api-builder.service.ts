@@ -30,6 +30,12 @@ import * as path from 'path';
 import { injectable, inject, container } from 'tsyringe';
 import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
+import type {
+  IMemoryReader,
+  IMemoryLister,
+} from '@ptah-extension/memory-contracts';
+import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
+import { CODE_SYMBOL_INDEXER as CODE_SYMBOL_INDEXER_TOKEN } from '@ptah-extension/workspace-intelligence';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -85,6 +91,10 @@ import {
   type IBrowserCapabilities,
   // Skill namespace builder (TASK_2026_THOTH_SKILL_LIFECYCLE)
   buildSkillNamespace,
+  // Memory namespace builder (TASK_2026_THOTH_MEMORY_READ)
+  buildMemoryNamespace,
+  // Code symbol indexer namespace builder (TASK_2026_THOTH_CODE_INDEX)
+  buildCodeNamespace,
 } from './namespace-builders';
 import {
   AgentProcessManager,
@@ -130,6 +140,26 @@ const SDK_PTAH_CLI_REGISTRY = Symbol.for('SdkPtahCliRegistry');
  * @warning Keep Symbol.for() string value in sync with the canonical definition
  */
 const SDK_PLUGIN_LOADER = Symbol.for('SdkPluginLoader');
+
+/**
+ * Duplicated from MEMORY_TOKENS.MEMORY_SEARCH to avoid circular dependency
+ * between vscode-lm-tools -> memory-curator. Must match the string in:
+ * libs/backend/memory-curator/src/lib/di/tokens.ts
+ *
+ * @see MEMORY_TOKENS.MEMORY_SEARCH in libs/backend/memory-curator/src/lib/di/tokens.ts
+ * @warning Keep Symbol.for() string value in sync with the canonical definition
+ */
+const MEMORY_SEARCH_TOKEN = Symbol.for('PtahMemorySearch');
+
+/**
+ * Duplicated from MEMORY_TOKENS.MEMORY_STORE to avoid circular dependency
+ * between vscode-lm-tools -> memory-curator. Must match the string in:
+ * libs/backend/memory-curator/src/lib/di/tokens.ts
+ *
+ * @see MEMORY_TOKENS.MEMORY_STORE in libs/backend/memory-curator/src/lib/di/tokens.ts
+ * @warning Keep Symbol.for() string value in sync with the canonical definition
+ */
+const MEMORY_STORE_TOKEN = Symbol.for('PtahMemoryStore');
 
 /**
  * DI token for IDE capabilities (VS Code-specific).
@@ -551,6 +581,62 @@ export class PtahAPIBuilder {
             workspaceProvider: this.workspaceProvider,
             logger: this.logger,
           }),
+      ),
+
+      // Memory namespace (TASK_2026_THOTH_MEMORY_READ)
+      // Resolved lazily: if MEMORY_SEARCH_TOKEN / MEMORY_STORE_TOKEN are not registered
+      // (VS Code without SQLite support), the namespace returns graceful error objects.
+      memory: this.buildNamespaceSafe('memory', () =>
+        buildMemoryNamespace({
+          getMemorySearch: () => {
+            try {
+              return container.isRegistered(MEMORY_SEARCH_TOKEN)
+                ? container.resolve<IMemoryReader>(MEMORY_SEARCH_TOKEN)
+                : undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          getMemoryStore: () => {
+            try {
+              return container.isRegistered(MEMORY_STORE_TOKEN)
+                ? container.resolve<IMemoryLister>(MEMORY_STORE_TOKEN)
+                : undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          getWorkspaceRoot: () => this.getWorkspaceRoot(),
+        }),
+      ),
+
+      // Code symbol indexer namespace (TASK_2026_THOTH_CODE_INDEX)
+      // Resolved lazily: if CODE_SYMBOL_INDEXER_TOKEN or MEMORY_SEARCH_TOKEN are not registered
+      // (SQLite unavailable), all methods return { error: "..." } graceful degradation objects.
+      code: this.buildNamespaceSafe('code', () =>
+        buildCodeNamespace({
+          getMemorySearch: () => {
+            try {
+              return container.isRegistered(MEMORY_SEARCH_TOKEN)
+                ? container.resolve<IMemoryReader>(MEMORY_SEARCH_TOKEN)
+                : undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          getSymbolIndexer: () => {
+            try {
+              return container.isRegistered(CODE_SYMBOL_INDEXER_TOKEN)
+                ? container.resolve<CodeSymbolIndexer>(
+                    CODE_SYMBOL_INDEXER_TOKEN,
+                  )
+                : undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          getWorkspaceRoot: () => this.getWorkspaceRoot(),
+        }),
       ),
 
       // Help method at root level (ptah.help())

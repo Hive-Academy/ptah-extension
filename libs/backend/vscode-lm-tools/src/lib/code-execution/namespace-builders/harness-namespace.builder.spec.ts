@@ -25,9 +25,8 @@ jest.mock('fs/promises', () => ({
 }));
 jest.mock('os', () => ({ homedir: jest.fn(() => 'D:/home') }));
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { existsSync } = require('fs') as { existsSync: jest.Mock };
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+
 const fsp = require('fs/promises') as {
   mkdir: jest.Mock;
   writeFile: jest.Mock;

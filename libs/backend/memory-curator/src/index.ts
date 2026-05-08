@@ -33,13 +33,12 @@ export type { DecayJobOptions } from './lib/memory-decay.job';
 export { MemoryCuratorService } from './lib/memory-curator.service';
 export type { CuratorRunStats } from './lib/memory-curator.service';
 
-// Curator LLM contract + default implementation
+// Curator LLM contract (re-exported from memory-contracts)
 export type {
   ICuratorLLM,
   ExtractedMemoryDraft,
   ResolvedMemoryDraft,
 } from './lib/curator-llm/curator-llm.interface';
-export { SdkInternalQueryCuratorLlm } from './lib/curator-llm/sdk-internal-query.curator-llm';
 
 // Embedder (registered under PERSISTENCE_TOKENS.EMBEDDER)
 export { EmbedderWorkerClient } from './lib/embedder/embedder-worker-client';

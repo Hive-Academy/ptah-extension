@@ -72,6 +72,10 @@ export {
   type QueryConfig,
 } from './sdk-query-options-builder';
 export { SdkModuleLoader } from './sdk-module-loader';
+// Memory prompt injector (TASK_2026_THOTH_MEMORY_READ)
+export { MemoryPromptInjector } from './memory-prompt-injector';
+// Curator LLM adapter (moved from memory-curator to break circular dependency)
+export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';
 export {
   SdkModelService,
   TIER_TO_MODEL_ID,

@@ -6,6 +6,10 @@
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
+  type IMemoryReader,
+  type MemoryHitPage,
+} from '@ptah-extension/memory-contracts';
+import {
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
   type IEmbedder,
@@ -37,7 +41,7 @@ interface VecRow {
 }
 
 @injectable()
-export class MemorySearchService {
+export class MemorySearchService implements IMemoryReader {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
@@ -46,18 +50,41 @@ export class MemorySearchService {
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
   ) {}
 
-  async search(query: string, topK = 10): Promise<MemorySearchResponse> {
+  async search(
+    query: string,
+    topK = 10,
+    workspaceRoot?: string,
+  ): Promise<MemoryHitPage> {
+    const rich = await this.searchRich(query, topK, workspaceRoot);
+    return {
+      hits: rich.hits.map((h) => ({
+        memoryId: h.memory.id as string,
+        subject: h.memory.subject,
+        content: h.memory.content,
+        chunkText: h.chunk.text,
+        score: h.score,
+        tier: h.memory.tier,
+      })),
+      bm25Only: rich.bm25Only,
+    };
+  }
+
+  async searchRich(
+    query: string,
+    topK = 10,
+    workspaceRoot?: string,
+  ): Promise<MemorySearchResponse> {
     const limit = Math.max(1, Math.min(50, topK));
     const trimmed = query.trim();
     if (!trimmed)
       return { hits: [], bm25Only: !this.connection.vecExtensionLoaded };
 
-    const bm25Rows = this.bm25Search(trimmed, limit * 4);
+    const bm25Rows = this.bm25Search(trimmed, limit * 4, workspaceRoot);
     let vecRows: Array<FtsRow & { distance: number }> = [];
     let bm25Only = !this.connection.vecExtensionLoaded;
     if (!bm25Only) {
       try {
-        vecRows = await this.vecSearch(trimmed, limit * 4);
+        vecRows = await this.vecSearch(trimmed, limit * 4, workspaceRoot);
       } catch (err) {
         this.logger.warn(
           '[memory-curator] vec search failed; falling back to BM25',
@@ -88,17 +115,24 @@ export class MemorySearchService {
         bm25Rank: entry.bm25Rank,
         vecRank: entry.vecRank,
       });
-      // Update hit counter as a side effect — improves future salience.
       try {
         this.store.recordHit(memory.id);
       } catch {
         /* ignore — store may be a stub in tests */
       }
     }
+
     return { hits, bm25Only };
   }
 
-  private bm25Search(query: string, limit: number): FtsRow[] {
+  private bm25Search(
+    query: string,
+    limit: number,
+    workspaceRoot?: string,
+  ): FtsRow[] {
+    const workspaceFilter = workspaceRoot
+      ? 'AND (mc.workspace_root IS NULL OR mc.workspace_root = ?)'
+      : '';
     const sql = `
       SELECT mc.rowid AS rowid, mc.id AS chunk_id, mc.memory_id AS memory_id,
              mc.ord AS ord, mc.text AS text, mc.token_count AS token_count,
@@ -106,13 +140,15 @@ export class MemorySearchService {
       FROM memory_chunks_fts fts
       JOIN memory_chunks mc ON mc.rowid = fts.rowid
       WHERE memory_chunks_fts MATCH ?
+      ${workspaceFilter}
       ORDER BY bm25(memory_chunks_fts) ASC
       LIMIT ?
     `;
+    const params: unknown[] = [this.escapeFtsQuery(query)];
+    if (workspaceRoot) params.push(workspaceRoot);
+    params.push(limit);
     try {
-      return this.connection.db
-        .prepare(sql)
-        .all(this.escapeFtsQuery(query), limit) as FtsRow[];
+      return this.connection.db.prepare(sql).all(...params) as FtsRow[];
     } catch (err) {
       this.logger.warn('[memory-curator] BM25 search failed', {
         error: err instanceof Error ? err.message : String(err),
@@ -124,6 +160,7 @@ export class MemorySearchService {
   private async vecSearch(
     query: string,
     limit: number,
+    workspaceRoot?: string,
   ): Promise<Array<FtsRow & { distance: number }>> {
     const [vec] = await this.embedder.embed([query]);
     if (!vec || vec.length !== this.embedder.dim) return [];
@@ -136,17 +173,24 @@ export class MemorySearchService {
       .all(buf, limit) as VecRow[];
     if (distRows.length === 0) return [];
     const placeholders = distRows.map(() => '?').join(',');
+    const workspaceFilter = workspaceRoot
+      ? 'AND (mc.workspace_root IS NULL OR mc.workspace_root = ?)'
+      : '';
     const sql = `
       SELECT mc.rowid AS rowid, mc.id AS chunk_id, mc.memory_id AS memory_id,
              mc.ord AS ord, mc.text AS text, mc.token_count AS token_count,
              mc.created_at AS created_at
       FROM memory_chunks mc
+      JOIN memories m ON m.id = mc.memory_id
       WHERE mc.rowid IN (${placeholders})
+      ${workspaceFilter}
     `;
     const rowids = distRows.map((r) => r.rowid);
+    const params: unknown[] = [...rowids];
+    if (workspaceRoot) params.push(workspaceRoot);
     const chunkRows = this.connection.db
       .prepare(sql)
-      .all(...rowids) as FtsRow[];
+      .all(...params) as FtsRow[];
     const byRowid = new Map(chunkRows.map((r) => [r.rowid, r]));
     const out: Array<FtsRow & { distance: number }> = [];
     for (const v of distRows) {
