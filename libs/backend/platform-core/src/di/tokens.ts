@@ -55,4 +55,7 @@ export const PLATFORM_TOKENS = {
 
   /** IHttpServerProvider — platform-agnostic HTTP server (TASK_2026_104 P2 proxy) */
   HTTP_SERVER_PROVIDER: Symbol.for('PlatformHttpServerProvider'),
+
+  /** IMemoryWriter — upsert memory entries by stable (fingerprint, subject) identity. */
+  MEMORY_WRITER: Symbol.for('PlatformMemoryWriter'),
 } as const;
