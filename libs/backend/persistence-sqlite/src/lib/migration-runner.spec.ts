@@ -5,6 +5,9 @@
  * better-sqlite3 native bindings — this matches the Track 0 exit
  * criteria (tests must pass before tracks 1–4 install deps).
  */
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { SqliteMigrationRunner } from './migration-runner';
 import type { Migration } from './migrations';
 import { run as run0009AutoVacuum } from './migrations/0009_auto_vacuum';
@@ -239,6 +242,49 @@ describe('SqliteMigrationRunner', () => {
     ).toBe(true);
   });
 
+  it('D2 review fix: rotate() is NOT called when backup returns null', async () => {
+    // If backup() returns null (db.backup unavailable), rotate() must not run —
+    // deleting old backups without writing a new one would silently shrink the archive.
+    const db = new FakeSqliteDatabase();
+    const rotateCalls: number[] = [];
+    const fakeBackupService = {
+      backup: async () => null as string | null, // simulate unavailable db.backup
+      rotate: (_kind: string, _keep: number) => {
+        rotateCalls.push(1);
+      },
+    };
+    const runner = new SqliteMigrationRunner(
+      db,
+      createMockLogger(),
+      fakeBackupService,
+    );
+
+    await runner.applyAll(FIXTURE_MIGRATIONS);
+
+    // rotate() must NOT have been called because backup returned null.
+    expect(rotateCalls).toHaveLength(0);
+  });
+
+  it('D2 review fix: rotate() IS called when backup returns a path', async () => {
+    const db = new FakeSqliteDatabase();
+    const rotateCalls: number[] = [];
+    const fakeBackupService = {
+      backup: async () => '/fake/backup.sqlite' as string | null,
+      rotate: (_kind: string, _keep: number) => {
+        rotateCalls.push(1);
+      },
+    };
+    const runner = new SqliteMigrationRunner(
+      db,
+      createMockLogger(),
+      fakeBackupService,
+    );
+
+    await runner.applyAll(FIXTURE_MIGRATIONS);
+
+    expect(rotateCalls).toHaveLength(1);
+  });
+
   it('D2: backup order is backup → rotate → apply', async () => {
     const db = new FakeSqliteDatabase();
     const callOrder: string[] = [];
@@ -437,5 +483,58 @@ describe('Migration 0009 — auto_vacuum', () => {
     expect(result.skippedVersions).toEqual([9]);
     // Mode unchanged at INCREMENTAL.
     expect(db.getAutoVacuumMode()).toBe(2);
+  });
+
+  // D9 review fix: VACUUM INTO with a real file path
+  it('D9 review fix: with dbPath provided, uses VACUUM INTO and renames result atomically', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-0009-test-'));
+    const dbPath = path.join(tmpDir, 'ptah.sqlite');
+    // Create a fake source DB file so renameSync has something to work with.
+    fs.writeFileSync(dbPath, 'FAKE_DB');
+
+    const db = new FakeSqliteDatabase();
+    // Override exec to capture VACUUM INTO and simulate file creation.
+    const execCalls: string[] = [];
+    const originalExec = db.exec.bind(db);
+    (db as unknown as Record<string, unknown>)['exec'] = (sql: string) => {
+      execCalls.push(sql.trim());
+      // Simulate VACUUM INTO creating the .vacuumed file.
+      if (/^VACUUM INTO/i.test(sql)) {
+        const match = /VACUUM INTO '([^']+)'/i.exec(sql);
+        if (match) {
+          fs.writeFileSync(match[1], 'VACUUMED_DB');
+        }
+        return;
+      }
+      return originalExec(sql);
+    };
+
+    run0009AutoVacuum(db, dbPath);
+
+    // VACUUM INTO was called (not plain VACUUM).
+    expect(execCalls.some((c) => /^VACUUM INTO/i.test(c))).toBe(true);
+    expect(execCalls.every((c) => !/^VACUUM$/i.test(c))).toBe(true);
+    // The original DB path now contains the vacuumed result (renamed from .vacuumed).
+    expect(fs.readFileSync(dbPath, 'utf8')).toBe('VACUUMED_DB');
+    // The temp .vacuumed file is gone (renamed away).
+    expect(fs.existsSync(`${dbPath}.vacuumed`)).toBe(false);
+    // Mode is INCREMENTAL.
+    expect(db.getAutoVacuumMode()).toBe(2);
+  });
+
+  it('D9 review fix: without dbPath falls back to plain VACUUM (test/memory mode)', () => {
+    const db = new FakeSqliteDatabase();
+    const execCalls: string[] = [];
+    const originalExec = db.exec.bind(db);
+    (db as unknown as Record<string, unknown>)['exec'] = (sql: string) => {
+      execCalls.push(sql.trim());
+      return originalExec(sql);
+    };
+
+    // No dbPath → fallback to plain VACUUM.
+    run0009AutoVacuum(db);
+
+    expect(execCalls.some((c) => /^VACUUM$/i.test(c))).toBe(true);
+    expect(execCalls.every((c) => !/^VACUUM INTO/i.test(c))).toBe(true);
   });
 });

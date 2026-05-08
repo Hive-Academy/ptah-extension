@@ -45,6 +45,7 @@ export {
   CronRpcHandlers,
   GatewayRpcHandlers,
   PersistenceRpcHandlers,
+  mintResetChallengeToken,
 } from './lib/handlers';
 export type {
   DbHealthResult,

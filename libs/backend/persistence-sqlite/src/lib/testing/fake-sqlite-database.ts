@@ -166,9 +166,10 @@ export class FakeSqliteDatabase implements SqliteDatabase {
     if (/^ALTER TABLE/i.test(normalised) || /^DROP /i.test(normalised)) {
       return;
     }
-    // VACUUM — no-op in the fake (no page rewriting needed), but enforces the
-    // real SQLite constraint that VACUUM cannot run inside a transaction.
-    if (/^VACUUM$/i.test(normalised) || /^VACUUM\b/i.test(normalised)) {
+    // VACUUM / VACUUM INTO — no-op in the fake (no page rewriting needed),
+    // but enforces the real SQLite constraint that VACUUM cannot run inside a
+    // transaction. VACUUM INTO is accepted and silently ignored (no file I/O).
+    if (/^VACUUM\b/i.test(normalised)) {
       if (this.inTxn) {
         throw new Error(
           'cannot VACUUM from within a transaction (FakeSqliteDatabase)',

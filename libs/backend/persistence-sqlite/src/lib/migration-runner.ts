@@ -85,16 +85,25 @@ export class SqliteMigrationRunner {
 
     // D2: Take a pre-migration backup before applying any pending migrations.
     // Non-fatal — backup failure must not abort the migration run.
+    // D2 review fix: rotate() is guarded behind a successful backup.
+    // Rotating old backups when no new backup was written would silently shrink
+    // the archive on every boot with pending migrations but unavailable backup.
     if (pending.length > 0 && this.backupService) {
-      await this.backupService
-        .backup(this.db, 'pre-migration')
-        .catch((err: unknown) => {
-          this.logger.warn(
-            '[persistence-sqlite] pre-migration backup failed (non-fatal)',
-            { error: err instanceof Error ? err.message : String(err) },
-          );
-        });
-      this.backupService.rotate('pre-migration', 3);
+      let backupDest: string | null = null;
+      try {
+        backupDest = await this.backupService.backup(this.db, 'pre-migration');
+      } catch (err: unknown) {
+        this.logger.warn(
+          '[persistence-sqlite] pre-migration backup failed (non-fatal)',
+          { error: err instanceof Error ? err.message : String(err) },
+        );
+      }
+      // Only rotate when a new backup was successfully written. If backup
+      // returned null (db.backup unavailable / threw), rotating would delete
+      // old backups without a replacement in the archive.
+      if (backupDest !== null) {
+        this.backupService.rotate('pre-migration', 3);
+      }
     }
 
     const appliedNow: number[] = [];

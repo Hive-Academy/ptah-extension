@@ -13,17 +13,22 @@
  */
 
 import 'reflect-metadata';
-import { PersistenceRpcHandlers } from './persistence-rpc.handlers';
+import {
+  PersistenceRpcHandlers,
+  mintResetChallengeToken,
+} from './persistence-rpc.handlers';
 import type { DbHealthResult, DbResetResult } from './persistence-rpc.handlers';
 import { RpcUserError } from '@ptah-extension/vscode-core';
 
-// Mock node:fs so we can control statSync and renameSync without spyOn limitations.
+// Mock node:fs so we can control statSync, renameSync, and existsSync without spyOn limitations.
 const mockStatSync = jest.fn();
 const mockRenameSync = jest.fn();
+const mockExistsSync = jest.fn();
 jest.mock('node:fs', () => ({
   ...jest.requireActual('node:fs'),
   statSync: (...args: unknown[]) => mockStatSync(...args),
   renameSync: (...args: unknown[]) => mockRenameSync(...args),
+  existsSync: (...args: unknown[]) => mockExistsSync(...args),
 }));
 
 // ---- Minimal test doubles --------------------------------------------------
@@ -129,6 +134,8 @@ describe('PersistenceRpcHandlers', () => {
     });
     // Default: rename succeeds
     mockRenameSync.mockReturnValue(undefined);
+    // Default: no sidecar files exist
+    mockExistsSync.mockReturnValue(false);
   });
 
   // ---- db:health — healthy connection ----
@@ -298,11 +305,12 @@ describe('PersistenceRpcHandlers', () => {
     handler.register();
 
     const result = (await rpcHandler._call('db:reset', {
-      confirm: 'CONFIRM',
+      confirm: mintResetChallengeToken(),
     })) as DbResetResult;
 
     expect(result.success).toBe(true);
-    expect(result.backupPath).toBe('/path/to/backup.sqlite');
+    // F-M3: backupPath is now basename only, not the full absolute path.
+    expect(result.backupPath).toBe('backup.sqlite');
     expect(result.message).toContain('reset');
     expect(backup.backup).toHaveBeenCalledWith(expect.anything(), 'reset');
     expect(conn.close).toHaveBeenCalled();
@@ -311,7 +319,7 @@ describe('PersistenceRpcHandlers', () => {
 
   // ---- db:reset — guard: bad confirm ----
 
-  it('db:reset throws RpcUserError when confirm is not CONFIRM', async () => {
+  it('db:reset throws RpcUserError when confirm is not a valid token', async () => {
     const { conn } = makeConnection({ isOpen: true });
 
     const handler = new PersistenceRpcHandlers(
@@ -327,6 +335,24 @@ describe('PersistenceRpcHandlers', () => {
     ).rejects.toMatchObject({
       errorCode: 'PERSISTENCE_UNAVAILABLE',
     });
+  });
+
+  it('db:reset still accepts deprecated static CONFIRM token', async () => {
+    const { conn } = makeConnection({ isOpen: true });
+
+    const handler = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn as never,
+      backup as never,
+    );
+    handler.register();
+
+    const result = (await rpcHandler._call('db:reset', {
+      confirm: 'CONFIRM',
+    })) as DbResetResult;
+
+    expect(result.success).toBe(true);
   });
 
   it('db:reset throws RpcUserError when params is undefined', async () => {
@@ -361,7 +387,7 @@ describe('PersistenceRpcHandlers', () => {
     handler.register();
 
     await expect(
-      rpcHandler._call('db:reset', { confirm: 'CONFIRM' }),
+      rpcHandler._call('db:reset', { confirm: mintResetChallengeToken() }),
     ).rejects.toMatchObject({
       errorCode: 'PERSISTENCE_UNAVAILABLE',
     });
@@ -392,10 +418,12 @@ describe('PersistenceRpcHandlers', () => {
     handler.register();
 
     const result = (await rpcHandler._call('db:reset', {
-      confirm: 'CONFIRM',
+      confirm: mintResetChallengeToken(),
     })) as DbResetResult;
 
     expect(result.success).toBe(true);
+    // The first call is the main rename; second call after async wait.
+    // Sidecar renames are also counted (existsSync returns false by default, so none).
     expect(callCount).toBe(2);
   });
 
@@ -419,13 +447,175 @@ describe('PersistenceRpcHandlers', () => {
     handler.register();
 
     const result = (await rpcHandler._call('db:reset', {
-      confirm: 'CONFIRM',
+      confirm: mintResetChallengeToken(),
     })) as DbResetResult;
 
     expect(result.success).toBe(false);
-    expect(result.message).toContain('Could not rename old database');
-    // Backup should still have been attempted
-    expect(result.backupPath).toBe('/path/to/backup.sqlite');
+    expect(result.message).toContain('Could not rename old database file.');
+    // F-M3: backupPath is now basename only.
+    expect(result.backupPath).toBe('backup.sqlite');
+  });
+
+  // ---- db:reset — F-M1: challenge token security ----
+
+  it('F-M1: mintResetChallengeToken() produces a token accepted by the handler', async () => {
+    const { conn } = makeConnection({ isOpen: true });
+    const handler = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn as never,
+      backup as never,
+    );
+    handler.register();
+
+    const token = mintResetChallengeToken();
+    const result = (await rpcHandler._call('db:reset', {
+      confirm: token,
+    })) as DbResetResult;
+
+    expect(result.success).toBe(true);
+  });
+
+  it('F-M1: challenge token is single-use (second use is rejected)', async () => {
+    const { conn: conn1 } = makeConnection({ isOpen: true });
+    const handler1 = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn1 as never,
+      backup as never,
+    );
+    handler1.register();
+
+    const token = mintResetChallengeToken();
+
+    // First use: succeeds.
+    const result1 = (await rpcHandler._call('db:reset', {
+      confirm: token,
+    })) as DbResetResult;
+    expect(result1.success).toBe(true);
+
+    // Second use of the same token: must be rejected.
+    const rpcHandler2 = makeRpcHandler();
+    const { conn: conn2 } = makeConnection({ isOpen: true });
+    const handler2 = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler2 as never,
+      conn2 as never,
+      backup as never,
+    );
+    handler2.register();
+
+    await expect(
+      rpcHandler2._call('db:reset', { confirm: token }),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  // ---- db:reset — D11: WAL/SHM sidecar cleanup ----
+
+  it('D11: renames -wal and -shm sidecar files when they exist', async () => {
+    const { conn } = makeConnection({
+      isOpen: true,
+      dbPath: '/home/user/.ptah/state/ptah.sqlite',
+    });
+
+    // Both sidecar files exist.
+    mockExistsSync.mockImplementation(
+      (p: string) => p.endsWith('-wal') || p.endsWith('-shm'),
+    );
+
+    const handler = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn as never,
+      backup as never,
+    );
+    handler.register();
+
+    await rpcHandler._call('db:reset', { confirm: mintResetChallengeToken() });
+
+    // Verify renameSync was called for both sidecars in addition to the main DB rename.
+    const renameCalls = mockRenameSync.mock.calls as [string, string][];
+    const walRename = renameCalls.find(([src]) => src.endsWith('-wal'));
+    const shmRename = renameCalls.find(([src]) => src.endsWith('-shm'));
+    expect(walRename).toBeDefined();
+    expect(shmRename).toBeDefined();
+    // Dest must use the same .deleted-<ts>-<hex> base as the main DB rename.
+    const mainRename = renameCalls.find(([src]) => src.endsWith('ptah.sqlite'));
+    expect(mainRename).toBeDefined();
+    const deletedBase = mainRename![1];
+    expect(walRename![1]).toBe(`${deletedBase}-wal`);
+    expect(shmRename![1]).toBe(`${deletedBase}-shm`);
+  });
+
+  it('D11: does not attempt sidecar renames when WAL/SHM files are absent', async () => {
+    const { conn } = makeConnection({ isOpen: true });
+    // mockExistsSync returns false by default (set in beforeEach)
+
+    const handler = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn as never,
+      backup as never,
+    );
+    handler.register();
+
+    await rpcHandler._call('db:reset', { confirm: mintResetChallengeToken() });
+
+    // Only the main DB rename should have fired.
+    const renameCalls = mockRenameSync.mock.calls as [string, string][];
+    const sidecarRenames = renameCalls.filter(
+      ([src]) => src.endsWith('-wal') || src.endsWith('-shm'),
+    );
+    expect(sidecarRenames).toHaveLength(0);
+  });
+
+  // ---- db:reset — F-L4: random suffix on deleted path ----
+
+  it('F-L4: deleted path includes a random hex suffix to avoid collision', async () => {
+    const { conn } = makeConnection({ isOpen: true });
+    const capturedDests: string[] = [];
+    mockRenameSync.mockImplementation((_src: string, dest: string) => {
+      capturedDests.push(dest);
+    });
+
+    const handler = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn as never,
+      backup as never,
+    );
+    handler.register();
+
+    await rpcHandler._call('db:reset', { confirm: mintResetChallengeToken() });
+
+    // The main DB rename dest should match .deleted-<ts>-<8 hex chars>
+    const mainDest = capturedDests.find(
+      (d) => !d.endsWith('-wal') && !d.endsWith('-shm'),
+    );
+    expect(mainDest).toBeDefined();
+    expect(mainDest).toMatch(/\.deleted-\d+-[0-9a-f]{8}$/);
+  });
+
+  // ---- db:reset — F-M3: path redaction ----
+
+  it('F-M3: backupPath in result is basename only, not absolute path', async () => {
+    const { conn } = makeConnection({ isOpen: true });
+    const handler = new PersistenceRpcHandlers(
+      logger as never,
+      rpcHandler as never,
+      conn as never,
+      backup as never,
+    );
+    handler.register();
+
+    const result = (await rpcHandler._call('db:reset', {
+      confirm: mintResetChallengeToken(),
+    })) as DbResetResult;
+
+    // backupPath should be just the filename, no directory component.
+    expect(result.backupPath).toBe('backup.sqlite');
+    expect(result.backupPath).not.toContain('/');
+    expect(result.backupPath).not.toContain('\\');
   });
 
   // ---- METHODS constant ----

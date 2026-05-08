@@ -60,6 +60,15 @@ async function loadPipeline(): Promise<PipelineFn> {
     pipelineSingleton = fn;
     return fn;
   })();
+
+  // Mirror the cross-encoder retry-on-failure guard: if the BGE model download
+  // fails (network timeout, corrupted cache, offline boot), clear pipelineLoading
+  // so the next embed call can retry rather than hanging on a stale rejected
+  // promise forever (H3 from code-style review).
+  pipelineLoading.catch(() => {
+    pipelineLoading = null;
+  });
+
   return pipelineLoading;
 }
 
@@ -77,11 +86,22 @@ async function embed(texts: readonly string[]): Promise<number[][]> {
 // Cross-encoder (text-classification / reranker)
 // ---------------------------------------------------------------------------
 
+/**
+ * A single label-score entry returned by the transformers text-classification
+ * pipeline. When topk is null the pipeline returns ALL labels per input item;
+ * the array is sorted descending by score. For the MS-MARCO binary relevance
+ * model the highest-scored label is always at index 0.
+ */
+interface LabelScore {
+  label: string;
+  score: number;
+}
+
 interface CrossEncoderFn {
   (
     pairs: ReadonlyArray<[string, string]>,
     options?: Record<string, unknown>,
-  ): Promise<Array<{ score: number }>>;
+  ): Promise<Array<LabelScore | LabelScore[]>>;
 }
 
 let crossEncoderSingleton: CrossEncoderFn | null = null;
@@ -131,8 +151,29 @@ async function loadCrossEncoder(): Promise<CrossEncoderFn> {
 }
 
 /**
+ * Extract the relevance score from a single text-classification pipeline output
+ * entry. When `topk: null` the pipeline returns an array of `{label, score}`
+ * sorted descending — index 0 is the highest-scored label (the "relevant" class
+ * for the MS-MARCO model). When a non-array is returned (some pipeline versions
+ * return a bare object for single inputs), fall back to `entry.score`.
+ */
+function extractScore(entry: LabelScore | LabelScore[]): number {
+  if (Array.isArray(entry)) {
+    // Array is sorted descending by score; element 0 is the most-relevant label.
+    return entry[0]?.score ?? 0;
+  }
+  return entry.score;
+}
+
+/**
  * Run cross-encoder reranking on the given (query, candidate) pairs.
  * Returns candidates sorted by descending score, truncated to topK.
+ *
+ * Positional correspondence guarantee: `@xenova/transformers` processes
+ * batched text-classification inputs sequentially and returns results in
+ * input order (one array element per input pair). `results[i]` is guaranteed
+ * to correspond to `pairs[i]`. The `topk: null` option controls how many
+ * label-score objects are returned *per pair*, not the order of pairs.
  */
 async function rerank(
   query: string,
@@ -146,9 +187,11 @@ async function rerank(
     truncation: true,
     max_length: 512,
   });
+  // results[i] corresponds to candidates[i] by positional index (see JSDoc above).
+  // extractScore safely handles both array and bare-object pipeline output formats.
   const scored = candidates.map((c, i) => ({
     id: c.id,
-    score: (results[i] as { score: number }).score,
+    score: extractScore(results[i]),
   }));
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, topK);

@@ -221,9 +221,17 @@ export class MemoryStore implements IMemoryLister {
       return id;
     }) as unknown as (...args: unknown[]) => unknown;
     const txn = db.transaction(txnFn) as unknown as TxnFn;
-    const result = txn(memoryParams);
-    this.bumpWriteCounter(insert.workspaceRoot);
-    return result;
+    try {
+      const result = txn(memoryParams);
+      this.bumpWriteCounter(insert.workspaceRoot);
+      return result;
+    } catch (err: unknown) {
+      // D5: If this is a fatal disk-full error, close the connection and mark it
+      // unavailable so subsequent RPC calls surface PERSISTENCE_UNAVAILABLE
+      // instead of opaque SQLITE_FULL errors.
+      this.connection.handleFatalWriteError(err);
+      throw err;
+    }
   }
 
   private async embedderEmbed(
@@ -480,8 +488,15 @@ export class MemoryStore implements IMemoryLister {
       }
       updateMemoryStmt.run(now, now, id);
     }) as (...args: unknown[]) => unknown);
-    txn();
-    this.bumpWriteCounter(ws);
+    try {
+      txn();
+      this.bumpWriteCounter(ws);
+    } catch (err: unknown) {
+      // D5: Wire fatal write error classification so disk-full errors close the
+      // connection and surface PERSISTENCE_UNAVAILABLE instead of raw SQLITE_FULL.
+      this.connection.handleFatalWriteError(err);
+      throw err;
+    }
   }
 
   stats(workspaceRoot?: string | null): MemoryStatsResponse {

@@ -24,6 +24,7 @@ import {
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { mintResetChallengeToken } from '@ptah-extension/rpc-handlers';
 
 const isMac = process.platform === 'darwin';
 
@@ -212,9 +213,14 @@ export function createApplicationMenu(
                 cancelId: 0,
               });
               if (response !== 1) return;
+              // F-M1 security fix: mint a per-invocation challenge token in
+              // the trusted main-process context. The token is valid for 60 s
+              // and is single-use. Agents that construct RPC calls directly
+              // cannot mint tokens — they cannot bypass this dialog.
+              const challengeToken = mintResetChallengeToken();
               win.webContents.send('rpc:invoke', {
                 method: 'db:reset',
-                params: { confirm: 'CONFIRM' },
+                params: { confirm: challengeToken },
                 correlationId: `reset-${Date.now()}`,
               });
             },

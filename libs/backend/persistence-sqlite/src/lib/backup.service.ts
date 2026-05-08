@@ -95,6 +95,13 @@ export class SqliteBackupService implements IBackupService {
   /**
    * Calls `db.backup(destPath)` and returns the destination path on success.
    * Returns `null` and logs a warning if `db.backup` is unavailable or throws.
+   *
+   * F-M2 security fix: backup files and their parent directory are chmod'd to
+   * owner-only permissions on POSIX (file: 0600, dir: 0700) to prevent other
+   * local users from reading sensitive workspace content stored in the DB.
+   * On Windows these chmod calls are silent no-ops — ACL-level lockdown is
+   * governed by the parent ~/.ptah directory which inherits user-only ACL by
+   * default from the Windows user profile tree.
    */
   async backup(db: SqliteDatabase, kind: BackupKind): Promise<string | null> {
     try {
@@ -109,8 +116,20 @@ export class SqliteBackupService implements IBackupService {
       const dir = path.dirname(dest);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
+        // Restrict the directory to owner-only on POSIX (no-op on Windows).
+        try {
+          fs.chmodSync(dir, 0o700);
+        } catch {
+          // Non-fatal on platforms that do not support chmod.
+        }
       }
       await db.backup(dest);
+      // Restrict the backup file to owner-only on POSIX (no-op on Windows).
+      try {
+        fs.chmodSync(dest, 0o600);
+      } catch {
+        // Non-fatal on platforms that do not support chmod.
+      }
       this.logger.info('[persistence-sqlite] backup completed', { kind, dest });
       return dest;
     } catch (err: unknown) {

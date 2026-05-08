@@ -139,14 +139,26 @@ export class MemorySearchService implements IMemoryReader {
     // EmbedderWorkerClient is registered as the concrete impl under EMBEDDER;
     // cast once here instead of widening IEmbedder (VS Code + CLI environments
     // may use a non-worker embedder that has no rerank capability).
-    let fused = this.rrfFuse(bm25Rows, vecRows, limit, { k: 25, weights });
+    //
+    // Pass limit * 4 to rrfFuse so the reranker receives 4× the final topK as
+    // candidates, then slice back to limit after reranking. Previously rrfFuse
+    // was called with `limit`, which sliced the fused list to topK immediately
+    // and made the subsequent .slice(0, limit * 4) a no-op (Critical R1 fix).
+    let fused = this.rrfFuse(bm25Rows, vecRows, limit * 4, { k: 25, weights });
     if (fused.length >= 5) {
       const workerClient = this.workerClient;
       if (workerClient !== null) {
         try {
-          const rerankInput = fused
-            .slice(0, limit * 4)
-            .map((e) => ({ id: String(e.row.rowid), text: e.row.text }));
+          // Cap candidate text at 512 chars before sending to the worker to
+          // guard against OOM on unexpectedly large chunks (F-L3 defense-in-depth).
+          const MAX_CANDIDATE_CHARS = 512;
+          const rerankInput = fused.slice(0, limit * 4).map((e) => ({
+            id: String(e.row.rowid),
+            text:
+              e.row.text.length > MAX_CANDIDATE_CHARS
+                ? e.row.text.slice(0, MAX_CANDIDATE_CHARS)
+                : e.row.text,
+          }));
           const ranked = await workerClient.rerank(trimmed, rerankInput, limit);
           const byId = new Map(fused.map((e) => [String(e.row.rowid), e]));
           const reranked = ranked
@@ -350,21 +362,38 @@ export class MemorySearchService implements IMemoryReader {
   /**
    * Build an FTS5 MATCH expression from raw user query text.
    *
-   * - Strips FTS5 metacharacters (", *, (, )) so user input cannot break out
-   *   of the query expression.
+   * - Strips ALL FTS5 metacharacters so user input cannot break out of the
+   *   query expression or trigger column-qualifier injection:
+   *     " * ( ) ^ : + - ~
+   * - FTS5 boolean keywords (NEAR AND OR NOT) are neutralised by wrapping
+   *   each surviving token in double-quotes; the quoting turns them into
+   *   literal phrase tokens. An explicit keyword-drop filter is added as
+   *   defence-in-depth for any version where quoting behaviour might differ.
    * - Drops single-character tokens (low signal, high noise).
    * - Prefix-matches the LAST token: "<token>"* — accommodates partial words
    *   the user is mid-typing.
    * - Joins all tokens with OR for recall (RAG context injection prefers
    *   recall over precision; reranker handles precision in a later step).
    * - Empty-after-stripping -> returns '""' which won't match anything.
+   *
+   * Security: this is NOT classical SQL injection — the query is fed to
+   * prepare().all() as a bound parameter. This strips FTS5-grammar-level
+   * operators only (F-H1 from security review).
    */
   private escapeFtsQuery(rawQuery: string): string {
+    /** FTS5 boolean keywords that must not survive into the final expression. */
+    const FTS5_KEYWORDS = new Set(['near', 'and', 'or', 'not']);
+
     const tokens = rawQuery
       .toLowerCase()
-      .replace(/["*()]/g, ' ')
+      // Strip all FTS5 metacharacters: quotes, glob, parens, column-qualifier,
+      // prefix-require/exclude, initial-token, proximity, tilde.
+      .replace(/["*()^:+\-~]/g, ' ')
       .split(/\s+/)
-      .filter((t) => t.length > 1);
+      .filter((t) => t.length > 1)
+      // Drop FTS5 boolean keywords (defence-in-depth — quoting already handles
+      // them, but a future grammar change could re-expose them).
+      .filter((t) => !FTS5_KEYWORDS.has(t));
 
     if (tokens.length === 0) return '""';
 

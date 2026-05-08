@@ -213,6 +213,81 @@ describe('MemorySearchService.escapeFtsQuery', () => {
     const result = escape(service, 'Hello World');
     expect(result).toBe('"hello" OR "world"*');
   });
+
+  // -------------------------------------------------------------------------
+  // New metacharacter coverage (F-H1 security fix)
+  // -------------------------------------------------------------------------
+
+  it('strips caret ^ metacharacter', () => {
+    const result = escape(service, 'foo^bar baz');
+    // ^ is stripped; the remaining alpha chars form tokens
+    expect(result).not.toContain('^');
+    // 'foobar' or 'foo' and 'bar' depending on split — key is no caret
+    expect(result).not.toContain('"^"');
+  });
+
+  it('strips colon : column-qualifier metacharacter', () => {
+    const result = escape(service, 'subject:secret foo');
+    expect(result).not.toContain(':');
+    expect(result).toContain('"foo"*');
+  });
+
+  it('strips plus + operator', () => {
+    const result = escape(service, '+required term');
+    expect(result).not.toContain('+');
+    expect(result).toContain('"required"');
+    expect(result).toContain('"term"*');
+  });
+
+  it('strips minus - operator', () => {
+    const result = escape(service, 'foo -exclude bar');
+    expect(result).not.toContain('-');
+    expect(result).toContain('"foo"');
+    expect(result).toContain('"bar"*');
+  });
+
+  it('strips tilde ~ proximity operator', () => {
+    const result = escape(service, 'hello~world');
+    expect(result).not.toContain('~');
+  });
+
+  it('neutralises FTS5 AND keyword (case-insensitive)', () => {
+    const result = escape(service, 'foo AND bar');
+    expect(result).toBe('"foo" OR "bar"*');
+  });
+
+  it('neutralises FTS5 OR keyword (case-insensitive)', () => {
+    const result = escape(service, 'foo OR bar');
+    expect(result).toBe('"foo" OR "bar"*');
+  });
+
+  it('neutralises FTS5 NOT keyword (case-insensitive)', () => {
+    const result = escape(service, 'foo NOT bar');
+    expect(result).toBe('"foo" OR "bar"*');
+  });
+
+  it('neutralises FTS5 NEAR keyword (case-insensitive)', () => {
+    const result = escape(service, 'NEAR foo bar');
+    expect(result).toBe('"foo" OR "bar"*');
+  });
+
+  it('neutralises lowercase fts5 keywords', () => {
+    const result = escape(service, 'foo and bar or baz');
+    expect(result).toBe('"foo" OR "bar" OR "baz"*');
+  });
+
+  it('returns no-match sentinel for a query of only FTS5 keywords', () => {
+    expect(escape(service, 'AND OR NOT NEAR')).toBe('""');
+  });
+
+  it('subject:foo column-qualifier does not survive stripping', () => {
+    // "subject" and "foo" become separate tokens; colon is stripped
+    const result = escape(service, 'subject:foo');
+    expect(result).not.toContain(':');
+    // Both halves survive as tokens (both > 1 char)
+    expect(result).toContain('"subject"');
+    expect(result).toContain('"foo"*');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -318,6 +393,78 @@ describe('MemorySearchService.searchRich — reranker (R1)', () => {
         (c[0] as string).includes('reranker failed'),
       ),
     ).toBe(true);
+  });
+
+  it('4×K over-fetch: reranker receives limit*4 candidates when BM25 returns >limit*4 rows', async () => {
+    // topK = 3 → reranker should receive up to 12 candidates (3*4), not just 3.
+    const topK = 3;
+    const totalRows = topK * 4 + 2; // 14 rows — more than 4×topK to prove no premature cap
+    const rows = Array.from({ length: totalRows }, (_, i) =>
+      ftsRow(i + 1, `candidate text ${i + 1}`),
+    );
+
+    // Capture what the reranker received
+    let capturedInputLength = -1;
+    const rerankImpl = jest.fn(
+      async (
+        _query: string,
+        candidates: Array<{ id: string; text: string }>,
+      ) => {
+        capturedInputLength = candidates.length;
+        // Return first topK in order
+        return candidates.slice(0, topK).map((c) => ({ id: c.id, score: 0.5 }));
+      },
+    );
+
+    const { service } = makeServiceWithReranker({
+      rerankImpl,
+      rows,
+      memoryLookup: (id) =>
+        id.startsWith('mem')
+          ? { id, subject: `s${id}`, content: `c${id}`, tier: 'core' }
+          : undefined,
+    });
+
+    await service.searchRich('test query', topK);
+
+    // The reranker must have been called
+    expect(rerankImpl).toHaveBeenCalledTimes(1);
+    // It must have received 4×topK candidates, not just topK
+    expect(capturedInputLength).toBe(topK * 4);
+  });
+
+  it('candidate text is truncated at 512 chars before being passed to reranker', async () => {
+    const longText = 'x'.repeat(1000);
+    const rows = [1, 2, 3, 4, 5].map((i) =>
+      ftsRow(i, i === 3 ? longText : `text ${i}`),
+    );
+
+    let capturedCandidates: Array<{ id: string; text: string }> = [];
+    const rerankImpl = jest.fn(
+      async (
+        _query: string,
+        candidates: Array<{ id: string; text: string }>,
+      ) => {
+        capturedCandidates = candidates;
+        return candidates.slice(0, 5).map((c) => ({ id: c.id, score: 0.5 }));
+      },
+    );
+
+    const { service } = makeServiceWithReranker({
+      rerankImpl,
+      rows,
+      memoryLookup: (id) =>
+        id.startsWith('mem')
+          ? { id, subject: `s${id}`, content: `c${id}`, tier: 'core' }
+          : undefined,
+    });
+
+    await service.searchRich('test query', 5);
+
+    // The long candidate's text must have been capped at 512 chars
+    const longCandidate = capturedCandidates.find((c) => c.text.length > 100);
+    expect(longCandidate).toBeDefined();
+    expect(longCandidate!.text.length).toBeLessThanOrEqual(512);
   });
 
   it('existing embedder (non-worker) => reranker not called', async () => {

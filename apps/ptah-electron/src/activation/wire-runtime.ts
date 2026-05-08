@@ -61,6 +61,14 @@ export interface WireRuntimeOptions {
 
 export interface WireRuntimeResult {
   resolvedStateStorage: IStateStorage | undefined;
+  /**
+   * Call this AFTER the main BrowserWindow fires `did-finish-load` to trigger
+   * the 3-second idle warmup of the embedder + cross-encoder models (R4).
+   * The delay is intentionally anchored to window-ready so warmup I/O does not
+   * overlap with the renderer's first render burst.
+   * No-op when memory-curator was not started (null workspace or start failure).
+   */
+  scheduleWarmup: () => void;
   refs: {
     skillJunctionRef: { deactivateSync: () => void } | null;
     gitWatcher: {
@@ -732,44 +740,12 @@ export async function wireRuntime(
       );
     }
 
-    // PHASE 4.96: Pre-warm embedder + reranker (R4)
-    // Loads both models in the worker thread 3s after bootHeavyServices
-    // completes so the first chat turn doesn't pay a cold-start cost.
-    // Fire-and-forget, non-fatal — the search service falls back to RRF
-    // order if either model fails to load (§13 R-B offline-boot guard).
-    //
-    // Invocation path: PERSISTENCE_TOKENS.EMBEDDER resolves to
-    // EmbedderWorkerClient (registered in registerMemoryCuratorServices).
-    // We resolve it directly from the container rather than going through
-    // MemoryCuratorService to keep the dependency chain explicit and avoid
-    // coupling warm-up to the curator lifecycle.
-    if (refs.memoryCurator !== null) {
-      setTimeout(() => {
-        void (async () => {
-          try {
-            const embedderClient = container.resolve<EmbedderWorkerClient>(
-              PERSISTENCE_TOKENS.EMBEDDER,
-            );
-            await embedderClient.warmup();
-            const heapMb = process.memoryUsage().heapUsed / (1024 * 1024);
-            if (heapMb > 200) {
-              console.warn(
-                `[Ptah Electron] Worker heap after warmup: ${heapMb.toFixed(1)} MB (budget: 200 MB)`,
-              );
-            } else {
-              console.log(
-                `[Ptah Electron] Embedder warmup complete (heap: ${heapMb.toFixed(1)} MB)`,
-              );
-            }
-          } catch (err: unknown) {
-            console.warn(
-              '[Ptah Electron] Embedder warmup failed (non-fatal):',
-              err instanceof Error ? err.message : String(err),
-            );
-          }
-        })();
-      }, 3000);
-    }
+    // PHASE 4.96 warmup is intentionally NOT fired here.
+    // It is anchored to the window's `did-finish-load` event (R4) so that
+    // ONNX model loading I/O does not race with the renderer's first paint.
+    // The `scheduleWarmup()` return value on WireRuntimeResult is the entry
+    // point; post-window.ts calls it inside `mainWindow.webContents.once(
+    //   'did-finish-load', ...)`.
   }; // end of bootHeavyServices
 
   // PHASE 4.7: Application Menu
@@ -795,8 +771,45 @@ export async function wireRuntime(
     await bootHeavyServices(startupWorkspaceRoot);
   }
 
+  /**
+   * PHASE 4.96: Pre-warm embedder + reranker (R4).
+   *
+   * Called by post-window.ts AFTER mainWindow fires `did-finish-load` so
+   * warmup I/O does not overlap with the renderer's first render burst.
+   * Fire-and-forget, non-fatal. Logs heap usage to detect budget overruns.
+   */
+  function scheduleWarmup(): void {
+    if (refs.memoryCurator === null) return;
+    setTimeout(() => {
+      void (async () => {
+        try {
+          const embedderClient = container.resolve<EmbedderWorkerClient>(
+            PERSISTENCE_TOKENS.EMBEDDER,
+          );
+          await embedderClient.warmup();
+          const heapMb = process.memoryUsage().heapUsed / (1024 * 1024);
+          if (heapMb > 200) {
+            console.warn(
+              `[Ptah Electron] Worker heap after warmup: ${heapMb.toFixed(1)} MB (budget: 200 MB)`,
+            );
+          } else {
+            console.log(
+              `[Ptah Electron] Embedder warmup complete (heap: ${heapMb.toFixed(1)} MB)`,
+            );
+          }
+        } catch (err: unknown) {
+          console.warn(
+            '[Ptah Electron] Embedder warmup failed (non-fatal):',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      })();
+    }, 3000);
+  }
+
   return {
     resolvedStateStorage,
+    scheduleWarmup,
     refs,
   };
 }

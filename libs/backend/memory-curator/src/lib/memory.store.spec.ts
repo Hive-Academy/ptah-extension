@@ -190,6 +190,87 @@ describe('MemoryStore write-counter bumps', () => {
 });
 
 // ---------------------------------------------------------------------------
+// D5: handleFatalWriteError wiring
+// ---------------------------------------------------------------------------
+
+describe('MemoryStore D5 — handleFatalWriteError wiring', () => {
+  /**
+   * Simulate a disk-full error thrown by the transaction callback.
+   * The store must call connection.handleFatalWriteError(err) and re-throw.
+   */
+  it('calls handleFatalWriteError on connection when insertMemoryWithChunks transaction throws SQLITE_FULL', async () => {
+    const handleFatalWriteError = jest.fn().mockReturnValue(true);
+    const diskFullError = new Error('SQLITE_FULL: database or disk is full');
+
+    const transactionMock = jest.fn(
+      // transaction() returns a function that throws when called.
+      (_fn: unknown) =>
+        (..._args: unknown[]) => {
+          throw diskFullError;
+        },
+    );
+
+    const stub = {
+      vecExtensionLoaded: false,
+      db: {
+        prepare: jest.fn(() => ({
+          run: jest.fn(() => ({ changes: 1 })),
+          get: jest.fn(() => undefined),
+          all: jest.fn(() => []),
+        })),
+        exec: jest.fn(),
+        transaction: transactionMock,
+      },
+      handleFatalWriteError,
+    } as unknown as SqliteConnectionService;
+
+    const store = makeStore(stub);
+    const insert: MemoryInsert = {
+      tier: 'core',
+      kind: 'fact',
+      content: 'test',
+      workspaceRoot: '/ws/A',
+    };
+
+    await expect(store.insertMemoryWithChunks(insert, [])).rejects.toThrow(
+      'SQLITE_FULL',
+    );
+    expect(handleFatalWriteError).toHaveBeenCalledWith(diskFullError);
+  });
+
+  it('calls handleFatalWriteError on connection when appendChunks transaction throws SQLITE_FULL', async () => {
+    const handleFatalWriteError = jest.fn().mockReturnValue(true);
+    const diskFullError = new Error('SQLITE_FULL: database or disk is full');
+
+    const transactionMock = jest.fn((_fn: unknown) => (..._args: unknown[]) => {
+      throw diskFullError;
+    });
+
+    const stub = {
+      vecExtensionLoaded: false,
+      db: {
+        prepare: jest.fn(() => ({
+          run: jest.fn(() => ({ changes: 1 })),
+          get: jest.fn(() => ({ workspace_root: '/ws/A', m: 0 })),
+          all: jest.fn(() => []),
+        })),
+        exec: jest.fn(),
+        transaction: transactionMock,
+      },
+      handleFatalWriteError,
+    } as unknown as SqliteConnectionService;
+
+    const store = makeStore(stub);
+    const id = memoryId('01J000000000000000000000A1');
+
+    await expect(
+      store.appendChunks(id, [{ ord: 0, text: 'text', tokenCount: 1 }]),
+    ).rejects.toThrow('SQLITE_FULL');
+    expect(handleFatalWriteError).toHaveBeenCalledWith(diskFullError);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Per-workspace independence
 // ---------------------------------------------------------------------------
 

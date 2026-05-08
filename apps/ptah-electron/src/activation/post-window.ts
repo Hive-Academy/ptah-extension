@@ -29,6 +29,12 @@ export interface PostWindowOptions {
   /** Mutates caller's mainWindow slot; returned window is for ergonomic chaining. */
   setMainWindow: (win: BrowserWindow) => void;
   getMainWindow: () => BrowserWindow | null;
+  /**
+   * R4 warmup callback from wireRuntime. Called once after the main window
+   * fires `did-finish-load` so the 3s idle timer starts from window-ready,
+   * not from bootHeavyServices completion. Optional — omit in tests.
+   */
+  scheduleWarmup?: () => void;
 }
 
 export interface PostWindowResult {
@@ -52,6 +58,7 @@ export async function registerPostWindow(
     startupWorkspaceRoot,
     setMainWindow,
     getMainWindow,
+    scheduleWarmup,
   } = options;
 
   let revalidationInterval: PostWindowResult['revalidationInterval'] = null;
@@ -125,6 +132,16 @@ export async function registerPostWindow(
 
   const rendererPath = path.join(__dirname, 'renderer', 'index.html');
   mainWindow.loadFile(rendererPath);
+
+  // PHASE 4.96: Schedule embedder warmup AFTER the renderer finishes loading (R4).
+  // Anchoring to did-finish-load ensures the 3s idle timer starts from window-ready,
+  // not from bootHeavyServices completion, so ONNX model I/O does not compete with
+  // the renderer's first paint. Fire-and-forget — warmup failure is non-fatal.
+  if (scheduleWarmup) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      scheduleWarmup();
+    });
+  }
 
   // Open DevTools in development
   if (process.env['NODE_ENV'] === 'development') {
