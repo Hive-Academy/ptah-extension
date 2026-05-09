@@ -128,19 +128,24 @@ export class SkillMdGenerator {
       .replace(/[\r\n]+/g, ' ')
       .replace(/"/g, "'")
       .trim();
-    const whenToUse = (input.whenToUse ?? this.extractWhenToUse(input.body))
+    const rawWhenToUse = (input.whenToUse ?? this.extractWhenToUse(input.body))
       .replace(/[\r\n]+/g, ' ')
       .trim();
+
     const lines = [
       '---',
       `name: ${input.slug}`,
       `description: ${safeDescription}`,
-      `when_to_use: ${whenToUse}`,
-      '---',
-      '',
-      input.body.trim(),
-      '',
     ];
+
+    // Emit when_to_use only when non-empty, always as a double-quoted YAML
+    // scalar so colons, quotes, and other special characters can't break parsing.
+    if (rawWhenToUse.length > 0) {
+      const escaped = rawWhenToUse.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      lines.push(`when_to_use: "${escaped}"`);
+    }
+
+    lines.push('---', '', input.body.trim(), '');
     return lines.join('\n');
   }
 

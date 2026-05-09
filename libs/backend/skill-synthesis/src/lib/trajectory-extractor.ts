@@ -54,10 +54,16 @@ export class TrajectoryExtractor {
    * Read the JSONL for a session and return an extracted trajectory if the
    * eligibility rules are met. Returns null when the session is too short
    * or lacks a success marker.
+   *
+   * @param sessionId      Session to analyze.
+   * @param workspaceRoot  Used to locate the JSONL file and normalize paths.
+   * @param minTurns       Minimum qualifying turns required. Defaults to
+   *                       {@link MIN_TURNS_FOR_TRAJECTORY} when not supplied.
    */
   async extract(
     sessionId: string,
     workspaceRoot: string,
+    minTurns: number = MIN_TURNS_FOR_TRAJECTORY,
   ): Promise<ExtractedTrajectory | null> {
     const sessionsDir =
       await this.jsonlReader.findSessionsDirectory(workspaceRoot);
@@ -92,7 +98,7 @@ export class TrajectoryExtractor {
       turns.push({ role, text });
     }
 
-    if (turns.length < MIN_TURNS_FOR_TRAJECTORY) {
+    if (turns.length < minTurns) {
       return null;
     }
     if (!this.hasSuccessMarker(turns)) {

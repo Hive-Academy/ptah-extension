@@ -169,7 +169,9 @@ export class SkillCandidateStore {
       const invocations = this.listInvocations(row.id, 1000);
       let score = 0;
       for (const inv of invocations) {
-        const ageDays = (now - inv.invokedAt) / 86400000;
+        // Clamp to 0 to guard against clock skew producing negative ages,
+        // which would flip Math.pow(decayRate < 1, negative) above 1.0.
+        const ageDays = Math.max(0, (now - inv.invokedAt) / 86400000);
         score += Math.pow(decayRate, ageDays);
       }
       scored.push({ row, score });
@@ -288,21 +290,30 @@ export class SkillCandidateStore {
    * Set or clear the pinned flag on a candidate.
    * When setting pinned=true, enforces the maxPinnedCap limit.
    * Throws if cap would be exceeded.
+   *
+   * The COUNT check and UPDATE are executed inside a single synchronous
+   * transaction to eliminate the TOCTOU race that could allow exceeding the cap
+   * under concurrent (but still synchronous) callers.
    */
   setPin(id: CandidateId, pinned: boolean, maxPinnedCap: number): void {
-    if (pinned) {
-      const row = this.db
-        .prepare(
-          `SELECT COUNT(*) as cnt FROM skill_candidates WHERE pinned = 1`,
-        )
-        .get() as { cnt: number };
-      if (row.cnt >= maxPinnedCap) {
-        throw new Error('maxPinnedSkills cap reached');
+    const countStmt = this.db.prepare(
+      `SELECT COUNT(*) as cnt FROM skill_candidates WHERE pinned = 1`,
+    );
+    const updateStmt = this.db.prepare(
+      `UPDATE skill_candidates SET pinned = ? WHERE id = ?`,
+    );
+
+    const txn = this.db.transaction(() => {
+      if (pinned) {
+        const row = countStmt.get() as { cnt: number };
+        if (row.cnt >= maxPinnedCap) {
+          throw new Error('maxPinnedSkills cap reached');
+        }
       }
-    }
-    this.db
-      .prepare(`UPDATE skill_candidates SET pinned = ? WHERE id = ?`)
-      .run(pinned ? 1 : 0, id);
+      updateStmt.run(pinned ? 1 : 0, id);
+    });
+
+    txn();
   }
 
   /**

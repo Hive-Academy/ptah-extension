@@ -6,6 +6,15 @@
  * `SkillCandidateRow` / `SkillInvocationRow` row shapes.
  */
 
+/**
+ * Default LLM model ID used by the Judge and Curator when `judgeModel` is
+ * `'inherit'` and no workspace model preference is configured.
+ *
+ * Mirrors `TIER_TO_MODEL_ID.haiku` from `@ptah-extension/agent-sdk`.
+ * Keep in sync with `helpers/sdk-model-service.ts`.
+ */
+export const JUDGE_DEFAULT_MODEL_ID = 'claude-haiku-4-5-20251001';
+
 /** Opaque identifier for a row in `skill_candidates` (status='promoted'). */
 export type SkillId = string & { readonly __brand: 'SkillId' };
 /** Opaque identifier for any `skill_candidates` row regardless of status. */

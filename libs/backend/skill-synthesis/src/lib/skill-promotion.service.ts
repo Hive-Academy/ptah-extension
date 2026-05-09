@@ -19,27 +19,23 @@ import { SkillCandidateStore } from './skill-candidate.store';
 import { SkillMdGenerator } from './skill-md-generator';
 import { SkillClusterDedupService } from './skill-cluster-dedup.service';
 import { SkillJudgeService } from './skill-judge.service';
-import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
+import {
+  SKILL_SYNTHESIS_TOKENS,
+  INTERNAL_QUERY_SERVICE_TOKEN,
+} from './di/tokens';
 import type { IInternalQuery } from './internal-query.interface';
 import type {
   CandidateId,
   SkillCandidateRow,
   SkillSynthesisSettings,
 } from './types';
+import { JUDGE_DEFAULT_MODEL_ID } from './types';
 
 /**
- * Cross-library token for InternalQueryService.
- * Matches SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE = Symbol.for('SdkInternalQueryService').
- * Defined locally to avoid importing from @ptah-extension/agent-sdk (circular-dep risk).
+ * Default model for the SKILL.md polish LLM call — single source of truth
+ * from types.ts; mirrors `TIER_TO_MODEL_ID.haiku` in agent-sdk.
  */
-const INTERNAL_QUERY_SERVICE_TOKEN = Symbol.for('SdkInternalQueryService');
-
-/**
- * Mirrors `TIER_TO_MODEL_ID.haiku` from `@ptah-extension/agent-sdk`. Inlined
- * here for the same circular-dep reason as the IInternalQuery shape above —
- * keep this value in sync with `helpers/sdk-model-service.ts:TIER_TO_MODEL_ID`.
- */
-const POLISH_MODEL_ID = 'claude-haiku-4-5-20251001';
+const POLISH_MODEL_ID = JUDGE_DEFAULT_MODEL_ID;
 
 /** Hard cap on a single polish LLM call — protects the synchronous promote RPC from a hung provider. */
 const POLISH_TIMEOUT_MS = 30_000;
@@ -158,10 +154,14 @@ export class SkillPromotionService {
           score: judgeDecision.score,
           minScore: settings.minJudgeScore,
         });
+        // Persist the rejection so the status is durable (mirrors cluster-duplicate path).
+        const rejected = this.store.updateStatus(candidate.id, 'rejected', {
+          reason: 'below-judge-score',
+        });
         return {
           promoted: false,
           reason: 'below-judge-score',
-          candidate,
+          candidate: rejected,
         };
       }
     }

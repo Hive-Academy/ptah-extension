@@ -16,18 +16,11 @@ import {
 } from '@ptah-extension/platform-core';
 import type { IInternalQuery } from './internal-query.interface';
 import type { SkillCandidateRow, SkillSynthesisSettings } from './types';
-
-/**
- * Cross-library token for InternalQueryService.
- * Matches SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE = Symbol.for('SdkInternalQueryService').
- */
-const INTERNAL_QUERY_SERVICE_TOKEN = Symbol.for('SdkInternalQueryService');
+import { INTERNAL_QUERY_SERVICE_TOKEN } from './di/tokens';
+import { resolveJudgeModel } from './model-resolver';
 
 /** Hard cap on judge LLM call duration. */
 const JUDGE_TIMEOUT_MS = 15_000;
-
-/** Fallback model when judgeModel is 'inherit' and workspace has no preference. */
-const JUDGE_FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
 
 export interface JudgeDecision {
   passed: boolean;
@@ -162,17 +155,7 @@ export class SkillJudgeService {
   }
 
   private resolveModel(judgeModel: string): string {
-    if (judgeModel !== 'inherit') return judgeModel;
-    try {
-      const configured = this.workspaceProvider.getConfiguration<string>(
-        'ptah',
-        'llm.vscode.model',
-        '',
-      );
-      return configured || JUDGE_FALLBACK_MODEL;
-    } catch {
-      return JUDGE_FALLBACK_MODEL;
-    }
+    return resolveJudgeModel(judgeModel, this.workspaceProvider);
   }
 }
 

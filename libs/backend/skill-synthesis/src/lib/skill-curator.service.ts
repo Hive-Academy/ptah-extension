@@ -19,12 +19,8 @@ import {
 import { SkillCandidateStore } from './skill-candidate.store';
 import type { IInternalQuery } from './internal-query.interface';
 import type { SkillSynthesisSettings } from './types';
-
-/**
- * Cross-library token for InternalQueryService.
- * Matches SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE = Symbol.for('SdkInternalQueryService').
- */
-const INTERNAL_QUERY_SERVICE_TOKEN = Symbol.for('SdkInternalQueryService');
+import { INTERNAL_QUERY_SERVICE_TOKEN } from './di/tokens';
+import { resolveJudgeModel } from './model-resolver';
 
 /** Timeout for a single Curator LLM pass (60s — lists all promoted skills). */
 const CURATOR_TIMEOUT_MS = 60_000;
@@ -52,6 +48,10 @@ interface CuratorFinding {
 @injectable()
 export class SkillCuratorService {
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
+  /** Settings captured at the last `start()` call. Used by the interval callback. */
+  private currentSettings: SkillSynthesisSettings | null = null;
+  /** Interval hours at the last `start()` call — used to detect no-op restarts. */
+  private currentIntervalHours: number | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -66,8 +66,12 @@ export class SkillCuratorService {
   /**
    * Start the recurring Curator pass. No-op if `curatorEnabled` is false.
    * Uses a plain setInterval — this is an internal daemon, not a user cron job.
+   *
+   * Stores `settings` so the periodic callback has access to the latest
+   * model and other preferences without re-reading config on every tick.
    */
   start(settings: SkillSynthesisSettings): void {
+    this.currentSettings = settings;
     if (!settings.curatorEnabled) {
       this.logger.info('[skill-curator] disabled via settings; not scheduling');
       return;
@@ -76,8 +80,12 @@ export class SkillCuratorService {
     this.logger.info('[skill-curator] scheduling periodic pass', {
       intervalHours: settings.curatorIntervalHours,
     });
+    this.currentIntervalHours = settings.curatorIntervalHours;
     this.intervalHandle = setInterval(() => {
-      void this.runPass().catch((err: unknown) => {
+      // Use the latest stored settings so model/interval changes take effect.
+      const s = this.currentSettings;
+      if (!s) return;
+      void this.runPass(s).catch((err: unknown) => {
         this.logger.warn('[skill-curator] runPass error', {
           error: err instanceof Error ? err.message : String(err),
         });
@@ -90,19 +98,26 @@ export class SkillCuratorService {
     if (this.intervalHandle !== null) {
       clearInterval(this.intervalHandle);
       this.intervalHandle = null;
+      this.currentIntervalHours = null;
     }
   }
 
-  /** Trigger a manual Curator pass (e.g. from RPC). */
+  /**
+   * Trigger a manual Curator pass (e.g. from RPC).
+   * Uses the last settings passed to `start()`, or an empty report if never started.
+   */
   runManual(): Promise<CuratorReport> {
-    return this.runPass();
+    if (!this.currentSettings) return Promise.resolve(this.emptyReport());
+    return this.runPass(this.currentSettings);
   }
 
   // ─────────────────────────────────────────────────────────────────────
   // Implementation
   // ─────────────────────────────────────────────────────────────────────
 
-  private async runPass(): Promise<CuratorReport> {
+  private async runPass(
+    settings: SkillSynthesisSettings,
+  ): Promise<CuratorReport> {
     if (!this.internalQuery) {
       this.logger.warn(
         '[skill-curator] InternalQueryService not available; skipping pass',
@@ -144,7 +159,7 @@ export class SkillCuratorService {
 
     let findings: CuratorFinding[] = [];
     try {
-      const model = this.resolveModel();
+      const model = this.resolveModel(settings);
       const handle = await this.internalQuery.execute({
         cwd: process.cwd(),
         model,
@@ -301,17 +316,16 @@ export class SkillCuratorService {
     }
   }
 
-  private resolveModel(): string {
-    try {
-      const configured = this.workspaceProvider.getConfiguration<string>(
-        'ptah',
-        'llm.vscode.model',
-        '',
-      );
-      return configured || 'claude-haiku-4-5-20251001';
-    } catch {
-      return 'claude-haiku-4-5-20251001';
-    }
+  /**
+   * Resolve the model to use for the Curator LLM pass.
+   *
+   * Uses `settings.judgeModel` so the Curator respects the same model
+   * preference as the Judge. When `judgeModel` is `'inherit'` (the default),
+   * falls back to the workspace `llm.vscode.model` setting, and further to
+   * the built-in default.
+   */
+  private resolveModel(settings: SkillSynthesisSettings): string {
+    return resolveJudgeModel(settings.judgeModel, this.workspaceProvider);
   }
 
   private emptyReport(): CuratorReport {

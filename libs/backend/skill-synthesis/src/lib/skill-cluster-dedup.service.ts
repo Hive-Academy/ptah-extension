@@ -36,8 +36,9 @@ export class SkillClusterDedupService {
    * Check whether `embedding` is a duplicate of an existing cluster centroid.
    * Returns false if sqlite-vec is not loaded or no clusters have been built.
    *
-   * Per spec: reject if cosine DISTANCE < dedupClusterThreshold, i.e.
-   *   cosineSimilarity > (1 - dedupClusterThreshold).
+   * Semantics: uses SIMILARITY throughout (not distance).
+   * A candidate is a duplicate when its cosine similarity to any cluster
+   * centroid EXCEEDS `dedupClusterThreshold`. Consistent with `buildClusters`.
    */
   isDuplicate(
     embedding: Float32Array,
@@ -45,19 +46,19 @@ export class SkillClusterDedupService {
   ): boolean {
     if (!this.connection.vecExtensionLoaded) return false;
     if (this.clusters === null) {
-      this.buildClusters();
+      this.buildClusters(settings);
     }
     if (!this.clusters || this.clusters.length === 0) return false;
 
-    const similarityThreshold = 1 - settings.dedupClusterThreshold;
     for (const centroid of this.clusters) {
       const sim = cosineSimilarity(embedding, centroid);
-      if (sim > similarityThreshold) {
+      // Duplicate when similarity strictly exceeds the threshold.
+      if (sim > settings.dedupClusterThreshold) {
         this.logger.debug(
           '[skill-synthesis] cluster dedup: duplicate detected',
           {
             similarity: sim,
-            threshold: similarityThreshold,
+            threshold: settings.dedupClusterThreshold,
           },
         );
         return true;
@@ -69,8 +70,10 @@ export class SkillClusterDedupService {
   /**
    * Rebuild clusters from all current promoted skill embeddings.
    * Called lazily on first `isDuplicate` call and after each promotion.
+   *
+   * @param settings Used to read `dedupClusterThreshold` for the merge criterion.
    */
-  buildClusters(): void {
+  buildClusters(settings: SkillSynthesisSettings): void {
     if (!this.connection.vecExtensionLoaded) return;
 
     const promoted = this.store.listByStatus('promoted');
@@ -94,9 +97,10 @@ export class SkillClusterDedupService {
     // Single-linkage agglomerative clustering.
     // Each embedding starts in its own cluster (represented by index).
     const clusterOf: number[] = embeddings.map((_, i) => i);
-    const MERGE_THRESHOLD = 0.8; // cosine distance threshold for single-linkage merge
 
-    // Merge clusters where min pairwise cosine distance < MERGE_THRESHOLD.
+    // Merge clusters where single-linkage cosine SIMILARITY exceeds dedupClusterThreshold.
+    // Semantics: two clusters merge when any pair is MORE SIMILAR than the threshold.
+    // (Higher threshold = fewer merges = more granular clusters.)
     let merged = true;
     while (merged) {
       merged = false;
@@ -110,16 +114,17 @@ export class SkillClusterDedupService {
             .map((c, idx) => (c === clusterIds[cj] ? idx : -1))
             .filter((idx) => idx >= 0);
 
-          // Single-linkage: find min distance between any pair across clusters.
-          let minDist = Infinity;
+          // Single-linkage: find max similarity between any pair across clusters.
+          let maxSim = -Infinity;
           for (const i of membersI) {
             for (const j of membersJ) {
-              const dist = 1 - cosineSimilarity(embeddings[i], embeddings[j]);
-              if (dist < minDist) minDist = dist;
+              const sim = cosineSimilarity(embeddings[i], embeddings[j]);
+              if (sim > maxSim) maxSim = sim;
             }
           }
 
-          if (minDist < MERGE_THRESHOLD) {
+          // Merge when similarity exceeds the threshold (passed from settings).
+          if (maxSim > settings.dedupClusterThreshold) {
             // Merge cj into ci.
             const targetId = clusterIds[ci];
             const sourceId = clusterIds[cj];

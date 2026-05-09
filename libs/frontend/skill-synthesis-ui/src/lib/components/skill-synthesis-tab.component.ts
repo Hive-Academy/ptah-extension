@@ -7,7 +7,12 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
+import {
+  FormsModule,
+  ReactiveFormsModule,
+  FormBuilder,
+  FormGroup,
+} from '@angular/forms';
 import { VSCodeService } from '@ptah-extension/core';
 import type {
   SkillSynthesisCandidateSummary,
@@ -48,7 +53,7 @@ interface ActionDialogState {
   selector: 'ptah-skill-synthesis-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule],
   template: `
     @if (!isElectron()) {
       <div role="alert" class="alert alert-info">
@@ -318,7 +323,7 @@ interface ActionDialogState {
         }
 
         <!-- Editable Settings form -->
-        @if (settingsForm(); as sf) {
+        @if (settingsLoaded()) {
           <section
             class="card bg-base-200 shadow-sm"
             aria-label="Skill synthesis settings"
@@ -326,234 +331,240 @@ interface ActionDialogState {
             <div class="card-body p-4">
               <h2 class="card-title text-sm">Settings</h2>
 
-              <!-- Core settings -->
-              <fieldset class="fieldset border border-base-300 rounded p-3">
-                <legend class="fieldset-legend text-xs font-semibold">
-                  Core
-                </legend>
-                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <label class="form-control">
-                    <span class="label label-text text-xs">Enabled</span>
-                    <input
-                      type="checkbox"
-                      class="checkbox"
-                      [(ngModel)]="sf.enabled"
-                    />
-                  </label>
-                  <label class="form-control">
-                    <span class="label label-text text-xs"
-                      >Successes to promote</span
-                    >
-                    <input
-                      type="number"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.successesToPromote"
-                    />
-                  </label>
-                  <label class="form-control">
-                    <span class="label label-text text-xs"
-                      >Dedup cosine threshold</span
-                    >
-                    <input
-                      type="number"
-                      step="0.01"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.dedupCosineThreshold"
-                    />
-                  </label>
-                  <label class="form-control">
-                    <span class="label label-text text-xs"
-                      >Max active skills</span
-                    >
-                    <input
-                      type="number"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.maxActiveSkills"
-                    />
-                  </label>
-                  <label class="form-control sm:col-span-2">
-                    <span class="label label-text text-xs">Candidates dir</span>
-                    <input
-                      type="text"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.candidatesDir"
-                    />
-                  </label>
-                </div>
-              </fieldset>
+              <form [formGroup]="settingsForm">
+                <!-- Core settings -->
+                <fieldset class="fieldset border border-base-300 rounded p-3">
+                  <legend class="fieldset-legend text-xs font-semibold">
+                    Core
+                  </legend>
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label class="form-control">
+                      <span class="label label-text text-xs">Enabled</span>
+                      <input
+                        type="checkbox"
+                        class="checkbox"
+                        formControlName="enabled"
+                      />
+                    </label>
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Successes to promote</span
+                      >
+                      <input
+                        type="number"
+                        class="input input-bordered input-sm"
+                        formControlName="successesToPromote"
+                      />
+                    </label>
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Dedup cosine threshold</span
+                      >
+                      <input
+                        type="number"
+                        step="0.01"
+                        class="input input-bordered input-sm"
+                        formControlName="dedupCosineThreshold"
+                      />
+                    </label>
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Max active skills</span
+                      >
+                      <input
+                        type="number"
+                        class="input input-bordered input-sm"
+                        formControlName="maxActiveSkills"
+                      />
+                    </label>
+                    <label class="form-control sm:col-span-2">
+                      <span class="label label-text text-xs"
+                        >Candidates dir</span
+                      >
+                      <input
+                        type="text"
+                        class="input input-bordered input-sm"
+                        formControlName="candidatesDir"
+                      />
+                    </label>
+                  </div>
+                </fieldset>
 
-              <!-- Eligibility and Quality settings -->
-              <fieldset
-                class="fieldset border border-base-300 rounded p-3 mt-2"
-              >
-                <legend class="fieldset-legend text-xs font-semibold">
-                  Eligibility &amp; Quality
-                </legend>
-                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <label class="form-control">
-                    <span class="label label-text text-xs"
-                      >Eligibility min turns</span
-                    >
-                    <input
-                      type="number"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.eligibilityMinTurns"
-                    />
-                  </label>
-                  <label class="form-control">
-                    <span class="label label-text text-xs"
-                      >Eviction decay rate (0-1)</span
-                    >
-                    <input
-                      type="number"
-                      step="0.01"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.evictionDecayRate"
-                    />
-                  </label>
-                  <label class="form-control">
-                    <span class="label label-text text-xs"
-                      >Generalization context threshold</span
-                    >
-                    <input
-                      type="number"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.generalizationContextThreshold"
-                    />
-                  </label>
-                  <label class="form-control">
-                    <span class="label label-text text-xs"
-                      >Min trajectory fidelity ratio (0-1)</span
-                    >
-                    <input
-                      type="number"
-                      step="0.01"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.minTrajectoryFidelityRatio"
-                    />
-                  </label>
-                  <label class="form-control">
-                    <span class="label label-text text-xs"
-                      >Min abstraction edit distance (0-1)</span
-                    >
-                    <input
-                      type="number"
-                      step="0.01"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.minAbstractionEditDistance"
-                    />
-                  </label>
-                </div>
-              </fieldset>
+                <!-- Eligibility and Quality settings -->
+                <fieldset
+                  class="fieldset border border-base-300 rounded p-3 mt-2"
+                >
+                  <legend class="fieldset-legend text-xs font-semibold">
+                    Eligibility &amp; Quality
+                  </legend>
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Eligibility min turns</span
+                      >
+                      <input
+                        type="number"
+                        class="input input-bordered input-sm"
+                        formControlName="eligibilityMinTurns"
+                      />
+                    </label>
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Eviction decay rate (0-1)</span
+                      >
+                      <input
+                        type="number"
+                        step="0.01"
+                        class="input input-bordered input-sm"
+                        formControlName="evictionDecayRate"
+                      />
+                    </label>
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Generalization context threshold</span
+                      >
+                      <input
+                        type="number"
+                        class="input input-bordered input-sm"
+                        formControlName="generalizationContextThreshold"
+                      />
+                    </label>
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Min trajectory fidelity ratio (0-1)</span
+                      >
+                      <input
+                        type="number"
+                        step="0.01"
+                        class="input input-bordered input-sm"
+                        formControlName="minTrajectoryFidelityRatio"
+                      />
+                    </label>
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Min abstraction edit distance (0-1)</span
+                      >
+                      <input
+                        type="number"
+                        step="0.01"
+                        class="input input-bordered input-sm"
+                        formControlName="minAbstractionEditDistance"
+                      />
+                    </label>
+                  </div>
+                </fieldset>
 
-              <!-- Dedup settings -->
-              <fieldset
-                class="fieldset border border-base-300 rounded p-3 mt-2"
-              >
-                <legend class="fieldset-legend text-xs font-semibold">
-                  Cluster Dedup
-                </legend>
-                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <label class="form-control">
-                    <span class="label label-text text-xs"
-                      >Dedup cluster threshold (0-1)</span
-                    >
-                    <input
-                      type="number"
-                      step="0.01"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.dedupClusterThreshold"
-                    />
-                  </label>
-                </div>
-              </fieldset>
+                <!-- Dedup settings -->
+                <fieldset
+                  class="fieldset border border-base-300 rounded p-3 mt-2"
+                >
+                  <legend class="fieldset-legend text-xs font-semibold">
+                    Cluster Dedup
+                  </legend>
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Dedup cluster threshold (0-1)</span
+                      >
+                      <input
+                        type="number"
+                        step="0.01"
+                        class="input input-bordered input-sm"
+                        formControlName="dedupClusterThreshold"
+                      />
+                    </label>
+                  </div>
+                </fieldset>
 
-              <!-- LLM Judge settings -->
-              <fieldset
-                class="fieldset border border-base-300 rounded p-3 mt-2"
-              >
-                <legend class="fieldset-legend text-xs font-semibold">
-                  LLM Judge
-                </legend>
-                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <label class="form-control">
-                    <span class="label label-text text-xs">Judge enabled</span>
-                    <input
-                      type="checkbox"
-                      class="checkbox"
-                      [(ngModel)]="sf.judgeEnabled"
-                    />
-                  </label>
-                  <label class="form-control">
-                    <span class="label label-text text-xs"
-                      >Min judge score (0-10)</span
-                    >
-                    <input
-                      type="number"
-                      step="0.1"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.minJudgeScore"
-                    />
-                  </label>
-                  <label class="form-control sm:col-span-2">
-                    <span class="label label-text text-xs"
-                      >Judge model ('inherit' = workspace default)</span
-                    >
-                    <input
-                      type="text"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.judgeModel"
-                    />
-                  </label>
-                </div>
-              </fieldset>
+                <!-- LLM Judge settings -->
+                <fieldset
+                  class="fieldset border border-base-300 rounded p-3 mt-2"
+                >
+                  <legend class="fieldset-legend text-xs font-semibold">
+                    LLM Judge
+                  </legend>
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Judge enabled</span
+                      >
+                      <input
+                        type="checkbox"
+                        class="checkbox"
+                        formControlName="judgeEnabled"
+                      />
+                    </label>
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Min judge score (0-10)</span
+                      >
+                      <input
+                        type="number"
+                        step="0.1"
+                        class="input input-bordered input-sm"
+                        formControlName="minJudgeScore"
+                      />
+                    </label>
+                    <label class="form-control sm:col-span-2">
+                      <span class="label label-text text-xs"
+                        >Judge model ('inherit' = workspace default)</span
+                      >
+                      <input
+                        type="text"
+                        class="input input-bordered input-sm"
+                        formControlName="judgeModel"
+                      />
+                    </label>
+                  </div>
+                </fieldset>
 
-              <!-- Pinning and Curator settings -->
-              <fieldset
-                class="fieldset border border-base-300 rounded p-3 mt-2"
-              >
-                <legend class="fieldset-legend text-xs font-semibold">
-                  Pinning &amp; Curator
-                </legend>
-                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <label class="form-control">
-                    <span class="label label-text text-xs"
-                      >Max pinned skills</span
-                    >
-                    <input
-                      type="number"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.maxPinnedSkills"
-                    />
-                  </label>
-                  <label class="form-control">
-                    <span class="label label-text text-xs"
-                      >Curator enabled</span
-                    >
-                    <input
-                      type="checkbox"
-                      class="checkbox"
-                      [(ngModel)]="sf.curatorEnabled"
-                    />
-                  </label>
-                  <label class="form-control">
-                    <span class="label label-text text-xs"
-                      >Curator interval (hours)</span
-                    >
-                    <input
-                      type="number"
-                      class="input input-bordered input-sm"
-                      [(ngModel)]="sf.curatorIntervalHours"
-                    />
-                  </label>
-                </div>
-              </fieldset>
+                <!-- Pinning and Curator settings -->
+                <fieldset
+                  class="fieldset border border-base-300 rounded p-3 mt-2"
+                >
+                  <legend class="fieldset-legend text-xs font-semibold">
+                    Pinning &amp; Curator
+                  </legend>
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Max pinned skills</span
+                      >
+                      <input
+                        type="number"
+                        class="input input-bordered input-sm"
+                        formControlName="maxPinnedSkills"
+                      />
+                    </label>
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Curator enabled</span
+                      >
+                      <input
+                        type="checkbox"
+                        class="checkbox"
+                        formControlName="curatorEnabled"
+                      />
+                    </label>
+                    <label class="form-control">
+                      <span class="label label-text text-xs"
+                        >Curator interval (hours)</span
+                      >
+                      <input
+                        type="number"
+                        class="input input-bordered input-sm"
+                        formControlName="curatorIntervalHours"
+                      />
+                    </label>
+                  </div>
+                </fieldset>
+              </form>
 
               <div class="mt-3 flex justify-end">
                 <button
                   type="button"
                   class="btn btn-primary btn-sm"
-                  [disabled]="loading()"
+                  [disabled]="loading() || settingsForm.invalid"
                   (click)="onSaveSettings()"
                 >
                   Save Settings
@@ -683,6 +694,7 @@ export class SkillSynthesisTabComponent implements OnInit {
   private readonly state = inject(SkillSynthesisStateService);
   private readonly rpc = inject(SkillSynthesisRpcService);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly fb = inject(FormBuilder);
 
   /** Whether the webview is running inside the Electron desktop app. */
   public readonly isElectron = computed(
@@ -699,8 +711,35 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly loading = this.state.loading;
   public readonly error = this.state.error;
 
-  /** Editable copy of settings loaded from backend. Bound to form inputs. */
-  public readonly settingsForm = signal<SkillSynthesisSettingsDto | null>(null);
+  /**
+   * Reactive form for the 17 skill-synthesis settings fields.
+   * Uses FormBuilder so Angular CD properly tracks mutations and validation
+   * hooks are available per-field. Replaces the former `signal<SettingsDto>`
+   * anti-pattern where `[(ngModel)]` mutated the signal's object in place
+   * without triggering re-emission.
+   */
+  public readonly settingsForm: FormGroup = this.fb.group({
+    enabled: [true],
+    successesToPromote: [3],
+    dedupCosineThreshold: [0.85],
+    maxActiveSkills: [50],
+    candidatesDir: [''],
+    eligibilityMinTurns: [5],
+    evictionDecayRate: [0.95],
+    generalizationContextThreshold: [3],
+    minTrajectoryFidelityRatio: [0.4],
+    dedupClusterThreshold: [0.78],
+    minAbstractionEditDistance: [0.3],
+    judgeEnabled: [true],
+    minJudgeScore: [6.0],
+    judgeModel: ['inherit'],
+    maxPinnedSkills: [10],
+    curatorEnabled: [true],
+    curatorIntervalHours: [24],
+  });
+
+  /** True once settings have been loaded from the backend. */
+  public readonly settingsLoaded = signal<boolean>(false);
 
   /** Toast notification (auto-clears after 3s). */
   public readonly toast = signal<{
@@ -745,18 +784,25 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   private async loadSettings(): Promise<void> {
     try {
-      const s = await this.rpc.getSettings();
-      // Deep copy so mutations don't affect the signal directly via reference sharing.
-      this.settingsForm.set({ ...s });
+      // Route through the state service so the shared `settings` signal is populated.
+      await this.state.loadSettings();
+      const s = this.state.settings();
+      if (s) {
+        // patchValue replaces all form controls with the loaded values;
+        // the FormGroup emits a new value so change detection fires correctly.
+        this.settingsForm.patchValue(s);
+      }
+      this.settingsLoaded.set(true);
     } catch (err: unknown) {
       this.showToast(err instanceof Error ? err.message : String(err), 'error');
     }
   }
 
   protected async onSaveSettings(): Promise<void> {
-    const sf = this.settingsForm();
-    if (!sf) return;
+    if (!this.settingsForm.valid) return;
     try {
+      // Cast is safe: the form controls mirror SkillSynthesisSettingsDto exactly.
+      const sf = this.settingsForm.value as SkillSynthesisSettingsDto;
       await this.rpc.updateSettings(sf);
       this.showToast('Settings saved.', 'success');
     } catch (err: unknown) {

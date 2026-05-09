@@ -27,6 +27,7 @@ export {
 
 export {
   SKILL_SYNTHESIS_TOKENS,
+  INTERNAL_QUERY_SERVICE_TOKEN,
   type SkillSynthesisDIToken,
 } from './lib/di/tokens';
 export { registerSkillSynthesisServices } from './lib/di/register';
@@ -43,6 +44,7 @@ export {
 } from './lib/skill-curator.service';
 export { cosineSimilarity } from './lib/cosine-similarity';
 
+export { JUDGE_DEFAULT_MODEL_ID } from './lib/types';
 export type {
   SkillId,
   CandidateId,

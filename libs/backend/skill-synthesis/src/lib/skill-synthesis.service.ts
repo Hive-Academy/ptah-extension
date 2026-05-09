@@ -212,7 +212,11 @@ export class SkillSynthesisService {
     if (this.analyzedSessions.has(sessionId)) return null;
     this.analyzedSessions.add(sessionId);
 
-    const trajectory = await this.extractor.extract(sessionId, workspaceRoot);
+    const trajectory = await this.extractor.extract(
+      sessionId,
+      workspaceRoot,
+      settings.eligibilityMinTurns,
+    );
     if (!trajectory) {
       this.logger.info(
         '[skill-synthesis] session ineligible (trajectory null — <5 turns or no success marker)',

@@ -63,14 +63,10 @@ import type {
 import {
   PinSkillParamsSchema,
   RunCuratorParamsSchema,
+  SkillSynthesisSettingsSchema,
   UnpinSkillParamsSchema,
   UpdateSkillSynthesisSettingsParamsSchema,
 } from './skills-synthesis-rpc.schema';
-
-/** Minimal interface for the extended store operations added in Batch 1. */
-interface ExtendedSkillCandidateStore {
-  setPin(id: string, pinned: boolean, maxPinnedCap: number): void;
-}
 
 /** Minimal interface for the Curator service (registered later in Batch 3). */
 interface ICuratorService {
@@ -79,7 +75,13 @@ interface ICuratorService {
     changesQueued: number;
     skippedPinned: number;
   }>;
+  start(settings: SkillSynthesisSettings): void;
+  stop(): void;
 }
+
+/** Re-export of the settings type used locally. */
+type SkillSynthesisSettings =
+  import('@ptah-extension/skill-synthesis').SkillSynthesisSettings;
 
 @injectable()
 export class SkillsSynthesisRpcHandlers {
@@ -279,115 +281,28 @@ export class SkillsSynthesisRpcHandlers {
       SkillSynthesisGetSettingsResult
     >('skillSynthesis:getSettings', async () => {
       try {
-        const get = <T>(key: string, fallback: T): T => {
+        // Iterate the Zod schema shape so all 17 fields come from a single
+        // source of truth — no manual per-field mapping needed.
+        const raw: Record<string, unknown> = {};
+        for (const key of Object.keys(SkillSynthesisSettingsSchema.shape)) {
+          const configKey = `skillSynthesis.${key}`;
+          const defaultValue = FILE_BASED_SETTINGS_DEFAULTS[configKey];
           try {
-            const raw = this.workspaceProvider.getConfiguration<T>(
+            const value = this.workspaceProvider.getConfiguration<unknown>(
               'ptah',
-              key,
-              fallback,
+              configKey,
+              defaultValue,
             );
-            return raw === undefined || raw === null ? fallback : raw;
+            raw[key] =
+              value === undefined || value === null ? defaultValue : value;
           } catch {
-            return fallback;
+            raw[key] = defaultValue;
           }
-        };
-        const settings: SkillSynthesisSettingsDto = {
-          enabled: get('skillSynthesis.enabled', true),
-          successesToPromote: get(
-            'skillSynthesis.successesToPromote',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.successesToPromote'
-            ] as number,
-          ),
-          dedupCosineThreshold: get(
-            'skillSynthesis.dedupCosineThreshold',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.dedupCosineThreshold'
-            ] as number,
-          ),
-          maxActiveSkills: get(
-            'skillSynthesis.maxActiveSkills',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.maxActiveSkills'
-            ] as number,
-          ),
-          candidatesDir: get(
-            'skillSynthesis.candidatesDir',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.candidatesDir'
-            ] as string,
-          ),
-          eligibilityMinTurns: get(
-            'skillSynthesis.eligibilityMinTurns',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.eligibilityMinTurns'
-            ] as number,
-          ),
-          evictionDecayRate: get(
-            'skillSynthesis.evictionDecayRate',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.evictionDecayRate'
-            ] as number,
-          ),
-          generalizationContextThreshold: get(
-            'skillSynthesis.generalizationContextThreshold',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.generalizationContextThreshold'
-            ] as number,
-          ),
-          minTrajectoryFidelityRatio: get(
-            'skillSynthesis.minTrajectoryFidelityRatio',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.minTrajectoryFidelityRatio'
-            ] as number,
-          ),
-          dedupClusterThreshold: get(
-            'skillSynthesis.dedupClusterThreshold',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.dedupClusterThreshold'
-            ] as number,
-          ),
-          minAbstractionEditDistance: get(
-            'skillSynthesis.minAbstractionEditDistance',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.minAbstractionEditDistance'
-            ] as number,
-          ),
-          judgeEnabled: get(
-            'skillSynthesis.judgeEnabled',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.judgeEnabled'
-            ] as boolean,
-          ),
-          minJudgeScore: get(
-            'skillSynthesis.minJudgeScore',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.minJudgeScore'
-            ] as number,
-          ),
-          judgeModel: get(
-            'skillSynthesis.judgeModel',
-            FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.judgeModel'] as string,
-          ),
-          maxPinnedSkills: get(
-            'skillSynthesis.maxPinnedSkills',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.maxPinnedSkills'
-            ] as number,
-          ),
-          curatorEnabled: get(
-            'skillSynthesis.curatorEnabled',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.curatorEnabled'
-            ] as boolean,
-          ),
-          curatorIntervalHours: get(
-            'skillSynthesis.curatorIntervalHours',
-            FILE_BASED_SETTINGS_DEFAULTS[
-              'skillSynthesis.curatorIntervalHours'
-            ] as number,
-          ),
-        };
+        }
+        // Validate the assembled object so callers always get a well-typed DTO.
+        const settings = SkillSynthesisSettingsSchema.parse(
+          raw,
+        ) as SkillSynthesisSettingsDto;
         return { settings };
       } catch (error) {
         this.report(error, 'SkillsSynthesisRpcHandlers.registerGetSettings');
@@ -410,6 +325,12 @@ export class SkillsSynthesisRpcHandlers {
         const entries = Object.entries(parsed.settings) as Array<
           [keyof SkillSynthesisSettingsDto, unknown]
         >;
+
+        // Detect whether the curator schedule needs restarting before writing.
+        const curatorAffected =
+          'curatorEnabled' in parsed.settings ||
+          'curatorIntervalHours' in parsed.settings;
+
         for (const [key, value] of entries) {
           await this.workspaceProvider.setConfiguration(
             'ptah',
@@ -417,6 +338,22 @@ export class SkillsSynthesisRpcHandlers {
             value,
           );
         }
+
+        // Restart the curator interval so the new settings take effect immediately.
+        // synthesis.readSettings() reads the freshly-written config.
+        if (curatorAffected && this.curator) {
+          const newSettings = this.synthesis.readSettings();
+          this.curator.stop();
+          this.curator.start(newSettings);
+          this.logger.debug(
+            '[skill-synthesis] curator restarted after settings update',
+            {
+              curatorEnabled: newSettings.curatorEnabled,
+              curatorIntervalHours: newSettings.curatorIntervalHours,
+            },
+          );
+        }
+
         return { updated: true };
       } catch (error) {
         this.report(error, 'SkillsSynthesisRpcHandlers.registerUpdateSettings');
@@ -443,8 +380,8 @@ export class SkillsSynthesisRpcHandlers {
             'skillSynthesis.maxPinnedSkills'
           ] as number,
         );
-        (this.store as unknown as ExtendedSkillCandidateStore).setPin(
-          parsed.id,
+        this.store.setPin(
+          parsed.id as import('@ptah-extension/skill-synthesis').CandidateId,
           true,
           maxPinnedSkills ??
             (FILE_BASED_SETTINGS_DEFAULTS[
@@ -470,8 +407,8 @@ export class SkillsSynthesisRpcHandlers {
     >('skillSynthesis:unpin', async (params) => {
       try {
         const parsed = UnpinSkillParamsSchema.parse(params);
-        (this.store as unknown as ExtendedSkillCandidateStore).setPin(
-          parsed.id,
+        this.store.setPin(
+          parsed.id as import('@ptah-extension/skill-synthesis').CandidateId,
           false,
           0,
         );

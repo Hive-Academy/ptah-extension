@@ -39,6 +39,7 @@ function fakeRow(
     promotedAt: null,
     rejectedAt: null,
     rejectedReason: null,
+    pinned: false,
     ...overrides,
   };
 }
@@ -102,7 +103,9 @@ describe('SkillSynthesisService', () => {
     } as unknown as jest.Mocked<TrajectoryExtractor>;
     const sessionEndRegistry = {
       register: jest.fn(() => jest.fn()),
-    } as unknown as ConstructorParameters<typeof SkillSynthesisService>[7];
+    } as unknown as ConstructorParameters<typeof SkillSynthesisService>[8];
+    // curatorService is optional (arg index 7 in the new signature)
+    const curatorService = null;
     const svc = new SkillSynthesisService(
       noopLogger,
       connection,
@@ -111,6 +114,7 @@ describe('SkillSynthesisService', () => {
       md,
       promotion,
       extractor,
+      curatorService,
       sessionEndRegistry,
     );
     return {
@@ -162,7 +166,11 @@ describe('SkillSynthesisService', () => {
     const { svc, store, md, extractor } = setup();
     await svc.start();
     const result = await svc.analyzeSession('s1', '/repo');
-    expect(extractor.extract).toHaveBeenCalledWith('s1', '/repo');
+    expect(extractor.extract).toHaveBeenCalledWith(
+      's1',
+      '/repo',
+      expect.any(Number),
+    );
     expect(md.writeCandidate).toHaveBeenCalledTimes(1);
     expect(store.registerCandidate).toHaveBeenCalledTimes(1);
     expect(result?.reused).toBe(false);
@@ -255,12 +263,24 @@ describe('SkillSynthesisService', () => {
       throw new Error('config unavailable');
     });
     const settings = svc.readSettings();
-    expect(settings).toEqual({
+    expect(settings).toMatchObject({
       enabled: true,
       successesToPromote: 3,
       dedupCosineThreshold: 0.85,
       maxActiveSkills: 50,
       candidatesDir: '',
+      eligibilityMinTurns: 5,
+      evictionDecayRate: 0.95,
+      generalizationContextThreshold: 3,
+      minTrajectoryFidelityRatio: 0.4,
+      dedupClusterThreshold: 0.78,
+      minAbstractionEditDistance: 0.3,
+      judgeEnabled: true,
+      minJudgeScore: 6.0,
+      judgeModel: 'inherit',
+      maxPinnedSkills: 10,
+      curatorEnabled: true,
+      curatorIntervalHours: 24,
     });
   });
 });

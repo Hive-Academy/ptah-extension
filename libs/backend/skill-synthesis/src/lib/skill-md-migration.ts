@@ -103,6 +103,10 @@ function findSkillMdFiles(dir: string): string[] {
 /**
  * Parse existing frontmatter and inject `when_to_use:` after `description:`.
  * Returns the rewritten content, or null if frontmatter cannot be parsed.
+ *
+ * The value is always emitted as a YAML double-quoted scalar to prevent
+ * colons, quotes, or newlines in bullet text from breaking YAML parsing.
+ * If the extracted value is empty, the field is omitted entirely.
  */
 function addWhenToUseFrontmatter(content: string): string | null {
   // Match the YAML frontmatter block.
@@ -114,8 +118,14 @@ function addWhenToUseFrontmatter(content: string): string | null {
 
   const whenToUse = extractWhenToUse(body);
 
-  // Inject when_to_use after the last frontmatter line.
-  const newFrontmatter = `${frontmatter}\nwhen_to_use: ${whenToUse}`;
+  // Skip the field entirely when there is nothing to inject.
+  if (!whenToUse) {
+    return null; // caller will count as skipped
+  }
+
+  // Escape for YAML double-quoted scalar: backslash then double-quote.
+  const escaped = whenToUse.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const newFrontmatter = `${frontmatter}\nwhen_to_use: "${escaped}"`;
 
   return `---\n${newFrontmatter}\n---\n${body}`;
 }

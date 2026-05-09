@@ -6,6 +6,18 @@
  *  - Each description globally unique across all token files.
  *  - Frozen `as const` so consumers narrow on the symbol values.
  */
+
+/**
+ * Cross-library DI token for InternalQueryService.
+ * Matches SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE = Symbol.for('SdkInternalQueryService').
+ *
+ * Defined here instead of importing from `@ptah-extension/agent-sdk` to
+ * avoid a circular dependency (skill-synthesis → agent-sdk → skill-synthesis).
+ */
+export const INTERNAL_QUERY_SERVICE_TOKEN = Symbol.for(
+  'SdkInternalQueryService',
+);
+
 export const SKILL_SYNTHESIS_TOKENS = {
   /** SkillSynthesisService — top-level orchestrator (analyzes sessions). */
   SKILL_SYNTHESIS_SERVICE: Symbol.for('PtahSkillSynthesisService'),
