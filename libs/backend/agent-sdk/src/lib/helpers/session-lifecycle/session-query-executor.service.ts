@@ -362,7 +362,9 @@ export class SessionQueryExecutor {
           options: queryOptions.options as Options,
         });
       }
-      const initialModel = queryOptions.options.model;
+      // options.model is optional in the SDK's Options type; fall back to empty
+      // string to keep ExecuteQueryResult.initialModel typed as string.
+      const initialModel = queryOptions.options.model ?? '';
 
       // Step 7b: Connect streamInput for follow-up message delivery
       // Resume sessions: ALL messages come via streamInput (idle prompt)

@@ -36,7 +36,10 @@ export type { SessionMetadata } from './lib/session-metadata-store';
 export { SessionImporterService } from './lib/session-importer.service';
 
 // Session history reader (reads JSONL files for session replay)
-export { SessionHistoryReaderService } from './lib/session-history-reader.service';
+export {
+  SessionHistoryReaderService,
+  MESSAGE_ID_NOT_FOUND_PHRASE,
+} from './lib/session-history-reader.service';
 // Re-exposed for skill-synthesis which injects JsonlReaderService
 // directly to read raw JSONL turns for trajectory extraction.
 export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';
@@ -64,6 +67,12 @@ export {
 export { registerSdkServices } from './lib/di/register';
 export { SDK_TOKENS } from './lib/di/tokens';
 export type { SdkDIToken } from './lib/di/tokens';
+
+// Phase 2: Subagent bidirectional messaging dispatcher
+export {
+  SubagentMessageDispatcher,
+  SUBAGENT_DISPATCHER_TOKEN,
+} from './lib/helpers';
 
 // Compaction callback registry (TASK_2026_HERMES Track 1)
 // Allows additional subscribers (e.g. memory curator) to receive PreCompact events.

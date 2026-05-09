@@ -11,14 +11,16 @@
  *
  * Flow:
  * 1. SubagentStart hook fires -> registry.register() for resumption tracking
- * 2. Subagent text streams inline through the parent SDK message stream
- *    (enabled by `forwardSubagentText: true` in SdkQueryOptionsBuilder).
+ * 2. Subagent visibility flows via `agentProgressSummaries: true` Option in
+ *    SdkQueryOptionsBuilder + task_* system messages (task_started,
+ *    task_progress, task_updated, task_notification) handled by
+ *    SdkMessageTransformer.
  * 3. SubagentStop hook fires -> registry.update() to mark as 'completed'.
  *
  * TASK_2026_109 Fix 2: removed dependency on AgentSessionWatcherService —
- * the JSONL tail-watching path it owned is replaced by inline subagent
- * forwarding in the SDK stream itself. The watcher is now a no-op stub
- * that retains its public API for legacy consumers.
+ * the JSONL tail-watching path it owned is replaced by the SDK's built-in
+ * task_* event stream. The watcher is now a no-op stub that retains its
+ * public API for legacy consumers.
  *
  * @see TASK_2025_099 - Real-Time Subagent Text Streaming via SDK Hooks
  * @see TASK_2025_103 - Subagent Resumption Feature
@@ -222,8 +224,8 @@ export class SubagentHookHandler {
       });
 
       // TASK_2026_109 Fix 2: AgentSessionWatcherService is now a no-op stub —
-      // subagent text streams inline through the parent SDK message stream
-      // via `forwardSubagentText: true` in SdkQueryOptionsBuilder. No file
+      // subagent visibility flows via `agentProgressSummaries: true` Option +
+      // task_* system messages handled by SdkMessageTransformer. No file
       // watching is started here.
 
       // TASK_2025_103: Register subagent with registry for resumption tracking
@@ -309,8 +311,8 @@ export class SubagentHookHandler {
       });
 
       // TASK_2026_109 Fix 2: setToolUseId on the watcher is now a no-op
-      // (watcher is a stub). Subagent text routes through the SDK stream
-      // directly with `forwardSubagentText: true`.
+      // (watcher is a stub). Subagent visibility routes through the SDK's
+      // task_* event stream via `agentProgressSummaries: true` Option.
 
       // FIX: Resolve the registry record using toolUseId first, then agentId fallback.
       // The SDK may provide different toolUseId formats between SubagentStart (UUID)

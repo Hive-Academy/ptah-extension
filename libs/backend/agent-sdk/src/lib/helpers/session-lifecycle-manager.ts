@@ -68,6 +68,12 @@ export interface Query {
   /** Stream input messages to the query */
   streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
   /**
+   * Stop a specific running subagent by its SDK task_id.
+   * The subagent's output is written to its output_file and a
+   * task_notification with status='stopped' is emitted.
+   */
+  stopTask(taskId: string): Promise<void>;
+  /**
    * Rewind tracked files to their state at a specific user message.
    * Requires the session to have been started with `enableFileCheckpointing: true`.
    * Throws if checkpointing is disabled.

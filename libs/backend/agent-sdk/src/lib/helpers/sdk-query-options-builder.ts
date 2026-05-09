@@ -44,7 +44,9 @@ import {
   HookEvent,
   HookCallbackMatcher,
   McpHttpServerConfig,
+  type ModelInfo,
   type SdkBeta,
+  type Options,
 } from '../types/sdk-types/claude-sdk.types';
 import type { SDKUserMessage } from './session-lifecycle-manager';
 import {
@@ -388,7 +390,7 @@ export interface QueryOptionsInput {
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
   /**
-   * The user's initial message text for this turn (TASK_2026_THOTH_MEMORY_READ).
+   * The user's initial message text for this turn.
    * Used to drive a memory recall search so the top-K hits can be prepended to
    * the system prompt. Only used when `isPremium === true` and the string is
    * non-empty. Multi-turn sessions should pass the most recent user message.
@@ -397,94 +399,16 @@ export interface QueryOptionsInput {
 }
 
 /**
- * SDK query options structure
- * Matches the options parameter expected by SDK's query() function
+ * SDK query options structure — directly aliased from the SDK's canonical
+ * `Options` type. Phase 0 fix: the hand-rolled `SdkQueryOptions` interface
+ * masked phantom fields like `forwardSubagentText` that the SDK silently
+ * ignored. Using `Options` directly surfaces compile errors when we attempt
+ * to set properties that do not exist in the SDK.
+ *
+ * Subagent visibility now flows via `agentProgressSummaries: true` Option
+ * + task_* system messages handled by SdkMessageTransformer.
  */
-export interface SdkQueryOptions {
-  abortController: AbortController;
-  cwd: string;
-  model: string;
-  resume?: string;
-  maxTurns?: number;
-  systemPrompt:
-    | string
-    | {
-        type: 'preset';
-        preset: 'claude_code';
-        append?: string;
-      };
-  tools: {
-    type: 'preset';
-    preset: 'claude_code';
-  };
-  /** Tools to exclude from the preset (e.g., server-side tools unsupported by third-party providers) */
-  disallowedTools?: string[];
-  mcpServers: Record<string, McpHttpServerConfig>;
-  permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
-  canUseTool?: CanUseTool;
-  /** Skip permission checks entirely (use with caution — only for trusted auto-approved contexts) */
-  allowDangerouslySkipPermissions?: boolean;
-  includePartialMessages: boolean;
-  settingSources?: Array<'user' | 'project' | 'local'>;
-  env?: Record<string, string | undefined>;
-  stderr?: (data: string) => void;
-  hooks?: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
-  /** SDK compaction control configuration (TASK_2025_098) */
-  compactionControl?: {
-    enabled: boolean;
-    contextTokenThreshold: number;
-  };
-  /** TASK_2025_184: Thinking/reasoning configuration for Claude SDK */
-  thinking?: ThinkingConfig;
-  /** TASK_2025_184: Effort level for Claude's reasoning depth */
-  effort?: EffortLevel;
-  /**
-   * TASK_2025_194: Explicit path to cli.js executable.
-   * Overrides import.meta.url-based resolution in bundled SDK.
-   */
-  pathToClaudeCodeExecutable?: string;
-  /**
-   * Beta features to enable for the SDK query.
-   * The SDK sends these as `anthropic-beta` headers on API requests.
-   * Example: ['context-1m-2025-08-07'] enables 1M token context window.
-   */
-  betas?: SdkBeta[];
-  /**
-   * When true (with `resume`), the SDK creates a NEW session ID seeded from
-   * the resumed transcript instead of continuing the original session.
-   * Mirrors `Options.forkSession` from the Claude Agent SDK.
-   */
-  forkSession?: boolean;
-  /**
-   * When resuming, replay only up to and including this message UUID.
-   * Mirrors `Options.resumeSessionAt` from the Claude Agent SDK.
-   */
-  resumeSessionAt?: string;
-  /**
-   * Enable file checkpointing so `Query.rewindFiles()` can later restore
-   * files to their state at a given user message. Mirrors
-   * `Options.enableFileCheckpointing` from the Claude Agent SDK.
-   */
-  enableFileCheckpointing?: boolean;
-  /**
-   * When true, the SDK forwards subagent text content inline through the
-   * parent stream as it's produced. Mirrors `Options.forwardSubagentText`
-   * from the Claude Agent SDK. Without this, subagent thinking/text is
-   * only observable via JSONL tail-watching of subagent session files.
-   */
-  forwardSubagentText?: boolean;
-  /**
-   * Extra CLI arguments forwarded to the underlying Claude Code CLI binary.
-   * `null` values become bare flags (`--foo`); string values become
-   * `--foo=bar`. Mirrors `Options.extraArgs` from the Claude Agent SDK.
-   *
-   * Used here to enable `--replay-user-messages` whenever file
-   * checkpointing is on — the SDK only emits the `checkpointUuid` field
-   * on user-message stream events when this flag is set, and that UUID is
-   * required for `Query.rewindFiles()` to work.
-   */
-  extraArgs?: Record<string, string | null>;
-}
+export type SdkQueryOptions = Options;
 
 /**
  * Complete query configuration returned by builder
@@ -492,8 +416,8 @@ export interface SdkQueryOptions {
 export interface QueryConfig {
   /** Prompt for SDK: async iterable of user messages */
   prompt: AsyncIterable<SDKUserMessage>;
-  /** SDK query options */
-  options: SdkQueryOptions;
+  /** SDK query options (typed directly as SDK's Options) */
+  options: Options;
 }
 
 /**
@@ -779,14 +703,10 @@ export class SdkQueryOptionsBuilder {
         // Plugins disabled here — skills are loaded via .claude/skills/ junctions
         // created by SkillJunctionService. Passing plugins via SDK option caused
         // duplication in slash command autocomplete.
-        // SDK compaction control (TASK_2025_098)
-        // Only include when enabled to avoid sending unnecessary options
-        compactionControl: compactionConfig.enabled
-          ? {
-              enabled: true,
-              contextTokenThreshold: compactionConfig.contextTokenThreshold,
-            }
-          : undefined,
+        // NOTE: compactionControl was a phantom field not present in the SDK's
+        // Options type. It was silently ignored by the SDK. The compaction
+        // threshold is handled by SDK-internal heuristics; our hook-based
+        // approach (PreCompact hook in CompactionHookHandler) remains intact.
         // TASK_2025_184: Reasoning configuration passthrough
         // undefined values are omitted by SDK, preserving default behavior
         thinking: sessionConfig?.thinking,
@@ -808,10 +728,12 @@ export class SdkQueryOptionsBuilder {
         ...((enableFileCheckpointing ?? true)
           ? { extraArgs: { 'replay-user-messages': null } }
           : {}),
-        // Forward subagent text inline through the parent stream so
-        // consumers can observe subagent activity without tail-watching
-        // JSONL files. Replaces the legacy AgentSessionWatcherService.
-        forwardSubagentText: true,
+        // Request AI-generated progress summaries for subagents. Subagent
+        // visibility now flows via this Option + task_* system messages
+        // (task_started, task_progress, task_updated, task_notification)
+        // handled by SdkMessageTransformer. Set unconditionally — cheap,
+        // prompt-cache-reusing, harmless when no subagents run.
+        agentProgressSummaries: true,
         // Fork-on-resume — only meaningful when resumeSessionId is also set.
         // The SDK creates a brand-new session UUID seeded from the resumed
         // transcript instead of mutating the original session.
@@ -901,22 +823,9 @@ export class SdkQueryOptionsBuilder {
   }
 
   /**
-   * Pre-flight model availability check (cache-only).
+   * Cache-only pre-flight check that the resolved model ID is in the
+   * third-party provider's advertised list. No-op for direct Anthropic connections.
    *
-   * Only runs when models are already cached from a previous getSupportedModels()
-   * call — avoids adding latency or a subprocess spawn on the query hot path.
-   *
-   * Logic:
-   *   - Skip when cache is empty (first query, or cache was cleared). The SDK
-   *     will surface the error naturally if the model is truly unavailable.
-   *   - Tier names ('opus', 'sonnet', 'haiku', 'default') are always valid
-   *     because they are resolved to full IDs before this check is reached.
-   *   - Skip for direct Anthropic connections — the API is authoritative and
-   *     the cached list may lag new model releases.
-   *   - For third-party providers (Moonshot, Z.AI, OpenRouter, Ollama …) the
-   *     cached list reflects what their endpoint advertises; validate against it.
-   *
-   * @param resolvedModel - Full model ID after tier resolution (never a bare tier name)
    * @throws ModelNotAvailableError when the model is absent from the cached list
    */
   private async validateModelAvailability(
@@ -940,7 +849,7 @@ export class SdkQueryOptionsBuilder {
       return;
     }
 
-    let supportedModels: { value: string }[];
+    let supportedModels: ModelInfo[];
     try {
       supportedModels = await this.modelService.getSupportedModels();
     } catch {
@@ -1009,21 +918,11 @@ export class SdkQueryOptionsBuilder {
   }
 
   /**
-   * Build system prompt configuration
+   * Build system prompt configuration.
    *
-   * Always uses SDK's `claude_code` preset as base (provides MCP handling, tool routing,
-   * environment context). For premium users, appends PTAH_CORE_SYSTEM_PROMPT with
-   * Ptah-specific MCP mandates, orchestration, and formatting rules. Enhanced prompts
-   * (project-specific guidance) are also appended when available.
-   * Memory recall block injected for premium users with a non-empty initialUserQuery.
-   *
-   * @param sessionConfig - Session configuration with optional custom system prompt and preset selection
-   * @param isPremium - Whether user has premium features enabled
-   * @param enhancedPromptsContent - Optional AI-generated guidance from EnhancedPromptsService
-   * @param mcpServerRunning - Whether MCP server is running
-   * @param initialUserQuery - First user message text for memory recall (TASK_2026_THOTH_MEMORY_READ)
-   * @param cwd - Workspace root for workspace-scoped memory recall
-   * @returns System prompt configuration for SDK (always preset+append)
+   * Always uses the SDK's `claude_code` preset as base. For premium users,
+   * appends PTAH_CORE_SYSTEM_PROMPT, optional enhanced prompts content, and
+   * a memory recall block derived from the first user message.
    */
   private async buildSystemPrompt(
     sessionConfig?: AISessionConfig,
@@ -1051,7 +950,7 @@ export class SdkQueryOptionsBuilder {
       preset: sessionConfig?.preset,
     });
 
-    // Memory recall — premium only, requires user query (TASK_2026_THOTH_MEMORY_READ)
+    // Memory recall — premium only, requires user query.
     let memoryBlock = '';
     if (isPremium && initialUserQuery?.trim()) {
       memoryBlock = await this.memoryPromptInjector.buildBlock(
@@ -1089,25 +988,17 @@ export class SdkQueryOptionsBuilder {
   }
 
   /**
-   * Build MCP servers configuration
+   * Build MCP servers configuration.
    *
-   * For premium users, enables the Ptah HTTP MCP server which provides
-   * execute_code tool with 11 Ptah API namespaces.
-   * For free tier, returns empty object (no MCP servers).
-   *
-   * TASK_2025_108: Added mcpServerRunning check to prevent configuring
-   * Claude with a dead MCP endpoint when the server isn't running.
-   *
-   * @param isPremium - Whether user has premium features enabled
-   * @param mcpServerRunning - Whether the MCP server is currently running
-   * @returns MCP servers configuration for SDK
+   * For premium users, enables the Ptah HTTP MCP server (execute_code + 11 namespaces).
+   * Returns an empty object for free-tier users or when the server is not running.
    */
   private buildMcpServers(
     isPremium: boolean,
     mcpServerRunning = true,
     sessionId?: string,
   ): Record<string, McpHttpServerConfig> {
-    // Free tier - disable MCP servers (TASK_2025_108)
+    // Free tier - disable MCP servers
     if (!isPremium) {
       this.logger.info(
         '[SdkQueryOptionsBuilder] MCP servers disabled (not premium)',
@@ -1116,8 +1007,6 @@ export class SdkQueryOptionsBuilder {
       return {};
     }
 
-    // TASK_2025_108: Check if MCP server is running before configuring
-    // This prevents configuring Claude with a dead endpoint
     if (!mcpServerRunning) {
       this.logger.info(
         '[SdkQueryOptionsBuilder] MCP servers disabled (server not running)',
@@ -1192,20 +1081,7 @@ export class SdkQueryOptionsBuilder {
     return 200;
   }
 
-  /**
-   * Create merged lifecycle hooks (subagent + compaction + worktree)
-   *
-   * TASK_2025_098: Now creates both subagent hooks and compaction hooks,
-   * merging them into a single hooks object for SDK query options.
-   * TASK_2025_236: Added worktree hooks for WorktreeCreate/WorktreeRemove events.
-   *
-   * @param cwd - Working directory for subagent hooks
-   * @param sessionId - Session ID for compaction hooks (optional)
-   * @param onCompactionStart - Callback for compaction start (optional)
-   * @param onWorktreeCreated - Callback for worktree creation (optional, TASK_2025_236)
-   * @param onWorktreeRemoved - Callback for worktree removal (optional, TASK_2025_236)
-   * @returns Merged hooks configuration for SDK query options
-   */
+  /** Create merged lifecycle hooks (subagent + compaction + worktree) for SDK query options. */
   private createHooks(
     cwd: string,
     sessionId?: string,
@@ -1213,20 +1089,18 @@ export class SdkQueryOptionsBuilder {
     onWorktreeCreated?: WorktreeCreatedCallback,
     onWorktreeRemoved?: WorktreeRemovedCallback,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    // Create subagent hooks (existing functionality)
-    // TASK_2025_186: Pass sessionId as parentSessionId so SubagentStart hook
-    // registers subagents in the registry. Without this, markAllInterrupted()
-    // and markParentSubagentsAsCliAgent() cannot find subagent records.
+    // Pass sessionId so SubagentStart hook registers subagents in the registry.
+    // Without this, markAllInterrupted() and markParentSubagentsAsCliAgent() cannot
+    // find subagent records.
     const subagentHooks = this.subagentHookHandler.createHooks(cwd, sessionId);
 
-    // Create compaction hooks if sessionId is provided (TASK_2025_098)
-    // Even without sessionId, we create hooks with empty string - SDK will provide session_id in hook input
+    // Even without sessionId, create hooks with empty string — SDK provides session_id
+    // in hook input.
     const compactionHooks = this.compactionHookHandler.createHooks(
       sessionId ?? '',
       onCompactionStart,
     );
 
-    // Create worktree hooks (TASK_2025_236)
     const worktreeHooks = this.worktreeHookHandler.createHooks(
       onWorktreeCreated,
       onWorktreeRemoved,

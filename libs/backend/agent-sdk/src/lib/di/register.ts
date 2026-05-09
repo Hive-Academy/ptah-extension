@@ -36,6 +36,7 @@ import {
   StreamTransformer,
   AttachmentProcessorService,
   SubagentHookHandler,
+  SubagentMessageDispatcher,
   SdkMessageFactory,
   SdkQueryOptionsBuilder,
   SdkModuleLoader,
@@ -256,10 +257,19 @@ export function registerSdkServices(
 
   // Subagent hook handler - depends on Logger, SubagentRegistryService.
   // TASK_2026_109 Fix 2: AgentSessionWatcherService dep removed — subagent
-  // text now streams inline via `forwardSubagentText: true`.
+  // visibility now flows via `agentProgressSummaries: true` Option + task_*
+  // system messages handled by SdkMessageTransformer.
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER,
     { useClass: SubagentHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // SubagentMessageDispatcher — Phase 2 bidirectional messaging + stop/interrupt.
+  // Depends on Logger, SessionLifecycleManager, SubagentRegistryService.
+  container.register(
+    SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
+    { useClass: SubagentMessageDispatcher },
     { lifecycle: Lifecycle.Singleton },
   );
 
