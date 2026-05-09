@@ -17,55 +17,31 @@ import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SkillCandidateStore } from './skill-candidate.store';
 import { SkillMdGenerator } from './skill-md-generator';
+import { SkillClusterDedupService } from './skill-cluster-dedup.service';
+import { SkillJudgeService } from './skill-judge.service';
+import {
+  SKILL_SYNTHESIS_TOKENS,
+  INTERNAL_QUERY_SERVICE_TOKEN,
+} from './di/tokens';
+import type { IInternalQuery } from './internal-query.interface';
 import type {
   CandidateId,
   SkillCandidateRow,
   SkillSynthesisSettings,
 } from './types';
+import { JUDGE_DEFAULT_MODEL_ID } from './types';
 
 /**
- * Cross-library token for InternalQueryService.
- * Matches SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE = Symbol.for('SdkInternalQueryService').
- * Defined locally to avoid importing from @ptah-extension/agent-sdk (circular-dep risk).
+ * Default model for the SKILL.md polish LLM call — single source of truth
+ * from types.ts; mirrors `TIER_TO_MODEL_ID.haiku` in agent-sdk.
  */
-const INTERNAL_QUERY_SERVICE_TOKEN = Symbol.for('SdkInternalQueryService');
-
-/**
- * Mirrors `TIER_TO_MODEL_ID.haiku` from `@ptah-extension/agent-sdk`. Inlined
- * here for the same circular-dep reason as the IInternalQuery shape above —
- * keep this value in sync with `helpers/sdk-model-service.ts:TIER_TO_MODEL_ID`.
- */
-const POLISH_MODEL_ID = 'claude-haiku-4-5-20251001';
+const POLISH_MODEL_ID = JUDGE_DEFAULT_MODEL_ID;
 
 /** Hard cap on a single polish LLM call — protects the synchronous promote RPC from a hung provider. */
 const POLISH_TIMEOUT_MS = 30_000;
 
 /** Lower bound on accepted polish output length — under this we discard and keep the raw body. */
 const POLISH_MIN_LENGTH = 50;
-
-/**
- * Minimal interface for one-shot text generation via InternalQueryService.
- * We only need the `execute()` method surface used for polish queries.
- */
-interface IInternalQuery {
-  execute(config: {
-    cwd: string;
-    model: string;
-    prompt: string;
-    systemPromptAppend?: string;
-    isPremium: boolean;
-    mcpServerRunning: boolean;
-    maxTurns: number;
-    abortController?: AbortController;
-  }): Promise<{
-    stream: AsyncIterable<{
-      type: string;
-      message?: { content?: Array<{ type: string; text?: string }> };
-    }>;
-    abort(): void;
-    close(): void;
-  }>;
-}
 
 export interface PromotionDecision {
   promoted: boolean;
@@ -76,9 +52,10 @@ export interface PromotionDecision {
     | 'cap-rejected'
     | 'already-promoted'
     | 'already-rejected'
-    | 'not-found';
+    | 'not-found'
+    | 'below-judge-score';
   candidate: SkillCandidateRow | null;
-  /** Filled when promotion evicted another skill via LRU. */
+  /** Filled when promotion evicted another skill via decay-cap. */
   evictedSkillId?: CandidateId;
   /** Cosine similarity of the closest active match (if dedup ran). */
   closestMatchSimilarity?: number;
@@ -96,6 +73,12 @@ export class SkillPromotionService {
     private readonly mdGenerator: SkillMdGenerator,
     @inject(INTERNAL_QUERY_SERVICE_TOKEN, { isOptional: true })
     private readonly internalQuery: IInternalQuery | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CLUSTER_DEDUP_SERVICE, {
+      isOptional: true,
+    })
+    private readonly clusterDedup: SkillClusterDedupService | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_JUDGE_SERVICE, { isOptional: true })
+    private readonly judge: SkillJudgeService | null,
   ) {}
 
   /**
@@ -121,9 +104,6 @@ export class SkillPromotionService {
     if (candidate.status === 'rejected') {
       return { promoted: false, reason: 'already-rejected', candidate };
     }
-    if (candidate.successCount < settings.successesToPromote) {
-      return { promoted: false, reason: 'below-threshold', candidate };
-    }
 
     const dedupResult = this.checkDuplicate(
       candidate,
@@ -141,19 +121,69 @@ export class SkillPromotionService {
       };
     }
 
+    // Check cross-context generalization — if candidate has been seen in enough
+    // distinct contexts, use a halved promotion threshold (it's already proven
+    // useful across different workspaces).
+    const distinctContexts = this.store.countDistinctContexts(candidate.id);
+    const effectiveSuccessThreshold =
+      distinctContexts >= settings.generalizationContextThreshold
+        ? Math.ceil(settings.successesToPromote / 2)
+        : settings.successesToPromote;
+    if (candidate.successCount < effectiveSuccessThreshold) {
+      return { promoted: false, reason: 'below-threshold', candidate };
+    }
+
+    // Signal 4: Cluster-centroid dedup (after pairwise dedup check).
+    if (this.clusterDedup && candidate.embeddingRowid !== null) {
+      const probe = this.store.getEmbedding(candidate.embeddingRowid);
+      if (probe && this.clusterDedup.isDuplicate(probe, settings)) {
+        const updated = this.store.updateStatus(candidate.id, 'rejected', {
+          reason: 'cluster-duplicate',
+        });
+        return { promoted: false, reason: 'duplicate', candidate: updated };
+      }
+    }
+
+    // Signal 5: LLM-as-judge gate (runs before materialization).
+    if (this.judge) {
+      const body = this.readCandidateBody(candidate);
+      const judgeDecision = await this.judge.judge(candidate, body, settings);
+      if (!judgeDecision.passed) {
+        this.logger.info('[skill-synthesis] judge rejected candidate', {
+          candidateId: candidate.id,
+          score: judgeDecision.score,
+          minScore: settings.minJudgeScore,
+        });
+        // Persist the rejection so the status is durable (mirrors cluster-duplicate path).
+        const rejected = this.store.updateStatus(candidate.id, 'rejected', {
+          reason: 'below-judge-score',
+        });
+        return {
+          promoted: false,
+          reason: 'below-judge-score',
+          candidate: rejected,
+        };
+      }
+    }
+
     let evictedSkillId: CandidateId | undefined;
-    const active = this.store.listActiveOrderedByActivity(nowFn());
-    if (active.length >= settings.maxActiveSkills) {
-      // The activity-ordered list is most-active-first; the tail is LRU.
-      const lru = active[active.length - 1];
-      this.store.updateStatus(lru.id, 'rejected', {
-        reason: 'lru-cap-eviction',
+    // Decay-based eviction: only count unpinned promoted skills against the cap.
+    // Pinned skills are exempt from both eviction and the cap count.
+    const activeUnpinned = this.store.listActiveOrderedByDecayScore(
+      nowFn(),
+      settings.evictionDecayRate,
+    );
+    if (activeUnpinned.length >= settings.maxActiveSkills) {
+      // Ascending decay score — first element has lowest score (least valuable).
+      const weakest = activeUnpinned[0];
+      this.store.updateStatus(weakest.id, 'rejected', {
+        reason: 'decay-cap-eviction',
       });
-      evictedSkillId = lru.id;
-      this.logger.info('[skill-synthesis] LRU cap eviction', {
-        evicted: lru.id,
-        evictedName: lru.name,
-        activeCount: active.length,
+      evictedSkillId = weakest.id;
+      this.logger.info('[skill-synthesis] decay cap eviction', {
+        evicted: weakest.id,
+        evictedName: weakest.name,
+        activeCount: activeUnpinned.length,
         cap: settings.maxActiveSkills,
       });
     }
@@ -191,6 +221,10 @@ export class SkillPromotionService {
       promotedAt: nowFn(),
       bodyPath,
     });
+
+    // Invalidate cluster cache so next promotion sees fresh clusters.
+    this.clusterDedup?.invalidate();
+
     return {
       promoted: true,
       reason: 'promoted',

@@ -19,6 +19,7 @@
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { Migration } from './migrations';
 import type { SqliteDatabase } from './sqlite-connection.service';
+import type { IBackupService } from './backup.service';
 
 /** Result of an `applyAll` run — useful for telemetry. */
 export interface MigrationRunResult {
@@ -31,9 +32,17 @@ export interface MigrationRunResult {
 }
 
 export class SqliteMigrationRunner {
+  private _lastAppliedVersion = 0;
+
+  /** Returns the last migration version applied during this session, or 0 if none. */
+  get lastAppliedVersion(): number {
+    return this._lastAppliedVersion;
+  }
+
   constructor(
     private readonly db: SqliteDatabase,
     private readonly logger: Logger,
+    private readonly backupService?: IBackupService,
   ) {}
 
   /**
@@ -50,10 +59,10 @@ export class SqliteMigrationRunner {
    * @throws Error if the DB reports a version higher than the bundled max
    *         (forward-only invariant per architecture §8.5).
    */
-  applyAll(
+  async applyAll(
     migrations: readonly Migration[],
     options: { vecExtensionLoaded?: boolean } = {},
-  ): MigrationRunResult {
+  ): Promise<MigrationRunResult> {
     const vecLoaded = options.vecExtensionLoaded !== false; // default true for backward compat
     if (migrations.length === 0) {
       return { appliedVersions: [], skippedVersions: [], finalVersion: 0 };
@@ -70,6 +79,31 @@ export class SqliteMigrationRunner {
           `but this build only bundles up to ${bundledMaxVersion}. Refusing to downgrade. ` +
           `Upgrade the application or restore an older database file.`,
       );
+    }
+
+    const pending = sorted.filter((m) => !applied.has(m.version));
+
+    // D2: Take a pre-migration backup before applying any pending migrations.
+    // Non-fatal — backup failure must not abort the migration run.
+    // D2 review fix: rotate() is guarded behind a successful backup.
+    // Rotating old backups when no new backup was written would silently shrink
+    // the archive on every boot with pending migrations but unavailable backup.
+    if (pending.length > 0 && this.backupService) {
+      let backupDest: string | null = null;
+      try {
+        backupDest = await this.backupService.backup(this.db, 'pre-migration');
+      } catch (err: unknown) {
+        this.logger.warn(
+          '[persistence-sqlite] pre-migration backup failed (non-fatal)',
+          { error: err instanceof Error ? err.message : String(err) },
+        );
+      }
+      // Only rotate when a new backup was successfully written. If backup
+      // returned null (db.backup unavailable / threw), rotating would delete
+      // old backups without a replacement in the archive.
+      if (backupDest !== null) {
+        this.backupService.rotate('pre-migration', 3);
+      }
     }
 
     const appliedNow: number[] = [];
@@ -92,6 +126,7 @@ export class SqliteMigrationRunner {
     }
 
     const finalVersion = Math.max(dbMaxVersion, ...appliedNow, 0);
+    this._lastAppliedVersion = finalVersion;
     if (appliedNow.length > 0) {
       this.logger.info('[persistence-sqlite] migrations applied', {
         appliedVersions: appliedNow,
@@ -121,22 +156,82 @@ export class SqliteMigrationRunner {
   }
 
   /**
-   * Apply a single migration inside an IMMEDIATE transaction, recording the
-   * bookkeeping row only if the SQL succeeds. The 0001 migration also creates
-   * the bookkeeping table — handled by `ensureBookkeepingTable` running
-   * first.
+   * Apply a single migration. Branches on whether the migration declares `run`
+   * or `sql`:
+   *
+   * - `sql` path (standard): executes inside a single `BEGIN IMMEDIATE`
+   *   transaction that also records bookkeeping and bumps `user_version`.
+   * - `run` path (VACUUM-safe): calls `migration.run(db)` OUTSIDE any
+   *   transaction, then records bookkeeping in a separate post-run transaction.
+   *   If `run()` throws, the bookkeeping transaction is NOT attempted.
+   *
+   * A migration providing both `sql` and `run` is a configuration error — this
+   * method throws immediately so the misconfiguration surfaces at apply-time.
+   *
+   * D3: `PRAGMA user_version = N` is written inside the bookkeeping transaction
+   * so it rolls back atomically with the INSERT if something goes wrong.
    */
   private applyOne(migration: Migration): void {
+    const hasSql = migration.sql !== undefined;
+    const hasRun = migration.run !== undefined;
+
+    if (hasSql && hasRun) {
+      throw new Error(
+        `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) ` +
+          'defines both sql and run — a migration must provide exactly one.',
+      );
+    }
+
+    if (hasRun && migration.run !== undefined) {
+      const runFn = migration.run;
+      // run() path — executes OUTSIDE a transaction.
+      try {
+        runFn(this.db);
+      } catch (err: unknown) {
+        throw new Error(
+          `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) run() failed: ` +
+            stringifyError(err),
+        );
+      }
+      // Post-run bookkeeping in its own transaction — only reached if run() succeeded.
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        this.db
+          .prepare(
+            'INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)',
+          )
+          .run(migration.version, Date.now());
+        this.db.exec(`PRAGMA user_version = ${migration.version}`);
+        this.db.exec('COMMIT');
+      } catch (err: unknown) {
+        try {
+          this.db.exec('ROLLBACK');
+        } catch {
+          /* ignore — original error is what matters */
+        }
+        throw new Error(
+          `SqliteMigrationRunner: migration ${migration.version} (${migration.name}) bookkeeping failed: ` +
+            stringifyError(err),
+        );
+      }
+      return;
+    }
+
+    // sql path (standard) — everything in one IMMEDIATE transaction.
+    const sql = migration.sql ?? '';
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.db.exec(migration.sql);
+      this.db.exec(sql);
       this.db
         .prepare(
           'INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)',
         )
         .run(migration.version, Date.now());
+      // D3: persist the schema fingerprint inside this transaction so
+      // user_version stays consistent with schema_migrations on rollback.
+      this.db.exec(`PRAGMA user_version = ${migration.version}`);
       this.db.exec('COMMIT');
-    } catch (err) {
+    } catch (err: unknown) {
       try {
         this.db.exec('ROLLBACK');
       } catch {

@@ -62,7 +62,7 @@ export const SDK_TOKENS = {
   SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
 
   /**
-   * Session end callback registry (TASK_2026_THOTH_SKILL_LIFECYCLE).
+   * Session end callback registry.
    * Fan-out registry for session-end subscribers (e.g. skill synthesis).
    * Fired by SessionControl.endSession() after session is fully removed.
    */
@@ -70,7 +70,7 @@ export const SDK_TOKENS = {
     'SdkSessionEndCallbackRegistry',
   ),
 
-  // Worktree hook handler (TASK_2025_236)
+  // Worktree hook handler
   SDK_WORKTREE_HOOK_HANDLER: Symbol.for('SdkWorktreeHookHandler'),
 
   // Provider models service (TASK_2025_091 Phase 2, generalized TASK_2025_132)
@@ -166,7 +166,6 @@ export const SDK_TOKENS = {
    * injection at session start. Registered as a singleton; depends on TOKENS.MEMORY_READER
    * (cross-layer alias resolved by memory-curator DI registration, with a no-op fallback
    * registered here for hosts where memory-curator is not loaded).
-   * TASK_2026_THOTH_MEMORY_READ
    */
   SDK_MEMORY_PROMPT_INJECTOR: Symbol.for('SdkMemoryPromptInjector'),
 
@@ -176,6 +175,12 @@ export const SDK_TOKENS = {
    * MEMORY_CONTRACT_TOKENS.CURATOR_LLM so memory-curator resolves the same registration.
    */
   SDK_CURATOR_LLM_ADAPTER: Symbol.for('PtahCuratorLlm'),
+
+  /**
+   * SubagentMessageDispatcher — bidirectional messaging + stop/interrupt for
+   * running subagents. Phase 2 addition.
+   */
+  SDK_SUBAGENT_MESSAGE_DISPATCHER: Symbol.for('SubagentMessageDispatcher'),
 } as const;
 
 /**

@@ -42,6 +42,15 @@ import type {
   AgentSessionData,
 } from './helpers/history/history.types';
 
+/**
+ * Phrase used in the SdkError thrown by resolveNativeMessageId() when
+ * upToMessageId cannot be matched in the JSONL transcript. Referenced at the
+ * throw site and in the session-rpc fork-session catch block so both stay in
+ * sync if the message ever changes.
+ */
+export const MESSAGE_ID_NOT_FOUND_PHRASE =
+  'not found in session history' as const;
+
 // ============================================================================
 // SERVICE
 // ============================================================================
@@ -361,7 +370,7 @@ export class SessionHistoryReaderService {
     const matchIndex = messages.findIndex((m) => m.uuid === upToMessageId);
     if (matchIndex === -1) {
       throw new SdkError(
-        `upToMessageId '${upToMessageId}' not found in session history for session '${sessionId}'. ` +
+        `upToMessageId '${upToMessageId}' ${MESSAGE_ID_NOT_FOUND_PHRASE} for session '${sessionId}'. ` +
           'The message may belong to a different session or the history may have been compacted.',
       );
     }

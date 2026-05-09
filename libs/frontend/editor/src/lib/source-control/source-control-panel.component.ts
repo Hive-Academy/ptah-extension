@@ -18,6 +18,7 @@ import {
 import type { GitFileStatus } from '@ptah-extension/shared';
 import { SourceControlService } from '../services/source-control.service';
 import { SourceControlFileComponent } from './source-control-file.component';
+import { WorktreeSectionComponent } from '../worktree/worktree-section.component';
 
 /**
  * SourceControlPanelComponent - Main source control panel with commit UI and file groups.
@@ -38,7 +39,12 @@ import { SourceControlFileComponent } from './source-control-file.component';
 @Component({
   selector: 'ptah-source-control-panel',
   standalone: true,
-  imports: [FormsModule, LucideAngularModule, SourceControlFileComponent],
+  imports: [
+    FormsModule,
+    LucideAngularModule,
+    SourceControlFileComponent,
+    WorktreeSectionComponent,
+  ],
   template: `
     <div
       class="flex flex-col h-full overflow-y-auto scrollbar-thin"
@@ -164,6 +170,9 @@ import { SourceControlFileComponent } from './source-control-file.component';
           </div>
         }
       </div>
+
+      <!-- Worktrees section (collapsible, below Changes) -->
+      <ptah-worktree-section />
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -26,6 +26,18 @@ const SETTINGS: SkillSynthesisSettings = {
   dedupCosineThreshold: 0.85,
   maxActiveSkills: 50,
   candidatesDir: '',
+  eligibilityMinTurns: 5,
+  evictionDecayRate: 0.95,
+  generalizationContextThreshold: 3,
+  minTrajectoryFidelityRatio: 0.4,
+  dedupClusterThreshold: 0.78,
+  minAbstractionEditDistance: 0.3,
+  judgeEnabled: false,
+  minJudgeScore: 6.0,
+  judgeModel: 'inherit',
+  maxPinnedSkills: 10,
+  curatorEnabled: false,
+  curatorIntervalHours: 24,
 };
 
 function row(overrides: Partial<SkillCandidateRow> = {}): SkillCandidateRow {
@@ -44,6 +56,7 @@ function row(overrides: Partial<SkillCandidateRow> = {}): SkillCandidateRow {
     promotedAt: null,
     rejectedAt: null,
     rejectedReason: null,
+    pinned: false,
     ...overrides,
   };
 }

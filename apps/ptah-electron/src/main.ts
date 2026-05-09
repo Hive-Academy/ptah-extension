@@ -68,6 +68,7 @@ if (!gotLock) {
         mainWindow = w;
       },
       getMainWindow: () => mainWindow,
+      scheduleWarmup: wired.scheduleWarmup,
     });
     revalidationInterval = post.revalidationInterval;
     messagingGateway = post.messagingGateway;

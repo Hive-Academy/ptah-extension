@@ -106,6 +106,7 @@ export type {
   SDKTaskNotificationMessage,
   SDKTaskProgressMessage,
   SDKTaskStartedMessage,
+  SDKTaskUpdatedMessage,
   SDKToolProgressMessage,
   SDKToolUseSummaryMessage,
   SDKUserMessage,
@@ -138,12 +139,12 @@ export type {
   WorktreeRemoveHookInput,
 } from '@anthropic-ai/claude-agent-sdk' with { 'resolution-mode': 'import' };
 
-// SDK renamed these — re-export under both old and new names for compatibility
+// Re-export the canonical SDK result type names.
+// The legacy aliases SDKResultMessageSuccess / SDKResultMessageError have been
+// removed in Phase 0 — all consumers must use SDKResultSuccess / SDKResultError.
 export type {
   SDKResultSuccess,
   SDKResultError,
-  SDKResultSuccess as SDKResultMessageSuccess,
-  SDKResultError as SDKResultMessageError,
 } from '@anthropic-ai/claude-agent-sdk' with { 'resolution-mode': 'import' };
 
 // Internal imports for type guard parameter types
@@ -167,6 +168,8 @@ import type {
   SDKAPIRetryMessage,
   SDKTaskStartedMessage,
   SDKTaskProgressMessage,
+  SDKTaskUpdatedMessage,
+  SDKTaskNotificationMessage,
   HookInput,
   SubagentStartHookInput,
   SubagentStopHookInput,
@@ -429,6 +432,22 @@ export function isTaskStarted(msg: SDKMessage): msg is SDKTaskStartedMessage {
 export function isTaskProgress(msg: SDKMessage): msg is SDKTaskProgressMessage {
   return (
     msg.type === 'system' && 'subtype' in msg && msg.subtype === 'task_progress'
+  );
+}
+
+export function isTaskUpdated(msg: SDKMessage): msg is SDKTaskUpdatedMessage {
+  return (
+    msg.type === 'system' && 'subtype' in msg && msg.subtype === 'task_updated'
+  );
+}
+
+export function isTaskNotification(
+  msg: SDKMessage,
+): msg is SDKTaskNotificationMessage {
+  return (
+    msg.type === 'system' &&
+    'subtype' in msg &&
+    msg.subtype === 'task_notification'
   );
 }
 

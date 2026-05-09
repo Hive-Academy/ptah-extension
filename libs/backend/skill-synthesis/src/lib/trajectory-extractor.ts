@@ -32,8 +32,10 @@ export interface ExtractedTrajectory {
   hash: string;
   /** Canonical text snapshot used for embedding/synthesis prompts. */
   canonicalText: string;
-  /** Total number of user+assistant turns considered. */
+  /** Number of qualifying user+assistant turns used in the trajectory. */
   turnCount: number;
+  /** Total number of turns in the raw session (before filtering). */
+  sessionTurnCount: number;
   /** A short auto-generated description (first user turn, sliced). */
   shortDescription: string;
   /** A slug-friendly name derived from the description. */
@@ -52,10 +54,16 @@ export class TrajectoryExtractor {
    * Read the JSONL for a session and return an extracted trajectory if the
    * eligibility rules are met. Returns null when the session is too short
    * or lacks a success marker.
+   *
+   * @param sessionId      Session to analyze.
+   * @param workspaceRoot  Used to locate the JSONL file and normalize paths.
+   * @param minTurns       Minimum qualifying turns required. Defaults to
+   *                       {@link MIN_TURNS_FOR_TRAJECTORY} when not supplied.
    */
   async extract(
     sessionId: string,
     workspaceRoot: string,
+    minTurns: number = MIN_TURNS_FOR_TRAJECTORY,
   ): Promise<ExtractedTrajectory | null> {
     const sessionsDir =
       await this.jsonlReader.findSessionsDirectory(workspaceRoot);
@@ -78,16 +86,19 @@ export class TrajectoryExtractor {
       return null;
     }
 
+    // Count total raw turns (sessionTurnCount) before filtering for trajectory.
+    let sessionTurnCount = 0;
     const turns: Array<{ role: 'user' | 'assistant'; text: string }> = [];
     for (const m of messages) {
       const role = this.roleOf(m);
+      if (role) sessionTurnCount++;
       if (!role) continue;
       const text = this.textOf(m);
       if (!text) continue;
       turns.push({ role, text });
     }
 
-    if (turns.length < MIN_TURNS_FOR_TRAJECTORY) {
+    if (turns.length < minTurns) {
       return null;
     }
     if (!this.hasSuccessMarker(turns)) {
@@ -107,6 +118,7 @@ export class TrajectoryExtractor {
       hash,
       canonicalText: normalized,
       turnCount: turns.length,
+      sessionTurnCount: sessionTurnCount > 0 ? sessionTurnCount : turns.length,
       shortDescription: shortDescription || 'Captured workflow',
       slug: slug || `skill-${hash.slice(0, 8)}`,
     };

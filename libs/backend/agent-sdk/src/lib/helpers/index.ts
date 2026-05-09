@@ -32,6 +32,10 @@ export {
 export * from './attachment-processor.service';
 export { SubagentHookHandler } from './subagent-hook-handler';
 export {
+  SubagentMessageDispatcher,
+  SUBAGENT_DISPATCHER_TOKEN,
+} from './subagent-message-dispatcher';
+export {
   CompactionConfigProvider,
   type CompactionConfig,
 } from './compaction-config-provider';

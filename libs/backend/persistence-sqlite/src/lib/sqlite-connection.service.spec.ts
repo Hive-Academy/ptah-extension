@@ -156,6 +156,375 @@ describe('SqliteConnectionService', () => {
 
     expect(fs.existsSync(path.dirname(nested))).toBe(true);
   });
+
+  // --- D4: busy_timeout pragma ---
+
+  it('D4: applies busy_timeout = 5000 pragma on open', async () => {
+    const fake = new FakeSqliteDatabase();
+    const service = new SqliteConnectionService(':memory:', createMockLogger());
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await service.openAndMigrate();
+
+    expect(fake.pragmas).toContain('busy_timeout = 5000');
+  });
+
+  // --- D1: WAL checkpoint on close ---
+
+  it('D1: wal_checkpoint(TRUNCATE) is called before close()', async () => {
+    const fake = new FakeSqliteDatabase();
+    const service = new SqliteConnectionService(':memory:', createMockLogger());
+    service.configure({ factory: () => fake, vecPathResolver: null });
+    await service.openAndMigrate();
+
+    service.close();
+
+    expect(fake.walCheckpointCalls).toHaveLength(1);
+    expect(fake.walCheckpointCalls[0]).toBe('wal_checkpoint(TRUNCATE)');
+  });
+
+  it('D1: WAL checkpoint failure is non-fatal — close() still completes', async () => {
+    const fake = new FakeSqliteDatabase();
+    // Override pragma to throw on WAL checkpoint only.
+    const originalPragma = fake.pragma.bind(fake);
+    (fake as unknown as Record<string, unknown>)['pragma'] = (
+      p: string,
+      opts?: { simple?: boolean },
+    ) => {
+      if (/wal_checkpoint/i.test(p)) {
+        throw new Error('WAL checkpoint error (fake)');
+      }
+      return originalPragma(p, opts);
+    };
+
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+    await service.openAndMigrate();
+
+    expect(() => service.close()).not.toThrow();
+    expect(service.isOpen).toBe(false);
+    expect(
+      logger.entries.some(
+        (e) => e.level === 'warn' && /WAL checkpoint failed/.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  // --- D3: quick_check + boot continues ---
+
+  it('D3: quick_check pass logs info and boot continues normally', async () => {
+    const fake = new FakeSqliteDatabase(); // default: quick_check returns 'ok'
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await service.openAndMigrate();
+
+    expect(service.isOpen).toBe(true);
+    expect(
+      logger.entries.some(
+        (e) => e.level === 'info' && /quick_check passed/.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  it('D3: quick_check failure logs error but boot continues and db is accessible', async () => {
+    const fake = new FakeSqliteDatabase();
+    fake.setQuickCheckResult('row 42 missing from index');
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await service.openAndMigrate();
+
+    // Connection must still be open — quick_check failure is non-fatal.
+    expect(service.isOpen).toBe(true);
+    expect(() => service.db).not.toThrow();
+    expect(
+      logger.entries.some(
+        (e) => e.level === 'error' && /quick_check FAILED/.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  // --- D6: logConnectionHealth ---
+
+  it('D6: logConnectionHealth emits one info log with required health fields', async () => {
+    const fake = new FakeSqliteDatabase();
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await service.openAndMigrate();
+
+    const healthLogs = logger.entries.filter(
+      (e) => e.level === 'info' && /connection health/.test(e.message),
+    );
+    expect(healthLogs).toHaveLength(1);
+    const ctx = healthLogs[0].context as Record<string, unknown>;
+    expect(typeof ctx['dbSizeMb']).toBe('number');
+    expect(typeof ctx['pageCount']).toBe('number');
+    expect(typeof ctx['pageSize']).toBe('number');
+    expect(typeof ctx['freelistCount']).toBe('number');
+    expect(typeof ctx['journalMode']).toBe('string');
+    expect(typeof ctx['vecExtensionLoaded']).toBe('boolean');
+  });
+
+  it('D6: logConnectionHealth failure is non-fatal — boot continues', async () => {
+    const fake = new FakeSqliteDatabase();
+    // Make every pragma call throw to trigger logConnectionHealth failure.
+    let pragmaCallCount = 0;
+    const originalPragma = fake.pragma.bind(fake);
+    (fake as unknown as Record<string, unknown>)['pragma'] = (
+      p: string,
+      opts?: { simple?: boolean },
+    ) => {
+      // Only throw for the health-check simple pragmas to avoid breaking applyPragmas.
+      if (opts?.simple) {
+        pragmaCallCount += 1;
+        if (pragmaCallCount === 1) {
+          throw new Error('pragma failed (fake health error)');
+        }
+      }
+      return originalPragma(p, opts);
+    };
+
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await expect(service.openAndMigrate()).resolves.not.toThrow();
+    expect(service.isOpen).toBe(true);
+    expect(
+      logger.entries.some(
+        (e) =>
+          e.level === 'warn' && /logConnectionHealth failed/.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  // --- D5: classifyOpenFailure ENOSPC / EPERM ---
+
+  it('D5: classifyOpenFailure sets open_failed + disk-full detail on ENOSPC', async () => {
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({
+      factory: () => {
+        throw new Error('ENOSPC: no space left on device');
+      },
+      vecPathResolver: null,
+    });
+
+    await expect(service.openAndMigrate()).rejects.toThrow();
+
+    expect(service.unavailable?.reason).toBe('open_failed');
+    expect(service.unavailable?.detail).toMatch(/Disk is full/);
+  });
+
+  it('D5: classifyOpenFailure sets open_failed + disk-full detail on SQLITE_FULL', async () => {
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({
+      factory: () => {
+        throw new Error('SQLITE_FULL: database or disk is full');
+      },
+      vecPathResolver: null,
+    });
+
+    await expect(service.openAndMigrate()).rejects.toThrow();
+
+    expect(service.unavailable?.reason).toBe('open_failed');
+    expect(service.unavailable?.detail).toMatch(/Disk is full/);
+  });
+
+  it('D5: classifyOpenFailure sets open_failed + antivirus detail on EPERM', async () => {
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({
+      factory: () => {
+        throw new Error('EPERM: operation not permitted');
+      },
+      vecPathResolver: null,
+    });
+
+    await expect(service.openAndMigrate()).rejects.toThrow();
+
+    expect(service.unavailable?.reason).toBe('open_failed');
+    expect(service.unavailable?.detail).toMatch(/antivirus/i);
+  });
+
+  it('D5: classifyOpenFailure sets open_failed + antivirus detail on "permission denied"', async () => {
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({
+      factory: () => {
+        throw new Error('permission denied, open ptah.sqlite');
+      },
+      vecPathResolver: null,
+    });
+
+    await expect(service.openAndMigrate()).rejects.toThrow();
+
+    expect(service.unavailable?.reason).toBe('open_failed');
+    expect(service.unavailable?.detail).toMatch(/antivirus/i);
+  });
+
+  it('D5: classifyOpenFailure sets open_failed + antivirus detail on "access is denied" (Windows)', async () => {
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({
+      factory: () => {
+        throw new Error('access is denied');
+      },
+      vecPathResolver: null,
+    });
+
+    await expect(service.openAndMigrate()).rejects.toThrow();
+
+    expect(service.unavailable?.reason).toBe('open_failed');
+    expect(service.unavailable?.detail).toMatch(/antivirus/i);
+  });
+
+  // --- D5: handleFatalWriteError ---
+
+  it('D5: handleFatalWriteError closes + marks unavailable on SQLITE_FULL', async () => {
+    const fake = new FakeSqliteDatabase();
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+    await service.openAndMigrate();
+    expect(service.isOpen).toBe(true);
+
+    const acted = service.handleFatalWriteError(
+      new Error('SQLITE_FULL: database or disk is full'),
+    );
+
+    expect(acted).toBe(true);
+    expect(service.isOpen).toBe(false);
+    expect(
+      logger.entries.some(
+        (e) => e.level === 'error' && /fatal write error/.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  it('D5: handleFatalWriteError closes + marks unavailable on ENOSPC', async () => {
+    const fake = new FakeSqliteDatabase();
+    const service = new SqliteConnectionService(':memory:', createMockLogger());
+    service.configure({ factory: () => fake, vecPathResolver: null });
+    await service.openAndMigrate();
+
+    const acted = service.handleFatalWriteError(
+      new Error('ENOSPC: no space left on device'),
+    );
+
+    expect(acted).toBe(true);
+    expect(service.isOpen).toBe(false);
+  });
+
+  it('D5: handleFatalWriteError returns false and does not close on unrelated errors', async () => {
+    const fake = new FakeSqliteDatabase();
+    const service = new SqliteConnectionService(':memory:', createMockLogger());
+    service.configure({ factory: () => fake, vecPathResolver: null });
+    await service.openAndMigrate();
+
+    const acted = service.handleFatalWriteError(
+      new Error('UNIQUE constraint failed: memories.id'),
+    );
+
+    expect(acted).toBe(false);
+    expect(service.isOpen).toBe(true);
+  });
+
+  it('D5: handleFatalWriteError returns false and does NOT close on EPERM (DB still readable)', async () => {
+    const fake = new FakeSqliteDatabase();
+    const service = new SqliteConnectionService(':memory:', createMockLogger());
+    service.configure({ factory: () => fake, vecPathResolver: null });
+    await service.openAndMigrate();
+
+    const acted = service.handleFatalWriteError(
+      new Error('EPERM: operation not permitted'),
+    );
+
+    expect(acted).toBe(false);
+    expect(service.isOpen).toBe(true);
+  });
+
+  // --- D10: foreign_key_check at boot ---
+
+  it('D10: foreign_key_check is silent when there are no violations', async () => {
+    const fake = new FakeSqliteDatabase();
+    // Default: empty FK violations.
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await service.openAndMigrate();
+
+    // No warn log mentioning foreign_key_check violations.
+    expect(
+      logger.entries.some(
+        (e) =>
+          e.level === 'warn' && /foreign_key_check violations/.test(e.message),
+      ),
+    ).toBe(false);
+  });
+
+  it('D10: foreign_key_check logs warn with count and sample when violations found', async () => {
+    const fake = new FakeSqliteDatabase();
+    fake.setForeignKeyViolations([
+      { table: 'memories', rowid: 1, parent: 'workspaces', fkid: 0 },
+      { table: 'memories', rowid: 2, parent: 'workspaces', fkid: 0 },
+      { table: 'memories', rowid: 3, parent: 'workspaces', fkid: 0 },
+      { table: 'memories', rowid: 4, parent: 'workspaces', fkid: 0 },
+    ]);
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await service.openAndMigrate();
+
+    // Must still open successfully — FK violations are non-fatal.
+    expect(service.isOpen).toBe(true);
+
+    const fkWarnLogs = logger.entries.filter(
+      (e) =>
+        e.level === 'warn' && /foreign_key_check violations/.test(e.message),
+    );
+    expect(fkWarnLogs).toHaveLength(1);
+    const ctx = fkWarnLogs[0].context as Record<string, unknown>;
+    expect(ctx['count']).toBe(4);
+    const sample = ctx['sample'] as unknown[];
+    // Sample is capped at 3.
+    expect(sample).toHaveLength(3);
+  });
+
+  it('D10: foreign_key_check pragma error is swallowed — non-fatal', async () => {
+    const fake = new FakeSqliteDatabase();
+    const originalPragma = fake.pragma.bind(fake);
+    (fake as unknown as Record<string, unknown>)['pragma'] = (
+      p: string,
+      opts?: { simple?: boolean },
+    ) => {
+      if (/^foreign_key_check/i.test(p.trim())) {
+        throw new Error('foreign_key_check failed (fake)');
+      }
+      return originalPragma(p, opts);
+    };
+
+    const logger = createMockLogger();
+    const service = new SqliteConnectionService(':memory:', logger);
+    service.configure({ factory: () => fake, vecPathResolver: null });
+
+    await expect(service.openAndMigrate()).resolves.not.toThrow();
+    expect(service.isOpen).toBe(true);
+    expect(
+      logger.entries.some(
+        (e) => e.level === 'warn' && /foreign_key_check error/.test(e.message),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe('SqliteConnectionService — vec0 smoke (skipped without native)', () => {

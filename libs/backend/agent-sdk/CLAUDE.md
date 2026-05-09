@@ -616,6 +616,52 @@ nx test agent-sdk --testFile=sdk-agent-adapter.spec.ts
 - **DI**: `src/lib/di/`
 - **Entry Point**: `src/index.ts`
 
+## Migration Notes - Phase 0 + Phase 1-2 (Subagent Visibility + Bidirectional Messaging)
+
+### Phase 0 — Type Discipline (compiles-or-rejects phantom fields)
+
+The hand-rolled `SdkQueryOptions` interface at `helpers/sdk-query-options-builder.ts` was replaced by a direct `type SdkQueryOptions = Options` alias from the SDK. This surfaced two phantom fields that the SDK silently ignored:
+
+- `forwardSubagentText: true` — **not in the SDK's `Options` type**. Removed and replaced with `agentProgressSummaries: true` (line 739), which is the actual SDK mechanism for subagent progress summaries.
+- `compactionControl: { enabled, contextTokenThreshold }` — **not in the SDK's `Options` type**. Removed from both `SdkQueryOptionsBuilder.build()` and `PtahCliAdapter`. Our hook-based compaction approach (PreCompact hook) remains unchanged.
+
+The legacy re-exports `SDKResultMessageSuccess` / `SDKResultMessageError` were removed from `claude-sdk.types.ts`; consumers must use `SDKResultSuccess` / `SDKResultError` directly.
+
+### Phase 1 — Subagent Visibility via SDK task\_\* Messages
+
+Subagent visibility now flows through the SDK's `agentProgressSummaries: true` Option (set unconditionally in `SdkQueryOptionsBuilder`) plus four new `SdkMessageTransformer` branches for the SDK system messages:
+
+| SDK message subtype | Emitted event type                      |
+| ------------------- | --------------------------------------- |
+| `task_started`      | `agent_start` (with `taskId` populated) |
+| `task_progress`     | `agent_progress`                        |
+| `task_updated`      | `agent_status`                          |
+| `task_notification` | `agent_completed`                       |
+
+Three new event types were added to `FlatStreamEventUnion` in `libs/shared/src/lib/types/execution/stream-background.ts`: `AgentProgressEvent`, `AgentStatusEvent`, `AgentCompletedEvent`. The `AgentStartEvent` was extended with an optional `taskId` field.
+
+Two new type guards were added to `claude-sdk.types.ts`: `isTaskUpdated` and `isTaskNotification`. `SDKTaskUpdatedMessage` and `SDKTaskNotificationMessage` are now fully re-exported.
+
+`SubagentRecord` was extended with an optional `taskId?: string` field plus `findByTaskId()` and `setTaskId()` methods on `SubagentRegistryService`.
+
+### Phase 2 — Dispatcher + Bidirectional Messaging
+
+`SubagentMessageDispatcher` (`helpers/subagent-message-dispatcher.ts`) provides:
+
+- `sendToSubagent(sessionId, parentToolUseId, text)` — delivers a user message to a running subagent via `streamInput` + `parent_tool_use_id` routing. Serialises per-session to avoid races.
+- `stopSubagent(sessionId, taskId)` — calls `Query.stopTask(taskId)`. Emits `task_notification` with `status='stopped'`.
+- `interruptSession(sessionId)` — calls `Query.interrupt()`.
+
+Registered as `SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER`. Three new RPC methods are registered by `SubagentRpcHandlers`:
+
+| RPC method              | Schema                      | Result         |
+| ----------------------- | --------------------------- | -------------- |
+| `subagent:send-message` | `SubagentSendMessageSchema` | `{ ok: true }` |
+| `subagent:stop`         | `SubagentStopSchema`        | `{ ok: true }` |
+| `subagent:interrupt`    | `SubagentInterruptSchema`   | `{ ok: true }` |
+
+Two new `RpcUserErrorCode` values were added: `SESSION_NOT_FOUND` and `INVALID_PARAMS`.
+
 ## Migration Notes - TASK_2025_088
 
 **Objective**: Eliminate over-engineered abstraction layers, centralize SDK types, and simplify session management.

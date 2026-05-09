@@ -137,20 +137,21 @@ describe('SdkQueryOptionsBuilder.mergeMcpOverride', () => {
 });
 
 // ---------------------------------------------------------------------------
-// build() — file checkpointing + forwardSubagentText wiring
+// build() — file checkpointing + agentProgressSummaries wiring
 // ---------------------------------------------------------------------------
 //
-// Asserts the wiring contract introduced alongside the AgentSessionWatcher
-// removal:
+// Asserts the wiring contract for subagent visibility and file checkpointing:
 //   - When `enableFileCheckpointing` is on (default), the SDK CLI flag
 //     `--replay-user-messages` is forwarded via `extraArgs` so the SDK emits
 //     `checkpointUuid` on user-message stream events. Without that flag,
 //     `Query.rewindFiles()` silently no-ops because there is no UUID.
 //   - When the caller opts out (`enableFileCheckpointing: false`), `extraArgs`
 //     is absent (the conditional spread emits no key).
-//   - `forwardSubagentText: true` is always set so subagent text streams
-//     inline through the parent — this replaces the legacy
-//     AgentSessionWatcherService JSONL tail-watching path.
+//   - `agentProgressSummaries: true` is always set — subagent visibility now
+//     flows via this SDK Option + task_* system messages (task_started,
+//     task_progress, task_updated, task_notification) handled by
+//     SdkMessageTransformer. Replaces the phantom `forwardSubagentText` field
+//     that was silently ignored by the SDK.
 
 describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
   function makeFullBuilder(): SdkQueryOptionsBuilder {
@@ -252,12 +253,12 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     expect(opts.extraArgs).toBeUndefined();
   });
 
-  it('always sets forwardSubagentText: true (replaces AgentSessionWatcher)', async () => {
+  it('always sets agentProgressSummaries: true (subagent visibility via SDK task_* events)', async () => {
     const opts = await buildWith();
-    expect(opts.forwardSubagentText).toBe(true);
+    expect(opts.agentProgressSummaries).toBe(true);
 
     const optsOff = await buildWith({ enableFileCheckpointing: false });
-    expect(optsOff.forwardSubagentText).toBe(true);
+    expect(optsOff.agentProgressSummaries).toBe(true);
   });
 });
 

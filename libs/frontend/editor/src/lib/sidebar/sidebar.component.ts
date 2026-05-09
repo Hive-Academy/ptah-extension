@@ -1,28 +1,32 @@
 import {
+  ChangeDetectionStrategy,
   Component,
+  computed,
   input,
   output,
   signal,
-  computed,
-  ChangeDetectionStrategy,
 } from '@angular/core';
+import {
+  FolderOpen,
+  GitBranch,
+  LucideAngularModule,
+  Search,
+} from 'lucide-angular';
 import { FileTreeNode } from '../models/file-tree.model';
 import type { GitFileStatus } from '@ptah-extension/shared';
 import { FileTreeComponent } from '../file-tree/file-tree.component';
 import { SourceControlPanelComponent } from '../source-control/source-control-panel.component';
 import { SearchPanelComponent } from '../search/search-panel.component';
-import { WorktreePanelComponent } from '../worktree/worktree-panel.component';
 
 /**
- * SidebarComponent - Tabbed container switching between Explorer and Source Control panels.
+ * SidebarComponent - Tabbed container switching between Explorer, Source
+ * Control, and Search panels.
  *
  * Complexity Level: 1 (Simple tab container, delegates rendering to child components)
  * Patterns: Standalone, OnPush, signal-based tab state, composition
  *
- * Replaces the direct <ptah-file-tree> in the editor panel with a tabbed sidebar
- * that can switch between file explorer and source control views.
- *
- * TASK_2025_273
+ * Worktrees tab was removed in TASK_2026_111 Batch 4 — worktrees are now
+ * managed inside the Source Control panel via {@link WorktreeSectionComponent}.
  */
 @Component({
   selector: 'ptah-sidebar',
@@ -31,7 +35,7 @@ import { WorktreePanelComponent } from '../worktree/worktree-panel.component';
     FileTreeComponent,
     SourceControlPanelComponent,
     SearchPanelComponent,
-    WorktreePanelComponent,
+    LucideAngularModule,
   ],
   template: `
     <aside
@@ -49,7 +53,7 @@ import { WorktreePanelComponent } from '../worktree/worktree-panel.component';
         aria-label="Sidebar tabs"
       >
         <button
-          class="px-2.5 py-1 text-xs font-medium rounded transition-colors"
+          class="px-2 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1.5"
           role="tab"
           [attr.aria-selected]="activeTab() === 'explorer'"
           [class]="
@@ -59,11 +63,12 @@ import { WorktreePanelComponent } from '../worktree/worktree-panel.component';
           "
           (click)="activeTab.set('explorer')"
         >
-          Explorer
+          <lucide-angular [img]="FolderOpenIcon" class="w-3.5 h-3.5" />
+          <span>Explorer</span>
         </button>
 
         <button
-          class="px-2.5 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1.5"
+          class="px-2 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1.5"
           role="tab"
           [attr.aria-selected]="activeTab() === 'source-control'"
           [class]="
@@ -73,7 +78,8 @@ import { WorktreePanelComponent } from '../worktree/worktree-panel.component';
           "
           (click)="activeTab.set('source-control')"
         >
-          Git
+          <lucide-angular [img]="GitBranchIcon" class="w-3.5 h-3.5" />
+          <span>Git</span>
           @if (changeCount() > 0) {
             <span class="text-[10px] text-primary font-semibold">{{
               changeCount()
@@ -82,7 +88,7 @@ import { WorktreePanelComponent } from '../worktree/worktree-panel.component';
         </button>
 
         <button
-          class="px-2.5 py-1 text-xs font-medium rounded transition-colors"
+          class="px-2 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1.5"
           role="tab"
           [attr.aria-selected]="activeTab() === 'search'"
           [class]="
@@ -92,21 +98,8 @@ import { WorktreePanelComponent } from '../worktree/worktree-panel.component';
           "
           (click)="activeTab.set('search')"
         >
-          Search
-        </button>
-
-        <button
-          class="px-2.5 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1.5"
-          role="tab"
-          [attr.aria-selected]="activeTab() === 'worktrees'"
-          [class]="
-            activeTab() === 'worktrees'
-              ? 'text-base-content bg-base-content/10'
-              : 'text-base-content/50 hover:text-base-content/70 hover:bg-base-content/5'
-          "
-          (click)="activeTab.set('worktrees')"
-        >
-          Worktrees
+          <lucide-angular [img]="SearchIcon" class="w-3.5 h-3.5" />
+          <span>Search</span>
         </button>
       </div>
 
@@ -133,9 +126,6 @@ import { WorktreePanelComponent } from '../worktree/worktree-panel.component';
               (searchResultSelected)="searchResultSelected.emit($event)"
             />
           }
-          @case ('worktrees') {
-            <ptah-worktree-panel />
-          }
         }
       </div>
     </aside>
@@ -153,7 +143,6 @@ export class SidebarComponent {
   readonly files = input<FileTreeNode[]>([]);
   readonly activeFilePath = input<string | undefined>(undefined);
   readonly changedFiles = input<GitFileStatus[]>([]);
-  readonly branchName = input<string>('');
 
   // Outputs
   readonly fileSelected = output<string>();
@@ -164,9 +153,14 @@ export class SidebarComponent {
     node: FileTreeNode | null;
   }>();
 
+  // Icons
+  protected readonly FolderOpenIcon = FolderOpen;
+  protected readonly GitBranchIcon = GitBranch;
+  protected readonly SearchIcon = Search;
+
   // Tab state
   protected readonly activeTab = signal<
-    'explorer' | 'source-control' | 'search' | 'worktrees'
+    'explorer' | 'source-control' | 'search'
   >('explorer');
 
   // Computed

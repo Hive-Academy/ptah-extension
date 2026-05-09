@@ -229,3 +229,81 @@ describe('SdkPermissionHandler — AskUserQuestion tabId stamping', () => {
     await pending;
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fix 6: auto-timeout answers keyed by q.question, not q.header
+// ---------------------------------------------------------------------------
+
+describe('SdkPermissionHandler — AskUserQuestion idle-timeout answer keying (Fix 6)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    container.clearInstances();
+    jest.clearAllMocks();
+  });
+
+  it('keys auto-timeout answers by q.question not q.header', async () => {
+    const { handler } = makeHandler();
+
+    const callback = handler.createCallback('sess-timeout');
+
+    const questions = [
+      {
+        question: 'Which deployment strategy should I use?',
+        header: 'Strategy',
+        options: [{ label: 'Blue-Green' }, { label: 'Canary' }],
+        multiSelect: false,
+      },
+      {
+        question: 'Which database should I migrate first?',
+        header: 'DB',
+        options: [{ label: 'Postgres' }, { label: 'Redis' }],
+        multiSelect: false,
+      },
+    ];
+
+    const ac = new AbortController();
+
+    // Fire-and-forget — will resolve after the idle timeout fires
+    const pending = callback(
+      'AskUserQuestion',
+      { questions },
+      { signal: ac.signal, toolUseID: 'tool-fix6' },
+    );
+
+    await flushMicrotasks();
+
+    // Advance past the 5-minute idle timeout
+    jest.runAllTimers();
+
+    // Allow the resolve microtask to propagate
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const result = await pending;
+
+    // The PermissionResult for AskUserQuestion is:
+    //   { behavior: 'allow', updatedInput: { ...input, answers: {...} } }
+    // The answers must be keyed by q.question (full text) not q.header (chip label).
+    expect(result).not.toBeNull();
+    const permResult = result as unknown as {
+      behavior: string;
+      updatedInput?: { answers?: Record<string, string> };
+    };
+    expect(permResult.behavior).toBe('allow');
+    const answers = permResult.updatedInput?.answers ?? {};
+
+    // Correct keys — full question text
+    expect(answers['Which deployment strategy should I use?']).toBe(
+      'Blue-Green',
+    );
+    expect(answers['Which database should I migrate first?']).toBe('Postgres');
+
+    // Wrong keys — short chip labels must NOT appear
+    expect(answers['Strategy']).toBeUndefined();
+    expect(answers['DB']).toBeUndefined();
+  });
+});

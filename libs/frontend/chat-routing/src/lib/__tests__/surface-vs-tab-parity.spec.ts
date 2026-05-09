@@ -57,6 +57,8 @@ import type {
 } from '@ptah-extension/shared';
 import { StreamRouter } from '../stream-router.service';
 import { StreamingSurfaceRegistry } from '../streaming-surface-registry.service';
+import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { createMockRpcService } from '@ptah-extension/core/testing';
 
 // ---------- Helpers --------------------------------------------------------
 
@@ -311,6 +313,13 @@ describe('Surface-vs-Tab parity (TASK_2026_107 Phase 5)', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: PermissionHandlerService, useValue: permissionHandler },
         { provide: StreamingHandlerService, useValue: streamingHandler },
+        // Phase 3: AgentMonitorStore now depends on ClaudeRpcService for
+        // subagent send-message / stop / interrupt RPCs.
+        { provide: ClaudeRpcService, useValue: createMockRpcService() },
+        {
+          provide: VSCodeService,
+          useValue: { config: signal({ panelId: '' }), postMessage: jest.fn() },
+        },
       ],
     });
 

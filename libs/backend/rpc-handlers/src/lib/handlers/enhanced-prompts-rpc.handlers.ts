@@ -52,11 +52,10 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { ISaveDialogProvider } from '@ptah-extension/platform-core';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import type { WebviewBroadcaster } from '../harness/streaming';
 
 /**
  * RPC handlers for Enhanced Prompts operations
- *
- * TASK_2025_137: Premium feature for intelligent prompt generation
  *
  * Exposes Enhanced Prompts functionality to the frontend:
  * - Status checking (for settings display)
@@ -68,17 +67,6 @@ import type { RpcMethodName } from '@ptah-extension/shared';
  * - Generated prompt content is NEVER exposed (IP protection)
  * - Premium feature gating via LicenseService
  */
-/**
- * Local interface for webview broadcasting.
- *
- * Uses `string` for message type instead of `StrictMessageType` because
- * 'setup-wizard:enhance-stream' is not a member of the StrictMessageType union.
- * The underlying WebviewManager.broadcastMessage implementation accepts any
- * message type via postMessage, so this is safe at runtime.
- */
-interface WebviewBroadcaster {
-  broadcastMessage(type: string, payload: unknown): Promise<void>;
-}
 
 @injectable()
 export class EnhancedPromptsRpcHandlers {

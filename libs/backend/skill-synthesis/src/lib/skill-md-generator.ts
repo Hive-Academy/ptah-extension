@@ -31,6 +31,11 @@ export interface SkillMdInput {
   description: string;
   /** Markdown body. */
   body: string;
+  /**
+   * Optional agentskills.io `when_to_use` frontmatter field.
+   * If omitted, extracted from a `## When to use` section in the body.
+   */
+  whenToUse?: string;
 }
 
 export interface MaterializedSkill {
@@ -123,16 +128,41 @@ export class SkillMdGenerator {
       .replace(/[\r\n]+/g, ' ')
       .replace(/"/g, "'")
       .trim();
+    const rawWhenToUse = (input.whenToUse ?? this.extractWhenToUse(input.body))
+      .replace(/[\r\n]+/g, ' ')
+      .trim();
+
     const lines = [
       '---',
       `name: ${input.slug}`,
       `description: ${safeDescription}`,
-      '---',
-      '',
-      input.body.trim(),
-      '',
     ];
+
+    // Emit when_to_use only when non-empty, always as a double-quoted YAML
+    // scalar so colons, quotes, and other special characters can't break parsing.
+    if (rawWhenToUse.length > 0) {
+      const escaped = rawWhenToUse.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      lines.push(`when_to_use: "${escaped}"`);
+    }
+
+    lines.push('---', '', input.body.trim(), '');
     return lines.join('\n');
+  }
+
+  /**
+   * Extract the content of a `## When to use` section from a markdown body.
+   * Bullet items are joined with "; ". Returns empty string if not found.
+   */
+  private extractWhenToUse(body: string): string {
+    const match = /##\s+When to use\s*\n([\s\S]*?)(?=\n##|\s*$)/i.exec(body);
+    if (!match) return '';
+    const section = match[1];
+    const bullets: string[] = [];
+    for (const line of section.split('\n')) {
+      const trimmed = line.replace(/^[-*]\s+/, '').trim();
+      if (trimmed) bullets.push(trimmed);
+    }
+    return bullets.join('; ');
   }
 
   private sanitizeSlug(slug: string): string {

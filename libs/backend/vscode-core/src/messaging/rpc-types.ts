@@ -58,13 +58,7 @@ export interface RpcResponse<T = unknown> {
    * }
    * ```
    */
-  errorCode?:
-    | 'LICENSE_REQUIRED'
-    | 'PRO_TIER_REQUIRED'
-    | 'WORKSPACE_NOT_OPEN'
-    | 'MESSAGE_ID_NOT_FOUND'
-    | 'MODEL_NOT_AVAILABLE'
-    | 'PERSISTENCE_UNAVAILABLE';
+  errorCode?: RpcUserErrorCode;
   /** Correlation ID matching the original request */
   correlationId: string;
 }
@@ -83,32 +77,19 @@ export type RpcMethodHandler<TParams = unknown, TResult = unknown> = (
  */
 export type BaseRpcMethodHandler = (params: unknown) => Promise<unknown>;
 
+// RpcUserErrorCode is the single source of truth — imported from @ptah-extension/shared.
+export type { RpcUserErrorCode } from '@ptah-extension/shared';
+import type { RpcUserErrorCode } from '@ptah-extension/shared';
+
 /**
  * RpcUserError — a typed, user-recoverable RPC error.
  *
- * Throw this (instead of a plain Error) inside an RPC handler when the
- * failure is an expected user-facing condition, not a bug.  The RpcHandler
- * will:
- *   1. Convert it to a structured { success: false, error, errorCode } response
- *      (so the frontend can render an actionable message), and
- *   2. **Skip** Sentry reporting — because the error is expected and already
- *      surfaced to the user.
+ * Throw this inside an RPC handler when the failure is an expected user-facing
+ * condition, not a bug. RpcHandler converts it to a structured
+ * `{ success: false, error, errorCode }` response and skips Sentry reporting.
  *
- * @example
- * throw new RpcUserError(
- *   'Open a folder first to configure agents.',
- *   'WORKSPACE_NOT_OPEN',
- * );
+ * @throws RpcUserError
  */
-/** Single source of truth for the structured RPC error code union. */
-export type RpcUserErrorCode =
-  | 'LICENSE_REQUIRED'
-  | 'PRO_TIER_REQUIRED'
-  | 'WORKSPACE_NOT_OPEN'
-  | 'MESSAGE_ID_NOT_FOUND'
-  | 'MODEL_NOT_AVAILABLE'
-  | 'PERSISTENCE_UNAVAILABLE';
-
 export class RpcUserError extends Error {
   readonly errorCode: RpcUserErrorCode;
 

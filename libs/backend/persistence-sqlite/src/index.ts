@@ -15,6 +15,9 @@ export type {
   SqliteVecPathResolver,
 } from './lib/sqlite-connection.service';
 
+export type { IBackupService, BackupKind } from './lib/backup.service';
+export { SqliteBackupService } from './lib/backup.service';
+
 export { SqliteMigrationRunner } from './lib/migration-runner';
 export type { MigrationRunResult } from './lib/migration-runner';
 

@@ -65,10 +65,9 @@ const JS_TS_FUNCTION_QUERY = `
 `;
 
 /**
- * JavaScript/TypeScript class query
- * Captures: class declarations with optional heritage
+ * TypeScript class query — uses extends_clause which TS grammar adds on top of JS.
  */
-const JS_TS_CLASS_QUERY = `
+const TS_CLASS_QUERY = `
 ; Class declarations: class Foo {}
 (class_declaration
   name: (_) @class.name
@@ -84,6 +83,26 @@ const JS_TS_CLASS_QUERY = `
       (class_heritage
         (extends_clause
           value: (_) @class_expr.extends))?))) @class_expr.declaration
+`;
+
+/**
+ * JavaScript class query — class_heritage directly contains the base expression;
+ * the extends_clause wrapper node only exists in the TypeScript grammar.
+ */
+const JS_CLASS_QUERY = `
+; Class declarations: class Foo {}
+(class_declaration
+  name: (_) @class.name
+  (class_heritage
+    (_) @class.extends)?) @class.declaration
+
+; Class expressions assigned to variables: const Foo = class {}
+(lexical_declaration
+  (variable_declarator
+    name: (identifier) @class_expr.name
+    value: (class
+      (class_heritage
+        (_) @class_expr.extends)?))) @class_expr.declaration
 `;
 
 /**
@@ -158,22 +177,23 @@ const JS_TS_EXPORT_QUERY = `
 `;
 
 /**
- * Language-specific query configurations
- * JavaScript and TypeScript share the same queries since tree-sitter-typescript
- * extends tree-sitter-javascript's grammar
+ * Language-specific query configurations.
+ * Function/import/export queries are shared. Class queries differ because
+ * tree-sitter-typescript wraps the base class in an extends_clause node
+ * that does not exist in tree-sitter-javascript.
  */
 export const LANGUAGE_QUERIES_MAP: Readonly<
   Record<SupportedLanguage, LanguageQueries>
 > = {
   javascript: {
     functionQuery: JS_TS_FUNCTION_QUERY,
-    classQuery: JS_TS_CLASS_QUERY,
+    classQuery: JS_CLASS_QUERY,
     importQuery: JS_TS_IMPORT_QUERY,
     exportQuery: JS_TS_EXPORT_QUERY,
   },
   typescript: {
     functionQuery: JS_TS_FUNCTION_QUERY,
-    classQuery: JS_TS_CLASS_QUERY,
+    classQuery: TS_CLASS_QUERY,
     importQuery: JS_TS_IMPORT_QUERY,
     exportQuery: JS_TS_EXPORT_QUERY,
   },

@@ -201,6 +201,7 @@
       "options": {
         "commands": [
           "node apps/ptah-electron/scripts/rebuild-native.js",
+          "nx build-embedder-worker ptah-electron",
           "nx build-dev ptah-electron",
           "node scripts/copy-wasm.js dist/apps/ptah-electron",
           "nx copy-renderer ptah-electron",

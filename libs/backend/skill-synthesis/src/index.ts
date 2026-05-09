@@ -27,10 +27,24 @@ export {
 
 export {
   SKILL_SYNTHESIS_TOKENS,
+  INTERNAL_QUERY_SERVICE_TOKEN,
   type SkillSynthesisDIToken,
 } from './lib/di/tokens';
 export { registerSkillSynthesisServices } from './lib/di/register';
+export {
+  migrateSkillMdFiles,
+  type MigrationResult,
+} from './lib/skill-md-migration';
+export { computeNormalizedLevenshtein } from './lib/skill-synthesis.service';
+export { SkillClusterDedupService } from './lib/skill-cluster-dedup.service';
+export { SkillJudgeService } from './lib/skill-judge.service';
+export {
+  SkillCuratorService,
+  type CuratorReport,
+} from './lib/skill-curator.service';
+export { cosineSimilarity } from './lib/cosine-similarity';
 
+export { JUDGE_DEFAULT_MODEL_ID } from './lib/types';
 export type {
   SkillId,
   CandidateId,
