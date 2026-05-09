@@ -67,6 +67,8 @@ export class EmbedderWorkerClient implements IEmbedder {
     number,
     { resolve: (v: WorkerResponse) => void; reject: (e: Error) => void }
   >();
+  /** Set on first fatal worker error to prevent respawning on every embed call. */
+  private workerFailed = false;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -137,6 +139,9 @@ export class EmbedderWorkerClient implements IEmbedder {
   }
 
   private ensureWorker(): Worker {
+    if (this.workerFailed) {
+      throw new Error(`Embedder worker unavailable: ${this.workerPath}`);
+    }
     if (this.worker) return this.worker;
     const w = new Worker(this.workerPath, {
       type: 'module',
@@ -149,6 +154,7 @@ export class EmbedderWorkerClient implements IEmbedder {
     });
     w.on('error', (err) => {
       this.logger.error('[memory-curator] embedder worker error', err);
+      this.workerFailed = true;
       for (const slot of this.pending.values()) slot.reject(err);
       this.pending.clear();
     });

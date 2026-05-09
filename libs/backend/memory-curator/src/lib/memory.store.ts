@@ -105,6 +105,8 @@ function rowToChunk(row: ChunkRow): MemoryChunk {
 export class MemoryStore implements IMemoryLister {
   /** Per-workspace write generation counter. Key '' = global (no workspace). */
   private readonly writeCounts = new Map<string, number>();
+  /** Suppresses repeated per-chunk WARN logs once the embedder is known-dead. */
+  private embedderWarnedOnce = false;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -240,12 +242,15 @@ export class MemoryStore implements IMemoryLister {
     try {
       return await this.embedder.embed(texts);
     } catch (err) {
-      this.logger.warn(
-        '[memory-curator] embedder.embed failed; chunks stored without vectors',
-        {
-          error: err instanceof Error ? err.message : String(err),
-        },
-      );
+      if (!this.embedderWarnedOnce) {
+        this.embedderWarnedOnce = true;
+        this.logger.warn(
+          '[memory-curator] embedder unavailable; chunks will be stored without vectors until restart',
+          {
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
       return [];
     }
   }

@@ -61,7 +61,7 @@ module.exports = {
     // resolves to sane values instead of throwing
     // `ReferenceError: __dirname is not defined in ES module scope`.
     // Mirrors the apps/ptah-cli banner so both ESM bundles behave the same.
-    js: "import { createRequire as __ptah_createRequire } from 'module'; import { fileURLToPath as __ptah_fileURLToPath } from 'url'; import { dirname as __ptah_dirname } from 'path'; const require = __ptah_createRequire(import.meta.url); const __filename = __ptah_fileURLToPath(import.meta.url); const __dirname = __ptah_dirname(__filename);",
+    js: "import { createRequire as __ptah_createRequire } from 'module'; import { fileURLToPath as __ptah_fileURLToPath } from 'url'; import { dirname as __ptah_dirname } from 'path'; const require = __ptah_createRequire(import.meta.url); const __filename = __ptah_fileURLToPath(import.meta.url); const __dirname = __ptah_dirname(__filename); globalThis.__dirname = __dirname;",
   },
   define: {
     __SENTRY_DSN__: isProd ? `"${SENTRY_DSN_PROD}"` : '""',
