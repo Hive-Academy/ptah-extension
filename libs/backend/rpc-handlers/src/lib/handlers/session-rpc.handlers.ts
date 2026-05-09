@@ -52,6 +52,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 
 /**
  * RPC handlers for session operations (SDK-based)
@@ -105,25 +106,7 @@ export class SessionRpcHandlers {
    * trailing-separator stripped) before comparison.
    */
   private isAuthorizedWorkspace(workspacePath: string): boolean {
-    if (!workspacePath) return false;
-    const folders = this.workspaceProvider.getWorkspaceFolders();
-    if (!folders || folders.length === 0) return false;
-
-    /** Normalize: resolve, forward-slashes, lowercase, strip trailing slash. */
-    const normalize = (p: string) =>
-      path.resolve(p).replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
-
-    const target = normalize(workspacePath);
-
-    return folders.some((f) => {
-      const folder = normalize(f);
-      // Exact match after normalization (handles trailing slash + separator drift)
-      if (folder === target) return true;
-      // Sub-path: target starts with folder + separator boundary
-      // e.g. folder="/c/foo", target="/c/foo/bar" — prevents "/c/foo" matching "/c/foobaz"
-      if (target.startsWith(folder + '/')) return true;
-      return false;
-    });
+    return isAuthorizedWorkspace(workspacePath, this.workspaceProvider);
   }
 
   /**

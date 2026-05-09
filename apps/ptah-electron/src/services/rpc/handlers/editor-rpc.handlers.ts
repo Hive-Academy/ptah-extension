@@ -174,10 +174,12 @@ export class EditorRpcHandlers {
   private validatePathInWorkspace(filePath: string): string | null {
     const folders = this.workspace.getWorkspaceFolders();
     if (folders.length === 0) return 'No workspace folder open';
-    const resolved = nodePath.resolve(filePath);
+    const normalize = (p: string) =>
+      nodePath.resolve(p).replace(/\\/g, '/').toLowerCase();
+    const target = normalize(filePath);
     const ok = folders.some((folder) => {
-      const root = nodePath.resolve(folder);
-      return resolved === root || resolved.startsWith(root + nodePath.sep);
+      const root = normalize(folder);
+      return target === root || target.startsWith(root + '/');
     });
     return ok ? null : 'Path is outside the workspace';
   }

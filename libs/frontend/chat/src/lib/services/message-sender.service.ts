@@ -512,16 +512,37 @@ export class MessageSenderService {
       // Workspace path may be empty during the bootstrap-restore race
       // (see startNewConversation comment). Don't bail — the backend
       // chat:continue handler falls back to IWorkspaceProvider.getWorkspaceRoot()
-      // when params.workspacePath is missing. Skip the disk-existence check
-      // when we don't have a workspacePath to feed it; the backend will
-      // surface a meaningful error if the session is truly gone.
-      const workspacePath = this.vscodeService.config().workspaceRoot;
+      // when params.workspacePath is missing. But we still want to run the
+      // friendly "session was deleted → start a new one" recovery when we can,
+      // so when the local cache is empty we ask the backend for the resolved
+      // workspace via workspace:getInfo (one extra RPC roundtrip in the rare
+      // race window) and feed THAT into validateSessionExists.
+      const cachedWorkspacePath = this.vscodeService.config().workspaceRoot;
+      let resolvedWorkspacePath = cachedWorkspacePath;
 
-      if (workspacePath) {
+      if (!resolvedWorkspacePath) {
+        try {
+          const info = await this.claudeRpcService.call(
+            'workspace:getInfo',
+            {},
+          );
+          if (info.success && info.data) {
+            resolvedWorkspacePath =
+              info.data.activeFolder ?? info.data.folders[0] ?? '';
+          }
+        } catch (error) {
+          console.warn(
+            '[MessageSender] workspace:getInfo failed during continueConversation race recovery',
+            error,
+          );
+        }
+      }
+
+      if (resolvedWorkspacePath) {
         // VALIDATE: Check if session file actually exists on disk
         const validationResult = await this.validateSessionExists(
           sessionId,
-          workspacePath,
+          resolvedWorkspacePath,
         );
 
         if (!validationResult.exists) {
@@ -591,10 +612,13 @@ export class MessageSenderService {
           sessionId,
           tabId: activeTabId, // For event routing
           name: activeTab?.name, // Send session name (support late naming)
-          // Omit workspacePath when empty so backend falls back to
-          // IWorkspaceProvider.getWorkspaceRoot() — handles the bootstrap
-          // race where Send is clicked before workspace restore completes.
-          ...(workspacePath ? { workspacePath } : {}),
+          // Omit workspacePath when still empty (workspace:getInfo also
+          // failed) so backend falls back to IWorkspaceProvider.getWorkspaceRoot().
+          // Otherwise pass the resolved path — either the renderer's cached
+          // value or the freshly fetched one from workspace:getInfo.
+          ...(resolvedWorkspacePath
+            ? { workspacePath: resolvedWorkspacePath }
+            : {}),
           model: effectiveModel,
           files: files ?? [],
           ...(images && images.length > 0 ? { images } : {}),

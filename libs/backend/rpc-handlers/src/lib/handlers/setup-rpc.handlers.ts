@@ -70,6 +70,7 @@ import { MESSAGE_TYPES, Result } from '@ptah-extension/shared';
 import type { MultiPhaseManifest } from '@ptah-extension/agent-generation';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import type { WebviewBroadcaster } from '../harness/streaming';
+import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 
 /**
  * Plugin id of the SaaS workspace initializer skill pack — auto-enabled when
@@ -314,6 +315,15 @@ export class SetupRpcHandlers {
         throw new RpcUserError(
           'No workspace folder open. Please open a folder to analyze.',
           'WORKSPACE_NOT_OPEN',
+        );
+      }
+      if (
+        params?.workspacePath &&
+        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
+      ) {
+        throw new RpcUserError(
+          'Access denied: workspace path is not an open folder.',
+          'UNAUTHORIZED_WORKSPACE',
         );
       }
 
@@ -725,14 +735,24 @@ export class SetupRpcHandlers {
    */
   private registerListAnalyses(): void {
     this.rpcHandler.registerMethod<
-      Record<string, never>,
+      { workspacePath?: string },
       { analyses: SavedAnalysisMetadata[] }
-    >('wizard:list-analyses', async () => {
+    >('wizard:list-analyses', async (params) => {
       this.logger.debug('RPC: wizard:list-analyses called');
 
-      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      const workspaceRoot =
+        params?.workspacePath || this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
         return { analyses: [] };
+      }
+      if (
+        params?.workspacePath &&
+        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
+      ) {
+        throw new RpcUserError(
+          'Access denied: workspace path is not an open folder.',
+          'UNAUTHORIZED_WORKSPACE',
+        );
       }
 
       const storageService = this.resolveService<AnalysisStorageService>(
@@ -763,6 +783,15 @@ export class SetupRpcHandlers {
         throw new RpcUserError(
           'No workspace folder open.',
           'WORKSPACE_NOT_OPEN',
+        );
+      }
+      if (
+        params?.workspacePath &&
+        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
+      ) {
+        throw new RpcUserError(
+          'Access denied: workspace path is not an open folder.',
+          'UNAUTHORIZED_WORKSPACE',
         );
       }
 
@@ -832,6 +861,15 @@ export class SetupRpcHandlers {
         throw new RpcUserError(
           'No workspace folder open.',
           'WORKSPACE_NOT_OPEN',
+        );
+      }
+      if (
+        params?.workspacePath &&
+        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
+      ) {
+        throw new RpcUserError(
+          'Access denied: workspace path is not an open folder.',
+          'UNAUTHORIZED_WORKSPACE',
         );
       }
 

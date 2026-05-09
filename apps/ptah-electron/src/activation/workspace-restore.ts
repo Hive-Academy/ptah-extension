@@ -185,8 +185,17 @@ export async function restoreWorkspaces(
               workspaceInfo: {
                 path: newActive,
                 name: path.basename(newActive),
+                type: 'workspace',
               },
             },
+          });
+        }
+      } else {
+        const mainWindow = getMainWindow();
+        if (mainWindow) {
+          mainWindow.webContents.send('to-renderer', {
+            type: MESSAGE_TYPES.WORKSPACE_CHANGED,
+            payload: { workspaceInfo: null },
           });
         }
       }

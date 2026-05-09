@@ -581,6 +581,7 @@ export class WebviewHtmlGenerator {
       return {
         name: workspaceFolder.name,
         path: workspaceFolder.uri.fsPath,
+        type: 'workspace',
       };
     } catch {
       return null;

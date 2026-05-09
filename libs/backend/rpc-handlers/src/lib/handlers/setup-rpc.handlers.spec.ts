@@ -493,6 +493,78 @@ describe('SetupRpcHandlers', () => {
       expect(response.success).toBe(false);
       expect(response.error).toMatch(/Premium license and MCP server required/);
     });
+
+    it('returns UNAUTHORIZED_WORKSPACE error when renderer supplies an unauthorized workspacePath', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.handlers.register();
+
+      const response = await callRaw(h, 'wizard:deep-analyze', {
+        workspacePath: '/tmp/evil-directory',
+      });
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/Access denied/);
+      expect(response.errorCode).toBe('UNAUTHORIZED_WORKSPACE');
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
+    });
+
+    it('does not gate when renderer does not supply workspacePath (backend fallback is trusted)', async () => {
+      // When workspacePath is absent the backend uses getWorkspaceRoot() which
+      // is trusted — the auth gate must NOT fire. The license check fires next
+      // and fails with "Premium license required" (expected on free tier).
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.handlers.register();
+
+      const response = await callRaw(h, 'wizard:deep-analyze', {});
+      expect(response.success).toBe(false);
+      // Must NOT be an UNAUTHORIZED_WORKSPACE error
+      expect(response.errorCode).not.toBe('UNAUTHORIZED_WORKSPACE');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // wizard:load-analysis — unauthorized workspace gate
+  // -------------------------------------------------------------------------
+
+  describe('wizard:load-analysis — authorization gate', () => {
+    it('returns UNAUTHORIZED_WORKSPACE error for an out-of-workspace path', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.handlers.register();
+
+      const response = await callRaw(h, 'wizard:load-analysis', {
+        filename: 'analysis.json',
+        workspacePath: '/tmp/evil',
+      });
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/Access denied/);
+      expect(response.errorCode).toBe('UNAUTHORIZED_WORKSPACE');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // wizard:list-analyses — workspacePath fallback + authorization gate
+  // -------------------------------------------------------------------------
+
+  describe('wizard:list-analyses — workspacePath param', () => {
+    it('returns UNAUTHORIZED_WORKSPACE for an out-of-workspace path', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.handlers.register();
+
+      const response = await callRaw(h, 'wizard:list-analyses', {
+        workspacePath: '/tmp/evil',
+      });
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/Access denied/);
+      expect(response.errorCode).toBe('UNAUTHORIZED_WORKSPACE');
+    });
+
+    it('returns empty analyses when no workspace is open and no workspacePath supplied', async () => {
+      const h = makeHarness({ workspaceFolders: [] });
+      h.handlers.register();
+
+      const response = await callRaw(h, 'wizard:list-analyses', {});
+      expect(response.success).toBe(true);
+      expect((response.data as { analyses: unknown[] }).analyses).toEqual([]);
+    });
   });
 
   // -------------------------------------------------------------------------

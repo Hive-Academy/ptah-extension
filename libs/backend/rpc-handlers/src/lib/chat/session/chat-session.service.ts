@@ -64,6 +64,7 @@ import type {
 import type { ChatSubagentContextInjectorService } from './chat-subagent-context-injector.service';
 import type { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
 import { hasStopIntent } from './chat-stop-intent';
+import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
 
 @injectable()
 export class ChatSessionService {
@@ -119,6 +120,15 @@ export class ChatSessionService {
           success: false,
           error:
             'No workspace folder open. Please open a folder before starting a chat session.',
+        };
+      }
+      if (
+        params.workspacePath &&
+        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
+      ) {
+        return {
+          success: false,
+          error: 'Access denied: workspace path is not an open folder.',
         };
       }
       this.logger.debug('RPC: chat:start called', {
@@ -286,6 +296,15 @@ export class ChatSessionService {
             'No workspace folder open. Please open a folder before continuing a chat session.',
         };
       }
+      if (
+        params.workspacePath &&
+        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
+      ) {
+        return {
+          success: false,
+          error: 'Access denied: workspace path is not an open folder.',
+        };
+      }
       this.logger.debug('RPC: chat:continue called', {
         sessionId,
         tabId,
@@ -414,6 +433,15 @@ export class ChatSessionService {
           success: false,
           error:
             'No workspace folder open. Please open a folder before resuming a chat session.',
+        };
+      }
+      if (
+        params.workspacePath &&
+        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
+      ) {
+        return {
+          success: false,
+          error: 'Access denied: workspace path is not an open folder.',
         };
       }
       this.logger.info('RPC: chat:resume called', {

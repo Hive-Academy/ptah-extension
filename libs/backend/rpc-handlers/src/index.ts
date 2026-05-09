@@ -73,3 +73,6 @@ export { HARNESS_TOKENS, registerHarnessServices } from './lib/harness';
 
 // Chat sub-service DI tokens + registration helper (TASK_2025_291 Wave C7e)
 export { CHAT_TOKENS, registerChatServices } from './lib/chat';
+
+// Shared workspace-authorization utility (PR-267 Fix #1)
+export { isAuthorizedWorkspace } from './lib/utils/workspace-authorization';
