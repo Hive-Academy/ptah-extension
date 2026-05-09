@@ -33,6 +33,9 @@
       "@ptah-extension/memory-curator": [
         "libs/backend/memory-curator/src/index.ts"
       ],
+      "@ptah-extension/memory-contracts": [
+        "libs/backend/memory-contracts/src/index.ts"
+      ],
       "@ptah-extension/skill-synthesis": [
         "libs/backend/skill-synthesis/src/index.ts"
       ],

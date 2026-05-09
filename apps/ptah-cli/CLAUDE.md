@@ -199,7 +199,6 @@ params)` for in-process RPC
 │    ├── ptah quality assessment|history|export                        │
 │    ├── ptah license status|set|clear                                 │
 │    ├── ptah settings export|import                                   │
-│    ├── ptah new-project select-type|submit-answers|get-plan|approve  │
 │    ├── ptah wizard submit-selection|cancel|retry-item|status         │
 │    ├── ptah setup [--dry-run] [--auto-approve]                       │
 │    ├── ptah analyze [--save] [--out]                                 │

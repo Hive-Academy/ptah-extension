@@ -32,6 +32,10 @@ export {
 export * from './attachment-processor.service';
 export { SubagentHookHandler } from './subagent-hook-handler';
 export {
+  SubagentMessageDispatcher,
+  SUBAGENT_DISPATCHER_TOKEN,
+} from './subagent-message-dispatcher';
+export {
   CompactionConfigProvider,
   type CompactionConfig,
 } from './compaction-config-provider';
@@ -42,6 +46,12 @@ export {
 } from './compaction-hook-handler';
 // Compaction callback registry (TASK_2026_HERMES Track 1)
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
+// Session end callback registry (TASK_2026_THOTH_SKILL_LIFECYCLE)
+export {
+  SessionEndCallbackRegistry,
+  type SessionEndCallback,
+  type SessionEndPayload,
+} from './session-end-callback-registry';
 // Live usage tracker (TASK_2026_109 cycle-break)
 export { LiveUsageTracker } from './live-usage-tracker';
 // Worktree hook handler (TASK_2025_236)

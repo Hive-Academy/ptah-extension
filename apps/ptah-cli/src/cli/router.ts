@@ -25,7 +25,6 @@ import * as harnessCmd from './commands/harness.js';
 import * as interactCmd from './commands/interact.js';
 import * as licenseCmd from './commands/license.js';
 import * as mcpCmd from './commands/mcp.js';
-import * as newProjectCmd from './commands/new-project.js';
 import * as pluginCmd from './commands/plugin.js';
 import * as promptsCmd from './commands/prompts.js';
 import * as providerCmd from './commands/provider.js';
@@ -2055,71 +2054,6 @@ export function buildRouter(): Command {
     .action(async (id: string) => {
       const exit = await sessionCmd.execute(
         { subcommand: 'validate', id },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
-
-  // -- ptah new-project ------------------------------------------------------
-  // TASK_2026_104 Sub-batch B9b. Backed by the New Project Wizard handlers
-  // inside the shared SetupRpcHandlers.
-  const newProject = program
-    .command('new-project')
-    .description(
-      'New Project Wizard (select-type / submit-answers / get-plan / approve-plan)',
-    );
-
-  newProject
-    .command('select-type <type>')
-    .description(
-      'fetch question groups for a project type via wizard:new-project-select-type',
-    )
-    .action(async (type: string) => {
-      const exit = await newProjectCmd.execute(
-        { subcommand: 'select-type', projectType: type },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
-
-  newProject
-    .command('submit-answers')
-    .description(
-      'submit discovery answers (read from --file <path>) via wizard:new-project-submit-answers',
-    )
-    .requiredOption(
-      '--file <path>',
-      'JSON file with { projectType, projectName, answers[, force] }',
-    )
-    .action(async (opts: { file: string }) => {
-      const exit = await newProjectCmd.execute(
-        { subcommand: 'submit-answers', file: opts.file },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
-
-  newProject
-    .command('get-plan <session-id>')
-    .description(
-      'load the previously-generated master plan via wizard:new-project-get-plan',
-    )
-    .action(async (sessionId: string) => {
-      const exit = await newProjectCmd.execute(
-        { subcommand: 'get-plan', sessionId },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
-
-  newProject
-    .command('approve-plan <session-id>')
-    .description(
-      'approve and persist the master plan via wizard:new-project-approve-plan',
-    )
-    .action(async (sessionId: string) => {
-      const exit = await newProjectCmd.execute(
-        { subcommand: 'approve-plan', sessionId },
         resolveGlobals(program),
       );
       process.exitCode = exit;

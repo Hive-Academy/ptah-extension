@@ -273,4 +273,10 @@ export async function wireRuntimeVscode(
       },
     );
   }
+
+  // Note: ptah.resetDatabase is intentionally NOT registered in the VS Code
+  // extension host. The persistence-sqlite layer is excluded from VS Code's
+  // RPC registration (see rpc-method-registration.service.ts ELECTRON_ONLY_METHODS),
+  // so the underlying db:reset RPC would always return Method-Not-Found.
+  // Reset Database is an Electron-app-only feature (Help > Database menu).
 }

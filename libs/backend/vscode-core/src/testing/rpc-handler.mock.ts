@@ -16,6 +16,7 @@ import type {
   RpcMethodHandler,
   BaseRpcMethodHandler,
 } from '../messaging/rpc-types';
+import { RpcUserError } from '../messaging/rpc-types';
 
 export interface MockRpcHandlerOverrides {
   /** Preregistered method handlers keyed by method name. */
@@ -71,10 +72,20 @@ export function createMockRpcHandler(
         try {
           const data = await handler(params);
           return { success: true, data, correlationId };
-        } catch (error) {
+        } catch (err: unknown) {
+          // Mirror the real RpcHandler: RpcUserError propagates errorCode and
+          // skips Sentry. Plain errors stay as-is.
+          if (err instanceof RpcUserError) {
+            return {
+              success: false,
+              error: err.message,
+              errorCode: err.errorCode,
+              correlationId,
+            };
+          }
           return {
             success: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: err instanceof Error ? err.message : String(err),
             correlationId,
           };
         }

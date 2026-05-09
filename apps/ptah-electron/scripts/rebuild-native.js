@@ -37,10 +37,17 @@ function getElectronVersion() {
 }
 
 /**
- * Check if a native .node binary already exists in build/Release/.
- * Used to skip re-downloading prebuilts that are already present.
+ * Read the NODE_MODULE_VERSION (ABI) baked into a compiled .node file.
+ * Returns null if the file doesn't exist, can't be read, or the marker
+ * isn't found. The .node file is a regular shared library; the embedded
+ * `NODE_MODULE_VERSION` field of `node::node_module` is searchable as the
+ * ASCII string `NODE_MODULE_VERSION` followed by the version number.
+ *
+ * This is heuristic but reliable for better-sqlite3's prebuilt binaries —
+ * it lets us distinguish a Node-ABI build (e.g. NMV 137) from an
+ * Electron-ABI build (e.g. NMV 143) without loading the binary.
  */
-function nativeBinaryExists(packageName, addonName) {
+function readNativeAbi(packageName, addonName) {
   const candidate = path.join(
     ROOT,
     'node_modules',
@@ -49,7 +56,33 @@ function nativeBinaryExists(packageName, addonName) {
     'Release',
     `${addonName}.node`,
   );
-  return fs.existsSync(candidate);
+  if (!fs.existsSync(candidate)) return null;
+  try {
+    const buf = fs.readFileSync(candidate);
+    // Search for the version registration callsite. Different toolchains
+    // emit the NMV either as an immediate in code or via an exported symbol
+    // matching `node_register_module_v<NMV>`. The export form is the most
+    // reliable cross-platform marker.
+    const text = buf.toString('binary');
+    const m = text.match(/node_register_module_v(\d+)/);
+    if (m) return Number(m[1]);
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
+/** Map an Electron version to its Node ABI (NODE_MODULE_VERSION). */
+function getElectronAbi(electronVersion) {
+  try {
+    const abi = require(path.join(ROOT, 'node_modules', 'node-abi')).getAbi(
+      electronVersion,
+      'electron',
+    );
+    return Number(abi);
+  } catch {
+    return null;
+  }
 }
 
 /** Run prebuild-install to download a prebuilt Electron binary for a package.
@@ -123,9 +156,25 @@ console.log(
 
 // --- Strategy 1: prebuild-install (no compiler needed) ---
 // better-sqlite3: REQUIRED for SQLite features (Memory, Cron, Gateway, Skills)
-if (nativeBinaryExists('better-sqlite3', 'better_sqlite3')) {
-  console.log('[skip] better-sqlite3 native binary already present');
+//
+// We MUST verify the existing .node was built for Electron's ABI, not just
+// that some .node file exists — npm install's lifecycle script builds
+// better-sqlite3 against the system Node ABI, which is almost always wrong
+// for Electron. Skipping by file-existence alone leaves the wrong binary
+// in place forever and produces NODE_MODULE_VERSION mismatch errors at
+// runtime.
+const expectedAbi = getElectronAbi(electronVersion);
+const presentAbi = readNativeAbi('better-sqlite3', 'better_sqlite3');
+if (expectedAbi && presentAbi === expectedAbi) {
+  console.log(
+    `[skip] better-sqlite3 already built for Electron ABI ${expectedAbi}`,
+  );
 } else {
+  if (presentAbi !== null) {
+    console.log(
+      `[rebuild] better-sqlite3 has ABI ${presentAbi}, need ${expectedAbi || '?'} — replacing`,
+    );
+  }
   prebuildInstall('better-sqlite3', electronVersion, true);
 }
 

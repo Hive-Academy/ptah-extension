@@ -1,8 +1,11 @@
 /**
  * MemorySearchService — hybrid BM25 (FTS5) + vector (sqlite-vec) search
- * with Reciprocal Rank Fusion (RRF, k=60). Falls back to BM25-only when
- * sqlite-vec is unavailable.
+ * with Reciprocal Rank Fusion (RRF). Falls back to BM25-only when
+ * sqlite-vec is unavailable. Results are cached in an LRU cache keyed by
+ * query + workspaceRoot + write-counter so stale entries are auto-evicted
+ * on any write to the memory store.
  */
+import { LRUCache } from 'lru-cache';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
@@ -22,8 +25,10 @@ import {
   type MemorySearchHit,
   type MemorySearchResponse,
 } from './memory.types';
+import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
 
-const RRF_K = 60;
+/** Default k for RRF — lowered from 60 to 25 for tighter ranking at memory scales of 100-5000 chunks. */
+const RRF_K_DEFAULT = 25;
 
 interface FtsRow {
   rowid: number;
@@ -42,6 +47,12 @@ interface VecRow {
 
 @injectable()
 export class MemorySearchService implements IMemoryReader {
+  /** LRU result cache — keyed by `${query}|${workspaceRoot}|${writeCounter}`. */
+  private readonly cache = new LRUCache<string, MemorySearchResponse>({
+    max: 100,
+    ttl: 60_000,
+  });
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
@@ -49,6 +60,19 @@ export class MemorySearchService implements IMemoryReader {
     @inject(PERSISTENCE_TOKENS.EMBEDDER) private readonly embedder: IEmbedder,
     @inject(MEMORY_TOKENS.MEMORY_STORE) private readonly store: MemoryStore,
   ) {}
+
+  /**
+   * Build the LRU cache key. Embeds the write-counter so cached entries
+   * from before a store write are never returned after it.
+   */
+  private makeCacheKey(
+    normalizedQuery: string,
+    workspaceRoot: string | undefined,
+  ): string {
+    const ws = workspaceRoot ?? '';
+    const counter = this.store.getWriteCounter(ws);
+    return `${normalizedQuery}|${ws}|${counter}`;
+  }
 
   async search(
     query: string,
@@ -79,6 +103,14 @@ export class MemorySearchService implements IMemoryReader {
     if (!trimmed)
       return { hits: [], bm25Only: !this.connection.vecExtensionLoaded };
 
+    // R3: LRU cache — short-circuit the full pipeline on repeated identical queries.
+    const cacheKey = this.makeCacheKey(trimmed, workspaceRoot);
+    const cached = this.cache.get(cacheKey);
+    if (cached) {
+      this.logger.debug('[memory-curator] cache hit', { query: trimmed });
+      return cached;
+    }
+
     const bm25Rows = this.bm25Search(trimmed, limit * 4, workspaceRoot);
     let vecRows: Array<FtsRow & { distance: number }> = [];
     let bm25Only = !this.connection.vecExtensionLoaded;
@@ -96,7 +128,57 @@ export class MemorySearchService implements IMemoryReader {
       }
     }
 
-    const fused = this.rrfFuse(bm25Rows, vecRows, limit);
+    // R5: Token-count-based weight heuristic.
+    // Short queries (< 4 tokens) favour exact BM25 term matching;
+    // longer queries with context favour semantic vector similarity.
+    const tokenCount = trimmed.split(/\s+/).filter((t) => t.length > 0).length;
+    const bm25Weight = tokenCount < 4 ? 0.6 : 0.3;
+    const weights = { bm25: bm25Weight, vec: 1 - bm25Weight };
+
+    // R1: Reranker — skip if too few candidates, fall back to RRF order on error.
+    // EmbedderWorkerClient is registered as the concrete impl under EMBEDDER;
+    // cast once here instead of widening IEmbedder (VS Code + CLI environments
+    // may use a non-worker embedder that has no rerank capability).
+    //
+    // Pass limit * 4 to rrfFuse so the reranker receives 4× the final topK as
+    // candidates, then slice back to limit after reranking. Previously rrfFuse
+    // was called with `limit`, which sliced the fused list to topK immediately
+    // and made the subsequent .slice(0, limit * 4) a no-op (Critical R1 fix).
+    let fused = this.rrfFuse(bm25Rows, vecRows, limit * 4, { k: 25, weights });
+    if (fused.length >= 5) {
+      const workerClient = this.workerClient;
+      if (workerClient !== null) {
+        try {
+          // Cap candidate text at 512 chars before sending to the worker to
+          // guard against OOM on unexpectedly large chunks (F-L3 defense-in-depth).
+          const MAX_CANDIDATE_CHARS = 512;
+          const rerankInput = fused.slice(0, limit * 4).map((e) => ({
+            id: String(e.row.rowid),
+            text:
+              e.row.text.length > MAX_CANDIDATE_CHARS
+                ? e.row.text.slice(0, MAX_CANDIDATE_CHARS)
+                : e.row.text,
+          }));
+          const ranked = await workerClient.rerank(trimmed, rerankInput, limit);
+          const byId = new Map(fused.map((e) => [String(e.row.rowid), e]));
+          const reranked = ranked
+            .map((r) => byId.get(r.id))
+            .filter((e): e is NonNullable<typeof e> => e !== undefined);
+          if (reranked.length > 0) {
+            fused = reranked;
+          }
+        } catch (err: unknown) {
+          this.logger.warn(
+            '[memory-curator] reranker failed; using RRF order',
+            {
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
+          // fused unchanged — fall through with RRF order
+        }
+      }
+    }
+
     const hits: MemorySearchHit[] = [];
     for (const entry of fused) {
       const memory = this.lookupMemory(entry.row.memory_id);
@@ -122,7 +204,19 @@ export class MemorySearchService implements IMemoryReader {
       }
     }
 
-    return { hits, bm25Only };
+    const response: MemorySearchResponse = { hits, bm25Only };
+    this.cache.set(cacheKey, response);
+    return response;
+  }
+
+  /**
+   * Returns the concrete EmbedderWorkerClient when the injected embedder is
+   * one, or null in environments (VS Code extension, unit tests) where a
+   * non-worker embedder is used. Keeps IEmbedder narrow — rerank/warmup are
+   * EmbedderWorkerClient-specific capabilities.
+   */
+  private get workerClient(): EmbedderWorkerClient | null {
+    return this.embedder instanceof EmbedderWorkerClient ? this.embedder : null;
   }
 
   private bm25Search(
@@ -200,16 +294,29 @@ export class MemorySearchService implements IMemoryReader {
     return out;
   }
 
+  /**
+   * Reciprocal Rank Fusion over BM25 and vector result lists.
+   * Pure function: no side-effects, no logger calls.
+   *
+   * @param opts.k - Ranking smoothing constant (default 25). Lower values
+   *   preserve more differentiation between top and bottom ranks.
+   * @param opts.weights - Per-source weights summing to 1.0 (default 0.5/0.5).
+   *   `searchRich` computes these from query token count before calling.
+   */
   private rrfFuse(
     bm25: readonly FtsRow[],
     vec: readonly (FtsRow & { distance: number })[],
     limit: number,
+    opts: { k?: number; weights?: { bm25: number; vec: number } } = {},
   ): Array<{
     row: FtsRow;
     score: number;
     bm25Rank: number | null;
     vecRank: number | null;
   }> {
+    const k = opts.k ?? RRF_K_DEFAULT;
+    const w = opts.weights ?? { bm25: 0.5, vec: 0.5 };
+
     const acc = new Map<
       number,
       {
@@ -223,7 +330,7 @@ export class MemorySearchService implements IMemoryReader {
       const rank = idx + 1;
       acc.set(row.rowid, {
         row,
-        score: 1 / (RRF_K + rank),
+        score: w.bm25 / (k + rank),
         bm25Rank: rank,
         vecRank: null,
       });
@@ -232,12 +339,12 @@ export class MemorySearchService implements IMemoryReader {
       const rank = idx + 1;
       const existing = acc.get(row.rowid);
       if (existing) {
-        existing.score += 1 / (RRF_K + rank);
+        existing.score += w.vec / (k + rank);
         existing.vecRank = rank;
       } else {
         acc.set(row.rowid, {
           row,
-          score: 1 / (RRF_K + rank),
+          score: w.vec / (k + rank),
           bm25Rank: null,
           vecRank: rank,
         });
@@ -252,15 +359,46 @@ export class MemorySearchService implements IMemoryReader {
     return this.store.getById(memoryId(id));
   }
 
-  private escapeFtsQuery(q: string): string {
-    // Strip FTS5 special characters; wrap multi-token query in OR.
-    const tokens = q
-      .replace(/["'()]/g, ' ')
+  /**
+   * Build an FTS5 MATCH expression from raw user query text.
+   *
+   * - Strips ALL FTS5 metacharacters so user input cannot break out of the
+   *   query expression or trigger column-qualifier injection:
+   *     " * ( ) ^ : + - ~
+   * - FTS5 boolean keywords (NEAR AND OR NOT) are neutralised by wrapping
+   *   each surviving token in double-quotes; the quoting turns them into
+   *   literal phrase tokens. An explicit keyword-drop filter is added as
+   *   defence-in-depth for any version where quoting behaviour might differ.
+   * - Drops single-character tokens (low signal, high noise).
+   * - Prefix-matches the LAST token: "<token>"* — accommodates partial words
+   *   the user is mid-typing.
+   * - Joins all tokens with OR for recall (RAG context injection prefers
+   *   recall over precision; reranker handles precision in a later step).
+   * - Empty-after-stripping -> returns '""' which won't match anything.
+   *
+   * Security: this is NOT classical SQL injection — the query is fed to
+   * prepare().all() as a bound parameter. This strips FTS5-grammar-level
+   * operators only (F-H1 from security review).
+   */
+  private escapeFtsQuery(rawQuery: string): string {
+    /** FTS5 boolean keywords that must not survive into the final expression. */
+    const FTS5_KEYWORDS = new Set(['near', 'and', 'or', 'not']);
+
+    const tokens = rawQuery
+      .toLowerCase()
+      // Strip all FTS5 metacharacters: quotes, glob, parens, column-qualifier,
+      // prefix-require/exclude, initial-token, proximity, tilde.
+      .replace(/["*()^:+\-~]/g, ' ')
       .split(/\s+/)
       .filter((t) => t.length > 1)
-      .map((t) => `"${t.replace(/"/g, '')}"`);
-    if (tokens.length === 0)
-      return `"${q.replace(/["'()]/g, ' ').trim() || 'memory'}"`;
-    return tokens.join(' OR ');
+      // Drop FTS5 boolean keywords (defence-in-depth — quoting already handles
+      // them, but a future grammar change could re-expose them).
+      .filter((t) => !FTS5_KEYWORDS.has(t));
+
+    if (tokens.length === 0) return '""';
+
+    return tokens
+      .map((t, i) => (i === tokens.length - 1 ? `"${t}"*` : `"${t}"`))
+      .join(' OR ');
   }
 }

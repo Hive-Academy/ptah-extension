@@ -125,6 +125,7 @@ export function registerPhase4Handlers(
         c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
         c,
         c.resolve(TOKENS.SENTRY_SERVICE),
+        c.resolve(TOKENS.PLATFORM_COMMANDS),
       ),
   });
   container.registerSingleton(LicenseRpcHandlers);

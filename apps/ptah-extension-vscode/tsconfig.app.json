@@ -9,5 +9,6 @@
   "include": [
     "src/**/*.ts",
     "../../libs/backend/vscode-lm-tools/src/lib/code-execution/services/gifenc.d.ts"
-  ]
+  ],
+  "exclude": ["**/*.spec.ts"]
 }

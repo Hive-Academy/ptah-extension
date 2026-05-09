@@ -61,7 +61,7 @@ export class MemoryPromptInjector {
         '',
         '---',
       ].join('\n');
-    } catch (err) {
+    } catch (err: unknown) {
       this.logger.warn(
         '[MemoryPromptInjector] Memory search failed; skipping injection',
         {

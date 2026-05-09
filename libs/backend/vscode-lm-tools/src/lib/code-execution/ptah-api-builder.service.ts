@@ -26,6 +26,7 @@
  */
 
 import * as os from 'os';
+import * as path from 'path';
 import { injectable, inject, container } from 'tsyringe';
 import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
@@ -88,6 +89,8 @@ import {
   // Browser namespace builder (TASK_2025_244)
   buildBrowserNamespace,
   type IBrowserCapabilities,
+  // Skill namespace builder (TASK_2026_THOTH_SKILL_LIFECYCLE)
+  buildSkillNamespace,
   // Memory namespace builder (TASK_2026_THOTH_MEMORY_READ)
   buildMemoryNamespace,
   // Code symbol indexer namespace builder (TASK_2026_THOTH_CODE_INDEX)
@@ -559,6 +562,13 @@ export class PtahAPIBuilder {
               false,
             ) ?? false,
           // Note: recordingDir is configured via capabilities constructor, not namespace deps
+        }),
+      ),
+
+      // Promoted skills namespace (TASK_2026_THOTH_SKILL_LIFECYCLE - ptah.skill.list + ptah.skill.describe)
+      skill: this.buildNamespaceSafe('skill', () =>
+        buildSkillNamespace({
+          getSkillsRoot: () => path.join(os.homedir(), '.ptah', 'skills'),
         }),
       ),
 

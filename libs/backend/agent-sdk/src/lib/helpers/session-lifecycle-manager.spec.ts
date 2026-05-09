@@ -28,10 +28,10 @@
  *     single nominal-type seam (production `Logger` is a class).
  *
  * Constructor signature note:
- *   The production constructor takes EIGHT dependencies — logger,
+ *   The production constructor takes NINE dependencies — logger,
  *   permissionHandler, moduleLoader, queryOptionsBuilder, messageFactory,
- *   subagentRegistry, authEnv, modelResolver. The fixture supplies all eight
- *   so `endSession()` exercises the full cleanup path.
+ *   subagentRegistry, authEnv, modelResolver, sessionEndRegistry. The fixture
+ *   supplies all nine so `endSession()` exercises the full cleanup path.
  *
  * Source-under-test:
  *   `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts`
@@ -253,6 +253,10 @@ function makeHarness(
     },
   );
 
+  // Minimal stub for SessionEndCallbackRegistry — notifyAll is fire-and-forget;
+  // tests that care about session-end notifications can assert on this mock.
+  const sessionEndRegistryStub = { notifyAll: jest.fn() };
+
   const manager = new SessionLifecycleManager(
     asLogger(logger),
     permissionHandler,
@@ -262,6 +266,7 @@ function makeHarness(
     subagentRegistry as unknown as SubagentRegistryService,
     authEnv,
     modelResolver as unknown as ModelResolver,
+    sessionEndRegistryStub as unknown as import('./session-end-callback-registry').SessionEndCallbackRegistry,
   );
 
   return {

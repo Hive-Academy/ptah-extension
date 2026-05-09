@@ -1,6 +1,8 @@
 // Phase 4.55 + 4.56 plugin loader + skill junction activation.
 // Extracted from wire-runtime.ts to fit the line budget.
 
+import * as os from 'os';
+import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
@@ -54,7 +56,8 @@ export function activateSkillJunctions(
     const skillJunction = container.resolve<SkillJunctionService>(
       SDK_TOKENS.SDK_SKILL_JUNCTION,
     );
-    skillJunction.initialize(pluginsPath);
+    const synthesizedSkillsRoot = path.join(os.homedir(), '.ptah', 'skills');
+    skillJunction.initialize(pluginsPath, synthesizedSkillsRoot);
 
     const pluginLoader = container.resolve<PluginLoaderService>(
       SDK_TOKENS.SDK_PLUGIN_LOADER,

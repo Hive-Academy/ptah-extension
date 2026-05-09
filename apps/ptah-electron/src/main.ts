@@ -47,12 +47,12 @@ if (!gotLock) {
       startupLicenseTier: boot.startupLicenseTier,
     });
     resolvedStateStorage = wired.resolvedStateStorage;
-    skillJunctionRef = wired.skillJunctionRef;
-    gitWatcher = wired.gitWatcher;
-    sqliteConnection = wired.sqliteConnection;
-    memoryCurator = wired.memoryCurator;
-    skillSynthesis = wired.skillSynthesis;
-    cronScheduler = wired.cronScheduler;
+    skillJunctionRef = wired.refs.skillJunctionRef;
+    gitWatcher = wired.refs.gitWatcher;
+    sqliteConnection = wired.refs.sqliteConnection;
+    memoryCurator = wired.refs.memoryCurator;
+    skillSynthesis = wired.refs.skillSynthesis;
+    cronScheduler = wired.refs.cronScheduler;
     symbolWatcher = wired.refs.symbolWatcher;
     // Back-fill the mutable ref so bootstrap's onDidChangeWorkspaceFolders
     // subscription can call gitWatcher.switchWorkspace on folder changes.
@@ -68,6 +68,7 @@ if (!gotLock) {
         mainWindow = w;
       },
       getMainWindow: () => mainWindow,
+      scheduleWarmup: wired.scheduleWarmup,
     });
     revalidationInterval = post.revalidationInterval;
     messagingGateway = post.messagingGateway;

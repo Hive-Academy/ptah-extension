@@ -29,6 +29,7 @@ import {
   PERSISTENCE_TOKENS,
   type SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
+import type { EmbedderWorkerClient } from '@ptah-extension/memory-curator';
 import {
   CODE_SYMBOL_INDEXER,
   type CodeSymbolIndexer,
@@ -44,7 +45,10 @@ import {
 import {
   CRON_TOKENS,
   type CronScheduler,
+  type IJobStore,
+  type IHandlerRegistry,
 } from '@ptah-extension/cron-scheduler';
+import type { IBackupService } from '@ptah-extension/persistence-sqlite';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { GatewayService } from '@ptah-extension/messaging-gateway';
 
@@ -57,6 +61,14 @@ export interface WireRuntimeOptions {
 
 export interface WireRuntimeResult {
   resolvedStateStorage: IStateStorage | undefined;
+  /**
+   * Call this AFTER the main BrowserWindow fires `did-finish-load` to trigger
+   * the 3-second idle warmup of the embedder + cross-encoder models (R4).
+   * The delay is intentionally anchored to window-ready so warmup I/O does not
+   * overlap with the renderer's first render burst.
+   * No-op when memory-curator was not started (null workspace or start failure).
+   */
+  scheduleWarmup: () => void;
   refs: {
     skillJunctionRef: { deactivateSync: () => void } | null;
     gitWatcher: {
@@ -228,12 +240,36 @@ export async function wireRuntime(
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : '';
+      const isAbiMismatch =
+        /NODE_MODULE_VERSION|compiled against a different Node\.js version/i.test(
+          errorMessage,
+        );
+      // ONE prominent, actionable line — not a buried stack trace. The
+      // detailed failure reason now lives on `sqliteConnection.unavailable`,
+      // and every persistence-backed RPC will return a structured
+      // `PERSISTENCE_UNAVAILABLE` errorCode the UI can render as a single
+      // notice instead of N raw stack traces.
       console.error(
-        '[Ptah Electron] SQLite openAndMigrate FAILED (non-fatal):',
-        errorMessage,
+        '\n' +
+          '╔═══════════════════════════════════════════════════════════════════╗\n' +
+          '║  [Ptah] PERSISTENCE OFFLINE — Memory / Skills / Cron / Gateway   ║\n' +
+          '║  features will report PERSISTENCE_UNAVAILABLE until this is      ║\n' +
+          '║  resolved. The rest of the app will continue to boot.            ║\n' +
+          (isAbiMismatch
+            ? '║                                                                   ║\n' +
+              '║  CAUSE:  better-sqlite3 native module ABI mismatch.              ║\n' +
+              '║  FIX:    npm run electron:rebuild   (then restart Ptah)          ║\n'
+            : '║                                                                   ║\n' +
+              `║  CAUSE:  ${errorMessage.slice(0, 56).padEnd(56)}     ║\n`) +
+          '╚═══════════════════════════════════════════════════════════════════╝\n',
       );
-      console.error('[Ptah Electron] Error stack:', errorStack);
+      // The DI-registered SqliteConnectionService is still in the
+      // container — the typed `db` getter throws
+      // RpcUserError(PERSISTENCE_UNAVAILABLE) on access, which the RPC
+      // layer auto-converts to a structured response. We null this local
+      // ref only so the next phases (memory curator / skill synthesis /
+      // code symbol indexer) skip their start() calls — they'd just fail
+      // again at the same point.
       refs.sqliteConnection = null;
     }
 
@@ -291,17 +327,20 @@ export async function wireRuntime(
           container.resolve<CodeSymbolIndexer>(CODE_SYMBOL_INDEXER);
 
         if (workspaceRoot) {
-          // Fire-and-forget full workspace index — must NOT block activation.
-          void symbolIndexer
-            .indexWorkspace(workspaceRoot)
-            .catch((err: unknown) => {
-              console.warn(
-                '[Ptah Electron] CodeSymbolIndexer.indexWorkspace failed (non-fatal):',
-                err instanceof Error ? err.message : String(err),
-              );
-            });
+          // Defer full workspace index 5 s — avoids competing with plugin load,
+          // MCP start, and window paint during the critical activation window.
+          setTimeout(() => {
+            void symbolIndexer
+              .indexWorkspace(workspaceRoot)
+              .catch((err: unknown) => {
+                console.warn(
+                  '[Ptah Electron] CodeSymbolIndexer.indexWorkspace failed (non-fatal):',
+                  err instanceof Error ? err.message : String(err),
+                );
+              });
+          }, 5000);
 
-          // Incremental re-index on file change (chokidar — same pattern as PHASE 4.8).
+          // Incremental re-index on file change — registers immediately (not deferred).
           // Debounced 500ms to prevent concurrent delete+insert races on rapid saves.
           const chokidar = await import('chokidar');
           const allowedExts = ['.ts', '.tsx', '.js', '.jsx'];
@@ -321,7 +360,7 @@ export async function wireRuntime(
               setTimeout(() => {
                 reindexDebounce.delete(filePath);
                 void symbolIndexer
-                  .reindexFile(filePath, workspaceRoot as string)
+                  .reindexFile(filePath, workspaceRoot)
                   .catch((err: unknown) => {
                     console.warn(
                       '[Ptah Electron] reindexFile failed (non-fatal):',
@@ -329,6 +368,12 @@ export async function wireRuntime(
                     );
                   });
               }, 500),
+            );
+          });
+          symbolWatcher.on('error', (err: unknown) => {
+            console.warn(
+              '[Ptah Electron] symbolWatcher error (non-fatal):',
+              err instanceof Error ? err.message : String(err),
             );
           });
           refs.symbolWatcher = symbolWatcher;
@@ -611,6 +656,105 @@ export async function wireRuntime(
       );
       refs.cronScheduler = null;
     }
+
+    // PHASE 4.95: Daily backup cron job registration (D7).
+    // Registers the @ptah/daily-backup system job idempotently on every boot.
+    // Uses JobStore.upsert so repeated boots update the schedule without
+    // creating duplicate rows. The handler is wired into IHandlerRegistry so
+    // the JobRunner can dispatch it by name when the cron fires.
+    // Entire phase is non-fatal — failure does not prevent the app from running.
+    try {
+      if (
+        refs.cronScheduler !== null &&
+        refs.sqliteConnection !== null &&
+        container.isRegistered(CRON_TOKENS.CRON_JOB_STORE) &&
+        container.isRegistered(CRON_TOKENS.CRON_HANDLER_REGISTRY)
+      ) {
+        const jobStore = container.resolve<IJobStore>(
+          CRON_TOKENS.CRON_JOB_STORE,
+        );
+        const handlerRegistry = container.resolve<IHandlerRegistry>(
+          CRON_TOKENS.CRON_HANDLER_REGISTRY,
+        );
+
+        // Register the backup handler into the in-process registry.
+        // Use unregister+register to be idempotent across restarts in dev
+        // mode where bootHeavyServices may be called more than once.
+        const BACKUP_HANDLER_NAME = 'backup:daily';
+        if (!handlerRegistry.has(BACKUP_HANDLER_NAME)) {
+          handlerRegistry.register(BACKUP_HANDLER_NAME, async () => {
+            const sqliteConn = refs.sqliteConnection;
+            if (!sqliteConn) {
+              return { summary: 'skipped: no sqlite connection' };
+            }
+            const backupSvc = container.resolve<IBackupService>(
+              PERSISTENCE_TOKENS.BACKUP_SERVICE,
+            );
+            const backupPath = await backupSvc.backup(sqliteConn.db, 'daily');
+            try {
+              backupSvc.rotate('daily', 7);
+            } catch (rotateErr: unknown) {
+              console.warn(
+                '[Ptah Electron] Daily backup rotation failed (non-fatal):',
+                rotateErr instanceof Error
+                  ? rotateErr.message
+                  : String(rotateErr),
+              );
+            }
+            try {
+              sqliteConn.db.pragma('incremental_vacuum(100)');
+            } catch (vacuumErr: unknown) {
+              console.warn(
+                '[Ptah Electron] Post-backup incremental_vacuum failed (non-fatal):',
+                vacuumErr instanceof Error
+                  ? vacuumErr.message
+                  : String(vacuumErr),
+              );
+            }
+            try {
+              sqliteConn.db.pragma('optimize');
+            } catch (optimizeErr: unknown) {
+              console.warn(
+                '[Ptah Electron] Post-backup optimize failed (non-fatal):',
+                optimizeErr instanceof Error
+                  ? optimizeErr.message
+                  : String(optimizeErr),
+              );
+            }
+            return {
+              summary: backupPath
+                ? `backup written to ${backupPath}`
+                : 'backup skipped (db.backup unavailable)',
+            };
+          });
+        }
+
+        // Upsert the job definition — idempotent across every boot.
+        jobStore.upsert({
+          id: '@ptah/daily-backup',
+          name: 'Daily SQLite Backup',
+          cronExpr: '0 3 * * *', // 03:00 UTC daily
+          timezone: 'UTC',
+          prompt: `handler:${BACKUP_HANDLER_NAME}`,
+          enabled: true,
+        });
+        console.log(
+          '[Ptah Electron] Daily backup cron job registered (@ptah/daily-backup)',
+        );
+      }
+    } catch (err: unknown) {
+      console.warn(
+        '[Ptah Electron] Daily backup cron registration failed (non-fatal):',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+
+    // PHASE 4.96 warmup is intentionally NOT fired here.
+    // It is anchored to the window's `did-finish-load` event (R4) so that
+    // ONNX model loading I/O does not race with the renderer's first paint.
+    // The `scheduleWarmup()` return value on WireRuntimeResult is the entry
+    // point; post-window.ts calls it inside `mainWindow.webContents.once(
+    //   'did-finish-load', ...)`.
   }; // end of bootHeavyServices
 
   // PHASE 4.7: Application Menu
@@ -621,7 +765,7 @@ export async function wireRuntime(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
   workspaceProvider.onDidChangeWorkspaceFolders(() => {
-    const active = workspaceProvider.getActiveFolder();
+    const active = workspaceProvider.getWorkspaceRoot();
     if (active) {
       bootHeavyServices(active).catch((err) => {
         console.error(
@@ -636,8 +780,45 @@ export async function wireRuntime(
     await bootHeavyServices(startupWorkspaceRoot);
   }
 
+  /**
+   * PHASE 4.96: Pre-warm embedder + reranker (R4).
+   *
+   * Called by post-window.ts AFTER mainWindow fires `did-finish-load` so
+   * warmup I/O does not overlap with the renderer's first render burst.
+   * Fire-and-forget, non-fatal. Logs heap usage to detect budget overruns.
+   */
+  function scheduleWarmup(): void {
+    if (refs.memoryCurator === null) return;
+    setTimeout(() => {
+      void (async () => {
+        try {
+          const embedderClient = container.resolve<EmbedderWorkerClient>(
+            PERSISTENCE_TOKENS.EMBEDDER,
+          );
+          await embedderClient.warmup();
+          const heapMb = process.memoryUsage().heapUsed / (1024 * 1024);
+          if (heapMb > 200) {
+            console.warn(
+              `[Ptah Electron] Worker heap after warmup: ${heapMb.toFixed(1)} MB (budget: 200 MB)`,
+            );
+          } else {
+            console.log(
+              `[Ptah Electron] Embedder warmup complete (heap: ${heapMb.toFixed(1)} MB)`,
+            );
+          }
+        } catch (err: unknown) {
+          console.warn(
+            '[Ptah Electron] Embedder warmup failed (non-fatal):',
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      })();
+    }, 3000);
+  }
+
   return {
     resolvedStateStorage,
+    scheduleWarmup,
     refs,
   };
 }

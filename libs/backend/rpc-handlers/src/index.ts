@@ -44,6 +44,14 @@ export {
   SkillsSynthesisRpcHandlers,
   CronRpcHandlers,
   GatewayRpcHandlers,
+  PersistenceRpcHandlers,
+  mintResetChallengeToken,
+} from './lib/handlers';
+export type {
+  DbHealthResult,
+  DbHealthParams,
+  DbResetParams,
+  DbResetResult,
 } from './lib/handlers';
 
 // Platform abstraction interfaces (TASK_2025_203 Batch 2)

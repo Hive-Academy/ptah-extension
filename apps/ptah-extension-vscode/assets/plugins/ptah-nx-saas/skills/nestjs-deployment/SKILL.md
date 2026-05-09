@@ -7,6 +7,10 @@ description: 'NestJS deployment and production hardening patterns for containeri
 
 Patterns for taking NestJS applications from development to production with Docker, proper bundling, database migrations, and security hardening. Extracted from production deployments on DigitalOcean App Platform but adaptable to any cloud provider.
 
+## Activation scope
+
+This skill activates **per-module during Stage B** of the SaaS bootstrap, typically against a `deploy-docker` or `deploy-ci` roadmap item. It is NOT part of the Stage A foundation produced by `saas-workspace-initializer` — Stage A only sets up minimal lint/test CI. Reach for this skill when productionizing the deployment pipeline, not before there is anything to deploy.
+
 ## Deployment Checklist
 
 Before shipping to production, verify every item:
@@ -121,7 +125,7 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-    })
+    }),
   );
 
   const configService = app.get(ConfigService);

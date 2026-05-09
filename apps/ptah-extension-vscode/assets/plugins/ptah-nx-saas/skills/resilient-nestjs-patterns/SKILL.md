@@ -7,6 +7,10 @@ description: 'Production-ready NestJS architectural patterns for service orchest
 
 Five interconnected architectural patterns that take a NestJS backend from prototype to production. These patterns address the structural and reliability concerns that emerge once basic CRUD, auth, and third-party integration are in place.
 
+## Activation scope
+
+This skill activates **per-module during Stage B** of the SaaS bootstrap — typically when implementing a Resilience & Events roadmap item or hardening a specific domain module. It is NOT bundled into the Stage A foundation scaffold; `saas-workspace-initializer` deliberately leaves orchestration, retries, SSE, and dynamic-module wiring out of the foundation so each pattern lands with real domain context.
+
 ## When You Need These Patterns
 
 - A service file has grown past 500 lines and handles unrelated concerns
@@ -103,7 +107,7 @@ export class SubscriptionService {
   constructor(
     private readonly dbService: SubscriptionDbService, // Data layer
     private readonly paymentService: PaymentService, // External (retry/fallback)
-    private readonly eventEmitter: EventEmitter2 // Async side-effects
+    private readonly eventEmitter: EventEmitter2, // Async side-effects
   ) {}
 
   async createSubscription(userId: string, dto: CreateSubscriptionDto) {
@@ -151,7 +155,10 @@ export class SubscriptionDbService {
 // Event listener: async side-effect
 @Injectable()
 export class SubscriptionEventListener {
-  constructor(private readonly emailService: EmailService, private readonly eventsService: EventsService) {}
+  constructor(
+    private readonly emailService: EmailService,
+    private readonly eventsService: EventsService,
+  ) {}
 
   @OnEvent('subscription.created')
   async handleSubscriptionCreated(payload: SubscriptionCreatedEvent) {

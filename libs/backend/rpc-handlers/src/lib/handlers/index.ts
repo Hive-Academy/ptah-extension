@@ -60,3 +60,15 @@ export { CronRpcHandlers } from './cron-rpc.handlers';
 
 // Messaging gateway handlers (TASK_2026_HERMES Track 4)
 export { GatewayRpcHandlers } from './gateway-rpc.handlers';
+
+// Persistence health + reset handlers (TASK_2026_THOTH_PERSISTENCE_HARDENING Batch 4)
+export {
+  PersistenceRpcHandlers,
+  mintResetChallengeToken,
+} from './persistence-rpc.handlers';
+export type {
+  DbHealthResult,
+  DbHealthParams,
+  DbResetParams,
+  DbResetResult,
+} from './persistence-rpc.handlers';

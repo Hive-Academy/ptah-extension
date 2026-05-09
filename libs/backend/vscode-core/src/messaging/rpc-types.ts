@@ -36,6 +36,12 @@ export interface RpcResponse<T = unknown> {
    *
    * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
    * - 'PRO_TIER_REQUIRED': Pro subscription required for this feature
+   * - 'WORKSPACE_NOT_OPEN': No workspace folder is open (expected, not a bug)
+   * - 'MESSAGE_ID_NOT_FOUND': upToMessageId not found in session history (user recoverable)
+   * - 'MODEL_NOT_AVAILABLE': Requested model not in provider's available list (user recoverable)
+   * - 'PERSISTENCE_UNAVAILABLE': SQLite connection is closed (native module ABI mismatch, disk error, etc.)
+   *                              The action requires persistence (Memory / Skills / Cron / Gateway features)
+   *                              but the connection failed to open. Error message names the recovery step.
    *
    * @example
    * ```typescript
@@ -43,10 +49,16 @@ export interface RpcResponse<T = unknown> {
    *   showLicensePrompt();
    * } else if (response.errorCode === 'PRO_TIER_REQUIRED') {
    *   showUpgradePrompt();
+   * } else if (response.errorCode === 'WORKSPACE_NOT_OPEN') {
+   *   showOpenFolderPrompt();
+   * } else if (response.errorCode === 'MESSAGE_ID_NOT_FOUND') {
+   *   showForkCheckpointError();
+   * } else if (response.errorCode === 'MODEL_NOT_AVAILABLE') {
+   *   showModelUnavailableError();
    * }
    * ```
    */
-  errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED';
+  errorCode?: RpcUserErrorCode;
   /** Correlation ID matching the original request */
   correlationId: string;
 }
@@ -56,7 +68,7 @@ export interface RpcResponse<T = unknown> {
  * Allows type-safe parameter and return types
  */
 export type RpcMethodHandler<TParams = unknown, TResult = unknown> = (
-  params: TParams
+  params: TParams,
 ) => Promise<TResult>;
 
 /**
@@ -64,3 +76,26 @@ export type RpcMethodHandler<TParams = unknown, TResult = unknown> = (
  * Used internally by RpcHandler - external code should use typed handlers
  */
 export type BaseRpcMethodHandler = (params: unknown) => Promise<unknown>;
+
+// RpcUserErrorCode is the single source of truth — imported from @ptah-extension/shared.
+export type { RpcUserErrorCode } from '@ptah-extension/shared';
+import type { RpcUserErrorCode } from '@ptah-extension/shared';
+
+/**
+ * RpcUserError — a typed, user-recoverable RPC error.
+ *
+ * Throw this inside an RPC handler when the failure is an expected user-facing
+ * condition, not a bug. RpcHandler converts it to a structured
+ * `{ success: false, error, errorCode }` response and skips Sentry reporting.
+ *
+ * @throws RpcUserError
+ */
+export class RpcUserError extends Error {
+  readonly errorCode: RpcUserErrorCode;
+
+  constructor(message: string, errorCode: RpcUserErrorCode) {
+    super(message);
+    this.name = 'RpcUserError';
+    this.errorCode = errorCode;
+  }
+}

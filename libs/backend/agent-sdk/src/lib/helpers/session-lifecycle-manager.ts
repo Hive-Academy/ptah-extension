@@ -48,6 +48,7 @@ import { SessionRegistry } from './session-lifecycle/session-registry.service';
 import { SessionStreamPump } from './session-lifecycle/session-stream-pump.service';
 import { SessionQueryExecutor } from './session-lifecycle/session-query-executor.service';
 import { SessionControl } from './session-lifecycle/session-control.service';
+import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
 
 // Re-export for backward compatibility with other files
 export type { SDKUserMessage, ContentBlock };
@@ -66,6 +67,12 @@ export interface Query {
   setModel(model?: string): Promise<void>;
   /** Stream input messages to the query */
   streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
+  /**
+   * Stop a specific running subagent by its SDK task_id.
+   * The subagent's output is written to its output_file and a
+   * task_notification with status='stopped' is emitted.
+   */
+  stopTask(taskId: string): Promise<void>;
   /**
    * Rewind tracked files to their state at a specific user message.
    * Requires the session to have been started with `enableFileCheckpointing: true`.
@@ -308,6 +315,8 @@ export class SessionLifecycleManager {
     private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: ModelResolver,
+    @inject(SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY)
+    private readonly sessionEndRegistry: SessionEndCallbackRegistry,
   ) {
     // Sub-services are constructed eagerly inside the facade because the spec
     // bypasses tsyringe and uses `new SessionLifecycleManager(...)` directly
@@ -336,6 +345,7 @@ export class SessionLifecycleManager {
       this.permissionHandler,
       this.subagentRegistry,
       this.modelResolver,
+      this.sessionEndRegistry,
     );
   }
 

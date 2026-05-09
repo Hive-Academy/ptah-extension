@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import type {
   SkillSynthesisCandidateSummary,
   SkillSynthesisInvocationEntry,
+  SkillSynthesisSettingsDto,
   SkillSynthesisStatsResult,
 } from '@ptah-extension/shared';
 
@@ -43,6 +44,7 @@ export class SkillSynthesisStateService {
   public readonly selectedCandidateId = signal<string | null>(null);
   public readonly invocations = signal<SkillSynthesisInvocationEntry[]>([]);
   public readonly stats = signal<SkillSynthesisStatsResult | null>(null);
+  public readonly settings = signal<SkillSynthesisSettingsDto | null>(null);
   public readonly loading = signal<boolean>(false);
   public readonly error = signal<string | null>(null);
 
@@ -133,6 +135,16 @@ export class SkillSynthesisStateService {
     try {
       const next = await this.rpc.stats();
       this.stats.set(next);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    }
+  }
+
+  /** Load settings from the backend into the settings signal. */
+  public async loadSettings(): Promise<void> {
+    try {
+      const s = await this.rpc.getSettings();
+      this.settings.set(s);
     } catch (err) {
       this.error.set(this.toMessage(err));
     }

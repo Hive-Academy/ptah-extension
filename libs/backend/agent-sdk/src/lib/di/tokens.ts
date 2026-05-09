@@ -61,7 +61,16 @@ export const SDK_TOKENS = {
    */
   SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
 
-  // Worktree hook handler (TASK_2025_236)
+  /**
+   * Session end callback registry.
+   * Fan-out registry for session-end subscribers (e.g. skill synthesis).
+   * Fired by SessionControl.endSession() after session is fully removed.
+   */
+  SDK_SESSION_END_CALLBACK_REGISTRY: Symbol.for(
+    'SdkSessionEndCallbackRegistry',
+  ),
+
+  // Worktree hook handler
   SDK_WORKTREE_HOOK_HANDLER: Symbol.for('SdkWorktreeHookHandler'),
 
   // Provider models service (TASK_2025_091 Phase 2, generalized TASK_2025_132)
@@ -167,6 +176,12 @@ export const SDK_TOKENS = {
    * MEMORY_CONTRACT_TOKENS.CURATOR_LLM so memory-curator resolves the same registration.
    */
   SDK_CURATOR_LLM_ADAPTER: Symbol.for('PtahCuratorLlm'),
+
+  /**
+   * SubagentMessageDispatcher — bidirectional messaging + stop/interrupt for
+   * running subagents. Phase 2 addition.
+   */
+  SDK_SUBAGENT_MESSAGE_DISPATCHER: Symbol.for('SubagentMessageDispatcher'),
 } as const;
 
 /**

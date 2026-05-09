@@ -98,6 +98,7 @@ import {
 import { SdkAgentAdapter } from './sdk-agent-adapter';
 import { SdkError } from './errors';
 import type { SessionMetadataStore } from './session-metadata-store';
+import type { SessionHistoryReaderService } from './session-history-reader.service';
 import type {
   AuthManager,
   SessionLifecycleManager,
@@ -272,6 +273,16 @@ function createMockSessionLifecycle(): jest.Mocked<
   };
 }
 
+function createMockHistoryReader(): jest.Mocked<
+  Pick<SessionHistoryReaderService, 'resolveNativeMessageId'>
+> {
+  return {
+    resolveNativeMessageId: jest
+      .fn()
+      .mockImplementation((_, __, id: string) => Promise.resolve(id)),
+  };
+}
+
 function createMockStreamTransformer(): jest.Mocked<
   Pick<StreamTransformer, 'transform'>
 > {
@@ -345,6 +356,7 @@ interface AdapterHarness {
   modelService: ReturnType<typeof createMockModelService>;
   platformInfo: IPlatformInfo;
   workspaceProvider: ReturnType<typeof createMockWorkspaceProvider>;
+  historyReader: ReturnType<typeof createMockHistoryReader>;
 }
 
 function makeAdapter(
@@ -366,6 +378,7 @@ function makeAdapter(
   const modelService = createMockModelService();
   const platformInfo = createMockPlatformInfo(options.platformInfo);
   const workspaceProvider = createMockWorkspaceProvider();
+  const historyReader = createMockHistoryReader();
 
   const adapter = new SdkAgentAdapter(
     asLogger(logger),
@@ -381,6 +394,7 @@ function makeAdapter(
     platformInfo,
     workspaceProvider as unknown as IWorkspaceProvider,
     sentry as unknown as SentryService,
+    historyReader as unknown as SessionHistoryReaderService,
   );
 
   return {
@@ -398,6 +412,7 @@ function makeAdapter(
     modelService,
     platformInfo,
     workspaceProvider,
+    historyReader,
   };
 }
 
@@ -940,6 +955,91 @@ describe('SdkAgentAdapter', () => {
         expect.objectContaining({
           errorSource: 'SdkAgentAdapter.forkSession',
         }),
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Message ID resolution (Fix: NODE-NESTJS-3A/39)
+    // -----------------------------------------------------------------------
+
+    it('resolves Ptah-internal upToMessageId to native SDK UUID before calling fork()', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      // Ptah-generated ID format: msg_<timestamp>_<random>
+      const ptahId = 'msg_1778055502540_cegogbr';
+      const nativeId = 'msg_01AbCdEfGhIjKlMnOpQrStUvWxYz';
+
+      // historyReader resolves the Ptah ID to the native UUID
+      h.historyReader.resolveNativeMessageId.mockResolvedValueOnce(nativeId);
+      getMockedForkSession().mockResolvedValueOnce({
+        sessionId: 'forked-uuid-native',
+      });
+
+      await h.adapter.forkSession(
+        'source-session-id' as SessionId,
+        ptahId,
+        'Branch',
+      );
+
+      // historyReader.resolveNativeMessageId must be called with the Ptah ID
+      expect(h.historyReader.resolveNativeMessageId).toHaveBeenCalledWith(
+        'source-session-id',
+        expect.any(String), // workspace path
+        ptahId,
+      );
+
+      // SDK fork must be called with the RESOLVED native UUID, not the Ptah ID
+      expect(getMockedForkSession()).toHaveBeenCalledWith('source-session-id', {
+        upToMessageId: nativeId,
+        title: 'Branch',
+      });
+    });
+
+    it('passes native UUID through unchanged without calling historyReader', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      const nativeId = 'msg_01AbCdEfGhIjKlMnOpQrStUvWxYz01';
+      getMockedForkSession().mockResolvedValueOnce({
+        sessionId: 'forked-uuid',
+      });
+
+      await h.adapter.forkSession('src-session' as SessionId, nativeId);
+
+      // historyReader is still called for native IDs (fast path returns same value)
+      // — this is fine because resolveNativeMessageId returns immediately for native UUIDs
+      expect(getMockedForkSession()).toHaveBeenCalledWith('src-session', {
+        upToMessageId: nativeId,
+        title: undefined,
+      });
+    });
+
+    it('throws SdkError (not the raw SDK error) when historyReader cannot resolve the Ptah ID', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      const ptahId = 'msg_1778055502540_notfound';
+      h.historyReader.resolveNativeMessageId.mockRejectedValueOnce(
+        new Error(
+          "upToMessageId 'msg_1778055502540_notfound' not found in session history",
+        ),
+      );
+      // SDK fork should NOT be called if resolution fails
+      getMockedForkSession().mockResolvedValueOnce({
+        sessionId: 'should-not-be-reached',
+      });
+
+      await expect(
+        h.adapter.forkSession('src' as SessionId, ptahId),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('Failed to fork session src'),
+      });
+
+      expect(getMockedForkSession()).not.toHaveBeenCalled();
+      expect(h.sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({ errorSource: 'SdkAgentAdapter.forkSession' }),
       );
     });
   });

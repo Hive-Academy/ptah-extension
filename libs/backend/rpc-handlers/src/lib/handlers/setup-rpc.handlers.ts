@@ -19,6 +19,7 @@ import { injectable, inject, DependencyContainer } from 'tsyringe';
 import {
   Logger,
   RpcHandler,
+  RpcUserError,
   TOKENS,
   LicenseService,
   type LicenseStatus,
@@ -30,7 +31,14 @@ import {
   PLATFORM_TOKENS,
   AgentPackDownloadService,
 } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IPlatformCommands,
+  IFileSystemProvider,
+  IMemoryWriter,
+  MemoryWriteRequest,
+} from '@ptah-extension/platform-core';
+import { deriveWorkspaceFingerprint } from '@ptah-extension/memory-curator';
 import type {
   AgentRecommendation,
   DeepProjectAnalysis,
@@ -41,11 +49,12 @@ import {
   normalizeAgentOutput,
   AgentRecommendationService,
   AnalysisStorageService,
-  NewProjectDiscoveryService,
-  MasterPlanGenerationService,
-  NewProjectStorageService,
 } from '@ptah-extension/agent-generation';
-import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  PluginLoaderService,
+  SkillJunctionService,
+} from '@ptah-extension/agent-sdk';
 import type {
   MultiPhaseAnalysisResponse,
   SavedAnalysisMetadata,
@@ -54,18 +63,43 @@ import type {
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
   WizardInstallPackAgentsResult,
-  WizardNewProjectSelectTypeParams,
-  WizardNewProjectSelectTypeResult,
-  WizardNewProjectSubmitAnswersParams,
-  WizardNewProjectSubmitAnswersResult,
-  WizardNewProjectGetPlanParams,
-  WizardNewProjectGetPlanResult,
-  WizardNewProjectApprovePlanParams,
-  WizardNewProjectApprovePlanResult,
+  WizardStartNewProjectChatParams,
+  WizardStartNewProjectChatResult,
 } from '@ptah-extension/shared';
-import { Result } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, Result } from '@ptah-extension/shared';
 import type { MultiPhaseManifest } from '@ptah-extension/agent-generation';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import type { WebviewBroadcaster } from '../harness/streaming';
+
+/**
+ * Plugin id of the SaaS workspace initializer skill pack — auto-enabled when
+ * `wizard:start-new-project-chat` runs so the seeded chat session has
+ * `saas-workspace-initializer` discoverable in `.claude/skills/`.
+ */
+const SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID = 'ptah-nx-saas';
+
+/**
+ * Verbatim seed prompt posted as the first user turn after the wizard hands
+ * off to the chat view. The skill name and Stage A wording are load-bearing —
+ * the saas-workspace-initializer skill keys off them.
+ */
+const NEW_PROJECT_CHAT_SEED_PROMPT =
+  "I'm starting a new SaaS project. Use the saas-workspace-initializer skill " +
+  'to drive Stage A — discovery, write the roadmap to .ptah/roadmap.md, then ' +
+  'scaffold the foundation. Stop after foundation; remaining roadmap items ' +
+  'run in separate sessions.';
+
+/** ViewType of the wizard webview panel — must match SetupWizardService. */
+const WIZARD_VIEW_TYPE = 'ptah.setupWizard';
+
+/**
+ * Local interface for the wizard webview lifecycle service we need
+ * (just `disposeWebview`). Resolved dynamically because it is registered
+ * in `agent-generation`.
+ */
+interface WizardWebviewLifecycleLike {
+  disposeWebview(viewType: string): void;
+}
 
 /**
  * SetupStatus response type for setup-status:get-status RPC method
@@ -93,10 +127,7 @@ export class SetupRpcHandlers {
     'wizard:load-analysis',
     'wizard:list-agent-packs',
     'wizard:install-pack-agents',
-    'wizard:new-project-select-type',
-    'wizard:new-project-submit-answers',
-    'wizard:new-project-get-plan',
-    'wizard:new-project-approve-plan',
+    'wizard:start-new-project-chat',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -112,6 +143,8 @@ export class SetupRpcHandlers {
     private readonly container: DependencyContainer,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(TOKENS.PLATFORM_COMMANDS)
+    private readonly platformCommands: IPlatformCommands,
   ) {}
 
   /**
@@ -170,10 +203,7 @@ export class SetupRpcHandlers {
     this.registerLoadAnalysis();
     this.registerListAgentPacks();
     this.registerInstallPackAgents();
-    this.registerNewProjectSelectType();
-    this.registerNewProjectSubmitAnswers();
-    this.registerNewProjectGetPlan();
-    this.registerNewProjectApprovePlan();
+    this.registerStartNewProjectChat();
 
     this.logger.debug('Setup RPC handlers registered', {
       methods: [
@@ -186,10 +216,7 @@ export class SetupRpcHandlers {
         'wizard:load-analysis',
         'wizard:list-agent-packs',
         'wizard:install-pack-agents',
-        'wizard:new-project-select-type',
-        'wizard:new-project-submit-answers',
-        'wizard:new-project-get-plan',
-        'wizard:new-project-approve-plan',
+        'wizard:start-new-project-chat',
       ],
     });
   }
@@ -205,8 +232,9 @@ export class SetupRpcHandlers {
 
         const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
         if (!workspaceRoot) {
-          throw new Error(
+          throw new RpcUserError(
             'No workspace folder open. Please open a folder to configure agents.',
+            'WORKSPACE_NOT_OPEN',
           );
         }
 
@@ -243,8 +271,9 @@ export class SetupRpcHandlers {
 
         const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
         if (!workspaceRoot) {
-          throw new Error(
+          throw new RpcUserError(
             'No workspace folder open. Please open a folder first.',
+            'WORKSPACE_NOT_OPEN',
           );
         }
 
@@ -281,8 +310,9 @@ export class SetupRpcHandlers {
 
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
-        throw new Error(
+        throw new RpcUserError(
           'No workspace folder open. Please open a folder to analyze.',
+          'WORKSPACE_NOT_OPEN',
         );
       }
 
@@ -395,6 +425,21 @@ export class SetupRpcHandlers {
           .map(([id]) => id),
         phaseContentCount: Object.keys(phaseContents).length,
       });
+
+      // Seed memory from finalized analysis (non-blocking, non-fatal).
+      // MUST run after phaseContents is built so seed content can pull from
+      // phase markdown. MUST run before `return response` so the seed observes
+      // the same data the frontend sees. NO exception escapes `seedWizardMemory`
+      // — analysis response always reaches the RPC caller.
+      try {
+        await this.seedWizardMemory(workspaceRoot, manifest, phaseContents);
+      } catch (error) {
+        this.logger.warn('[SetupWizard] Memory seeding failed (non-fatal)', {
+          error: error instanceof Error ? error.message : String(error),
+          stage: 'outer-guard',
+          workspaceRoot,
+        });
+      }
 
       const response: MultiPhaseAnalysisResponse = {
         isMultiPhase: true,
@@ -713,7 +758,10 @@ export class SetupRpcHandlers {
 
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
-        throw new Error('No workspace folder open.');
+        throw new RpcUserError(
+          'No workspace folder open.',
+          'WORKSPACE_NOT_OPEN',
+        );
       }
 
       const storageService = this.resolveService<AnalysisStorageService>(
@@ -778,7 +826,10 @@ export class SetupRpcHandlers {
 
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
-        throw new Error('No workspace folder open.');
+        throw new RpcUserError(
+          'No workspace folder open.',
+          'WORKSPACE_NOT_OPEN',
+        );
       }
 
       const path = await import('path');
@@ -793,192 +844,638 @@ export class SetupRpcHandlers {
   }
 
   // ============================================================
-  // New Project Wizard Handlers
+  // New Project Chat Handoff
   // ============================================================
 
   /**
-   * wizard:new-project-select-type - Get question groups for a project type
+   * wizard:start-new-project-chat — hand the New Project flow off to the
+   * chat view with the saas-workspace-initializer skill primed.
+   *
+   * Steps:
+   *   1. Ensure the `ptah-nx-saas` plugin is enabled in the workspace plugin
+   *      config (via PluginLoaderService.saveWorkspacePluginConfig).
+   *   2. If the plugin set changed, refresh `.claude/skills/` junctions via
+   *      SkillJunctionService.createJunctions(...).
+   *   3. Focus the chat view (IPlatformCommands.focusChat — VS Code uses
+   *      `ptah.main.focus`, Electron broadcasts SWITCH_VIEW, CLI is no-op).
+   *   4. Broadcast SETUP_WIZARD_START_NEW_PROJECT_CHAT to the webview with
+   *      the verbatim seed prompt — the frontend creates a chat tab and
+   *      issues `chat:start` with the prompt as the first user turn.
+   *   5. Dispose the wizard webview panel (mirrors wizard:cancel cleanup).
    */
-  private registerNewProjectSelectType(): void {
+  private registerStartNewProjectChat(): void {
     this.rpcHandler.registerMethod<
-      WizardNewProjectSelectTypeParams,
-      WizardNewProjectSelectTypeResult
-    >('wizard:new-project-select-type', async (params) => {
-      this.logger.debug('RPC: wizard:new-project-select-type called', {
-        projectType: params.projectType,
-      });
+      WizardStartNewProjectChatParams,
+      WizardStartNewProjectChatResult
+    >('wizard:start-new-project-chat', async () => {
+      this.logger.debug('RPC: wizard:start-new-project-chat called');
 
-      const discoveryService = this.resolveService<NewProjectDiscoveryService>(
-        AGENT_GENERATION_TOKENS.NEW_PROJECT_DISCOVERY_SERVICE,
-        'NewProjectDiscoveryService',
-      );
+      try {
+        // ---- Step 1: enable ptah-nx-saas plugin if not already enabled ----
+        const config = this.pluginLoader.getWorkspacePluginConfig();
+        const enabled = new Set(config.enabledPluginIds);
+        let pluginConfigChanged = false;
+        if (!enabled.has(SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID)) {
+          enabled.add(SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID);
+          await this.pluginLoader.saveWorkspacePluginConfig({
+            enabledPluginIds: Array.from(enabled),
+            disabledSkillIds: config.disabledSkillIds,
+          });
+          pluginConfigChanged = true;
+          this.logger.info(
+            '[wizard:start-new-project-chat] Enabled ptah-nx-saas plugin for workspace',
+          );
+        }
 
-      const groups = discoveryService.getQuestionGroups(params.projectType);
-      return { groups };
+        // ---- Step 2: refresh skill junctions when plugin set changed ----
+        if (pluginConfigChanged) {
+          try {
+            const skillJunction = this.resolveService<SkillJunctionService>(
+              SDK_TOKENS.SDK_SKILL_JUNCTION,
+              'SkillJunctionService',
+            );
+            const refreshedConfig =
+              this.pluginLoader.getWorkspacePluginConfig();
+            const pluginPaths = this.pluginLoader.resolvePluginPaths(
+              refreshedConfig.enabledPluginIds,
+            );
+            const junctionResult = skillJunction.createJunctions(
+              pluginPaths,
+              refreshedConfig.disabledSkillIds,
+            );
+            this.logger.debug(
+              '[wizard:start-new-project-chat] Skill junctions refreshed',
+              {
+                created: junctionResult.created,
+                skipped: junctionResult.skipped,
+                removed: junctionResult.removed,
+                errorCount: junctionResult.errors.length,
+              },
+            );
+          } catch (error: unknown) {
+            this.logger.warn(
+              '[wizard:start-new-project-chat] Failed to refresh skill junctions (non-fatal)',
+              {
+                error: error instanceof Error ? error.message : String(error),
+              },
+            );
+          }
+        }
+
+        // ---- Step 3: focus the chat view via the platform port ----
+        try {
+          await this.platformCommands.focusChat();
+        } catch (error: unknown) {
+          this.logger.warn(
+            '[wizard:start-new-project-chat] focusChat failed (non-fatal)',
+            {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        }
+
+        // ---- Step 4: broadcast the seed-message envelope to the webview ----
+        try {
+          const webviewManager = this.resolveService<WebviewBroadcaster>(
+            TOKENS.WEBVIEW_MANAGER,
+            'WebviewManager',
+          );
+          await webviewManager.broadcastMessage(
+            MESSAGE_TYPES.SETUP_WIZARD_START_NEW_PROJECT_CHAT,
+            { prompt: NEW_PROJECT_CHAT_SEED_PROMPT },
+          );
+        } catch (error: unknown) {
+          // Without a webview broadcaster (e.g. CLI) the seed turn cannot be
+          // delivered automatically — surface as a soft failure so callers
+          // can retry, but do not throw.
+          this.logger.warn(
+            '[wizard:start-new-project-chat] Failed to broadcast seed prompt',
+            {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        }
+
+        // ---- Step 5: dispose the wizard webview panel ----
+        try {
+          const wizardLifecycle =
+            this.resolveService<WizardWebviewLifecycleLike>(
+              AGENT_GENERATION_TOKENS.WIZARD_WEBVIEW_LIFECYCLE,
+              'WizardWebviewLifecycleService',
+            );
+          wizardLifecycle.disposeWebview(WIZARD_VIEW_TYPE);
+        } catch (error: unknown) {
+          this.logger.debug(
+            '[wizard:start-new-project-chat] Wizard panel dispose skipped (non-fatal)',
+            {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        }
+
+        return { success: true };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          '[wizard:start-new-project-chat] Failed to hand off to chat',
+          error instanceof Error ? error : new Error(message),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(message),
+          {
+            errorSource: 'SetupRpcHandlers.registerStartNewProjectChat',
+          },
+        );
+        return { success: false, error: message };
+      }
     });
   }
 
+  // ============================================================
+  // Wizard memory seeding
+  // ============================================================
+
   /**
-   * wizard:new-project-submit-answers - Validate answers and generate master plan
+   * Seed three memory entries (project-profile, code-conventions, key-files)
+   * from a finalized multi-phase analysis. Non-blocking and non-fatal — the
+   * caller awaits this but any failure is logged and swallowed so the wizard
+   * analysis response always reaches the RPC caller.
+   *
+   * Layered safety (plan §3.8):
+   *  1. Resolution guard — `resolveMemoryWriterOrNull()` returns null when no
+   *     adapter is registered (current VS Code state) → log skip + return.
+   *  2. Fingerprint guard — try/catch around `deriveWorkspaceFingerprint`.
+   *  3. Per-seed try/catch — each upsert is independent.
    */
-  private registerNewProjectSubmitAnswers(): void {
-    this.rpcHandler.registerMethod<
-      WizardNewProjectSubmitAnswersParams,
-      WizardNewProjectSubmitAnswersResult
-    >('wizard:new-project-submit-answers', async (params) => {
-      this.logger.debug('RPC: wizard:new-project-submit-answers called', {
-        projectType: params.projectType,
-        projectName: params.projectName,
-        answerCount: Object.keys(params.answers).length,
+  private async seedWizardMemory(
+    workspaceRoot: string,
+    manifest: MultiPhaseManifest,
+    phaseContents: Record<string, string>,
+  ): Promise<void> {
+    const writer = this.resolveMemoryWriterOrNull();
+    if (!writer) {
+      this.logger.info(
+        '[SetupWizard] Memory seeding skipped (store unavailable)',
+      );
+      return;
+    }
+
+    let fingerprintResult: Awaited<
+      ReturnType<typeof deriveWorkspaceFingerprint>
+    >;
+    try {
+      const fs = this.resolveService<IFileSystemProvider>(
+        PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER,
+        'IFileSystemProvider',
+      );
+      fingerprintResult = await deriveWorkspaceFingerprint(workspaceRoot, fs);
+    } catch (error: unknown) {
+      this.logger.warn('[SetupWizard] Memory seeding failed (non-fatal)', {
+        error: error instanceof Error ? error.message : String(error),
+        stage: 'fingerprint',
       });
+      return;
+    }
 
-      // 1. Resolve workspace root early (needed for storage check and plan save)
-      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-      if (!workspaceRoot) {
-        throw new Error(
-          'No workspace folder open. Please open a folder first.',
-        );
+    if (fingerprintResult.source === 'path') {
+      this.logger.info(
+        '[SetupWizard] Workspace fingerprint falling back to path; memories will not survive moves',
+        { workspaceRoot },
+      );
+    }
+
+    const seeds: ReadonlyArray<MemoryWriteRequest> = [
+      {
+        workspaceFingerprint: fingerprintResult.fp,
+        workspaceRoot,
+        subject: 'project-profile',
+        content: this.buildProjectProfileContent(manifest, phaseContents),
+        tier: 'core',
+        kind: 'preference',
+        pinned: true,
+        salience: 1.0,
+        decayRate: 0,
+      },
+      {
+        workspaceFingerprint: fingerprintResult.fp,
+        workspaceRoot,
+        subject: 'code-conventions',
+        content: this.buildCodeConventionsContent(manifest, phaseContents),
+        tier: 'core',
+        kind: 'preference',
+        pinned: true,
+        salience: 1.0,
+        decayRate: 0,
+      },
+      {
+        workspaceFingerprint: fingerprintResult.fp,
+        workspaceRoot,
+        subject: 'key-files',
+        content: this.buildKeyFilesContent(manifest, phaseContents),
+        tier: 'recall',
+        kind: 'entity',
+        pinned: false,
+        salience: 0.6,
+        decayRate: 0.01,
+      },
+    ];
+
+    let inserted = 0;
+    let replaced = 0;
+    let unchanged = 0;
+    for (const req of seeds) {
+      try {
+        const result = await writer.upsert(req);
+        if (result.status === 'inserted') inserted++;
+        else if (result.status === 'replaced') replaced++;
+        else unchanged++;
+      } catch (error: unknown) {
+        this.logger.warn('[SetupWizard] Memory seeding failed (non-fatal)', {
+          error: error instanceof Error ? error.message : String(error),
+          subject: req.subject,
+          workspaceRoot,
+        });
+        // Continue to next seed; one failure does not abort the others.
       }
+    }
 
-      const storageService = this.resolveService<NewProjectStorageService>(
-        AGENT_GENERATION_TOKENS.NEW_PROJECT_STORAGE_SERVICE,
-        'NewProjectStorageService',
+    this.logger.info(
+      `[SetupWizard] Seeded ${inserted + replaced + unchanged} memory entries for workspace ${workspaceRoot}`,
+      {
+        inserted,
+        replaced,
+        unchanged,
+        fingerprintSource: fingerprintResult.source,
+      },
+    );
+  }
+
+  /**
+   * Resolve the IMemoryWriter port lazily. Returns null when no adapter is
+   * registered (graceful no-op for VS Code without SQLite today).
+   */
+  private resolveMemoryWriterOrNull(): IMemoryWriter | null {
+    try {
+      return this.container.resolve<IMemoryWriter>(
+        PLATFORM_TOKENS.MEMORY_WRITER,
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  // ----- Content builders (plan §3.6) ---------------------------------------
+  // Multi-phase output is LLM-authored markdown — not structured JSON. The
+  // builders use tolerant regex/section extraction with safe fallbacks; if a
+  // section is missing they emit `(not detected)` rather than throw.
+
+  private buildProjectProfileContent(
+    manifest: MultiPhaseManifest,
+    phaseContents: Record<string, string>,
+  ): string {
+    const md = phaseContents['project-profile'] ?? '';
+    const slug = manifest.slug;
+    const sourceLine = `Source: .ptah/analysis/${slug}/project-profile.md`;
+
+    if (!md) {
+      const out =
+        `## Project Profile\n` +
+        `Type: (not detected)\n` +
+        `Frameworks: (not detected)\n` +
+        `Monorepo: (not detected)\n` +
+        `Tech stack: (not detected)\n` +
+        `Architecture patterns: (not detected)\n` +
+        sourceLine;
+      return capUtf8(out, 1500);
+    }
+
+    // H1 → Type
+    const h1 = /^#\s+(.+?)\s*$/m.exec(md);
+    const typeLine = h1 ? h1[1].trim() : '(not detected)';
+
+    // Bold-prefix lines: **Frameworks**: …
+    const grabBoldLine = (label: string): string | null => {
+      const re = new RegExp(
+        `^\\s*[*-]?\\s*\\*\\*${label}\\*\\*\\s*:\\s*(.+?)\\s*$`,
+        'mi',
+      );
+      const m = re.exec(md);
+      return m ? m[1].trim() : null;
+    };
+
+    const frameworksRaw = grabBoldLine('Frameworks');
+    const monorepoRaw = grabBoldLine('Monorepo');
+    const techStackRaw =
+      grabBoldLine('Tech Stack') ?? grabBoldLine('Tech stack');
+
+    const frameworksLine = truncateList(frameworksRaw) ?? '(not detected)';
+    const monorepoLine = monorepoRaw ?? 'none';
+    const techStackLine = truncateList(techStackRaw) ?? '(not detected)';
+
+    // First paragraph after `## Architecture` → Architecture patterns
+    let archLine = '(not detected)';
+    const archHeadMatch =
+      /^##\s+Architecture\b[^\n]*\n+([\s\S]*?)(?:\n#{1,6}\s|$)/m.exec(md);
+    if (archHeadMatch) {
+      const body = archHeadMatch[1].trim();
+      // First non-empty paragraph
+      const firstPara = body.split(/\n\s*\n/)[0]?.trim() ?? '';
+      if (firstPara) {
+        const oneLine = firstPara.replace(/\s+/g, ' ').trim();
+        archLine = oneLine.length > 200 ? `${oneLine.slice(0, 200)}…` : oneLine;
+      }
+    }
+
+    const out =
+      `## Project Profile\n` +
+      `Type: ${typeLine}\n` +
+      `Frameworks: ${frameworksLine}\n` +
+      `Monorepo: ${monorepoLine}\n` +
+      `Tech stack: ${techStackLine}\n` +
+      `Architecture patterns: ${archLine}\n` +
+      sourceLine;
+
+    return capUtf8(out, 1500);
+  }
+
+  private buildCodeConventionsContent(
+    manifest: MultiPhaseManifest,
+    phaseContents: Record<string, string>,
+  ): string {
+    // Search quality-audit first, then architecture-assessment.
+    const candidates: Array<{ phase: string; file: string; md: string }> = [
+      {
+        phase: 'quality-audit',
+        file: manifest.phases['quality-audit']?.file ?? '03-quality-audit.md',
+        md: phaseContents['quality-audit'] ?? '',
+      },
+      {
+        phase: 'architecture-assessment',
+        file:
+          manifest.phases['architecture-assessment']?.file ??
+          '02-architecture-assessment.md',
+        md: phaseContents['architecture-assessment'] ?? '',
+      },
+    ];
+
+    for (const c of candidates) {
+      if (!c.md) continue;
+      const section = extractH2Section(c.md, [
+        'Code Conventions',
+        'Coding Standards',
+      ]);
+      if (!section) continue;
+      const bullets = extractBullets(section, 12, 80);
+      if (bullets.length === 0) continue;
+      const out =
+        `## Code Conventions\n` +
+        bullets.map((b) => `- ${b}`).join('\n') +
+        `\nSource: .ptah/analysis/${manifest.slug}/${c.file}`;
+      return capUtf8(out, 1500);
+    }
+
+    const fallback =
+      `## Code Conventions\n` +
+      `(not detected — see analysis files)\n` +
+      `Source: .ptah/analysis/${manifest.slug}/`;
+    return capUtf8(fallback, 1500);
+  }
+
+  private buildKeyFilesContent(
+    manifest: MultiPhaseManifest,
+    phaseContents: Record<string, string>,
+  ): string {
+    // Categorisation heuristics — order-stable.
+    type Category =
+      | 'Entry points'
+      | 'Configs'
+      | 'Tests'
+      | 'Routes'
+      | 'Components'
+      | 'Services'
+      | 'Models';
+
+    const buckets: Record<Category, Set<string>> = {
+      'Entry points': new Set(),
+      Configs: new Set(),
+      Tests: new Set(),
+      Routes: new Set(),
+      Components: new Set(),
+      Services: new Set(),
+      Models: new Set(),
+    };
+
+    // A token counts as path-like if it either contains a slash or matches a
+    // bare well-known config filename (package.json, tsconfig*.json, etc.)
+    // that conventionally lives at the workspace root.
+    const isBareConfigName = (s: string): boolean =>
+      /^(package\.json|tsconfig[^\s]*\.json|nx\.json|jest\.config[^\s]*|webpack\.config[^\s]*|vite\.config[^\s]*|astro\.config[^\s]*|eslint\.config[^\s]*|\.eslintrc[^\s]*|\.prettierrc[^\s]*|docker-compose[^\s]*\.ya?ml|electron-builder\.ya?ml|tailwind\.config[^\s]*|content-manifest\.json|agent-pack-manifest\.json|skills-lock\.json|\.mcp\.json)$/i.test(
+        s,
       );
 
-      // 2. Handle existing plan: skip if idempotent retry, delete if force regeneration
-      if (params.force) {
-        await storageService.deletePlan(workspaceRoot);
-        this.logger.info('Force regeneration requested, deleted existing plan');
-      } else {
-        const existingPlan = await storageService.loadPlan(workspaceRoot);
-        if (existingPlan) {
-          this.logger.info(
-            'Existing master plan found on disk, skipping LLM regeneration',
-            { projectName: existingPlan.projectName },
-          );
-          return { success: true };
+    const isPathLike = (s: string): boolean =>
+      (/[/\\]/.test(s) || isBareConfigName(s)) &&
+      // looks like a relative-ish path with at least one path component
+      /^[A-Za-z0-9._@/\\-]{2,}$/.test(s) &&
+      // not a URL
+      !/^https?:/i.test(s);
+
+    const classify = (p: string): Category | null => {
+      const lower = p.toLowerCase();
+      if (
+        /(^|[/\\])(main|index|server|app|bootstrap|entry|preload)\.(ts|tsx|js|mjs|cjs|py|go|rs|java)$/i.test(
+          p,
+        )
+      ) {
+        return 'Entry points';
+      }
+      if (
+        /(^|[/\\])(package\.json|tsconfig[^\s]*\.json|nx\.json|jest\.config[^\s]*|webpack\.config[^\s]*|vite\.config[^\s]*|astro\.config[^\s]*|eslint\.config[^\s]*|\.eslintrc[^\s]*|\.prettierrc[^\s]*|docker-compose[^\s]*\.ya?ml|prisma[/\\]schema\.prisma|electron-builder\.ya?ml|tailwind\.config[^\s]*)$/i.test(
+          p,
+        )
+      ) {
+        return 'Configs';
+      }
+      if (
+        /(^|[/\\])(__tests__|tests?|e2e|spec)([/\\]|$)/.test(lower) ||
+        /\.(spec|test|e2e)\.(ts|tsx|js|jsx)$/.test(lower)
+      ) {
+        return 'Tests';
+      }
+      if (
+        /(^|[/\\])(routes?|api|controllers?)([/\\]|$)/.test(lower) ||
+        /\.controller\.(ts|js)$/.test(lower) ||
+        /\.routes?\.(ts|js)$/.test(lower)
+      ) {
+        return 'Routes';
+      }
+      if (
+        /\.component\.(ts|tsx|jsx)$/.test(lower) ||
+        /(^|[/\\])components?([/\\]|$)/.test(lower)
+      ) {
+        return 'Components';
+      }
+      if (
+        /\.service\.(ts|js)$/.test(lower) ||
+        /(^|[/\\])services?([/\\]|$)/.test(lower)
+      ) {
+        return 'Services';
+      }
+      if (
+        /\.(model|entity|schema|dto)\.(ts|js)$/.test(lower) ||
+        /(^|[/\\])(models?|entities|schemas?|dtos?)([/\\]|$)/.test(lower)
+      ) {
+        return 'Models';
+      }
+      return null;
+    };
+
+    const consume = (raw: string): void => {
+      const trimmed = raw
+        .trim()
+        .replace(/[`'",;]+$/g, '')
+        .replace(/^[`'",]+/, '');
+      if (!trimmed || !isPathLike(trimmed)) return;
+      const cat = classify(trimmed);
+      if (cat) buckets[cat].add(trimmed);
+    };
+
+    for (const md of Object.values(phaseContents)) {
+      if (!md) continue;
+      // Declare regexes inside the loop so each iteration gets a fresh
+      // lastIndex=0 — avoids the stateful-g-flag gotcha across phase strings.
+      const fenceRe = /```(?:text|json|yaml|yml)?\n([\s\S]*?)```/gi;
+      const bulletPathRe = /^\s*[-*]\s+`([^`\n]+)`/gm;
+      // Fenced code blocks
+      let m: RegExpExecArray | null;
+      while ((m = fenceRe.exec(md)) !== null) {
+        const block = m[1];
+        for (const line of block.split(/\r?\n/)) {
+          // Permit list-y blocks (` ├── name`, `- path`, plain `path`)
+          const tokens = line
+            .replace(/^[\s│├└─*-]+/, '')
+            .split(/\s+#|\s{2,}|\s+\/\//)[0]
+            ?.trim();
+          if (tokens) consume(tokens);
         }
       }
-
-      // 3. Validate answers
-      const discoveryService = this.resolveService<NewProjectDiscoveryService>(
-        AGENT_GENERATION_TOKENS.NEW_PROJECT_DISCOVERY_SERVICE,
-        'NewProjectDiscoveryService',
-      );
-
-      const validation = discoveryService.validateAnswers(
-        params.projectType,
-        params.answers,
-      );
-
-      if (!validation.valid) {
-        return {
-          success: false,
-          error: `Missing required fields: ${validation.missingFields.join(', ')}`,
-        };
+      // Inline `- \`path\`` bullets
+      let b: RegExpExecArray | null;
+      while ((b = bulletPathRe.exec(md)) !== null) {
+        consume(b[1]);
       }
+    }
 
-      // 4. Generate master plan via LLM
-      const generationService =
-        this.resolveService<MasterPlanGenerationService>(
-          AGENT_GENERATION_TOKENS.MASTER_PLAN_GENERATION_SERVICE,
-          'MasterPlanGenerationService',
-        );
+    const order: Category[] = [
+      'Entry points',
+      'Configs',
+      'Tests',
+      'Routes',
+      'Components',
+      'Services',
+      'Models',
+    ];
 
-      const plan = await generationService.generatePlan(
-        params.projectType,
-        params.answers,
-        params.projectName,
-        workspaceRoot,
-      );
+    const sectionLines: string[] = [];
+    for (const cat of order) {
+      const set = buckets[cat];
+      if (set.size === 0) continue;
+      const all = Array.from(set);
+      const head = all.slice(0, 16);
+      const more = all.length - head.length;
+      const list = head.join(', ') + (more > 0 ? `, +${more} more` : '');
+      sectionLines.push(`${cat}: ${list}`);
+    }
 
-      // 5. Save plan to workspace
-      await storageService.savePlan(workspaceRoot, plan);
+    if (sectionLines.length === 0) {
+      return capUtf8(`## Key File Locations\n(none detected)`, 2048);
+    }
 
-      this.logger.info('New project master plan generated and saved', {
-        projectName: plan.projectName,
-        phaseCount: plan.phases.length,
-        totalTasks: plan.phases.reduce((sum, p) => sum + p.tasks.length, 0),
-      });
-
-      return { success: true };
-    });
+    const out =
+      `## Key File Locations\n` +
+      sectionLines.join('\n') +
+      `\nSource: .ptah/analysis/${manifest.slug}/`;
+    return capUtf8(out, 2048);
   }
+}
 
-  /**
-   * wizard:new-project-get-plan - Load previously generated master plan
-   */
-  private registerNewProjectGetPlan(): void {
-    this.rpcHandler.registerMethod<
-      WizardNewProjectGetPlanParams,
-      WizardNewProjectGetPlanResult
-    >('wizard:new-project-get-plan', async () => {
-      this.logger.debug('RPC: wizard:new-project-get-plan called');
+// ---------------------------------------------------------------------------
+// Local helpers — kept in this file because they are only used by the wizard
+// memory-seed content builders above and have no reuse value elsewhere.
+// ---------------------------------------------------------------------------
 
-      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-      if (!workspaceRoot) {
-        throw new Error('No workspace folder open.');
-      }
-
-      const storageService = this.resolveService<NewProjectStorageService>(
-        AGENT_GENERATION_TOKENS.NEW_PROJECT_STORAGE_SERVICE,
-        'NewProjectStorageService',
-      );
-
-      const plan = await storageService.loadPlan(workspaceRoot);
-
-      if (!plan) {
-        throw new Error(
-          'No master plan found. Please submit answers first to generate a plan.',
-        );
-      }
-
-      return { plan };
-    });
+/**
+ * Truncate a string to fit within `maxBytes` UTF-8 bytes. Adds an ellipsis
+ * marker when truncation actually occurs.
+ */
+function capUtf8(s: string, maxBytes: number): string {
+  if (Buffer.byteLength(s, 'utf8') <= maxBytes) return s;
+  // Conservative cut: reduce by characters until under cap, leaving a marker.
+  const marker = '\n…(truncated)';
+  const markerBytes = Buffer.byteLength(marker, 'utf8');
+  let cut = s.length;
+  while (
+    cut > 0 &&
+    Buffer.byteLength(s.slice(0, cut), 'utf8') + markerBytes > maxBytes
+  ) {
+    cut -= 32;
   }
+  return s.slice(0, Math.max(0, cut)) + marker;
+}
 
-  /**
-   * wizard:new-project-approve-plan - Finalize and persist the master plan
-   */
-  private registerNewProjectApprovePlan(): void {
-    this.rpcHandler.registerMethod<
-      WizardNewProjectApprovePlanParams,
-      WizardNewProjectApprovePlanResult
-    >('wizard:new-project-approve-plan', async (params) => {
-      this.logger.debug('RPC: wizard:new-project-approve-plan called', {
-        approved: params.approved,
-      });
+/**
+ * Truncate a comma- or pipe-separated list to first 8 items, append `+N more`
+ * when truncated. Returns null if input is null/empty.
+ */
+function truncateList(raw: string | null): string | null {
+  if (!raw) return null;
+  // Split on commas, but tolerate ` and ` joiners and pipes.
+  const parts = raw
+    .split(/\s*(?:,|\||;| and )\s*/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  if (parts.length === 0) return null;
+  const head = parts.slice(0, 8);
+  const more = parts.length - head.length;
+  return head.join(', ') + (more > 0 ? `, +${more} more` : '');
+}
 
-      if (!params.approved) {
-        return { success: false, planPath: '' };
-      }
-
-      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-      if (!workspaceRoot) {
-        throw new Error('No workspace folder open.');
-      }
-
-      const storageService = this.resolveService<NewProjectStorageService>(
-        AGENT_GENERATION_TOKENS.NEW_PROJECT_STORAGE_SERVICE,
-        'NewProjectStorageService',
-      );
-
-      // Load and re-save to confirm persistence (idempotent)
-      const plan = await storageService.loadPlan(workspaceRoot);
-      if (!plan) {
-        throw new Error(
-          'No master plan found to approve. Please generate a plan first.',
-        );
-      }
-
-      const planPath = await storageService.savePlan(workspaceRoot, plan);
-
-      this.logger.info('Master plan approved', {
-        projectName: plan.projectName,
-        planPath,
-      });
-
-      return { success: true, planPath };
-    });
+/**
+ * Extract the body of the first matching `## <name>` section from a markdown
+ * document. Body ends at the next `#{1,6} ` heading or end-of-file.
+ */
+function extractH2Section(md: string, names: readonly string[]): string | null {
+  for (const name of names) {
+    const re = new RegExp(
+      `^##\\s+${escapeRegExp(name)}\\s*$([\\s\\S]*?)(?=^#{1,6}\\s|(?![\\s\\S]))`,
+      'mi',
+    );
+    const m = re.exec(md);
+    if (m) return m[1];
   }
+  return null;
+}
+
+function extractBullets(
+  body: string,
+  maxBullets: number,
+  maxLineChars: number,
+): string[] {
+  const out: string[] = [];
+  for (const line of body.split(/\r?\n/)) {
+    const m = /^\s*[-*]\s+(.+?)\s*$/.exec(line);
+    if (!m) continue;
+    let text = m[1].trim();
+    if (text.length === 0) continue;
+    if (text.length > maxLineChars) {
+      text = text.slice(0, maxLineChars - 1) + '…';
+    }
+    out.push(text);
+    if (out.length >= maxBullets) break;
+  }
+  return out;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

@@ -76,6 +76,14 @@ export {
   validateBrowserUrl,
 } from './browser-namespace.builder';
 
+// Skill namespace (TASK_2026_THOTH_SKILL_LIFECYCLE - ptah.skill.list + ptah.skill.describe)
+export {
+  buildSkillNamespace,
+  type SkillNamespaceDependencies,
+  type SkillNamespace,
+  type PromotedSkillRecord,
+} from './skill-namespace.builder';
+
 // Memory namespace (TASK_2026_THOTH_MEMORY_READ - ptah.memory.search + ptah.memory.list)
 export {
   buildMemoryNamespace,

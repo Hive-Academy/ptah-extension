@@ -31,6 +31,11 @@ export type { IEditorProvider } from './interfaces/editor-provider.interface';
 export type { ITokenCounter } from './interfaces/token-counter.interface';
 export type { IDiagnosticsProvider } from './interfaces/diagnostics-provider.interface';
 export type {
+  IMemoryWriter,
+  MemoryWriteRequest,
+  MemoryWriteResult,
+} from './interfaces/memory-writer.interface';
+export type {
   IHttpServerProvider,
   IHttpServerHandle,
   HttpServerRequestHandler,

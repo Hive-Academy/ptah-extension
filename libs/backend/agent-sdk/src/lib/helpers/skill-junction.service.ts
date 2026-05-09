@@ -33,6 +33,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { join, basename } from 'path';
+import * as os from 'os';
 import {
   mkdirSync,
   readdirSync,
@@ -118,6 +119,7 @@ const LEGACY_PTAH_WORKSPACE_DIR = '.ptah';
 @injectable()
 export class SkillJunctionService {
   private pluginsBasePath: string | null = null;
+  private synthesizedSkillsRoot: string | null = null;
   private workspaceRoot: string | null = null;
 
   /** Track which junction paths we created, for cleanup */
@@ -137,12 +139,16 @@ export class SkillJunctionService {
    * Must be called from main.ts after DI setup.
    *
    * @param pluginsBasePath - Absolute path to the plugins directory (~/.ptah/plugins/ from ContentDownloadService)
+   * @param synthesizedSkillsRoot - Optional path to synthesized skills directory. Defaults to ~/.ptah/skills/
    */
-  initialize(pluginsBasePath: string): void {
+  initialize(pluginsBasePath: string, synthesizedSkillsRoot?: string): void {
     this.pluginsBasePath = pluginsBasePath;
+    this.synthesizedSkillsRoot =
+      synthesizedSkillsRoot ?? join(os.homedir(), '.ptah', 'skills');
     this.workspaceRoot = this.workspaceProvider.getWorkspaceRoot() ?? null;
     this.logger.debug('[SkillJunctionService] Initialized', {
       pluginsBasePath,
+      synthesizedSkillsRoot: this.synthesizedSkillsRoot,
       workspaceRoot: this.workspaceRoot,
     });
   }
@@ -451,6 +457,52 @@ export class SkillJunctionService {
       }
     }
 
+    // Also scan synthesized skills root (~/.ptah/skills/) if set.
+    // Plugin skills take precedence on slug collision.
+    if (this.synthesizedSkillsRoot) {
+      const synthSkillsDir = this.synthesizedSkillsRoot;
+      let synthEntries: string[];
+      try {
+        synthEntries = readdirSync(synthSkillsDir);
+      } catch {
+        synthEntries = []; // Directory may not exist yet — non-fatal
+      }
+
+      for (const entry of synthEntries) {
+        // R7: explicit guard — skip candidate staging area
+        if (entry === '_candidates') continue;
+        if (disabledSkillIds.has(entry)) continue;
+
+        const entryPath = join(synthSkillsDir, entry);
+
+        // Validate it's a directory
+        try {
+          const stat = statSync(entryPath);
+          if (!stat.isDirectory()) continue;
+        } catch {
+          continue;
+        }
+
+        // Validate SKILL.md presence
+        const skillMdPath = join(entryPath, 'SKILL.md');
+        try {
+          accessSync(skillMdPath, fsConstants.R_OK);
+        } catch {
+          continue; // No SKILL.md — not a valid skill
+        }
+
+        if (skillsMap.has(entry)) {
+          // Plugin skill takes precedence
+          this.logger.warn(
+            `[SkillJunctionService] Synthesized skill "${entry}" collides with plugin skill — plugin skill takes precedence`,
+          );
+          continue;
+        }
+
+        skillsMap.set(entry, entryPath);
+      }
+    }
+
     return skillsMap;
   }
 
@@ -730,21 +782,32 @@ export class SkillJunctionService {
   }
 
   /**
-   * Check if a path is a junction/symlink pointing to our plugins base directory.
-   * Uses pluginsBasePath prefix match (not a generic substring) to avoid false positives
-   * with unrelated junctions that happen to contain 'plugins' in their path.
+   * Check if a path is a junction/symlink pointing to our plugins base directory
+   * or our synthesized skills directory.
+   * Uses prefix match (not a generic substring) to avoid false positives.
    */
   private isExtensionJunction(entryPath: string): boolean {
     try {
       const stat = lstatSync(entryPath);
       if (!stat.isSymbolicLink()) return false;
       const target = readlinkSync(entryPath);
-      if (this.pluginsBasePath === null) return false;
-
-      // Normalize and check that the target starts with our plugins base path
       const normalizedTarget = this.normalizePath(target);
-      const normalizedPluginsPath = this.normalizePath(this.pluginsBasePath);
-      return normalizedTarget.startsWith(normalizedPluginsPath);
+
+      // Check plugins base path (existing)
+      if (this.pluginsBasePath !== null) {
+        const normalizedPluginsPath = this.normalizePath(this.pluginsBasePath);
+        if (normalizedTarget.startsWith(normalizedPluginsPath)) return true;
+      }
+
+      // Check synthesized skills root (new — TASK_2026_THOTH_SKILL_LIFECYCLE)
+      if (this.synthesizedSkillsRoot !== null) {
+        const normalizedSynthPath = this.normalizePath(
+          this.synthesizedSkillsRoot,
+        );
+        if (normalizedTarget.startsWith(normalizedSynthPath)) return true;
+      }
+
+      return false;
     } catch {
       return false;
     }

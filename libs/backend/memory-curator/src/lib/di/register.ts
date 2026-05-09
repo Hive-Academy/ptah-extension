@@ -20,6 +20,7 @@
 import { Lifecycle, type DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { MEMORY_TOKENS } from './tokens';
 import { EmbedderWorkerClient } from '../embedder/embedder-worker-client';
@@ -28,6 +29,7 @@ import { MemoryStore } from '../memory.store';
 import { MemorySearchService } from '../memory-search.service';
 import { MemoryDecayJob } from '../memory-decay.job';
 import { MemoryCuratorService } from '../memory-curator.service';
+import { MemoryWriterAdapter } from '../memory-writer.adapter';
 import { MemoryStoreSymbolSink } from '../symbol-sink.adapter';
 
 export function registerMemoryCuratorServices(
@@ -54,6 +56,14 @@ export function registerMemoryCuratorServices(
   container.register(
     MEMORY_TOKENS.MEMORY_STORE,
     { useClass: MemoryStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // IMemoryWriter port adapter (consumed by the wizard seeder in rpc-handlers).
+  // Registered after MEMORY_STORE (above) because it depends on it at resolution time.
+  container.register(
+    PLATFORM_TOKENS.MEMORY_WRITER,
+    { useClass: MemoryWriterAdapter },
     { lifecycle: Lifecycle.Singleton },
   );
 

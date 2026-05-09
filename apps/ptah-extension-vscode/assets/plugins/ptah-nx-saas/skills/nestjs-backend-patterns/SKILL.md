@@ -7,6 +7,10 @@ description: NestJS backend architecture patterns for multi-tenant SaaS applicat
 
 Patterns for building scalable, maintainable NestJS backends in an Nx monorepo.
 
+## Activation scope
+
+This skill activates **per-module during Stage B** of the SaaS bootstrap. `saas-workspace-initializer` may scaffold thin tenant/auth primitives in the Stage A foundation, but full provider-pattern integrations, multitenancy enforcement, and Prisma/ZenStack policy work happen in dedicated Stage B sessions driven by individual roadmap items. Pull this skill in when implementing one such item, not to retrofit an entire backend.
+
 ## Core Principle: Provider Pattern for External Services
 
 All third-party integrations follow the same provider pattern:
@@ -114,7 +118,10 @@ export class PaymentService {
 // Context-aware Prisma service using CLS (Continuation Local Storage)
 @Injectable()
 export class TenantAwarePrismaService {
-  constructor(private prisma: PrismaService, private cls: ClsService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cls: ClsService,
+  ) {}
 
   get client() {
     const tenantId = this.cls.get('tenantId');

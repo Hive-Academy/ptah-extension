@@ -10,10 +10,19 @@ import { injectable, inject } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IPlatformCommands } from '@ptah-extension/rpc-handlers';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
+
+interface ElectronWebviewBroadcaster {
+  broadcastMessage(type: string, payload: unknown): Promise<void>;
+}
 
 @injectable()
 export class ElectronPlatformCommands implements IPlatformCommands {
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: ElectronWebviewBroadcaster,
+  ) {}
 
   async reloadWindow(): Promise<void> {
     this.logger.info('[ElectronPlatformCommands] reloadWindow requested');
@@ -49,5 +58,20 @@ export class ElectronPlatformCommands implements IPlatformCommands {
       '[ElectronPlatformCommands] openTerminal is not supported in Electron',
       { name, command },
     );
+  }
+
+  async focusChat(): Promise<void> {
+    try {
+      await this.webviewManager.broadcastMessage(MESSAGE_TYPES.SWITCH_VIEW, {
+        view: 'chat',
+      });
+    } catch (error) {
+      this.logger.warn(
+        '[ElectronPlatformCommands] focusChat broadcast failed',
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
   }
 }

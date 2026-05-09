@@ -115,7 +115,7 @@ Example:
 
 > `wizard.recommendations`, `wizard.cancelled`, `wizard.retry.start`, `wizard.retry.complete` (Phase 2 / not yet wired through the event-pipe). `analyze.cancelled` is also reserved.
 
-> `new_project.*` notifications (`new_project.session.started`, `new_project.answers.received`, `new_project.plan`, `new_project.plan.approved`) are forwarded by the New Project Wizard handlers; payloads track the `wizard:new-project-*` RPC response shapes.
+> The legacy `new_project.*` notifications were retired alongside the static New Project Wizard. New projects now hand off to the chat view via `wizard:start-new-project-chat` (no notifications emitted).
 
 Example:
 

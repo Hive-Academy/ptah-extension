@@ -69,9 +69,12 @@
     "electron:build:dev": "nx build-dev ptah-electron",
     "electron:package": "nx package ptah-electron",
     "electron:rebuild": "node apps/ptah-electron/scripts/rebuild-native.js",
+    "postinstall": "node apps/ptah-electron/scripts/rebuild-native.js",
     "cli:build": "nx build ptah-cli",
     "cli:dev": "nx dev ptah-cli",
-    "cli:serve": "nx build ptah-cli && node dist/apps/ptah-cli/main.mjs"
+    "cli:serve": "nx build ptah-cli && node dist/apps/ptah-cli/main.mjs",
+    "eval:build": "npx ts-node --project scripts/tsconfig.json scripts/build-eval-harness.ts --build",
+    "eval:run": "npx ts-node --project scripts/tsconfig.json scripts/build-eval-harness.ts --evaluate"
   },
   "private": true,
   "dependencies": {
@@ -139,6 +142,7 @@
     "jpeg-js": "^0.4.4",
     "json2md": "^2.0.3",
     "jsonrepair": "3.13.3",
+    "lru-cache": "^10.4.3",
     "lucide-angular": "^1.0.0",
     "marked": "^17.0.0",
     "minimatch": "10.2.4",
