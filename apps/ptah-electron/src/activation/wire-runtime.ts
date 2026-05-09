@@ -331,7 +331,7 @@ export async function wireRuntime(
           // MCP start, and window paint during the critical activation window.
           setTimeout(() => {
             void symbolIndexer
-              .indexWorkspace(workspaceRoot as string)
+              .indexWorkspace(workspaceRoot)
               .catch((err: unknown) => {
                 console.warn(
                   '[Ptah Electron] CodeSymbolIndexer.indexWorkspace failed (non-fatal):',
@@ -360,7 +360,7 @@ export async function wireRuntime(
               setTimeout(() => {
                 reindexDebounce.delete(filePath);
                 void symbolIndexer
-                  .reindexFile(filePath, workspaceRoot as string)
+                  .reindexFile(filePath, workspaceRoot)
                   .catch((err: unknown) => {
                     console.warn(
                       '[Ptah Electron] reindexFile failed (non-fatal):',
@@ -368,6 +368,12 @@ export async function wireRuntime(
                     );
                   });
               }, 500),
+            );
+          });
+          symbolWatcher.on('error', (err: unknown) => {
+            console.warn(
+              '[Ptah Electron] symbolWatcher error (non-fatal):',
+              err instanceof Error ? err.message : String(err),
             );
           });
           refs.symbolWatcher = symbolWatcher;

@@ -107,7 +107,7 @@ export class AstAnalysisService {
         (e): e is { key: string; queryString: string } => !!e.queryString,
       );
 
-      // Single call — one WASM parse for all four queries.
+      // Single call — one WASM parse regardless of query count.
       const multiResult = await this.parserService.queryMulti(
         content,
         language,
@@ -125,7 +125,12 @@ export class AstAnalysisService {
         );
       }
 
-      const map = multiResult.value!;
+      const map = multiResult.value;
+      if (!map) {
+        return Result.err(
+          new Error('queryMulti returned null value unexpectedly'),
+        );
+      }
 
       // Pass each result set through the existing extract* private methods.
       // map.get() returns undefined for filtered-out queries; ?? [] is the safe fallback.

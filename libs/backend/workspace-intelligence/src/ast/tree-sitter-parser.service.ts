@@ -581,6 +581,7 @@ export class TreeSitterParserService {
    * @param queries An array of { key, queryString } entries to execute
    * @returns A Result containing a Map<key, QueryMatch[]> on success, or an Error on failure.
    *          An empty `queries` array returns `Result.ok(new Map())` immediately.
+   *          An empty or falsy `content` string also returns `Result.ok(new Map())` immediately.
    */
   async queryMulti(
     content: string,
@@ -631,7 +632,7 @@ export class TreeSitterParserService {
     let tree: Tree | null = null;
     // Collect all Query objects so the finally block can delete each one,
     // even if an exception is thrown mid-loop.
-    const createdQueries: Query[] = [];
+    const createdQueries: (Query | undefined)[] = [];
 
     try {
       tree = parser.parse(content);

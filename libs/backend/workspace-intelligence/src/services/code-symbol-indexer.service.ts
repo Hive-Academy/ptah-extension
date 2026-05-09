@@ -61,15 +61,16 @@ const DEFAULT_SKIP_PATTERNS = [
   '*.test.jsx',
   '*.module.ts',
   '*.module.js',
+  // Note: index.ts barrels occasionally define inline symbols — remove if false-positive skipping is reported
   'index.ts',
   'index.tsx',
   'index.js',
   'index.jsx',
   'public-api.ts',
 ];
-const _skipMatcher = picomatch(DEFAULT_SKIP_PATTERNS, { nocase: true });
+const SKIP_MATCHER = picomatch(DEFAULT_SKIP_PATTERNS, { nocase: true });
 function shouldSkipFile(absoluteFilePath: string): boolean {
-  return _skipMatcher(path.basename(absoluteFilePath));
+  return SKIP_MATCHER(path.basename(absoluteFilePath));
 }
 
 /**
@@ -289,14 +290,22 @@ export class CodeSymbolIndexer {
     const relPath = path.relative(workspaceRoot, normalizedFilePath);
 
     // Clear stale symbols for this file before re-inserting (minor: log count)
-    const deletedCount = this.sink.deleteSymbolsForFile(
-      normalizedFilePath,
-      workspaceRoot,
-    );
-    if (deletedCount > 0) {
-      this.logger.debug?.(
-        `[CodeSymbolIndexer] Cleared ${deletedCount} stale entries for ${normalizedFilePath}`,
+    try {
+      const deletedCount = this.sink.deleteSymbolsForFile(
+        normalizedFilePath,
+        workspaceRoot,
       );
+      if (deletedCount > 0) {
+        this.logger.debug?.(
+          `[CodeSymbolIndexer] Cleared ${deletedCount} stale entries for ${normalizedFilePath}`,
+        );
+      }
+    } catch (err: unknown) {
+      return {
+        symbolsIndexed: 0,
+        errors: 1,
+        durationMs: Date.now() - startMs,
+      };
     }
 
     const chunks: SymbolChunkInsert[] = [];
