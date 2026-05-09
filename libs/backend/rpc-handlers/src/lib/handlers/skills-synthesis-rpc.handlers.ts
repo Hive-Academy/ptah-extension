@@ -26,6 +26,7 @@ import {
   SKILL_SYNTHESIS_TOKENS,
   type SkillCandidateStore,
   type SkillSynthesisService,
+  type SkillSynthesisSettings,
   type CandidateId,
   type SkillStatus,
   type SkillCandidateRow,
@@ -78,10 +79,6 @@ interface ICuratorService {
   start(settings: SkillSynthesisSettings): void;
   stop(): void;
 }
-
-/** Re-export of the settings type used locally. */
-type SkillSynthesisSettings =
-  import('@ptah-extension/skill-synthesis').SkillSynthesisSettings;
 
 @injectable()
 export class SkillsSynthesisRpcHandlers {
@@ -381,7 +378,7 @@ export class SkillsSynthesisRpcHandlers {
           ] as number,
         );
         this.store.setPin(
-          parsed.id as import('@ptah-extension/skill-synthesis').CandidateId,
+          parsed.id as CandidateId,
           true,
           maxPinnedSkills ??
             (FILE_BASED_SETTINGS_DEFAULTS[
@@ -407,11 +404,7 @@ export class SkillsSynthesisRpcHandlers {
     >('skillSynthesis:unpin', async (params) => {
       try {
         const parsed = UnpinSkillParamsSchema.parse(params);
-        this.store.setPin(
-          parsed.id as import('@ptah-extension/skill-synthesis').CandidateId,
-          false,
-          0,
-        );
+        this.store.setPin(parsed.id as CandidateId, false, 0);
         return { pinned: false };
       } catch (error) {
         this.report(error, 'SkillsSynthesisRpcHandlers.registerUnpin');

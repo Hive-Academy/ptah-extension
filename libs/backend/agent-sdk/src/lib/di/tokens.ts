@@ -166,6 +166,7 @@ export const SDK_TOKENS = {
    * injection at session start. Registered as a singleton; depends on TOKENS.MEMORY_READER
    * (cross-layer alias resolved by memory-curator DI registration, with a no-op fallback
    * registered here for hosts where memory-curator is not loaded).
+   * TASK_2026_THOTH_MEMORY_READ
    */
   SDK_MEMORY_PROMPT_INJECTOR: Symbol.for('SdkMemoryPromptInjector'),
 

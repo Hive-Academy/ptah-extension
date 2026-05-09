@@ -390,7 +390,7 @@ export interface QueryOptionsInput {
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
   /**
-   * The user's initial message text for this turn.
+   * The user's initial message text for this turn (TASK_2026_THOTH_MEMORY_READ).
    * Used to drive a memory recall search so the top-K hits can be prepended to
    * the system prompt. Only used when `isPremium === true` and the string is
    * non-empty. Multi-turn sessions should pass the most recent user message.
@@ -920,9 +920,19 @@ export class SdkQueryOptionsBuilder {
   /**
    * Build system prompt configuration.
    *
-   * Always uses the SDK's `claude_code` preset as base. For premium users,
-   * appends PTAH_CORE_SYSTEM_PROMPT, optional enhanced prompts content, and
-   * a memory recall block derived from the first user message.
+   * Always uses SDK's `claude_code` preset as base (provides MCP handling, tool routing,
+   * environment context). For premium users, appends PTAH_CORE_SYSTEM_PROMPT with
+   * Ptah-specific MCP mandates, orchestration, and formatting rules. Enhanced prompts
+   * (project-specific guidance) are also appended when available.
+   * Memory recall block injected for premium users with a non-empty initialUserQuery.
+   *
+   * @param sessionConfig - Session configuration with optional custom system prompt and preset selection
+   * @param isPremium - Whether user has premium features enabled
+   * @param enhancedPromptsContent - Optional AI-generated guidance from EnhancedPromptsService
+   * @param mcpServerRunning - Whether MCP server is running
+   * @param initialUserQuery - First user message text for memory recall (TASK_2026_THOTH_MEMORY_READ)
+   * @param cwd - Workspace root for workspace-scoped memory recall
+   * @returns System prompt configuration for SDK (always preset+append)
    */
   private async buildSystemPrompt(
     sessionConfig?: AISessionConfig,
@@ -950,7 +960,7 @@ export class SdkQueryOptionsBuilder {
       preset: sessionConfig?.preset,
     });
 
-    // Memory recall — premium only, requires user query.
+    // Memory recall — premium only, requires user query (TASK_2026_THOTH_MEMORY_READ)
     let memoryBlock = '';
     if (isPremium && initialUserQuery?.trim()) {
       memoryBlock = await this.memoryPromptInjector.buildBlock(

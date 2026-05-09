@@ -301,6 +301,10 @@ export class CodeSymbolIndexer {
         );
       }
     } catch (err: unknown) {
+      this.logger.warn(
+        `[CodeSymbolIndexer] Failed to clear stale entries for ${normalizedFilePath}`,
+        { error: err instanceof Error ? err.message : String(err) },
+      );
       return {
         symbolsIndexed: 0,
         errors: 1,
