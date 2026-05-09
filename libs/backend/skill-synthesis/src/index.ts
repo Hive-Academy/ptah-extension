@@ -30,6 +30,18 @@ export {
   type SkillSynthesisDIToken,
 } from './lib/di/tokens';
 export { registerSkillSynthesisServices } from './lib/di/register';
+export {
+  migrateSkillMdFiles,
+  type MigrationResult,
+} from './lib/skill-md-migration';
+export { computeNormalizedLevenshtein } from './lib/skill-synthesis.service';
+export { SkillClusterDedupService } from './lib/skill-cluster-dedup.service';
+export { SkillJudgeService } from './lib/skill-judge.service';
+export {
+  SkillCuratorService,
+  type CuratorReport,
+} from './lib/skill-curator.service';
+export { cosineSimilarity } from './lib/cosine-similarity';
 
 export type {
   SkillId,

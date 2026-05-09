@@ -12,12 +12,15 @@ import { VSCodeService } from '@ptah-extension/core';
 import type {
   SkillSynthesisCandidateSummary,
   SkillSynthesisInvocationEntry,
+  SkillSynthesisRunCuratorResult,
+  SkillSynthesisSettingsDto,
 } from '@ptah-extension/shared';
 
 import {
   SkillStatusFilter,
   SkillSynthesisStateService,
 } from '../services/skill-synthesis-state.service';
+import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
 
 type ActionKind = 'promote' | 'reject';
 
@@ -68,7 +71,17 @@ interface ActionDialogState {
           aria-label="Skill synthesis stats"
         >
           <div class="card-body p-4">
-            <h2 class="card-title text-sm">Stats</h2>
+            <div class="flex items-center justify-between">
+              <h2 class="card-title text-sm">Stats</h2>
+              <button
+                type="button"
+                class="btn btn-sm btn-outline"
+                [disabled]="curatorRunning() || loading()"
+                (click)="onRunCurator()"
+              >
+                {{ curatorRunning() ? 'Running...' : 'Run Curator' }}
+              </button>
+            </div>
             @if (stats(); as s) {
               <div class="stats stats-horizontal w-full bg-base-100">
                 <div class="stat px-3 py-2">
@@ -139,6 +152,7 @@ interface ActionDialogState {
                   <tr>
                     <th scope="col">Name</th>
                     <th scope="col">Status</th>
+                    <th scope="col">Pinned</th>
                     <th scope="col" class="text-right">Successes</th>
                     <th scope="col" class="text-right">Failures</th>
                     <th scope="col" class="w-1">Actions</th>
@@ -164,6 +178,13 @@ interface ActionDialogState {
                           {{ c.status }}
                         </span>
                       </td>
+                      <td>
+                        @if (c.pinned) {
+                          <span class="badge badge-warning badge-xs"
+                            >Pinned</span
+                          >
+                        }
+                      </td>
                       <td class="text-right tabular-nums">
                         {{ c.successCount }}
                       </td>
@@ -188,13 +209,23 @@ interface ActionDialogState {
                           >
                             Reject
                           </button>
+                          @if (c.status === 'promoted') {
+                            <button
+                              type="button"
+                              class="btn btn-xs btn-outline"
+                              [disabled]="loading()"
+                              (click)="onTogglePin(c, $event)"
+                            >
+                              {{ c.pinned ? 'Unpin' : 'Pin' }}
+                            </button>
+                          }
                         </div>
                       </td>
                     </tr>
                   } @empty {
                     <tr>
                       <td
-                        colspan="5"
+                        colspan="6"
                         class="text-center text-sm text-base-content/60"
                       >
                         @if (loading()) {
@@ -274,25 +305,323 @@ interface ActionDialogState {
           </section>
         }
 
-        <!-- Settings panel (read-only) -->
-        <section
-          class="card bg-base-200 shadow-sm"
-          aria-label="Skill synthesis settings"
-        >
-          <div class="card-body p-4">
-            <h2 class="card-title text-sm">Settings (read-only)</h2>
-            <p class="text-xs text-base-content/60">
-              Configure these in your settings file.
-            </p>
-            <ul class="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
-              @for (key of settingsKeys; track key) {
-                <li class="font-mono">
-                  <span class="text-base-content/70">{{ key }}</span>
-                </li>
-              }
-            </ul>
+        <!-- Toast notification -->
+        @if (toast(); as t) {
+          <div
+            role="alert"
+            class="alert py-2 text-sm"
+            [class.alert-success]="t.kind === 'success'"
+            [class.alert-error]="t.kind === 'error'"
+          >
+            <span>{{ t.message }}</span>
           </div>
-        </section>
+        }
+
+        <!-- Editable Settings form -->
+        @if (settingsForm(); as sf) {
+          <section
+            class="card bg-base-200 shadow-sm"
+            aria-label="Skill synthesis settings"
+          >
+            <div class="card-body p-4">
+              <h2 class="card-title text-sm">Settings</h2>
+
+              <!-- Core settings -->
+              <fieldset class="fieldset border border-base-300 rounded p-3">
+                <legend class="fieldset-legend text-xs font-semibold">
+                  Core
+                </legend>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label class="form-control">
+                    <span class="label label-text text-xs">Enabled</span>
+                    <input
+                      type="checkbox"
+                      class="checkbox"
+                      [(ngModel)]="sf.enabled"
+                    />
+                  </label>
+                  <label class="form-control">
+                    <span class="label label-text text-xs"
+                      >Successes to promote</span
+                    >
+                    <input
+                      type="number"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.successesToPromote"
+                    />
+                  </label>
+                  <label class="form-control">
+                    <span class="label label-text text-xs"
+                      >Dedup cosine threshold</span
+                    >
+                    <input
+                      type="number"
+                      step="0.01"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.dedupCosineThreshold"
+                    />
+                  </label>
+                  <label class="form-control">
+                    <span class="label label-text text-xs"
+                      >Max active skills</span
+                    >
+                    <input
+                      type="number"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.maxActiveSkills"
+                    />
+                  </label>
+                  <label class="form-control sm:col-span-2">
+                    <span class="label label-text text-xs">Candidates dir</span>
+                    <input
+                      type="text"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.candidatesDir"
+                    />
+                  </label>
+                </div>
+              </fieldset>
+
+              <!-- Eligibility and Quality settings -->
+              <fieldset
+                class="fieldset border border-base-300 rounded p-3 mt-2"
+              >
+                <legend class="fieldset-legend text-xs font-semibold">
+                  Eligibility &amp; Quality
+                </legend>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label class="form-control">
+                    <span class="label label-text text-xs"
+                      >Eligibility min turns</span
+                    >
+                    <input
+                      type="number"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.eligibilityMinTurns"
+                    />
+                  </label>
+                  <label class="form-control">
+                    <span class="label label-text text-xs"
+                      >Eviction decay rate (0-1)</span
+                    >
+                    <input
+                      type="number"
+                      step="0.01"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.evictionDecayRate"
+                    />
+                  </label>
+                  <label class="form-control">
+                    <span class="label label-text text-xs"
+                      >Generalization context threshold</span
+                    >
+                    <input
+                      type="number"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.generalizationContextThreshold"
+                    />
+                  </label>
+                  <label class="form-control">
+                    <span class="label label-text text-xs"
+                      >Min trajectory fidelity ratio (0-1)</span
+                    >
+                    <input
+                      type="number"
+                      step="0.01"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.minTrajectoryFidelityRatio"
+                    />
+                  </label>
+                  <label class="form-control">
+                    <span class="label label-text text-xs"
+                      >Min abstraction edit distance (0-1)</span
+                    >
+                    <input
+                      type="number"
+                      step="0.01"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.minAbstractionEditDistance"
+                    />
+                  </label>
+                </div>
+              </fieldset>
+
+              <!-- Dedup settings -->
+              <fieldset
+                class="fieldset border border-base-300 rounded p-3 mt-2"
+              >
+                <legend class="fieldset-legend text-xs font-semibold">
+                  Cluster Dedup
+                </legend>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label class="form-control">
+                    <span class="label label-text text-xs"
+                      >Dedup cluster threshold (0-1)</span
+                    >
+                    <input
+                      type="number"
+                      step="0.01"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.dedupClusterThreshold"
+                    />
+                  </label>
+                </div>
+              </fieldset>
+
+              <!-- LLM Judge settings -->
+              <fieldset
+                class="fieldset border border-base-300 rounded p-3 mt-2"
+              >
+                <legend class="fieldset-legend text-xs font-semibold">
+                  LLM Judge
+                </legend>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label class="form-control">
+                    <span class="label label-text text-xs">Judge enabled</span>
+                    <input
+                      type="checkbox"
+                      class="checkbox"
+                      [(ngModel)]="sf.judgeEnabled"
+                    />
+                  </label>
+                  <label class="form-control">
+                    <span class="label label-text text-xs"
+                      >Min judge score (0-10)</span
+                    >
+                    <input
+                      type="number"
+                      step="0.1"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.minJudgeScore"
+                    />
+                  </label>
+                  <label class="form-control sm:col-span-2">
+                    <span class="label label-text text-xs"
+                      >Judge model ('inherit' = workspace default)</span
+                    >
+                    <input
+                      type="text"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.judgeModel"
+                    />
+                  </label>
+                </div>
+              </fieldset>
+
+              <!-- Pinning and Curator settings -->
+              <fieldset
+                class="fieldset border border-base-300 rounded p-3 mt-2"
+              >
+                <legend class="fieldset-legend text-xs font-semibold">
+                  Pinning &amp; Curator
+                </legend>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label class="form-control">
+                    <span class="label label-text text-xs"
+                      >Max pinned skills</span
+                    >
+                    <input
+                      type="number"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.maxPinnedSkills"
+                    />
+                  </label>
+                  <label class="form-control">
+                    <span class="label label-text text-xs"
+                      >Curator enabled</span
+                    >
+                    <input
+                      type="checkbox"
+                      class="checkbox"
+                      [(ngModel)]="sf.curatorEnabled"
+                    />
+                  </label>
+                  <label class="form-control">
+                    <span class="label label-text text-xs"
+                      >Curator interval (hours)</span
+                    >
+                    <input
+                      type="number"
+                      class="input input-bordered input-sm"
+                      [(ngModel)]="sf.curatorIntervalHours"
+                    />
+                  </label>
+                </div>
+              </fieldset>
+
+              <div class="mt-3 flex justify-end">
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  [disabled]="loading()"
+                  (click)="onSaveSettings()"
+                >
+                  Save Settings
+                </button>
+              </div>
+            </div>
+          </section>
+        } @else {
+          <section
+            class="card bg-base-200 shadow-sm"
+            aria-label="Skill synthesis settings"
+          >
+            <div class="card-body p-4">
+              <h2 class="card-title text-sm">Settings</h2>
+              <div class="text-xs text-base-content/60">
+                Loading settings&hellip;
+              </div>
+            </div>
+          </section>
+        }
+
+        <!-- Curator report modal -->
+        @if (curatorReport(); as report) {
+          <dialog
+            class="modal modal-open"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Curator report"
+          >
+            <div class="modal-box">
+              <h3 class="text-base font-semibold">Curator Report</h3>
+              <div class="mt-2 text-sm space-y-1">
+                <p class="font-mono text-xs break-all">
+                  {{ report.reportPath || '(no report path)' }}
+                </p>
+                <p>
+                  <span class="font-semibold">Changes queued:</span>
+                  {{ report.changesQueued }}
+                </p>
+                <p>
+                  <span class="font-semibold">Skipped (pinned):</span>
+                  {{ report.skippedPinned }}
+                </p>
+              </div>
+              @if (report.overlaps && report.overlaps.length > 0) {
+                <div class="mt-3">
+                  <p class="text-xs font-semibold mb-1">Overlaps:</p>
+                  <ul class="text-xs space-y-1 list-disc list-inside">
+                    @for (o of report.overlaps; track o.skillIdA) {
+                      <li>
+                        {{ o.skillIdA }} ↔ {{ o.skillIdB }}: {{ o.reason }}
+                      </li>
+                    }
+                  </ul>
+                </div>
+              }
+              <div class="modal-action">
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  (click)="onCloseCuratorModal()"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </dialog>
+        }
       </div>
 
       <!-- Action modal (Promote / Reject with optional reason) -->
@@ -352,6 +681,7 @@ interface ActionDialogState {
 })
 export class SkillSynthesisTabComponent implements OnInit {
   private readonly state = inject(SkillSynthesisStateService);
+  private readonly rpc = inject(SkillSynthesisRpcService);
   private readonly vscodeService = inject(VSCodeService);
 
   /** Whether the webview is running inside the Electron desktop app. */
@@ -369,6 +699,23 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly loading = this.state.loading;
   public readonly error = this.state.error;
 
+  /** Editable copy of settings loaded from backend. Bound to form inputs. */
+  public readonly settingsForm = signal<SkillSynthesisSettingsDto | null>(null);
+
+  /** Toast notification (auto-clears after 3s). */
+  public readonly toast = signal<{
+    message: string;
+    kind: 'success' | 'error';
+  } | null>(null);
+
+  /** Curator in-flight state. */
+  public readonly curatorRunning = signal<boolean>(false);
+
+  /** Curator report to display in the modal (null = modal closed). */
+  public readonly curatorReport = signal<SkillSynthesisRunCuratorResult | null>(
+    null,
+  );
+
   /** Filter chip definitions, ordered for the tablist. */
   protected readonly filters: ReadonlyArray<{
     readonly id: SkillStatusFilter;
@@ -378,19 +725,6 @@ export class SkillSynthesisTabComponent implements OnInit {
     { id: 'promoted', label: 'Promoted' },
     { id: 'rejected', label: 'Rejected' },
     { id: 'all', label: 'All' },
-  ];
-
-  /**
-   * Read-only settings keys surfaced in the settings panel. These are
-   * file-based settings (`~/.ptah/settings.json`) consumed by the
-   * `skill-synthesis` backend service.
-   */
-  protected readonly settingsKeys: readonly string[] = [
-    'skillSynthesis.enabled',
-    'skillSynthesis.successesToPromote',
-    'skillSynthesis.dedupCosineThreshold',
-    'skillSynthesis.maxActiveSkills',
-    'skillSynthesis.candidatesDir',
   ];
 
   /** Current action dialog (promote/reject) or `null` when closed. */
@@ -406,6 +740,66 @@ export class SkillSynthesisTabComponent implements OnInit {
     if (!this.isElectron()) return;
     void this.state.refreshCandidates();
     void this.state.loadStats();
+    void this.loadSettings();
+  }
+
+  private async loadSettings(): Promise<void> {
+    try {
+      const s = await this.rpc.getSettings();
+      // Deep copy so mutations don't affect the signal directly via reference sharing.
+      this.settingsForm.set({ ...s });
+    } catch (err: unknown) {
+      this.showToast(err instanceof Error ? err.message : String(err), 'error');
+    }
+  }
+
+  protected async onSaveSettings(): Promise<void> {
+    const sf = this.settingsForm();
+    if (!sf) return;
+    try {
+      await this.rpc.updateSettings(sf);
+      this.showToast('Settings saved.', 'success');
+    } catch (err: unknown) {
+      this.showToast(err instanceof Error ? err.message : String(err), 'error');
+    }
+  }
+
+  protected async onTogglePin(
+    c: SkillSynthesisCandidateSummary,
+    event: Event,
+  ): Promise<void> {
+    event.stopPropagation();
+    try {
+      if (c.pinned) {
+        await this.rpc.unpin(c.id);
+      } else {
+        await this.rpc.pin(c.id);
+      }
+      await this.state.refreshCandidates();
+    } catch (err: unknown) {
+      this.showToast(err instanceof Error ? err.message : String(err), 'error');
+    }
+  }
+
+  protected async onRunCurator(): Promise<void> {
+    this.curatorRunning.set(true);
+    try {
+      const result = await this.rpc.runCurator();
+      this.curatorReport.set(result);
+    } catch (err: unknown) {
+      this.showToast(err instanceof Error ? err.message : String(err), 'error');
+    } finally {
+      this.curatorRunning.set(false);
+    }
+  }
+
+  protected onCloseCuratorModal(): void {
+    this.curatorReport.set(null);
+  }
+
+  private showToast(message: string, kind: 'success' | 'error'): void {
+    this.toast.set({ message, kind });
+    setTimeout(() => this.toast.set(null), 3000);
   }
 
   protected onFilterChange(filter: SkillStatusFilter): void {

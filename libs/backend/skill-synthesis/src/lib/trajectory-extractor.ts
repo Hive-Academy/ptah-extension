@@ -32,8 +32,10 @@ export interface ExtractedTrajectory {
   hash: string;
   /** Canonical text snapshot used for embedding/synthesis prompts. */
   canonicalText: string;
-  /** Total number of user+assistant turns considered. */
+  /** Number of qualifying user+assistant turns used in the trajectory. */
   turnCount: number;
+  /** Total number of turns in the raw session (before filtering). */
+  sessionTurnCount: number;
   /** A short auto-generated description (first user turn, sliced). */
   shortDescription: string;
   /** A slug-friendly name derived from the description. */
@@ -78,9 +80,12 @@ export class TrajectoryExtractor {
       return null;
     }
 
+    // Count total raw turns (sessionTurnCount) before filtering for trajectory.
+    let sessionTurnCount = 0;
     const turns: Array<{ role: 'user' | 'assistant'; text: string }> = [];
     for (const m of messages) {
       const role = this.roleOf(m);
+      if (role) sessionTurnCount++;
       if (!role) continue;
       const text = this.textOf(m);
       if (!text) continue;
@@ -107,6 +112,7 @@ export class TrajectoryExtractor {
       hash,
       canonicalText: normalized,
       turnCount: turns.length,
+      sessionTurnCount: sessionTurnCount > 0 ? sessionTurnCount : turns.length,
       shortDescription: shortDescription || 'Captured workflow',
       slug: slug || `skill-${hash.slice(0, 8)}`,
     };

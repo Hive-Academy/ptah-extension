@@ -27,6 +27,7 @@ import {
   type SkillInvocationRow,
   type SkillStatus,
 } from './types';
+import { cosineSimilarity } from './cosine-similarity';
 
 interface RawCandidateRow {
   id: string;
@@ -43,6 +44,7 @@ interface RawCandidateRow {
   promoted_at: number | null;
   rejected_at: number | null;
   rejected_reason: string | null;
+  pinned: number;
 }
 
 interface RawInvocationRow {
@@ -52,6 +54,7 @@ interface RawInvocationRow {
   succeeded: number;
   invoked_at: number;
   notes: string | null;
+  context_id: string | null;
 }
 
 const LEGAL_TRANSITIONS: Record<SkillStatus, readonly SkillStatus[]> = {
@@ -143,6 +146,37 @@ export class SkillCandidateStore {
     );
     const rows = stmt.all(status) as RawCandidateRow[];
     return rows.map((r) => this.toCandidateRow(r));
+  }
+
+  /**
+   * Active promoted skills ordered by decay-weighted score (ascending).
+   * Lowest score = least valuable = evict first.
+   * Only includes unpinned candidates — pinned skills are exempt from eviction.
+   *
+   * Decay score per skill = sum of decayRate^(ageDays) for each invocation.
+   * Skills with no invocations get score 0 (oldest for eviction).
+   */
+  listActiveOrderedByDecayScore(
+    now: number,
+    decayRate: number,
+  ): SkillCandidateRow[] {
+    const promoted = this.listByStatus('promoted').filter((r) => !r.pinned);
+    if (promoted.length === 0) return [];
+
+    // Compute decay scores in-process (avoids SQLite POWER() availability issues).
+    const scored: Array<{ row: SkillCandidateRow; score: number }> = [];
+    for (const row of promoted) {
+      const invocations = this.listInvocations(row.id, 1000);
+      let score = 0;
+      for (const inv of invocations) {
+        const ageDays = (now - inv.invokedAt) / 86400000;
+        score += Math.pow(decayRate, ageDays);
+      }
+      scored.push({ row, score });
+    }
+    // Ascending order — lowest score first (evict these first).
+    scored.sort((a, b) => a.score - b.score);
+    return scored.map((s) => s.row);
   }
 
   /**
@@ -250,6 +284,42 @@ export class SkillCandidateStore {
     return row?.failureCount ?? 0;
   }
 
+  /**
+   * Set or clear the pinned flag on a candidate.
+   * When setting pinned=true, enforces the maxPinnedCap limit.
+   * Throws if cap would be exceeded.
+   */
+  setPin(id: CandidateId, pinned: boolean, maxPinnedCap: number): void {
+    if (pinned) {
+      const row = this.db
+        .prepare(
+          `SELECT COUNT(*) as cnt FROM skill_candidates WHERE pinned = 1`,
+        )
+        .get() as { cnt: number };
+      if (row.cnt >= maxPinnedCap) {
+        throw new Error('maxPinnedSkills cap reached');
+      }
+    }
+    this.db
+      .prepare(`UPDATE skill_candidates SET pinned = ? WHERE id = ?`)
+      .run(pinned ? 1 : 0, id);
+  }
+
+  /**
+   * Count distinct context IDs recorded for a candidate's invocations.
+   * Returns 0 for legacy rows where context_id is NULL.
+   */
+  countDistinctContexts(candidateId: CandidateId): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(DISTINCT context_id) as cnt
+         FROM skill_invocations
+         WHERE skill_id = ? AND context_id IS NOT NULL`,
+      )
+      .get(candidateId) as { cnt: number } | undefined;
+    return row?.cnt ?? 0;
+  }
+
   // ────────────────────────────────────────────────────────────────────
   // Invocation CRUD
   // ────────────────────────────────────────────────────────────────────
@@ -260,12 +330,13 @@ export class SkillCandidateStore {
     succeeded: boolean;
     invokedAt: number;
     notes?: string;
+    contextId?: string;
   }): SkillInvocationRow {
     const id = this.generateInvocationId();
     const stmt = this.db.prepare(
       `INSERT INTO skill_invocations
-         (id, skill_id, session_id, succeeded, invoked_at, notes)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+         (id, skill_id, session_id, succeeded, invoked_at, notes, context_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
     stmt.run(
       id,
@@ -274,6 +345,7 @@ export class SkillCandidateStore {
       input.succeeded ? 1 : 0,
       input.invokedAt,
       input.notes ?? null,
+      input.contextId ?? null,
     );
     return {
       id,
@@ -282,6 +354,7 @@ export class SkillCandidateStore {
       succeeded: input.succeeded,
       invokedAt: input.invokedAt,
       notes: input.notes ?? null,
+      contextId: input.contextId ?? null,
     };
   }
 
@@ -428,6 +501,7 @@ export class SkillCandidateStore {
       promotedAt: raw.promoted_at,
       rejectedAt: raw.rejected_at,
       rejectedReason: raw.rejected_reason,
+      pinned: raw.pinned === 1,
     };
   }
 
@@ -439,6 +513,7 @@ export class SkillCandidateStore {
       succeeded: raw.succeeded === 1,
       invokedAt: raw.invoked_at,
       notes: raw.notes,
+      contextId: raw.context_id ?? null,
     };
   }
 
@@ -449,19 +524,4 @@ export class SkillCandidateStore {
   private generateInvocationId(): string {
     return ulid();
   }
-}
-
-/** Cosine similarity for two equal-length vectors. Returns 0 on degenerate input. */
-function cosineSimilarity(a: Float32Array, b: Float32Array): number {
-  if (a.length !== b.length || a.length === 0) return 0;
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  if (normA === 0 || normB === 0) return 0;
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }

@@ -1245,6 +1245,26 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisStatsParams;
     result: SkillSynthesisStatsResult;
   };
+  'skillSynthesis:getSettings': {
+    params: SkillSynthesisGetSettingsParams;
+    result: SkillSynthesisGetSettingsResult;
+  };
+  'skillSynthesis:updateSettings': {
+    params: SkillSynthesisUpdateSettingsParams;
+    result: SkillSynthesisUpdateSettingsResult;
+  };
+  'skillSynthesis:pin': {
+    params: SkillSynthesisPinParams;
+    result: SkillSynthesisPinResult;
+  };
+  'skillSynthesis:unpin': {
+    params: SkillSynthesisUnpinParams;
+    result: SkillSynthesisUnpinResult;
+  };
+  'skillSynthesis:runCurator': {
+    params: SkillSynthesisRunCuratorParams;
+    result: SkillSynthesisRunCuratorResult;
+  };
   // === TRACK_2_SKILL_SYNTHESIS_END ===
 
   // === TRACK_3_CRON_SCHEDULER_BEGIN ===
@@ -1329,6 +1349,7 @@ export interface SkillSynthesisCandidateSummary {
   promotedAt: number | null;
   rejectedAt: number | null;
   rejectedReason: string | null;
+  pinned: boolean;
 }
 
 export interface SkillSynthesisCandidateDetail extends SkillSynthesisCandidateSummary {
@@ -1394,6 +1415,71 @@ export interface SkillSynthesisStatsResult {
   totalRejected: number;
   totalInvocations: number;
   activeSkills: number;
+}
+
+/**
+ * DTO mirroring all 17 SkillSynthesisSettings fields.
+ * Shared between frontend and backend — no branded types.
+ */
+export interface SkillSynthesisSettingsDto {
+  enabled: boolean;
+  successesToPromote: number;
+  dedupCosineThreshold: number;
+  maxActiveSkills: number;
+  candidatesDir: string;
+  eligibilityMinTurns: number;
+  evictionDecayRate: number;
+  generalizationContextThreshold: number;
+  minTrajectoryFidelityRatio: number;
+  dedupClusterThreshold: number;
+  minAbstractionEditDistance: number;
+  judgeEnabled: boolean;
+  minJudgeScore: number;
+  judgeModel: string;
+  maxPinnedSkills: number;
+  curatorEnabled: boolean;
+  curatorIntervalHours: number;
+}
+
+export type SkillSynthesisGetSettingsParams = Record<string, never>;
+export interface SkillSynthesisGetSettingsResult {
+  settings: SkillSynthesisSettingsDto;
+}
+
+export interface SkillSynthesisUpdateSettingsParams {
+  settings: Partial<SkillSynthesisSettingsDto>;
+}
+export interface SkillSynthesisUpdateSettingsResult {
+  updated: boolean;
+}
+
+export interface SkillSynthesisPinParams {
+  id: string;
+}
+export interface SkillSynthesisPinResult {
+  pinned: boolean;
+}
+
+export interface SkillSynthesisUnpinParams {
+  id: string;
+}
+export interface SkillSynthesisUnpinResult {
+  pinned: boolean;
+}
+
+export type SkillSynthesisRunCuratorParams = Record<string, never>;
+
+export interface SkillSynthesisCuratorOverlap {
+  skillIdA: string;
+  skillIdB: string;
+  reason: string;
+}
+
+export interface SkillSynthesisRunCuratorResult {
+  reportPath: string;
+  changesQueued: number;
+  skippedPinned: number;
+  overlaps?: SkillSynthesisCuratorOverlap[];
 }
 // === TRACK_2_SKILL_SYNTHESIS_END ===
 
@@ -1941,6 +2027,11 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:reject': true,
   'skillSynthesis:invocations': true,
   'skillSynthesis:stats': true,
+  'skillSynthesis:getSettings': true,
+  'skillSynthesis:updateSettings': true,
+  'skillSynthesis:pin': true,
+  'skillSynthesis:unpin': true,
+  'skillSynthesis:runCurator': true,
   // === TRACK_2_SKILL_SYNTHESIS_END ===
 
   // === TRACK_3_CRON_SCHEDULER_BEGIN ===

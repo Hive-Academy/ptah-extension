@@ -15,6 +15,12 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_INVOCATION_TRACKER: Symbol.for('PtahSkillInvocationTracker'),
   /** SkillCandidateStore — SQLite persistence layer for candidates + vec rows. */
   SKILL_CANDIDATE_STORE: Symbol.for('PtahSkillCandidateStore'),
+  /** SkillClusterDedupService — cluster-centroid dedup for promoted skills. */
+  SKILL_CLUSTER_DEDUP_SERVICE: Symbol.for('PtahSkillClusterDedupService'),
+  /** SkillJudgeService — LLM-as-judge gate during promotion. */
+  SKILL_JUDGE_SERVICE: Symbol.for('PtahSkillJudgeService'),
+  /** SkillCuratorService — Hermes-style periodic skill curation daemon. */
+  SKILL_CURATOR_SERVICE: Symbol.for('PtahSkillCuratorService'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;
