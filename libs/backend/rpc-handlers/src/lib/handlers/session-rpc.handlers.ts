@@ -29,6 +29,7 @@ import {
   SdkAgentAdapter,
   SessionNotActiveError,
   SdkError,
+  MESSAGE_ID_NOT_FOUND_PHRASE,
 } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
@@ -881,7 +882,7 @@ export class SessionRpcHandlers {
           // be matched in the JSONL transcript.
           if (
             error instanceof SdkError &&
-            errorObj.message.includes('not found in session history')
+            errorObj.message.includes(MESSAGE_ID_NOT_FOUND_PHRASE)
           ) {
             this.logger.warn(
               'RPC: session:forkSession upToMessageId not found in history',

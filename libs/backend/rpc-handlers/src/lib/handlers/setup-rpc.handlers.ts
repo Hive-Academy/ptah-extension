@@ -69,6 +69,7 @@ import type {
 import { MESSAGE_TYPES, Result } from '@ptah-extension/shared';
 import type { MultiPhaseManifest } from '@ptah-extension/agent-generation';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import type { WebviewBroadcaster } from '../harness/streaming';
 
 /**
  * Plugin id of the SaaS workspace initializer skill pack — auto-enabled when
@@ -90,14 +91,6 @@ const NEW_PROJECT_CHAT_SEED_PROMPT =
 
 /** ViewType of the wizard webview panel — must match SetupWizardService. */
 const WIZARD_VIEW_TYPE = 'ptah.setupWizard';
-
-/**
- * Local interface for webview broadcasting. Mirrors the `WebviewManager`
- * shape used elsewhere in this lib without coupling to the concrete class.
- */
-interface WebviewBroadcaster {
-  broadcastMessage(type: string, payload: unknown): Promise<void>;
-}
 
 /**
  * Local interface for the wizard webview lifecycle service we need
@@ -433,11 +426,11 @@ export class SetupRpcHandlers {
         phaseContentCount: Object.keys(phaseContents).length,
       });
 
-      // THOTH WIZARD SEED — seed memory from finalized analysis (non-blocking,
-      // non-fatal). MUST run after phaseContents is built so seed content can
-      // pull from phase markdown. MUST run before `return response` so the
-      // seed observes the same data the frontend sees. NO exception escapes
-      // `seedWizardMemory` — analysis response always reaches the RPC caller.
+      // Seed memory from finalized analysis (non-blocking, non-fatal).
+      // MUST run after phaseContents is built so seed content can pull from
+      // phase markdown. MUST run before `return response` so the seed observes
+      // the same data the frontend sees. NO exception escapes `seedWizardMemory`
+      // — analysis response always reaches the RPC caller.
       try {
         await this.seedWizardMemory(workspaceRoot, manifest, phaseContents);
       } catch (error) {
@@ -999,7 +992,7 @@ export class SetupRpcHandlers {
   }
 
   // ============================================================
-  // THOTH wizard memory seeding (TASK_2026_THOTH_WIZARD_SEED)
+  // Wizard memory seeding
   // ============================================================
 
   /**
@@ -1036,7 +1029,7 @@ export class SetupRpcHandlers {
         'IFileSystemProvider',
       );
       fingerprintResult = await deriveWorkspaceFingerprint(workspaceRoot, fs);
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.warn('[SetupWizard] Memory seeding failed (non-fatal)', {
         error: error instanceof Error ? error.message : String(error),
         stage: 'fingerprint',
@@ -1096,7 +1089,7 @@ export class SetupRpcHandlers {
         if (result.status === 'inserted') inserted++;
         else if (result.status === 'replaced') replaced++;
         else unchanged++;
-      } catch (error) {
+      } catch (error: unknown) {
         this.logger.warn('[SetupWizard] Memory seeding failed (non-fatal)', {
           error: error instanceof Error ? error.message : String(error),
           subject: req.subject,
@@ -1407,7 +1400,7 @@ export class SetupRpcHandlers {
 }
 
 // ---------------------------------------------------------------------------
-// Local helpers — kept in this file because they are only used by the THOTH
+// Local helpers — kept in this file because they are only used by the wizard
 // memory-seed content builders above and have no reuse value elsewhere.
 // ---------------------------------------------------------------------------
 

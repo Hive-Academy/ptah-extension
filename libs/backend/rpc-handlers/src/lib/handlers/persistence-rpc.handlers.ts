@@ -1,5 +1,5 @@
 /**
- * Persistence RPC Handlers (TASK_2026_THOTH_PERSISTENCE_HARDENING Batch 4).
+ * Persistence RPC Handlers.
  *
  * Surfaces two `db:*` maintenance methods backed by
  * `@ptah-extension/persistence-sqlite`:
@@ -28,44 +28,14 @@ import {
   SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
 import type { IBackupService } from '@ptah-extension/persistence-sqlite';
-import type { RpcMethodName } from '@ptah-extension/shared';
+import type {
+  RpcMethodName,
+  DbHealthResult,
+  DbResetResult,
+} from '@ptah-extension/shared';
 
-// ---- Public types ----------------------------------------------------------
-
-/**
- * Shape returned by `db:health`. All nullable fields are null when the
- * connection is unavailable so the UI can render an offline badge without
- * special-casing every property individually.
- */
-export interface DbHealthResult {
-  /** Whether the SQLite connection is currently open. */
-  isOpen: boolean;
-  /** Result of PRAGMA quick_check. Null if connection is closed. */
-  quickCheckPassed: boolean | null;
-  /** Count of foreign-key violations. Null if connection is closed. */
-  foreignKeyViolations: number | null;
-  /** Sample of FK-violation rows (up to 3). Empty when none. */
-  foreignKeyViolationSample: Array<{
-    table: string;
-    rowid: number;
-    parent: string;
-    fkid: number;
-  }>;
-  /** DB file size in megabytes. Null if connection is closed. */
-  dbSizeMb: number | null;
-  /** Ratio of freelist pages to total pages (0.0–1.0). Null if closed. */
-  freelistRatio: number | null;
-  /** WAL file size in kilobytes. Null if closed or WAL absent. */
-  walSizeKb: number | null;
-  /** Whether the sqlite-vec extension was successfully loaded. */
-  vecExtensionLoaded: boolean;
-  /** Highest migration version applied (PRAGMA user_version). 0 if none. */
-  lastMigrationVersion: number;
-  /** True when `fullCheck=true` was requested and integrity_check ran. */
-  fullCheckRun: boolean;
-  /** integrity_check result. Null unless fullCheckRun=true. */
-  integrityCheckPassed: boolean | null;
-}
+// Re-exported so consumers that import from this handler module still compile.
+export type { DbHealthResult, DbResetResult } from '@ptah-extension/shared';
 
 /** Optional request params for `db:health`. */
 export interface DbHealthParams {
@@ -93,26 +63,6 @@ export interface DbResetParams {
    * the static literal `'CONFIRM'` (deprecated — use challenge tokens instead).
    */
   confirm: string;
-}
-
-/**
- * Result shape returned by `db:reset`.
- *
- * F-M3 security fix: `backupPath` now contains only the basename of the backup
- * file (not the absolute path) to avoid leaking the OS username in the renderer.
- * The backup directory is always `~/.ptah/state` or `~/.ptah/state/backups`,
- * so the basename is sufficient for the user to locate the file.
- */
-export interface DbResetResult {
-  /**
-   * Basename of the backup file taken before reset (e.g. `ptah.reset-20260509T...sqlite`).
-   * Null if backup failed or was not taken.
-   */
-  backupPath: string | null;
-  /** True if the 5-step reset workflow succeeded. */
-  success: boolean;
-  /** Human-readable message suitable for a notification. */
-  message: string;
 }
 
 // ---- Handler class ---------------------------------------------------------
