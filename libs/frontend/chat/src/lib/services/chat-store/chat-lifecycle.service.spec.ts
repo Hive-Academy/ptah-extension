@@ -25,7 +25,11 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import { ClaudeRpcService, AuthStateService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  AuthStateService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import { ChatLifecycleService } from './chat-lifecycle.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
@@ -171,6 +175,12 @@ describe('ChatLifecycleService', () => {
       loadAuthStatus: loadAuthStatusMock,
     } as unknown as AuthStateService;
 
+    // bootstrap() gates loadSessions/restoreCliSessions on a non-empty
+    // workspaceRoot — provide one so the kickoffs are observable.
+    const vscodeServiceMock = {
+      config: () => ({ workspaceRoot: '/test/workspace' }),
+    } as unknown as VSCodeService;
+
     TestBed.configureTestingModule({
       providers: [
         ChatLifecycleService,
@@ -181,6 +191,7 @@ describe('ChatLifecycleService', () => {
         { provide: CompactionLifecycleService, useValue: compactionMock },
         { provide: ClaudeRpcService, useValue: claudeRpcMock },
         { provide: AuthStateService, useValue: authStateMock },
+        { provide: VSCodeService, useValue: vscodeServiceMock },
       ],
     });
     service = TestBed.inject(ChatLifecycleService);

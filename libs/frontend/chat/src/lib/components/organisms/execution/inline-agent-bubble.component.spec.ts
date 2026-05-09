@@ -202,6 +202,9 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
         taskId: 't1',
       });
       cmp.sendDraft.set('hello');
+      // Component preserves the draft on send failure (so the user can retry);
+      // the success path requires the store to acknowledge with `true`.
+      (storeMock.sendMessageToAgent as jest.Mock).mockResolvedValueOnce(true);
       // eslint-disable-next-line @typescript-eslint/dot-notation
       await (cmp as unknown as { onSendSubmit(): Promise<void> })[
         'onSendSubmit'
