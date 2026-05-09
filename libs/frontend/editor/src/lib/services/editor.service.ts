@@ -71,6 +71,11 @@ export class EditorService implements MessageHandler {
   private readonly _splitFilePath = signal<string | undefined>(undefined);
   private readonly _splitFileContent = signal('');
   private readonly _focusedPane = signal<'left' | 'right'>('left');
+  // Terminal panel state — promoted from EditorPanelComponent (TASK_2026_111
+  // Batch 3) so the status-bar terminal toggle and other consumers can
+  // read/write a single source of truth.
+  private readonly _terminalVisible = signal(false);
+  private readonly _terminalHeight = signal(200);
   private errorTimeout: ReturnType<typeof setTimeout> | null = null;
 
   /** The workspace file tree */
@@ -95,6 +100,10 @@ export class EditorService implements MessageHandler {
   readonly splitFileContent = this._splitFileContent.asReadonly();
   /** Which pane has focus: 'left' (primary) or 'right' (split). */
   readonly focusedPane = this._focusedPane.asReadonly();
+  /** Whether the integrated terminal panel is visible. */
+  readonly terminalVisible = this._terminalVisible.asReadonly();
+  /** Height of the integrated terminal panel in pixels. */
+  readonly terminalHeight = this._terminalHeight.asReadonly();
   /** Whether a file is currently open */
   readonly hasActiveFile = computed(() => this._activeFilePath() !== undefined);
 
@@ -238,6 +247,20 @@ export class EditorService implements MessageHandler {
   /** Clear the target line after it has been revealed by the editor. */
   clearTargetLine(): void {
     this._targetLine.set(undefined);
+  }
+
+  // ============================================================================
+  // TERMINAL PANEL STATE (TASK_2026_111 Batch 3)
+  // ============================================================================
+
+  /** Flip the integrated terminal panel visibility. */
+  toggleTerminal(): void {
+    this._terminalVisible.update((v) => !v);
+  }
+
+  /** Set the integrated terminal panel height in pixels. */
+  setTerminalHeight(px: number): void {
+    this._terminalHeight.set(px);
   }
 
   /** Open a diff view for a file. */

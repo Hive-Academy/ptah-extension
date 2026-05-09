@@ -34,9 +34,14 @@ export * from './rpc/rpc-memory.types';
 // ============================================================
 
 // TASK_2025_109: SubagentResumeParams/Result removed - now uses context injection
+// Phase 2: Added SubagentSendMessageParams, SubagentStopParams, SubagentInterruptParams
 import type {
   SubagentQueryParams,
   SubagentQueryResult,
+  SubagentSendMessageParams,
+  SubagentStopParams,
+  SubagentInterruptParams,
+  SubagentCommandResult,
 } from './subagent-registry.types';
 import type { SavedAnalysisMetadata } from './wizard';
 
@@ -232,6 +237,18 @@ import type {
   GitCommitResult,
   GitShowFileParams,
   GitShowFileResult,
+  GitBranchesParams,
+  GitBranchesResult,
+  GitCheckoutParams,
+  GitCheckoutResult,
+  GitStashListParams,
+  GitStashListResult,
+  GitTagsParams,
+  GitTagsResult,
+  GitRemotesParams,
+  GitRemotesResult,
+  GitLastCommitParams,
+  GitLastCommitResult,
 } from './rpc/rpc-git.types';
 
 import type {
@@ -329,6 +346,10 @@ import type {
   PluginConfigState,
   PluginSkillEntry,
 } from './rpc/rpc-misc.types';
+import type {
+  DbHealthResult,
+  DbResetResult,
+} from './rpc/rpc-persistence.types';
 
 // ============================================================
 // RPC Method Registry (Compile-Time Enforcement)
@@ -637,11 +658,24 @@ export interface RpcMethodRegistry {
     result: ProviderClearModelTierResult;
   };
 
-  // ---- Subagent Methods (TASK_2025_103) ----
+  // ---- Subagent Methods (TASK_2025_103, Phase 2) ----
   // TASK_2025_109: chat:subagent-resume removed - now uses context injection
   'chat:subagent-query': {
     params: SubagentQueryParams;
     result: SubagentQueryResult;
+  };
+  // Phase 2: Bidirectional messaging + stop/interrupt
+  'subagent:send-message': {
+    params: SubagentSendMessageParams;
+    result: SubagentCommandResult;
+  };
+  'subagent:stop': {
+    params: SubagentStopParams;
+    result: SubagentCommandResult;
+  };
+  'subagent:interrupt': {
+    params: SubagentInterruptParams;
+    result: SubagentCommandResult;
   };
 
   // ---- Enhanced Prompts Methods (TASK_2025_137) ----
@@ -1086,6 +1120,16 @@ export interface RpcMethodRegistry {
   'git:discard': { params: GitDiscardParams; result: GitDiscardResult };
   'git:commit': { params: GitCommitParams; result: GitCommitResult };
   'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
+  // Git enhancement methods (TASK_2026_111)
+  'git:branches': { params: GitBranchesParams; result: GitBranchesResult };
+  'git:checkout': { params: GitCheckoutParams; result: GitCheckoutResult };
+  'git:stashList': { params: GitStashListParams; result: GitStashListResult };
+  'git:tags': { params: GitTagsParams; result: GitTagsResult };
+  'git:remotes': { params: GitRemotesParams; result: GitRemotesResult };
+  'git:lastCommit': {
+    params: GitLastCommitParams;
+    result: GitLastCommitResult;
+  };
 
   // ---- Terminal Methods (TASK_2025_227) ----
   'terminal:create': {
@@ -1257,35 +1301,13 @@ export interface RpcMethodRegistry {
   // === TRACK_4_MESSAGING_GATEWAY_END ===
 
   // === THOTH_PERSISTENCE_HARDENING_BEGIN ===
-  // DB health introspection + reset (TASK_2026_THOTH_PERSISTENCE_HARDENING Batch 4)
   'db:health': {
     params: { fullCheck?: boolean };
-    result: {
-      isOpen: boolean;
-      quickCheckPassed: boolean | null;
-      foreignKeyViolations: number | null;
-      foreignKeyViolationSample: Array<{
-        table: string;
-        rowid: number;
-        parent: string;
-        fkid: number;
-      }>;
-      dbSizeMb: number | null;
-      freelistRatio: number | null;
-      walSizeKb: number | null;
-      vecExtensionLoaded: boolean;
-      lastMigrationVersion: number;
-      fullCheckRun: boolean;
-      integrityCheckPassed: boolean | null;
-    };
+    result: DbHealthResult;
   };
   'db:reset': {
     params: { confirm: string };
-    result: {
-      backupPath: string | null;
-      success: boolean;
-      message: string;
-    };
+    result: DbResetResult;
   };
   // === THOTH_PERSISTENCE_HARDENING_END ===
 }
@@ -1745,9 +1767,13 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'provider:getModelTiers': true,
   'provider:clearModelTier': true,
 
-  // Subagent Methods (TASK_2025_103)
+  // Subagent Methods (TASK_2025_103, Phase 2)
   // TASK_2025_109: chat:subagent-resume removed - now uses context injection
   'chat:subagent-query': true,
+  // Phase 2: Bidirectional messaging + stop/interrupt
+  'subagent:send-message': true,
+  'subagent:stop': true,
+  'subagent:interrupt': true,
 
   // Enhanced Prompts Methods (TASK_2025_137)
   'enhancedPrompts:getStatus': true,
@@ -1867,6 +1893,13 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:discard': true,
   'git:commit': true,
   'git:showFile': true,
+  // Git enhancement methods (TASK_2026_111)
+  'git:branches': true,
+  'git:checkout': true,
+  'git:stashList': true,
+  'git:tags': true,
+  'git:remotes': true,
+  'git:lastCommit': true,
 
   // Terminal Methods (TASK_2025_227)
   'terminal:create': true,

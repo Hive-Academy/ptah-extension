@@ -25,7 +25,18 @@ type MonacoApi = typeof monaco;
 @Component({
   selector: 'ptah-diff-view',
   standalone: true,
-  template: `<div #editorContainer class="w-full h-full"></div>`,
+  template: `
+    <div class="w-full h-full relative">
+      <div #editorContainer class="w-full h-full"></div>
+      @if (isNewFile()) {
+        <div
+          class="absolute top-0 left-0 z-10 text-xs px-2 py-0.5 bg-base-300/80 text-base-content/60 pointer-events-none rounded-br"
+        >
+          (new file)
+        </div>
+      }
+    </div>
+  `,
   styles: `
     :host {
       display: block;
@@ -49,9 +60,15 @@ export class DiffViewComponent implements OnDestroy {
   private originalModel: monaco.editor.ITextModel | null = null;
   private modifiedModel: monaco.editor.ITextModel | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private themeObserver: MutationObserver | null = null;
+  private monacoWaitInterval: ReturnType<typeof setInterval> | null = null;
 
   private readonly language = computed(() =>
     this.detectLanguage(this.filePath()),
+  );
+
+  protected readonly isNewFile = computed(
+    () => this.originalContent() === '' && this.modifiedContent().length > 0,
   );
 
   constructor() {
@@ -70,7 +87,12 @@ export class DiffViewComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.monacoWaitInterval) {
+      clearInterval(this.monacoWaitInterval);
+      this.monacoWaitInterval = null;
+    }
     this.resizeObserver?.disconnect();
+    this.themeObserver?.disconnect();
     this.disposeModels();
     this.editor?.dispose();
     this.editor = null;
@@ -82,16 +104,24 @@ export class DiffViewComponent implements OnDestroy {
       this.createEditor(monacoApi);
       return;
     }
-    // Monaco not loaded yet — poll briefly (should be rare)
+    // Monaco not loaded yet — poll briefly (should be rare).
+    // The interval handle is stored so it can be cleared from ngOnDestroy()
+    // if the component is torn down before Monaco loads.
     let attempts = 0;
-    const interval = setInterval(() => {
+    this.monacoWaitInterval = setInterval(() => {
       attempts++;
       const m = (window as Window & { monaco?: MonacoApi }).monaco;
       if (m) {
-        clearInterval(interval);
+        if (this.monacoWaitInterval) {
+          clearInterval(this.monacoWaitInterval);
+          this.monacoWaitInterval = null;
+        }
         this.createEditor(m);
       } else if (attempts > 50) {
-        clearInterval(interval);
+        if (this.monacoWaitInterval) {
+          clearInterval(this.monacoWaitInterval);
+          this.monacoWaitInterval = null;
+        }
       }
     }, 100);
   }
@@ -109,7 +139,7 @@ export class DiffViewComponent implements OnDestroy {
 
     this.ngZone.runOutsideAngular(() => {
       const editor = monacoApi.editor.createDiffEditor(container, {
-        theme: 'vs-dark',
+        theme: this.detectMonacoTheme(),
         automaticLayout: false,
         readOnly: true,
         renderSideBySide: true,
@@ -134,7 +164,41 @@ export class DiffViewComponent implements OnDestroy {
         this.editor?.layout();
       });
       this.resizeObserver.observe(container);
+
+      // Watch for theme changes on <body> and re-apply Monaco theme.
+      // Note: Monaco.editor.setTheme is global — all diff editors will share
+      // the theme, which is acceptable since concurrent diff tabs are rare.
+      if (typeof document !== 'undefined') {
+        this.themeObserver = new MutationObserver(() => {
+          monacoApi.editor.setTheme(this.detectMonacoTheme());
+        });
+        this.themeObserver.observe(document.body, {
+          attributes: true,
+          attributeFilter: ['data-vscode-theme-kind', 'data-theme'],
+        });
+      }
     });
+  }
+
+  /**
+   * Detect the appropriate Monaco theme based on the host environment:
+   * 1. `data-vscode-theme-kind` (VS Code webview): `vscode-light` -> `vs`,
+   *    `vscode-high-contrast` -> `hc-black`, `vscode-dark` -> `vs-dark`.
+   * 2. `data-theme` (DaisyUI fallback): `light` -> `vs`, anything else -> `vs-dark`.
+   * Returns `'vs-dark'` as the default and SSR-safe value when document is not available.
+   */
+  private detectMonacoTheme(): string {
+    if (typeof document === 'undefined') return 'vs-dark';
+
+    const vscodeKind = document.body.getAttribute('data-vscode-theme-kind');
+    if (vscodeKind === 'vscode-light') return 'vs';
+    if (vscodeKind === 'vscode-high-contrast') return 'hc-black';
+    if (vscodeKind === 'vscode-dark') return 'vs-dark';
+
+    const dataTheme = document.body.getAttribute('data-theme');
+    if (dataTheme === 'light') return 'vs';
+
+    return 'vs-dark';
   }
 
   private updateModels(original: string, modified: string, lang: string): void {

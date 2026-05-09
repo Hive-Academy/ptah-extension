@@ -17,7 +17,8 @@
  *
  * SERVICES:
  * - EditorService: File state management and backend RPC communication
- * - GitStatusService: Git status polling and workspace-partitioned git state
+ * - GitStatusService: Git status (event-driven via git:status-update push) and workspace-partitioned git state
+ * - GitBranchesService: Branch list, stash count, last commit, recent-branch persistence (event-driven)
  * - TerminalService: Terminal tab lifecycle, binary IPC, workspace-partitioned state
  * - WorktreeService: Git worktree CRUD operations and workspace folder registration
  *
@@ -52,11 +53,14 @@ export { TerminalTabBarComponent } from './lib/terminal/terminal-tab-bar.compone
 export { TerminalPanelComponent } from './lib/terminal/terminal-panel.component';
 export { AddWorktreeDialogComponent } from './lib/worktree/add-worktree-dialog.component';
 export { WorktreePanelComponent } from './lib/worktree/worktree-panel.component';
+export { WorktreeSectionComponent } from './lib/worktree/worktree-section.component';
 export { SidebarComponent } from './lib/sidebar/sidebar.component';
 export { SourceControlPanelComponent } from './lib/source-control/source-control-panel.component';
 export { SourceControlFileComponent } from './lib/source-control/source-control-file.component';
 export { SearchPanelComponent } from './lib/search/search-panel.component';
 export { QuickOpenComponent } from './lib/quick-open/quick-open.component';
+export { BranchPickerDropdownComponent } from './lib/branch-picker/branch-picker-dropdown.component';
+export { BranchDetailsPopoverComponent } from './lib/branch-picker/branch-details-popover.component';
 
 // Services
 export { EditorService } from './lib/services/editor.service';
@@ -71,6 +75,7 @@ export {
 } from './lib/services/editor/editor-internal-state';
 export { provideEditorInternalState } from './lib/services/editor-internal-state.provider';
 export { GitStatusService } from './lib/services/git-status.service';
+export { GitBranchesService } from './lib/services/git-branches.service';
 export { TerminalService } from './lib/services/terminal.service';
 export { WorktreeService } from './lib/services/worktree.service';
 export { VimModeService } from './lib/services/vim-mode.service';
