@@ -41,6 +41,12 @@ export * from './lib/types/wizard';
 // Harness builder types
 export * from './lib/types/rpc/rpc-harness.types';
 
+// RPC error codes — single source of truth shared by backend and frontend
+export * from './lib/types/rpc/rpc-error-codes.types';
+
+// Persistence RPC types (db:health, db:reset)
+export * from './lib/types/rpc/rpc-persistence.types';
+
 // Constants
 export * from './lib/constants/trial.constants';
 export * from './lib/constants/environment.constants';
