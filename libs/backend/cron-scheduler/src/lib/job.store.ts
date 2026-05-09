@@ -237,7 +237,9 @@ export class JobStore implements IJobStore {
 
 function mapRow(row: ScheduledJobRow): ScheduledJob {
   return {
-    id: JobId.from(row.id),
+    // Cast without ULID validation — system jobs (@ptah/*) have non-ULID IDs
+    // that are stored correctly by upsertSystem(). The DB is authoritative.
+    id: row.id as unknown as JobId,
     name: row.name,
     cronExpr: row.cron_expr,
     timezone: row.timezone,
