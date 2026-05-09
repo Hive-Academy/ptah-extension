@@ -567,6 +567,129 @@ export class TreeSitterParserService {
     return this.query(content, language, queries.exportQuery);
   }
 
+  /**
+   * Executes multiple tree-sitter queries over a single parse of the content.
+   * Parses the source exactly once and runs all provided queries against the
+   * resulting tree, returning a Map keyed by each entry's `key` field.
+   *
+   * This is significantly more efficient than calling `query()` N times when
+   * all queries operate on the same source file, as the WASM parse cost is
+   * paid only once.
+   *
+   * @param content The source code content to parse
+   * @param language The language of the source code
+   * @param queries An array of { key, queryString } entries to execute
+   * @returns A Result containing a Map<key, QueryMatch[]> on success, or an Error on failure.
+   *          An empty `queries` array returns `Result.ok(new Map())` immediately.
+   */
+  async queryMulti(
+    content: string,
+    language: SupportedLanguage,
+    queries: { key: string; queryString: string }[],
+  ): Promise<Result<Map<string, QueryMatch[]>, Error>> {
+    if (!content || queries.length === 0) {
+      return Result.ok(new Map());
+    }
+
+    this.logger.debug(
+      `Running queryMulti for language: ${language} with ${queries.length} queries`,
+    );
+
+    const initResult = await this.initialize();
+    if (initResult.isErr()) {
+      return Result.err(initResult.error ?? new Error('Unknown init error'));
+    }
+
+    const parserResult = await this.getOrCreateParser(language);
+    if (parserResult.isErr()) {
+      return Result.err(
+        parserResult.error ?? new Error('Unknown parser error'),
+      );
+    }
+    const parser = parserResult.value;
+
+    const grammarResult = await this._getPreloadedGrammar(language);
+    if (grammarResult.isErr()) {
+      return Result.err(
+        grammarResult.error ?? new Error('Unknown grammar error'),
+      );
+    }
+    const grammar = grammarResult.value;
+
+    if (!parser) {
+      return Result.err(
+        new Error('Parser instance is null or undefined before parsing.'),
+      );
+    }
+
+    if (!grammar) {
+      return Result.err(
+        new Error('Grammar instance is null or undefined before querying.'),
+      );
+    }
+
+    let tree: Tree | null = null;
+    // Collect all Query objects so the finally block can delete each one,
+    // even if an exception is thrown mid-loop.
+    const createdQueries: Query[] = [];
+
+    try {
+      tree = parser.parse(content);
+
+      if (!tree?.rootNode) {
+        throw new Error('Parsing resulted in an undefined tree or rootNode.');
+      }
+
+      const resultMap = new Map<string, QueryMatch[]>();
+
+      for (const entry of queries) {
+        const tsQuery = new Query(grammar, entry.queryString);
+        createdQueries.push(tsQuery);
+
+        const matches = tsQuery.matches(tree.rootNode);
+
+        const queryMatches: QueryMatch[] = matches.map(
+          (match: TsQueryMatch) => ({
+            pattern: match.patternIndex,
+            captures: match.captures.map((capture: TsQueryCapture) => ({
+              name: capture.name,
+              node: this._convertNodeToGenericAst(capture.node, 0, 3),
+              text: capture.node.text,
+              startPosition: {
+                row: capture.node.startPosition.row,
+                column: capture.node.startPosition.column,
+              },
+              endPosition: {
+                row: capture.node.endPosition.row,
+                column: capture.node.endPosition.column,
+              },
+            })),
+          }),
+        );
+
+        resultMap.set(entry.key, queryMatches);
+      }
+
+      this.logger.debug(
+        `queryMulti returned results for ${resultMap.size} queries, language: ${language}`,
+      );
+      return Result.ok(resultMap);
+    } catch (error: unknown) {
+      return Result.err(
+        this._handleAndLogError(
+          `Error during queryMulti for ${language}`,
+          error,
+        ),
+      );
+    } finally {
+      // Free WASM heap memory for every Query object created before the error.
+      for (const tsQuery of createdQueries) {
+        tsQuery?.delete();
+      }
+      tree?.delete();
+    }
+  }
+
   // --- Incremental Parsing ---
 
   /**
