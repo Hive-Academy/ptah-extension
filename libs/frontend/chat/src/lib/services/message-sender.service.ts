@@ -346,11 +346,14 @@ export class MessageSenderService {
         return;
       }
 
+      // Workspace path may be empty during the gap between Angular bootstrap
+      // and the async workspace-restore chain in electron-layout.service.ts
+      // (restoreLayout → workspace:getInfo → workspace:switch →
+      // updateWorkspaceRoot). Don't bail — the backend chat:start handler
+      // falls back to IWorkspaceProvider.getWorkspaceRoot() when
+      // params.workspacePath is missing. Omit the field so the backend
+      // resolves it deterministically.
       const workspacePath = this.vscodeService.config().workspaceRoot;
-      if (!workspacePath) {
-        console.warn('[MessageSender] No workspace path available');
-        return;
-      }
 
       // Use hoisted activeTabId (already resolved from options.tabId or global)
       if (!activeTabId) {
@@ -434,7 +437,10 @@ export class MessageSenderService {
           prompt: content,
           tabId: activeTabId, // Frontend correlation ID
           name: autoName, // Send message-derived name to backend (not stale activeTab reference)
-          workspacePath,
+          // Omit workspacePath when empty so backend falls back to
+          // IWorkspaceProvider.getWorkspaceRoot() — handles the bootstrap
+          // race where Send is clicked before workspace restore completes.
+          ...(workspacePath ? { workspacePath } : {}),
           ptahCliId, // TASK_2025_170: Route to Ptah CLI agent adapter
           options: {
             model: effectiveModel,
@@ -503,30 +509,34 @@ export class MessageSenderService {
         return;
       }
 
+      // Workspace path may be empty during the bootstrap-restore race
+      // (see startNewConversation comment). Don't bail — the backend
+      // chat:continue handler falls back to IWorkspaceProvider.getWorkspaceRoot()
+      // when params.workspacePath is missing. Skip the disk-existence check
+      // when we don't have a workspacePath to feed it; the backend will
+      // surface a meaningful error if the session is truly gone.
       const workspacePath = this.vscodeService.config().workspaceRoot;
-      if (!workspacePath) {
-        console.warn('[MessageSender] No workspace path available');
-        return;
-      }
 
-      // âœ… VALIDATE: Check if session file actually exists on disk
-      const validationResult = await this.validateSessionExists(
-        sessionId,
-        workspacePath,
-      );
-
-      if (!validationResult.exists) {
-        console.warn(
-          `[MessageSender] Session ${sessionId} file not found on disk - starting new session instead`,
-          { sessionId },
+      if (workspacePath) {
+        // VALIDATE: Check if session file actually exists on disk
+        const validationResult = await this.validateSessionExists(
+          sessionId,
+          workspacePath,
         );
 
-        if (activeTabId) {
-          this.tabManager.detachSessionAndMarkLoaded(activeTabId);
-        }
+        if (!validationResult.exists) {
+          console.warn(
+            `[MessageSender] Session ${sessionId} file not found on disk - starting new session instead`,
+            { sessionId },
+          );
 
-        await this.startNewConversation(content, options);
-        return;
+          if (activeTabId) {
+            this.tabManager.detachSessionAndMarkLoaded(activeTabId);
+          }
+
+          await this.startNewConversation(content, options);
+          return;
+        }
       }
 
       if (!activeTabId) {
@@ -581,7 +591,10 @@ export class MessageSenderService {
           sessionId,
           tabId: activeTabId, // For event routing
           name: activeTab?.name, // Send session name (support late naming)
-          workspacePath,
+          // Omit workspacePath when empty so backend falls back to
+          // IWorkspaceProvider.getWorkspaceRoot() — handles the bootstrap
+          // race where Send is clicked before workspace restore completes.
+          ...(workspacePath ? { workspacePath } : {}),
           model: effectiveModel,
           files: files ?? [],
           ...(images && images.length > 0 ? { images } : {}),

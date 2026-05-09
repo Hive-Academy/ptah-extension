@@ -344,6 +344,8 @@ export interface WizardListAgentPacksResult {
 export interface WizardInstallPackAgentsParams {
   source: string;
   agentFiles: string[];
+  /** Optional explicit workspace path; overrides the backend's detected root. */
+  workspacePath?: string;
 }
 
 /** Response from wizard:install-pack-agents RPC method */

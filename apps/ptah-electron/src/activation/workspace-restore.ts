@@ -6,6 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import type { BrowserWindow } from 'electron';
 import type { DependencyContainer } from 'tsyringe';
 import {
   ElectronWorkspaceProvider,
@@ -15,6 +16,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { WorkspaceContextManager } from '@ptah-extension/vscode-core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 export interface WorkspaceRestoreResult {
   startupWorkspaceRoot: string | undefined;
@@ -27,6 +29,7 @@ export async function restoreWorkspaces(
   gitWatcherRef: {
     current: { stop: () => void; switchWorkspace: (p: string) => void } | null;
   },
+  getMainWindow: () => BrowserWindow | null,
 ): Promise<WorkspaceRestoreResult> {
   let startupWorkspaceRoot: string | undefined;
   let flushWorkspacePersistence: (() => void) | null = null;
@@ -173,6 +176,19 @@ export async function restoreWorkspaces(
       const newActive = workspaceProviderForRestore.getActiveFolder();
       if (newActive) {
         gitWatcherRef.current?.switchWorkspace(newActive);
+
+        const mainWindow = getMainWindow();
+        if (mainWindow) {
+          mainWindow.webContents.send('to-renderer', {
+            type: MESSAGE_TYPES.WORKSPACE_CHANGED,
+            payload: {
+              workspaceInfo: {
+                path: newActive,
+                name: path.basename(newActive),
+              },
+            },
+          });
+        }
       }
     });
   } catch (error) {

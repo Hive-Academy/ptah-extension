@@ -303,12 +303,13 @@ export class SetupRpcHandlers {
    */
   private registerDeepAnalyze(): void {
     this.rpcHandler.registerMethod<
-      { model?: string },
+      { model?: string; workspacePath?: string },
       MultiPhaseAnalysisResponse
     >('wizard:deep-analyze', async (params) => {
       this.logger.debug('RPC: wizard:deep-analyze called');
 
-      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      const workspaceRoot =
+        params?.workspacePath || this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
         throw new RpcUserError(
           'No workspace folder open. Please open a folder to analyze.',
@@ -749,14 +750,15 @@ export class SetupRpcHandlers {
    */
   private registerLoadAnalysis(): void {
     this.rpcHandler.registerMethod<
-      { filename: string },
+      { filename: string; workspacePath?: string },
       MultiPhaseAnalysisResponse
     >('wizard:load-analysis', async (params) => {
       this.logger.debug('RPC: wizard:load-analysis called', {
         filename: params.filename,
       });
 
-      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      const workspaceRoot =
+        params?.workspacePath || this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
         throw new RpcUserError(
           'No workspace folder open.',
@@ -824,7 +826,8 @@ export class SetupRpcHandlers {
         );
       }
 
-      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      const workspaceRoot =
+        params?.workspacePath || this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
         throw new RpcUserError(
           'No workspace folder open.',

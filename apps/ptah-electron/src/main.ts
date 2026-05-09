@@ -63,7 +63,6 @@ if (!gotLock) {
       resolvedStateStorage,
       startupIsLicensed: boot.startupIsLicensed,
       startupInitialView: boot.startupInitialView,
-      startupWorkspaceRoot: boot.startupWorkspaceRoot,
       setMainWindow: (w) => {
         mainWindow = w;
       },

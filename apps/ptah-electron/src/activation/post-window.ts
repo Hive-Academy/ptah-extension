@@ -9,7 +9,11 @@ import { app, BrowserWindow, dialog, ipcMain, clipboard } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { DependencyContainer } from 'tsyringe';
-import type { IStateStorage } from '@ptah-extension/platform-core';
+import type {
+  IStateStorage,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { createMainWindow } from '../windows/main-window';
 import {
@@ -25,7 +29,6 @@ export interface PostWindowOptions {
   resolvedStateStorage: IStateStorage | undefined;
   startupIsLicensed: boolean;
   startupInitialView: string | null;
-  startupWorkspaceRoot: string | undefined;
   /** Mutates caller's mainWindow slot; returned window is for ergonomic chaining. */
   setMainWindow: (win: BrowserWindow) => void;
   getMainWindow: () => BrowserWindow | null;
@@ -55,7 +58,6 @@ export async function registerPostWindow(
     resolvedStateStorage,
     startupIsLicensed,
     startupInitialView,
-    startupWorkspaceRoot,
     setMainWindow,
     getMainWindow,
     scheduleWarmup,
@@ -74,10 +76,6 @@ export async function registerPostWindow(
   const baseStartupConfig = {
     initialView: startupInitialView,
     isLicensed: startupIsLicensed,
-    workspaceRoot: startupWorkspaceRoot || '',
-    workspaceName: startupWorkspaceRoot
-      ? path.basename(startupWorkspaceRoot)
-      : '',
   };
 
   ipcMain.on('get-startup-config', (event: Electron.IpcMainEvent) => {
@@ -101,10 +99,29 @@ export async function registerPostWindow(
       // Fallback to base startup values if service unavailable
     }
 
+    // Dynamically resolve workspace so webContents.reload() picks up any
+    // workspace switch that happened since initial load.
+    let workspaceRoot = '';
+    let workspaceName = '';
+    try {
+      const workspaceProvider = container.resolve<IWorkspaceProvider>(
+        PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      );
+      const resolvedRoot = workspaceProvider.getWorkspaceRoot();
+      if (resolvedRoot) {
+        workspaceRoot = resolvedRoot;
+        workspaceName = path.basename(resolvedRoot);
+      }
+    } catch {
+      // Workspace provider unavailable — leave empty strings
+    }
+
     event.returnValue = {
       ...baseStartupConfig,
       isLicensed,
       initialView,
+      workspaceRoot,
+      workspaceName,
     };
   });
   // PHASE 4.96: Clipboard IPC Handlers
@@ -122,9 +139,7 @@ export async function registerPostWindow(
   console.log(
     `[Ptah Electron] Startup config registered: initialView=${
       baseStartupConfig.initialView
-    }, isLicensed=${baseStartupConfig.isLicensed}, workspace=${
-      baseStartupConfig.workspaceName || '(none)'
-    }`,
+    }, isLicensed=${baseStartupConfig.isLicensed}`,
   );
   // PHASE 5: Create BrowserWindow + Load Renderer
   const mainWindow = createMainWindow(resolvedStateStorage);

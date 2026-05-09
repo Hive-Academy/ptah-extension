@@ -10,7 +10,10 @@
  *   - startNewConversation (happy path): auto-name, chat:start RPC payload
  *     including effective model/effort, user message appended
  *   - startNewConversation (RPC failure): marks loaded + failSession()
- *   - startNewConversation (no workspace): warns and returns
+ *   - startNewConversation (no workspace): still calls chat:start with
+ *     workspacePath omitted so the backend can fall back to
+ *     IWorkspaceProvider.getWorkspaceRoot() — fixes the bootstrap-restore
+ *     race where Send was clicked before workspace info arrived
  *   - tabId option scopes to a non-active tab (canvas tile isolation)
  *
  * The full continueConversation path involves SessionManager state machine +
@@ -344,13 +347,33 @@ describe('MessageSenderService', () => {
       expect(tabManager.markLoaded).toHaveBeenCalledWith('tab-1');
     });
 
-    it('warns and returns early when no workspace is available', async () => {
+    it('still calls chat:start with workspacePath omitted when workspace is empty (backend fallback)', async () => {
+      // Bug fix: prior behavior silently dropped the user's message during
+      // the bootstrap-restore race (Angular bootstrap → workspace:getInfo →
+      // workspace:switch → updateWorkspaceRoot in electron-layout.service.ts).
+      // The backend chat:start handler falls back to
+      // IWorkspaceProvider.getWorkspaceRoot() when params.workspacePath is
+      // missing, so the frontend must let the RPC through.
       vscodeConfig.mockReturnValue({ workspaceRoot: '' });
+      rpcCall.mockResolvedValue({ success: true });
+
       await service.send('hello');
-      expect(consoleWarn).toHaveBeenCalledWith(
+
+      // RPC must still be invoked — no silent bail-out.
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+      const [method, payload] = rpcCall.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+      ];
+      expect(method).toBe('chat:start');
+      expect(payload.prompt).toBe('hello');
+      // workspacePath is either omitted entirely or explicitly undefined;
+      // both forms let the backend resolve via IWorkspaceProvider.
+      expect(payload.workspacePath).toBeUndefined();
+      // No "No workspace path" warning — that early-return was the bug.
+      expect(consoleWarn).not.toHaveBeenCalledWith(
         expect.stringContaining('No workspace path'),
       );
-      expect(rpcCall).not.toHaveBeenCalled();
     });
   });
 });

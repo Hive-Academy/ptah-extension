@@ -182,7 +182,12 @@ export async function bootstrapElectron(
   // persistence + git-watcher switching via the mutable gitWatcherRef).
   // Implementation extracted to ./workspace-restore.
   const { startupWorkspaceRoot: restoredRoot, flushWorkspacePersistence } =
-    await restoreWorkspaces(container, initialFolders, gitWatcherRef);
+    await restoreWorkspaces(
+      container,
+      initialFolders,
+      gitWatcherRef,
+      getMainWindow,
+    );
   let startupWorkspaceRoot = restoredRoot;
   // PHASE 2.6: (Deferred) RPC handlers registered after WebviewManager in Phase 4.5
   // Fallback: if workspace restoration failed but CLI arg was provided
