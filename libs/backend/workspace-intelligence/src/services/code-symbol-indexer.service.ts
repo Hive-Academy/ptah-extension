@@ -2,6 +2,7 @@
 // TASK_2026_THOTH_CODE_INDEX
 
 import * as path from 'path';
+import picomatch from 'picomatch';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
@@ -36,6 +37,40 @@ export interface IndexingStats {
 const DEFAULT_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'] as const;
 const DEFAULT_BATCH_SIZE = 20;
 const DEFAULT_MAX_FILES = 2000;
+
+const DEFAULT_SKIP_PATTERNS = [
+  'jest.config.*',
+  'jest.setup.*',
+  'jest-setup.*',
+  'vitest.config.*',
+  'webpack.config.*',
+  'rollup.config.*',
+  'vite.config.*',
+  'esbuild.config.*',
+  'babel.config.*',
+  '.eslintrc.*',
+  'tsconfig*.ts',
+  '*.d.ts',
+  '*.spec.ts',
+  '*.spec.tsx',
+  '*.spec.js',
+  '*.spec.jsx',
+  '*.test.ts',
+  '*.test.tsx',
+  '*.test.js',
+  '*.test.jsx',
+  '*.module.ts',
+  '*.module.js',
+  'index.ts',
+  'index.tsx',
+  'index.js',
+  'index.jsx',
+  'public-api.ts',
+];
+const _skipMatcher = picomatch(DEFAULT_SKIP_PATTERNS, { nocase: true });
+function shouldSkipFile(absoluteFilePath: string): boolean {
+  return _skipMatcher(path.basename(absoluteFilePath));
+}
 
 /**
  * Maps a file extension to the tree-sitter SupportedLanguage.
@@ -130,12 +165,14 @@ export class CodeSymbolIndexer {
       };
     }
 
+    const filteredPaths = filePaths.filter((p) => !shouldSkipFile(p));
+
     let totalSymbols = 0;
     let totalErrors = 0;
 
     // Process files in batches with setImmediate() yields between batches
-    for (let i = 0; i < filePaths.length; i += batchSize) {
-      const batch = filePaths.slice(i, i + batchSize);
+    for (let i = 0; i < filteredPaths.length; i += batchSize) {
+      const batch = filteredPaths.slice(i, i + batchSize);
 
       for (const filePath of batch) {
         const stats = await this._indexFile(filePath, workspaceRoot);
@@ -144,21 +181,21 @@ export class CodeSymbolIndexer {
       }
 
       // Yield between batches to avoid stalling the event loop
-      if (i + batchSize < filePaths.length) {
+      if (i + batchSize < filteredPaths.length) {
         await yieldToEventLoop();
       }
     }
 
     const durationMs = Date.now() - startMs;
     this.logger.info('[CodeSymbolIndexer] Workspace indexing complete', {
-      filesScanned: filePaths.length,
+      filesScanned: filteredPaths.length,
       symbolsIndexed: totalSymbols,
       errors: totalErrors,
       durationMs,
     });
 
     return {
-      filesScanned: filePaths.length,
+      filesScanned: filteredPaths.length,
       symbolsIndexed: totalSymbols,
       errors: totalErrors,
       durationMs,
@@ -174,6 +211,12 @@ export class CodeSymbolIndexer {
     absoluteFilePath: string,
     workspaceRoot: string,
   ): Promise<{ symbolsIndexed: number; errors: number; durationMs: number }> {
+    if (shouldSkipFile(absoluteFilePath)) {
+      this.logger.debug?.(
+        `[CodeSymbolIndexer] reindexFile skipped (matches skip pattern): ${path.basename(absoluteFilePath)}`,
+      );
+      return { symbolsIndexed: 0, errors: 0, durationMs: 0 };
+    }
     const normalizedFilePath = absoluteFilePath.replace(/\\/g, '/');
     const startMs = Date.now();
     try {

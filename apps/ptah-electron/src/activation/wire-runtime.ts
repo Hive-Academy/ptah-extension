@@ -327,17 +327,20 @@ export async function wireRuntime(
           container.resolve<CodeSymbolIndexer>(CODE_SYMBOL_INDEXER);
 
         if (workspaceRoot) {
-          // Fire-and-forget full workspace index — must NOT block activation.
-          void symbolIndexer
-            .indexWorkspace(workspaceRoot)
-            .catch((err: unknown) => {
-              console.warn(
-                '[Ptah Electron] CodeSymbolIndexer.indexWorkspace failed (non-fatal):',
-                err instanceof Error ? err.message : String(err),
-              );
-            });
+          // Defer full workspace index 5 s — avoids competing with plugin load,
+          // MCP start, and window paint during the critical activation window.
+          setTimeout(() => {
+            void symbolIndexer
+              .indexWorkspace(workspaceRoot as string)
+              .catch((err: unknown) => {
+                console.warn(
+                  '[Ptah Electron] CodeSymbolIndexer.indexWorkspace failed (non-fatal):',
+                  err instanceof Error ? err.message : String(err),
+                );
+              });
+          }, 5000);
 
-          // Incremental re-index on file change (chokidar — same pattern as PHASE 4.8).
+          // Incremental re-index on file change — registers immediately (not deferred).
           // Debounced 500ms to prevent concurrent delete+insert races on rapid saves.
           const chokidar = await import('chokidar');
           const allowedExts = ['.ts', '.tsx', '.js', '.jsx'];
