@@ -653,7 +653,12 @@ nx build core
 ## Testing
 
 **Framework**: Jest with ts-jest transformer
-**Coverage Target**: 80% minimum
+**Coverage Thresholds** (enforced floor, ratcheted via TASK_2026_116 on 2026-05-11):
+
+- statements: 85%, branches: 75%, functions: 75%, lines: 85%
+- These are minimums, not targets. Do not lower them without a follow-up task.
+- `dropdown-interaction.service.ts` is excluded via `coveragePathIgnorePatterns` in
+  `jest.config.ts` — it is deprecated (CDK Overlay replacement) and has no test value.
 
 **Test Patterns**:
 

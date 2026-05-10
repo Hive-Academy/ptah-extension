@@ -23,6 +23,10 @@ export default {
   // after lines drifted to 89.17%. Re-ratcheted again after PR #267 which
   // expanded ClaudeRpcService for memory wiring; functions drifted to
   // 77.88%. Rounded down to the nearest 5.
+  coveragePathIgnorePatterns: [
+    '/node_modules/',
+    'dropdown-interaction\\.service\\.ts',
+  ],
   coverageThreshold: {
     global: {
       statements: 85,

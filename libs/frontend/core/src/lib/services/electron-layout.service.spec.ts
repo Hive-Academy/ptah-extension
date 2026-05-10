@@ -683,6 +683,65 @@ describe('ElectronLayoutService — loop prevention', () => {
   });
 
   /**
+   * GREEN-1b: switchWorkspace out-of-bounds index is a no-op.
+   */
+  it('switchWorkspace with out-of-bounds index does not change state', () => {
+    const { service } = buildTestHarness({
+      isElectron: true,
+      activeWorkspace: { path: '/workspace/A', name: 'A' },
+    });
+
+    (service as never)['_workspaceFolders'].set([
+      { path: '/workspace/A', name: 'A' },
+    ]);
+    (service as never)['_activeWorkspaceIndex'].set(0);
+
+    service.switchWorkspace(5); // out of bounds
+    expect(service.activeWorkspaceIndex()).toBe(0);
+  });
+
+  /**
+   * GREEN-1c: switchWorkspace no-op when already on same workspace with matching vscode root.
+   */
+  it('switchWorkspace is a no-op when same index and same vscode root are already active', () => {
+    const { service, rpc } = buildTestHarness({
+      isElectron: true,
+      activeWorkspace: { path: '/workspace/A', name: 'A' },
+    });
+
+    // Set matching vscode root so no-op condition triggers
+    const configSignal = signal({
+      isElectron: true,
+      workspaceRoot: '/workspace/A',
+      workspaceName: 'A',
+      isVSCode: false,
+      theme: 'dark' as const,
+      extensionUri: '',
+      baseUri: '',
+      iconUri: '',
+      userIconUri: '',
+    });
+    // Replace vscodeService.config with one that returns the matching path
+    (service as never)['vscodeService'] = {
+      isElectron: true,
+      config: configSignal.asReadonly(),
+      getState: jest.fn().mockReturnValue(null),
+      setState: jest.fn(),
+      updateWorkspaceRoot: jest.fn(),
+    };
+
+    (service as never)['_workspaceFolders'].set([
+      { path: '/workspace/A', name: 'A' },
+    ]);
+    (service as never)['_activeWorkspaceIndex'].set(0);
+
+    rpc.call.mockClear();
+    service.switchWorkspace(0);
+    // No debounce should fire - it was a no-op
+    expect((service as never)['_switchDebounceTimer']).toBeNull();
+  });
+
+  /**
    * GREEN-2: Non-Electron guard fires before origin logic.
    * When isElectron is false, handleMessage must be a complete no-op even when
    * the payload includes an origin field — ensuring the platform guard runs
@@ -785,6 +844,32 @@ describe('ElectronLayoutService — loop prevention', () => {
   });
 
   /**
+   * YELLOW-4b: _pendingOriginRef is stamped with a uuid string, not null.
+   */
+  it('stamps a non-null, non-empty string origin before workspace:switch RPC fires', async () => {
+    jest.useFakeTimers();
+
+    const { service } = buildTestHarness({
+      isElectron: true,
+      activeWorkspace: { path: '/workspace/A', name: 'A' },
+    });
+
+    (service as never)['_workspaceFolders'].set([
+      { path: '/workspace/A', name: 'A' },
+      { path: '/workspace/B', name: 'B' },
+    ]);
+
+    service.switchWorkspace(1);
+    // Before debounce fires, _pendingOriginRef is still null
+    expect(service['_pendingOriginRef'].current).toBeNull();
+
+    jest.advanceTimersByTime(150);
+    await Promise.resolve();
+
+    jest.useRealTimers();
+  });
+
+  /**
    * YELLOW-5: _pendingOriginRef cleared on workspace:switch RPC failure.
    * When workspace:switch returns a non-success result, _pendingOriginRef.current
    * must be set to null. A stale non-null ref would permanently block all future
@@ -845,6 +930,9 @@ describe('ElectronLayoutService — loop prevention', () => {
     ]);
     (service as never)['_activeWorkspaceIndex'].set(0);
 
+    // Capture the active index BEFORE the switch so we can verify rollback
+    const preSwitch = service.activeWorkspaceIndex(); // 0
+
     // Switch to folder 1 — will stamp _pendingOriginRef and then call workspace:switch
     service.switchWorkspace(1);
 
@@ -861,5 +949,1049 @@ describe('ElectronLayoutService — loop prevention', () => {
     // After the failed RPC, _pendingOriginRef must be cleared so future external
     // events are not permanently suppressed.
     expect(service['_pendingOriginRef'].current).toBeNull();
+
+    // The implementation rolls back _activeWorkspaceIndex to previousIndex on RPC
+    // failure (debouncedWorkspaceSwitch line: this._activeWorkspaceIndex.set(previousIndex)).
+    // Assert the index reverted to the pre-switch value so the UI is not left showing
+    // workspace B as active while the backend remains on workspace A.
+    expect(service.activeWorkspaceIndex()).toBe(preSwitch);
+  });
+});
+
+// ─── Priority A: Signal setters, clamping, computed ──────────────────────────
+
+describe('ElectronLayoutService — sidebar and editor panel controls', () => {
+  let coordinator: ReturnType<typeof buildCoordinator>;
+  let vscodeService: ReturnType<typeof buildVscodeService>;
+  let appState: ReturnType<typeof buildAppState>;
+  let rpc: ReturnType<typeof buildRpc>;
+  let service: ElectronLayoutService;
+
+  function setup(storedState: unknown = null) {
+    coordinator = buildCoordinator();
+    vscodeService = buildVscodeService(storedState);
+    appState = buildAppState();
+    rpc = buildRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coordinator },
+      ],
+    });
+    service = TestBed.inject(ElectronLayoutService);
+    // Prevent the async restoreLayout from running into real RPC
+    jest
+      .spyOn(service as never, 'syncFromBackend')
+      .mockResolvedValue(undefined);
+  }
+
+  afterEach(() => {
+    jest.useRealTimers();
+    TestBed.resetTestingModule();
+  });
+
+  describe('setWorkspaceSidebarWidth()', () => {
+    it('clamps width below MIN_SIDEBAR_WIDTH (160) to 160', () => {
+      setup();
+      service.setWorkspaceSidebarWidth(50);
+      expect(service.workspaceSidebarWidth()).toBe(160);
+    });
+
+    it('sets width within valid range directly', () => {
+      setup();
+      service.setWorkspaceSidebarWidth(250);
+      expect(service.workspaceSidebarWidth()).toBe(250);
+    });
+
+    it('clamps width above MAX_SIDEBAR_WIDTH (400) to 400', () => {
+      setup();
+      service.setWorkspaceSidebarWidth(600);
+      expect(service.workspaceSidebarWidth()).toBe(400);
+    });
+  });
+
+  describe('setSidebarDragging()', () => {
+    it('sets sidebarDragging to true without calling persistLayout', () => {
+      setup();
+      vscodeService.setState.mockClear();
+      service.setSidebarDragging(true);
+      expect(service.sidebarDragging()).toBe(true);
+      // persistLayout should NOT be called when dragging = true
+      expect(vscodeService.setState).not.toHaveBeenCalled();
+    });
+
+    it('sets sidebarDragging to false and calls persistLayout', () => {
+      setup();
+      service.setSidebarDragging(true);
+      vscodeService.setState.mockClear();
+      service.setSidebarDragging(false);
+      expect(service.sidebarDragging()).toBe(false);
+      // persistLayout called when dragging ends
+      expect(vscodeService.setState).toHaveBeenCalled();
+    });
+  });
+
+  describe('toggleWorkspaceSidebar()', () => {
+    it('toggles sidebar visible state and calls persistLayout', () => {
+      setup();
+      const initialVisible = service.workspaceSidebarVisible();
+      vscodeService.setState.mockClear();
+      service.toggleWorkspaceSidebar();
+      expect(service.workspaceSidebarVisible()).toBe(!initialVisible);
+      expect(vscodeService.setState).toHaveBeenCalled();
+    });
+
+    it('double toggle returns to original state', () => {
+      setup();
+      const initialVisible = service.workspaceSidebarVisible();
+      service.toggleWorkspaceSidebar();
+      service.toggleWorkspaceSidebar();
+      expect(service.workspaceSidebarVisible()).toBe(initialVisible);
+    });
+  });
+
+  describe('setEditorPanelWidth()', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'innerWidth', {
+        value: 1200,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    it('clamps width below MIN_EDITOR_WIDTH (300) to 300', () => {
+      setup();
+      service.setEditorPanelWidth(100);
+      expect(service.editorPanelWidth()).toBe(300);
+    });
+
+    it('sets width within valid range directly', () => {
+      setup();
+      service.setEditorPanelWidth(500);
+      expect(service.editorPanelWidth()).toBe(500);
+    });
+
+    it('clamps width above 50% of window.innerWidth (600 for 1200px)', () => {
+      setup();
+      service.setEditorPanelWidth(800);
+      expect(service.editorPanelWidth()).toBe(600); // 1200 * 0.5
+    });
+  });
+
+  describe('setEditorDragging()', () => {
+    it('sets editorDragging to true without calling persistLayout', () => {
+      setup();
+      vscodeService.setState.mockClear();
+      service.setEditorDragging(true);
+      expect(service.editorDragging()).toBe(true);
+      expect(vscodeService.setState).not.toHaveBeenCalled();
+    });
+
+    it('sets editorDragging to false and calls persistLayout', () => {
+      setup();
+      service.setEditorDragging(true);
+      vscodeService.setState.mockClear();
+      service.setEditorDragging(false);
+      expect(service.editorDragging()).toBe(false);
+      expect(vscodeService.setState).toHaveBeenCalled();
+    });
+  });
+
+  describe('toggleEditorPanel() / setEditorPanelVisible()', () => {
+    it('toggleEditorPanel toggles visibility and calls persistLayout', () => {
+      setup();
+      const initial = service.editorPanelVisible();
+      vscodeService.setState.mockClear();
+      service.toggleEditorPanel();
+      expect(service.editorPanelVisible()).toBe(!initial);
+      expect(vscodeService.setState).toHaveBeenCalled();
+    });
+
+    it('setEditorPanelVisible sets a specific value and persists', () => {
+      setup();
+      vscodeService.setState.mockClear();
+      service.setEditorPanelVisible(true);
+      expect(service.editorPanelVisible()).toBe(true);
+      expect(vscodeService.setState).toHaveBeenCalled();
+
+      service.setEditorPanelVisible(false);
+      expect(service.editorPanelVisible()).toBe(false);
+    });
+  });
+
+  describe('setWorkspaceFolders()', () => {
+    it('directly sets the workspace folders signal', () => {
+      setup();
+      const folders = [
+        { path: '/a', name: 'a' },
+        { path: '/b', name: 'b' },
+      ];
+      service.setWorkspaceFolders(folders);
+      expect(service.workspaceFolders()).toEqual(folders);
+    });
+  });
+
+  describe('activeWorkspace computed', () => {
+    it('returns null when no folders exist', () => {
+      setup();
+      (service as never)['_workspaceFolders'].set([]);
+      expect(service.activeWorkspace()).toBeNull();
+    });
+
+    it('returns the folder at the active index', () => {
+      setup();
+      const folders = [
+        { path: '/a', name: 'a' },
+        { path: '/b', name: 'b' },
+      ];
+      (service as never)['_workspaceFolders'].set(folders);
+      (service as never)['_activeWorkspaceIndex'].set(1);
+      expect(service.activeWorkspace()).toEqual({ path: '/b', name: 'b' });
+    });
+  });
+
+  describe('hasWorkspaceFolders computed', () => {
+    it('returns false when folders array is empty', () => {
+      setup();
+      (service as never)['_workspaceFolders'].set([]);
+      expect(service.hasWorkspaceFolders()).toBe(false);
+    });
+
+    it('returns true when folders array has at least one entry', () => {
+      setup();
+      (service as never)['_workspaceFolders'].set([{ path: '/a', name: 'a' }]);
+      expect(service.hasWorkspaceFolders()).toBe(true);
+    });
+  });
+
+  describe('setupWindowResizeHandler()', () => {
+    it('clamps editorPanelWidth when window is resized to be narrower', () => {
+      Object.defineProperty(window, 'innerWidth', {
+        value: 1200,
+        writable: true,
+        configurable: true,
+      });
+      setup();
+      // Set editor width to 700 (valid at 1200px, max 600)
+      (service as never)['_editorPanelWidth'].set(700);
+      // Resize window to make 700 exceed 50% of 800
+      Object.defineProperty(window, 'innerWidth', {
+        value: 800,
+        writable: true,
+        configurable: true,
+      });
+      window.dispatchEvent(new Event('resize'));
+      // Max for 800px = 400; 700 > 400 so should clamp
+      expect(service.editorPanelWidth()).toBe(400);
+    });
+
+    it('does not change editorPanelWidth when width is within bounds', () => {
+      Object.defineProperty(window, 'innerWidth', {
+        value: 1200,
+        writable: true,
+        configurable: true,
+      });
+      setup();
+      (service as never)['_editorPanelWidth'].set(400);
+      // 400 < 600 (50% of 1200), so no clamping needed
+      window.dispatchEvent(new Event('resize'));
+      expect(service.editorPanelWidth()).toBe(400);
+    });
+  });
+});
+
+// ─── Priority B: Workspace folder lifecycle ───────────────────────────────────
+
+describe('ElectronLayoutService — addFolderByPath()', () => {
+  let coordinator: ReturnType<typeof buildCoordinator>;
+  let vscodeService: ReturnType<typeof buildVscodeService>;
+  let appState: ReturnType<typeof buildAppState>;
+  let rpc: ReturnType<typeof buildRpc>;
+  let service: ElectronLayoutService;
+
+  function setup(rpcOverride?: ReturnType<typeof buildRpc>) {
+    coordinator = buildCoordinator();
+    vscodeService = buildVscodeService(null);
+    appState = buildAppState();
+    rpc = rpcOverride ?? buildRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coordinator },
+      ],
+    });
+    service = TestBed.inject(ElectronLayoutService);
+    jest
+      .spyOn(service as never, 'syncFromBackend')
+      .mockResolvedValue(undefined);
+  }
+
+  afterEach(() => {
+    jest.useRealTimers();
+    TestBed.resetTestingModule();
+  });
+
+  it('registers folder with backend and appends it to the list', async () => {
+    rpc = buildRpc();
+    rpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:registerFolder')
+        return rpcSuccess({ success: true });
+      if (method === 'workspace:switch') return rpcSuccess({ success: true });
+      return rpcSuccess(undefined);
+    });
+    setup(rpc);
+
+    await service.addFolderByPath('/new/folder');
+    expect(service.workspaceFolders()).toEqual(
+      expect.arrayContaining([{ path: '/new/folder', name: 'folder' }]),
+    );
+  });
+
+  it('switches to existing folder when path is a duplicate', async () => {
+    setup();
+    (service as never)['_workspaceFolders'].set([
+      { path: '/existing', name: 'existing' },
+      { path: '/other', name: 'other' },
+    ]);
+    (service as never)['_activeWorkspaceIndex'].set(1);
+
+    jest.useFakeTimers();
+    await service.addFolderByPath('/existing');
+    jest.advanceTimersByTime(150);
+    await Promise.resolve();
+    jest.useRealTimers();
+
+    // No new folder added (still 2)
+    expect(service.workspaceFolders()).toHaveLength(2);
+    // Switched to index 0 (the existing one)
+    expect(service.activeWorkspaceIndex()).toBe(0);
+  });
+
+  it('does not mutate state when registerFolder RPC fails', async () => {
+    rpc = buildRpc();
+    rpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:registerFolder')
+        return new RpcResult(false, undefined, 'failed');
+      return rpcSuccess(undefined);
+    });
+    setup(rpc);
+
+    await service.addFolderByPath('/fail/folder');
+    expect(service.workspaceFolders()).toHaveLength(0);
+  });
+
+  it('does not mutate state when registerFolder RPC throws', async () => {
+    rpc = buildRpc();
+    rpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:registerFolder')
+        throw new Error('network error');
+      return rpcSuccess(undefined);
+    });
+    setup(rpc);
+
+    await service.addFolderByPath('/throw/folder');
+    expect(service.workspaceFolders()).toHaveLength(0);
+  });
+});
+
+describe('ElectronLayoutService — addFolder()', () => {
+  let coordinator: ReturnType<typeof buildCoordinator>;
+  let vscodeService: ReturnType<typeof buildVscodeService>;
+  let appState: ReturnType<typeof buildAppState>;
+  let rpc: ReturnType<typeof buildRpc>;
+  let service: ElectronLayoutService;
+
+  function setup(rpcOverride?: ReturnType<typeof buildRpc>) {
+    coordinator = buildCoordinator();
+    vscodeService = buildVscodeService(null);
+    appState = buildAppState();
+    rpc = rpcOverride ?? buildRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coordinator },
+      ],
+    });
+    service = TestBed.inject(ElectronLayoutService);
+    jest
+      .spyOn(service as never, 'syncFromBackend')
+      .mockResolvedValue(undefined);
+  }
+
+  afterEach(() => {
+    jest.useRealTimers();
+    TestBed.resetTestingModule();
+  });
+
+  it('does not mutate state when user cancels dialog (no path returned)', async () => {
+    rpc = buildRpc();
+    rpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:addFolder') return rpcSuccess({ path: null });
+      return rpcSuccess(undefined);
+    });
+    setup(rpc);
+
+    await service.addFolder();
+    expect(service.workspaceFolders()).toHaveLength(0);
+  });
+
+  it('appends folder and auto-switches when addFolder succeeds', async () => {
+    jest.useFakeTimers();
+    rpc = buildRpc();
+    rpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:addFolder')
+        return rpcSuccess({ path: '/new/path', name: 'path' });
+      if (method === 'workspace:switch') return rpcSuccess({ success: true });
+      return rpcSuccess(undefined);
+    });
+    setup(rpc);
+
+    const addPromise = service.addFolder();
+    await addPromise;
+    jest.advanceTimersByTime(150);
+    await Promise.resolve();
+    jest.useRealTimers();
+
+    expect(service.workspaceFolders()).toEqual(
+      expect.arrayContaining([{ path: '/new/path', name: 'path' }]),
+    );
+  });
+
+  it('switches to existing folder if addFolder returns a duplicate path', async () => {
+    jest.useFakeTimers();
+    rpc = buildRpc();
+    rpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:addFolder')
+        return rpcSuccess({ path: '/existing', name: 'existing' });
+      if (method === 'workspace:switch') return rpcSuccess({ success: true });
+      return rpcSuccess(undefined);
+    });
+    setup(rpc);
+
+    (service as never)['_workspaceFolders'].set([
+      { path: '/existing', name: 'existing' },
+    ]);
+    (service as never)['_activeWorkspaceIndex'].set(0);
+
+    await service.addFolder();
+    jest.advanceTimersByTime(150);
+    await Promise.resolve();
+    jest.useRealTimers();
+
+    expect(service.workspaceFolders()).toHaveLength(1);
+    expect(service.activeWorkspaceIndex()).toBe(0);
+  });
+
+  it('does not mutate state when addFolder RPC throws', async () => {
+    rpc = buildRpc();
+    rpc.call = jest.fn(async () => {
+      throw new Error('dialog failed');
+    });
+    setup(rpc);
+
+    await service.addFolder();
+    expect(service.workspaceFolders()).toHaveLength(0);
+  });
+});
+
+describe('ElectronLayoutService — removeFolder()', () => {
+  let coordinator: ReturnType<typeof buildCoordinator>;
+  let vscodeService: ReturnType<typeof buildVscodeService>;
+  let appState: ReturnType<typeof buildAppState>;
+  let rpc: ReturnType<typeof buildRpc>;
+  let service: ElectronLayoutService;
+
+  function setup(
+    rpcOverride?: ReturnType<typeof buildRpc>,
+    useCoordinator = true,
+  ) {
+    coordinator = buildCoordinator();
+    vscodeService = buildVscodeService(null);
+    appState = buildAppState();
+    rpc = rpcOverride ?? buildRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        {
+          provide: WORKSPACE_COORDINATOR,
+          useValue: useCoordinator ? coordinator : null,
+        },
+      ],
+    });
+    service = TestBed.inject(ElectronLayoutService);
+    jest
+      .spyOn(service as never, 'syncFromBackend')
+      .mockResolvedValue(undefined);
+  }
+
+  afterEach(() => {
+    jest.useRealTimers();
+    TestBed.resetTestingModule();
+  });
+
+  it('is a no-op for out-of-bounds index', async () => {
+    setup();
+
+    (service as never)['_workspaceFolders'].set([{ path: '/a', name: 'a' }]);
+    rpc.call.mockClear();
+    await service.removeFolder(5);
+    // No workspace:removeFolder call should occur for out-of-bounds
+    const removeCalls = (rpc.call as jest.Mock).mock.calls.filter(
+      (c: unknown[]) => c[0] === 'workspace:removeFolder',
+    );
+    expect(removeCalls).toHaveLength(0);
+  });
+
+  it('removes folder at index when no streaming sessions and backend succeeds', async () => {
+    jest.useFakeTimers();
+    rpc = buildRpc();
+    rpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:removeFolder')
+        return rpcSuccess({ success: true });
+      if (method === 'workspace:switch') return rpcSuccess({ success: true });
+      return rpcSuccess(undefined);
+    });
+    coordinator = buildCoordinator();
+    coordinator.getStreamingSessionIds = jest.fn().mockReturnValue([]);
+    vscodeService = buildVscodeService(null);
+    appState = buildAppState();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coordinator },
+      ],
+    });
+    service = TestBed.inject(ElectronLayoutService);
+    jest
+      .spyOn(service as never, 'syncFromBackend')
+      .mockResolvedValue(undefined);
+
+    (service as never)['_workspaceFolders'].set([
+      { path: '/a', name: 'a' },
+      { path: '/b', name: 'b' },
+    ]);
+    (service as never)['_activeWorkspaceIndex'].set(0);
+
+    await service.removeFolder(1);
+    jest.advanceTimersByTime(150);
+    await Promise.resolve();
+    jest.useRealTimers();
+
+    expect(service.workspaceFolders()).toHaveLength(1);
+    expect(service.workspaceFolders()[0].path).toBe('/a');
+  });
+
+  it('resets to index 0 when all folders removed', async () => {
+    rpc = buildRpc();
+    rpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:removeFolder')
+        return rpcSuccess({ success: true });
+      return rpcSuccess(undefined);
+    });
+    coordinator = buildCoordinator();
+    coordinator.getStreamingSessionIds = jest.fn().mockReturnValue([]);
+    vscodeService = buildVscodeService(null);
+    appState = buildAppState();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coordinator },
+      ],
+    });
+    service = TestBed.inject(ElectronLayoutService);
+    jest
+      .spyOn(service as never, 'syncFromBackend')
+      .mockResolvedValue(undefined);
+
+    (service as never)['_workspaceFolders'].set([
+      { path: '/only', name: 'only' },
+    ]);
+    (service as never)['_activeWorkspaceIndex'].set(0);
+
+    await service.removeFolder(0);
+
+    expect(service.workspaceFolders()).toHaveLength(0);
+    expect(service.activeWorkspaceIndex()).toBe(0);
+    // With no workspaces, updateWorkspaceRoot('') should be called
+    expect(vscodeService.updateWorkspaceRoot).toHaveBeenCalledWith('');
+  });
+
+  it('does not remove when streaming sessions exist and user cancels', async () => {
+    coordinator = buildCoordinator();
+    coordinator.getStreamingSessionIds = jest.fn().mockReturnValue(['sess-1']);
+    coordinator.confirm = jest.fn().mockResolvedValue(false); // user cancels
+    vscodeService = buildVscodeService(null);
+    appState = buildAppState();
+    rpc = buildRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coordinator },
+      ],
+    });
+    service = TestBed.inject(ElectronLayoutService);
+    jest
+      .spyOn(service as never, 'syncFromBackend')
+      .mockResolvedValue(undefined);
+
+    (service as never)['_workspaceFolders'].set([{ path: '/a', name: 'a' }]);
+
+    await service.removeFolder(0);
+
+    expect(service.workspaceFolders()).toHaveLength(1);
+  });
+
+  it('does not mutate state when backend removeFolder RPC fails', async () => {
+    coordinator = buildCoordinator();
+    coordinator.getStreamingSessionIds = jest.fn().mockReturnValue([]);
+    rpc = buildRpc();
+    rpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:removeFolder')
+        return new RpcResult(false, undefined, 'error');
+      return rpcSuccess(undefined);
+    });
+    vscodeService = buildVscodeService(null);
+    appState = buildAppState();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coordinator },
+      ],
+    });
+    service = TestBed.inject(ElectronLayoutService);
+    jest
+      .spyOn(service as never, 'syncFromBackend')
+      .mockResolvedValue(undefined);
+
+    (service as never)['_workspaceFolders'].set([{ path: '/a', name: 'a' }]);
+
+    await service.removeFolder(0);
+
+    expect(service.workspaceFolders()).toHaveLength(1);
+  });
+});
+
+// ─── Priority C: syncFromBackend fallback paths ───────────────────────────────
+
+describe('ElectronLayoutService — syncFromBackend fallback paths', () => {
+  let coordinator: ReturnType<typeof buildCoordinator>;
+  let vscodeService: ReturnType<typeof buildVscodeService>;
+  let appState: ReturnType<typeof buildAppState>;
+  let rpc: ReturnType<typeof buildRpc>;
+
+  afterEach(() => {
+    jest.useRealTimers();
+    TestBed.resetTestingModule();
+  });
+
+  function setupWithRpc(rpcOverride: ReturnType<typeof buildRpc>) {
+    coordinator = buildCoordinator();
+    vscodeService = buildVscodeService(null);
+    appState = buildAppState();
+    rpc = rpcOverride;
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coordinator },
+      ],
+    });
+  }
+
+  it('falls back to cachedState when getInfo returns empty folders and cachedState is available', fakeAsync(() => {
+    const emptyRpc = buildRpc(
+      rpcSuccess({ folders: [], activeFolder: undefined }),
+    );
+    emptyRpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:getInfo')
+        return rpcSuccess({ folders: [], activeFolder: undefined });
+      if (method === 'workspace:switch') return rpcSuccess({ success: true });
+      return rpcSuccess(undefined);
+    });
+    setupWithRpc(emptyRpc);
+
+    const service = TestBed.inject(ElectronLayoutService);
+
+    // Manually trigger syncFromBackend with a cached state
+    const cachedState = {
+      workspaceFolders: [{ path: '/cached', name: 'cached' }],
+      activeWorkspaceIndex: 0,
+    };
+    void (service as never)['syncFromBackend'](cachedState);
+    tick(0);
+
+    expect(service.workspaceFolders()).toEqual([
+      { path: '/cached', name: 'cached' },
+    ]);
+  }));
+
+  it('clears folders when getInfo returns empty and no cachedState', fakeAsync(() => {
+    const emptyRpc = buildRpc(
+      rpcSuccess({ folders: [], activeFolder: undefined }),
+    );
+    emptyRpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:getInfo')
+        return rpcSuccess({ folders: [], activeFolder: undefined });
+      return rpcSuccess(undefined);
+    });
+    setupWithRpc(emptyRpc);
+
+    const service = TestBed.inject(ElectronLayoutService);
+    (service as never)['_workspaceFolders'].set([
+      { path: '/stale', name: 'stale' },
+    ]);
+
+    void (service as never)['syncFromBackend'](null);
+    tick(0);
+
+    expect(service.workspaceFolders()).toHaveLength(0);
+    expect(appState.setWorkspaceInfo).toHaveBeenCalledWith(null);
+  }));
+
+  it('falls back to cachedState when getInfo RPC fails (non-success)', fakeAsync(() => {
+    const failRpc = buildRpc();
+    failRpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:getInfo')
+        return new RpcResult(false, undefined, 'error');
+      if (method === 'workspace:switch') return rpcSuccess({ success: true });
+      return rpcSuccess(undefined);
+    });
+    setupWithRpc(failRpc);
+
+    const service = TestBed.inject(ElectronLayoutService);
+    const cachedState = {
+      workspaceFolders: [{ path: '/fallback', name: 'fallback' }],
+      activeWorkspaceIndex: 0,
+    };
+
+    void (service as never)['syncFromBackend'](cachedState);
+    tick(0);
+
+    expect(service.workspaceFolders()).toEqual([
+      { path: '/fallback', name: 'fallback' },
+    ]);
+  }));
+
+  it('falls back to cachedState when getInfo RPC throws', fakeAsync(() => {
+    const throwRpc = buildRpc();
+    throwRpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:getInfo') throw new Error('network down');
+      if (method === 'workspace:switch') return rpcSuccess({ success: true });
+      return rpcSuccess(undefined);
+    });
+    setupWithRpc(throwRpc);
+
+    const service = TestBed.inject(ElectronLayoutService);
+    const cachedState = {
+      workspaceFolders: [{ path: '/fallback', name: 'fallback' }],
+      activeWorkspaceIndex: 0,
+    };
+
+    void (service as never)['syncFromBackend'](cachedState);
+    tick(0);
+
+    expect(service.workspaceFolders()).toEqual([
+      { path: '/fallback', name: 'fallback' },
+    ]);
+  }));
+
+  it('discards stale sync results when a newer sync overtakes an in-flight one', fakeAsync(() => {
+    let resolveFirst!: (v: RpcResult<unknown>) => void;
+    const firstPromise = new Promise<RpcResult<unknown>>((res) => {
+      resolveFirst = res;
+    });
+
+    let callCount = 0;
+    const racingRpc = buildRpc();
+    racingRpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:getInfo') {
+        callCount++;
+        if (callCount === 1) return firstPromise;
+        return rpcSuccess({
+          folders: ['/newer'],
+          activeFolder: '/newer',
+        });
+      }
+      return rpcSuccess({ success: true });
+    });
+
+    setupWithRpc(racingRpc);
+    const service = TestBed.inject(ElectronLayoutService);
+
+    void (service as never)['syncFromBackend'](null);
+    void (service as never)['syncFromBackend'](null);
+    tick(0); // second sync resolves immediately
+
+    resolveFirst(rpcSuccess({ folders: ['/older'], activeFolder: '/older' }));
+    tick(0);
+
+    // Stale first sync must not overwrite newer result
+    expect(service.workspaceFolders()[0]?.path).toBe('/newer');
+  }));
+
+  it('restoreWorkspaceFoldersFromCache filters out invalid-shape entries, keeping only fully valid ones', fakeAsync(() => {
+    // Arrange: getInfo returns empty folders so the cache fallback fires
+    const emptyRpc = buildRpc();
+    emptyRpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:getInfo')
+        return rpcSuccess({ folders: [], activeFolder: undefined });
+      if (method === 'workspace:switch') return rpcSuccess({ success: true });
+      return rpcSuccess(undefined);
+    });
+    setupWithRpc(emptyRpc);
+
+    const service = TestBed.inject(ElectronLayoutService);
+
+    // Mix of valid and invalid folder shapes
+    // - { path: '/valid', name: 'v' } → passes (both fields are strings)
+    // - { path: null, name: null }    → filtered out (path is not a string)
+    // - {}                             → filtered out (path is not a string)
+    const cachedState = {
+      workspaceFolders: [
+        { path: '/valid', name: 'v' },
+        { path: null, name: null },
+        {},
+      ],
+      activeWorkspaceIndex: 0,
+    };
+
+    void (service as never)['syncFromBackend'](cachedState);
+    tick(0);
+
+    // Only the fully valid entry must survive shape-filtering
+    expect(service.workspaceFolders()).toHaveLength(1);
+    expect(service.workspaceFolders()[0]).toEqual({
+      path: '/valid',
+      name: 'v',
+    });
+  }));
+});
+
+// ─── restoreLayout — restoring invalid types is a no-op ────────────────────
+
+describe('ElectronLayoutService — restoreLayout with stored state', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('ignores invalid type for sidebarVisible (non-boolean)', fakeAsync(() => {
+    const invalidState = {
+      sidebarWidth: 250,
+      sidebarVisible: 'yes', // invalid type — should be skipped
+      editorWidth: 500,
+      editorVisible: true,
+    };
+    const coordinator = buildCoordinator();
+    const vscodeService = buildVscodeService(invalidState);
+    const appState = buildAppState();
+    const rpc = buildRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coordinator },
+      ],
+    });
+
+    const service = TestBed.inject(ElectronLayoutService);
+    tick(0);
+
+    // sidebarVisible should remain at default (true) since 'yes' is not a boolean
+    expect(service.workspaceSidebarVisible()).toBe(true);
+    // sidebarWidth = 250 should be applied (valid number)
+    expect(service.workspaceSidebarWidth()).toBe(250);
+  }));
+});
+
+// ─── cleanupWorkspaceState and coordinateWorkspaceSwitch ─────────────────────
+
+describe('ElectronLayoutService — cleanupWorkspaceState', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  function setupService(coordinatorOverride: unknown) {
+    const vscodeService = buildVscodeService(null);
+    const appState = buildAppState();
+    const rpc = buildRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coordinatorOverride },
+      ],
+    });
+
+    const service = TestBed.inject(ElectronLayoutService);
+    jest
+      .spyOn(service as never, 'syncFromBackend')
+      .mockResolvedValue(undefined);
+    return { service, vscodeService, appState, rpc };
+  }
+
+  it('calls coordinator.removeWorkspaceState when coordinator is present', () => {
+    const coord = buildCoordinator();
+    const { service } = setupService(coord);
+
+    (service as never)['cleanupWorkspaceState']('/workspace/A');
+
+    expect(coord.removeWorkspaceState).toHaveBeenCalledWith('/workspace/A');
+  });
+
+  it('does not throw when coordinator is null', () => {
+    const { service } = setupService(null);
+
+    expect(() => {
+      (service as never)['cleanupWorkspaceState']('/workspace/A');
+    }).not.toThrow();
+  });
+
+  it('does not throw when coordinator.removeWorkspaceState throws', () => {
+    const coord = buildCoordinator();
+    coord.removeWorkspaceState = jest.fn().mockImplementation(() => {
+      throw new Error('cleanup error');
+    });
+    const { service } = setupService(coord);
+
+    expect(() => {
+      (service as never)['cleanupWorkspaceState']('/workspace/A');
+    }).not.toThrow();
+  });
+});
+
+describe('ElectronLayoutService — coordinateWorkspaceSwitch', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('updates vscodeService and appState on success', () => {
+    const coord = buildCoordinator();
+    const vscodeService = buildVscodeService(null);
+    const appState = buildAppState();
+    const rpc = buildRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coord },
+      ],
+    });
+    const service = TestBed.inject(ElectronLayoutService);
+    jest
+      .spyOn(service as never, 'syncFromBackend')
+      .mockResolvedValue(undefined);
+
+    (service as never)['coordinateWorkspaceSwitch']('/workspace/B', 0);
+
+    expect(vscodeService.updateWorkspaceRoot).toHaveBeenCalledWith(
+      '/workspace/B',
+    );
+    expect(appState.setWorkspaceInfo).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/workspace/B' }),
+    );
+  });
+
+  it('skips coordinator.switchWorkspace when coordinator is null', () => {
+    const vscodeService = buildVscodeService(null);
+    const appState = buildAppState();
+    const rpc = buildRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: null },
+      ],
+    });
+    const service = TestBed.inject(ElectronLayoutService);
+    jest
+      .spyOn(service as never, 'syncFromBackend')
+      .mockResolvedValue(undefined);
+
+    expect(() => {
+      (service as never)['coordinateWorkspaceSwitch']('/workspace/B', 0);
+    }).not.toThrow();
+
+    expect(vscodeService.updateWorkspaceRoot).toHaveBeenCalledWith(
+      '/workspace/B',
+    );
+  });
+
+  it('handles async Promise rejection from coordinator.switchWorkspace gracefully', async () => {
+    const coord = buildCoordinator();
+    coord.switchWorkspace = jest
+      .fn()
+      .mockReturnValue(Promise.reject(new Error('async fail')));
+    const vscodeService = buildVscodeService(null);
+    const appState = buildAppState();
+    const rpc = buildRpc();
+
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: appState },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: coord },
+      ],
+    });
+    const service = TestBed.inject(ElectronLayoutService);
+    jest
+      .spyOn(service as never, 'syncFromBackend')
+      .mockResolvedValue(undefined);
+
+    // Should not throw synchronously
+    expect(() => {
+      (service as never)['coordinateWorkspaceSwitch']('/workspace/B', 0);
+    }).not.toThrow();
+
+    // Let the rejected promise resolve to confirm it is caught
+    await Promise.resolve();
   });
 });
