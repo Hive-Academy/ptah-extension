@@ -99,6 +99,19 @@ export class ElectronLayoutService implements MessageHandler {
     // Only handle in Electron context
     if (!this.vscodeService.isElectron) return;
 
+    // Self-echo guard: a WORKSPACE_CHANGED whose path matches the workspace
+    // the renderer is already on is the side-effect of a workspace:switch
+    // we just initiated. Re-syncing closes the loop with the backend's
+    // onDidChangeWorkspaceFolders broadcast and produces an infinite cycle.
+    const payload = message.payload as
+      | { workspaceInfo?: { path?: string } | null }
+      | undefined;
+    const incomingPath = payload?.workspaceInfo?.path;
+    const currentPath = this.activeWorkspace()?.path;
+    if (incomingPath && currentPath && incomingPath === currentPath) {
+      return;
+    }
+
     // If restoreLayout's getInfo is still in-flight (_switchId was already
     // bumped by it), this WORKSPACE_CHANGED is a side-effect of the same
     // addFolder that triggered restoreLayout — the restore covers it, so
@@ -106,9 +119,6 @@ export class ElectronLayoutService implements MessageHandler {
     // here unconditionally would race.  Instead we simply delegate and let
     // syncFromBackend's stale-id guard sort it out.
     void this.syncFromBackend(null);
-
-    // Suppress the unused-variable warning — payload is intentionally ignored
-    void message;
   }
 
   constructor() {
