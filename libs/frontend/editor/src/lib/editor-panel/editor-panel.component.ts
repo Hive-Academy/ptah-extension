@@ -16,6 +16,7 @@ import {
   PanelLeft,
   X,
   Columns2,
+  TerminalSquare,
 } from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
 import { CodeEditorComponent } from '../code-editor/code-editor.component';
@@ -123,6 +124,20 @@ import type { FileTreeNode } from '../models/file-tree.model';
             (click)="toggleSplit()"
           >
             <lucide-angular [img]="SplitIcon" class="w-4 h-4" />
+          </button>
+
+          <button
+            class="btn btn-ghost btn-xs px-2 text-base-content/60 hover:text-base-content"
+            [class.text-primary]="editorService.terminalVisible()"
+            [title]="
+              editorService.terminalVisible()
+                ? 'Hide terminal'
+                : 'Show terminal'
+            "
+            aria-label="Toggle terminal"
+            (click)="toggleTerminal()"
+          >
+            <lucide-angular [img]="TerminalIcon" class="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -465,6 +480,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   readonly PanelLeftIcon = PanelLeft;
   readonly XIcon = X;
   readonly SplitIcon = Columns2;
+  readonly TerminalIcon = TerminalSquare;
 
   /** Bound mouse event handlers for terminal resize drag (stored for cleanup). */
   private _resizeMouseMove: ((e: MouseEvent) => void) | null = null;
@@ -525,6 +541,10 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
   protected toggleVimMode(): void {
     void this.vimModeService.toggle();
+  }
+
+  protected toggleTerminal(): void {
+    this.editorService.toggleTerminal();
   }
 
   /**
