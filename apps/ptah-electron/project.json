@@ -149,6 +149,11 @@
         "thirdParty": false,
         "skipTypeCheck": true,
         "deleteOutputPath": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          }
+        },
         "external": ["@xenova/transformers"]
       }
     },
