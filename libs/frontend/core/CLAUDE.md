@@ -23,14 +23,17 @@ The **core library** provides the foundational service layer for all frontend fe
 libs/frontend/core/src/lib/services/
 ├── app-state.service.ts              # Global app state (view, loading, workspace)
 ├── webview-navigation.service.ts     # Signal-based navigation (NO router!)
-├── vscode.service.ts                 # VS Code API wrapper + message bus
+├── vscode.service.ts                 # VS Code API wrapper (postMessage + getState/setState)
+├── message-router.types.ts           # MessageHandler interface + MESSAGE_HANDLERS token
+├── message-router.service.ts         # Centralized window.message dispatch via Map<type, handler[]>
 ├── logging.service.ts                # Structured logging
 ├── claude-rpc.service.ts             # Type-safe RPC calls to extension
+├── rpc-call.util.ts                  # Function-based RPC client with ready-gate
 ├── model-state.service.ts            # Model selection state (TASK_2025_035)
 ├── autopilot-state.service.ts        # Autopilot permission tracking
 ├── agent-discovery.facade.ts         # Agent autocomplete suggestions
 ├── command-discovery.facade.ts       # Slash command autocomplete
-└── dropdown-interaction.service.ts   # [DEPRECATED] Keyboard nav (use CDK Overlay)
+└── idempotent-setters.ts             # setIfChanged signal helper (TASK_2026_115)
 ```
 
 ## Critical Design Decisions
@@ -79,54 +82,69 @@ User clicks nav button
   → AppShellComponent @if (currentView() === 'chat') renders ChatViewComponent
 ```
 
-### 3. VSCodeService: Singleton Message Bus
+### 3. VSCodeService + MessageRouterService: Handler-Pattern Message Routing
 
-**VSCodeService wraps the VS Code API and provides typed message passing.**
+**VSCodeService wraps the outbound VS Code API (postMessage, getState/setState). It does NOT expose a `messages$` Observable.** Inbound messages are dispatched by `MessageRouterService` to handlers that opt in via the `MessageHandler` interface and the `MESSAGE_HANDLERS` multi-provider token.
 
 ```typescript
-@Injectable()
-export class VSCodeService {
-  private vscode: VsCodeApi;
-
-  // Observable message stream for reactive subscriptions
-  readonly messages$: Observable<WebviewMessage>;
-
-  // Send typed messages to extension
-  postMessage(message: WebviewMessage): void {
-    this.vscode.postMessage(message);
+// VSCodeService — outbound only, plus signal-based config + MessageHandler for select system messages
+@Injectable({ providedIn: 'root' })
+export class VSCodeService implements MessageHandler {
+  postMessage(message: unknown): void {
+    /* … */
   }
-}
+  getState<T>(): T | undefined {
+    /* … */
+  }
+  setState<T>(state: T): void {
+    /* … */
+  }
 
-// Usage: Components subscribe to messages$ directly
-@Component({
-  template: `<div>{{ sessionName() }}</div>`,
-})
-export class ChatViewComponent {
-  private readonly vscode = inject(VSCodeService);
-  readonly sessionName = signal<string>('');
-
-  constructor() {
-    // Subscribe to specific message types
-    this.vscode.messages$.pipe(filter((msg) => msg.type === 'session-loaded')).subscribe((msg) => {
-      this.sessionName.set(msg.payload.sessionName);
-    });
+  // VSCodeService also implements MessageHandler for a small set of system-level
+  // messages (config updates, theme changes, etc.) — not for general fan-out.
+  readonly handledMessageTypes = [
+    /* … */
+  ] as const;
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    /* … */
   }
 }
 ```
 
-**CRITICAL**: VSCodeService MUST be provided at root level using `provideVSCodeService()` factory:
+**Inbound message routing** (the real pattern — see `message-router.types.ts` and `message-router.service.ts`):
 
 ```typescript
-// apps/ptah-extension-webview/src/main.ts
+// 1. Implement MessageHandler in your service
+@Injectable({ providedIn: 'root' })
+export class MyFeatureService implements MessageHandler {
+  readonly handledMessageTypes = [MESSAGE_TYPES.MY_FEATURE_UPDATE] as const;
+
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    // Dispatched by MessageRouterService when a window.message event matches
+  }
+}
+
+// 2. Register via the MESSAGE_HANDLERS multi-provider token
+//    (typically in app.config.ts or the feature's provider barrel)
+{ provide: MESSAGE_HANDLERS, useExisting: MyFeatureService, multi: true }
+```
+
+`MessageRouterService` collects every registered handler at bootstrap, builds a `Map<messageType, MessageHandler[]>` for O(1) dispatch, and listens to `window.addEventListener('message', …)` exactly once. Handlers fire only for the message types they declare in `handledMessageTypes`.
+
+**CRITICAL**: `MessageRouterService` MUST be provided at root via `provideMessageRouter()`. Without it, no inbound messages reach any handler.
+
+```typescript
+// apps/ptah-extension-webview/src/app.config.ts (or main.ts)
 bootstrapApplication(AppComponent, {
   providers: [
-    provideVSCodeService({
-      extensionId: 'ptah-extension',
-      enableLogging: true,
-    }),
+    provideVSCodeService(/* config */),
+    provideMessageRouter(),
+    // …feature handlers registered via MESSAGE_HANDLERS multi-provider
   ],
 });
 ```
+
+**Why this pattern (not RxJS)?** The handler-registration pattern was chosen over an Observable bus to avoid the lazy-setter routing pattern that previously caused circular DI crashes (NG0200). It also makes it explicit which service handles which message — searching for `MESSAGE_TYPES.X` finds every consumer, no Observable subscriptions to chase.
 
 ### 4. ClaudeRpcService: Type-Safe RPC
 
@@ -174,13 +192,13 @@ export class CommandDiscoveryFacade {
   template: `
     <input (input)="onInput($event)" />
     @if (showAutocomplete()) {
-    <div class="suggestions">
-      @for (suggestion of suggestions(); track suggestion.name) {
-      <div (click)="selectSuggestion(suggestion)">
-        {{ suggestion.name }}
+      <div class="suggestions">
+        @for (suggestion of suggestions(); track suggestion.name) {
+          <div (click)="selectSuggestion(suggestion)">
+            {{ suggestion.name }}
+          </div>
+        }
       </div>
-      }
-    </div>
     }
   `,
 })
@@ -374,61 +392,78 @@ export class NavigationComponent {
 
 ### VSCodeService
 
-**Purpose**: VS Code API wrapper + typed message bus.
+**Purpose**: VS Code API wrapper — outbound `postMessage`, state persistence, and signal-based config.
+
+```typescript
+@Injectable({ providedIn: 'root' })
+export class VSCodeService implements MessageHandler {
+  // Outbound
+  postMessage(message: unknown): void;
+  setState<T>(state: T): void;
+  getState<T>(): T | undefined;
+
+  // Signal-based config (workspaceRoot, theme, isElectron, etc.)
+  readonly config: Signal<WebviewConfig>;
+
+  // VSCodeService is itself a MessageHandler for select system messages.
+  // For feature messages, register your own MessageHandler — DO NOT subscribe here.
+  readonly handledMessageTypes: readonly string[];
+  handleMessage(message: { type: string; payload?: unknown }): void;
+}
+
+export function provideVSCodeService(config?: Partial<WebviewConfig>): Provider[];
+```
+
+**Outbound usage** (sending to extension):
+
+```typescript
+this.vscode.postMessage({
+  type: 'command-execute',
+  payload: { command: 'save' },
+});
+```
+
+**Inbound usage** (receiving from extension): use the `MessageHandler` pattern via `MessageRouterService` — see §3 above. Do NOT subscribe to a `messages$` Observable; it doesn't exist.
+
+### MessageRouterService
+
+**Purpose**: Centralized dispatch for inbound `window.message` events to registered `MessageHandler` instances.
 
 ```typescript
 @Injectable()
-export class VSCodeService {
-  readonly messages$: Observable<WebviewMessage>;
-
-  postMessage(message: WebviewMessage): void;
-  setState<T>(state: T): void;
-  getState<T>(): T | undefined;
+export class MessageRouterService {
+  // Collects MessageHandler[] via inject(MESSAGE_HANDLERS) at construction;
+  // builds Map<messageType, MessageHandler[]> and starts the window.message listener.
 }
 
-// Factory function for providers
-export function provideVSCodeService(config?: WebviewConfig): Provider[];
-
-// Configuration
-export interface WebviewConfig {
-  extensionId?: string;
-  enableLogging?: boolean;
-  statePrefix?: string;
+export interface MessageHandler {
+  readonly handledMessageTypes: readonly string[];
+  handleMessage(message: { type: string; payload?: unknown }): void;
 }
+
+export const MESSAGE_HANDLERS: InjectionToken<MessageHandler[]>;
+
+export function provideMessageRouter(): Provider[];
 ```
 
-**Message Subscription Pattern**:
+**Registration pattern**:
 
 ```typescript
-@Component({
-  template: `<div>{{ message() }}</div>`
-})
-export class MessageDisplayComponent {
-  private readonly vscode = inject(VSCodeService);
-  private readonly destroyRef = inject(DestroyRef);
+@Injectable({ providedIn: 'root' })
+export class NotificationService implements MessageHandler {
+  private readonly message = signal<string>('');
+  readonly current = this.message.asReadonly();
 
-  readonly message = signal<string>('');
+  readonly handledMessageTypes = ['notification'] as const;
 
-  constructor() {
-    // Subscribe to specific message types
-    this.vscode.messages$
-      .pipe(
-        filter(msg => msg.type === 'notification'),
-        takeUntilDestroyed(this.destroyRef)
-      )
-      .subscribe(msg => {
-        this.message.set(msg.payload.text);
-      });
+  handleMessage(msg: { type: string; payload?: unknown }): void {
+    const payload = msg.payload as { text: string };
+    this.message.set(payload.text);
   }
 }
 
-// Send messages to extension
-sendToExtension(): void {
-  this.vscode.postMessage({
-    type: 'command-execute',
-    payload: { command: 'save' }
-  });
-}
+// Register the handler in providers
+{ provide: MESSAGE_HANDLERS, useExisting: NotificationService, multi: true }
 ```
 
 ---
@@ -459,7 +494,7 @@ export interface RpcCallOptions {
   template: `
     <button (click)="loadSession()" [disabled]="loading()">Load Session</button>
     @if (error()) {
-    <div class="error">{{ error() }}</div>
+      <div class="error">{{ error() }}</div>
     }
   `,
 })
@@ -572,7 +607,7 @@ See `libs/frontend/ui/CLAUDE.md` for migration guide.
 **External Dependencies**:
 
 - `@angular/core` (^20.1.2) - Signal-based reactivity, inject(), DestroyRef
-- `rxjs` (^7.8.1) - Observable message bus (VSCodeService.messages$)
+- `rxjs` (^7.8.1) - Available for narrow interop scenarios (e.g. `toObservable()` for signal→stream bridging in `git-branches.service.ts`). NOT used for general state — signals are the primitive. NOT used for inbound message routing — that's `MessageHandler` + `MessageRouterService`.
 
 ---
 
@@ -618,7 +653,12 @@ nx build core
 ## Testing
 
 **Framework**: Jest with ts-jest transformer
-**Coverage Target**: 80% minimum
+**Coverage Thresholds** (enforced floor, ratcheted via TASK_2026_116 on 2026-05-11):
+
+- statements: 85%, branches: 75%, functions: 75%, lines: 85%
+- These are minimums, not targets. Do not lower them without a follow-up task.
+- `dropdown-interaction.service.ts` is excluded via `coveragePathIgnorePatterns` in
+  `jest.config.ts` — it is deprecated (CDK Overlay replacement) and has no test value.
 
 **Test Patterns**:
 

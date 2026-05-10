@@ -20,6 +20,7 @@ import {
   GATEWAY_TOKENS,
   type GatewayService,
 } from '@ptah-extension/messaging-gateway';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 // @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -172,6 +173,29 @@ export async function registerPostWindow(
     );
     await messagingGateway.start();
     console.log('[Ptah Electron] Messaging gateway started');
+    try {
+      const webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER) as {
+        broadcastMessage(type: string, payload: unknown): Promise<void>;
+      };
+      const status = messagingGateway.status();
+      void webviewManager.broadcastMessage(
+        MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+        {
+          status: {
+            enabled: status.enabled,
+            adapters: status.adapters.map((a) => ({
+              platform: a.platform,
+              running: a.running,
+              ...(a.lastError ? { lastError: a.lastError } : {}),
+            })),
+          },
+          origin: null,
+        },
+      );
+    } catch {
+      // non-fatal — frontend will hydrate via initialize()'s
+      // Promise.all([refreshStatus(), listBindings()]) RPC fallback
+    }
   } catch (error) {
     console.warn(
       '[Ptah Electron] Messaging gateway start skipped (non-fatal):',

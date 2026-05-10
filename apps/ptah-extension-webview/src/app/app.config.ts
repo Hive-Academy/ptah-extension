@@ -38,6 +38,7 @@ import {
   EditorService,
 } from '@ptah-extension/editor';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
+import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui';
 import {
   HarnessBuilderViewComponent,
   SetupHubComponent,
@@ -171,6 +172,14 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: WorkspaceIndexingService,
+      multi: true,
+    },
+    // GatewayStateService listens for GATEWAY_STATUS_CHANGED push events (Electron-only)
+    // to update adapter running/error state without polling. Migration from 30s setInterval.
+    // TASK_2026_115.
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: GatewayStateService,
       multi: true,
     },
     // Monaco editor for Electron code editing panel

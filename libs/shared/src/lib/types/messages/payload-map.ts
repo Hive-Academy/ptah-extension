@@ -91,6 +91,8 @@ import type {
   ViewGenericPayload,
   ViewRouteChangedPayload,
 } from './system';
+import type { WorkspaceChangedPayload } from './workspace';
+import type { GatewayStatusChangedPayload } from './gateway';
 
 /**
  * Type mapping for message payloads - eliminates 'any' types
@@ -182,7 +184,8 @@ export interface MessagePayloadMap {
   navigate: ViewRouteChangedPayload;
   refresh: ViewChangedPayload; // Refresh payload for hot-reload
   switchView: ViewChangedPayload;
-  workspaceChanged: InitialDataPayload;
+  workspaceChanged: WorkspaceChangedPayload;
+  'gateway:statusChanged': GatewayStatusChangedPayload;
 
   // Response event types (MessageHandlerService appends :response suffix)
   // These allow EventBus to emit response events that WebviewMessageBridge forwards to webview

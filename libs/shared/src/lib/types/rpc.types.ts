@@ -923,7 +923,11 @@ export interface RpcMethodRegistry {
     result: { success: boolean; error?: string };
   };
   'workspace:switch': {
-    params: { path: string };
+    // TASK_2026_115: `origin` is an opaque per-call token stamped by the
+    // frontend so the resulting WORKSPACE_CHANGED echo can be identified
+    // and dropped (self-echo suppression). Optional for backward compat
+    // with platforms that don't broadcast push events.
+    params: { path: string; origin?: string };
     result: { success: boolean; error?: string };
   };
   'workspace:registerFolder': {

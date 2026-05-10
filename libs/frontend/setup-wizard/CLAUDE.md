@@ -216,7 +216,7 @@ export class WizardRpcService {
     const result = await this.rpc.callExtension<void, ScanProgress>(
       'wizard:scan-codebase',
       undefined,
-      { timeout: 60000 } // 1 minute timeout
+      { timeout: 60000 }, // 1 minute timeout
     );
 
     if (result.success) {
@@ -242,7 +242,7 @@ export class WizardRpcService {
     const result = await this.rpc.callExtension<{ agents: string[] }, void>(
       'wizard:generate-rules',
       { agents: agentNames },
-      { timeout: 120000 } // 2 minute timeout for AI generation
+      { timeout: 120000 }, // 2 minute timeout for AI generation
     );
 
     if (!result.success) {
@@ -250,15 +250,15 @@ export class WizardRpcService {
     }
   }
 
-  // Subscribe to generation progress updates
-  subscribeToProgress(callback: (progress: AgentProgress) => void): Subscription {
-    return this.vscode.messages$
-      .pipe(
-        filter((msg) => msg.type === 'wizard:generation-progress'),
-        map((msg) => msg.payload as AgentProgress)
-      )
-      .subscribe(callback);
-  }
+  // Receive generation progress updates via the MessageHandler pattern.
+  // (`vscode.messages$` does not exist — see libs/frontend/core/CLAUDE.md §3.)
+  // Implement MessageHandler and register via MESSAGE_HANDLERS, or compose with
+  // a service that does. Example shape:
+  //
+  //   readonly handledMessageTypes = ['wizard:generation-progress'] as const;
+  //   handleMessage(msg: { type: string; payload?: unknown }): void {
+  //     this.progress.set(msg.payload as AgentProgress);
+  //   }
 }
 ```
 
@@ -274,24 +274,27 @@ export class WizardRpcService {
       <h2>Generating Agent Rules</h2>
 
       @for (agent of agentProgress(); track agent.agentName) {
-      <div class="agent-progress-item">
-        <div class="agent-name">{{ agent.agentName }}</div>
+        <div class="agent-progress-item">
+          <div class="agent-name">{{ agent.agentName }}</div>
 
-        @if (agent.status === 'generating') {
-        <div class="progress-bar">
-          <div class="progress-fill" [style.width.%]="agent.progress"></div>
+          @if (agent.status === 'generating') {
+            <div class="progress-bar">
+              <div class="progress-fill" [style.width.%]="agent.progress"></div>
+            </div>
+            <div class="progress-text">{{ agent.progress }}%</div>
+          }
+          @if (agent.status === 'success') {
+            <div class="success-badge">✓ Complete</div>
+          }
+          @if (agent.status === 'error') {
+            <div class="error-badge">✗ Failed</div>
+            <div class="error-message">{{ agent.errorMessage }}</div>
+            <button (click)="retryAgent(agent.agentName)">Retry</button>
+          }
         </div>
-        <div class="progress-text">{{ agent.progress }}%</div>
-        } @if (agent.status === 'success') {
-        <div class="success-badge">✓ Complete</div>
-        } @if (agent.status === 'error') {
-        <div class="error-badge">✗ Failed</div>
-        <div class="error-message">{{ agent.errorMessage }}</div>
-        <button (click)="retryAgent(agent.agentName)">Retry</button>
-        }
-      </div>
-      } @if (generationComplete()) {
-      <button (click)="proceed()">Continue</button>
+      }
+      @if (generationComplete()) {
+        <button (click)="proceed()">Continue</button>
       }
     </div>
   `,
@@ -353,21 +356,21 @@ export class GenerationProgressComponent implements OnInit, OnDestroy {
 
       <div class="agent-list">
         @for (agent of availableAgents; track agent.name) {
-        <label class="agent-checkbox">
-          <input type="checkbox" [checked]="isSelected(agent.name)" (change)="toggleAgent(agent.name)" />
-          <div class="agent-info">
-            <div class="agent-name">{{ agent.name }}</div>
-            <div class="agent-description">{{ agent.description }}</div>
-            @if (agent.recommended) {
-            <span class="badge badge-primary">Recommended</span>
-            }
-          </div>
-        </label>
+          <label class="agent-checkbox">
+            <input type="checkbox" [checked]="isSelected(agent.name)" (change)="toggleAgent(agent.name)" />
+            <div class="agent-info">
+              <div class="agent-name">{{ agent.name }}</div>
+              <div class="agent-description">{{ agent.description }}</div>
+              @if (agent.recommended) {
+                <span class="badge badge-primary">Recommended</span>
+              }
+            </div>
+          </label>
         }
       </div>
 
       @if (!hasSelectedAgents()) {
-      <div class="warning">Please select at least one agent.</div>
+        <div class="warning">Please select at least one agent.</div>
       }
 
       <div class="button-group">
@@ -524,10 +527,10 @@ export class WelcomeComponent {
       </div>
 
       @if (errorState()) {
-      <div class="error-alert">
-        <p>{{ errorState()?.message }}</p>
-        <button (click)="retryScan()">Retry Scan</button>
-      </div>
+        <div class="error-alert">
+          <p>{{ errorState()?.message }}</p>
+          <button (click)="retryScan()">Retry Scan</button>
+        </div>
       }
     </div>
   `,
@@ -581,24 +584,24 @@ export class ScanProgressComponent implements OnInit {
       <h2>Project Analysis Complete</h2>
 
       @if (projectContext()) {
-      <div class="project-card">
-        <h3>{{ projectContext()?.projectType }}</h3>
+        <div class="project-card">
+          <h3>{{ projectContext()?.projectType }}</h3>
 
-        <div class="stats-grid">
-          <div class="stat">
-            <div class="stat-label">Files</div>
-            <div class="stat-value">{{ projectContext()?.fileCount }}</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Languages</div>
-            <div class="stat-value">{{ projectContext()?.languages.join(', ') }}</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Frameworks</div>
-            <div class="stat-value">{{ projectContext()?.frameworks.join(', ') }}</div>
+          <div class="stats-grid">
+            <div class="stat">
+              <div class="stat-label">Files</div>
+              <div class="stat-value">{{ projectContext()?.fileCount }}</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Languages</div>
+              <div class="stat-value">{{ projectContext()?.languages.join(', ') }}</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Frameworks</div>
+              <div class="stat-value">{{ projectContext()?.frameworks.join(', ') }}</div>
+            </div>
           </div>
         </div>
-      </div>
       }
 
       <div class="button-group">
@@ -642,7 +645,7 @@ export class AnalysisResultsComponent {
         <h3>Generated Rules:</h3>
         <ul>
           @for (agent of generatedAgents(); track agent) {
-          <li>{{ agent }}.md</li>
+            <li>{{ agent }}.md</li>
           }
         </ul>
       </div>

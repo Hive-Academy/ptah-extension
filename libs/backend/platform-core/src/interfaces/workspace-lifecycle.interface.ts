@@ -41,4 +41,12 @@ export interface IWorkspaceLifecycleProvider {
    * Get the currently active workspace folder, or `undefined` if none is set.
    */
   getActiveFolder(): string | undefined;
+
+  /**
+   * Store a transient origin token immediately before calling setActiveFolder().
+   * The token is read-and-cleared by the workspace broadcast listener so the
+   * push event can echo the token back to the frontend for self-echo suppression.
+   * Optional — platforms that do not broadcast push events (VS Code, CLI) leave this unimplemented.
+   */
+  setPendingOrigin?(origin: string | null): void;
 }
