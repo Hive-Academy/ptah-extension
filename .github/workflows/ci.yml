@@ -61,6 +61,13 @@ jobs:
       - name: Install Linux platform binaries
         run: npm install @rollup/rollup-linux-x64-gnu @unrs/resolver-binding-linux-x64-gnu --no-save --force
 
+      # Cache key is keyed on package-lock.json only. When the runner Node
+      # ABI changes (or when the cache was populated by a different OS), the
+      # better-sqlite3 prebuilt binary fails to self-register at require()
+      # time. Rebuilding it is cheap and idempotent — always run.
+      - name: Rebuild native modules for runner Node ABI
+        run: npm rebuild better-sqlite3
+
       # Cache Prisma generated client
       - name: Cache Prisma client
         id: cache-prisma
