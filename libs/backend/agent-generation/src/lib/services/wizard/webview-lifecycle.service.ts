@@ -34,7 +34,7 @@ import type { WizardStep } from '../../types/wizard.types';
  */
 export type CustomMessageHandler = (
   message: unknown,
-  webview: vscode.Webview
+  webview: vscode.Webview,
 ) => Promise<boolean>;
 
 /**
@@ -76,7 +76,7 @@ export class WizardWebviewLifecycleService {
     @inject(TOKENS.WEBVIEW_MESSAGE_HANDLER)
     private readonly messageHandler: WebviewMessageHandlerService,
     @inject(TOKENS.WEBVIEW_HTML_GENERATOR)
-    private readonly htmlGenerator: IWebviewHtmlGenerator
+    private readonly htmlGenerator: IWebviewHtmlGenerator,
   ) {
     this.logger.debug('[WizardWebviewLifecycle] Service initialized');
   }
@@ -117,7 +117,7 @@ export class WizardWebviewLifecycleService {
     title: string,
     viewType: string,
     customHandlers: CustomMessageHandler[],
-    initialData?: WizardPanelInitialData
+    initialData?: WizardPanelInitialData,
   ): Promise<vscode.WebviewPanel | null> {
     this.logger.debug('[WizardWebviewLifecycle] Creating wizard panel', {
       title,
@@ -141,7 +141,7 @@ export class WizardWebviewLifecycleService {
 
     if (!panel) {
       this.logger.error(
-        '[WizardWebviewLifecycle] Failed to create wizard webview panel'
+        '[WizardWebviewLifecycle] Failed to create wizard webview panel',
       );
       return null;
     }
@@ -153,7 +153,7 @@ export class WizardWebviewLifecycleService {
       customHandlers,
       onReady: () => {
         this.logger.info(
-          '[WizardWebviewLifecycle] Wizard webview ready signal received'
+          '[WizardWebviewLifecycle] Wizard webview ready signal received',
         );
       },
     });
@@ -162,20 +162,17 @@ export class WizardWebviewLifecycleService {
     panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       panel.webview,
       {
-        workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<
-          string,
-          unknown
-        >,
+        workspaceInfo: this.htmlGenerator.buildWorkspaceInfo(),
         initialView: 'setup-wizard',
         ...initialData,
-      }
+      },
     );
 
     this.logger.info(
       '[WizardWebviewLifecycle] Wizard panel created successfully',
       {
         viewType,
-      }
+      },
     );
 
     return panel;
@@ -207,7 +204,7 @@ export class WizardWebviewLifecycleService {
     panel: vscode.WebviewPanel,
     messageId: string,
     payload?: unknown,
-    error?: string
+    error?: string,
   ): Promise<void> {
     this.logger.debug('[WizardWebviewLifecycle] Sending RPC response', {
       messageId,
@@ -229,7 +226,7 @@ export class WizardWebviewLifecycleService {
           error: err,
           messageId,
           hasError: !!error,
-        }
+        },
       );
     }
   }
@@ -258,12 +255,12 @@ export class WizardWebviewLifecycleService {
   async emitProgress(
     panel: vscode.WebviewPanel | null,
     eventType: string,
-    data: unknown
+    data: unknown,
   ): Promise<void> {
     if (!panel) {
       this.logger.warn(
         '[WizardWebviewLifecycle] Cannot emit progress: panel is null',
-        { eventType }
+        { eventType },
       );
       return;
     }
@@ -283,7 +280,7 @@ export class WizardWebviewLifecycleService {
         {
           error,
           eventType,
-        }
+        },
       );
     }
   }
@@ -311,12 +308,12 @@ export class WizardWebviewLifecycleService {
         '[WizardWebviewLifecycle] Webview disposed successfully',
         {
           viewType,
-        }
+        },
       );
     } catch (error) {
       this.logger.warn(
         '[WizardWebviewLifecycle] Error disposing webview',
-        error as Error
+        error as Error,
       );
     }
   }
@@ -362,12 +359,12 @@ export class WizardWebviewLifecycleService {
    */
   async sendMessage(
     panel: vscode.WebviewPanel | null,
-    message: Record<string, unknown>
+    message: Record<string, unknown>,
   ): Promise<void> {
     if (!panel) {
       this.logger.warn(
         '[WizardWebviewLifecycle] Cannot send message: panel is null',
-        { messageType: message['type'] }
+        { messageType: message['type'] },
       );
       return;
     }

@@ -17,6 +17,7 @@ import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { WorkspaceContextManager } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import type { WorkspaceChangedPayload } from '@ptah-extension/shared';
 
 export interface WorkspaceRestoreResult {
   startupWorkspaceRoot: string | undefined;
@@ -162,6 +163,12 @@ export async function restoreWorkspaces(
     };
 
     workspaceProviderForRestore.onDidChangeWorkspaceFolders(() => {
+      // Read-and-clear the pending origin token stamped by registerSwitch()
+      // before any async or debounce logic so it cannot be consumed by a
+      // later unrelated event (TASK_2026_115 §1.5).
+      const origin = workspaceProviderForRestore.pendingOrigin ?? null;
+      workspaceProviderForRestore.pendingOrigin = null;
+
       if (persistDebounceTimer !== null) {
         clearTimeout(persistDebounceTimer);
       }
@@ -187,7 +194,8 @@ export async function restoreWorkspaces(
                 name: path.basename(newActive),
                 type: 'workspace',
               },
-            },
+              origin,
+            } satisfies WorkspaceChangedPayload,
           });
         }
       } else {
@@ -195,7 +203,10 @@ export async function restoreWorkspaces(
         if (mainWindow) {
           mainWindow.webContents.send('to-renderer', {
             type: MESSAGE_TYPES.WORKSPACE_CHANGED,
-            payload: { workspaceInfo: null },
+            payload: {
+              workspaceInfo: null,
+              origin,
+            } satisfies WorkspaceChangedPayload,
           });
         }
       }

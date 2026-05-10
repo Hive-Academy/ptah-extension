@@ -213,6 +213,10 @@ export const MESSAGE_TYPES = {
   // CLI agent user input routing (Copilot SDK onUserInputRequest)
   AGENT_MONITOR_USER_INPUT_REQUEST: 'agent-monitor:user-input-request',
   AGENT_MONITOR_USER_INPUT_RESPONSE: 'agent-monitor:user-input-response',
+
+  // ---- Gateway Push Messages ----
+  // Backend → Frontend: adapter running/error state changed (TASK_2026_115)
+  GATEWAY_STATUS_CHANGED: 'gateway:statusChanged',
 } as const;
 
 /**

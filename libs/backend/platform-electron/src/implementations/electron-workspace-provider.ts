@@ -47,6 +47,8 @@ export class ElectronWorkspaceProvider
 
   private readonly fileSettings: PtahFileSettingsManager;
 
+  public pendingOrigin: string | null = null;
+
   private folders: string[] = [];
   private activeFolder: string | undefined;
   private config: Record<string, Record<string, unknown>> = {};
@@ -192,6 +194,7 @@ export class ElectronWorkspaceProvider
     }
 
     if (this.activeFolder === resolved) {
+      this.pendingOrigin = null; // clear stale token even on no-op
       return;
     }
 
@@ -206,6 +209,17 @@ export class ElectronWorkspaceProvider
    */
   getActiveFolder(): string | undefined {
     return this.activeFolder;
+  }
+
+  /**
+   * Store a transient origin token immediately before calling setActiveFolder().
+   * The token is read-and-cleared by the workspace broadcast listener so the
+   * push event can echo the token back to the frontend for self-echo suppression.
+   *
+   * TASK_2026_115 Batch 2
+   */
+  setPendingOrigin(origin: string | null): void {
+    this.pendingOrigin = origin;
   }
 
   /**

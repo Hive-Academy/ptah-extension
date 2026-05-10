@@ -17,6 +17,7 @@ import {
   DestroyRef,
 } from '@angular/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import type { WorkspaceChangedPayload } from '@ptah-extension/shared';
 import { VSCodeService } from './vscode.service';
 import { AppStateManager } from './app-state.service';
 import { ClaudeRpcService } from './claude-rpc.service';
@@ -69,6 +70,12 @@ export class ElectronLayoutService implements MessageHandler {
   private _switchId = 0;
   private _switchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // TASK_2026_115: Origin-tag self-echo guard. Stamped immediately before the
+  // user-initiated workspace:switch RPC; cleared either when the matching
+  // WORKSPACE_CHANGED echo arrives (drop) or when the RPC fails (rollback).
+  // Plain object ref — not a signal — because nothing renders it.
+  private _pendingOriginRef: { current: string | null } = { current: null };
+
   // Public readonly signals
   readonly workspaceSidebarWidth = this._workspaceSidebarWidth.asReadonly();
   readonly workspaceSidebarVisible = this._workspaceSidebarVisible.asReadonly();
@@ -96,28 +103,23 @@ export class ElectronLayoutService implements MessageHandler {
   readonly handledMessageTypes = [MESSAGE_TYPES.WORKSPACE_CHANGED];
 
   handleMessage(message: { type: string; payload?: unknown }): void {
-    // Only handle in Electron context
     if (!this.vscodeService.isElectron) return;
-
-    // Self-echo guard: a WORKSPACE_CHANGED whose path matches the workspace
-    // the renderer is already on is the side-effect of a workspace:switch
-    // we just initiated. Re-syncing closes the loop with the backend's
-    // onDidChangeWorkspaceFolders broadcast and produces an infinite cycle.
-    const payload = message.payload as
-      | { workspaceInfo?: { path?: string } | null }
-      | undefined;
+    const payload = message.payload as WorkspaceChangedPayload | undefined;
+    // Primary guard: origin tag
+    if (
+      payload?.origin !== null &&
+      payload?.origin !== undefined &&
+      payload.origin === this._pendingOriginRef.current
+    ) {
+      this._pendingOriginRef.current = null;
+      return;
+    }
+    // Belt-and-suspenders: drop if path is already current
     const incomingPath = payload?.workspaceInfo?.path;
     const currentPath = this.activeWorkspace()?.path;
     if (incomingPath && currentPath && incomingPath === currentPath) {
       return;
     }
-
-    // If restoreLayout's getInfo is still in-flight (_switchId was already
-    // bumped by it), this WORKSPACE_CHANGED is a side-effect of the same
-    // addFolder that triggered restoreLayout — the restore covers it, so
-    // drop the redundant sync.  syncFromBackend owns the bump; calling it
-    // here unconditionally would race.  Instead we simply delegate and let
-    // syncFromBackend's stale-id guard sort it out.
     void this.syncFromBackend(null);
   }
 
@@ -468,10 +470,17 @@ export class ElectronLayoutService implements MessageHandler {
     this._switchDebounceTimer = setTimeout(async () => {
       this._switchDebounceTimer = null;
 
+      // TASK_2026_115: Stamp origin token immediately before the RPC so the
+      // resulting WORKSPACE_CHANGED echo can be identified and dropped by
+      // handleMessage. Cleared on echo (handleMessage) or on RPC failure.
+      const origin = crypto.randomUUID();
+      this._pendingOriginRef.current = origin;
+
       try {
         // Send workspace:switch RPC
         const result = await this.rpcService.call('workspace:switch', {
           path: newPath,
+          origin,
         });
 
         // Discard stale response: a newer switch has been initiated since this RPC started
@@ -484,6 +493,8 @@ export class ElectronLayoutService implements MessageHandler {
             '[ElectronLayout] workspace:switch RPC failed:',
             result,
           );
+          // Clear origin token: no echo will arrive for a failed RPC.
+          this._pendingOriginRef.current = null;
           // Rollback optimistic UI update so the sidebar doesn't show a
           // workspace as active when the backend is still on the old one.
           this._activeWorkspaceIndex.set(previousIndex);
@@ -494,6 +505,8 @@ export class ElectronLayoutService implements MessageHandler {
         // Coordinate frontend services for the new workspace
         this.coordinateWorkspaceSwitch(newPath, previousIndex);
       } catch (error) {
+        // Clear origin token on thrown failure as well.
+        this._pendingOriginRef.current = null;
         // Only rollback/log if this switch is still the latest
         if (this._switchId === currentSwitchId) {
           console.error('[ElectronLayout] Failed to switch workspace:', error);
