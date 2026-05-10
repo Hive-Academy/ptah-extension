@@ -54,6 +54,7 @@ import {
 import type { IBackupService } from '@ptah-extension/persistence-sqlite';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { GatewayService } from '@ptah-extension/messaging-gateway';
+import type { BootStrategy } from '@ptah-extension/shared';
 
 export interface WireRuntimeOptions {
   container: DependencyContainer;
@@ -400,8 +401,7 @@ export async function wireRuntime(
 
         // Evaluate boot strategy and branch accordingly.
         if (indexingControl) {
-          let bootStrategy: import('@ptah-extension/shared').BootStrategy =
-            'skip';
+          let bootStrategy: BootStrategy = 'skip';
           try {
             bootStrategy =
               await indexingControl.evaluateBootStrategy(workspaceRoot);

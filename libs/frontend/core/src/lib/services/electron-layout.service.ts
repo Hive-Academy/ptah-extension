@@ -16,11 +16,12 @@ import {
   inject,
   DestroyRef,
 } from '@angular/core';
-import { SessionId } from '@ptah-extension/shared';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { VSCodeService } from './vscode.service';
 import { AppStateManager } from './app-state.service';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { WORKSPACE_COORDINATOR } from '../tokens/workspace-coordinator.token';
+import type { MessageHandler } from './message-router.types';
 
 export interface WorkspaceFolder {
   path: string;
@@ -43,7 +44,7 @@ const MAX_EDITOR_WIDTH_RATIO = 0.5;
 const SWITCH_DEBOUNCE_MS = 100;
 
 @Injectable({ providedIn: 'root' })
-export class ElectronLayoutService {
+export class ElectronLayoutService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
   private readonly appState = inject(AppStateManager);
   private readonly rpcService = inject(ClaudeRpcService);
@@ -87,6 +88,28 @@ export class ElectronLayoutService {
   readonly hasWorkspaceFolders = computed(
     () => this._workspaceFolders().length > 0,
   );
+
+  // ── MessageHandler implementation ─────────────────────────────────
+  // Listens for WORKSPACE_CHANGED so that "Open Folder" from the native
+  // menu (or any other main-process trigger that fires onDidChangeWorkspaceFolders)
+  // re-syncs the renderer folder list without requiring a full page reload.
+  readonly handledMessageTypes = [MESSAGE_TYPES.WORKSPACE_CHANGED];
+
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    // Only handle in Electron context
+    if (!this.vscodeService.isElectron) return;
+
+    // If restoreLayout's getInfo is still in-flight (_switchId was already
+    // bumped by it), this WORKSPACE_CHANGED is a side-effect of the same
+    // addFolder that triggered restoreLayout — the restore covers it, so
+    // drop the redundant sync.  syncFromBackend owns the bump; calling it
+    // here unconditionally would race.  Instead we simply delegate and let
+    // syncFromBackend's stale-id guard sort it out.
+    void this.syncFromBackend(null);
+
+    // Suppress the unused-variable warning — payload is intentionally ignored
+    void message;
+  }
 
   constructor() {
     // Only restore layout in Electron context (avoids wasteful side effects in VS Code)
@@ -588,76 +611,130 @@ export class ElectronLayoutService {
       activeWorkspaceIndex?: number;
     }>(LAYOUT_STATE_KEY);
 
-    if (!state) return;
+    // Restore layout dimensions only when persisted state exists, but ALWAYS
+    // run the backend workspace-fetch path regardless.  On first launch state
+    // is null; skipping workspace:getInfo + coordinateWorkspaceSwitch would
+    // leave the renderer with no folders and no active workspace.
+    if (state) {
+      // Route through clamping methods to enforce min/max constraints
+      if (typeof state.sidebarWidth === 'number') {
+        this.setWorkspaceSidebarWidth(state.sidebarWidth);
+      }
+      if (typeof state.sidebarVisible === 'boolean') {
+        this._workspaceSidebarVisible.set(state.sidebarVisible);
+      }
+      if (typeof state.editorWidth === 'number') {
+        this.setEditorPanelWidth(state.editorWidth);
+      }
+      if (typeof state.editorVisible === 'boolean') {
+        this._editorPanelVisible.set(state.editorVisible);
+      }
+    }
 
-    // Route through clamping methods to enforce min/max constraints
-    if (typeof state.sidebarWidth === 'number') {
-      this.setWorkspaceSidebarWidth(state.sidebarWidth);
-    }
-    if (typeof state.sidebarVisible === 'boolean') {
-      this._workspaceSidebarVisible.set(state.sidebarVisible);
-    }
-    if (typeof state.editorWidth === 'number') {
-      this.setEditorPanelWidth(state.editorWidth);
-    }
-    if (typeof state.editorVisible === 'boolean') {
-      this._editorPanelVisible.set(state.editorVisible);
-    }
     // Fetch workspace list from backend (source of truth: global-state.json).
-    // The webview-cached folder list can diverge from the backend after crashes
-    // or debounce-race conditions. Backend is authoritative.
-    const restoreSwitchId = ++this._switchId;
+    // Runs unconditionally — including on first launch when state is null/undefined.
+    void this.syncFromBackend(state ?? null);
+  }
 
-    this.rpcService
-      .call('workspace:getInfo', {})
-      .then((result) => {
-        if (this._switchId !== restoreSwitchId) return;
+  /**
+   * Single authoritative method that owns ++_switchId and the full
+   *   workspace:getInfo → workspace:switch → coordinateWorkspaceSwitch
+   * sequence.
+   *
+   * Both restoreLayout() and handleMessage() delegate here so the two
+   * call sites cannot race each other: whichever bumps _switchId last
+   * wins; earlier in-flight calls bail at the stale-id guard.
+   *
+   * @param cachedState - Persisted webview state available as a fallback
+   *   when the backend has no workspaces. Pass null when there is no
+   *   cached state (first launch, or handleMessage path).
+   */
+  private async syncFromBackend(
+    cachedState: {
+      workspaceFolders?: unknown[];
+      activeWorkspaceIndex?: number;
+    } | null,
+  ): Promise<void> {
+    const syncId = ++this._switchId;
 
-        if (result.isSuccess() && result.data) {
-          const info = result.data;
-          if (info.folders && info.folders.length > 0) {
-            const backendFolders: WorkspaceFolder[] = info.folders.map(
-              (p: string) => ({
-                path: p,
-                name: this.folderName(p),
-              }),
+    try {
+      const result = await this.rpcService.call('workspace:getInfo', {});
+
+      if (this._switchId !== syncId) return;
+
+      if (result.isSuccess() && result.data) {
+        const info = result.data;
+
+        if (info.folders && info.folders.length > 0) {
+          const backendFolders: WorkspaceFolder[] = info.folders.map(
+            (p: string) => ({
+              path: p,
+              name: this.folderName(p),
+            }),
+          );
+          this._workspaceFolders.set(backendFolders);
+
+          const activeIndex = info.activeFolder
+            ? Math.max(0, info.folders.indexOf(info.activeFolder))
+            : 0;
+          this._activeWorkspaceIndex.set(activeIndex);
+
+          const activePath = backendFolders[activeIndex]?.path;
+          if (activePath) {
+            // workspace:switch must be called before coordinateWorkspaceSwitch
+            // so the backend session context is set for the correct workspace
+            // before TabManager loads sessions.
+            const switchResult = await this.rpcService.call(
+              'workspace:switch',
+              {
+                path: activePath,
+              },
             );
-            this._workspaceFolders.set(backendFolders);
 
-            const activeIndex = info.activeFolder
-              ? Math.max(0, info.folders.indexOf(info.activeFolder))
-              : 0;
-            this._activeWorkspaceIndex.set(activeIndex);
+            if (this._switchId !== syncId) return;
 
-            const activePath = backendFolders[activeIndex]?.path;
-            if (activePath) {
-              this.rpcService
-                .call('workspace:switch', { path: activePath })
-                .then((switchResult) => {
-                  if (this._switchId !== restoreSwitchId) return;
-                  if (switchResult.isSuccess()) {
-                    this.coordinateWorkspaceSwitch(activePath, activeIndex);
-                  }
-                })
-                .catch((error) => {
-                  console.error(
-                    '[ElectronLayout] Initial workspace:switch RPC failed:',
-                    error,
-                  );
-                });
+            if (switchResult.isSuccess()) {
+              this.coordinateWorkspaceSwitch(activePath, activeIndex);
+            } else {
+              console.error(
+                '[ElectronLayout] workspace:switch RPC failed during sync:',
+                switchResult,
+              );
             }
           }
-        } else {
-          // Backend has no workspaces — fall back to cached webview state
-          this.restoreWorkspaceFoldersFromCache(state);
-        }
 
+          // Only persist when we actually loaded something meaningful so that
+          // a truly empty first-launch (no cached state, no backend folders)
+          // does not dirty the storage with default dim values.
+          this.persistLayout();
+        } else {
+          // Backend has no workspaces
+          if (cachedState) {
+            // Fall back to cached webview state (only when available)
+            this.restoreWorkspaceFoldersFromCache(cachedState);
+            this.persistLayout();
+          } else {
+            // Genuinely empty first launch — clear to known-good state
+            // without persisting so first-launch detection stays clean.
+            this._workspaceFolders.set([]);
+            this._activeWorkspaceIndex.set(0);
+            this.appState.setWorkspaceInfo(null);
+            this.vscodeService.updateWorkspaceRoot('');
+          }
+        }
+      } else if (cachedState) {
+        // getInfo itself failed (non-success result) — fall back to cache
+        this.restoreWorkspaceFoldersFromCache(cachedState);
         this.persistLayout();
-      })
-      .catch(() => {
-        // RPC failed — fall back to cached webview state
-        this.restoreWorkspaceFoldersFromCache(state);
-      });
+      }
+    } catch {
+      if (this._switchId !== syncId) return;
+      // RPC threw — fall back to cached webview state if available
+      if (cachedState) {
+        this.restoreWorkspaceFoldersFromCache(cachedState);
+        this.persistLayout();
+      }
+    }
   }
 
   private restoreWorkspaceFoldersFromCache(state: {

@@ -191,6 +191,10 @@ export class ElectronWorkspaceProvider
       return;
     }
 
+    if (this.activeFolder === resolved) {
+      return;
+    }
+
     this.activeFolder = resolved;
     this.fireFoldersChange(undefined as unknown as void);
   }
