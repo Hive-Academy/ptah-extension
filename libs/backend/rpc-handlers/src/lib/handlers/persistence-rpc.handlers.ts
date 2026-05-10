@@ -420,7 +420,9 @@ export class PersistenceRpcHandlers {
     src: string,
     dest: string,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
-    const attempt = (): { ok: true } | { ok: false; error: string } => {
+    const attempt = ():
+      | { ok: true; error?: undefined }
+      | { ok: false; error: string } => {
       try {
         fs.renameSync(src, dest);
         return { ok: true };
@@ -433,7 +435,7 @@ export class PersistenceRpcHandlers {
     };
 
     const first = attempt();
-    if (first.ok) return first;
+    if (first.ok) return { ok: true };
 
     // Only retry on EPERM (Windows AV interference)
     if (!first.error.includes('EPERM')) return first;

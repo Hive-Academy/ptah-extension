@@ -22,6 +22,7 @@ import {
   CronRpcHandlers,
   GatewayRpcHandlers,
   MemoryRpcHandlers,
+  PersistenceRpcHandlers,
   SkillsSynthesisRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import {
@@ -118,6 +119,13 @@ const CLI_EXCLUDED_RPC_METHODS: readonly string[] = [
   'skillSynthesis:reject',
   'skillSynthesis:invocations',
   'skillSynthesis:stats',
+
+  // Persistence health/reset (db:health, db:reset) — require
+  // SqliteConnectionService which is only registered in the Electron host.
+  // The CLI runtime does not wire persistence-sqlite, so the handler is
+  // excluded to avoid a DI resolution failure at bootstrap.
+  'db:health',
+  'db:reset',
 ];
 
 /**
@@ -163,6 +171,10 @@ export class CliRpcMethodRegistrationService {
         GatewayRpcHandlers,
         MemoryRpcHandlers,
         SkillsSynthesisRpcHandlers,
+        // PersistenceRpcHandlers requires SqliteConnectionService which is
+        // never registered in the headless CLI runtime (better-sqlite3 lives
+        // in the Electron host only).
+        PersistenceRpcHandlers,
       ],
     });
 
