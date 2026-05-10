@@ -13,6 +13,7 @@ import {
   ClaudeRpcService,
   AutopilotStateService,
   AppStateManager,
+  ElectronLayoutService,
   SESSION_DATA_PROVIDER,
   WORKSPACE_COORDINATOR,
   WIZARD_VIEW_COMPONENT,
@@ -25,6 +26,7 @@ import {
   AgentMonitorMessageHandler,
   ChatStore,
   WorkspaceCoordinatorService,
+  WorkspaceIndexingService,
   provideModelRefreshControl,
 } from '@ptah-extension/chat';
 import {
@@ -155,6 +157,22 @@ export const appConfig: ApplicationConfig = {
     ...provideEditorInternalState(),
     // EditorService handles editor:tabContentReverted push events (Electron Monaco revert).
     { provide: MESSAGE_HANDLERS, useExisting: EditorService, multi: true },
+    // ElectronLayoutService listens for WORKSPACE_CHANGED so that "Open Folder"
+    // from the native menu (and any future main-process trigger) re-syncs the
+    // renderer folder list via a workspace:getInfo roundtrip.
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: ElectronLayoutService,
+      multi: true,
+    },
+    // WorkspaceIndexingService listens for `indexing:progress` push events
+    // broadcast from IndexingControlService during active indexing runs.
+    // Required for AC #6 (live progress streaming) — TASK_2026_114.
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: WorkspaceIndexingService,
+      multi: true,
+    },
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',

@@ -1,5 +1,8 @@
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
-import { deriveWorkspaceFingerprint } from './workspace-fingerprint';
+import {
+  deriveWorkspaceFingerprint,
+  deriveGitHeadSha,
+} from './workspace-fingerprint';
 
 function makeFs(map: Record<string, string>): IFileSystemProvider {
   const norm = (p: string): string => p.replace(/\\/g, '/');
@@ -152,5 +155,68 @@ describe('deriveWorkspaceFingerprint', () => {
     const rb = await deriveWorkspaceFingerprint(root, b);
 
     expect(ra.fp).toBe(rb.fp);
+  });
+});
+
+describe('deriveGitHeadSha', () => {
+  const root = '/workspace/sha-test';
+  const VALID_SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4';
+
+  it('returns null when .git/HEAD is absent (non-git workspace)', async () => {
+    const fs = makeFs({});
+    const result = await deriveGitHeadSha(root, fs);
+    expect(result).toBeNull();
+  });
+
+  it('returns raw SHA when HEAD is a detached commit', async () => {
+    const fs = makeFs({
+      [`${root}/.git/HEAD`]: `${VALID_SHA}\n`,
+    });
+    const result = await deriveGitHeadSha(root, fs);
+    expect(result).toBe(VALID_SHA);
+  });
+
+  it('resolves ref pointer and returns branch SHA', async () => {
+    const fs = makeFs({
+      [`${root}/.git/HEAD`]: 'ref: refs/heads/main\n',
+      [`${root}/.git/refs/heads/main`]: `${VALID_SHA}\n`,
+    });
+    const result = await deriveGitHeadSha(root, fs);
+    expect(result).toBe(VALID_SHA);
+  });
+
+  it('returns null when HEAD contains ref but ref file is missing', async () => {
+    const fs = makeFs({
+      [`${root}/.git/HEAD`]: 'ref: refs/heads/feature/does-not-exist\n',
+    });
+    const result = await deriveGitHeadSha(root, fs);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when HEAD content is malformed (not SHA, not ref)', async () => {
+    const fs = makeFs({
+      [`${root}/.git/HEAD`]: 'not-a-valid-sha-or-ref\n',
+    });
+    const result = await deriveGitHeadSha(root, fs);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when ref file contains malformed content', async () => {
+    const fs = makeFs({
+      [`${root}/.git/HEAD`]: 'ref: refs/heads/main\n',
+      [`${root}/.git/refs/heads/main`]: 'not-a-sha\n',
+    });
+    const result = await deriveGitHeadSha(root, fs);
+    expect(result).toBeNull();
+  });
+
+  it('handles packed-refs gracefully (ref file missing — returns null)', async () => {
+    // packed-refs is not supported in this helper; absence of the ref file
+    // signals a lookup failure, so null is the correct safe return value.
+    const fs = makeFs({
+      [`${root}/.git/HEAD`]: 'ref: refs/heads/packed-branch\n',
+    });
+    const result = await deriveGitHeadSha(root, fs);
+    expect(result).toBeNull();
   });
 });

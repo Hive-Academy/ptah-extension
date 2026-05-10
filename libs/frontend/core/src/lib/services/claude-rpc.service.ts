@@ -127,6 +127,15 @@ const UNLICENSED_ALLOWED_METHODS: readonly string[] = [
   // ModelStateService log RPC-blocked errors during webview bootstrap.
   'config:autopilot-get',
   'config:models-list',
+  // Workspace indexing tab is a free top-level setting (TASK_2026_114 AC #4).
+  'indexing:getStatus',
+  'indexing:start',
+  'indexing:pause',
+  'indexing:resume',
+  'indexing:cancel',
+  'indexing:setPipelineEnabled',
+  'indexing:dismissStale',
+  'indexing:acknowledgeDisclosure',
 ] as const;
 
 @Injectable({ providedIn: 'root' })

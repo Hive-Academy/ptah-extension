@@ -29,6 +29,10 @@ export * from './rpc/rpc-editor.types';
 export * from './rpc/rpc-memory.types';
 // === TRACK_1_MEMORY_CURATOR_END ===
 
+// === TASK_2026_114_INDEXING_BEGIN ===
+export * from './rpc/rpc-indexing.types';
+// === TASK_2026_114_INDEXING_END ===
+
 // ============================================================
 // Imports for RpcMethodRegistry (types used only in registry entries)
 // ============================================================
@@ -281,6 +285,27 @@ import type {
   MemoryStatsResult,
 } from './rpc/rpc-memory.types';
 // === TRACK_1_MEMORY_CURATOR_END ===
+
+// === TASK_2026_114_INDEXING_BEGIN ===
+import type {
+  IndexingGetStatusParams,
+  IndexingGetStatusResult,
+  IndexingStartParams,
+  IndexingStartResult,
+  IndexingPauseParams,
+  IndexingPauseResult,
+  IndexingResumeParams,
+  IndexingResumeResult,
+  IndexingCancelParams,
+  IndexingCancelResult,
+  IndexingSetPipelineEnabledParams,
+  IndexingSetPipelineEnabledResult,
+  IndexingDismissStaleParams,
+  IndexingDismissStaleResult,
+  IndexingAcknowledgeDisclosureParams,
+  IndexingAcknowledgeDisclosureResult,
+} from './rpc/rpc-indexing.types';
+// === TASK_2026_114_INDEXING_END ===
 
 import type {
   HarnessInitializeParams,
@@ -1330,6 +1355,42 @@ export interface RpcMethodRegistry {
     result: DbResetResult;
   };
   // === THOTH_PERSISTENCE_HARDENING_END ===
+
+  // === TASK_2026_114_INDEXING_BEGIN ===
+  // User-controlled workspace indexing (TASK_2026_114)
+  'indexing:getStatus': {
+    params: IndexingGetStatusParams;
+    result: IndexingGetStatusResult;
+  };
+  'indexing:start': {
+    params: IndexingStartParams;
+    result: IndexingStartResult;
+  };
+  'indexing:pause': {
+    params: IndexingPauseParams;
+    result: IndexingPauseResult;
+  };
+  'indexing:resume': {
+    params: IndexingResumeParams;
+    result: IndexingResumeResult;
+  };
+  'indexing:cancel': {
+    params: IndexingCancelParams;
+    result: IndexingCancelResult;
+  };
+  'indexing:setPipelineEnabled': {
+    params: IndexingSetPipelineEnabledParams;
+    result: IndexingSetPipelineEnabledResult;
+  };
+  'indexing:dismissStale': {
+    params: IndexingDismissStaleParams;
+    result: IndexingDismissStaleResult;
+  };
+  'indexing:acknowledgeDisclosure': {
+    params: IndexingAcknowledgeDisclosureParams;
+    result: IndexingAcknowledgeDisclosureResult;
+  };
+  // === TASK_2026_114_INDEXING_END ===
 }
 
 // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
@@ -2062,6 +2123,17 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'db:health': true,
   'db:reset': true,
   // === THOTH_PERSISTENCE_HARDENING_END ===
+
+  // === TASK_2026_114_INDEXING_BEGIN ===
+  'indexing:getStatus': true,
+  'indexing:start': true,
+  'indexing:pause': true,
+  'indexing:resume': true,
+  'indexing:cancel': true,
+  'indexing:setPipelineEnabled': true,
+  'indexing:dismissStale': true,
+  'indexing:acknowledgeDisclosure': true,
+  // === TASK_2026_114_INDEXING_END ===
 };
 
 /**

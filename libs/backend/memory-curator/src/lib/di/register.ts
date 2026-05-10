@@ -31,6 +31,7 @@ import { MemoryDecayJob } from '../memory-decay.job';
 import { MemoryCuratorService } from '../memory-curator.service';
 import { MemoryWriterAdapter } from '../memory-writer.adapter';
 import { MemoryStoreSymbolSink } from '../symbol-sink.adapter';
+import { IndexingControlService } from '../control/indexing-control.service';
 
 export function registerMemoryCuratorServices(
   container: DependencyContainer,
@@ -100,6 +101,13 @@ export function registerMemoryCuratorServices(
   container.register(
     MEMORY_CONTRACT_TOKENS.SYMBOL_SINK,
     { useClass: MemoryStoreSymbolSink },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // TASK_2026_114: IndexingControlService — user-controlled workspace indexing.
+  container.register(
+    MEMORY_TOKENS.INDEXING_CONTROL,
+    { useClass: IndexingControlService },
     { lifecycle: Lifecycle.Singleton },
   );
 

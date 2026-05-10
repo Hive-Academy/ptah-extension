@@ -58,8 +58,23 @@ export {
 } from './lib/memory-writer.adapter';
 
 // Workspace fingerprint helper (used by the wizard seeder in rpc-handlers).
-export { deriveWorkspaceFingerprint } from './lib/workspace-fingerprint';
+export {
+  deriveWorkspaceFingerprint,
+  deriveGitHeadSha,
+} from './lib/workspace-fingerprint';
 export type {
   FingerprintResult,
   FingerprintSource,
 } from './lib/workspace-fingerprint';
+
+// Indexing control — user-controlled workspace indexing (TASK_2026_114).
+export { IndexingControlService } from './lib/control/indexing-control.service';
+export type {
+  IndexingStatus,
+  BootStrategy,
+  SymbolsCursor,
+  IndexingProgressEvent,
+  IndexingState,
+  IndexingPipeline,
+  IndexingRunDeps,
+} from './lib/control/indexing-control.service';

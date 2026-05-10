@@ -25,6 +25,14 @@ export interface CodeSymbolIndexerOptions {
   batchSize?: number;
   /** Maximum total files to process per run. Default: 2000 */
   maxFilesPerRun?: number;
+  /**
+   * Optional AbortSignal for cooperative cancellation.
+   * Checked at batch boundaries — the current batch always completes before
+   * the signal is honored (no partial DB writes).
+   * When aborted, throws DOMException('Aborted', 'AbortError').
+   * Existing callers that omit this field are unaffected.
+   */
+  signal?: AbortSignal;
 }
 
 export interface IndexingStats {
@@ -184,6 +192,14 @@ export class CodeSymbolIndexer {
       // Yield between batches to avoid stalling the event loop
       if (i + batchSize < filteredPaths.length) {
         await yieldToEventLoop();
+        // Cooperative cancellation: check AFTER the yield so the current batch
+        // always completes with no partial writes before honoring the signal.
+        if (options?.signal?.aborted) {
+          this.logger.debug?.(
+            '[CodeSymbolIndexer] Abort signal received at batch boundary — stopping early',
+          );
+          throw new DOMException('Aborted', 'AbortError');
+        }
       }
     }
 

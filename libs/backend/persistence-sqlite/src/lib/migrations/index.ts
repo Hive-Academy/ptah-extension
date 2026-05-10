@@ -28,6 +28,7 @@ import { sql as sql0008SymbolIndex } from './0008_symbol_index';
 import { run as run0009AutoVacuum } from './0009_auto_vacuum';
 import { sql as sql0010Fts5Porter } from './0010_fts5_porter';
 import { sql as sql0011SkillsV2 } from './0011_skills_v2';
+import { sql as sql0012IndexingState } from './0012_indexing_state';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -102,5 +103,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 11,
     name: '0011_skills_v2',
     sql: sql0011SkillsV2,
+  },
+  {
+    version: 12,
+    name: '0012_indexing_state',
+    sql: sql0012IndexingState,
   },
 ];

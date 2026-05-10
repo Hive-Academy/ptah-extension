@@ -52,6 +52,9 @@ export { SettingsRpcHandlers } from './settings-rpc.handlers';
 // Memory curator handlers (TASK_2026_HERMES Track 1)
 export { MemoryRpcHandlers } from './memory-rpc.handlers';
 
+// Workspace indexing control handlers (TASK_2026_114)
+export { IndexingRpcHandlers } from './indexing-rpc.handlers';
+
 // Skill synthesis handlers (TASK_2026_HERMES Track 2)
 export { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
 

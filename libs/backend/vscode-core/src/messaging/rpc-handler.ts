@@ -81,6 +81,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'skillSynthesis:', // Skills synthesis pipeline (listCandidates, getCandidate, promote, reject, invocations, stats)
   'db:', // DB health + reset (TASK_2026_THOTH_PERSISTENCE_HARDENING — maintenance commands)
   'subagent:', // Phase 2: bidirectional subagent messaging (send-message, stop, interrupt)
+  'indexing:', // TASK_2026_114: Workspace indexing control
 ] as const;
 
 /**

@@ -46,6 +46,8 @@ export {
   GatewayRpcHandlers,
   PersistenceRpcHandlers,
   mintResetChallengeToken,
+  // Workspace indexing control handlers (TASK_2026_114)
+  IndexingRpcHandlers,
 } from './lib/handlers';
 export type {
   DbHealthResult,

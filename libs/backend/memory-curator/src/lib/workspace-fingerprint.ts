@@ -97,6 +97,39 @@ export async function deriveWorkspaceFingerprint(
   return { fp: HEX16(`path:${workspaceRoot}`), source: 'path' };
 }
 
+/**
+ * Derive the raw 40-char git HEAD SHA for a workspace.
+ *
+ * Reads `.git/HEAD` and:
+ *   - If HEAD contains `ref: refs/heads/<branch>`, resolves the ref file.
+ *   - If HEAD contains a raw 40-hex SHA (detached HEAD), returns it directly.
+ *   - Returns `null` when `.git/HEAD` is absent (non-git workspace) or the
+ *     resolved ref file is missing or malformed.
+ *
+ * Pure function, no side effects beyond the FS reads through the injected
+ * provider. Does NOT modify `deriveWorkspaceFingerprint()` in any way.
+ */
+export async function deriveGitHeadSha(
+  workspaceRoot: string,
+  fs: IFileSystemProvider,
+): Promise<string | null> {
+  const headRaw = await safeReadText(fs, join(workspaceRoot, '.git', 'HEAD'));
+  if (!headRaw) return null;
+
+  const refMatch = /ref:\s*(refs\/heads\/.+)/.exec(headRaw.trim());
+  if (refMatch) {
+    const refContent = await safeReadText(
+      fs,
+      join(workspaceRoot, '.git', refMatch[1].trim()),
+    );
+    const sha = refContent?.trim().slice(0, 40) ?? null;
+    return sha && /^[a-f0-9]{40}$/i.test(sha) ? sha : null;
+  }
+
+  const trimmed = headRaw.trim();
+  return /^[a-f0-9]{40}$/i.test(trimmed) ? trimmed : null;
+}
+
 async function safeReadText(
   fs: IFileSystemProvider,
   path: string,
