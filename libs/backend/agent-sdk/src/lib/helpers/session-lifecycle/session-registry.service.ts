@@ -1,5 +1,5 @@
 /**
- * SessionRegistry — sole owner of `activeSessions`, `tabIdToRealId`, and
+ * SessionRegistry — sole owner of `byTabId`, `bySessionId`, and
  * `_lastActiveTabId` state for the session-lifecycle subsystem.
  *
  * Wave C7i extracts state ownership out of `SessionLifecycleManager` so that
@@ -10,10 +10,10 @@
  * init-failure rollback path), eliminating the duplicate fallback logic that
  * previously lived in two places.
  *
- * TASK_2026_118 P1: Dual-index registry added alongside legacy maps.
- * New `byTabId` and `bySessionId` maps hold `SessionRecord` objects.
- * Legacy maps remain intact — all old methods call-through to keep both
- * structures in sync. Legacy maps will be deleted in P6.
+ * TASK_2026_118 Batch 1.5: Collapsed to single-storage.
+ * `activeSessions` and `tabIdToRealId` removed. All methods now read/write
+ * through `byTabId` and `bySessionId` only. Both indexes point at the SAME
+ * `SessionRecord` object — mutations via either lookup are immediately visible.
  *
  * This is a plain class — NOT @injectable, NOT registered with tsyringe. The
  * facade constructs it eagerly in its constructor body. See WAVE_C7i_DESIGN.md.
@@ -22,19 +22,16 @@
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SessionId, AISessionConfig } from '@ptah-extension/shared';
 
-import type {
-  ActiveSession,
-  Query,
-  SDKUserMessage,
-} from '../session-lifecycle-manager';
+import type { Query, SDKUserMessage } from '../session-lifecycle-manager';
 
 /**
  * A single session record held in the dual-index registry.
- * Replaces ActiveSession in the new API; both maps point at the same object
- * so mutations via either lookup are immediately visible from the other.
+ * Both `byTabId` and `bySessionId` point at the SAME object so mutations
+ * via either lookup are immediately visible from the other.
  *
- * TASK_2026_118: P1 addition — co-located here to avoid circular imports
- * (sub-services import from the registry, not from session-lifecycle-manager).
+ * TASK_2026_118: canonical session type replacing the old ActiveSession.
+ * Co-located here to avoid circular imports (sub-services import from the
+ * registry, not from session-lifecycle-manager).
  */
 export interface SessionRecord {
   /** Immutable tab ID assigned at tile creation. */
@@ -56,26 +53,6 @@ export interface SessionRecord {
 }
 
 export class SessionRegistry {
-  private activeSessions = new Map<string, ActiveSession>();
-
-  /**
-   * Mapping from tab ID → real SDK session UUID.
-   * Populated by resolveRealSessionId() when the SDK init message arrives.
-   * Used by getActiveSessionIds() to return real UUIDs instead of tab IDs.
-   */
-  private tabIdToRealId = new Map<string, string>();
-
-  /**
-   * Tracks the most recently active tab ID.
-   * Updated on session registration and message send.
-   * Used by getActiveSessionIds() to return the most recently active
-   * session first, so MCP tool calls (e.g., ptah_agent_spawn) attribute
-   * agents to the correct session in multi-session scenarios.
-   */
-  private _lastActiveTabId: string | null = null;
-
-  // ── TASK_2026_118 P1: Dual-index maps ─────────────────────────────────────
-
   /**
    * Primary index: tabId → SessionRecord. Always populated at register().
    * This is the authoritative source for session iteration.
@@ -89,12 +66,21 @@ export class SessionRegistry {
    */
   private bySessionId = new Map<string, SessionRecord>();
 
+  /**
+   * Tracks the most recently active tab ID.
+   * Updated on session registration and message send.
+   * Used by getActiveSessionIds() to return the most recently active
+   * session first, so MCP tool calls (e.g., ptah_agent_spawn) attribute
+   * agents to the correct session in multi-session scenarios.
+   */
+  private _lastActiveTabId: string | null = null;
+
   constructor(private readonly logger: Logger) {}
 
-  // ─── TASK_2026_118 P1: New dual-index API ──────────────────────────────────
+  // ─── Core dual-index API ───────────────────────────────────────────────────
 
   /**
-   * Register a new session into the dual-index registry.
+   * Register a new session into the registry.
    * Creates a SessionRecord with realSessionId = null and inserts it into
    * byTabId only. bySessionId entry is added later via bindRealSessionId().
    *
@@ -128,8 +114,6 @@ export class SessionRegistry {
    *
    * Guard: realSessionId must be null on entry (set-once invariant).
    * If it is already set this call is a no-op (logs a warning).
-   *
-   * Also keeps the legacy tabIdToRealId in sync for backward compatibility.
    */
   bindRealSessionId(tabId: string, realSessionId: string): void {
     const rec = this.byTabId.get(tabId);
@@ -147,8 +131,6 @@ export class SessionRegistry {
     }
     rec.realSessionId = realSessionId;
     this.bySessionId.set(realSessionId, rec);
-    // Keep legacy side-map in sync so existing callers remain intact
-    this.tabIdToRealId.set(tabId, realSessionId);
     this.logger.info(
       `[SessionRegistry] Bound real session ID: ${tabId} -> ${realSessionId}`,
     );
@@ -176,60 +158,47 @@ export class SessionRegistry {
     this.recomputeLastActiveOnRemoval(rec.tabId);
   }
 
-  // ─── Public-API methods (delegated by the facade) ──────────────────
+  // ─── Public-API methods (delegated by the facade) ─────────────────────────
 
   /**
-   * Pre-register active session (before SDK query is created)
+   * Pre-register active session (before SDK query is created).
    * This allows createUserMessageStream to find the session and queue messages
    * before the SDK query object exists.
    *
-   * TASK_2026_118 P1: Also calls register() to populate byTabId so the new
-   * API stays in sync with the legacy activeSessions map.
+   * TASK_2026_118 Batch 1.5: Delegates to register() only. Single storage.
    */
   preRegisterActiveSession(
     sessionId: SessionId,
     config: AISessionConfig,
     abortController: AbortController,
   ): void {
-    const session: ActiveSession = {
-      sessionId,
-      query: null, // Will be set later via setSessionQuery
-      config,
-      abortController,
-      messageQueue: [],
-      resolveNext: null,
-      currentModel: config.model || '', // Set from SDK via RPC layer
-    };
-
-    this.activeSessions.set(sessionId as string, session);
-    this._lastActiveTabId = sessionId as string;
+    this.register(sessionId as string, config, abortController);
     this.logger.info(
       `[SessionLifecycle] Pre-registered active session: ${sessionId}`,
     );
-
-    // TASK_2026_118 P1: Keep dual-index in sync.
-    // register() will set _lastActiveTabId again (same value), which is safe.
-    this.register(sessionId as string, config, abortController);
   }
 
   /**
-   * Set the SDK query for a pre-registered session
+   * Set the SDK query for a pre-registered session.
+   * Mutates the single SessionRecord stored in byTabId (and referenced by
+   * bySessionId once bound), so the mutation is visible from either lookup.
    */
   setSessionQuery(sessionId: SessionId, query: Query): void {
-    const session = this.activeSessions.get(sessionId as string);
-    if (!session) {
+    const rec = this.byTabId.get(sessionId as string);
+    if (!rec) {
       this.logger.error(
         `[SessionLifecycle] Cannot set query - session not found: ${sessionId}`,
       );
       return;
     }
 
-    session.query = query;
+    rec.query = query;
     this.logger.debug(`[SessionLifecycle] Set query for session: ${sessionId}`);
   }
 
   /**
-   * Register active session (legacy - combines pre-register and set query)
+   * Register active session (legacy — combines pre-register and set query).
+   * Delegates to register() then sets query on the returned record.
    */
   registerActiveSession(
     sessionId: SessionId,
@@ -237,32 +206,21 @@ export class SessionRegistry {
     config: AISessionConfig,
     abortController: AbortController,
   ): void {
-    const session: ActiveSession = {
-      sessionId,
-      query,
-      config,
-      abortController,
-      messageQueue: [],
-      resolveNext: null,
-      currentModel: config.model || '', // Set from SDK via RPC layer
-    };
-
-    this.activeSessions.set(sessionId as string, session);
-    this._lastActiveTabId = sessionId as string;
+    const rec = this.register(sessionId as string, config, abortController);
+    rec.query = query;
     this.logger.info(
       `[SessionLifecycle] Registered active session: ${sessionId}`,
     );
-
-    // TASK_2026_118 P1: Keep dual-index in sync.
-    const rec = this.register(sessionId as string, config, abortController);
-    rec.query = query;
   }
 
   /**
-   * Get active session by sessionId
+   * Get active session by sessionId.
+   * Returns the SessionRecord from byTabId (or bySessionId if a real UUID is
+   * passed). The return type is SessionRecord; callers that typed against the
+   * old ActiveSession interface are satisfied because ActiveSession = SessionRecord.
    */
-  getActiveSession(sessionId: SessionId): ActiveSession | undefined {
-    return this.activeSessions.get(sessionId as string);
+  getActiveSession(sessionId: SessionId): SessionRecord | undefined {
+    return this.find(sessionId as string);
   }
 
   /**
@@ -270,19 +228,13 @@ export class SessionRegistry {
    * Called when the SDK system 'init' message resolves the real session ID.
    * After this, getActiveSessionIds() returns the real UUID instead of the tab ID.
    *
-   * TASK_2026_118 P1: Also calls bindRealSessionId() to populate bySessionId.
+   * Delegates to bindRealSessionId().
    */
   resolveRealSessionId(tabId: string, realSessionId: string): void {
-    if (this.activeSessions.has(tabId)) {
-      this.tabIdToRealId.set(tabId, realSessionId);
-      this.logger.info(
-        `[SessionLifecycle] Resolved real session ID: ${tabId} -> ${realSessionId}`,
-      );
-    }
-    // TASK_2026_118 P1: Keep dual-index in sync.
-    // bindRealSessionId handles the case where byTabId may not have the entry
-    // yet (emits a warning) — safe to call unconditionally.
     this.bindRealSessionId(tabId, realSessionId);
+    this.logger.info(
+      `[SessionLifecycle] Resolved real session ID: ${tabId} -> ${realSessionId}`,
+    );
   }
 
   /**
@@ -293,7 +245,7 @@ export class SessionRegistry {
    * like ptah_agent_spawn that pick ids[0] as the parentSessionId.
    */
   getActiveSessionIds(): SessionId[] {
-    const keys = Array.from(this.activeSessions.keys());
+    const keys = Array.from(this.byTabId.keys());
 
     // Sort so that the most recently active tab ID comes first
     if (this._lastActiveTabId && keys.length > 1) {
@@ -304,27 +256,26 @@ export class SessionRegistry {
       }
     }
 
-    return keys.map((key) => (this.tabIdToRealId.get(key) || key) as SessionId);
+    return keys.map(
+      (key) => (this.byTabId.get(key)?.realSessionId ?? key) as SessionId,
+    );
   }
 
   /**
    * Get the workspace root (projectPath) for the most recently active session.
    * Used by MCP tools to resolve workspace per-session instead of globally.
-   * In multi-workspace scenarios (e.g., Electron with multiple folders open),
-   * this ensures CLI agents and subagents inherit the correct workspace
-   * from the session that spawned them, not whichever workspace is globally active.
    */
   getActiveSessionWorkspace(): string | undefined {
     if (this._lastActiveTabId) {
-      const session = this.activeSessions.get(this._lastActiveTabId);
-      if (session?.config?.projectPath) {
-        return session.config.projectPath;
+      const rec = this.byTabId.get(this._lastActiveTabId);
+      if (rec?.config?.projectPath) {
+        return rec.config.projectPath;
       }
     }
     // Fallback: check any active session
-    for (const session of this.activeSessions.values()) {
-      if (session.config?.projectPath) {
-        return session.config.projectPath;
+    for (const rec of this.byTabId.values()) {
+      if (rec.config?.projectPath) {
+        return rec.config.projectPath;
       }
     }
     return undefined;
@@ -335,98 +286,81 @@ export class SessionRegistry {
    * If the input is a known tab ID, returns the resolved real UUID.
    * Otherwise returns the input as-is (it may already be a real UUID).
    */
-  getResolvedSessionId(tabIdOrSessionId: string): string {
-    return this.tabIdToRealId.get(tabIdOrSessionId) ?? tabIdOrSessionId;
+  getResolvedSessionId(idOrTabId: string): string {
+    return (
+      this.byTabId.get(idOrTabId)?.realSessionId ??
+      this.bySessionId.get(idOrTabId)?.realSessionId ??
+      idOrTabId
+    );
   }
 
   /**
-   * Check if session is active
+   * Check if session is active.
    */
   isSessionActive(sessionId: SessionId): boolean {
-    return this.activeSessions.has(sessionId as string);
+    return this.find(sessionId as string) !== undefined;
   }
 
   /**
-   * Get session count
+   * Get session count.
    */
   getActiveSessionCount(): number {
-    return this.activeSessions.size;
+    return this.byTabId.size;
   }
 
-  // ─── Internal coordination helpers (used by other sub-services only) ─
+  // ─── Internal coordination helpers (used by other sub-services only) ──────
 
   /**
    * Reverse-lookup: given a sessionId that may be a tab ID OR a real UUID,
-   * find the entry. Used by interruptCurrentTurn, endSession, setSessionModel
-   * (originally dup'd at 3 source sites — extracted ONCE here).
+   * find the entry. Returns the resolved tab ID alongside the session, or
+   * undefined if not found.
    *
-   * Returns the resolved tab ID alongside the session, or undefined if neither
-   * a direct tab-ID hit nor a reverse-lookup hit succeeds.
+   * TASK_2026_118 Batch 1.5: Uses find() — O(1), no scanning.
+   * Kept for sub-services that still use this shape; will be migrated in Batch 3.
    */
   findByTabOrRealId(
     sessionId: SessionId,
-  ): { session: ActiveSession; tabId: string } | undefined {
-    const direct = this.activeSessions.get(sessionId as string);
-    if (direct) {
-      return { session: direct, tabId: sessionId as string };
-    }
-    for (const [tabId, realId] of this.tabIdToRealId.entries()) {
-      if (realId === (sessionId as string)) {
-        const session = this.activeSessions.get(tabId);
-        if (session) {
-          return { session, tabId };
-        }
-      }
-    }
-    return undefined;
+  ): { session: SessionRecord; tabId: string } | undefined {
+    const rec = this.find(sessionId as string);
+    return rec ? { session: rec, tabId: rec.tabId } : undefined;
   }
 
   /**
-   * Direct tabIdToRealId mapping read (for endSession's registrySessionId
-   * computation and executeSlashCommandQuery's resume-id resolution).
+   * Direct real-ID resolution for endSession's registrySessionId computation
+   * and executeSlashCommandQuery's resume-id resolution.
    * Returns the real UUID if mapped, otherwise echoes the input.
    */
   getRealOrTabId(tabId: string): string {
-    return this.tabIdToRealId.get(tabId) || tabId;
+    return this.byTabId.get(tabId)?.realSessionId ?? tabId;
   }
 
   /**
-   * Removes a session entry AND its tab→real mapping AND recomputes
-   * `_lastActiveTabId` if the removed session was the most recent.
-   * Used by `endSession`.
-   *
-   * TASK_2026_118 P1: Also calls remove() to clean up dual-index maps.
+   * Removes a session entry AND recomputes `_lastActiveTabId` if the removed
+   * session was the most recent. Used by `endSession`.
    */
   removeSession(tabId: string): void {
-    this.activeSessions.delete(tabId);
-    this.tabIdToRealId.delete(tabId);
-    // recomputeLastActiveOnRemoval is called inside remove() via the rec path.
-    // Call it here too for the legacy activeSessions path to stay in sync.
-    this.recomputeLastActiveOnRemoval(tabId);
-    // TASK_2026_118 P1: Keep dual-index in sync.
     const rec = this.byTabId.get(tabId);
     if (rec) {
-      // remove() calls recomputeLastActiveOnRemoval which uses byTabId.
-      // byTabId still has the entry at this point — remove() will delete it.
       this.remove(rec);
+    } else {
+      // Session not in byTabId — still recompute _lastActiveTabId in case
+      // it was pointing at this tabId.
+      this.recomputeLastActiveOnRemoval(tabId);
     }
   }
 
   /**
-   * Removes only the session entry (no tab-real cleanup) AND recomputes
-   * `_lastActiveTabId`. Used by `executeQuery` init-failure rollback —
-   * preserves the original behavior of NOT touching `tabIdToRealId` on
-   * orphan-rollback (the mapping was never created in that path).
-   *
-   * TASK_2026_118 P1: Also calls remove() to clean up dual-index maps.
+   * Removes only the session entry AND recomputes `_lastActiveTabId`.
+   * Used by `executeQuery` init-failure rollback.
+   * Post-collapse these are identical to removeSession — kept as separate
+   * methods for Batch 6 unification.
    */
   removeSessionOnly(tabId: string): void {
-    this.activeSessions.delete(tabId);
-    this.recomputeLastActiveOnRemoval(tabId);
-    // TASK_2026_118 P1: Keep dual-index in sync.
     const rec = this.byTabId.get(tabId);
     if (rec) {
       this.remove(rec);
+    } else {
+      this.recomputeLastActiveOnRemoval(tabId);
     }
   }
 
@@ -442,18 +376,14 @@ export class SessionRegistry {
   /**
    * Iterate all session entries — for `disposeAllSessions`.
    */
-  entries(): IterableIterator<[string, ActiveSession]> {
-    return this.activeSessions.entries();
+  entries(): IterableIterator<[string, SessionRecord]> {
+    return this.byTabId.entries();
   }
 
   /**
    * Atomic reset of all state fields. Used by `disposeAllSessions`.
-   *
-   * TASK_2026_118 P1: Also clears dual-index maps.
    */
   clearAll(): void {
-    this.activeSessions.clear();
-    this.tabIdToRealId.clear();
     this.byTabId.clear();
     this.bySessionId.clear();
     this._lastActiveTabId = null;
@@ -467,7 +397,7 @@ export class SessionRegistry {
    */
   private recomputeLastActiveOnRemoval(removedTabId: string): void {
     if (this._lastActiveTabId === removedTabId) {
-      const remaining = Array.from(this.activeSessions.keys());
+      const remaining = Array.from(this.byTabId.keys());
       this._lastActiveTabId =
         remaining.length > 0 ? remaining[remaining.length - 1] : null;
     }

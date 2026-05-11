@@ -714,7 +714,8 @@ describe('SdkAgentAdapter', () => {
 
       const existingQuery = createFakeQuery();
       h.sessionLifecycle.getActiveSession.mockReturnValueOnce({
-        sessionId: 'sess-1' as SessionId,
+        tabId: 'sess-1',
+        realSessionId: null,
         query: existingQuery,
         config: {} as AISessionConfig,
         abortController: new AbortController(),

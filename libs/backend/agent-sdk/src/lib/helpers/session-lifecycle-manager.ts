@@ -56,7 +56,7 @@ import type { SessionEndCallbackRegistry } from './session-end-callback-registry
 // Re-export for backward compatibility with other files
 export type { SDKUserMessage, ContentBlock };
 
-// TASK_2026_118 P1: Re-export SessionRecord for consumers using the new API.
+// Re-export SessionRecord and its type alias for all consumers.
 export type { SessionRecord } from './session-lifecycle/session-registry.service';
 
 /**
@@ -97,21 +97,14 @@ export interface Query {
 }
 
 /**
- * Active session tracking
+ * ActiveSession is now a type alias for SessionRecord.
+ * TASK_2026_118 Batch 1.5: The old ActiveSession interface (with its
+ * `sessionId: SessionId` field) is replaced by SessionRecord, which carries
+ * the same data under `tabId` and `realSessionId`. This alias keeps all
+ * existing callers (sub-services, specs, sdk-agent-adapter) compiling without
+ * change until they are migrated in Batches 3-4.
  */
-export interface ActiveSession {
-  readonly sessionId: SessionId;
-  // Query may be null during pre-registration (before SDK query is created)
-  query: Query | null;
-  readonly config: AISessionConfig;
-  readonly abortController: AbortController;
-  // Mutable: Message queue for streaming input mode
-  messageQueue: SDKUserMessage[];
-  // Mutable: Callback to wake iterator when message arrives
-  resolveNext: (() => void) | null;
-  // Mutable: Current model
-  currentModel: string;
-}
+export type { SessionRecord as ActiveSession } from './session-lifecycle/session-registry.service';
 
 /**
  * Configuration for executeQuery method
@@ -360,26 +353,19 @@ export class SessionLifecycleManager {
    * This allows createUserMessageStream to find the session and queue messages
    * before the SDK query object exists.
    *
-   * TASK_2026_118 P2: Delegates to registry.register() via the new dual-index API.
-   * The legacy preRegisterActiveSession call-through also invokes register()
-   * internally (P1 wiring), keeping both the activeSessions and byTabId maps
-   * consistent until the legacy activeSessions map is removed in P6.
+   * TASK_2026_118 Batch 1.5: Delegates to registry.preRegisterActiveSession()
+   * which calls register() on the single byTabId storage.
    */
   preRegisterActiveSession(
     sessionId: SessionId,
     config: AISessionConfig,
     abortController: AbortController,
   ): void {
-    // Use legacy call-through which internally calls register() (P1 wiring).
-    // Calling register() alone would skip activeSessions population, breaking
-    // getActiveSessionWorkspace() and entries() which still read activeSessions.
     this._registry.preRegisterActiveSession(sessionId, config, abortController);
   }
 
-  // ─── TASK_2026_118 P1: New dual-index facade methods ──────────────────────
-
   /**
-   * Register a new session into the dual-index registry.
+   * Register a new session into the registry.
    * Delegates to SessionRegistry.register().
    * Returns the SessionRecord so callers can hold the object reference.
    */
@@ -434,14 +420,11 @@ export class SessionLifecycleManager {
   /**
    * Get active session by sessionId.
    *
-   * TASK_2026_118 P2: The dual-index migration for this method is deferred to
-   * Batch 3/4 because the P1 implementation maintains SEPARATE ActiveSession and
-   * SessionRecord objects for the same tab — mutations to ActiveSession.messageQueue
-   * (via session-stream-pump) would not be visible via find(). Returning the legacy
-   * activeSessions entry preserves correct messageQueue mutation visibility.
-   * Full migration happens when the activeSessions map is removed in P6.
+   * TASK_2026_118 Batch 1.5: Delegates to registry.find() via the single-storage
+   * API. ActiveSession is now a type alias for SessionRecord, so all field
+   * accesses (messageQueue, query, config, etc.) resolve to the same object.
    */
-  getActiveSession(sessionId: SessionId): ActiveSession | undefined {
+  getActiveSession(sessionId: SessionId): SessionRecord | undefined {
     return this._registry.getActiveSession(sessionId);
   }
 
@@ -463,35 +446,11 @@ export class SessionLifecycleManager {
    * the user most recently interacted with, which is critical for MCP tools
    * like ptah_agent_spawn that pick ids[0] as the parentSessionId.
    *
-   * TASK_2026_118 P2: Iterates entries() to collect ordered tabIds, then maps
-   * each tabId via find() to derive realSessionId ?? tabId from the SessionRecord.
-   * Ordering (insertion order + _lastActiveTabId-first) is preserved because
-   * entries() returns activeSessions keys in the same order that byTabId has them
-   * (both maps are updated together), and the registry's internal sort is applied
-   * via getActiveSessionIds() to determine the leading tabId for reordering.
+   * TASK_2026_118 Batch 1.5: Delegates directly to the registry — single storage
+   * means the registry owns all ordering and resolution logic.
    */
   getActiveSessionIds(): SessionId[] {
-    // Collect tabIds from entries() (activeSessions insertion order)
-    const tabIds = Array.from(this._registry.entries()).map(([tabId]) => tabId);
-
-    // Determine sort priority: the registry exposes ordering via getActiveSessionIds()
-    // whose first element is the most-recently-active ID (may be a realUUID or tabId).
-    // Resolve it back to a tabId via find() so we can reorder tabIds correctly.
-    if (tabIds.length > 1) {
-      const legacyFirst = this._registry.getActiveSessionIds()[0] as string;
-      const firstRec = this._registry.find(legacyFirst);
-      const firstTabId = firstRec?.tabId ?? legacyFirst;
-      const idx = tabIds.indexOf(firstTabId);
-      if (idx > 0) {
-        tabIds.splice(idx, 1);
-        tabIds.unshift(firstTabId);
-      }
-    }
-
-    return tabIds.map((tabId) => {
-      const rec = this._registry.find(tabId);
-      return (rec ? (rec.realSessionId ?? rec.tabId) : tabId) as SessionId;
-    });
+    return this._registry.getActiveSessionIds();
   }
 
   /**
