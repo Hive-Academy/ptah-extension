@@ -161,24 +161,6 @@ export class SessionRegistry {
   // ─── Public-API methods (delegated by the facade) ─────────────────────────
 
   /**
-   * Pre-register active session (before SDK query is created).
-   * This allows createUserMessageStream to find the session and queue messages
-   * before the SDK query object exists.
-   *
-   * TASK_2026_118 Batch 1.5: Delegates to register() only. Single storage.
-   */
-  preRegisterActiveSession(
-    sessionId: SessionId,
-    config: AISessionConfig,
-    abortController: AbortController,
-  ): void {
-    this.register(sessionId as string, config, abortController);
-    this.logger.info(
-      `[SessionLifecycle] Pre-registered active session: ${sessionId}`,
-    );
-  }
-
-  /**
    * Set the SDK query for a pre-registered session.
    * Mutates the single SessionRecord stored in byTabId (and referenced by
    * bySessionId once bound), so the mutation is visible from either lookup.
@@ -194,47 +176,6 @@ export class SessionRegistry {
 
     rec.query = query;
     this.logger.debug(`[SessionLifecycle] Set query for session: ${sessionId}`);
-  }
-
-  /**
-   * Register active session (legacy — combines pre-register and set query).
-   * Delegates to register() then sets query on the returned record.
-   */
-  registerActiveSession(
-    sessionId: SessionId,
-    query: Query,
-    config: AISessionConfig,
-    abortController: AbortController,
-  ): void {
-    const rec = this.register(sessionId as string, config, abortController);
-    rec.query = query;
-    this.logger.info(
-      `[SessionLifecycle] Registered active session: ${sessionId}`,
-    );
-  }
-
-  /**
-   * Get active session by sessionId.
-   * Returns the SessionRecord from byTabId (or bySessionId if a real UUID is
-   * passed). The return type is SessionRecord; callers that typed against the
-   * old ActiveSession interface are satisfied because ActiveSession = SessionRecord.
-   */
-  getActiveSession(sessionId: SessionId): SessionRecord | undefined {
-    return this.find(sessionId as string);
-  }
-
-  /**
-   * Record the mapping from tab ID to real SDK session UUID.
-   * Called when the SDK system 'init' message resolves the real session ID.
-   * After this, getActiveSessionIds() returns the real UUID instead of the tab ID.
-   *
-   * Delegates to bindRealSessionId().
-   */
-  resolveRealSessionId(tabId: string, realSessionId: string): void {
-    this.bindRealSessionId(tabId, realSessionId);
-    this.logger.info(
-      `[SessionLifecycle] Resolved real session ID: ${tabId} -> ${realSessionId}`,
-    );
   }
 
   /**
@@ -282,86 +223,10 @@ export class SessionRegistry {
   }
 
   /**
-   * Resolve a tab ID or session ID to the real SDK UUID.
-   * If the input is a known tab ID, returns the resolved real UUID.
-   * Otherwise returns the input as-is (it may already be a real UUID).
-   */
-  getResolvedSessionId(idOrTabId: string): string {
-    return (
-      this.byTabId.get(idOrTabId)?.realSessionId ??
-      this.bySessionId.get(idOrTabId)?.realSessionId ??
-      idOrTabId
-    );
-  }
-
-  /**
-   * Check if session is active.
-   */
-  isSessionActive(sessionId: SessionId): boolean {
-    return this.find(sessionId as string) !== undefined;
-  }
-
-  /**
    * Get session count.
    */
   getActiveSessionCount(): number {
     return this.byTabId.size;
-  }
-
-  // ─── Internal coordination helpers (used by other sub-services only) ──────
-
-  /**
-   * Reverse-lookup: given a sessionId that may be a tab ID OR a real UUID,
-   * find the entry. Returns the resolved tab ID alongside the session, or
-   * undefined if not found.
-   *
-   * TASK_2026_118 Batch 1.5: Uses find() — O(1), no scanning.
-   * Kept for sub-services that still use this shape; will be migrated in Batch 3.
-   */
-  findByTabOrRealId(
-    sessionId: SessionId,
-  ): { session: SessionRecord; tabId: string } | undefined {
-    const rec = this.find(sessionId as string);
-    return rec ? { session: rec, tabId: rec.tabId } : undefined;
-  }
-
-  /**
-   * Direct real-ID resolution for endSession's registrySessionId computation
-   * and executeSlashCommandQuery's resume-id resolution.
-   * Returns the real UUID if mapped, otherwise echoes the input.
-   */
-  getRealOrTabId(tabId: string): string {
-    return this.byTabId.get(tabId)?.realSessionId ?? tabId;
-  }
-
-  /**
-   * Removes a session entry AND recomputes `_lastActiveTabId` if the removed
-   * session was the most recent. Used by `endSession`.
-   */
-  removeSession(tabId: string): void {
-    const rec = this.byTabId.get(tabId);
-    if (rec) {
-      this.remove(rec);
-    } else {
-      // Session not in byTabId — still recompute _lastActiveTabId in case
-      // it was pointing at this tabId.
-      this.recomputeLastActiveOnRemoval(tabId);
-    }
-  }
-
-  /**
-   * Removes only the session entry AND recomputes `_lastActiveTabId`.
-   * Used by `executeQuery` init-failure rollback.
-   * Post-collapse these are identical to removeSession — kept as separate
-   * methods for Batch 6 unification.
-   */
-  removeSessionOnly(tabId: string): void {
-    const rec = this.byTabId.get(tabId);
-    if (rec) {
-      this.remove(rec);
-    } else {
-      this.recomputeLastActiveOnRemoval(tabId);
-    }
   }
 
   /**

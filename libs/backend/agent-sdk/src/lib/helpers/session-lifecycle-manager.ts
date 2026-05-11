@@ -97,16 +97,6 @@ export interface Query {
 }
 
 /**
- * ActiveSession is now a type alias for SessionRecord.
- * TASK_2026_118 Batch 1.5: The old ActiveSession interface (with its
- * `sessionId: SessionId` field) is replaced by SessionRecord, which carries
- * the same data under `tabId` and `realSessionId`. This alias keeps all
- * existing callers (sub-services, specs, sdk-agent-adapter) compiling without
- * change until they are migrated in Batches 3-4.
- */
-export type { SessionRecord as ActiveSession } from './session-lifecycle/session-registry.service';
-
-/**
  * Configuration for executeQuery method
  */
 export interface ExecuteQueryConfig {
@@ -349,22 +339,6 @@ export class SessionLifecycleManager {
   }
 
   /**
-   * Pre-register active session (before SDK query is created)
-   * This allows createUserMessageStream to find the session and queue messages
-   * before the SDK query object exists.
-   *
-   * TASK_2026_118 Batch 1.5: Delegates to registry.preRegisterActiveSession()
-   * which calls register() on the single byTabId storage.
-   */
-  preRegisterActiveSession(
-    sessionId: SessionId,
-    config: AISessionConfig,
-    abortController: AbortController,
-  ): void {
-    this._registry.preRegisterActiveSession(sessionId, config, abortController);
-  }
-
-  /**
    * Register a new session into the registry.
    * Delegates to SessionRegistry.register().
    * Returns the SessionRecord so callers can hold the object reference.
@@ -401,45 +375,6 @@ export class SessionLifecycleManager {
   }
 
   /**
-   * Register active session (legacy - combines pre-register and set query)
-   */
-  registerActiveSession(
-    sessionId: SessionId,
-    query: Query,
-    config: AISessionConfig,
-    abortController: AbortController,
-  ): void {
-    this._registry.registerActiveSession(
-      sessionId,
-      query,
-      config,
-      abortController,
-    );
-  }
-
-  /**
-   * Get active session by sessionId.
-   *
-   * TASK_2026_118 Batch 1.5: Delegates to registry.find() via the single-storage
-   * API. ActiveSession is now a type alias for SessionRecord, so all field
-   * accesses (messageQueue, query, config, etc.) resolve to the same object.
-   */
-  getActiveSession(sessionId: SessionId): SessionRecord | undefined {
-    return this._registry.getActiveSession(sessionId);
-  }
-
-  /**
-   * Record the mapping from tab ID to real SDK session UUID.
-   * Called when the SDK system 'init' message resolves the real session ID.
-   * After this, getActiveSessionIds() returns the real UUID instead of the tab ID.
-   *
-   * TASK_2026_118 P2: Delegates to registry.bindRealSessionId() via the new API.
-   */
-  resolveRealSessionId(tabId: string, realSessionId: string): void {
-    this._registry.bindRealSessionId(tabId, realSessionId);
-  }
-
-  /**
    * Get all active session IDs, most recently active first.
    * Returns real SDK UUIDs when resolved, tab IDs otherwise.
    * The ordering ensures that getActiveSessionIds()[0] returns the session
@@ -462,30 +397,6 @@ export class SessionLifecycleManager {
    */
   getActiveSessionWorkspace(): string | undefined {
     return this._registry.getActiveSessionWorkspace();
-  }
-
-  /**
-   * Resolve a tab ID or session ID to the real SDK UUID.
-   * If the input is a known tab ID, returns the resolved real UUID.
-   * Otherwise returns the input as-is (it may already be a real UUID).
-   *
-   * TASK_2026_118 P2: Delegates to find() — returns realSessionId when bound,
-   * or the original id when not found or when realSessionId is null.
-   */
-  getResolvedSessionId(tabIdOrSessionId: string): string {
-    return (
-      this._registry.find(tabIdOrSessionId)?.realSessionId ?? tabIdOrSessionId
-    );
-  }
-
-  /**
-   * Check if session is active.
-   *
-   * TASK_2026_118 P2: Uses find() !== undefined so both tabId and realUUID
-   * return true after bindRealSessionId() fires.
-   */
-  isSessionActive(sessionId: SessionId): boolean {
-    return this._registry.find(sessionId as string) !== undefined;
   }
 
   /**

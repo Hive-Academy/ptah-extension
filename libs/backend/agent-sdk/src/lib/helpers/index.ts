@@ -13,7 +13,6 @@
 export { AuthManager, type AuthResult, type AuthConfig } from './auth-manager';
 export {
   SessionLifecycleManager,
-  type ActiveSession,
   type SDKUserMessage,
   type Query,
   type ContentBlock,

@@ -322,7 +322,7 @@ describe('SessionLifecycleManager', () => {
     });
 
     it('returns a single session ID after pre-registration', () => {
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_1' as SessionId,
         createSessionConfig(),
         new AbortController(),
@@ -334,24 +334,24 @@ describe('SessionLifecycleManager', () => {
     });
 
     it('returns the real UUID after resolveRealSessionId', () => {
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_1' as SessionId,
         createSessionConfig(),
         new AbortController(),
       );
-      harness.manager.resolveRealSessionId('tab_1', 'real-uuid-123');
+      harness.manager.bindRealSessionId('tab_1', 'real-uuid-123');
 
       const ids = harness.manager.getActiveSessionIds();
       expect(ids[0]).toBe('real-uuid-123');
     });
 
     it('orders most-recently-registered session first', () => {
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_1' as SessionId,
         createSessionConfig({ projectPath: '/workspace/a' }),
         new AbortController(),
       );
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_2' as SessionId,
         createSessionConfig({ projectPath: '/workspace/b' }),
         new AbortController(),
@@ -361,18 +361,18 @@ describe('SessionLifecycleManager', () => {
     });
 
     it('replaces tab IDs with real UUIDs once resolved, preserving ordering', () => {
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_1' as SessionId,
         createSessionConfig({ projectPath: '/workspace/a' }),
         new AbortController(),
       );
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_2' as SessionId,
         createSessionConfig({ projectPath: '/workspace/b' }),
         new AbortController(),
       );
-      harness.manager.resolveRealSessionId('tab_1', 'uuid-aaa');
-      harness.manager.resolveRealSessionId('tab_2', 'uuid-bbb');
+      harness.manager.bindRealSessionId('tab_1', 'uuid-aaa');
+      harness.manager.bindRealSessionId('tab_2', 'uuid-bbb');
 
       const ids = harness.manager.getActiveSessionIds();
       expect(ids[0]).toBe('uuid-bbb');
@@ -390,12 +390,12 @@ describe('SessionLifecycleManager', () => {
     });
 
     it('returns workspace of the most-recently-active session', () => {
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_1' as SessionId,
         createSessionConfig({ projectPath: '/workspace/a' }),
         new AbortController(),
       );
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_2' as SessionId,
         createSessionConfig({ projectPath: '/workspace/b' }),
         new AbortController(),
@@ -405,12 +405,12 @@ describe('SessionLifecycleManager', () => {
     });
 
     it('falls back to any session when the last active has no projectPath', () => {
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_1' as SessionId,
         createSessionConfig({ projectPath: '/workspace/a' }),
         new AbortController(),
       );
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_2' as SessionId,
         createSessionConfig({ projectPath: undefined }),
         new AbortController(),
@@ -420,7 +420,7 @@ describe('SessionLifecycleManager', () => {
     });
 
     it('returns undefined when no session has a projectPath', () => {
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_1' as SessionId,
         createSessionConfig({ projectPath: undefined }),
         new AbortController(),
@@ -436,12 +436,12 @@ describe('SessionLifecycleManager', () => {
 
   describe('endSession cleanup', () => {
     it('clears _lastActiveTabId and falls back to remaining session', async () => {
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_1' as SessionId,
         createSessionConfig({ projectPath: '/workspace/a' }),
         new AbortController(),
       );
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_2' as SessionId,
         createSessionConfig({ projectPath: '/workspace/b' }),
         new AbortController(),
@@ -454,7 +454,7 @@ describe('SessionLifecycleManager', () => {
     });
 
     it('clears workspace when all sessions end', async () => {
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_1' as SessionId,
         createSessionConfig({ projectPath: '/workspace/a' }),
         new AbortController(),
@@ -467,12 +467,12 @@ describe('SessionLifecycleManager', () => {
     });
 
     it('does not affect ordering when a non-active session ends', async () => {
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_1' as SessionId,
         createSessionConfig({ projectPath: '/workspace/a' }),
         new AbortController(),
       );
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_2' as SessionId,
         createSessionConfig({ projectPath: '/workspace/b' }),
         new AbortController(),
@@ -490,12 +490,12 @@ describe('SessionLifecycleManager', () => {
 
   describe('resolveRealSessionId', () => {
     it('does not affect workspace resolution', () => {
-      harness.manager.preRegisterActiveSession(
+      harness.manager.register(
         'tab_1' as SessionId,
         createSessionConfig({ projectPath: '/workspace/a' }),
         new AbortController(),
       );
-      harness.manager.resolveRealSessionId('tab_1', 'real-uuid-123');
+      harness.manager.bindRealSessionId('tab_1', 'real-uuid-123');
 
       expect(harness.manager.getActiveSessionWorkspace()).toBe('/workspace/a');
     });
@@ -619,9 +619,9 @@ describe('SessionLifecycleManager', () => {
       // The session must NOT be left orphaned (regression guard for the
       // explicit rollback branch in executeQuery's try/catch).
       expect(failingHarness.manager.getActiveSessionIds()).toEqual([]);
-      expect(
-        failingHarness.manager.isSessionActive('tab_abort_5' as SessionId),
-      ).toBe(false);
+      expect(failingHarness.manager.find('tab_abort_5') !== undefined).toBe(
+        false,
+      );
     });
   });
 
@@ -698,12 +698,8 @@ describe('SessionLifecycleManager', () => {
         'hello-a',
       );
 
-      const sessionA = concurrentHarness.manager.getActiveSession(
-        'tab_msg_a' as SessionId,
-      );
-      const sessionB = concurrentHarness.manager.getActiveSession(
-        'tab_msg_b' as SessionId,
-      );
+      const sessionA = concurrentHarness.manager.find('tab_msg_a');
+      const sessionB = concurrentHarness.manager.find('tab_msg_b');
 
       expect(sessionA?.messageQueue).toHaveLength(1);
       expect(sessionB?.messageQueue).toHaveLength(0);
@@ -722,12 +718,12 @@ describe('SessionLifecycleManager', () => {
 
       await concurrentHarness.manager.endSession('tab_end_a' as SessionId);
 
-      expect(
-        concurrentHarness.manager.isSessionActive('tab_end_a' as SessionId),
-      ).toBe(false);
-      expect(
-        concurrentHarness.manager.isSessionActive('tab_end_b' as SessionId),
-      ).toBe(true);
+      expect(concurrentHarness.manager.find('tab_end_a') !== undefined).toBe(
+        false,
+      );
+      expect(concurrentHarness.manager.find('tab_end_b') !== undefined).toBe(
+        true,
+      );
       expect(kept.abortController.signal.aborted).toBe(false);
       expect(concurrentHarness.manager.getActiveSessionWorkspace()).toBe(
         '/ws/b',
@@ -805,9 +801,7 @@ describe('SessionLifecycleManager', () => {
       // missing — proving nothing carried over from /unrelated/ws.
       expect(harness.lastQueryOptions.value?.cwd).toBe('/mock/cwd');
       // And the registered session has no projectPath of its own.
-      const session = harness.manager.getActiveSession(
-        'tab_ws_resume_noCwd' as SessionId,
-      );
+      const session = harness.manager.find('tab_ws_resume_noCwd');
       expect(session?.config?.projectPath).toBeUndefined();
     });
 

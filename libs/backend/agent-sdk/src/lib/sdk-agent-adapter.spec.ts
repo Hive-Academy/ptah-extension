@@ -252,8 +252,6 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'endSession'
     | 'find'
     | 'bindRealSessionId'
-    | 'getActiveSession'
-    | 'resolveRealSessionId'
     | 'sendMessage'
     | 'interruptCurrentTurn'
     | 'setSessionPermissionLevel'
@@ -267,8 +265,6 @@ function createMockSessionLifecycle(): jest.Mocked<
     endSession: jest.fn().mockResolvedValue(undefined),
     find: jest.fn().mockReturnValue(undefined),
     bindRealSessionId: jest.fn(),
-    getActiveSession: jest.fn().mockReturnValue(undefined),
-    resolveRealSessionId: jest.fn(),
     sendMessage: jest.fn().mockResolvedValue(undefined),
     interruptCurrentTurn: jest.fn().mockResolvedValue(true),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
