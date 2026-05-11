@@ -824,6 +824,170 @@ describe('SessionLifecycleManager', () => {
     });
   });
 
+  // =========================================================================
+  // NEW COVERAGE (TASK_2026_118 Batch 8, Task 8.2): find() identity,
+  // getActiveSessionIds() ordering, executeQuery → bindRealSessionId flow.
+  // =========================================================================
+
+  // -------------------------------------------------------------------------
+  // find() identity — same record by both tabId and realId after bind
+  // -------------------------------------------------------------------------
+
+  describe('find() dual-index identity (TASK_2026_118)', () => {
+    it('returns the same object reference by tabId and realId after bindRealSessionId', () => {
+      harness.manager.register(
+        'tab_find_id' as SessionId,
+        createSessionConfig(),
+        new AbortController(),
+      );
+      harness.manager.bindRealSessionId('tab_find_id', 'real-uuid-find-id');
+
+      const byTab = harness.manager.find('tab_find_id');
+      const byReal = harness.manager.find('real-uuid-find-id');
+
+      expect(byTab).toBeDefined();
+      expect(byReal).toBeDefined();
+      // Identity equality — both lookups must return the SAME SessionRecord
+      // object. This is the "no-rekey" invariant: one record, two keys.
+      expect(byTab).toBe(byReal);
+    });
+
+    it('mutation via one lookup is visible via the other (shared record)', () => {
+      harness.manager.register(
+        'tab_shared_mut' as SessionId,
+        createSessionConfig(),
+        new AbortController(),
+      );
+      harness.manager.bindRealSessionId('tab_shared_mut', 'real-shared-mut');
+
+      const byTab = harness.manager.find('tab_shared_mut');
+      const byReal = harness.manager.find('real-shared-mut');
+
+      // Mutate a field via one lookup
+      (byTab as { currentModel: string }).currentModel = 'mutated-model';
+
+      // Visible via the other — this is the core correctness guarantee
+      expect(byReal?.currentModel).toBe('mutated-model');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getActiveSessionIds() ordering — unchanged from legacy implementation
+  // -------------------------------------------------------------------------
+
+  describe('getActiveSessionIds() ordering preservation (TASK_2026_118)', () => {
+    it('most-recently-registered session appears first before any bind', () => {
+      harness.manager.register(
+        'tab_ord_1' as SessionId,
+        createSessionConfig({ projectPath: '/ws/1' }),
+        new AbortController(),
+      );
+      harness.manager.register(
+        'tab_ord_2' as SessionId,
+        createSessionConfig({ projectPath: '/ws/2' }),
+        new AbortController(),
+      );
+      harness.manager.register(
+        'tab_ord_3' as SessionId,
+        createSessionConfig({ projectPath: '/ws/3' }),
+        new AbortController(),
+      );
+
+      // tab_ord_3 registered last → should be first
+      const ids = harness.manager.getActiveSessionIds();
+      expect(ids[0]).toBe('tab_ord_3');
+    });
+
+    it('returns realUUIDs after bind, preserving most-recent ordering', () => {
+      harness.manager.register(
+        'tab_ord_a' as SessionId,
+        createSessionConfig(),
+        new AbortController(),
+      );
+      harness.manager.register(
+        'tab_ord_b' as SessionId,
+        createSessionConfig(),
+        new AbortController(),
+      );
+      harness.manager.bindRealSessionId('tab_ord_a', 'uuid-ord-aaa');
+      harness.manager.bindRealSessionId('tab_ord_b', 'uuid-ord-bbb');
+
+      // tab_ord_b registered last → its realSessionId should be first
+      const ids = harness.manager.getActiveSessionIds();
+      expect(ids[0]).toBe('uuid-ord-bbb');
+      expect(ids[1]).toBe('uuid-ord-aaa');
+    });
+
+    it('returns tabId (not realId) for sessions where bindRealSessionId has not yet fired', () => {
+      harness.manager.register(
+        'tab_unbound' as SessionId,
+        createSessionConfig(),
+        new AbortController(),
+      );
+      harness.manager.register(
+        'tab_bound' as SessionId,
+        createSessionConfig(),
+        new AbortController(),
+      );
+      harness.manager.bindRealSessionId('tab_bound', 'real-bound-uuid');
+
+      const ids = harness.manager.getActiveSessionIds();
+      // tab_unbound has no real UUID yet → appears as tabId in the list
+      expect(ids).toContain('tab_unbound');
+      expect(ids).toContain('real-bound-uuid');
+      expect(ids).not.toContain('tab_bound');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // executeQuery → bindRealSessionId → setSessionQuery flow
+  // -------------------------------------------------------------------------
+
+  describe('executeQuery → bindRealSessionId → find(realUUID) flow (TASK_2026_118)', () => {
+    it('executeQuery registers by tabId; find(realUUID) returns the record after bindRealSessionId fires', async () => {
+      const realUUID = 'sdk-init-real-uuid-123';
+
+      // Execute a query — this registers the session by tabId
+      await harness.manager.executeQuery({
+        sessionId: 'tab_flow' as SessionId,
+        sessionConfig: createSessionConfig({ projectPath: '/ws/flow' }),
+      });
+
+      // Simulate the SDK init message callback (bindRealSessionId would be
+      // called by the adapter when the 'system' init message arrives)
+      harness.manager.bindRealSessionId('tab_flow', realUUID);
+
+      // find(realUUID) must now return the record
+      const recByReal = harness.manager.find(realUUID);
+      expect(recByReal).toBeDefined();
+
+      // And it must be the same object as find(tabId)
+      const recByTab = harness.manager.find('tab_flow');
+      expect(recByReal).toBe(recByTab);
+    });
+
+    it('find(realUUID) returns record with query set after executeQuery completes', async () => {
+      const realUUID = 'sdk-init-uuid-with-query';
+
+      await harness.manager.executeQuery({
+        sessionId: 'tab_with_query' as SessionId,
+        sessionConfig: createSessionConfig(),
+      });
+
+      // Bind after executeQuery (replicates the production flow where the
+      // SDK emits the init message asynchronously during the query stream)
+      harness.manager.bindRealSessionId('tab_with_query', realUUID);
+
+      const rec = harness.manager.find(realUUID);
+      // The query field is set by executeQuery's internal setSessionQuery call
+      expect(rec?.query).not.toBeNull();
+    });
+  });
+
+  // =========================================================================
+  // END NEW COVERAGE (TASK_2026_118 Batch 8)
+  // =========================================================================
+
   // -------------------------------------------------------------------------
   // warmQuery wiring (TASK_2026_109 Fix 3 wiring)
   // -------------------------------------------------------------------------

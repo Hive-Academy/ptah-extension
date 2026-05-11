@@ -95,7 +95,7 @@ import {
 } from '@ptah-extension/platform-core';
 
 import { SdkAgentAdapter } from './sdk-agent-adapter';
-import { SdkError } from './errors';
+import { SdkError, SessionNotActiveError } from './errors';
 import type { SessionMetadataStore } from './session-metadata-store';
 import type { SessionHistoryReaderService } from './session-history-reader.service';
 import type {
@@ -1228,6 +1228,74 @@ describe('SdkAgentAdapter', () => {
           errorSource: 'SdkAgentAdapter.rewindFiles',
         }),
       );
+    });
+
+    // TASK_2026_118 Batch 8, Task 8.3 — realUUID-keyed lookup (the central bug fix)
+
+    it('realUUID-keyed lookup succeeds: find(realUUID) returns a record with query set and rewindFiles resolves', async () => {
+      // This test exercises the central bug fix from TASK_2026_118.
+      // Previously, find() only checked byTabId — passing a realUUID missed.
+      // After the fix, find() checks byTabId then bySessionId.
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      const fakeQuery = createFakeQuery();
+      const rewindMock = fakeQuery.rewindFiles as jest.Mock;
+      rewindMock.mockResolvedValueOnce({
+        canRewind: true,
+        filesChanged: ['/src/a.ts'],
+        insertions: 5,
+        deletions: 2,
+      });
+
+      // Simulate the registry returning a record when looked up by realUUID
+      // (the production flow: find() checks bySessionId for realUUIDs)
+      h.sessionLifecycle.find.mockImplementation((id: string) => {
+        if (id === 'real-uuid-from-sdk') {
+          return {
+            tabId: 'tab_1',
+            realSessionId: 'real-uuid-from-sdk',
+            query: fakeQuery,
+            config: {} as AISessionConfig,
+            abortController: new AbortController(),
+            messageQueue: [],
+            resolveNext: null,
+            currentModel: 'claude-sonnet-4-20250514',
+          };
+        }
+        return undefined;
+      });
+
+      const result = await h.adapter.rewindFiles(
+        'real-uuid-from-sdk' as SessionId,
+        'user-msg-uuid',
+      );
+
+      expect(rewindMock).toHaveBeenCalledTimes(1);
+      expect(result.canRewind).toBe(true);
+      expect(result.filesChanged).toEqual(['/src/a.ts']);
+    });
+
+    it('throws SessionNotActiveError (not a generic SdkError) when find() returns undefined — discriminator preserved', async () => {
+      // The instanceof discriminator is load-bearing: the RPC handler at
+      // session-rpc.handlers.ts uses `instanceof SessionNotActiveError` to
+      // decide whether to surface a "resume & retry" affordance to the user.
+      // A plain SdkError would silently hide that branch.
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      // find() returns undefined for an unknown sessionId
+      h.sessionLifecycle.find.mockReturnValueOnce(undefined);
+
+      const err = await h.adapter
+        .rewindFiles('unknown-session-id' as SessionId, 'msg-1')
+        .catch((e: unknown) => e);
+
+      // Must be a SessionNotActiveError — the specific subtype, not just SdkError
+      expect(err).toBeInstanceOf(SessionNotActiveError);
+      // And since SessionNotActiveError extends SdkError, it must also satisfy
+      // that broader check (guard against accidental instanceof narrowing loss)
+      expect(err).toBeInstanceOf(SdkError);
     });
   });
 
