@@ -25,6 +25,8 @@ import {
   isPremiumTier,
   type SentryService,
 } from '@ptah-extension/vscode-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ModelSettings } from '@ptah-extension/settings-core';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   SessionHistoryReaderService,
@@ -102,6 +104,8 @@ export class ChatSessionService {
     private readonly subagentContextInjector: ChatSubagentContextInjectorService,
     @inject(CHAT_TOKENS.SLASH_COMMAND_ROUTER)
     private readonly slashCommandRouter: ChatSlashCommandRouterService,
+    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
+    private readonly modelSettings: ModelSettings,
   ) {}
 
   /**
@@ -214,7 +218,7 @@ export class ChatSessionService {
 
       const currentModel =
         options?.model ||
-        this.configManager.get<string>('model.selected') ||
+        this.modelSettings.selectedModel.get() ||
         DEFAULT_FALLBACK_MODEL_ID;
 
       // TASK_2025_093: tabId is the primary tracking key; SDK generates real UUID
@@ -518,6 +522,35 @@ export class ChatSessionService {
         cliSessionCount: cliSessions?.length ?? 0,
       });
 
+      // Activate live SDK Query if requested and not already active.
+      // Without activate:true, chat:resume is history-load only and does NOT
+      // start an SDK Query — that is the correct default for normal session loads.
+      // The resume-and-retry rewind path sets activate:true to ensure
+      // rewindFiles finds a live Query in SessionLifecycleManager.
+      let activated = false;
+      if (params.activate === true && params.tabId) {
+        if (!this.sdkAdapter.isSessionActive(sessionId)) {
+          const activateResult = await this.autoResumeIfInactive(
+            sessionId,
+            params.tabId,
+            resolvedWorkspacePath,
+            '',
+            {
+              sessionId: sessionId as string,
+              tabId: params.tabId,
+              workspacePath: resolvedWorkspacePath,
+            } as ChatContinueParams,
+          );
+          if ('justResumed' in activateResult) {
+            activated =
+              activateResult.justResumed ||
+              this.sdkAdapter.isSessionActive(sessionId);
+          }
+        } else {
+          activated = true;
+        }
+      }
+
       return {
         success: true,
         messages,
@@ -525,6 +558,7 @@ export class ChatSessionService {
         stats,
         resumableSubagents,
         cliSessions,
+        activated,
       };
     } catch (error) {
       this.logger.error(
@@ -682,10 +716,8 @@ export class ChatSessionService {
 
     const currentModel =
       params.model ||
-      this.configManager.getWithDefault<string>(
-        'model.selected',
-        DEFAULT_FALLBACK_MODEL_ID,
-      );
+      this.modelSettings.selectedModel.get() ||
+      DEFAULT_FALLBACK_MODEL_ID;
 
     try {
       const stream = await this.sdkAdapter.resumeSession(sessionId, {

@@ -1197,11 +1197,13 @@ export class ChatViewComponent {
       });
       if (!retry) return;
 
-      // Use chat:resume (not session:load) — only chat:resume actually starts
-      // a live SDK Query and registers it with SessionLifecycleManager, which
-      // is what rewindFiles needs to read its file checkpoint state.
-      // session:load is metadata-validation-only and does NOT activate the
-      // session — that was the original bug.
+      // Use chat:resume (not session:load) to load history.
+      // Pass activate:true so the backend also starts a live SDK Query via
+      // autoResumeIfInactive — that is what rewindFiles needs to read file
+      // checkpoint state from SessionLifecycleManager.  Without activate:true,
+      // chat:resume is history-load only and does NOT start an SDK Query,
+      // which would cause the retry to fail with the same session-not-active
+      // error.  The activated flag in the response confirms the Query started.
       //
       // Use resolvedTabId() to honour the SESSION_CONTEXT for canvas tiles.
       // Looking up by `claudeSessionId` would resolve the wrong tab (or none)
@@ -1218,9 +1220,16 @@ export class ChatViewComponent {
         sessionId,
         tabId,
         workspacePath,
+        activate: true,
       });
       if (!resumed.isSuccess()) {
         this.showActionError(`Resume failed: ${resumed.error ?? 'Unknown'}`);
+        return;
+      }
+      if (!resumed.data.activated) {
+        this.showActionError(
+          'Session could not be activated for rewind. Please send a message first.',
+        );
         return;
       }
       await this.attemptRewind(sessionId, messageId, retryCount + 1);
