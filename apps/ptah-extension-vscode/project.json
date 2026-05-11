@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/ptah-extension-vscode/src",
   "projectType": "application",
-  "tags": ["scope:extension", "type:application"],
+  "tags": ["scope:extension", "type:app"],
   "targets": {
     "build": {
       "executor": "nx:noop",

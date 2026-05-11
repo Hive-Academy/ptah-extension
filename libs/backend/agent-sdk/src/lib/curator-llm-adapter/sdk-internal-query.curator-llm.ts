@@ -1,7 +1,6 @@
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
-  MEMORY_CONTRACT_TOKENS,
   type ICuratorLLM,
   type ExtractedMemoryDraft,
   type ResolvedMemoryDraft,

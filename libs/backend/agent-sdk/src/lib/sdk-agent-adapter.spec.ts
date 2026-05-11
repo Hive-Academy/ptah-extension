@@ -61,7 +61,6 @@ jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
   startup: jest.fn(),
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const sdkModuleMock = require('@anthropic-ai/claude-agent-sdk') as {
   forkSession: jest.Mock;
   startup: jest.Mock;
@@ -527,6 +526,71 @@ describe('SdkAgentAdapter', () => {
       const h = makeAdapter();
       await expect(h.adapter.initialize()).resolves.toBe(true);
       expect(h.adapter.getHealth().status).toBe('available');
+    });
+
+    // WP-3T: two-level catalog fallback test.
+    //
+    // NOTE: SdkAgentAdapter.initialize() still reads/writes 'model.selected'
+    // via ConfigManager (this.config.get/set) — it was NOT migrated to
+    // modelSettings.selectedModel in Batch 3 despite the task description
+    // claiming it was (lines 632, 635, 648).  The test below verifies the
+    // ACTUAL behaviour of the fallback path and explicitly documents the
+    // defect so Batch 4 can complete the migration.
+    //
+    // Expected Batch 3 behaviour: when the stored model is a valid full ID
+    // it is left unchanged. When it is stale (not starting with 'claude-'
+    // and not 'default'), resolveModelId() is called to migrate the tier name.
+    // There is no getSupportedModels() catalog validation in initialize() —
+    // that two-level catalog check described in the task is NOT PRESENT in
+    // the current code. The test documents what the code actually does.
+    it('[WP-3T] leaves a valid full model ID unchanged (no catalog validation in initialize)', async () => {
+      const validModel = 'claude-opus-4-5';
+      const h = makeAdapter({ config: { 'model.selected': validModel } });
+
+      await h.adapter.initialize();
+
+      // resolveModelId should not have been called because 'claude-opus-4-5'
+      // starts with 'claude-' — the adapter treats it as already resolved.
+      expect(h.modelService.resolveModelId).not.toHaveBeenCalled();
+      // No set() call for model.selected (value was not changed).
+      const modelSetCalls = h.config.set.mock.calls.filter(
+        ([key]: [string, unknown]) => key === 'model.selected',
+      );
+      expect(modelSetCalls).toHaveLength(0);
+    });
+
+    it('[WP-3T] falls back to default model when model.selected is empty (first-run path)', async () => {
+      // Arrange: no saved model → first-run path
+      const h = makeAdapter({ config: { 'model.selected': '' } });
+      h.modelService.getDefaultModel.mockResolvedValueOnce('valid-model-1');
+
+      // Act
+      await h.adapter.initialize();
+
+      // Assert: warning NOT logged (this is the normal first-run, not a stale ID).
+      // config.set IS called with the default model.
+      expect(h.config.set).toHaveBeenCalledWith(
+        'model.selected',
+        'valid-model-1',
+      );
+    });
+
+    it('[WP-3T] resolves stale bare tier name via resolveModelId and persists the result', async () => {
+      // Arrange: stale model (bare tier name, legacy format)
+      const h = makeAdapter({ config: { 'model.selected': 'haiku' } });
+      h.modelService.resolveModelId.mockImplementationOnce((m: string) =>
+        m === 'haiku' ? 'valid-model-2' : m,
+      );
+
+      // Act
+      await h.adapter.initialize();
+
+      // Assert: the resolved model is persisted via config.set
+      expect(h.config.set).toHaveBeenCalledWith(
+        'model.selected',
+        'valid-model-2',
+      );
+      expect(h.modelService.resolveModelId).toHaveBeenCalledWith('haiku');
     });
   });
 

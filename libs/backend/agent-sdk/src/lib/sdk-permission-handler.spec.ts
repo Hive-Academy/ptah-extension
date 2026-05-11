@@ -147,7 +147,8 @@ describe('SdkPermissionHandler — AskUserQuestion tabId stamping', () => {
       (m) => m.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
     );
     expect(broadcast).toBeDefined();
-    const payload = broadcast!.payload as unknown as AskUserQuestionPayload;
+    if (!broadcast) throw new Error('test setup failed: broadcast missing');
+    const payload = broadcast.payload as unknown as AskUserQuestionPayload;
     expect(payload.tabId).toBe(ROUTING_ID);
     expect(payload.sessionId).toBe(ROUTING_ID);
 
@@ -188,7 +189,8 @@ describe('SdkPermissionHandler — AskUserQuestion tabId stamping', () => {
       (m) => m.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
     );
     expect(broadcast).toBeDefined();
-    const payload = broadcast!.payload as unknown as AskUserQuestionPayload;
+    if (!broadcast) throw new Error('test setup failed: broadcast missing');
+    const payload = broadcast.payload as unknown as AskUserQuestionPayload;
     expect(payload.tabId).toBeUndefined();
 
     ac.abort();
@@ -221,7 +223,8 @@ describe('SdkPermissionHandler — AskUserQuestion tabId stamping', () => {
       (m) => m.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
     );
     expect(broadcast).toBeDefined();
-    const payload = broadcast!.payload as unknown as AskUserQuestionPayload;
+    if (!broadcast) throw new Error('test setup failed: broadcast missing');
+    const payload = broadcast.payload as unknown as AskUserQuestionPayload;
     expect(payload.tabId).toBe(EXPLICIT_TAB_ID);
     expect(payload.sessionId).toBe(REAL_SESSION_UUID);
 

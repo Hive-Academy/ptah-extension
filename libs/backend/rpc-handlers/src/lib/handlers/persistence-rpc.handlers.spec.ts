@@ -542,9 +542,11 @@ describe('PersistenceRpcHandlers', () => {
     // Dest must use the same .deleted-<ts>-<hex> base as the main DB rename.
     const mainRename = renameCalls.find(([src]) => src.endsWith('ptah.sqlite'));
     expect(mainRename).toBeDefined();
-    const deletedBase = mainRename![1];
-    expect(walRename![1]).toBe(`${deletedBase}-wal`);
-    expect(shmRename![1]).toBe(`${deletedBase}-shm`);
+    if (!mainRename || !walRename || !shmRename)
+      throw new Error('test setup failed: expected rename calls missing');
+    const deletedBase = mainRename[1];
+    expect(walRename[1]).toBe(`${deletedBase}-wal`);
+    expect(shmRename[1]).toBe(`${deletedBase}-shm`);
   });
 
   it('D11: does not attempt sidecar renames when WAL/SHM files are absent', async () => {

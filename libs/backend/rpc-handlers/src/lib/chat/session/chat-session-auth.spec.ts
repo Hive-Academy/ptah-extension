@@ -33,10 +33,7 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
-import {
-  createMockWorkspaceProvider,
-  type MockWorkspaceProvider,
-} from '@ptah-extension/platform-core/testing';
+import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 
 import { ChatSessionService } from './chat-session.service';
 

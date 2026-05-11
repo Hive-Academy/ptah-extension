@@ -21,8 +21,6 @@ import { MemoryPromptInjector } from './memory-prompt-injector';
 import {
   AISessionConfig,
   AuthEnv,
-  ThinkingConfig,
-  EffortLevel,
   type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
