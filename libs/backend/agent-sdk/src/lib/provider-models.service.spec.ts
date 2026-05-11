@@ -412,3 +412,134 @@ describe('clearModelTier scope isolation', () => {
     expect(process.env[ENV_HAIKU]).toBe('main-model');
   });
 });
+
+// ---------------------------------------------------------------------------
+// clearAllTierEnvVars
+// ---------------------------------------------------------------------------
+
+describe('ProviderModelsService.clearAllTierEnvVars', () => {
+  it('deletes all tier env vars from process.env and authEnv', async () => {
+    const { service, authEnv } = makeService({});
+    await service.setModelTier(PROVIDER, 'haiku', 'h-model', 'mainAgent');
+    await service.setModelTier(PROVIDER, 'sonnet', 's-model', 'mainAgent');
+    await service.setModelTier(PROVIDER, 'opus', 'o-model', 'mainAgent');
+
+    service.clearAllTierEnvVars();
+
+    expect(process.env[ENV_HAIKU]).toBeUndefined();
+    expect(process.env[ENV_SONNET]).toBeUndefined();
+    expect(process.env[ENV_OPUS]).toBeUndefined();
+    expect(authEnv[ENV_HAIKU as keyof AuthEnv]).toBeUndefined();
+    expect(authEnv[ENV_SONNET as keyof AuthEnv]).toBeUndefined();
+    expect(authEnv[ENV_OPUS as keyof AuthEnv]).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// switchActiveProvider
+// ---------------------------------------------------------------------------
+
+describe('ProviderModelsService.switchActiveProvider', () => {
+  it('clears existing tier env vars then applies the new provider mainAgent tiers', async () => {
+    const { service } = makeService({
+      configValues: {
+        'provider.openrouter.mainAgent.modelTier.haiku': 'openrouter-haiku',
+      },
+    });
+
+    // Seed the env with a previous provider's mapping.
+    await service.setModelTier(
+      PROVIDER,
+      'haiku',
+      'moonshot-haiku',
+      'mainAgent',
+    );
+    expect(process.env[ENV_HAIKU]).toBe('moonshot-haiku');
+
+    service.switchActiveProvider('openrouter');
+
+    // Should reflect the new provider's persisted mainAgent tier.
+    expect(process.env[ENV_HAIKU]).toBe('openrouter-haiku');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveActiveProviderId
+// ---------------------------------------------------------------------------
+
+describe('ProviderModelsService.resolveActiveProviderId', () => {
+  it('returns the anthropic-direct provider id for apiKey auth method', () => {
+    const { service } = makeService({
+      configValues: { authMethod: 'apiKey' },
+    });
+    expect(service.resolveActiveProviderId()).toBe('anthropic');
+  });
+
+  it('returns the anthropic-direct provider id for claudeCli auth method', () => {
+    const { service } = makeService({
+      configValues: { authMethod: 'claudeCli' },
+    });
+    expect(service.resolveActiveProviderId()).toBe('anthropic');
+  });
+
+  it('returns the configured anthropicProviderId for thirdParty auth method', () => {
+    const { service } = makeService({
+      configValues: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'moonshot',
+      },
+    });
+    expect(service.resolveActiveProviderId()).toBe('moonshot');
+  });
+
+  it('falls back to anthropic-direct for unknown auth methods', () => {
+    const { service } = makeService({
+      configValues: { authMethod: 'something-else' },
+    });
+    expect(service.resolveActiveProviderId()).toBe('anthropic');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clearCache
+// ---------------------------------------------------------------------------
+
+describe('ProviderModelsService.clearCache', () => {
+  it('clears cache for a specific provider when an id is passed', () => {
+    const { service } = makeService({});
+    expect(() => service.clearCache('moonshot')).not.toThrow();
+  });
+
+  it('clears all caches when no id is passed', () => {
+    const { service } = makeService({});
+    expect(() => service.clearCache()).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// registerDynamicFetcher
+// ---------------------------------------------------------------------------
+
+describe('ProviderModelsService.registerDynamicFetcher', () => {
+  it('registers a fetcher and uses it when fetchModels is called for that provider', async () => {
+    const { service } = makeService({});
+    const fetcher = jest.fn().mockResolvedValue([
+      {
+        id: 'dyn-model',
+        name: 'Dynamic Model',
+        description: '',
+        contextLength: 8192,
+        supportsToolUse: true,
+      },
+    ]);
+
+    service.registerDynamicFetcher('moonshot', fetcher);
+
+    const result = await service.fetchModels('moonshot', null);
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(result.isStatic).toBe(false);
+    expect(result.models).toHaveLength(1);
+    expect(result.models[0].id).toBe('dyn-model');
+  });
+});
