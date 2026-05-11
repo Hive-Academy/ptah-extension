@@ -49,15 +49,10 @@ export class SessionControl {
    * @returns true if interrupt was called, false if session/query not found
    */
   async interruptCurrentTurn(sessionId: SessionId): Promise<boolean> {
-    // Reverse lookup: frontend may send real SDK UUID but activeSessions is keyed by tab ID.
-    // Same pattern as endSession() and setSessionModel().
-    const found = this.registry.findByTabOrRealId(sessionId);
-    const session = found?.session;
-    if (found) {
-      sessionId = found.tabId as SessionId;
-    }
+    // Reverse lookup: frontend may send real SDK UUID but registry is dual-indexed.
+    const rec = this.registry.find(sessionId as string);
 
-    if (!session?.query) {
+    if (!rec?.query) {
       this.logger.warn(
         `[SessionLifecycle] Cannot interrupt turn - session or query not found: ${sessionId}`,
       );
@@ -71,7 +66,7 @@ export class SessionControl {
     try {
       let timedOut = false;
       await Promise.race([
-        session.query.interrupt(),
+        rec.query.interrupt(),
         new Promise<void>((resolve) =>
           setTimeout(() => {
             timedOut = true;
@@ -108,35 +103,32 @@ export class SessionControl {
    * subagents for this session are marked as 'interrupted' to enable resumption.
    */
   async endSession(sessionId: SessionId): Promise<void> {
-    // TASK_2025_211: Reverse lookup - if sessionId is a real SDK UUID, find the tab ID
-    // The frontend sends the real SDK UUID but activeSessions is keyed by tab ID
-    const found = this.registry.findByTabOrRealId(sessionId);
-    if (!found) {
+    // Reverse lookup — find() checks byTabId then bySessionId (dual-index).
+    const rec = this.registry.find(sessionId as string);
+    if (!rec) {
       this.logger.warn(
         `[SessionLifecycle] Cannot end session - not found: ${sessionId}`,
       );
       return;
     }
-    const session = found.session;
-    sessionId = found.tabId as SessionId;
 
     this.logger.info(`[SessionLifecycle] Ending session: ${sessionId}`);
 
     // TASK_2025_102: Cleanup pending permissions FIRST to prevent unhandled promise rejections
     // This resolves any pending permission promises with deny before aborting the session
-    this.permissionHandler.cleanupPendingPermissions(sessionId as string);
+    this.permissionHandler.cleanupPendingPermissions(rec.tabId);
 
     // TASK_2025_103: Mark all running subagents as interrupted BEFORE aborting
     // This is the key mechanism for detecting interrupted subagents since
     // SubagentStop hook doesn't fire on abort. Running subagents become resumable.
     // TASK_2025_186: Use real UUID if resolved, since SubagentRegistryService records
     // may have been updated from tab ID to real UUID by resolveParentSessionId().
-    const registrySessionId = this.registry.getRealOrTabId(sessionId as string);
+    const registrySessionId = rec.realSessionId ?? rec.tabId;
     this.subagentRegistry.markAllInterrupted(registrySessionId);
 
     // Capture workspaceRoot BEFORE registry removal (R6 mitigation).
-    // session.config.projectPath may be undefined for sessions that never set a workspace.
-    const workspaceRoot = session.config.projectPath ?? '';
+    // rec.config.projectPath may be undefined for sessions that never set a workspace.
+    const workspaceRoot = rec.config.projectPath ?? '';
 
     this.logger.info(
       `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`,
@@ -146,11 +138,11 @@ export class SessionControl {
     // SDK best practice: interrupt() must complete before abort() is called.
     // abort() kills the underlying process, so calling it before interrupt()
     // means the graceful stop signal is never processed.
-    if (session.query) {
+    if (rec.query) {
       try {
         let timedOut = false;
         await Promise.race([
-          session.query.interrupt(),
+          rec.query.interrupt(),
           new Promise<void>((resolve) =>
             setTimeout(() => {
               timedOut = true;
@@ -173,11 +165,10 @@ export class SessionControl {
     }
 
     // Abort the session AFTER interrupt completes or times out
-    session.abortController.abort();
+    rec.abortController.abort();
 
-    // Remove from active sessions and clean up tab-to-real mapping;
-    // also recomputes _lastActiveTabId fallback if needed.
-    this.registry.removeSession(sessionId as string);
+    // Remove from registry (both indexes); recomputes _lastActiveTabId fallback if needed.
+    this.registry.remove(rec);
 
     this.logger.info(`[SessionLifecycle] Session ended: ${sessionId}`);
 
@@ -206,6 +197,11 @@ export class SessionControl {
     // TASK_2025_102: Cleanup all pending permissions FIRST
     this.permissionHandler.cleanupPendingPermissions();
 
+    // Snapshot all records BEFORE any clearAll() work to avoid stale-iterator bug
+    // (TASK_2026_118 Batch 3 fix): clearAll() empties byTabId, so a second
+    // entries() call after clearAll would yield nothing. Snapshot once, use everywhere.
+    const records = Array.from(this.registry.entries()).map(([, rec]) => rec);
+
     // TASK_2026_THOTH_SKILL_LIFECYCLE R6: capture session data BEFORE clearAll()
     // so that workspaceRoot is available for session-end notifications.
     const endedSessions: Array<{ sessionId: string; workspaceRoot: string }> =
@@ -214,29 +210,29 @@ export class SessionControl {
     // TASK_2025_175: Interrupt all sessions first, then abort
     const interruptPromises: Promise<void>[] = [];
 
-    for (const [sessionId, session] of this.registry.entries()) {
-      this.logger.debug(`[SessionLifecycle] Ending session: ${sessionId}`);
+    for (const rec of records) {
+      this.logger.debug(`[SessionLifecycle] Ending session: ${rec.tabId}`);
 
       // TASK_2025_103: Mark all running subagents as interrupted for this session
       // TASK_2025_186: Use real UUID if resolved
-      const registryId = this.registry.getRealOrTabId(sessionId);
+      const registryId = rec.realSessionId ?? rec.tabId;
       this.subagentRegistry.markAllInterrupted(registryId);
 
       // Capture workspace root BEFORE clearAll() removes the registry entries (R6 mitigation).
-      const root = session.config.projectPath ?? '';
+      const root = rec.config.projectPath ?? '';
       if (root) {
         endedSessions.push({ sessionId: registryId, workspaceRoot: root });
       }
 
       // TASK_2025_175: Interrupt BEFORE abort, with timeout
-      if (session.query) {
+      if (rec.query) {
         interruptPromises.push(
           Promise.race([
-            session.query.interrupt(),
+            rec.query.interrupt(),
             new Promise<void>((resolve) => setTimeout(resolve, 5000)),
           ]).catch((err) => {
             this.logger.warn(
-              `[SessionLifecycle] Failed to interrupt session ${sessionId}`,
+              `[SessionLifecycle] Failed to interrupt session ${rec.tabId}`,
               err instanceof Error ? err : new Error(String(err)),
             );
           }),
@@ -247,9 +243,9 @@ export class SessionControl {
     // Wait for all interrupts to complete or time out
     await Promise.allSettled(interruptPromises);
 
-    // Now abort all sessions
-    for (const [, session] of this.registry.entries()) {
-      session.abortController.abort();
+    // Now abort all sessions using the pre-snapshotted records
+    for (const rec of records) {
+      rec.abortController.abort();
     }
 
     this.registry.clearAll();
@@ -280,7 +276,7 @@ export class SessionControl {
       | 'acceptEdits'
       | 'bypassPermissions',
   ): Promise<void> {
-    const session = this.registry.getActiveSession(sessionId);
+    const session = this.registry.find(sessionId as string);
     if (!session) {
       throw new SdkError(`Session not found: ${sessionId}`);
     }
@@ -322,12 +318,11 @@ export class SessionControl {
    * @param model - Model ID or bare tier name to set
    */
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {
-    // Reverse lookup: frontend sends real SDK UUID but activeSessions is keyed by tab ID
-    const found = this.registry.findByTabOrRealId(sessionId);
-    if (!found) {
+    // Reverse lookup: find() checks byTabId then bySessionId (dual-index)
+    const session = this.registry.find(sessionId as string);
+    if (!session) {
       throw new SdkError(`Session not found: ${sessionId}`);
     }
-    const session = found.session;
 
     if (!session.query) {
       throw new SdkError(`Session query not initialized: ${sessionId}`);

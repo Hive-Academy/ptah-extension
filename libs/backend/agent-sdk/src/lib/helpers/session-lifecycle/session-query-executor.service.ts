@@ -104,9 +104,9 @@ export class SessionQueryExecutor {
     // Step 1: Create abort controller
     const abortController = new AbortController();
 
-    // Step 2: Pre-register session
-    this.registry.preRegisterActiveSession(
-      sessionId,
+    // Step 2: Register session and capture the record for direct use below
+    const rec = this.registry.register(
+      sessionId as string,
       sessionConfig || {},
       abortController,
     );
@@ -125,19 +125,16 @@ export class SessionQueryExecutor {
 
     // For non-slash-command messages, queue them in the iterable as SDKUserMessage
     if (initialContent && !isSlashCommand) {
-      const session = this.registry.getActiveSession(sessionId);
-      if (session) {
-        const sdkUserMessage = await this.messageFactory.createUserMessage({
-          content: initialPrompt!.content, // eslint-disable-line @typescript-eslint/no-non-null-assertion
-          sessionId,
-          files: initialPrompt!.files, // eslint-disable-line @typescript-eslint/no-non-null-assertion
-          images: initialPrompt!.images, // eslint-disable-line @typescript-eslint/no-non-null-assertion
-        });
-        session.messageQueue.push(sdkUserMessage);
-        this.logger.info(
-          `[SessionLifecycle] Queued initial prompt for session ${sessionId}`,
-        );
-      }
+      const sdkUserMessage = await this.messageFactory.createUserMessage({
+        content: initialPrompt!.content, // eslint-disable-line @typescript-eslint/no-non-null-assertion
+        sessionId,
+        files: initialPrompt!.files, // eslint-disable-line @typescript-eslint/no-non-null-assertion
+        images: initialPrompt!.images, // eslint-disable-line @typescript-eslint/no-non-null-assertion
+      });
+      rec.messageQueue.push(sdkUserMessage);
+      this.logger.info(
+        `[SessionLifecycle] Queued initial prompt for session ${sessionId}`,
+      );
     }
 
     // Steps 4-7 may throw (SDK module load failure, options build failure,
@@ -397,9 +394,11 @@ export class SessionQueryExecutor {
         abortController,
       };
     } catch (err) {
-      // Init failed after preRegisterActiveSession — remove the orphan session
-      // so retries aren't blocked by a stale entry and callers see a clean error.
-      this.registry.removeSessionOnly(sessionId as string);
+      // Init failed after register() — remove the orphan session so retries
+      // aren't blocked by a stale entry and callers see a clean error.
+      if (rec) {
+        this.registry.remove(rec);
+      }
       try {
         abortController.abort();
       } catch {

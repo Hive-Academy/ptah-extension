@@ -613,8 +613,10 @@ export class SessionLifecycleManager {
       { command: command.substring(0, 50) },
     );
 
-    // Resolve real SDK UUID before endSession deletes the tabIdToRealId mapping
-    const realSessionId = this._registry.getRealOrTabId(sessionId as string);
+    // Resolve real SDK UUID before endSession removes the registry entry.
+    // find() checks both byTabId and bySessionId (dual-index).
+    const rec = this._registry.find(sessionId as string);
+    const realSessionId = rec?.realSessionId ?? (sessionId as string);
 
     // Step 1: End the current session (abort existing query)
     await this._control.endSession(sessionId);
