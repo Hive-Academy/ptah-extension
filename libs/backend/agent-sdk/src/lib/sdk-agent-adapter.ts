@@ -1009,7 +1009,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     }
 
     // Check if session already active AND fully initialized (has query)
-    const existingSession = this.sessionLifecycle.getActiveSession(sessionId);
+    const existingSession = this.sessionLifecycle.find(sessionId as string);
     if (existingSession && existingSession.query) {
       this.logger.info(
         `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`,
@@ -1069,7 +1069,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // Update SessionLifecycleManager so getActiveSessionIds() returns
       // the real UUID (same as new-session path).
       if (tabId) {
-        this.sessionLifecycle.resolveRealSessionId(tabId, realSessionId);
+        this.sessionLifecycle.bindRealSessionId(tabId, realSessionId);
       }
 
       if (this.sessionIdResolvedCallback) {
@@ -1099,7 +1099,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * Check if a session is currently active in memory
    */
   isSessionActive(sessionId: SessionId): boolean {
-    return this.sessionLifecycle.getActiveSession(sessionId) !== undefined;
+    return this.sessionLifecycle.find(sessionId as string) !== undefined;
   }
 
   /**
@@ -1129,7 +1129,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // the real UUID. This ensures agents spawned after this point get
       // the correct parentSessionId for CLI session persistence.
       if (tabId) {
-        this.sessionLifecycle.resolveRealSessionId(tabId, realSessionId);
+        this.sessionLifecycle.bindRealSessionId(tabId, realSessionId);
       }
 
       // Notify webview of the resolved session ID
@@ -1447,8 +1447,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       dryRun: dryRun ?? false,
     });
 
-    const activeSession = this.sessionLifecycle.getActiveSession(sessionId);
-    if (!activeSession || !activeSession.query) {
+    const rec = this.sessionLifecycle.find(sessionId as string);
+    if (!rec || !rec.query) {
       // Stable error type so RPC handlers can `instanceof`-check rather than
       // brittle regex-match the message string. The message wording is kept
       // for the legacy regex fallback at the RPC boundary.
@@ -1463,7 +1463,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     // this try/catch — wrapping it would lose the `instanceof` discriminator
     // the RPC layer relies on.
     try {
-      const result = await activeSession.query.rewindFiles(userMessageId, {
+      const result = await rec.query.rewindFiles(userMessageId, {
         dryRun,
       });
       this.logger.info('[SdkAgentAdapter] rewindFiles completed', {

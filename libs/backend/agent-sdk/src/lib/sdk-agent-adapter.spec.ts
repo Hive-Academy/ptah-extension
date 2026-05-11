@@ -250,6 +250,8 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'executeSlashCommandQuery'
     | 'disposeAllSessions'
     | 'endSession'
+    | 'find'
+    | 'bindRealSessionId'
     | 'getActiveSession'
     | 'resolveRealSessionId'
     | 'sendMessage'
@@ -263,6 +265,8 @@ function createMockSessionLifecycle(): jest.Mocked<
     executeSlashCommandQuery: jest.fn(),
     disposeAllSessions: jest.fn().mockResolvedValue(undefined),
     endSession: jest.fn().mockResolvedValue(undefined),
+    find: jest.fn().mockReturnValue(undefined),
+    bindRealSessionId: jest.fn(),
     getActiveSession: jest.fn().mockReturnValue(undefined),
     resolveRealSessionId: jest.fn(),
     sendMessage: jest.fn().mockResolvedValue(undefined),
@@ -777,7 +781,7 @@ describe('SdkAgentAdapter', () => {
       await h.adapter.initialize();
 
       const existingQuery = createFakeQuery();
-      h.sessionLifecycle.getActiveSession.mockReturnValueOnce({
+      h.sessionLifecycle.find.mockReturnValueOnce({
         tabId: 'sess-1',
         realSessionId: null,
         query: existingQuery,
@@ -807,7 +811,7 @@ describe('SdkAgentAdapter', () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
-      h.sessionLifecycle.getActiveSession.mockReturnValueOnce(undefined);
+      h.sessionLifecycle.find.mockReturnValueOnce(undefined);
       const sdkQuery = createFakeQuery();
       const abortController = new AbortController();
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
@@ -1125,8 +1129,8 @@ describe('SdkAgentAdapter', () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
-      // Default getActiveSession returns undefined → no live query.
-      h.sessionLifecycle.getActiveSession.mockReturnValueOnce(undefined);
+      // Default find returns undefined → no live query.
+      h.sessionLifecycle.find.mockReturnValueOnce(undefined);
 
       await expect(
         h.adapter.rewindFiles('dead-session' as SessionId, 'msg-1'),
@@ -1141,7 +1145,7 @@ describe('SdkAgentAdapter', () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
-      h.sessionLifecycle.getActiveSession.mockReturnValueOnce({
+      h.sessionLifecycle.find.mockReturnValueOnce({
         sessionId: 'preregistered' as SessionId,
         query: null,
         config: makeSessionConfig(),
@@ -1170,7 +1174,7 @@ describe('SdkAgentAdapter', () => {
         deletions: 3,
       });
 
-      h.sessionLifecycle.getActiveSession.mockReturnValueOnce({
+      h.sessionLifecycle.find.mockReturnValueOnce({
         sessionId: 'live' as SessionId,
         query: fakeQuery,
         config: makeSessionConfig(),
@@ -1206,7 +1210,7 @@ describe('SdkAgentAdapter', () => {
         new Error('checkpointing not enabled'),
       );
 
-      h.sessionLifecycle.getActiveSession.mockReturnValueOnce({
+      h.sessionLifecycle.find.mockReturnValueOnce({
         sessionId: 'live' as SessionId,
         query: fakeQuery,
         config: makeSessionConfig(),
@@ -1651,7 +1655,7 @@ describe('SdkAgentAdapter', () => {
     it('forwards includePartialMessages from resumeSession config to executeQuery', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
-      h.sessionLifecycle.getActiveSession.mockReturnValueOnce(undefined);
+      h.sessionLifecycle.find.mockReturnValueOnce(undefined);
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery: createFakeQuery(),
         initialModel: 'claude-sonnet-4-20250514',
