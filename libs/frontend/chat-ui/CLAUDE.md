@@ -1,185 +1,59 @@
-# libs/frontend/chat-ui - Presentational Chat UI Components
+# @ptah-extension/chat-ui
 
 [Back to Main](../../../CLAUDE.md)
 
 ## Purpose
 
-The **chat-ui library** is a reusable presentational (stateless) component library extracted from `@ptah-extension/chat` as part of TASK_2026_105 Wave G4. It provides chat UI atoms and molecules that can be consumed by any webview (electron, dashboard, canvas) **without pulling in the full chat feature library** and its state management.
-
-## Key Responsibilities
-
-- **Atoms**: 16 basic building blocks (badges, buttons, cursors, display helpers)
-- **Molecules**: Composed UI pieces grouped by feature domain (62 files across 9 groups)
-- **Utilities**: Agent color generation helpers
-- **No services, no state, no orchestration** — purely presentational
-
-## Relationship with `@ptah-extension/chat`
-
-This library sits **below** the chat feature library in the dependency graph:
-
-```
-@ptah-extension/chat-ui   ← Presentational layer (this library)
-        ↑
-        │  (imported by)
-        │
-@ptah-extension/chat      ← Feature/orchestration layer (stateful, services, store)
-```
-
-**Rules:**
-
-- `@ptah-extension/chat` imports from `@ptah-extension/chat-ui` — ✅ correct
-- `@ptah-extension/chat-ui` NEVER imports from `@ptah-extension/chat` — ❌ circular
-- `@ptah-extension/chat` re-exports all chat-ui symbols from its own barrel (marked `@deprecated`) for backward compatibility — prefer direct imports from `@ptah-extension/chat-ui` in new code
-
-## Architecture
-
-```
-libs/frontend/chat-ui/src/lib/
-├── atoms/                          # Basic building blocks (no composition)
-│   ├── copy-button.component.ts
-│   ├── cost-badge.component.ts
-│   ├── duration-badge.component.ts
-│   ├── electron-resize-handle.component.ts  # Desktop drag-resize (event-based)
-│   ├── error-alert.component.ts
-│   ├── expandable-content.component.ts
-│   ├── file-path-link.component.ts
-│   ├── sidebar-tab.component.ts
-│   ├── status-badge.component.ts
-│   ├── streaming-quotes.component.ts
-│   ├── streaming-text-reveal.component.ts
-│   ├── theme-toggle.component.ts
-│   ├── token-badge.component.ts
-│   ├── tool-icon.component.ts
-│   ├── typing-cursor.component.ts
-│   └── resize-handle.styles.ts     # Shared CSS constant (used by chat's ResizeHandleComponent)
-│
-└── molecules/                      # Composed atoms, grouped by feature domain
-    ├── agent-card/
-    │   ├── agent-card-output.component.ts   # Renders RenderSegment[] (pure presentational)
-    │   ├── agent-card-permission.component.ts
-    │   └── agent-card.types.ts              # RenderSegment, StderrSegment types
-    ├── chat-input/
-    │   ├── agent-selector.component.ts      # Agent dropdown (composed by ChatInputComponent)
-    │   └── autopilot-popover.component.ts
-    ├── compact-session/
-    │   ├── compact-session-activity.component.ts
-    │   ├── compact-session-header.component.ts
-    │   ├── compact-session-input.component.ts
-    │   ├── compact-session-stats.component.ts
-    │   └── compact-session-text.component.ts
-    ├── notifications/
-    │   ├── compaction-notification.component.ts
-    │   └── notification-bell.component.ts
-    ├── permissions/
-    │   ├── deny-message-popover.component.ts
-    │   ├── permission-badge.component.ts
-    │   └── permission-request-card.component.ts
-    ├── session/
-    │   ├── session-cost-summary.component.ts
-    │   ├── session-stats-summary.component.ts
-    │   └── tab-item.component.ts
-    ├── setup-plugins/
-    │   ├── mcp-directory-browser.component.ts
-    │   ├── plugin-browser-modal.component.ts
-    │   ├── plugin-status-widget.component.ts
-    │   ├── prompt-suggestions.component.ts
-    │   ├── setup-status-widget.component.ts
-    │   └── skill-sh-browser.component.ts
-    ├── tool-execution/
-    │   ├── code-output.component.ts
-    │   ├── diff-display.component.ts
-    │   ├── todo-list-display.component.ts
-    │   ├── tool-call-header.component.ts
-    │   ├── tool-input-display.component.ts
-    │   └── tool-output-display.component.ts
-    ├── agent-summary.component.ts
-    ├── community-upgrade-banner.component.ts
-    ├── question-card.component.ts    # AskUserQuestion tool renderer (not a setup card — see setup-wizard)
-    ├── thinking-block.component.ts
-    ├── trial-banner.component.ts
-    └── trial-ended-modal.component.ts
-```
-
-## Naming Gotchas
-
-### `QuestionCardComponent` — two exist, different purposes
-
-| Library                        | Class                   | Purpose                                                       |
-| ------------------------------ | ----------------------- | ------------------------------------------------------------- |
-| `@ptah-extension/chat-ui`      | `QuestionCardComponent` | Renders `AskUserQuestion` tool responses during a chat stream |
-| `@ptah-extension/setup-wizard` | `QuestionCardComponent` | Displays a single setup discovery question in the wizard      |
-
-They are different components that happen to share a name. If you import both libraries, alias one:
-
-```typescript
-import { QuestionCardComponent as AskUserQuestionCardComponent } from '@ptah-extension/chat-ui';
-import { QuestionCardComponent } from '@ptah-extension/setup-wizard';
-```
-
-### `ElectronResizeHandleComponent` vs `ResizeHandleComponent` (in chat)
-
-| Component                       | Location        | Mechanism                                                           |
-| ------------------------------- | --------------- | ------------------------------------------------------------------- |
-| `ElectronResizeHandleComponent` | `chat-ui` atoms | Raw mousedown/mousemove events, output-based, no service dependency |
-| `ResizeHandleComponent`         | `chat` atoms    | Angular CDK drag with `PanelResizeService`, horizontal axis lock    |
-
-Different use cases — not duplicates.
+Reusable **presentational** (stateless) chat UI components — atoms and molecules — extracted from `@ptah-extension/chat` (TASK_2026_105 Wave G4) so other webview apps (electron, dashboard, canvas) can consume chat primitives without pulling the full chat feature library and its state management.
 
 ## Boundaries
 
-**Belongs here:**
+**Belongs here**: stateless input/output components, shared UI primitives consumed by multiple webviews, types describing rendered data shapes (e.g. `RenderSegment`, `StderrSegment`, `LiveModelStats`, `ModelUsageEntry`, `OklchColor`), color utilities.
 
-- Stateless, input/output-only components
-- Shared UI primitives used by multiple webviews
-- Types that describe the shape of rendered data (e.g. `RenderSegment`)
+**Does NOT belong**: services, injectable state, components that inject `ChatStore` / `VSCodeService` / any backend service, organisms or templates (those stay in `@ptah-extension/chat`), components only used in one place (keep them co-located).
 
-**Does NOT belong here:**
+## Public API (from `src/index.ts`)
 
-- Services or injectable state
-- Components that inject `ChatStore`, `VSCodeService`, or any backend service
-- Organisms or templates (those go in `@ptah-extension/chat`)
-- Components only used in one place (keep them co-located)
+- **15 atoms**: `CopyButtonComponent`, `CostBadgeComponent`, `DurationBadgeComponent`, `ElectronResizeHandleComponent`, `ErrorAlertComponent`, `ExpandableContentComponent`, `FilePathLinkComponent`, `SidebarTabComponent`, `StatusBadgeComponent`, `StreamingQuotesComponent`, `StreamingTextRevealComponent`, `ThemeToggleComponent`, `TokenBadgeComponent`, `ToolIconComponent`, `TypingCursorComponent` + `RESIZE_HANDLE_STYLES` constant
+- **Molecule groups**: `agent-card/`, `chat-input/` (`AgentSelectorComponent`, `AutopilotPopoverComponent`), `compact-session/` (5 components), `notifications/` (`CompactionNotificationComponent`, `NotificationBellComponent`), `permissions/` (3 components), `session/` (`SessionCostSummaryComponent`, `SessionStatsSummaryComponent`, `TabItemComponent`), `setup-plugins/` (6 components), `tool-execution/` (6 components), plus standalone molecules: `AgentSummaryComponent`, `CommunityUpgradeBannerComponent`, `QuestionCardComponent`, `ThinkingBlockComponent`, `TrialBannerComponent`, `TrialEndedModalComponent`
+- **Utilities**: `generateAgentColor`, `generateAgentColorOklch`, `formatOklch`, `isThemeFallbackColor`, `THEME_FALLBACK_OKLCH`, `OklchColor`
+- **Types**: `RenderSegment`, `StderrSegment`, `LiveModelStats`, `ModelUsageEntry`
+
+## Internal Structure
+
+- `src/lib/atoms/` — flat directory of 15 atomic components + `resize-handle.styles.ts` (shared CSS constant used by chat's CDK-based resize handle)
+- `src/lib/molecules/` — molecules grouped by feature domain (agent-card, chat-input, compact-session, notifications, permissions, session, setup-plugins, tool-execution) plus standalone molecules at the root
+- `src/lib/utils/agent-color.utils.ts` — OKLCH-based agent color generation
+
+## Naming Gotchas
+
+- `QuestionCardComponent` exists in both `@ptah-extension/chat-ui` (renders `AskUserQuestion` tool responses) and `@ptah-extension/setup-wizard` (renders setup discovery questions). Alias one if you import both.
+- `ElectronResizeHandleComponent` here is a no-CDK raw-event handle for the desktop app. `chat`'s `ResizeHandleComponent` uses Angular CDK drag — different mechanism, different use case.
+
+## State Management Pattern
+
+None. Components are `input()` / `output()` only. The library has no `@Injectable` services and no shared signal state.
 
 ## Dependencies
 
-**Internal Libraries:**
+**Internal**: `@ptah-extension/shared`, `@ptah-extension/markdown` (for output components that render AI text)
 
-- `@ptah-extension/shared` — shared type contracts
-- `@ptah-extension/markdown` — markdown rendering for output components
+**External**: `@angular/core`, `@angular/common`, `lucide-angular`
 
-**External Dependencies:**
+## Angular Conventions Observed
 
-- `@angular/core` — signals, inputs, outputs
-- `@angular/common` — control flow directives
-
-## Import Path
-
-```typescript
-// Atoms
-import { StatusBadgeComponent, TokenBadgeComponent } from '@ptah-extension/chat-ui';
-
-// Molecules
-import { AgentCardOutputComponent, QuestionCardComponent } from '@ptah-extension/chat-ui';
-import type { RenderSegment } from '@ptah-extension/chat-ui';
-
-// Utilities
-import { generateAgentColor } from '@ptah-extension/chat-ui';
-```
-
-## Commands
-
-```bash
-nx test chat-ui
-nx typecheck chat-ui
-nx lint chat-ui
-nx build chat-ui
-```
+- Standalone components, `ChangeDetectionStrategy.OnPush` on every component
+- `input.required<T>()` / `output<T>()` exclusively
+- `inject()` only when a child component needs DI (e.g. markdown rendering)
+- Templates use new control flow (`@if`, `@for`, `@switch`)
+- DaisyUI + Tailwind classes; no inline styles
 
 ## Guidelines
 
-1. **No services** — components must be purely input/output driven
-2. **No imports from `@ptah-extension/chat`** — one-way dependency only
-3. **Signal-first** — all component state uses Angular signals
-4. **OnPush** — all components use `ChangeDetectionStrategy.OnPush`
-5. **Atoms stay flat** — atoms do not import other atoms or molecules from this library
-6. **DaisyUI + Tailwind** — no inline styles
+1. **No services.** Components are purely input/output driven.
+2. **No imports from `@ptah-extension/chat`** — one-way dependency only (chat imports chat-ui).
+3. **Atoms stay flat.** Atoms do not import other atoms or molecules from this library.
+4. **Signal-first.** All local component state uses Angular signals.
+5. **OnPush.** Every component declares `changeDetection: ChangeDetectionStrategy.OnPush`.
+6. **DaisyUI + Tailwind only.** No inline `style="..."` strings, no per-component CSS files (except the shared `resize-handle.styles.ts` constant).
+7. **AI-rendered text** must go through `@ptah-extension/markdown` `MarkdownBlockComponent` — never bind `[innerHTML]` to raw model output.

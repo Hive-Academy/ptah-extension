@@ -1,287 +1,57 @@
-# Ptah Extension - VS Code Application
+# ptah-extension-vscode
 
-↩️ [Back to Main](../../CLAUDE.md)
+[Back to Main](../../CLAUDE.md)
 
 ## Purpose
 
-The **ptah-extension-vscode** is the main VS Code extension application that orchestrates the entire Ptah Extension. It provides:
-
-- VS Code extension activation and lifecycle management
-- Command palette integration
-- Webview hosting for the Angular SPA
-- Dependency injection container setup
-- Backend service orchestration
-- RPC communication layer between extension host and webview
+The VS Code extension host application. Activates inside the extension host process, wires the tsyringe DI graph, runs a license gate, registers RPC handlers, and hosts the Angular webview SPA built from `apps/ptah-extension-webview`.
 
 ## Boundaries
 
-**Belongs here**:
+**Belongs here**: extension activation/deactivation, the phased DI bootstrap, VS Code-specific command/provider registration, webview HTML generation, the VS Code webview event queue.
+**Does NOT belong**: business logic (lives in `libs/backend/*`), Angular UI (lives in `apps/ptah-extension-webview`), shared RPC handler classes (`libs/backend/rpc-handlers`), Electron-only glue.
 
-- VS Code extension entry point (`main.ts`)
-- Extension activation/deactivation logic
-- Command registration and handlers
-- Webview provider setup
-- DI container initialization
-- RPC handler registration
+## Entry Points
 
-**Does NOT belong**:
+- `src/main.ts` — `activate()` / `deactivate()` exported to VS Code. Imports `reflect-metadata` first, then delegates to `bootstrapVscode` -> `wireRuntimeVscode` -> `registerPostInit`.
+- `package.json` (at app root) — VS Code extension manifest copied into the VSIX by `build-esbuild`.
 
-- Business logic (belongs in backend libraries)
-- UI components (belongs in ptah-extension-webview)
-- Shared types (belongs in @ptah-extension/shared)
-- Reusable services (belongs in backend libraries)
+## Key Wiring
 
-## Key Files
+- `src/di/container.ts` — thin orchestrator. `DIContainer.setupMinimal()` runs phase-0 + phase-1-minimal for the license gate; `DIContainer.setup()` runs phases 0-4. Phases live in sibling files `phase-0-platform.ts` through `phase-4-app.ts`.
+- `src/activation/bootstrap.ts` — minimal DI -> Sentry init -> license verify (blocking) -> full DI -> logger + RPC registration. Calls `fixPath()` from `@ptah-extension/agent-sdk` on Linux/macOS so GUI-launched VS Code finds nvm/npm-global bins.
+- `src/activation/wire-runtime.ts`, `src/activation/post-init.ts` — finishes IPC, plugin activation, CLI/skill sync, agent adapters.
+- `src/activation/license-gate.ts` — blocks activation when license invalid.
+- `src/services/rpc/`, `src/providers/angular-webview.provider.ts`, `src/services/webview-html-generator.ts` — webview boot + RPC bridge.
+- `src/commands/` — `license-commands.ts`, `settings-commands.ts` register VS Code commands.
+- Deactivation cleans up `SkillJunctionService` junctions, `PtahCliRegistry` adapters, and flushes Sentry.
 
-### Entry Points
+## Library Dependencies
 
-- `src/main.ts` - Extension activation entry point
-- `package.json` - VS Code extension manifest (commands, activationEvents, contributions)
+- `@ptah-extension/vscode-core` — DI tokens (`TOKENS`), Logger, LicenseService, SentryService
+- `@ptah-extension/agent-sdk` — `SDK_TOKENS`, `PtahCliRegistry`, `SkillJunctionService`, `fixPath`
+- `@ptah-extension/persistence-sqlite` — `PERSISTENCE_TOKENS`, `SqliteConnectionService`
+- Backend feature libs registered through the phase modules: `rpc-handlers`, `workspace-intelligence`, `agent-generation`, `llm-abstraction`, `vscode-lm-tools`, `platform-core`, `platform-vscode`
 
-### Configuration
+## Build & Run
 
-- `webpack.config.js` - Webpack bundling configuration
-- `tsconfig.app.json` - TypeScript configuration
-- `project.json` - Nx build configuration
-
-### Assets
-
-- `src/assets/` - Extension icons, media, static files
-- `dist/` - Build output (webview copied here during build)
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────┐
-│  VS Code Extension Host (Node.js Process)       │
-├─────────────────────────────────────────────────┤
-│  main.ts                                         │
-│    ↓                                             │
-│  Activate Extension                              │
-│    ↓                                             │
-│  Initialize DI Container (tsyringe)              │
-│    ↓                                             │
-│  Register Commands & Webview Providers           │
-│    ↓                                             │
-│  Setup RPC Communication Layer                   │
-│    ↓                                             │
-│  ┌───────────────────────────────────────┐      │
-│  │  Webview Panel (Angular SPA)          │      │
-│  │  (ptah-extension-webview build)       │      │
-│  └───────────────────────────────────────┘      │
-└─────────────────────────────────────────────────┘
-```
-
-## Dependencies
-
-### Internal Libraries (Nx Workspace)
-
-- `@ptah-extension/shared` - Type system and message protocol
-- `@ptah-extension/vscode-core` - Infrastructure (DI, EventBus, Logger)
-- `@ptah-extension/workspace-intelligence` - Workspace analysis
-- `@ptah-extension/agent-generation` - Agent generation services
-- `@ptah-extension/agent-sdk` - Claude Agent SDK integration
-- `@ptah-extension/llm-abstraction` - LLM provider abstraction
-- `@ptah-extension/vscode-lm-tools` - VS Code LM tools
-
-### External NPM Packages
-
-- `vscode` - VS Code Extension API
-- `tsyringe` - Dependency injection
-- `@anthropic-ai/claude-agent-sdk` - Claude Agent SDK
-- `eventemitter3` - Event bus
-- `uuid` - ID generation
-
-### Build Dependencies
-
-- `@nx/webpack` - Webpack executor
-- `webpack` - Module bundler
-- `esbuild` - Fast bundling
-
-## Commands
-
-```bash
-# Development
-npm run dev:extension              # Watch mode (rebuild on changes)
-nx build ptah-extension-vscode --watch
-
-# Build
-npm run build:extension            # Production build
-nx build ptah-extension-vscode
-
-# Quality Gates
-npm run lint:extension             # Lint code
-nx run ptah-extension-vscode:typecheck  # Type-check
-nx test ptah-extension-vscode      # Run tests
-
-# Packaging
-npm run package                    # Create .vsix file
-nx run ptah-extension-vscode:package
-```
-
-## Build Process
-
-The build process consists of multiple steps orchestrated by Nx:
-
-1. **build-webpack**: Bundle extension code with Webpack
-   - Input: `src/main.ts`
-   - Output: `dist/apps/ptah-extension-vscode/main.js`
-   - Target: Node.js (CommonJS)
-
-2. **post-build-copy**: Copy webview and assets
-   - Copy webview build from `ptah-extension-webview`
-   - Copy extension assets (icons, images)
-   - Copy `package.json` manifest
-
-3. **Final Structure**:
-   ```
-   dist/apps/ptah-extension-vscode/
-   ├── main.js                    # Extension bundle
-   ├── package.json               # Manifest
-   ├── assets/                    # Icons, images
-   └── webview/                   # Angular SPA
-       └── browser/
-           ├── index.html
-           ├── main-*.js
-           └── styles-*.css
-   ```
-
-## Extension Manifest (`package.json`)
-
-Key sections:
-
-```json
-{
-  "name": "ptah-extension",
-  "displayName": "Ptah - Coding Orchestra",
-  "publisher": "ptah",
-  "main": "./main.js",
-  "activationEvents": ["onStartupFinished"],
-  "contributes": {
-    "commands": [...],
-    "viewsContainers": {...},
-    "views": {...}
-  }
-}
-```
-
-## RPC Communication
-
-The extension uses a custom RPC layer for webview ↔ extension communication:
-
-```typescript
-// Extension Host (Backend)
-rpcHandler.register('chat:send', async (payload) => {
-  // Handle request from webview
-  return response;
-});
-
-// Webview (Frontend)
-const response = await rpcService.invoke('chat:send', { message });
-```
-
-## Development Workflow
-
-1. **Start Watch Mode**:
-
-   ```bash
-   npm run dev:all  # Watches both extension and webview
-   ```
-
-2. **Open Extension Development Host**:
-   - Press F5 in VS Code
-   - Extension loads in new window
-   - Console logs appear in original window
-
-3. **Make Changes**:
-   - Edit code in `src/`
-   - Webpack rebuilds automatically
-   - Reload extension window (Ctrl+R)
-
-4. **Debug**:
-   - Set breakpoints in extension code
-   - View logs in "Debug Console"
-   - Inspect webview with DevTools (Ctrl+Shift+I in webview)
+- `nx build ptah-extension-vscode` — chains `build-esbuild` -> `post-build-copy` (runs `scripts/copy-wasm.js` and `scripts/copy-webview.js`).
+- `nx serve ptah-extension-vscode` — dev build then `@nx/js:node`.
+- `nx run ptah-extension-vscode:package` — runs `pre-package` (copies `.vscodeignore` + repo `README.md`) then `npx @vscode/vsce package` inside `dist/apps/ptah-extension-vscode`.
+- Bundle output: `dist/apps/ptah-extension-vscode/main.mjs` (ESM with `createRequire` banner, externals `vscode`). Production config injects the Sentry DSN via `__SENTRY_DSN__` define.
 
 ## Guidelines
 
-### Extension Lifecycle
+- Never inline tsyringe registrations in `main.ts`. Add to the correct `phase-N-*.ts` and gate with `isRegistered`.
+- `reflect-metadata` MUST be the first import in any file that uses tsyringe decorators (see `src/main.ts:2`).
+- License gate is blocking — anything that should run regardless of license state belongs in `bootstrapVscode` before `handleLicenseBlocking`.
+- New RPC namespaces require both the type declaration AND the runtime `ALLOWED_METHOD_PREFIXES` entry (see user memory note).
 
-```typescript
-// main.ts
-export async function activate(context: vscode.ExtensionContext) {
-  // 1. Initialize DI container
-  // 2. Register services
-  // 3. Register commands
-  // 4. Register webview providers
-  // 5. Setup RPC handlers
-}
+## Marketplace / Deployment Notes
 
-export async function deactivate() {
-  // Cleanup resources
-}
-```
+Read the root `CLAUDE.md` "VS Code Marketplace Publishing Rules" section before any publish. Hard rules enforced here:
 
-### Command Registration
-
-```typescript
-const disposable = vscode.commands.registerCommand('ptah.commandName', async () => {
-  // Command handler
-});
-
-context.subscriptions.push(disposable);
-```
-
-### Webview Best Practices
-
-1. **Security**: Use Content Security Policy
-2. **State Management**: Persist state in webview, not extension
-3. **Communication**: Use RPC for all webview ↔ extension calls
-4. **Lifecycle**: Handle webview disposal properly
-
-### Performance
-
-- **Lazy Load**: Only activate heavy services when needed
-- **Background Processing**: Use worker threads for CPU-intensive tasks
-- **Caching**: Cache expensive computations
-- **Memory**: Dispose resources in `deactivate()`
-
-## Testing
-
-```bash
-# Unit tests
-nx test ptah-extension-vscode
-
-# E2E tests (with VS Code API)
-npm run test:e2e
-
-# Manual testing
-# 1. Run extension in debug mode (F5)
-# 2. Test commands in command palette
-# 3. Verify webview renders correctly
-```
-
-## Troubleshooting
-
-**Extension not activating**:
-
-- Check `activationEvents` in package.json
-- Verify no errors in Output > Extension Host
-
-**Webview not loading**:
-
-- Ensure `ptah-extension-webview` built successfully
-- Check `post-build-copy` executed
-- Verify webview files in `dist/apps/ptah-extension-vscode/webview/`
-
-**RPC communication failing**:
-
-- Check RPC handlers registered
-- Verify message types match between webview and extension
-- Enable RPC debug logging
-
-## Related Documentation
-
-- [Angular Webview App](../ptah-extension-webview/CLAUDE.md)
-- [VS Code Core Library](../../libs/backend/vscode-core/CLAUDE.md)
-- [Shared Types](../../libs/shared/CLAUDE.md)
+- The VSIX must NOT contain `LICENSE.md`, `assets/plugins/**`, `templates/**`, or any `*.py` file (see `.vscodeignore`).
+- README copy in `pre-package` uses the repo root `README.md` — keep it free of `copilot|codex|claude|openai|anthropic` strings.
+- Plugins and templates ship from GitHub via `ContentDownloadService` at runtime; never re-add them as build assets in `project.json`.
+- Bundled JS in `main.mjs` is NOT scanned, so trademarked strings there are safe.
