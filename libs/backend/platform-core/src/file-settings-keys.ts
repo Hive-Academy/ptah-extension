@@ -31,6 +31,8 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // LLM configuration
   'llm.defaultProvider',
   'llm.vscode.model',
+  'reasoningEffort',
+  'model.selected',
 
   // Agent orchestration — Codex
   'agentOrchestration.codexModel',
@@ -176,6 +178,8 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // LLM configuration
   'llm.defaultProvider': 'vscode-lm',
   'llm.vscode.model': 'copilot/gpt-4o',
+  reasoningEffort: 'medium',
+  'model.selected': '',
 
   // Agent orchestration — Codex
   'agentOrchestration.codexModel': '',

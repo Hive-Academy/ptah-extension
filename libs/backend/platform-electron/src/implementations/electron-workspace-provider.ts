@@ -45,7 +45,7 @@ export class ElectronWorkspaceProvider
   private readonly fireConfigChange: (data: ConfigurationChangeEvent) => void;
   private readonly fireFoldersChange: (data: void) => void;
 
-  private readonly fileSettings: PtahFileSettingsManager;
+  public readonly fileSettings: PtahFileSettingsManager;
 
   public pendingOrigin: string | null = null;
 
@@ -271,11 +271,13 @@ export class ElectronWorkspaceProvider
 
   private async persistConfig(): Promise<void> {
     const dir = path.dirname(this.configFilePath);
+    const tmpPath = this.configFilePath + '.tmp';
     await fsPromises.mkdir(dir, { recursive: true });
     await fsPromises.writeFile(
-      this.configFilePath,
+      tmpPath,
       JSON.stringify(this.config, null, 2),
       'utf-8',
     );
+    await fsPromises.rename(tmpPath, this.configFilePath);
   }
 }

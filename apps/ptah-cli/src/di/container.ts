@@ -31,12 +31,11 @@ import {
 import {
   registerPlatformCliServices,
   CliStateStorage,
+  CliWorkspaceProvider,
   type CliPlatformOptions,
 } from '@ptah-extension/platform-cli';
 import {
   PLATFORM_TOKENS,
-  PtahFileSettingsManager,
-  FILE_BASED_SETTINGS_DEFAULTS,
   isFileBasedSettingKey,
   ContentDownloadService,
 } from '@ptah-extension/platform-core';
@@ -175,6 +174,23 @@ export interface CliBootstrapResult {
  * services and uses CLI-compatible replacements for VS Code/Electron-specific ones.
  */
 export class CliDIContainer {
+  /**
+   * The PtahFileSettingsManager instance shared with CliWorkspaceProvider.
+   * Stored statically so process.on('exit', ...) in main.ts can call
+   * flushSync() without needing an async reference into the container.
+   * Undefined before setup() is called.
+   */
+  private static _fileSettings: { flushSync(): void } | undefined;
+
+  /**
+   * Synchronously flush any pending file-based settings writes to disk.
+   * Safe to call from process.on('exit', ...) — never throws.
+   * No-op if setup() has not been called yet.
+   */
+  static flushSync(): void {
+    CliDIContainer._fileSettings?.flushSync();
+  }
+
   /**
    * Setup and orchestrate all service registrations for the TUI.
    *
@@ -390,13 +406,22 @@ export class CliDIContainer {
     // ========================================
     // PHASE 1.4: CONFIG_MANAGER shim (required by llm-abstraction, workspace-intelligence)
     // ========================================
+    // ConfigManager (vscode-core) imports 'vscode' directly and cannot be used
+    // in the CLI. We keep the shim but source fileSettings from the
+    // CliWorkspaceProvider registered in Phase 0 so both the workspace provider
+    // and the config shim share the same PtahFileSettingsManager instance.
+    // The shared instance is stored on CliDIContainer._fileSettings so that
+    // process.on('exit', ...) in main.ts can call flushSync() synchronously.
     try {
       const configStorage = container.resolve<IStateStorage>(
         PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
       );
-      const fileSettings = new PtahFileSettingsManager(
-        FILE_BASED_SETTINGS_DEFAULTS,
+      const workspaceProvider = container.resolve<CliWorkspaceProvider>(
+        PLATFORM_TOKENS.WORKSPACE_PROVIDER,
       );
+      const fileSettings = workspaceProvider.fileSettings;
+      // Expose to the static flushSync() entry-point used by main.ts exit handler.
+      CliDIContainer._fileSettings = fileSettings;
       const configManagerShim = {
         get: <T>(key: string): T | undefined => {
           if (isFileBasedSettingKey(key)) {

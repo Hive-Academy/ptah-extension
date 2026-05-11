@@ -23,16 +23,12 @@ import { TOKENS } from '../di/tokens';
 /**
  * Preference keys for type-safe access
  */
-export type PreferenceKey =
-  | 'model.selected'
-  | 'autopilot.enabled'
-  | 'autopilot.permissionLevel';
+export type PreferenceKey = 'autopilot.enabled' | 'autopilot.permissionLevel';
 
 /**
  * Default values for preferences
  */
 const PREFERENCE_DEFAULTS: Record<PreferenceKey, unknown> = {
-  'model.selected': undefined, // Resolved by SDK's getDefaultModel() on first init
   'autopilot.enabled': false,
   'autopilot.permissionLevel': 'ask',
 };
@@ -94,10 +90,10 @@ export class PreferencesStorageService implements IPreferencesStorageService {
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: vscode.ExtensionContext,
     @inject(TOKENS.LOGGER)
-    private readonly logger: Logger
+    private readonly logger: Logger,
   ) {
     this.logger.debug(
-      '[PreferencesStorageService] Service initialized with workspaceState'
+      '[PreferencesStorageService] Service initialized with workspaceState',
     );
   }
 
@@ -179,7 +175,6 @@ export class PreferencesStorageService implements IPreferencesStorageService {
    */
   getAll(): Record<PreferenceKey, unknown> {
     const keys: PreferenceKey[] = [
-      'model.selected',
       'autopilot.enabled',
       'autopilot.permissionLevel',
     ];

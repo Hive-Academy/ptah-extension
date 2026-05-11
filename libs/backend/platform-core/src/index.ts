@@ -78,3 +78,6 @@ export type {
   AgentPackEntry,
   AgentPackDownloadResult,
 } from './agent-pack-download.service';
+
+// Settings auth key resolution helper (WP-2A)
+export { resolveAuthProviderKey } from './settings-auth-key';

@@ -8,6 +8,8 @@ import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { IStateStorage } from '@ptah-extension/platform-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
 import { bootstrapElectron } from './activation/bootstrap';
 import { wireRuntime } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
@@ -16,6 +18,9 @@ import { UPDATE_MANAGER_TOKEN } from './services/update/update-tokens';
 
 // @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Force userData path to be stable across dev and packaged builds
+app.setName('Ptah');
 
 // Prevent multiple instances
 const gotLock = app.requestSingleInstanceLock();
@@ -42,6 +47,21 @@ if (!gotLock) {
   app.whenReady().then(async () => {
     const boot = await bootstrapElectron(() => mainWindow);
     flushWorkspacePersistence = boot.flushWorkspacePersistence;
+
+    app.on('before-quit', () => {
+      try {
+        const workspaceProvider =
+          boot.container.resolve<ElectronWorkspaceProvider>(
+            PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+          );
+        workspaceProvider.fileSettings.flushSync();
+      } catch (error) {
+        console.warn(
+          '[Ptah Electron] before-quit fileSettings flush failed (non-fatal):',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    });
 
     const wired = await wireRuntime({
       container: boot.container,

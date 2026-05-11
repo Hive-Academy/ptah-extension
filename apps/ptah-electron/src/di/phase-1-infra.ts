@@ -19,8 +19,7 @@ import type { DependencyContainer } from 'tsyringe';
 
 import {
   PLATFORM_TOKENS,
-  PtahFileSettingsManager,
-  FILE_BASED_SETTINGS_DEFAULTS,
+  FILE_BASED_SETTINGS_KEYS,
   isFileBasedSettingKey,
   type IStateStorage,
   type ISecretStorage,
@@ -29,11 +28,15 @@ import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron'
 import {
   TOKENS,
   registerVsCodeCorePlatformAgnostic,
+  ConfigManager,
   WorkspaceContextManager,
   WorkspaceAwareStateStorage,
   type Logger,
 } from '@ptah-extension/vscode-core';
-import { ElectronStateStorage } from '@ptah-extension/platform-electron';
+import {
+  ElectronStateStorage,
+  ElectronWorkspaceProvider,
+} from '@ptah-extension/platform-electron';
 
 /**
  * Phase 1: Register logger-adjacent infrastructure services and environment shims.
@@ -81,96 +84,33 @@ export function registerPhase1Infra(
   }
 
   // ========================================
-  // PHASE 1.4: CONFIG_MANAGER shim (required by llm-abstraction, workspace-intelligence, agent-generation)
+  // PHASE 1.4: CONFIG_MANAGER — real ConfigManager wired to ElectronWorkspaceProvider.fileSettings
   // ========================================
-  // ConfigManager wraps vscode.workspace.getConfiguration('ptah').
-  // Services call config.get<T>(key) and config.update(key, value).
-  // In Electron, we delegate to the workspace state storage.
+  // WORKSPACE_PROVIDER was registered in Phase 0 via registerPlatformElectronServices.
+  // We resolve the already-registered ElectronWorkspaceProvider to reuse its
+  // PtahFileSettingsManager instance (no second instance created).
   //
-  // TASK_2025_247 Batch 3, Task 3.3: File-based settings routing.
-  // Keys in FILE_BASED_SETTINGS_KEYS are routed to PtahFileSettingsManager
-  // (~/.ptah/settings.json) instead of the workspace state storage.
+  // ConfigManager uses the vscode-shim's workspace.getConfiguration (no-op in
+  // Electron) for non-file-based keys. All provider/AI keys in FILE_BASED_SETTINGS_KEYS
+  // are routed to PtahFileSettingsManager (~/.ptah/settings.json) via setFileSettingsStore.
   try {
-    const configStorage = container.resolve<IStateStorage>(
-      PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
+    container.registerSingleton(TOKENS.CONFIG_MANAGER, ConfigManager);
+    const configManager = container.resolve<ConfigManager>(
+      TOKENS.CONFIG_MANAGER,
     );
-    const fileSettings = new PtahFileSettingsManager(
-      FILE_BASED_SETTINGS_DEFAULTS,
+    const workspaceProvider = container.resolve<ElectronWorkspaceProvider>(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
     );
-    const configManagerShim = {
-      get: <T>(key: string): T | undefined => {
-        if (isFileBasedSettingKey(key)) {
-          return fileSettings.get<T>(key);
-        }
-        return configStorage.get<T>(`ptah.${key}`);
-      },
-      getWithDefault: <T>(key: string, defaultValue: T): T => {
-        if (isFileBasedSettingKey(key)) {
-          return fileSettings.get<T>(key, defaultValue) ?? defaultValue;
-        }
-        const value = configStorage.get<T>(`ptah.${key}`);
-        return value !== undefined ? value : defaultValue;
-      },
-      getTyped: <T>(key: string): T | undefined => {
-        if (isFileBasedSettingKey(key)) {
-          return fileSettings.get<T>(key);
-        }
-        return configStorage.get<T>(`ptah.${key}`);
-      },
-      getTypedWithDefault: <T>(
-        key: string,
-        _schema: unknown,
-        defaultValue: T,
-      ): T => {
-        if (isFileBasedSettingKey(key)) {
-          return fileSettings.get<T>(key, defaultValue) ?? defaultValue;
-        }
-        const value = configStorage.get<T>(`ptah.${key}`);
-        return value !== undefined ? value : defaultValue;
-      },
-      set: async <T>(key: string, value: T): Promise<void> => {
-        if (isFileBasedSettingKey(key)) {
-          await fileSettings.set(key, value);
-          return;
-        }
-        await configStorage.update(`ptah.${key}`, value);
-      },
-      setTyped: async <T>(key: string, value: T): Promise<void> => {
-        if (isFileBasedSettingKey(key)) {
-          await fileSettings.set(key, value);
-          return;
-        }
-        await configStorage.update(`ptah.${key}`, value);
-      },
-      update: async (key: string, value: unknown): Promise<void> => {
-        if (isFileBasedSettingKey(key)) {
-          await fileSettings.set(key, value);
-          return;
-        }
-        await configStorage.update(`ptah.${key}`, value);
-      },
-      watch: (
-        _key: string,
-        _callback: (value: unknown) => void,
-      ): { dispose: () => void } => ({
-        dispose: () => {
-          /* no-op: Electron has no vscode config change events */
-        },
-      }),
-      onDidChangeConfiguration: () => ({
-        dispose: () => {
-          /* no-op: Electron has no vscode config change events */
-        },
-      }),
-    };
-    container.register(TOKENS.CONFIG_MANAGER, {
-      useValue: configManagerShim,
-    });
+    configManager.setFileSettingsStore(
+      FILE_BASED_SETTINGS_KEYS,
+      workspaceProvider.fileSettings,
+      isFileBasedSettingKey,
+    );
     logger.info(
-      '[Electron DI] CONFIG_MANAGER shim registered (delegates to workspace state storage + file-based settings)',
+      '[Electron DI] CONFIG_MANAGER registered (real ConfigManager + file-based settings routed via ElectronWorkspaceProvider.fileSettings)',
     );
   } catch (error) {
-    logger.error('[Electron DI] Failed to register CONFIG_MANAGER shim', {
+    logger.error('[Electron DI] Failed to register CONFIG_MANAGER', {
       error: error instanceof Error ? error.message : String(error),
     });
   }

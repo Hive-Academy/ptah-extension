@@ -199,4 +199,60 @@ describe('ElectronWorkspaceProvider — Electron-specific behaviour', () => {
     sub.dispose();
     expect(events).toContain(true);
   });
+
+  // -------------------------------------------------------------------------
+  // TC-4 — Batch 1: persistConfig() uses atomic tmp-rename pattern
+  // -------------------------------------------------------------------------
+  it('TC-4: persistConfig leaves no .tmp file behind and produces a valid config.json', async () => {
+    // Behavioral verification of the atomic tmp-rename contract:
+    // After a successful write, only config.json must exist — no .tmp residue.
+    const configPath = path.join(storage, 'config.json');
+    const tmpPath = configPath + '.tmp';
+
+    // Trigger a config persist for a NON file-based key
+    // (file-based keys route to PtahFileSettingsManager, not persistConfig)
+    await provider.setConfiguration('ptah', 'telemetry', true);
+
+    // The final file must exist and contain valid JSON with the written value
+    const rawConfig = await fs.readFile(configPath, 'utf-8');
+    const parsed = JSON.parse(rawConfig) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(parsed['ptah']?.['telemetry']).toBe(true);
+
+    // The .tmp file must NOT remain (atomic rename completed)
+    let tmpExists: boolean;
+    try {
+      await fs.access(tmpPath);
+      tmpExists = true;
+    } catch {
+      tmpExists = false;
+    }
+    expect(tmpExists).toBe(false);
+  });
+
+  it('TC-4b: source code audit — persistConfig implementation uses .tmp suffix and rename', async () => {
+    // Static analysis: read the implementation source and verify the atomic
+    // write pattern is present. This is a regression guard against reverting
+    // the Batch 1 atomic write addition.
+    const fsNode = await import('fs');
+    const nodePath = await import('path');
+    const implPath = nodePath.default.resolve(
+      __dirname,
+      'electron-workspace-provider.ts',
+    );
+    const source = fsNode.default.readFileSync(implPath, 'utf-8');
+
+    // Must contain the .tmp suffix construction
+    expect(source).toMatch(/\.tmp/);
+    // Must call rename (async rename pattern)
+    expect(source).toMatch(/rename\s*\(/);
+    // writeFile must appear before rename in the source text
+    const writeIdx = source.indexOf('writeFile(');
+    const renameIdx = source.lastIndexOf('rename(');
+    expect(writeIdx).toBeGreaterThan(-1);
+    expect(renameIdx).toBeGreaterThan(-1);
+    expect(writeIdx).toBeLessThan(renameIdx);
+  });
 });

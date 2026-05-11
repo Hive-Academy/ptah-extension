@@ -319,4 +319,80 @@ describe('PtahFileSettingsManager', () => {
       expect(parsed['version']).toBe(1);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Batch 1 targeted invariants — WP-1T validation
+  // -------------------------------------------------------------------------
+
+  describe('flushSync() — Batch 1 invariants', () => {
+    it('TC-1: writes synchronously — file is readable with no await between flushSync and readFileSync', () => {
+      // Arrange: construct manager, set a value (sync in-memory write; async disk write queued)
+      const mgr = new PtahFileSettingsManager({});
+      // Use the internal sync path — set() is async but flushSync() should
+      // independently serialize current in-memory state.
+      // We trigger a set() but do NOT await it so the async persist() may not
+      // have finished. Then we call flushSync() and read synchronously.
+      void mgr.set('authMethod', 'flushSync-value');
+
+      // Act: flush synchronously — CRITICAL: no await anywhere in this block
+      mgr.flushSync();
+
+      // Assert: file must be present and contain the set value
+      expect(fs.existsSync(SETTINGS_PATH)).toBe(true);
+      const raw = fs.readFileSync(SETTINGS_PATH, 'utf-8'); // no await
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      expect(parsed['authMethod']).toBe('flushSync-value');
+    });
+
+    it('TC-1b: flushSync writes nested JSON with $schema and version headers', () => {
+      const mgr = new PtahFileSettingsManager({});
+      void mgr.set('authMethod', 'batch1-test');
+      mgr.flushSync();
+
+      const raw = fs.readFileSync(SETTINGS_PATH, 'utf-8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      expect(parsed['$schema']).toBe('https://ptah.live/schemas/settings.json');
+      expect(parsed['version']).toBe(1);
+      // Verify nested unflatten happened (authMethod is a top-level key, not nested)
+      expect(parsed['authMethod']).toBe('batch1-test');
+    });
+
+    it('TC-2: flushSync does not throw when the write target is unwritable (crash-safety)', () => {
+      const mgr = new PtahFileSettingsManager({});
+      void mgr.set('authMethod', 'safe');
+
+      // Arrange: make the .flush.tmp path a directory — writeFileSync will throw EISDIR
+      fs.mkdirSync(PTAH_DIR, { recursive: true });
+      const tmpPath = SETTINGS_PATH + '.flush.tmp';
+      fs.mkdirSync(tmpPath, { recursive: true }); // occupy the tmp slot with a dir
+
+      const errorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined);
+
+      // Act: must NOT throw even though the write will fail
+      expect(() => mgr.flushSync()).not.toThrow();
+
+      // Assert: error was logged (not silently swallowed)
+      expect(errorSpy).toHaveBeenCalled();
+
+      errorSpy.mockRestore();
+      // Cleanup: remove the dir so afterEach cleanPtahDir works
+      try {
+        fs.rmdirSync(tmpPath);
+      } catch {
+        /* best-effort */
+      }
+    });
+
+    it('TC-3: FILE_BASED_SETTINGS_KEYS contains "reasoningEffort" and "model.selected"', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has('reasoningEffort')).toBe(true);
+      expect(FILE_BASED_SETTINGS_KEYS.has('model.selected')).toBe(true);
+    });
+
+    it('TC-3b: FILE_BASED_SETTINGS_DEFAULTS has correct values for Batch 1 additions', () => {
+      expect(FILE_BASED_SETTINGS_DEFAULTS['reasoningEffort']).toBe('medium');
+      expect(FILE_BASED_SETTINGS_DEFAULTS['model.selected']).toBe('');
+    });
+  });
 });

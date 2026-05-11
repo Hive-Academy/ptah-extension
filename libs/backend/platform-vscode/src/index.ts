@@ -1,6 +1,13 @@
 // Registration function (primary export)
 export { registerPlatformVscodeServices } from './registration';
 
+// Settings registration (WP-2B)
+export { registerVscodeSettings } from './settings/vscode-settings-registration';
+export {
+  VscodeSettingsAdapter,
+  type VscodeApiSlice,
+} from './settings/vscode-settings-adapter';
+
 // Implementation classes (for testing/extension only)
 export { VscodeFileSystemProvider } from './implementations/vscode-file-system-provider';
 export { VscodeStateStorage } from './implementations/vscode-state-storage';

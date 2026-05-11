@@ -25,6 +25,11 @@ export interface FileSettingsDefaults {
   [key: string]: unknown;
 }
 
+/** Minimal disposable returned by watch(). */
+export interface ISettingsWatchHandle {
+  dispose(): void;
+}
+
 export class PtahFileSettingsManager {
   /** In-memory cache using flat dot-notation keys */
   private settings: Record<string, unknown> = {};
@@ -33,6 +38,11 @@ export class PtahFileSettingsManager {
   private readonly defaults: FileSettingsDefaults;
   /** Write serialization — prevents concurrent persist() calls from corrupting the file */
   private writePromise: Promise<void> = Promise.resolve();
+  /**
+   * In-process listeners for individual setting keys.
+   * Phase 5 will add cross-process fs.watch() on top of this.
+   */
+  private readonly listeners = new Map<string, Set<(value: unknown) => void>>();
 
   constructor(defaults: FileSettingsDefaults) {
     this.dirPath = path.join(homedir(), '.ptah');
@@ -60,7 +70,8 @@ export class PtahFileSettingsManager {
   }
 
   /**
-   * Set a setting value. Updates in-memory cache and persists to disk atomically.
+   * Set a setting value. Updates in-memory cache, persists to disk atomically,
+   * then fires in-process listeners registered via watch().
    */
   async set(key: string, value: unknown): Promise<void> {
     this.settings[key] = value;
@@ -69,6 +80,14 @@ export class PtahFileSettingsManager {
       () => this.persist(),
     );
     await this.writePromise;
+    // Fire listeners after the write resolves.
+    this.listeners.get(key)?.forEach((cb) => {
+      try {
+        cb(value);
+      } catch {
+        // Listener errors must not abort other listeners.
+      }
+    });
   }
 
   /**
@@ -76,6 +95,58 @@ export class PtahFileSettingsManager {
    */
   getFilePath(): string {
     return this.filePath;
+  }
+
+  /**
+   * Subscribe to in-process changes on a single settings key.
+   *
+   * The callback fires whenever `set(key, value)` resolves successfully.
+   * This covers in-process writes only — cross-process reactivity (fs.watch on
+   * settings.json) is deferred to Phase 5 (cross-process reactivity WP-5).
+   *
+   * Returns a disposable handle to unsubscribe.
+   */
+  watch(key: string, cb: (value: unknown) => void): ISettingsWatchHandle {
+    if (!this.listeners.has(key)) {
+      this.listeners.set(key, new Set());
+    }
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    this.listeners.get(key)!.add(cb);
+    return {
+      dispose: () => {
+        this.listeners.get(key)?.delete(cb);
+      },
+    };
+  }
+
+  /**
+   * Synchronously flush the current in-memory settings to disk using the same
+   * atomic tmp-rename pattern as persist(). Safe to call from process-exit
+   * handlers (will-quit, before-quit) — errors are caught and logged, never thrown.
+   */
+  flushSync(): void {
+    try {
+      fs.mkdirSync(this.dirPath, { recursive: true });
+
+      const nested = unflattenObject(this.settings);
+      const output = {
+        $schema: 'https://ptah.live/schemas/settings.json',
+        version: 1,
+        ...nested,
+      };
+
+      const json = JSON.stringify(output, null, 2);
+      // Distinct tmp path so a concurrent async persist() does not race on the same file.
+      const tmpPath = this.filePath + '.flush.tmp';
+
+      fs.writeFileSync(tmpPath, json, 'utf-8');
+      fs.renameSync(tmpPath, this.filePath);
+    } catch (error: unknown) {
+      console.error(
+        `[PtahFileSettingsManager] flushSync failed for ${this.filePath}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   /**

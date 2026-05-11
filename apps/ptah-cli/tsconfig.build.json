@@ -41,6 +41,9 @@
       ],
       "@ptah-extension/messaging-gateway": [
         "libs/backend/messaging-gateway/src/index.ts"
+      ],
+      "@ptah-extension/settings-core": [
+        "libs/backend/settings-core/src/index.ts"
       ]
     }
   }

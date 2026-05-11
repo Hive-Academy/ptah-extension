@@ -1,0 +1,33 @@
+{
+  "name": "settings-core",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "libs/backend/settings-core/src",
+  "tags": ["scope:extension", "type:core"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/settings-core",
+        "main": "libs/backend/settings-core/src/index.ts",
+        "tsConfig": "libs/backend/settings-core/tsconfig.lib.json",
+        "format": ["cjs"]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/settings-core/tsconfig.lib.json"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/libs/backend/settings-core"],
+      "options": {
+        "jestConfig": "libs/backend/settings-core/jest.config.ts",
+        "passWithNoTests": false
+      }
+    }
+  }
+}
