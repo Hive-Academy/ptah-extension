@@ -16,6 +16,10 @@ import {
   runWorkspaceContract,
   type WorkspaceProviderSetup,
 } from '@ptah-extension/platform-core/testing';
+import {
+  FILE_BASED_SETTINGS_DEFAULTS,
+  isFileBasedSettingKey,
+} from '@ptah-extension/platform-core';
 import { ElectronWorkspaceProvider } from './electron-workspace-provider';
 
 const tmpDirs: string[] = [];
@@ -129,5 +133,70 @@ describe('ElectronWorkspaceProvider — Electron-specific behaviour', () => {
   it('loadConfigSync recovers from a missing config file without throwing', () => {
     // Fresh dir — no config.json exists. Constructor must not throw.
     expect(() => new ElectronWorkspaceProvider(storage)).not.toThrow();
+  });
+
+  it('loadConfigSync reads an existing config.json on construction', async () => {
+    await fs.writeFile(
+      path.join(storage, 'config.json'),
+      JSON.stringify({ ptah: { seeded: 42 } }),
+      'utf-8',
+    );
+    const p = new ElectronWorkspaceProvider(storage);
+    expect(p.getConfiguration<number>('ptah', 'seeded')).toBe(42);
+  });
+
+  it('removeFolder is a no-op when the folder is not in the list', () => {
+    const a = path.resolve('/ws/a');
+    provider.addFolder(a);
+    let fired = 0;
+    const sub = provider.onDidChangeWorkspaceFolders(() => {
+      fired += 1;
+    });
+    provider.removeFolder(path.resolve('/ws/never'));
+    sub.dispose();
+    expect(fired).toBe(0);
+    expect(provider.getWorkspaceFolders()).toEqual([a]);
+  });
+
+  it('setActiveFolder switches the active folder and fires the change event', () => {
+    const a = path.resolve('/ws/a');
+    const b = path.resolve('/ws/b');
+    provider.addFolder(a);
+    provider.addFolder(b);
+    let fired = 0;
+    const sub = provider.onDidChangeWorkspaceFolders(() => {
+      fired += 1;
+    });
+    provider.setActiveFolder(b);
+    sub.dispose();
+    expect(provider.getActiveFolder()).toBe(b);
+    expect(fired).toBeGreaterThanOrEqual(1);
+  });
+
+  it('setPendingOrigin records the supplied token verbatim', () => {
+    provider.setPendingOrigin('origin-123');
+    expect(provider.pendingOrigin).toBe('origin-123');
+    provider.setPendingOrigin(null);
+    expect(provider.pendingOrigin).toBeNull();
+  });
+
+  it('setConfiguration for a file-based key fires affectsConfiguration for the full key', async () => {
+    // FILE_BASED_SETTINGS_KEYS includes provider settings — pick the first
+    // file-based key dynamically so the test does not couple to a specific
+    // trademarked name.
+    const fileBasedKey = Object.keys(FILE_BASED_SETTINGS_DEFAULTS).find((k) =>
+      isFileBasedSettingKey(k),
+    );
+    if (!fileBasedKey) {
+      // No file-based keys configured — nothing to assert.
+      return;
+    }
+    const events: boolean[] = [];
+    const sub = provider.onDidChangeConfiguration((e) => {
+      events.push(e.affectsConfiguration(`ptah.${fileBasedKey}`));
+    });
+    await provider.setConfiguration('ptah', fileBasedKey, 'some-value');
+    sub.dispose();
+    expect(events).toContain(true);
   });
 });

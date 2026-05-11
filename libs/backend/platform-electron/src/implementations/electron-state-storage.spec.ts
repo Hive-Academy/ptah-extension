@@ -106,6 +106,26 @@ describe('ElectronStateStorage — Electron-specific behaviour', () => {
     expect(p.keys()).toEqual([]);
   });
 
+  it('updateSync with undefined deletes the key on disk', () => {
+    provider.updateSync('flag', true);
+    provider.updateSync('flag', undefined);
+    const fresh = new ElectronStateStorage(storage, 'state.json');
+    expect(fresh.keys()).not.toContain('flag');
+  });
+
+  it('update recovers when a previous persist rejected (then-error branch)', async () => {
+    // Point a fresh provider at a path whose parent is a regular file —
+    // mkdir({ recursive }) then fails with ENOTDIR and the first write
+    // rejects. After clearing the blocker, the chain must still drain.
+    const blocker = path.join(storage, 'blocker');
+    await fs.writeFile(blocker, 'not-a-dir', 'utf-8');
+    const sub = path.join(blocker, 'nested');
+    const broken = new ElectronStateStorage(sub, 'state.json');
+    await expect(broken.update('k1', 1)).rejects.toBeDefined();
+    await fs.rm(blocker, { force: true });
+    await expect(broken.update('k2', 2)).resolves.toBeUndefined();
+  });
+
   it('uses atomic rename (no leftover .tmp after a successful write)', async () => {
     await provider.update('atomic', true);
     const entries = await fs.readdir(storage);
