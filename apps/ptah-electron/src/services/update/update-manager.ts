@@ -42,6 +42,14 @@ export class UpdateManager {
   private _listenersRegistered = false;
   /** Cached version from the most recent `update-available` or `update-downloaded` event. */
   private _pendingVersion = '';
+  /**
+   * Cached reference to the resolved `autoUpdater` singleton. Captured during
+   * the first `start()` call so `dispose()` can detach listeners synchronously
+   * during `will-quit` cleanup (per ptah-electron CLAUDE.md: `will-quit` runs
+   * LIFO and synchronously — no dynamic imports allowed there).
+   */
+  private _autoUpdater: typeof import('electron-updater').autoUpdater | null =
+    null;
 
   constructor(
     @inject(TOKENS.WEBVIEW_MANAGER)
@@ -78,6 +86,7 @@ export class UpdateManager {
     }
 
     const { autoUpdater } = await import('electron-updater');
+    this._autoUpdater = autoUpdater;
 
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
@@ -228,16 +237,27 @@ export class UpdateManager {
     }
 
     // Remove all autoUpdater listeners so the singleton does not accumulate
-    // handlers across UpdateManager instances.
-    void import('electron-updater').then(({ autoUpdater }) => {
-      autoUpdater.removeAllListeners('checking-for-update');
-      autoUpdater.removeAllListeners('update-available');
-      autoUpdater.removeAllListeners('update-not-available');
-      autoUpdater.removeAllListeners('download-progress');
-      autoUpdater.removeAllListeners('update-downloaded');
-      autoUpdater.removeAllListeners('error');
-    });
+    // handlers across UpdateManager instances. Runs synchronously against the
+    // cached reference — dynamic imports inside `will-quit` are unsafe because
+    // the module may already be torn down by the time the Promise resolves.
+    if (this._listenersRegistered && this._autoUpdater) {
+      const au = this._autoUpdater;
+      try {
+        au.removeAllListeners('checking-for-update');
+        au.removeAllListeners('update-available');
+        au.removeAllListeners('update-not-available');
+        au.removeAllListeners('download-progress');
+        au.removeAllListeners('update-downloaded');
+        au.removeAllListeners('error');
+      } catch (err: unknown) {
+        this.logger.warn(
+          '[UpdateManager] removeAllListeners during dispose failed',
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      }
+    }
 
+    this._autoUpdater = null;
     this._listenersRegistered = false;
     this._pendingVersion = '';
   }
