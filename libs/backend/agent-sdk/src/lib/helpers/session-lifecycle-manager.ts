@@ -44,7 +44,10 @@ import type {
   WorktreeRemovedCallback,
 } from './worktree-hook-handler';
 import type { ModelResolver } from '../auth/model-resolver';
-import { SessionRegistry } from './session-lifecycle/session-registry.service';
+import {
+  SessionRegistry,
+  type SessionRecord,
+} from './session-lifecycle/session-registry.service';
 import { SessionStreamPump } from './session-lifecycle/session-stream-pump.service';
 import { SessionQueryExecutor } from './session-lifecycle/session-query-executor.service';
 import { SessionControl } from './session-lifecycle/session-control.service';
@@ -52,6 +55,9 @@ import type { SessionEndCallbackRegistry } from './session-end-callback-registry
 
 // Re-export for backward compatibility with other files
 export type { SDKUserMessage, ContentBlock };
+
+// TASK_2026_118 P1: Re-export SessionRecord for consumers using the new API.
+export type { SessionRecord } from './session-lifecycle/session-registry.service';
 
 /**
  * Query interface - matches SDK's Query runtime structure
@@ -360,6 +366,37 @@ export class SessionLifecycleManager {
     abortController: AbortController,
   ): void {
     this._registry.preRegisterActiveSession(sessionId, config, abortController);
+  }
+
+  // ─── TASK_2026_118 P1: New dual-index facade methods ──────────────────────
+
+  /**
+   * Register a new session into the dual-index registry.
+   * Delegates to SessionRegistry.register().
+   * Returns the SessionRecord so callers can hold the object reference.
+   */
+  register(
+    tabId: string,
+    config: AISessionConfig,
+    abortController: AbortController,
+  ): SessionRecord {
+    return this._registry.register(tabId, config, abortController);
+  }
+
+  /**
+   * Bind the real SDK session UUID to a registered session record.
+   * Delegates to SessionRegistry.bindRealSessionId().
+   */
+  bindRealSessionId(tabId: string, realSessionId: string): void {
+    this._registry.bindRealSessionId(tabId, realSessionId);
+  }
+
+  /**
+   * Find a session record by either tabId or realSessionId.
+   * Delegates to SessionRegistry.find().
+   */
+  find(idOrTabId: string): SessionRecord | undefined {
+    return this._registry.find(idOrTabId);
   }
 
   /**
