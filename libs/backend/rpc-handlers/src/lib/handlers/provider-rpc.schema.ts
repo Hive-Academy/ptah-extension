@@ -48,11 +48,14 @@ export type ProviderListModelsInput = z.infer<typeof ProviderListModelsSchema>;
  *                    `anthropic/claude-3.5-sonnet`).
  *   - `providerId` — optional override for the provider to map this tier
  *                    against. Falls back to persisted config.
+ *   - `scope`      — required scope: `mainAgent` (mutates globals) or
+ *                    `cliAgent` (persists only, no global side-effects).
  */
 export const ProviderSetModelTierSchema = z.object({
   tier: z.enum(['sonnet', 'opus', 'haiku']),
   modelId: z.string().min(1),
   providerId: z.string().optional(),
+  scope: z.enum(['mainAgent', 'cliAgent']),
 });
 
 export type ProviderSetModelTierInput = z.infer<
@@ -65,9 +68,11 @@ export type ProviderSetModelTierInput = z.infer<
  * Fields:
  *   - `providerId` — optional override for which provider's tier mapping to
  *                    return. Falls back to persisted config.
+ *   - `scope`      — required scope: `mainAgent` or `cliAgent`.
  */
 export const ProviderGetModelTiersSchema = z.object({
   providerId: z.string().optional(),
+  scope: z.enum(['mainAgent', 'cliAgent']),
 });
 
 export type ProviderGetModelTiersInput = z.infer<
@@ -82,10 +87,13 @@ export type ProviderGetModelTiersInput = z.infer<
  *                    `haiku`).
  *   - `providerId` — optional override for which provider's tier to clear.
  *                    Falls back to persisted config.
+ *   - `scope`      — required scope: `mainAgent` (also clears the global
+ *                    env var) or `cliAgent` (config only).
  */
 export const ProviderClearModelTierSchema = z.object({
   tier: z.enum(['sonnet', 'opus', 'haiku']),
   providerId: z.string().optional(),
+  scope: z.enum(['mainAgent', 'cliAgent']),
 });
 
 export type ProviderClearModelTierInput = z.infer<

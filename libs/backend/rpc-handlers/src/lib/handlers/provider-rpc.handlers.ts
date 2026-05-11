@@ -461,12 +461,14 @@ export class ProviderRpcHandlers {
           providerId,
           tier: validated.tier,
           modelId: validated.modelId,
+          scope: validated.scope,
         });
 
         await this.providerModels.setModelTier(
           providerId,
           validated.tier,
           validated.modelId,
+          validated.scope,
         );
 
         // Clear SDK model cache so the next config:models-list call re-fetches
@@ -477,6 +479,7 @@ export class ProviderRpcHandlers {
           providerId,
           tier: validated.tier,
           modelId: validated.modelId,
+          scope: validated.scope,
         });
 
         return { success: true };
@@ -509,12 +512,19 @@ export class ProviderRpcHandlers {
         const validated = ProviderGetModelTiersSchema.parse(params ?? {});
         const providerId = this.resolveProviderId(validated.providerId);
 
-        this.logger.debug('RPC: provider:getModelTiers called', { providerId });
+        this.logger.debug('RPC: provider:getModelTiers called', {
+          providerId,
+          scope: validated.scope,
+        });
 
-        const tiers = this.providerModels.getModelTiers(providerId);
+        const tiers = this.providerModels.getModelTiers(
+          providerId,
+          validated.scope,
+        );
 
         this.logger.debug('RPC: provider:getModelTiers result', {
           providerId,
+          scope: validated.scope,
           tiers,
         });
 
@@ -548,9 +558,14 @@ export class ProviderRpcHandlers {
         this.logger.debug('RPC: provider:clearModelTier called', {
           providerId,
           tier: validated.tier,
+          scope: validated.scope,
         });
 
-        await this.providerModels.clearModelTier(providerId, validated.tier);
+        await this.providerModels.clearModelTier(
+          providerId,
+          validated.tier,
+          validated.scope,
+        );
 
         // Clear SDK model cache so the next config:models-list call re-fetches
         // models without the removed tier override.
@@ -559,6 +574,7 @@ export class ProviderRpcHandlers {
         this.logger.info('RPC: provider:clearModelTier completed', {
           providerId,
           tier: validated.tier,
+          scope: validated.scope,
         });
 
         return { success: true };

@@ -614,7 +614,7 @@ export class ConfigRpcHandlers {
       if (providerId === 'anthropic') {
         return null;
       }
-      return this.providerModels.getModelTiers(providerId);
+      return this.providerModels.getModelTiers(providerId, 'mainAgent');
     } catch (e) {
       this.logger.warn(
         'Failed to read provider tier overrides',

@@ -574,6 +574,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
             <ptah-provider-model-selector
               [providerId]="modelMappingAgent()!.providerId"
               [hasKey]="modelMappingAgent()!.hasApiKey"
+              [scope]="'cliAgent'"
             />
           }
         </div>
@@ -1074,6 +1075,7 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
         try {
           const result = await this.rpcService.call('provider:getModelTiers', {
             providerId,
+            scope: 'cliAgent',
           });
           if (result.isSuccess() && result.data) {
             const data = result.data as unknown as {

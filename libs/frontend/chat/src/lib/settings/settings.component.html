@@ -184,6 +184,7 @@
             <ptah-provider-model-selector
               [providerId]="authState.effectiveProviderId()"
               [hasKey]="authState.hasProviderCredential()"
+              [scope]="'mainAgent'"
             />
           }
         </div>

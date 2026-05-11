@@ -784,7 +784,13 @@ export class AuthRpcHandlers {
     if (!provider?.defaultTiers) return;
 
     try {
-      const currentTiers = this.providerModels.getModelTiers(providerId);
+      // Auto-mapping applies to the main agent only. CLI sub-agents fall back
+      // to provider.defaultTiers at runtime in buildAuthEnv — no persistence
+      // needed for their defaults.
+      const currentTiers = this.providerModels.getModelTiers(
+        providerId,
+        'mainAgent',
+      );
       const { defaultTiers } = provider;
 
       const tierNames = Object.keys(TIER_ENV_VAR_MAP) as Array<
@@ -798,6 +804,7 @@ export class AuthRpcHandlers {
               providerId,
               tier,
               defaultTiers[tier],
+              'mainAgent',
             ),
           );
         }
