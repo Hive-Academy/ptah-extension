@@ -25,6 +25,7 @@ import {
   ChatMessageHandler,
   AgentMonitorMessageHandler,
   ChatStore,
+  UpdateBannerService,
   WorkspaceCoordinatorService,
   WorkspaceIndexingService,
   provideModelRefreshControl,
@@ -182,6 +183,16 @@ export const appConfig: ApplicationConfig = {
       useExisting: GatewayStateService,
       multi: true,
     },
+    // === TASK_2026_117_UPDATE_UX_BEGIN ===
+    // UpdateBannerService listens for UPDATE_STATUS_CHANGED push events
+    // (Electron-only) emitted by the main-process UpdateManager. Drives the
+    // sticky top-bar update banner in the renderer.
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: UpdateBannerService,
+      multi: true,
+    },
+    // === TASK_2026_117_UPDATE_UX_END ===
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',

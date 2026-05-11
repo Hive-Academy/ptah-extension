@@ -82,6 +82,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'db:', // DB health + reset (TASK_2026_THOTH_PERSISTENCE_HARDENING — maintenance commands)
   'subagent:', // Phase 2: bidirectional subagent messaging (send-message, stop, interrupt)
   'indexing:', // TASK_2026_114: Workspace indexing control
+  'update:', // TASK_2026_117: Electron auto-update UX (check-now, install-now)
 ] as const;
 
 /**

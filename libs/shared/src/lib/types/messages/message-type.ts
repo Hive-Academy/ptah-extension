@@ -113,4 +113,6 @@ export type StrictMessageType =
   | 'agent-monitor:permission-response'
   | 'agent-monitor:user-input-request'
   | 'agent-monitor:user-input-response'
+  // Update Messages (TASK_2026_117: Electron auto-update UX)
+  | 'update:statusChanged'
   | string; // Allow extensibility for custom message types

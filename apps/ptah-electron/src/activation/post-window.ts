@@ -21,6 +21,8 @@ import {
   type GatewayService,
 } from '@ptah-extension/messaging-gateway';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { UpdateManager } from '../services/update/update-manager';
+import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 
 // @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -44,6 +46,13 @@ export interface PostWindowOptions {
 export interface PostWindowResult {
   revalidationInterval: ReturnType<typeof setInterval> | null;
   /**
+   * Periodic 4-hour update check interval handle. Cleared in main.ts will-quit
+   * LIFO handler (position 2.5, after revalidationInterval, before git watcher).
+   * Null when UpdateManager.start() bails early (dev mode or already started).
+   * TASK_2026_117
+   */
+  updateCheckInterval: ReturnType<typeof setInterval> | null;
+  /**
    * Messaging gateway service handle for orderly shutdown. Started after
    * window creation so adapters have a stable mainWindow for approval prompts.
    * Null when gateway.enabled is false or start() fails.
@@ -65,6 +74,7 @@ export async function registerPostWindow(
   } = options;
 
   let revalidationInterval: PostWindowResult['revalidationInterval'] = null;
+  let updateCheckInterval: PostWindowResult['updateCheckInterval'] = null;
   let messagingGateway: GatewayService | null = null;
   // PHASE 4.95: Startup Config IPC Handler
   // Register a synchronous IPC handler that the preload script queries
@@ -203,19 +213,21 @@ export async function registerPostWindow(
     );
     messagingGateway = null;
   }
-  // PHASE 6: Auto-Updater (production only)
-  // Check for updates after the window is loaded. Failures must NOT crash the app.
-  if (process.env['NODE_ENV'] !== 'development') {
-    try {
-      const { autoUpdater } = await import('electron-updater');
-      await autoUpdater.checkForUpdatesAndNotify();
-      console.log('[Ptah Electron] Auto-updater check completed');
-    } catch (error) {
-      console.error(
-        '[Ptah Electron] Auto-updater failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+  // PHASE 6: Event-driven Auto-Updater (TASK_2026_117)
+  // Replaces the previous fire-and-forget checkForUpdatesAndNotify() call with an
+  // event-driven UpdateManager that broadcasts UPDATE_STATUS_CHANGED to the renderer.
+  // Dev-mode skip is handled inside UpdateManager.start() — no env gate needed here.
+  try {
+    const updateManager =
+      container.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
+    await updateManager.start();
+    updateCheckInterval = updateManager.getCheckInterval();
+    console.log('[Ptah Electron] UpdateManager started');
+  } catch (error) {
+    console.error(
+      '[Ptah Electron] UpdateManager failed to start (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
   }
   // PHASE 7: License Status Watcher (TASK_2025_240)
   // Handle dynamic license changes (upgrade/expire) at runtime.
@@ -306,5 +318,5 @@ export async function registerPostWindow(
     );
   }
 
-  return { revalidationInterval, messagingGateway };
+  return { revalidationInterval, updateCheckInterval, messagingGateway };
 }

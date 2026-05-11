@@ -217,6 +217,10 @@ export const MESSAGE_TYPES = {
   // ---- Gateway Push Messages ----
   // Backend → Frontend: adapter running/error state changed (TASK_2026_115)
   GATEWAY_STATUS_CHANGED: 'gateway:statusChanged',
+
+  // ---- Update Messages ----
+  /** Backend → Frontend: update lifecycle state changed (Electron only). TASK_2026_117 */
+  UPDATE_STATUS_CHANGED: 'update:statusChanged',
 } as const;
 
 /**

@@ -11,6 +11,8 @@ import type { IStateStorage } from '@ptah-extension/platform-core';
 import { bootstrapElectron } from './activation/bootstrap';
 import { wireRuntime } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
+import type { UpdateManager } from './services/update/update-manager';
+import { UPDATE_MANAGER_TOKEN } from './services/update/update-tokens';
 
 // @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,6 +26,7 @@ if (!gotLock) {
   let resolvedStateStorage: IStateStorage | undefined;
   let skillJunctionRef: { deactivateSync: () => void } | null = null;
   let revalidationInterval: ReturnType<typeof setInterval> | null = null;
+  let updateCheckInterval: ReturnType<typeof setInterval> | null = null;
   let gitWatcher: {
     stop: () => void;
     switchWorkspace: (p: string) => void;
@@ -70,6 +73,7 @@ if (!gotLock) {
       scheduleWarmup: wired.scheduleWarmup,
     });
     revalidationInterval = post.revalidationInterval;
+    updateCheckInterval = post.updateCheckInterval;
     messagingGateway = post.messagingGateway;
   });
 
@@ -118,6 +122,25 @@ if (!gotLock) {
     if (revalidationInterval !== null) {
       clearInterval(revalidationInterval);
       revalidationInterval = null;
+    }
+
+    // 2.5. Clear update check interval + dispose UpdateManager (TASK_2026_117)
+    if (updateCheckInterval !== null) {
+      clearInterval(updateCheckInterval);
+      updateCheckInterval = null;
+    }
+    try {
+      const diContainer = ElectronDIContainer.getContainer();
+      if (diContainer.isRegistered(UPDATE_MANAGER_TOKEN)) {
+        const updateManager =
+          diContainer.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
+        updateManager.dispose();
+      }
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] UpdateManager dispose failed:',
+        error instanceof Error ? error.message : String(error),
+      );
     }
 
     // 3. Stop git file system watcher (TASK_2025_240)

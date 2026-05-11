@@ -50,6 +50,7 @@ import {
   SkillsShRpcHandlers,
   LayoutRpcHandlers,
   TerminalRpcHandlers,
+  UpdateRpcHandlers,
 } from './handlers';
 
 /**
@@ -87,6 +88,8 @@ export class ElectronRpcMethodRegistrationService {
     private readonly layoutHandlers: LayoutRpcHandlers,
     @inject(TerminalRpcHandlers)
     private readonly terminalHandlers: TerminalRpcHandlers,
+    @inject(UpdateRpcHandlers)
+    private readonly updateHandlers: UpdateRpcHandlers,
   ) {}
 
   /**
@@ -181,6 +184,7 @@ export class ElectronRpcMethodRegistrationService {
       { name: 'SkillsShRpcHandlers', handler: this.skillsShHandlers },
       { name: 'LayoutRpcHandlers', handler: this.layoutHandlers },
       { name: 'TerminalRpcHandlers', handler: this.terminalHandlers },
+      { name: 'UpdateRpcHandlers', handler: this.updateHandlers },
     ];
 
     for (const { name, handler } of electronHandlers) {

@@ -33,6 +33,10 @@ export * from './rpc/rpc-memory.types';
 export * from './rpc/rpc-indexing.types';
 // === TASK_2026_114_INDEXING_END ===
 
+// === TASK_2026_117_UPDATE_UX_BEGIN ===
+export * from './rpc/rpc-update.types';
+// === TASK_2026_117_UPDATE_UX_END ===
+
 // ============================================================
 // Imports for RpcMethodRegistry (types used only in registry entries)
 // ============================================================
@@ -375,6 +379,15 @@ import type {
   DbHealthResult,
   DbResetResult,
 } from './rpc/rpc-persistence.types';
+
+// === TASK_2026_117_UPDATE_UX_BEGIN ===
+import type {
+  UpdateCheckNowParams,
+  UpdateCheckNowResult,
+  UpdateInstallNowParams,
+  UpdateInstallNowResult,
+} from './rpc/rpc-update.types';
+// === TASK_2026_117_UPDATE_UX_END ===
 
 // ============================================================
 // RPC Method Registry (Compile-Time Enforcement)
@@ -1395,6 +1408,18 @@ export interface RpcMethodRegistry {
     result: IndexingAcknowledgeDisclosureResult;
   };
   // === TASK_2026_114_INDEXING_END ===
+
+  // === TASK_2026_117_UPDATE_UX_BEGIN ===
+  // Electron auto-update UX (check-now, install-now)
+  'update:check-now': {
+    params: UpdateCheckNowParams;
+    result: UpdateCheckNowResult;
+  };
+  'update:install-now': {
+    params: UpdateInstallNowParams;
+    result: UpdateInstallNowResult;
+  };
+  // === TASK_2026_117_UPDATE_UX_END ===
 }
 
 // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
@@ -2138,6 +2163,11 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'indexing:dismissStale': true,
   'indexing:acknowledgeDisclosure': true,
   // === TASK_2026_114_INDEXING_END ===
+
+  // === TASK_2026_117_UPDATE_UX_BEGIN ===
+  'update:check-now': true,
+  'update:install-now': true,
+  // === TASK_2026_117_UPDATE_UX_END ===
 };
 
 /**

@@ -93,6 +93,7 @@ import type {
 } from './system';
 import type { WorkspaceChangedPayload } from './workspace';
 import type { GatewayStatusChangedPayload } from './gateway';
+import type { UpdateStatusChangedPayload } from './update';
 
 /**
  * Type mapping for message payloads - eliminates 'any' types
@@ -186,6 +187,8 @@ export interface MessagePayloadMap {
   switchView: ViewChangedPayload;
   workspaceChanged: WorkspaceChangedPayload;
   'gateway:statusChanged': GatewayStatusChangedPayload;
+  // TASK_2026_117: Electron auto-update UX
+  'update:statusChanged': UpdateStatusChangedPayload;
 
   // Response event types (MessageHandlerService appends :response suffix)
   // These allow EventBus to emit response events that WebviewMessageBridge forwards to webview
