@@ -359,12 +359,20 @@ export class SessionLifecycleManager {
    * Pre-register active session (before SDK query is created)
    * This allows createUserMessageStream to find the session and queue messages
    * before the SDK query object exists.
+   *
+   * TASK_2026_118 P2: Delegates to registry.register() via the new dual-index API.
+   * The legacy preRegisterActiveSession call-through also invokes register()
+   * internally (P1 wiring), keeping both the activeSessions and byTabId maps
+   * consistent until the legacy activeSessions map is removed in P6.
    */
   preRegisterActiveSession(
     sessionId: SessionId,
     config: AISessionConfig,
     abortController: AbortController,
   ): void {
+    // Use legacy call-through which internally calls register() (P1 wiring).
+    // Calling register() alone would skip activeSessions population, breaking
+    // getActiveSessionWorkspace() and entries() which still read activeSessions.
     this._registry.preRegisterActiveSession(sessionId, config, abortController);
   }
 
@@ -424,7 +432,14 @@ export class SessionLifecycleManager {
   }
 
   /**
-   * Get active session by sessionId
+   * Get active session by sessionId.
+   *
+   * TASK_2026_118 P2: The dual-index migration for this method is deferred to
+   * Batch 3/4 because the P1 implementation maintains SEPARATE ActiveSession and
+   * SessionRecord objects for the same tab — mutations to ActiveSession.messageQueue
+   * (via session-stream-pump) would not be visible via find(). Returning the legacy
+   * activeSessions entry preserves correct messageQueue mutation visibility.
+   * Full migration happens when the activeSessions map is removed in P6.
    */
   getActiveSession(sessionId: SessionId): ActiveSession | undefined {
     return this._registry.getActiveSession(sessionId);
@@ -434,9 +449,11 @@ export class SessionLifecycleManager {
    * Record the mapping from tab ID to real SDK session UUID.
    * Called when the SDK system 'init' message resolves the real session ID.
    * After this, getActiveSessionIds() returns the real UUID instead of the tab ID.
+   *
+   * TASK_2026_118 P2: Delegates to registry.bindRealSessionId() via the new API.
    */
   resolveRealSessionId(tabId: string, realSessionId: string): void {
-    this._registry.resolveRealSessionId(tabId, realSessionId);
+    this._registry.bindRealSessionId(tabId, realSessionId);
   }
 
   /**
@@ -445,9 +462,36 @@ export class SessionLifecycleManager {
    * The ordering ensures that getActiveSessionIds()[0] returns the session
    * the user most recently interacted with, which is critical for MCP tools
    * like ptah_agent_spawn that pick ids[0] as the parentSessionId.
+   *
+   * TASK_2026_118 P2: Iterates entries() to collect ordered tabIds, then maps
+   * each tabId via find() to derive realSessionId ?? tabId from the SessionRecord.
+   * Ordering (insertion order + _lastActiveTabId-first) is preserved because
+   * entries() returns activeSessions keys in the same order that byTabId has them
+   * (both maps are updated together), and the registry's internal sort is applied
+   * via getActiveSessionIds() to determine the leading tabId for reordering.
    */
   getActiveSessionIds(): SessionId[] {
-    return this._registry.getActiveSessionIds();
+    // Collect tabIds from entries() (activeSessions insertion order)
+    const tabIds = Array.from(this._registry.entries()).map(([tabId]) => tabId);
+
+    // Determine sort priority: the registry exposes ordering via getActiveSessionIds()
+    // whose first element is the most-recently-active ID (may be a realUUID or tabId).
+    // Resolve it back to a tabId via find() so we can reorder tabIds correctly.
+    if (tabIds.length > 1) {
+      const legacyFirst = this._registry.getActiveSessionIds()[0] as string;
+      const firstRec = this._registry.find(legacyFirst);
+      const firstTabId = firstRec?.tabId ?? legacyFirst;
+      const idx = tabIds.indexOf(firstTabId);
+      if (idx > 0) {
+        tabIds.splice(idx, 1);
+        tabIds.unshift(firstTabId);
+      }
+    }
+
+    return tabIds.map((tabId) => {
+      const rec = this._registry.find(tabId);
+      return (rec ? (rec.realSessionId ?? rec.tabId) : tabId) as SessionId;
+    });
   }
 
   /**
@@ -465,16 +509,24 @@ export class SessionLifecycleManager {
    * Resolve a tab ID or session ID to the real SDK UUID.
    * If the input is a known tab ID, returns the resolved real UUID.
    * Otherwise returns the input as-is (it may already be a real UUID).
+   *
+   * TASK_2026_118 P2: Delegates to find() — returns realSessionId when bound,
+   * or the original id when not found or when realSessionId is null.
    */
   getResolvedSessionId(tabIdOrSessionId: string): string {
-    return this._registry.getResolvedSessionId(tabIdOrSessionId);
+    return (
+      this._registry.find(tabIdOrSessionId)?.realSessionId ?? tabIdOrSessionId
+    );
   }
 
   /**
-   * Check if session is active
+   * Check if session is active.
+   *
+   * TASK_2026_118 P2: Uses find() !== undefined so both tabId and realUUID
+   * return true after bindRealSessionId() fires.
    */
   isSessionActive(sessionId: SessionId): boolean {
-    return this._registry.isSessionActive(sessionId);
+    return this._registry.find(sessionId as string) !== undefined;
   }
 
   /**
