@@ -115,16 +115,30 @@ const BASE_AGENT_CONFIG: PtahCliConfig = {
 // Tests
 // ---------------------------------------------------------------------------
 
+type ResolvedTiers =
+  | {
+      sonnet?: string | null;
+      opus?: string | null;
+      haiku?: string | null;
+    }
+  | undefined;
+
+type RegistryInternals = {
+  resolveEffectiveTiers: (
+    config: PtahCliConfig,
+    provider: AnthropicProvider,
+  ) => ResolvedTiers;
+};
+
 describe('PtahCliRegistry.resolveEffectiveTiers', () => {
   it('calls getModelTiers with cliAgent scope (not mainAgent)', () => {
     const providerModels = createMockProviderModels();
     const registry = makeRegistry(providerModels);
 
-    (
-      registry as unknown as {
-        resolveEffectiveTiers: (...args: unknown[]) => unknown;
-      }
-    ).resolveEffectiveTiers(BASE_AGENT_CONFIG, MOCK_PROVIDER);
+    (registry as unknown as RegistryInternals).resolveEffectiveTiers(
+      BASE_AGENT_CONFIG,
+      MOCK_PROVIDER,
+    );
 
     expect(providerModels.getModelTiers).toHaveBeenCalledWith(
       'moonshot',
@@ -154,9 +168,7 @@ describe('PtahCliRegistry.resolveEffectiveTiers', () => {
 
     const registry = makeRegistry(providerModels);
     const resolved = (
-      registry as unknown as {
-        resolveEffectiveTiers: (...args: unknown[]) => unknown;
-      }
+      registry as unknown as RegistryInternals
     ).resolveEffectiveTiers(BASE_AGENT_CONFIG, MOCK_PROVIDER);
 
     // Must reflect cliAgent values, not mainAgent values.
@@ -182,9 +194,7 @@ describe('PtahCliRegistry.resolveEffectiveTiers', () => {
 
     const registry = makeRegistry(providerModels);
     const resolved = (
-      registry as unknown as {
-        resolveEffectiveTiers: (...args: unknown[]) => unknown;
-      }
+      registry as unknown as RegistryInternals
     ).resolveEffectiveTiers(configWithTiers, MOCK_PROVIDER);
 
     // Per-agent config must win over the cliAgent scope from providerModels.
@@ -203,9 +213,7 @@ describe('PtahCliRegistry.resolveEffectiveTiers', () => {
 
     const registry = makeRegistry(providerModels);
     const resolved = (
-      registry as unknown as {
-        resolveEffectiveTiers: (...args: unknown[]) => unknown;
-      }
+      registry as unknown as RegistryInternals
     ).resolveEffectiveTiers(BASE_AGENT_CONFIG, MOCK_PROVIDER);
 
     // Should fall through to MOCK_PROVIDER.defaultTiers.
