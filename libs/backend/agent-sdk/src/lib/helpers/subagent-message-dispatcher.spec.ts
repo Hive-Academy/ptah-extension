@@ -36,7 +36,7 @@ function makeRegistry(): SubagentRegistryService {
  */
 function makeLifecycleWithQuery(query: object): SessionLifecycleManager {
   return {
-    getActiveSession: jest.fn().mockReturnValue({ query }),
+    find: jest.fn().mockReturnValue({ query }),
   } as unknown as SessionLifecycleManager;
 }
 

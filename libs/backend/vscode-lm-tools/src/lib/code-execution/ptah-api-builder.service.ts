@@ -388,9 +388,10 @@ export class PtahAPIBuilder {
             }
             try {
               const manager = container.resolve<{
-                getResolvedSessionId(id: string): string;
+                find(id: string): { realSessionId: string | null } | undefined;
               }>(SDK_SESSION_LIFECYCLE_MANAGER);
-              return manager.getResolvedSessionId(tabIdOrSessionId);
+              const rec = manager.find(tabIdOrSessionId);
+              return rec?.realSessionId ?? tabIdOrSessionId;
             } catch {
               return tabIdOrSessionId;
             }

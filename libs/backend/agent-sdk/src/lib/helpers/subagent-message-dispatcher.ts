@@ -24,7 +24,6 @@ import {
   RpcUserError,
   type SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
-import type { SessionId } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import type { SessionLifecycleManager } from './session-lifecycle-manager';
 import type { SDKUserMessage } from './session-lifecycle-manager';
@@ -91,9 +90,7 @@ export class SubagentMessageDispatcher {
     parentToolUseId: string,
     text: string,
   ): Promise<void> {
-    const session = this.sessionLifecycle.getActiveSession(
-      sessionId as SessionId,
-    );
+    const session = this.sessionLifecycle.find(sessionId as string);
     if (!session) {
       throw new RpcUserError(
         `Session '${sessionId}' is not active — cannot send message to subagent`,
@@ -154,9 +151,7 @@ export class SubagentMessageDispatcher {
    * @param taskId - The SDK task_id from SDKTaskStartedMessage
    */
   async stopSubagent(sessionId: string, taskId: string): Promise<void> {
-    const session = this.sessionLifecycle.getActiveSession(
-      sessionId as SessionId,
-    );
+    const session = this.sessionLifecycle.find(sessionId as string);
     if (!session) {
       throw new RpcUserError(
         `Session '${sessionId}' is not active — cannot stop subagent`,
@@ -193,9 +188,7 @@ export class SubagentMessageDispatcher {
    * @param sessionId - The session to interrupt
    */
   async interruptSession(sessionId: string): Promise<void> {
-    const session = this.sessionLifecycle.getActiveSession(
-      sessionId as SessionId,
-    );
+    const session = this.sessionLifecycle.find(sessionId as string);
     if (!session) {
       throw new RpcUserError(
         `Session '${sessionId}' is not active — cannot interrupt`,
