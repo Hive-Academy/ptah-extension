@@ -25,7 +25,7 @@
  */
 
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { AISessionConfig } from '@ptah-extension/shared';
+import type { AISessionConfig, SessionId } from '@ptah-extension/shared';
 
 import {
   SessionRegistry,
@@ -254,7 +254,7 @@ describe('SessionRegistry', () => {
 
   describe('bindRealSessionId guard (set-once invariant)', () => {
     it('second call does not overwrite rec.realSessionId', () => {
-      const { registry, logger } = makeRegistry();
+      const { registry } = makeRegistry();
       registry.register('tab_guard', makeConfig(), new AbortController());
       registry.bindRealSessionId('tab_guard', 'first-real-uuid');
 
@@ -470,6 +470,220 @@ describe('SessionRegistry', () => {
       const rec = registry.find('tab_cnt_1') as SessionRecord;
       registry.remove(rec);
       expect(registry.getActiveSessionCount()).toBe(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_118 Batch 10 — adversarial-input hardening (audit gaps 1-7)
+  // -------------------------------------------------------------------------
+
+  // Gap 1 — Empty / whitespace realSessionId guard
+  //
+  // TODO: production guard missing — see test-audit.md Gap 1.
+  // bindRealSessionId() has no guard against empty or whitespace-only strings.
+  // If the SDK emits a blank init UUID, bySessionId.set('', rec) runs silently,
+  // making find('') resolve a valid record. A production guard should reject
+  // blank/whitespace realSessionIds before inserting into bySessionId.
+  describe('bindRealSessionId empty/whitespace guard (audit gap 1)', () => {
+    it.skip('does NOT create a bySessionId entry when realSessionId is empty string', () => {
+      // TODO: production guard missing — see test-audit.md Gap 1.
+      // Remove this skip once SessionRegistry.bindRealSessionId validates that
+      // realSessionId is non-empty and non-whitespace before calling
+      // this.bySessionId.set(realSessionId, rec).
+      const { registry } = makeRegistry();
+      registry.register('tab_1', makeConfig(), new AbortController());
+      registry.bindRealSessionId('tab_1', '');
+
+      const r = registry as unknown as {
+        bySessionId: Map<string, SessionRecord>;
+      };
+      expect(r.bySessionId.size).toBe(0);
+      expect(registry.find('')).toBeUndefined();
+    });
+
+    it.skip('does NOT create a bySessionId entry when realSessionId is whitespace only', () => {
+      // TODO: production guard missing — see test-audit.md Gap 1.
+      const { registry } = makeRegistry();
+      registry.register('tab_2', makeConfig(), new AbortController());
+      registry.bindRealSessionId('tab_2', '   ');
+
+      const r = registry as unknown as {
+        bySessionId: Map<string, SessionRecord>;
+      };
+      expect(r.bySessionId.size).toBe(0);
+      expect(registry.find('   ')).toBeUndefined();
+    });
+  });
+
+  // Gap 2 — Double remove() idempotency
+  describe('remove() double-call idempotency (audit gap 2)', () => {
+    it('calling remove() twice on the same record does not throw and leaves maps empty', () => {
+      const { registry } = makeRegistry();
+      registry.register('tab_idem', makeConfig(), new AbortController());
+      registry.bindRealSessionId('tab_idem', 'real-idem');
+      const rec = registry.find('tab_idem') as SessionRecord;
+
+      // First remove — normal path
+      registry.remove(rec);
+
+      // Second remove — must be a safe no-op
+      expect(() => registry.remove(rec)).not.toThrow();
+
+      const r = registry as unknown as {
+        byTabId: Map<string, SessionRecord>;
+        bySessionId: Map<string, SessionRecord>;
+        _lastActiveTabId: string | null;
+      };
+      expect(r.byTabId.size).toBe(0);
+      expect(r.bySessionId.size).toBe(0);
+      expect(r._lastActiveTabId).toBeNull();
+    });
+  });
+
+  // Gap 3 — register() after clearAll() produces a fresh record
+  describe('register() after clearAll() produces a fresh record (audit gap 3)', () => {
+    it('re-registering a previously cleared tabId returns a NEW record with realSessionId=null', () => {
+      const { registry } = makeRegistry();
+      const firstCtrl = new AbortController();
+      const firstRec = registry.register('tab_a', makeConfig(), firstCtrl);
+      registry.bindRealSessionId('tab_a', 'old-real-uuid');
+
+      registry.clearAll();
+
+      const secondCtrl = new AbortController();
+      const secondRec = registry.register('tab_a', makeConfig(), secondCtrl);
+
+      // Must be a different object reference (new record, not the old one)
+      expect(secondRec).not.toBe(firstRec);
+      expect(secondRec.realSessionId).toBeNull();
+      expect(secondRec.abortController).toBe(secondCtrl);
+
+      // find('tab_a') should return the new record
+      expect(registry.find('tab_a')).toBe(secondRec);
+
+      // The old real UUID should not be in the registry
+      expect(registry.find('old-real-uuid')).toBeUndefined();
+    });
+  });
+
+  // Gap 4 — N register/remove cycle memory-leak signal
+  describe('N register/remove cycle — memory-leak signal (audit gap 4)', () => {
+    it('after 100 register/remove cycles both maps are empty and registry is still functional', () => {
+      const { registry } = makeRegistry();
+
+      for (let i = 0; i < 100; i++) {
+        const tabId = `t_${i}`;
+        registry.register(tabId, makeConfig(), new AbortController());
+        if (i % 2 === 0) {
+          registry.bindRealSessionId(tabId, `real_${i}`);
+        }
+        const rec = registry.find(tabId) as SessionRecord;
+        registry.remove(rec);
+      }
+
+      const r = registry as unknown as {
+        byTabId: Map<string, SessionRecord>;
+        bySessionId: Map<string, SessionRecord>;
+        _lastActiveTabId: string | null;
+      };
+      expect(r.byTabId.size).toBe(0);
+      expect(r.bySessionId.size).toBe(0);
+      expect(r._lastActiveTabId).toBeNull();
+
+      // Registry must still be functional after churn
+      const newRec = registry.register(
+        'post_churn',
+        makeConfig(),
+        new AbortController(),
+      );
+      expect(registry.find('post_churn')).toBe(newRec);
+      expect(registry.getActiveSessionCount()).toBe(1);
+    });
+  });
+
+  // Gap 5 — _lastActiveTabId fallback picks the LAST remaining key (not oldest)
+  describe('_lastActiveTabId middle-session removal fallback (audit gap 5)', () => {
+    it('removing the middle session (which was _lastActiveTabId) falls back to tab_c, not tab_a', () => {
+      const { registry } = makeRegistry();
+      // Insert in order: tab_a, tab_b, tab_c — tab_c is _lastActiveTabId
+      registry.register('tab_a', makeConfig(), new AbortController());
+      registry.register('tab_b', makeConfig(), new AbortController());
+      registry.register('tab_c', makeConfig(), new AbortController());
+
+      // Promote tab_b to most-recently-active
+      registry.markActive('tab_b');
+
+      const r = registry as unknown as { _lastActiveTabId: string | null };
+      expect(r._lastActiveTabId).toBe('tab_b');
+
+      // Remove tab_b — the active one
+      const recB = registry.find('tab_b') as SessionRecord;
+      registry.remove(recB);
+
+      // recomputeLastActiveOnRemoval picks remaining[remaining.length - 1]
+      // After removing tab_b, remaining keys are ['tab_a', 'tab_c'] in insertion
+      // order, so the fallback is 'tab_c' (the LAST remaining key).
+      expect(r._lastActiveTabId).toBe('tab_c');
+
+      // getActiveSessionIds should return tab_c first
+      const ids = registry.getActiveSessionIds();
+      expect(ids[0]).toBe('tab_c');
+      expect(ids).toContain('tab_a');
+      expect(ids).not.toContain('tab_b');
+    });
+  });
+
+  // Gap 6 — setSessionQuery with unknown tabId logs error and is a no-op
+  describe('setSessionQuery with unknown tabId (audit gap 6)', () => {
+    it('logs an error and does not crash when tabId was never registered', () => {
+      const { registry, logger } = makeRegistry();
+      const fakeQuery = {
+        fakeQuery: true,
+      } as unknown as SessionRecord['query'];
+
+      expect(() =>
+        registry.setSessionQuery(
+          'never-registered-tab' as SessionId,
+          fakeQuery,
+        ),
+      ).not.toThrow();
+
+      // logger.error must have been called with a message containing 'session not found'
+      const errorCalls = (logger.error as jest.Mock).mock.calls;
+      expect(errorCalls.length).toBeGreaterThan(0);
+      const errorMsg = String(errorCalls[0][0]);
+      expect(errorMsg.toLowerCase()).toMatch(
+        /session not found|cannot set query/i,
+      );
+
+      // No record was created for the unknown tabId
+      expect(registry.find('never-registered-tab')).toBeUndefined();
+    });
+  });
+
+  // Gap 7 — markActive with a stale/removed tabId does not crash getActiveSessionIds
+  describe('markActive with stale tabId (audit gap 7)', () => {
+    it('getActiveSessionIds does not crash or include the stale tabId after markActive with removed id', () => {
+      const { registry } = makeRegistry();
+      registry.register('tab_a', makeConfig(), new AbortController());
+      const rec = registry.find('tab_a') as SessionRecord;
+      registry.remove(rec);
+
+      // markActive with a tabId that was removed — unconditionally sets _lastActiveTabId
+      registry.markActive('tab_a');
+
+      const r = registry as unknown as { _lastActiveTabId: string | null };
+      expect(r._lastActiveTabId).toBe('tab_a');
+
+      // getActiveSessionIds must not crash; the stale tab_a is not in byTabId
+      // so it should NOT appear in the returned array
+      let ids: string[] | undefined;
+      expect(() => {
+        ids = registry.getActiveSessionIds() as string[];
+      }).not.toThrow();
+
+      expect(ids).toBeDefined();
+      expect(ids).not.toContain('tab_a');
     });
   });
 });
