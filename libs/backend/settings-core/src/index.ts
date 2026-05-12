@@ -1,6 +1,12 @@
 // ---- DI Tokens ----
 export { SETTINGS_TOKENS } from './di/tokens';
 
+// ---- Encryption ----
+export type { SecretEnvelope } from './encryption/secret-envelope';
+export { encryptValue, decryptValue } from './encryption/secret-envelope';
+export { SecretsFileStore } from './encryption/secrets-file-store';
+export type { IMasterKeyProvider } from './encryption/master-key-provider';
+
 // ---- Ports ----
 export type { ISettingsStore } from './ports/settings-store.interface';
 export type { ISettingsMigrator } from './ports/settings-migrator.interface';
@@ -59,6 +65,7 @@ export { ReactiveSettingsStore } from './reactive/reactive-settings-store';
 
 // ---- Repository handles ----
 export type { SettingHandle } from './repositories/setting-handle';
+export type { SecretHandle } from './repositories/secret-handle';
 export { ComputedSettingHandle } from './repositories/computed-setting-handle';
 export { BaseSettingsRepository } from './repositories/base-repository';
 
@@ -78,3 +85,4 @@ export { MigrationRunner } from './migrations/runner';
 export type { MigrationFn } from './migrations/runner';
 export { runV1Migration } from './migrations/v1-migration';
 export { runV2Migration } from './migrations/v2-migration';
+export { runV3Migration } from './migrations/v3-migration';

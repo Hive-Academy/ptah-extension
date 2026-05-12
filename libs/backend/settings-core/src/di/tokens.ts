@@ -37,4 +37,7 @@ export const SETTINGS_TOKENS = {
 
   /** MigrationRunner (ISettingsMigrator implementation). */
   MIGRATION_RUNNER: Symbol.for('MigrationRunner'),
+
+  /** IMasterKeyProvider — platform-specific secure key retrieval. */
+  MASTER_KEY_PROVIDER: Symbol.for('MasterKeyProvider'),
 } as const;

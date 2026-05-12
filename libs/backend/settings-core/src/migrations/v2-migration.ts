@@ -129,5 +129,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && 'code' in err;
+  // Use duck-typing instead of `instanceof Error` to work correctly across
+  // module boundaries (e.g. Jest worker realms where the Error constructor
+  // may differ from the one used by the fs module).
+  return (
+    typeof err === 'object' && err !== null && 'code' in err && 'message' in err
+  );
 }

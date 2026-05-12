@@ -23,7 +23,6 @@ import { ZodError } from 'zod';
 const mockTestHome = fs.mkdtempSync(
   path.join(nodeOs.tmpdir(), 'ptah-settings-core-spec-'),
 );
-const TEST_PTAH_DIR = path.join(mockTestHome, '.ptah');
 
 afterAll(() => {
   try {
@@ -48,49 +47,71 @@ import { runV2Migration } from './migrations/v2-migration';
 import { resolveAuthProviderKey } from '@ptah-extension/platform-core';
 import type { ISettingsStore } from './ports/settings-store.interface';
 import type { IDisposable } from '@ptah-extension/platform-core';
+import { providerSelectedModelDef } from './schema/provider-schema';
 
 // ---------------------------------------------------------------------------
-// Shared mock factory
+// Shared mock store — avoids TS generic overload issues by using a hand-built
+// object that conforms to ISettingsStore without jest.Mocked<> complications.
 // ---------------------------------------------------------------------------
 
-function makeMockStore(
-  globalData: Record<string, unknown> = {},
-): jest.Mocked<ISettingsStore> {
+interface MockStore extends ISettingsStore {
+  _fire(key: string, value: unknown): void;
+  _writeGlobalCalls: Array<{ key: string; value: unknown }>;
+}
+
+function makeMockStore(globalData: Record<string, unknown> = {}): MockStore {
   const data = { ...globalData };
   const watchers = new Map<string, Set<(v: unknown) => void>>();
+  const writeGlobalCalls: Array<{ key: string; value: unknown }> = [];
 
-  const store: jest.Mocked<ISettingsStore> = {
-    readGlobal: jest.fn(
-      <T>(key: string): T | undefined => data[key] as T | undefined,
-    ),
-    writeGlobal: jest.fn(async <T>(key: string, value: T): Promise<void> => {
+  const store: MockStore = {
+    _writeGlobalCalls: writeGlobalCalls,
+
+    readGlobal<T>(key: string): T | undefined {
+      return data[key] as T | undefined;
+    },
+
+    async writeGlobal<T>(key: string, value: T): Promise<void> {
+      data[key] = value;
+      writeGlobalCalls.push({ key, value: value as unknown });
+      watchers.get(key)?.forEach((cb) => cb(value as unknown));
+    },
+
+    readSecret(_key: string): Promise<string | undefined> {
+      throw new Error('Phase 4');
+    },
+
+    writeSecret(_key: string, _ciphertext: string): Promise<void> {
+      throw new Error('Phase 4');
+    },
+
+    deleteSecret(_key: string): Promise<void> {
+      throw new Error('Phase 4');
+    },
+
+    watchGlobal(key: string, cb: (value: unknown) => void): IDisposable {
+      if (!watchers.has(key)) watchers.set(key, new Set());
+      watchers.get(key)!.add(cb);
+      return {
+        dispose: () => {
+          watchers.get(key)?.delete(cb);
+        },
+      };
+    },
+
+    watchSecret(_key: string, _cb: () => void): IDisposable {
+      return { dispose: () => {} };
+    },
+
+    flushSync(): void {
+      // no-op for tests
+    },
+
+    _fire(key: string, value: unknown): void {
       data[key] = value;
       watchers.get(key)?.forEach((cb) => cb(value));
-    }),
-    readSecret: jest.fn().mockRejectedValue(new Error('Phase 4')),
-    writeSecret: jest.fn().mockRejectedValue(new Error('Phase 4')),
-    deleteSecret: jest.fn().mockRejectedValue(new Error('Phase 4')),
-    watchGlobal: jest.fn(
-      (key: string, cb: (v: unknown) => void): IDisposable => {
-        if (!watchers.has(key)) watchers.set(key, new Set());
-        watchers.get(key)!.add(cb);
-        return {
-          dispose: () => {
-            watchers.get(key)?.delete(cb);
-          },
-        };
-      },
-    ),
-    watchSecret: jest.fn((): IDisposable => ({ dispose: () => {} })),
-    flushSync: jest.fn(),
+    },
   };
-
-  // Expose internal trigger for tests that need to simulate store events.
-  (store as unknown as { _fire: (key: string, value: unknown) => void })._fire =
-    (key: string, value: unknown) => {
-      data[key] = value;
-      watchers.get(key)?.forEach((cb) => cb(value));
-    };
 
   return store;
 }
@@ -100,7 +121,7 @@ function makeMockStore(
 // ---------------------------------------------------------------------------
 
 describe('TC-1: SETTINGS_SCHEMA sanity', () => {
-  const requiredFields: Array<keyof (typeof SETTINGS_SCHEMA)[0]> = [
+  const requiredFields = [
     'key',
     'scope',
     'sensitivity',
@@ -111,7 +132,6 @@ describe('TC-1: SETTINGS_SCHEMA sanity', () => {
 
   it('every definition has all required fields', () => {
     expect(SETTINGS_SCHEMA.length).toBeGreaterThan(0);
-
     for (const def of SETTINGS_SCHEMA) {
       for (const field of requiredFields) {
         expect(def).toHaveProperty(field);
@@ -120,33 +140,29 @@ describe('TC-1: SETTINGS_SCHEMA sanity', () => {
   });
 
   it('no duplicate keys in SETTINGS_SCHEMA', () => {
-    const keys = SETTINGS_SCHEMA.map((d: { key: string }) => d.key);
+    const keys = (SETTINGS_SCHEMA as Array<{ key: string }>).map((d) => d.key);
     const uniqueKeys = new Set(keys);
     expect(uniqueKeys.size).toBe(keys.length);
   });
 
   it('all scope values are valid', () => {
     const validScopes = new Set(['global', 'secret', 'session']);
-    for (const def of SETTINGS_SCHEMA) {
-      expect(validScopes.has((def as { scope: string }).scope)).toBe(true);
+    for (const def of SETTINGS_SCHEMA as Array<{ scope: string }>) {
+      expect(validScopes.has(def.scope)).toBe(true);
     }
   });
 
   it('all sensitivity values are valid', () => {
     const validSensitivities = new Set(['plain', 'encrypted', 'secret']);
-    for (const def of SETTINGS_SCHEMA) {
-      expect(
-        validSensitivities.has((def as { sensitivity: string }).sensitivity),
-      ).toBe(true);
+    for (const def of SETTINGS_SCHEMA as Array<{ sensitivity: string }>) {
+      expect(validSensitivities.has(def.sensitivity)).toBe(true);
     }
   });
 
   it('sinceVersion is a positive integer for all definitions', () => {
-    for (const def of SETTINGS_SCHEMA) {
-      expect(typeof (def as { sinceVersion: unknown }).sinceVersion).toBe(
-        'number',
-      );
-      expect((def as { sinceVersion: number }).sinceVersion).toBeGreaterThan(0);
+    for (const def of SETTINGS_SCHEMA as Array<{ sinceVersion: unknown }>) {
+      expect(typeof def.sinceVersion).toBe('number');
+      expect(def.sinceVersion as number).toBeGreaterThan(0);
     }
   });
 });
@@ -156,12 +172,13 @@ describe('TC-1: SETTINGS_SCHEMA sanity', () => {
 // ---------------------------------------------------------------------------
 
 describe('TC-2: defineSetting returns frozen objects', () => {
-  it('Object.isFrozen returns true for a definition', () => {
+  it('Object.isFrozen returns true for AUTH_METHOD_DEF', () => {
     expect(Object.isFrozen(AUTH_METHOD_DEF)).toBe(true);
   });
 
-  it('any definition produced by defineSetting is frozen', () => {
-    const { z } = require('zod');
+  it('a custom definition produced by defineSetting is also frozen', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod') as typeof import('zod');
     const def = defineSetting({
       key: 'test.frozen',
       scope: 'global',
@@ -173,13 +190,11 @@ describe('TC-2: defineSetting returns frozen objects', () => {
     expect(Object.isFrozen(def)).toBe(true);
   });
 
-  it('frozen definition cannot be mutated', () => {
+  it('frozen definition throws when mutation is attempted in strict mode', () => {
     expect(() => {
-      // In strict mode this throws; in non-strict it silently fails.
-      // Either way, the property must not have changed.
-      (AUTH_METHOD_DEF as { key: string }).key = 'mutated';
+      (AUTH_METHOD_DEF as unknown as Record<string, unknown>)['key'] =
+        'mutated';
     }).toThrow();
-    // Regardless of whether it threw, the key must still be the original.
     expect(AUTH_METHOD_DEF.key).toBe('authMethod');
   });
 });
@@ -193,13 +208,12 @@ describe('TC-3: ReactiveSettingsStore fires listeners on writeGlobal', () => {
     const backend = makeMockStore();
     const store = new ReactiveSettingsStore(backend);
 
-    const cb = jest.fn();
-    store.watchGlobal('foo', cb);
+    const received: unknown[] = [];
+    store.watchGlobal('foo', (v) => received.push(v));
 
     await store.writeGlobal('foo', 'bar');
 
-    expect(cb).toHaveBeenCalledTimes(1);
-    expect(cb).toHaveBeenCalledWith('bar');
+    expect(received).toEqual(['bar']);
   });
 });
 
@@ -212,15 +226,15 @@ describe('TC-4: ReactiveSettingsStore listener isolation', () => {
     const backend = makeMockStore();
     const store = new ReactiveSettingsStore(backend);
 
-    const cbFoo = jest.fn();
-    const cbBaz = jest.fn();
-    store.watchGlobal('foo', cbFoo);
-    store.watchGlobal('baz', cbBaz);
+    const receivedFoo: unknown[] = [];
+    const receivedBaz: unknown[] = [];
+    store.watchGlobal('foo', (v) => receivedFoo.push(v));
+    store.watchGlobal('baz', (v) => receivedBaz.push(v));
 
     await store.writeGlobal('foo', 'updated');
 
-    expect(cbFoo).toHaveBeenCalledTimes(1);
-    expect(cbBaz).not.toHaveBeenCalled();
+    expect(receivedFoo).toEqual(['updated']);
+    expect(receivedBaz).toEqual([]);
   });
 });
 
@@ -230,13 +244,10 @@ describe('TC-4: ReactiveSettingsStore listener isolation', () => {
 
 describe('TC-5: SettingHandle.get() returns definition default for empty store', () => {
   it('returns the AUTH_METHOD_DEF default ("apiKey") when nothing is stored', () => {
-    const backend = makeMockStore({}); // empty store
-    const repo = new BaseSettingsRepository(backend);
-    // Access protected handleFor via subclass pattern.
     class TestRepo extends BaseSettingsRepository {
       public readonly handle = this.handleFor(AUTH_METHOD_DEF);
     }
-    const testRepo = new TestRepo(backend);
+    const testRepo = new TestRepo(makeMockStore({}));
     expect(testRepo.handle.get()).toBe('apiKey');
   });
 });
@@ -258,7 +269,7 @@ describe('TC-6: SettingHandle.set() throws ZodError for invalid enum value', () 
     ).rejects.toThrow(ZodError);
 
     // writeGlobal must NOT have been called.
-    expect(backend.writeGlobal).not.toHaveBeenCalled();
+    expect(backend._writeGlobalCalls).toHaveLength(0);
   });
 });
 
@@ -273,9 +284,6 @@ describe('TC-7: ComputedSettingHandle.get() resolves through auth context', () =
       anthropicProviderId: 'openrouter',
       'provider.thirdParty.openrouter.selectedModel': 'mistral-7b',
     });
-
-    const { z } = require('zod');
-    const { providerSelectedModelDef } = require('./schema/provider-schema');
 
     const resolveKey = () => {
       const authMethod = backend.readGlobal<string>('authMethod') ?? 'apiKey';
@@ -308,8 +316,6 @@ describe('TC-8: ComputedSettingHandle.set() writes to provider-scoped key', () =
       anthropicProviderId: 'openrouter',
     });
 
-    const { providerSelectedModelDef } = require('./schema/provider-schema');
-
     const resolveKey = () => {
       const authMethod = backend.readGlobal<string>('authMethod') ?? 'apiKey';
       const providerId =
@@ -328,10 +334,10 @@ describe('TC-8: ComputedSettingHandle.set() writes to provider-scoped key', () =
 
     await handle.set('claude-3');
 
-    expect(backend.writeGlobal).toHaveBeenCalledWith(
-      'provider.thirdParty.openrouter.selectedModel',
-      'claude-3',
-    );
+    expect(backend._writeGlobalCalls).toContainEqual({
+      key: 'provider.thirdParty.openrouter.selectedModel',
+      value: 'claude-3',
+    });
   });
 });
 
@@ -344,10 +350,9 @@ describe('TC-9: ComputedSettingHandle.get() falls back to definition default', (
     const backend = makeMockStore({
       authMethod: 'thirdParty',
       anthropicProviderId: 'openrouter',
-      // No 'provider.thirdParty.openrouter.selectedModel' key stored
+      // No provider.thirdParty.openrouter.selectedModel stored
     });
 
-    const { providerSelectedModelDef } = require('./schema/provider-schema');
     const def = providerSelectedModelDef('apiKey'); // default = ''
 
     const resolveKey = () => {
@@ -376,45 +381,45 @@ describe('TC-9: ComputedSettingHandle.get() falls back to definition default', (
 
 describe('TC-10: ComputedSettingHandle.watch() re-subscribes on auth change', () => {
   it('fires the callback and re-subscribes when authMethod changes', () => {
-    // Start with apiKey
-    const storeData: Record<string, unknown> = {
+    // Build a live-reference store so that mutations to `liveData` are immediately
+    // visible to readGlobal() — makeMockStore copies the initial data, so we build
+    // a minimal store directly here instead.
+    const liveData: Record<string, unknown> = {
       authMethod: 'apiKey',
       anthropicProviderId: '',
       'provider.apiKey.selectedModel': 'claude-initial',
     };
-
     const watchers = new Map<string, Set<(v: unknown) => void>>();
 
-    // Build a manually controllable store so we can fire watchers ourselves.
     const backend: ISettingsStore = {
-      readGlobal: jest.fn(
-        <T>(key: string): T | undefined => storeData[key] as T | undefined,
-      ),
-      writeGlobal: jest.fn(async () => {}),
-      readSecret: jest.fn().mockRejectedValue(new Error('Phase 4')),
-      writeSecret: jest.fn().mockRejectedValue(new Error('Phase 4')),
-      deleteSecret: jest.fn().mockRejectedValue(new Error('Phase 4')),
-      watchGlobal: jest.fn(
-        (key: string, cb: (v: unknown) => void): IDisposable => {
-          if (!watchers.has(key)) watchers.set(key, new Set());
-          watchers.get(key)!.add(cb);
-          return {
-            dispose: () => {
-              watchers.get(key)?.delete(cb);
-            },
-          };
-        },
-      ),
-      watchSecret: jest.fn((): IDisposable => ({ dispose: () => {} })),
-      flushSync: jest.fn(),
+      readGlobal<T>(key: string): T | undefined {
+        return liveData[key] as T | undefined;
+      },
+      async writeGlobal<T>(key: string, value: T): Promise<void> {
+        liveData[key] = value as unknown;
+      },
+      readSecret: () => Promise.reject(new Error('Phase 4')),
+      writeSecret: () => Promise.reject(new Error('Phase 4')),
+      deleteSecret: () => Promise.reject(new Error('Phase 4')),
+      watchGlobal(key: string, cb: (v: unknown) => void): IDisposable {
+        if (!watchers.has(key)) watchers.set(key, new Set());
+        watchers.get(key)!.add(cb);
+        return {
+          dispose: () => {
+            watchers.get(key)?.delete(cb);
+          },
+        };
+      },
+      watchSecret(_key: string, _cb: () => void): IDisposable {
+        return { dispose: () => {} };
+      },
+      flushSync(): void {},
     };
 
     const fireWatcher = (key: string, value: unknown) => {
-      storeData[key] = value;
+      liveData[key] = value;
       watchers.get(key)?.forEach((cb) => cb(value));
     };
-
-    const { providerSelectedModelDef } = require('./schema/provider-schema');
 
     const resolveKey = () => {
       const authMethod = backend.readGlobal<string>('authMethod') ?? 'apiKey';
@@ -432,39 +437,40 @@ describe('TC-10: ComputedSettingHandle.watch() re-subscribes on auth change', ()
       'anthropicProviderId',
     );
 
-    const received: string[] = [];
-    const sub = handle.watch((v) => received.push(v as string));
+    const received: unknown[] = [];
+    const sub = handle.watch((v) => received.push(v));
 
     // Immediate fire with current value.
     expect(received).toEqual(['claude-initial']);
 
-    // Simulate auth method change → thirdParty.openrouter
-    storeData['authMethod'] = 'thirdParty';
-    storeData['anthropicProviderId'] = 'openrouter';
-    storeData['provider.thirdParty.openrouter.selectedModel'] = 'mistral-7b';
+    // Simulate auth method change → thirdParty.openrouter.
+    // Update liveData BEFORE firing so resolveKey() sees the new context.
+    liveData['authMethod'] = 'thirdParty';
+    liveData['anthropicProviderId'] = 'openrouter';
+    liveData['provider.thirdParty.openrouter.selectedModel'] = 'mistral-7b';
     fireWatcher('authMethod', 'thirdParty');
 
-    // Should have re-fired (auth change means effective value changed)
+    // Should have re-fired (auth change triggers cb(this.get()) in resubscribe).
     expect(received.length).toBeGreaterThanOrEqual(2);
 
-    // Now fire the new key watcher — the handle should be subscribed to it.
+    // Now fire the new key watcher — handle must be re-subscribed to it.
     fireWatcher('provider.thirdParty.openrouter.selectedModel', 'gpt-4o');
     expect(received[received.length - 1]).toBe('gpt-4o');
 
-    // The OLD key watcher should no longer fire.
+    // The OLD key watcher should no longer fire after re-subscription.
     const countBefore = received.length;
     fireWatcher('provider.apiKey.selectedModel', 'old-key-update');
-    expect(received.length).toBe(countBefore); // no additional fires
+    expect(received.length).toBe(countBefore);
 
     sub.dispose();
   });
 
   it('dispose unregisters all three watchers (inner + auth + providerId)', () => {
-    const backend = makeMockStore({
+    const storeData: Record<string, unknown> = {
       authMethod: 'apiKey',
       anthropicProviderId: '',
-    });
-    const { providerSelectedModelDef } = require('./schema/provider-schema');
+    };
+    const backend = makeMockStore(storeData);
 
     const resolveKey = () => `provider.apiKey.selectedModel`;
 
@@ -476,18 +482,17 @@ describe('TC-10: ComputedSettingHandle.watch() re-subscribes on auth change', ()
       'anthropicProviderId',
     );
 
-    const cb = jest.fn();
-    const sub = handle.watch(cb);
-    cb.mockClear(); // clear the immediate fire
+    const received: unknown[] = [];
+    const sub = handle.watch((v) => received.push(v));
+    // Clear the immediate-fire value.
+    received.length = 0;
 
     sub.dispose();
 
-    // After dispose, no new calls when the store fires.
-    (backend as unknown as { _fire: (k: string, v: unknown) => void })._fire(
-      'authMethod',
-      'claudeCli',
-    );
-    expect(cb).not.toHaveBeenCalled();
+    // After dispose, no new calls when the store fires any watched key.
+    backend._fire('authMethod', 'claudeCli');
+    backend._fire('provider.apiKey.selectedModel', 'x');
+    expect(received).toHaveLength(0);
   });
 });
 
@@ -530,17 +535,14 @@ describe('TC-12: runV2Migration idempotency', () => {
 
   beforeEach(() => {
     fs.mkdirSync(tmpDir, { recursive: true });
-    // Clean slate.
-    if (fs.existsSync(path.join(tmpDir, 'settings.json'))) {
-      fs.rmSync(path.join(tmpDir, 'settings.json'));
-    }
-    if (fs.existsSync(path.join(tmpDir, 'migrations'))) {
-      fs.rmSync(path.join(tmpDir, 'migrations'), { recursive: true });
-    }
+    const settingsPath = path.join(tmpDir, 'settings.json');
+    if (fs.existsSync(settingsPath)) fs.rmSync(settingsPath);
+    const migrationsDir = path.join(tmpDir, 'migrations');
+    if (fs.existsSync(migrationsDir))
+      fs.rmSync(migrationsDir, { recursive: true });
   });
 
-  it('migrates model.selected to provider-scoped key and removes legacy key', async () => {
-    // Write settings in the nested format PtahFileSettingsManager produces.
+  it('migrates model.selected to provider-scoped key and removes the legacy key', async () => {
     const initial = {
       $schema: 'https://ptah.live/schemas/settings.json',
       version: 1,
@@ -559,19 +561,17 @@ describe('TC-12: runV2Migration idempotency', () => {
     const after = JSON.parse(raw) as Record<string, unknown>;
 
     // Legacy key must be gone.
-    expect(
-      (after['model'] as Record<string, unknown> | undefined)?.['selected'],
-    ).toBeUndefined();
+    const model = after['model'] as Record<string, unknown> | undefined;
+    expect(model?.['selected']).toBeUndefined();
 
     // Provider-scoped key must exist.
-    const provider = after['provider'] as Record<
-      string,
-      Record<string, Record<string, unknown>>
-    >;
+    const provider = after['provider'] as
+      | Record<string, Record<string, Record<string, unknown>>>
+      | undefined;
     expect(provider?.['apiKey']?.['selectedModel']).toBe('my-model');
   });
 
-  it('running migration a second time does not corrupt data', async () => {
+  it('running migration a second time is idempotent (no error, no double-modification)', async () => {
     const initial = {
       $schema: 'https://ptah.live/schemas/settings.json',
       version: 1,
@@ -585,15 +585,13 @@ describe('TC-12: runV2Migration idempotency', () => {
     );
 
     await runV2Migration(tmpDir);
-    // Run again — should be idempotent.
     await expect(runV2Migration(tmpDir)).resolves.toBeUndefined();
 
     const raw = fs.readFileSync(path.join(tmpDir, 'settings.json'), 'utf8');
     const after = JSON.parse(raw) as Record<string, unknown>;
-    const provider = after['provider'] as Record<
-      string,
-      Record<string, Record<string, unknown>>
-    >;
+    const provider = after['provider'] as
+      | Record<string, Record<string, Record<string, unknown>>>
+      | undefined;
     expect(provider?.['apiKey']?.['selectedModel']).toBe('my-model');
   });
 });
@@ -607,12 +605,11 @@ describe('TC-13: runV2Migration with no legacy keys is a no-op', () => {
 
   beforeEach(() => {
     fs.mkdirSync(tmpDir, { recursive: true });
-    if (fs.existsSync(path.join(tmpDir, 'settings.json'))) {
-      fs.rmSync(path.join(tmpDir, 'settings.json'));
-    }
+    const settingsPath = path.join(tmpDir, 'settings.json');
+    if (fs.existsSync(settingsPath)) fs.rmSync(settingsPath);
   });
 
-  it('does not throw and settings.json is unchanged when no legacy keys present', async () => {
+  it('does not throw when no legacy keys are present in settings.json', async () => {
     const initial = {
       $schema: 'https://ptah.live/schemas/settings.json',
       version: 1,
@@ -626,20 +623,32 @@ describe('TC-13: runV2Migration with no legacy keys is a no-op', () => {
 
     await expect(runV2Migration(tmpDir)).resolves.toBeUndefined();
 
-    // File should be unchanged (migration returned early without writing).
+    // File should not have been rewritten (early return path).
     const raw = fs.readFileSync(path.join(tmpDir, 'settings.json'), 'utf8');
     const after = JSON.parse(raw) as Record<string, unknown>;
     expect(after['provider']).toBeUndefined();
   });
 
-  it('does not throw when settings.json is empty {}', async () => {
+  it('does not throw when settings.json contains only {}', async () => {
     fs.writeFileSync(path.join(tmpDir, 'settings.json'), '{}', 'utf8');
     await expect(runV2Migration(tmpDir)).resolves.toBeUndefined();
   });
 
   it('does not throw when settings.json does not exist', async () => {
-    // No file written.
-    await expect(runV2Migration(tmpDir)).resolves.toBeUndefined();
+    // tmpDir exists (created in beforeEach) but settings.json is absent.
+    // runV2Migration must handle the ENOENT gracefully and resolve.
+    const missingSettingsPath = path.join(tmpDir, 'settings.json');
+    expect(fs.existsSync(missingSettingsPath)).toBe(false);
+
+    // We call directly without expect().resolves because Jest's assertion
+    // wrapper can obscure whether the rejection is from the catch or our code.
+    let threw = false;
+    try {
+      await runV2Migration(tmpDir);
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(false);
   });
 });
 
@@ -652,13 +661,12 @@ describe('TC-14: MigrationRunner skips already-applied migrations', () => {
 
   beforeEach(() => {
     fs.mkdirSync(tmpDir, { recursive: true });
-    if (fs.existsSync(path.join(tmpDir, 'migrations'))) {
-      fs.rmSync(path.join(tmpDir, 'migrations'), { recursive: true });
-    }
+    const migrationsDir = path.join(tmpDir, 'migrations');
+    if (fs.existsSync(migrationsDir))
+      fs.rmSync(migrationsDir, { recursive: true });
   });
 
   it('skips a migration when its sentinel file already exists', async () => {
-    // Pre-create v1.applied sentinel.
     const migrationsDir = path.join(tmpDir, 'migrations');
     fs.mkdirSync(migrationsDir, { recursive: true });
     fs.writeFileSync(
@@ -667,62 +675,76 @@ describe('TC-14: MigrationRunner skips already-applied migrations', () => {
       'utf8',
     );
 
-    const v1Fn = jest.fn().mockResolvedValue(undefined);
+    let v1Called = false;
+    const v1Fn = async (_dir: string) => {
+      v1Called = true;
+    };
     const runner = new MigrationRunner(tmpDir, [v1Fn]);
 
     await runner.runMigrations();
 
-    expect(v1Fn).not.toHaveBeenCalled();
+    expect(v1Called).toBe(false);
   });
 
   it('runs an unapplied migration and writes the sentinel', async () => {
-    const v1Fn = jest.fn().mockResolvedValue(undefined);
+    let v1Called = false;
+    const v1Fn = async (_dir: string) => {
+      v1Called = true;
+    };
     const runner = new MigrationRunner(tmpDir, [v1Fn]);
 
     await runner.runMigrations();
 
-    expect(v1Fn).toHaveBeenCalledTimes(1);
-
+    expect(v1Called).toBe(true);
     const sentinel = path.join(tmpDir, 'migrations', 'v1.applied');
     expect(fs.existsSync(sentinel)).toBe(true);
   });
 
-  it('skips v2 when only v2 sentinel exists and runs v1', async () => {
+  it('skips v2 when only v2 sentinel exists, still runs v1', async () => {
     const migrationsDir = path.join(tmpDir, 'migrations');
     fs.mkdirSync(migrationsDir, { recursive: true });
-    // Pre-create v2 sentinel, but NOT v1.
     fs.writeFileSync(
       path.join(migrationsDir, 'v2.applied'),
       new Date().toISOString(),
       'utf8',
     );
 
-    const v1Fn = jest.fn().mockResolvedValue(undefined);
-    const v2Fn = jest.fn().mockResolvedValue(undefined);
+    let v1Called = false;
+    let v2Called = false;
+    const v1Fn = async (_dir: string) => {
+      v1Called = true;
+    };
+    const v2Fn = async (_dir: string) => {
+      v2Called = true;
+    };
     const runner = new MigrationRunner(tmpDir, [v1Fn, v2Fn]);
 
     await runner.runMigrations();
 
-    expect(v1Fn).toHaveBeenCalledTimes(1);
-    expect(v2Fn).not.toHaveBeenCalled();
+    expect(v1Called).toBe(true);
+    expect(v2Called).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
-// TC-18: Isolation guarantee — no call sites outside settings-core
+// TC-18: Isolation guarantee — no call sites outside permitted scope
 // ---------------------------------------------------------------------------
 
-describe('TC-18: Isolation guarantee — zero external consumers', () => {
-  it('settings-core is not imported by any app or lib outside its own directory', () => {
-    // Grep the project for @ptah-extension/settings-core imports.
-    // The only files permitted to import it are:
-    //   - files under libs/backend/settings-core/ (the lib itself)
-    //   - platform adapter files (libs/backend/platform-{electron,cli,vscode})
-    //     that are allowed per the adapter scaffolding in Batch 2.
-    //   - this spec file itself
-
-    const { execSync } = require('child_process');
-    const projectRoot = path.resolve(__dirname, '../../../../..');
+describe('TC-18: Isolation guarantee — zero unauthorized consumers', () => {
+  it('settings-core is not imported by any app or lib outside permitted adapter scope', () => {
+    const { execSync } =
+      require('child_process') as typeof import('child_process');
+    // Walk up from __dirname (which is .../libs/backend/settings-core/src) to find
+    // the monorepo root that contains a .git directory.
+    let projectRoot = __dirname;
+    for (let i = 0; i < 6; i++) {
+      const candidate = path.resolve(projectRoot, '..');
+      if (fs.existsSync(path.join(candidate, '.git'))) {
+        projectRoot = candidate;
+        break;
+      }
+      projectRoot = candidate;
+    }
 
     let grepOutput = '';
     try {
@@ -732,7 +754,7 @@ describe('TC-18: Isolation guarantee — zero external consumers', () => {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (err: unknown) {
-      // git grep exits 1 when no matches — that's a pass (zero consumers).
+      // git grep exits 1 when there are zero matches — that's a pass.
       if (
         err &&
         typeof err === 'object' &&
@@ -750,12 +772,24 @@ describe('TC-18: Isolation guarantee — zero external consumers', () => {
       .map((l) => l.trim())
       .filter(Boolean);
 
-    // Permitted patterns: settings-core lib itself, platform adapters, and specs.
+    // Permitted: the lib itself, platform adapters (Batch 2), Batch 3 call-site
+    // migrations, WP-4A gateway migration, tsconfig path-alias declarations.
     const permittedPatterns = [
       /libs[\\/]backend[\\/]settings-core[\\/]/,
       /libs[\\/]backend[\\/]platform-electron[\\/]src[\\/]settings[\\/]/,
       /libs[\\/]backend[\\/]platform-cli[\\/]src[\\/]settings[\\/]/,
       /libs[\\/]backend[\\/]platform-vscode[\\/]src[\\/]settings[\\/]/,
+      // Batch 3 (WP-3A/3B/3C): call sites migrated to modelSettings / reasoningSettings.
+      /apps[\\/]ptah-cli[\\/]src[\\/]cli[\\/]bootstrap[\\/]/,
+      /apps[\\/]ptah-electron[\\/]src[\\/]activation[\\/]/,
+      /apps[\\/]ptah-extension-vscode[\\/]src[\\/]activation[\\/]/,
+      /libs[\\/]backend[\\/]agent-generation[\\/]/,
+      /libs[\\/]backend[\\/]agent-sdk[\\/]/,
+      /libs[\\/]backend[\\/]rpc-handlers[\\/]/,
+      // WP-4A: messaging-gateway uses GatewaySettings for secret token storage.
+      /libs[\\/]backend[\\/]messaging-gateway[\\/]/,
+      // tsconfig files declare path aliases — not runtime consumers.
+      /tsconfig(\.\w+)?\.json$/,
     ];
 
     const unauthorized = lines.filter(
@@ -763,10 +797,57 @@ describe('TC-18: Isolation guarantee — zero external consumers', () => {
     );
 
     if (unauthorized.length > 0) {
-      fail(
-        `settings-core is imported outside permitted scope:\n${unauthorized.join('\n')}\n` +
-          'Batch 2 must be a pure-additive scaffold — no app should consume settings-core yet.',
+      throw new Error(
+        `settings-core is imported outside permitted scope (Batch 2+3 allowed consumers):\n` +
+          unauthorized.join('\n'),
       );
     }
+    expect(unauthorized).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TC-19 (WP-3T): Drift guard — KNOWN_PROVIDER_AUTH_KEYS ↔ FILE_BASED_SETTINGS_KEYS
+//
+// Every entry in KNOWN_PROVIDER_AUTH_KEYS MUST produce exactly two entries in
+// FILE_BASED_SETTINGS_KEYS (`provider.<key>.selectedModel` and
+// `provider.<key>.reasoningEffort`).  If either list drifts the VS Code
+// workspace provider silently routes the orphaned key to
+// vscode.workspace.getConfiguration — a key that has no schema there — and
+// the value is never read back, producing a silent model/effort reset.
+// ---------------------------------------------------------------------------
+
+describe('TC-19 (WP-3T): KNOWN_PROVIDER_AUTH_KEYS ↔ FILE_BASED_SETTINGS_KEYS drift guard', () => {
+  it('every KNOWN_PROVIDER_AUTH_KEY produces .selectedModel and .reasoningEffort in FILE_BASED_SETTINGS_KEYS', () => {
+    // Dynamically resolve from actual source — never hard-coded here.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { KNOWN_PROVIDER_AUTH_KEYS } =
+      require('./schema/provider-schema') as {
+        KNOWN_PROVIDER_AUTH_KEYS: readonly string[];
+      };
+    // FILE_BASED_SETTINGS_KEYS lives in platform-core (one level up from settings-core).
+    // We require the compiled output via the tsconfig path alias.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { FILE_BASED_SETTINGS_KEYS } =
+      require('@ptah-extension/platform-core') as {
+        FILE_BASED_SETTINGS_KEYS: Set<string>;
+      };
+
+    const missing: string[] = [];
+    for (const authKey of KNOWN_PROVIDER_AUTH_KEYS) {
+      const modelKey = `provider.${authKey}.selectedModel`;
+      const effortKey = `provider.${authKey}.reasoningEffort`;
+      if (!FILE_BASED_SETTINGS_KEYS.has(modelKey)) missing.push(modelKey);
+      if (!FILE_BASED_SETTINGS_KEYS.has(effortKey)) missing.push(effortKey);
+    }
+
+    if (missing.length > 0) {
+      throw new Error(
+        `FILE_BASED_SETTINGS_KEYS is missing provider-scoped keys — VS Code will silently\n` +
+          `route these to vscode.workspace.getConfiguration (no schema → silent fail):\n` +
+          missing.join('\n'),
+      );
+    }
+    expect(missing).toHaveLength(0);
   });
 });
