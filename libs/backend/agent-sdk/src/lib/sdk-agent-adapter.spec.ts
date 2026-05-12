@@ -1297,6 +1297,70 @@ describe('SdkAgentAdapter', () => {
       // that broader check (guard against accidental instanceof narrowing loss)
       expect(err).toBeInstanceOf(SdkError);
     });
+
+    // TASK_2026_118 Batch 10, audit gap 15 — dryRun=false (commit path) and omitted
+
+    it('passes { dryRun: false } to query.rewindFiles when called with dryRun=false', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      const fakeQuery = createFakeQuery();
+      const rewindMock = fakeQuery.rewindFiles as jest.Mock;
+      rewindMock.mockResolvedValueOnce({
+        canRewind: true,
+        filesChanged: ['/x.ts'],
+        insertions: 1,
+        deletions: 0,
+      });
+
+      h.sessionLifecycle.find.mockReturnValueOnce({
+        tabId: 'live',
+        realSessionId: null,
+        query: fakeQuery,
+        config: makeSessionConfig(),
+        abortController: new AbortController(),
+        messageQueue: [],
+        resolveNext: null,
+        currentModel: 'claude-sonnet-4-20250514',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      await h.adapter.rewindFiles('live' as SessionId, 'msg-commit', false);
+
+      expect(rewindMock).toHaveBeenCalledWith('msg-commit', { dryRun: false });
+    });
+
+    it('passes { dryRun: undefined } to query.rewindFiles when dryRun is omitted', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      const fakeQuery = createFakeQuery();
+      const rewindMock = fakeQuery.rewindFiles as jest.Mock;
+      rewindMock.mockResolvedValueOnce({
+        canRewind: false,
+        error: 'checkpoint missing',
+      });
+
+      h.sessionLifecycle.find.mockReturnValueOnce({
+        tabId: 'live',
+        realSessionId: null,
+        query: fakeQuery,
+        config: makeSessionConfig(),
+        abortController: new AbortController(),
+        messageQueue: [],
+        resolveNext: null,
+        currentModel: 'claude-sonnet-4-20250514',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      await h.adapter.rewindFiles('live' as SessionId, 'msg-omitted');
+
+      // When dryRun is omitted from the caller the production code passes the
+      // raw parameter value (undefined) into { dryRun } — assert that shape.
+      expect(rewindMock).toHaveBeenCalledWith('msg-omitted', {
+        dryRun: undefined,
+      });
+    });
   });
 
   // -------------------------------------------------------------------------
