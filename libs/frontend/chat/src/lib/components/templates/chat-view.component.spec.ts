@@ -264,6 +264,7 @@ function makeHarness(
     showErrorMock,
     sessionIsActiveSig,
     sessionIdSig,
+    activeTabIdSig,
   };
 }
 
@@ -449,5 +450,61 @@ describe('ChatViewComponent — handleRewindError resume-and-retry (TASK_2026_11
 
     // rewindFiles called exactly twice: first attempt + retry after resume
     expect(h.rewindFilesMock).toHaveBeenCalledTimes(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // Gap 17: resolvedTabId() returns null at confirm time → showActionError
+  // -------------------------------------------------------------------------
+
+  it('shows error and does NOT call chat:resume when resolvedTabId is null at confirm time', async () => {
+    const h = makeHarness({ confirmResult: true });
+
+    // First dryRun attempt: session-not-active to enter handleRewindError
+    h.rewindFilesMock.mockResolvedValueOnce(
+      rpcFail('session-not-active: no query handle'),
+    );
+
+    // Make the confirm dialog set activeTabId to null before resolving
+    // (simulates the tab being closed between the dialog appearing and the
+    // user pressing "Resume & retry").
+    h.confirmMock.mockImplementationOnce(async () => {
+      // Simulate the tab disappearing while the dialog is open
+      h.activeTabIdSig.set(null);
+      return true;
+    });
+
+    await h.component.onRewindRequested('msg-null-tab');
+
+    // chat:resume must NOT have been called (production early-returns with error)
+    expect(h.rpcCallMock).not.toHaveBeenCalled();
+
+    // Error toast must contain the null-tab message
+    expect(h.showErrorMock).toHaveBeenCalledTimes(1);
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining('no active tab'),
+    );
+
+    // rewindFiles called only once (the initial dryRun, not a retry)
+    expect(h.rewindFilesMock).toHaveBeenCalledTimes(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Gap 18: sessionIsActive === false guard in onRewindRequested
+  // -------------------------------------------------------------------------
+
+  it('shows error and does NOT call rewindFiles when sessionIsActive is false', async () => {
+    const h = makeHarness({ sessionIsActive: false });
+
+    await h.component.onRewindRequested('msg-inactive');
+
+    // The UI guard at onRewindRequested lines 1043-1048 must fire
+    expect(h.rewindFilesMock).not.toHaveBeenCalled();
+    expect(h.rpcCallMock).not.toHaveBeenCalled();
+
+    // Error toast must be shown with the expected message
+    expect(h.showErrorMock).toHaveBeenCalledTimes(1);
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining('active conversation'),
+    );
   });
 });
