@@ -1381,4 +1381,71 @@ describe('SessionLifecycleManager', () => {
       // Stubbing find() would bypass this entire proof.
     });
   });
+
+  // =========================================================================
+  // TASK_2026_118 Batch 10 — error-path hardening (audit gaps 11 / 12).
+  // =========================================================================
+
+  // ---------------------------------------------------------------------------
+  // Gap 11: double endSession() on the same session is a safe no-op
+  // ---------------------------------------------------------------------------
+
+  describe('double endSession — idempotency safety (audit gap 11)', () => {
+    it('calling endSession twice on the same session does not throw and does not call interrupt a second time', async () => {
+      const ih = makeIntegrationHarness();
+      const fakeQuery = createFakeQueryForIntegration();
+      ih.queryFn.mockReturnValueOnce(fakeQuery.query);
+
+      await ih.manager.executeQuery({
+        sessionId: 'tab_double_end' as SessionId,
+        sessionConfig: createSessionConfig({ projectPath: '/ws/double' }),
+      });
+
+      // First endSession — normal teardown
+      await ih.manager.endSession('tab_double_end' as SessionId);
+      expect(fakeQuery.interrupt).toHaveBeenCalledTimes(1);
+      expect(ih.manager.find('tab_double_end')).toBeUndefined();
+
+      // Second endSession — must be a safe no-op (session is already gone)
+      await expect(
+        ih.manager.endSession('tab_double_end' as SessionId),
+      ).resolves.not.toThrow();
+
+      // interrupt must NOT have been called a second time
+      expect(fakeQuery.interrupt).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Gap 12: executeQuery rolls back when queryOptionsBuilder.build throws
+  // ---------------------------------------------------------------------------
+
+  describe('executeQuery orphan rollback when queryOptionsBuilder.build throws (audit gap 12)', () => {
+    it('rejects and removes the pre-registered session when queryOptionsBuilder.build throws', async () => {
+      // Make queryOptionsBuilder.build throw AFTER the session has been
+      // pre-registered (register() runs before build() in executeQuery).
+      // Use a standard harness that exposes queryOptionsBuilder directly.
+      const buildError = new Error('options builder exploded');
+      const throwHarness = makeHarness();
+      throwHarness.queryOptionsBuilder.build.mockRejectedValueOnce(buildError);
+
+      // (a) The call must reject
+      await expect(
+        throwHarness.manager.executeQuery({
+          sessionId: 'tab_build_throw' as SessionId,
+          sessionConfig: createSessionConfig({ projectPath: '/ws/throw' }),
+        }),
+      ).rejects.toThrow('options builder exploded');
+
+      // (b) The pre-registered session must be rolled back — no orphan left
+      expect(throwHarness.manager.find('tab_build_throw')).toBeUndefined();
+      expect(throwHarness.manager.getActiveSessionIds()).not.toContain(
+        'tab_build_throw',
+      );
+
+      // (c) abortController.abort() was called on the session's controller
+      //     (indirectly verified: the session is gone AND no orphan exists)
+      expect(throwHarness.manager.getActiveSessionCount()).toBe(0);
+    });
+  });
 });
