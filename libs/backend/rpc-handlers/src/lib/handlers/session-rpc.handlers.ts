@@ -11,7 +11,12 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  RpcHandler,
+  RpcUserError,
+  TOKENS,
+} from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
@@ -23,6 +28,8 @@ import {
   SessionHistoryReaderService,
   SdkAgentAdapter,
   SessionNotActiveError,
+  SdkError,
+  MESSAGE_ID_NOT_FOUND_PHRASE,
 } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
@@ -45,6 +52,17 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
+import { z } from 'zod';
+
+/**
+ * Minimal schema for JSONL first-line entries in agent session files.
+ * Only `sessionId` is required for the delete-subagents lookup.
+ * Exported for focused unit testing in session-rpc.schema.spec.ts.
+ */
+export const AgentJsonlFirstLineSchema = z.object({
+  sessionId: z.string(),
+});
 
 /**
  * RPC handlers for session operations (SDK-based)
@@ -85,17 +103,20 @@ export class SessionRpcHandlers {
 
   /**
    * Verify that a workspacePath supplied by the frontend is one of the
-   * currently open workspace folders. Prevents the webview from reading or
-   * operating on arbitrary paths outside the active workspace.
+   * currently open workspace folders, OR is a sub-path of one of them.
+   *
+   * Sub-path check is needed because the webview may serialize paths with
+   * trailing slashes or mixed separators after JSON round-trips. A path is
+   * accepted when:
+   *   - It matches an open folder exactly (after normalization), OR
+   *   - It starts with an open folder path followed by a separator boundary
+   *     (prevents `/foo/barbaz` from matching `/foo/bar`).
+   *
+   * Both sides are normalized (path.resolve + backslash-to-slash + lowercase +
+   * trailing-separator stripped) before comparison.
    */
   private isAuthorizedWorkspace(workspacePath: string): boolean {
-    if (!workspacePath) return false;
-    const folders = this.workspaceProvider.getWorkspaceFolders();
-    if (!folders || folders.length === 0) return false;
-    const normalize = (p: string) =>
-      path.resolve(p).replace(/\\/g, '/').toLowerCase();
-    const target = normalize(workspacePath);
-    return folders.some((f) => normalize(f) === target);
+    return isAuthorizedWorkspace(workspacePath, this.workspaceProvider);
   }
 
   /**
@@ -536,14 +557,33 @@ export class SessionRpcHandlers {
             const content = await fs.readFile(filePath, 'utf-8');
             const firstLine = content.split('\n')[0];
             if (firstLine) {
-              const firstMsg = JSON.parse(firstLine);
-              if (firstMsg.sessionId === sessionId) {
+              let parsed: unknown;
+              try {
+                parsed = JSON.parse(firstLine);
+              } catch {
+                // Malformed JSON — skip file, do not crash.
+                this.logger.debug(
+                  'session:delete — skipping unreadable JSONL (malformed JSON)',
+                  { filePath },
+                );
+                continue;
+              }
+              const result = AgentJsonlFirstLineSchema.safeParse(parsed);
+              if (!result.success) {
+                // Valid JSON but unexpected shape — skip for diagnosis.
+                this.logger.debug(
+                  'session:delete — skipping JSONL with unexpected first-line shape',
+                  { filePath, issues: result.error.issues },
+                );
+                continue;
+              }
+              if (result.data.sessionId === sessionId) {
                 await fs.unlink(filePath);
                 deletedSubagents++;
               }
             }
           } catch {
-            // Skip unreadable/unparseable files
+            // Skip unreadable files (e.g. permission errors)
           }
         }
       } catch {
@@ -846,6 +886,23 @@ export class SessionRpcHandlers {
         } catch (error) {
           const errorObj =
             error instanceof Error ? error : new Error(String(error));
+
+          // Distinguish user-recoverable ID-resolution failures (expected,
+          // no Sentry) from true infrastructure bugs (reported to Sentry).
+          // SdkError messages from resolveNativeMessageId contain the phrase
+          // "not found in session history" when the upToMessageId could not
+          // be matched in the JSONL transcript.
+          if (
+            error instanceof SdkError &&
+            errorObj.message.includes(MESSAGE_ID_NOT_FOUND_PHRASE)
+          ) {
+            this.logger.warn(
+              'RPC: session:forkSession upToMessageId not found in history',
+              { message: errorObj.message },
+            );
+            throw new RpcUserError(errorObj.message, 'MESSAGE_ID_NOT_FOUND');
+          }
+
           this.logger.error('RPC: session:forkSession failed', errorObj);
           this.sentryService.captureException(errorObj, {
             errorSource: 'SessionRpcHandlers.registerForkSession',

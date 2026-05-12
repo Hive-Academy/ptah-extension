@@ -8,8 +8,19 @@
 import { TestBed } from '@angular/core/testing';
 import { AgentMonitorStore } from './agent-monitor.store';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { VSCodeService } from '@ptah-extension/core';
+import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import {
+  createMockRpcService,
+  rpcError,
+  rpcSuccess,
+} from '@ptah-extension/core/testing';
 import { signal, computed } from '@angular/core';
+import type {
+  AgentProgressEvent,
+  AgentStatusEvent,
+  AgentCompletedEvent,
+  AgentStartEvent,
+} from '@ptah-extension/shared';
 
 // Mock TabManagerService with signal-based activeTab
 const mockActiveTab = signal<{ claudeSessionId?: string } | null>(null);
@@ -27,13 +38,16 @@ const mockVSCodeService = {
 
 describe('AgentMonitorStore', () => {
   let store: AgentMonitorStore;
+  let rpcMock: ReturnType<typeof createMockRpcService>;
 
   beforeEach(() => {
+    rpcMock = createMockRpcService();
     TestBed.configureTestingModule({
       providers: [
         AgentMonitorStore,
         { provide: TabManagerService, useValue: mockTabManager },
         { provide: VSCodeService, useValue: mockVSCodeService },
+        { provide: ClaudeRpcService, useValue: rpcMock },
       ],
     });
 
@@ -220,6 +234,209 @@ describe('AgentMonitorStore', () => {
 
       mockActiveTab.set({ claudeSessionId: 'session-b' });
       expect(store.activeTabPendingPermissions().length).toBe(1);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase 3: SDK task_* per-subagent records
+  // ─────────────────────────────────────────────────────────────────────
+  describe('Phase 3 — SDK subagent records', () => {
+    const PARENT = 'toolu_parent_abc';
+    const TASK = 'task_xyz';
+
+    function startEvent(
+      overrides: Partial<AgentStartEvent> = {},
+    ): AgentStartEvent {
+      return {
+        eventType: 'agent_start',
+        id: 'agent-start-1',
+        timestamp: 1,
+        toolCallId: PARENT,
+        agentType: 'Explore',
+        agentDescription: 'Explore the repo',
+        agentId: 'short-1',
+        source: 'hook',
+        taskId: TASK,
+        ...overrides,
+      } as AgentStartEvent;
+    }
+
+    function progressEvent(
+      overrides: Partial<AgentProgressEvent> = {},
+    ): AgentProgressEvent {
+      return {
+        eventType: 'agent_progress',
+        id: 'p-1',
+        timestamp: 2,
+        parentToolUseId: PARENT,
+        taskId: TASK,
+        description: 'Searching files',
+        summary: 'Looking at src/',
+        lastToolName: 'Glob',
+        totalTokens: 1234,
+        toolUses: 3,
+        durationMs: 1500,
+        ...overrides,
+      } as AgentProgressEvent;
+    }
+
+    function statusEvent(
+      overrides: Partial<AgentStatusEvent> = {},
+    ): AgentStatusEvent {
+      return {
+        eventType: 'agent_status',
+        id: 's-1',
+        timestamp: 3,
+        parentToolUseId: PARENT,
+        taskId: TASK,
+        status: 'running',
+        description: 'Working',
+        ...overrides,
+      } as AgentStatusEvent;
+    }
+
+    function completedEvent(
+      overrides: Partial<AgentCompletedEvent> = {},
+    ): AgentCompletedEvent {
+      return {
+        eventType: 'agent_completed',
+        id: 'c-1',
+        timestamp: 4,
+        parentToolUseId: PARENT,
+        taskId: TASK,
+        status: 'completed',
+        summary: 'Done',
+        outputFile: '/tmp/out.json',
+        totalTokens: 4321,
+        toolUses: 7,
+        durationMs: 9000,
+        ...overrides,
+      } as AgentCompletedEvent;
+    }
+
+    it('agent_start populates a record with running status and taskId', () => {
+      store.onAgentStart(startEvent());
+      const rec = store.subagents().get(PARENT);
+      expect(rec).toBeDefined();
+      expect(rec?.status).toBe('running');
+      expect(rec?.taskId).toBe(TASK);
+      expect(rec?.description).toBe('Explore the repo');
+    });
+
+    it('agent_progress merges summary, lastToolName and stats', () => {
+      store.onAgentStart(startEvent());
+      store.onAgentProgress(progressEvent());
+      const rec = store.subagents().get(PARENT);
+      expect(rec?.latestSummary).toBe('Looking at src/');
+      expect(rec?.lastToolName).toBe('Glob');
+      expect(rec?.totalTokens).toBe(1234);
+      expect(rec?.toolUses).toBe(3);
+      expect(rec?.durationMs).toBe(1500);
+      // Status not downgraded by progress event
+      expect(rec?.status).toBe('running');
+    });
+
+    it('agent_status updates lifecycle status and errorMessage', () => {
+      store.onAgentStart(startEvent());
+      store.onAgentStatus(
+        statusEvent({ status: 'failed', errorMessage: 'boom' }),
+      );
+      const rec = store.subagents().get(PARENT);
+      expect(rec?.status).toBe('failed');
+      expect(rec?.errorMessage).toBe('boom');
+    });
+
+    it('agent_completed sets terminal status, outputFile and final stats', () => {
+      store.onAgentStart(startEvent());
+      store.onAgentCompleted(completedEvent({ status: 'stopped' }));
+      const rec = store.subagents().get(PARENT);
+      expect(rec?.status).toBe('stopped');
+      expect(rec?.outputFile).toBe('/tmp/out.json');
+      expect(rec?.totalTokens).toBe(4321);
+      expect(rec?.latestSummary).toBe('Done');
+    });
+
+    it('records are independent per parentToolUseId', () => {
+      store.onAgentStart(startEvent({ toolCallId: 'toolu_a' }));
+      store.onAgentStart(startEvent({ toolCallId: 'toolu_b' }));
+      store.onAgentStatus(
+        statusEvent({ parentToolUseId: 'toolu_a', status: 'completed' }),
+      );
+      expect(store.subagents().get('toolu_a')?.status).toBe('completed');
+      expect(store.subagents().get('toolu_b')?.status).toBe('running');
+    });
+  });
+
+  describe('Phase 3 — bidirectional messaging actions', () => {
+    const PARENT = 'toolu_parent_abc';
+    const TASK = 'task_xyz';
+    const SESSION = 'session-active';
+
+    beforeEach(() => {
+      mockActiveTab.set({ claudeSessionId: SESSION });
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: 'a',
+        timestamp: 1,
+        toolCallId: PARENT,
+        agentType: 'Explore',
+        agentDescription: 'Explore',
+        agentId: 'short-1',
+        source: 'hook',
+        taskId: TASK,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+    });
+
+    it('sendMessageToAgent dispatches subagent:send-message RPC with active session', async () => {
+      rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ok: true } as const));
+      await store.sendMessageToAgent(PARENT, 'hello');
+      expect(rpcMock.call).toHaveBeenCalledWith('subagent:send-message', {
+        sessionId: SESSION,
+        parentToolUseId: PARENT,
+        text: 'hello',
+      });
+      expect(store.subagentRpcError()).toBeNull();
+    });
+
+    it('sendMessageToAgent surfaces error on RPC failure', async () => {
+      rpcMock.call.mockResolvedValueOnce(rpcError('nope'));
+      await store.sendMessageToAgent(PARENT, 'hello');
+      const err = store.subagentRpcError();
+      expect(err?.method).toBe('subagent:send-message');
+      expect(err?.message).toBe('nope');
+    });
+
+    it('stopAgent dispatches subagent:stop with the supplied taskId', async () => {
+      rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ok: true } as const));
+      await store.stopAgent(TASK);
+      expect(rpcMock.call).toHaveBeenCalledWith('subagent:stop', {
+        sessionId: SESSION,
+        taskId: TASK,
+      });
+    });
+
+    it('interruptSession dispatches subagent:interrupt for the active session', async () => {
+      rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ok: true } as const));
+      await store.interruptSession();
+      expect(rpcMock.call).toHaveBeenCalledWith('subagent:interrupt', {
+        sessionId: SESSION,
+      });
+    });
+
+    it('sendMessageToAgent fails fast when there is no active session', async () => {
+      mockActiveTab.set(null);
+      await store.sendMessageToAgent(PARENT, 'hello');
+      expect(rpcMock.call).not.toHaveBeenCalled();
+      expect(store.subagentRpcError()?.method).toBe('subagent:send-message');
+    });
+
+    it('does NOT mutate per-record status optimistically — SDK events drive UI', async () => {
+      rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ok: true } as const));
+      const before = store.subagents().get(PARENT)?.status;
+      await store.stopAgent(TASK);
+      const after = store.subagents().get(PARENT)?.status;
+      expect(after).toBe(before); // unchanged — waits for agent_completed
     });
   });
 });

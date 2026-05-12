@@ -119,7 +119,7 @@ export class MemoryRpcHandlers {
         if (!params || typeof params.query !== 'string') {
           return { hits: [], bm25Only: false };
         }
-        const r = await this.search.search(params.query, params.topK ?? 10);
+        const r = await this.search.searchRich(params.query, params.topK ?? 10);
         const hits: MemorySearchHitWire[] = r.hits.map((h) => ({
           memory: toMemoryWire(h.memory),
           chunk: toChunkWire(h.chunk),

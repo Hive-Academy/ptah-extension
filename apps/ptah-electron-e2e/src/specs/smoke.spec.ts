@@ -1,6 +1,24 @@
 import { test, expect } from '../support/fixtures';
 
 /**
+ * Error strings that indicate a fatal Electron startup regression.
+ *
+ * These exact substrings appeared in main-process stdout when the vscode shim
+ * diverged from the real VS Code API:
+ *   - '[ERROR] [SdkAgentAdapter]'  → ConfigWatcher.dispose() crashed because
+ *     Disposable had no .dispose() method.
+ *   - 'RpcHandler: Method "ptahCli:list" failed' → PtahCliConfigPersistence
+ *     crashed because workspace.getConfiguration().get() returned undefined
+ *     instead of the supplied defaultValue.
+ *
+ * If either string appears during a clean startup, a shim regression has shipped.
+ */
+const FATAL_STARTUP_ERROR_MARKERS = [
+  '[ERROR] [SdkAgentAdapter]',
+  'RpcHandler: Method "ptahCli:list" failed',
+] as const;
+
+/**
  * Smoke specs for the Playwright-Electron harness (Wave B.B1).
  *
  * These verify the harness itself works end-to-end:
@@ -12,6 +30,25 @@ import { test, expect } from '../support/fixtures';
  * this same fixture set.
  */
 test.describe('Ptah Electron harness smoke', () => {
+  test('no fatal startup error markers appear in main-process output', async ({
+    mainWindow,
+    mainProcessOutput,
+  }) => {
+    // Wait for the app to complete its activation sequence before checking
+    // the captured output — some log lines arrive after the window is ready.
+    await mainWindow.waitForLoadState('domcontentloaded');
+    // Give the SDK adapter and RPC handler a beat to log any startup errors.
+    await mainWindow.waitForTimeout(2000);
+
+    for (const marker of FATAL_STARTUP_ERROR_MARKERS) {
+      expect(
+        mainProcessOutput.hasLine(marker),
+        `Fatal startup error detected in main-process output: "${marker}"\n` +
+          `Captured lines:\n${mainProcessOutput.lines.slice(0, 20).join('\n')}`,
+      ).toBe(false);
+    }
+  });
+
   test('launches and exposes a non-empty window title', async ({
     mainWindow,
   }) => {

@@ -10,11 +10,22 @@
  * Cursor's built-in skills.
  */
 
-import { mkdir, readdir, lstat, rm, readFile, writeFile } from 'fs/promises';
+import {
+  access,
+  mkdir,
+  readdir,
+  lstat,
+  rm,
+  readFile,
+  writeFile,
+} from 'fs/promises';
 import { homedir } from 'os';
 import { join, basename } from 'path';
 import type { CliSkillSyncStatus } from '@ptah-extension/shared';
-import type { ICliSkillInstaller } from './cli-skill-installer.interface';
+import type {
+  CliSkillInstallOptions,
+  ICliSkillInstaller,
+} from './cli-skill-installer.interface';
 import { copyDirectoryRecursive } from './skill-sync-utils';
 
 /**
@@ -35,7 +46,13 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
     return join(homedir(), '.cursor', 'commands');
   }
 
-  async install(pluginPaths: string[]): Promise<CliSkillSyncStatus> {
+  async install(
+    pluginPaths: string[],
+    options?: CliSkillInstallOptions,
+  ): Promise<CliSkillSyncStatus> {
+    const folderPrefix = options?.folderPrefix ?? 'ptah-';
+    const syncCommandsEnabled = options?.syncCommands ?? true;
+    const requireSkillMd = options?.requireSkillMdAtRoot ?? false;
     let skillCount = 0;
     const errors: string[] = [];
 
@@ -43,8 +60,6 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
       const basePath = this.getSkillsBasePath();
       await mkdir(basePath, { recursive: true });
 
-      // Track which ptah- skill folders are installed in this run
-      // so we can remove stale ones afterwards without a delete-all gap
       const installedFolders = new Set<string>();
 
       for (const pluginPath of pluginPaths) {
@@ -77,8 +92,15 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
                 continue;
               }
 
-              // Flat target: ~/.cursor/skills/ptah-{skillName}/
-              const skillFolderName = `ptah-${skillDirName}`;
+              if (requireSkillMd) {
+                try {
+                  await access(join(skillSourcePath, 'SKILL.md'));
+                } catch {
+                  continue; // Skip directories without a top-level SKILL.md (e.g. _candidates)
+                }
+              }
+
+              const skillFolderName = `${folderPrefix}${skillDirName}`;
               const skillTargetPath = join(basePath, skillFolderName);
               await mkdir(skillTargetPath, { recursive: true });
 
@@ -112,11 +134,11 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
         }
       }
 
-      // Remove stale ptah- skill folders that were NOT part of this install
+      // Cleanup is scoped to THIS call's prefix bucket only.
       try {
         const existingEntries = await readdir(basePath);
         for (const entry of existingEntries) {
-          if (entry.startsWith('ptah-') && !installedFolders.has(entry)) {
+          if (entry.startsWith(folderPrefix) && !installedFolders.has(entry)) {
             const entryPath = join(basePath, entry);
             await rm(entryPath, { recursive: true, force: true });
           }
@@ -126,7 +148,9 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
       }
 
       // Sync command files from plugins
-      await this.syncCommands(pluginPaths, errors);
+      if (syncCommandsEnabled) {
+        await this.syncCommands(pluginPaths, errors);
+      }
 
       return {
         cli: this.target,
@@ -207,7 +231,7 @@ export class CursorSkillInstaller implements ICliSkillInstaller {
       try {
         const entries = await readdir(basePath);
         for (const entry of entries) {
-          if (entry.startsWith('ptah-')) {
+          if (entry.startsWith('ptah-') || entry.startsWith('ptahsynth-')) {
             await rm(join(basePath, entry), { recursive: true, force: true });
           }
         }

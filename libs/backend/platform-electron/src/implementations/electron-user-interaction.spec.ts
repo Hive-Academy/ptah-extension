@@ -348,6 +348,43 @@ describe('ElectronUserInteraction — Electron-specific behaviour', () => {
     expect(result).toEqual({ opened: false, code: undefined });
   });
 
+  it('showOpenDialog returns filePaths when the user picks files', async () => {
+    const picked = ['/picked/a.txt', '/picked/b.txt'];
+    const pickingDialog: ElectronDialogApi = {
+      async showMessageBox() {
+        return { response: 0 };
+      },
+      async showOpenDialog() {
+        return { canceled: false, filePaths: picked };
+      },
+    };
+    const p = new ElectronUserInteraction(
+      pickingDialog,
+      () => window,
+      ipcMain,
+      shell,
+    );
+    const result = await p.showOpenDialog({ properties: ['openFile'] });
+    expect(result).toEqual(picked);
+  });
+
+  it('showOpenDialog returns [] when the user cancels', async () => {
+    const result = await provider.showOpenDialog({ properties: ['openFile'] });
+    expect(result).toEqual([]);
+  });
+
+  it('withProgress.report forwards progress-update over IPC', async () => {
+    await provider.withProgress({ title: 'work' }, async (progress) => {
+      progress.report({ message: 'half', increment: 50 });
+      return 'done';
+    });
+    const update = window.sends.find((s) => s.channel === 'progress-update');
+    expect(update).toBeDefined();
+    const payload = update?.args[0] as { message?: string; increment?: number };
+    expect(payload.message).toBe('half');
+    expect(payload.increment).toBe(50);
+  });
+
   it('openOAuthUrl returns opened=false when shell.openExternal rejects', async () => {
     const failingShell: ElectronShellApi = {
       openExternal: jest.fn().mockRejectedValue(new Error('nope')),

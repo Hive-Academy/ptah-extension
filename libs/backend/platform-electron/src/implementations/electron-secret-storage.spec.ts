@@ -172,6 +172,58 @@ describe('ElectronSecretStorage — Electron-specific behaviour', () => {
     expect(seen).not.toContain('never-stored');
   });
 
+  it('get returns undefined when encryption is unavailable and value has no plain marker', async () => {
+    // Seed an unmarked (looks-like-ciphertext) value on disk.
+    await fs.writeFile(
+      path.join(storage, 'secrets.json'),
+      JSON.stringify({ legacy: 'ZmFrZS1jaXBoZXJ0ZXh0' }),
+      'utf-8',
+    );
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    const provider = new ElectronSecretStorage(
+      storage,
+      createPlainSafeStorage(),
+    );
+    expect(await provider.get('legacy')).toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('store recovers when a previous persist rejected (then-error branch)', async () => {
+    // Force the first persist to fail by pointing the provider at a path
+    // whose parent is a regular file — mkdir({ recursive }) then fails with
+    // ENOTDIR. The second store() must still resolve via the .then() error
+    // callback that schedules a fresh persist.
+    const blocker = path.join(storage, 'blocker');
+    await fs.writeFile(blocker, 'not-a-dir', 'utf-8');
+    const unreachable = path.join(blocker, 'nested');
+    const provider = new ElectronSecretStorage(
+      unreachable,
+      createEncryptingSafeStorage(),
+    );
+    await expect(provider.store('k1', 'v1')).rejects.toBeDefined();
+    // Now remove the blocker so the next persist can succeed via the error
+    // branch — the chain must not be permanently broken.
+    await fs.rm(blocker, { force: true });
+    await expect(provider.store('k2', 'v2')).resolves.toBeUndefined();
+  });
+
+  it('delete recovers when a previous persist rejected (then-error branch)', async () => {
+    const blocker = path.join(storage, 'blocker2');
+    await fs.writeFile(blocker, 'not-a-dir', 'utf-8');
+    const unreachable = path.join(blocker, 'nested');
+    const provider = new ElectronSecretStorage(
+      unreachable,
+      createEncryptingSafeStorage(),
+    );
+    // Seed in-memory so delete() does not early-return on missing key.
+    await expect(provider.store('to-del', 'x')).rejects.toBeDefined();
+    await fs.rm(blocker, { force: true });
+    await expect(provider.delete('to-del')).resolves.toBeUndefined();
+  });
+
   it('get on a corrupted (non-base64) encrypted value returns undefined', async () => {
     // Seed an invalid entry on disk, then open the provider and try to read.
     await fs.writeFile(

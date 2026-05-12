@@ -40,6 +40,7 @@ import { SettingsComponent } from '../../settings/settings.component';
 import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { DashboardGridComponent } from '@ptah-extension/dashboard';
+import { ThothShellComponent } from '@ptah-extension/thoth-shell';
 import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
@@ -106,6 +107,7 @@ import type { ViewType } from '@ptah-extension/core';
     NativePopoverComponent,
     SidebarTabComponent,
     DashboardGridComponent,
+    ThothShellComponent,
   ],
   templateUrl: './app-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -125,6 +127,7 @@ export class AppShellComponent {
     'analytics',
     'harness-builder',
     'setup-hub',
+    'thoth',
   ] as const;
 
   readonly chatStore = inject(ChatStore);

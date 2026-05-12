@@ -50,6 +50,7 @@ import { Result } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import type { WebviewBroadcaster } from '../harness/streaming';
 
 /**
  * Progress update callback payload from AgentGenerationOrchestratorService.
@@ -72,19 +73,6 @@ interface GenerationProgress {
 }
 
 // OrchestratorGenerationOptions imported from @ptah-extension/agent-generation barrel
-
-/**
- * Local interface for webview broadcasting.
- *
- * Uses `string` for message type instead of `StrictMessageType` because
- * 'setup-wizard:generation-progress' and 'setup-wizard:generation-complete'
- * are not members of the StrictMessageType union. The underlying
- * WebviewManager.broadcastMessage implementation accepts any message type
- * via postMessage, so this is safe at runtime.
- */
-interface WebviewBroadcaster {
-  broadcastMessage(type: string, payload: unknown): Promise<void>;
-}
 
 /**
  * Interface for the SetupWizardService methods we need.

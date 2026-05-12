@@ -27,7 +27,6 @@ import {
   stripAnsiCodes,
   buildTaskPrompt,
   resolveCliPath,
-  resolveWindowsCmd,
   spawnCli,
 } from './cli-adapter.utils';
 
@@ -191,95 +190,162 @@ function getTargetTriple(): string | undefined {
 }
 
 /**
- * TASK_2025_261: Resolve Codex binary path for Electron ASAR-packed environments.
+ * Cross-platform resolver for the Codex native binary.
  *
- * When running inside Electron, the SDK's `findCodexPath()` resolves the binary
- * inside `app.asar` via `createRequire(import.meta.url)`. Since executables cannot
- * be spawned from inside an ASAR archive, this results in ENOENT.
+ * The Codex SDK spawns a platform-specific Rust executable directly (no shim).
+ * On Windows, npm installs a `.cmd` wrapper that invokes a `.js` launcher —
+ * passing either to the SDK as `codexPathOverride` produces `spawn EFTYPE`.
+ * On every OS we must point to the actual native binary inside the
+ * `@openai/codex-<platform>` package's `vendor/<triple>/codex/` directory.
  *
- * The `asarUnpack` config in electron-builder.yml extracts platform binaries to
- * `app.asar.unpacked/`. This function locates the unpacked binary by:
- * 1. Detecting Electron context via `process.versions['electron']`
- * 2. Finding the `@openai/codex-sdk` module path (inside app.asar)
- * 3. Computing the `app.asar.unpacked` equivalent for the platform binary
+ * Resolution order (first existing path wins):
+ *   1. Electron packaged: `<resourcesPath>/app.asar.unpacked/node_modules/...`
+ *   2. `require.resolve('@openai/codex-<platform>/package.json')` → vendor/...
+ *      (works when the SDK and its optional-dep platform package are installed
+ *      under the host's node_modules — covers dev/unbundled and most installs)
+ *   3. Walk up from `@openai/codex-sdk/package.json`'s node_modules root
+ *      (with app.asar → app.asar.unpacked rewrite, covers older Electron builds)
+ *   4. npm global roots (when user did `npm i -g @openai/codex`):
+ *      Win  → `%APPDATA%\npm\node_modules\...`
+ *      Unix → `/usr/local/lib/node_modules`, `/usr/lib/node_modules`,
+ *             `$HOME/.npm-global/lib/node_modules`,
+ *             `$HOME/.nvm/versions/node/<ver>/lib/node_modules`
+ *   5. Walk up from the detected CLI path (`which codex` → its sibling
+ *      `node_modules/@openai/codex-<platform>/...`) — last-resort heuristic.
+ *
+ * Returns `undefined` if no candidate exists. Callers must NOT pass the bare
+ * `detectedCliPath` (a `.cmd` or `.js` shim) to the SDK in that case — let the
+ * SDK's own `findCodexPath()` surface a clearer error than EFTYPE.
  */
-function resolveCodexBinaryForElectron(): string | undefined {
-  // Only apply in Electron context (not VS Code extension host)
-  if (!process.versions['electron']) return undefined;
+function resolveCodexNativeBinary(
+  detectedCliPath?: string,
+): string | undefined {
+  const targetTriple = getTargetTriple();
+  if (!targetTriple) return undefined;
 
-  try {
-    const targetTriple = getTargetTriple();
-    if (!targetTriple) return undefined;
+  const platformPkg = CODEX_PLATFORM_PACKAGES[targetTriple];
+  if (!platformPkg) return undefined;
 
-    const platformPkg = CODEX_PLATFORM_PACKAGES[targetTriple];
-    if (!platformPkg) return undefined;
+  const binaryName = process.platform === 'win32' ? 'codex.exe' : 'codex';
+  const pkgDir = platformPkg.split('/')[1];
+  // Path of the binary RELATIVE to a `node_modules/@openai/` parent directory.
+  const relFromOpenAi = path.join(
+    pkgDir,
+    'vendor',
+    targetTriple,
+    'codex',
+    binaryName,
+  );
+  // Path of the binary RELATIVE to a `node_modules/` parent directory.
+  const relFromNodeModules = path.join('@openai', relFromOpenAi);
+  // Path of the binary RELATIVE to a directory containing `node_modules`.
+  const relFromBin = path.join('node_modules', relFromNodeModules);
 
-    const binaryName = process.platform === 'win32' ? 'codex.exe' : 'codex';
-    const pkgDir = platformPkg.split('/')[1];
-    const relativeBinary = path.join(
-      'node_modules',
-      '@openai',
-      pkgDir,
-      'vendor',
-      targetTriple,
-      'codex',
-      binaryName,
-    );
+  const candidates: string[] = [];
 
-    // Primary strategy: derive from process.resourcesPath (packaged Electron).
-    // resourcesPath points to .../Ptah/resources — the unpacked binary lives at
-    // resources/app.asar.unpacked/node_modules/@openai/<pkg>/vendor/<triple>/codex/<bin>.
-    // This is robust even when the SDK is bundled by esbuild and require.resolve fails.
-    const resourcesPath = (
-      process as NodeJS.Process & { resourcesPath?: string }
-    ).resourcesPath;
-    if (resourcesPath) {
-      const unpackedFromResources = path.join(
-        resourcesPath,
-        'app.asar.unpacked',
-        relativeBinary,
-      );
-      if (existsSync(unpackedFromResources)) {
-        return unpackedFromResources;
-      }
-    }
-
-    // Fallback: resolve via SDK package.json (works in dev/unbundled contexts).
-    let sdkPkgJsonPath: string | undefined;
-    try {
-      sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
-    } catch {
-      sdkPkgJsonPath = undefined;
-    }
-
-    if (sdkPkgJsonPath) {
-      const nodeModulesRoot = path.resolve(
-        sdkPkgJsonPath,
-        '..',
-        '..',
-        '..',
-        '..',
-      );
-      const candidate = path.join(nodeModulesRoot, relativeBinary);
-      const unpacked = candidate.replace(
-        /app\.asar(?!\.unpacked)/,
-        'app.asar.unpacked',
-      );
-      if (existsSync(unpacked)) return unpacked;
-      if (existsSync(candidate)) return candidate;
-    }
-
-    console.warn(
-      `[CodexAdapter] Electron detected but Codex binary not found. Tried resourcesPath=${resourcesPath ?? '<none>'}, sdkPath=${sdkPkgJsonPath ?? '<none>'}`,
-    );
-    return undefined;
-  } catch (err) {
-    console.warn(
-      `[CodexAdapter] Failed to resolve Codex binary for Electron:`,
-      err instanceof Error ? err.message : String(err),
-    );
-    return undefined;
+  // 1. Electron: resourcesPath/app.asar.unpacked/node_modules/...
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string })
+    .resourcesPath;
+  if (resourcesPath) {
+    candidates.push(path.join(resourcesPath, 'app.asar.unpacked', relFromBin));
   }
+
+  // 2. require.resolve the platform binary package directly. When the SDK's
+  //    optional dep is installed alongside the SDK, this is the most reliable
+  //    path on all OSes.
+  try {
+    const platformPkgJson = require.resolve(`${platformPkg}/package.json`);
+    candidates.push(
+      path.join(
+        path.dirname(platformPkgJson),
+        'vendor',
+        targetTriple,
+        'codex',
+        binaryName,
+      ),
+    );
+  } catch {
+    // Platform package not installed or not resolvable from this context.
+  }
+
+  // 3. require.resolve via @openai/codex-sdk's node_modules root.
+  try {
+    const sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
+    // sdkPkgJsonPath = .../node_modules/@openai/codex-sdk/package.json
+    const nodeModulesRoot = path.resolve(sdkPkgJsonPath, '..', '..', '..');
+    const candidate = path.join(nodeModulesRoot, relFromNodeModules);
+    candidates.push(candidate);
+    // Rewrite for older Electron builds where SDK lives inside app.asar but
+    // the binary is unpacked.
+    candidates.push(
+      candidate.replace(/app\.asar(?!\.unpacked)/, 'app.asar.unpacked'),
+    );
+  } catch {
+    // SDK not resolvable when bundled by esbuild — falls through to below.
+  }
+
+  // 4. npm global roots (covers `npm i -g @openai/codex` installs).
+  if (process.platform === 'win32') {
+    const appData = process.env['APPDATA'];
+    if (appData) {
+      candidates.push(path.join(appData, 'npm', relFromBin));
+    }
+  } else {
+    candidates.push(path.join('/usr/local/lib', relFromBin));
+    candidates.push(path.join('/usr/lib', relFromBin));
+    const home = process.env['HOME'];
+    if (home) {
+      candidates.push(path.join(home, '.npm-global', 'lib', relFromBin));
+      candidates.push(
+        path.join(
+          home,
+          '.nvm',
+          'versions',
+          'node',
+          process.version,
+          'lib',
+          relFromBin,
+        ),
+      );
+    }
+  }
+
+  // 5. Walk up from the detected CLI path. npm puts the platform-binary
+  //    optional-dep alongside the `@openai/codex` package, so we try both:
+  //      <cliDir>/node_modules/@openai/codex-<platform>/...
+  //      <cliDir>/node_modules/@openai/codex/node_modules/@openai/codex-<platform>/...
+  if (detectedCliPath) {
+    const cliDir = path.dirname(detectedCliPath);
+    candidates.push(path.join(cliDir, relFromBin));
+    candidates.push(
+      path.join(
+        cliDir,
+        'node_modules',
+        '@openai',
+        'codex',
+        'node_modules',
+        relFromNodeModules,
+      ),
+    );
+    // On Windows, the .cmd lives in `<prefix>/npm/`; the node_modules is at
+    // `<prefix>/npm/node_modules/`. cliDir already points to the right place.
+    // On Unix, the bin is at `<prefix>/bin/codex`; node_modules is at
+    // `<prefix>/lib/node_modules/`. Translate bin → lib for that case.
+    if (process.platform !== 'win32' && path.basename(cliDir) === 'bin') {
+      const prefix = path.dirname(cliDir);
+      candidates.push(path.join(prefix, 'lib', relFromBin));
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      if (existsSync(candidate)) return candidate;
+    } catch {
+      // Permission / path errors — skip and try next.
+    }
+  }
+
+  return undefined;
 }
 
 /** Shape of ~/.codex/auth.json (both snake_case and SCREAMING_CASE variants exist across CLI versions) */
@@ -500,20 +566,15 @@ export class CodexCliAdapter implements CliAdapter {
       };
     }
     codexOptions.config = config;
-    // TASK_2025_261: Resolve Codex binary path with Electron ASAR awareness.
-    // Priority: 1) Electron ASAR unpacked binary, 2) Non-.cmd global CLI path
-    // In Electron, the SDK's internal findCodexPath() resolves inside app.asar
-    // which can't be spawned. We pre-resolve from app.asar.unpacked instead.
-    const electronBinaryPath = resolveCodexBinaryForElectron();
-    if (electronBinaryPath) {
-      codexOptions.codexPathOverride = electronBinaryPath;
-    } else if (options.binaryPath) {
-      // Windows npm installs .cmd shims that the bundled codex-sdk's
-      // require.resolve() cannot locate. Resolve to the underlying native
-      // binary before passing as codexPathOverride.
-      codexOptions.codexPathOverride = await resolveWindowsCmd(
-        options.binaryPath,
-      );
+    // Resolve the native Codex binary across all platforms (Win/macOS/Linux)
+    // and all hosts (Electron, VS Code extension, CLI/dev). The SDK spawns
+    // this binary directly, so we must point to the actual platform-specific
+    // Rust executable — never to a `.cmd` shim (EFTYPE on Windows) or `.js`
+    // launcher. If resolution fails we pass `undefined` and let the SDK's
+    // internal `findCodexPath()` try.
+    const nativeBinaryPath = resolveCodexNativeBinary(options.binaryPath);
+    if (nativeBinaryPath) {
+      codexOptions.codexPathOverride = nativeBinaryPath;
     }
 
     const codex = new sdk.Codex(codexOptions);

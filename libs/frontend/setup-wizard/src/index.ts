@@ -26,13 +26,6 @@ export { PromptEnhancementComponent } from './lib/components/prompt-enhancement.
 export { GenerationProgressComponent } from './lib/components/generation-progress.component';
 export { CompletionComponent } from './lib/components/completion.component';
 
-// Wizard Components (New Project Flow)
-export { ProjectTypeSelectionComponent } from './lib/components/project-type-selection.component';
-export { QuestionCardComponent } from './lib/components/question-card.component';
-export { DiscoveryStepperComponent } from './lib/components/discovery-stepper.component';
-export { PlanGenerationComponent } from './lib/components/plan-generation.component';
-export { PlanReviewComponent } from './lib/components/plan-review.component';
-
 // Utility Components
 export { ConfirmationModalComponent } from './lib/components/confirmation-modal.component';
 export { PremiumUpsellComponent } from './lib/components/premium-upsell.component';

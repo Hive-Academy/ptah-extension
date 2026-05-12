@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, type WorkspaceInfo } from '@ptah-extension/shared';
 
 /**
  * Options for generating webview HTML content
@@ -37,14 +37,16 @@ export class WebviewHtmlGenerator {
     webview: vscode.Webview,
     options?:
       | {
-          workspaceInfo?: Record<string, unknown>;
+          workspaceInfo?: WorkspaceInfo | Record<string, unknown> | null;
           initialView?: string;
           isLicensed?: boolean;
           panelId?: string;
           initialSessionId?: string;
           initialSessionName?: string;
         }
-      | Record<string, unknown>,
+      | WorkspaceInfo
+      | Record<string, unknown>
+      | null,
   ): string {
     try {
       // Support both new options object and legacy workspaceInfo object
@@ -569,7 +571,7 @@ export class WebviewHtmlGenerator {
       .replace(/\u2029/g, '\\u2029'); // Escape Unicode paragraph separator
   }
 
-  public buildWorkspaceInfo(): Record<string, unknown> | null {
+  public buildWorkspaceInfo(): WorkspaceInfo | null {
     try {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -581,6 +583,7 @@ export class WebviewHtmlGenerator {
       return {
         name: workspaceFolder.name,
         path: workspaceFolder.uri.fsPath,
+        type: 'workspace',
       };
     } catch {
       return null;

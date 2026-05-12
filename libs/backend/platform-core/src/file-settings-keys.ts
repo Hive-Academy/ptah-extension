@@ -14,6 +14,31 @@
  */
 
 /**
+ * Provider auth keys that each get a `selectedModel` + `reasoningEffort` slot.
+ *
+ * MUST stay in sync with `KNOWN_PROVIDER_AUTH_KEYS` in
+ * `libs/backend/settings-core/src/schema/provider-schema.ts`.
+ * We cannot import that constant here because settings-core depends on
+ * platform-core (not the reverse) — a circular dependency would result.
+ *
+ * WP-3C (R1 fix): these keys must be in FILE_BASED_SETTINGS_KEYS so that
+ * VscodeWorkspaceProvider routes them to ~/.ptah/settings.json instead of
+ * vscode.workspace.getConfiguration (which has no schema for them).
+ */
+const KNOWN_AUTH_KEYS_FOR_FILE_ROUTING = [
+  'apiKey',
+  'claudeCli',
+  'thirdParty.openrouter',
+  'thirdParty.moonshot',
+  'thirdParty.z-ai',
+  'thirdParty.ollama',
+  'thirdParty.ollama-cloud',
+  'thirdParty.lm-studio',
+  'thirdParty.github-copilot',
+  'thirdParty.openai-codex',
+] as const;
+
+/**
  * Settings keys that route to file-based storage (~/.ptah/settings.json).
  *
  * Used by VscodeWorkspaceProvider and ElectronWorkspaceProvider for routing:
@@ -31,6 +56,8 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // LLM configuration
   'llm.defaultProvider',
   'llm.vscode.model',
+  'reasoningEffort',
+  'model.selected',
 
   // Agent orchestration — Codex
   'agentOrchestration.codexModel',
@@ -116,6 +143,18 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'skillSynthesis.dedupCosineThreshold',
   'skillSynthesis.maxActiveSkills',
   'skillSynthesis.candidatesDir',
+  'skillSynthesis.eligibilityMinTurns',
+  'skillSynthesis.evictionDecayRate',
+  'skillSynthesis.generalizationContextThreshold',
+  'skillSynthesis.minTrajectoryFidelityRatio',
+  'skillSynthesis.dedupClusterThreshold',
+  'skillSynthesis.minAbstractionEditDistance',
+  'skillSynthesis.judgeEnabled',
+  'skillSynthesis.minJudgeScore',
+  'skillSynthesis.judgeModel',
+  'skillSynthesis.maxPinnedSkills',
+  'skillSynthesis.curatorEnabled',
+  'skillSynthesis.curatorIntervalHours',
 
   // Cron scheduler
   'cron.enabled',
@@ -139,6 +178,16 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'gateway.slack.botTokenCipher',
   'gateway.slack.appTokenCipher',
   'gateway.slack.allowedTeamIds',
+
+  // Provider-scoped per-auth model + effort keys (WP-3C, R1 fix).
+  // Generated from KNOWN_AUTH_KEYS_FOR_FILE_ROUTING — one selectedModel and
+  // one reasoningEffort key per provider auth identity.
+  // Keeps VS Code's getConfiguration router from falling through to the
+  // vscode.workspace.getConfiguration path (which has no schema for them).
+  ...KNOWN_AUTH_KEYS_FOR_FILE_ROUTING.flatMap((k) => [
+    `provider.${k}.selectedModel`,
+    `provider.${k}.reasoningEffort`,
+  ]),
 ]);
 
 /**
@@ -164,6 +213,8 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // LLM configuration
   'llm.defaultProvider': 'vscode-lm',
   'llm.vscode.model': 'copilot/gpt-4o',
+  reasoningEffort: 'medium',
+  'model.selected': '',
 
   // Agent orchestration — Codex
   'agentOrchestration.codexModel': '',
@@ -254,6 +305,18 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.dedupCosineThreshold': 0.85,
   'skillSynthesis.maxActiveSkills': 50,
   'skillSynthesis.candidatesDir': '',
+  'skillSynthesis.eligibilityMinTurns': 5,
+  'skillSynthesis.evictionDecayRate': 0.95,
+  'skillSynthesis.generalizationContextThreshold': 3,
+  'skillSynthesis.minTrajectoryFidelityRatio': 0.4,
+  'skillSynthesis.dedupClusterThreshold': 0.78,
+  'skillSynthesis.minAbstractionEditDistance': 0.3,
+  'skillSynthesis.judgeEnabled': true,
+  'skillSynthesis.minJudgeScore': 6.0,
+  'skillSynthesis.judgeModel': 'inherit',
+  'skillSynthesis.maxPinnedSkills': 10,
+  'skillSynthesis.curatorEnabled': true,
+  'skillSynthesis.curatorIntervalHours': 24,
 
   // Cron scheduler
   'cron.enabled': true,
@@ -277,6 +340,15 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'gateway.slack.botTokenCipher': '',
   'gateway.slack.appTokenCipher': '',
   'gateway.slack.allowedTeamIds': [],
+
+  // Provider-scoped per-auth model + effort keys (WP-3C, R1 fix).
+  // Empty string = "no selection yet / use provider default".
+  ...Object.fromEntries(
+    KNOWN_AUTH_KEYS_FOR_FILE_ROUTING.flatMap((k) => [
+      [`provider.${k}.selectedModel`, ''],
+      [`provider.${k}.reasoningEffort`, ''],
+    ]),
+  ),
 };
 
 /**

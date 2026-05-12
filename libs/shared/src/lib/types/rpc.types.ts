@@ -29,14 +29,27 @@ export * from './rpc/rpc-editor.types';
 export * from './rpc/rpc-memory.types';
 // === TRACK_1_MEMORY_CURATOR_END ===
 
+// === TASK_2026_114_INDEXING_BEGIN ===
+export * from './rpc/rpc-indexing.types';
+// === TASK_2026_114_INDEXING_END ===
+
+// === TASK_2026_117_UPDATE_UX_BEGIN ===
+export * from './rpc/rpc-update.types';
+// === TASK_2026_117_UPDATE_UX_END ===
+
 // ============================================================
 // Imports for RpcMethodRegistry (types used only in registry entries)
 // ============================================================
 
 // TASK_2025_109: SubagentResumeParams/Result removed - now uses context injection
+// Phase 2: Added SubagentSendMessageParams, SubagentStopParams, SubagentInterruptParams
 import type {
   SubagentQueryParams,
   SubagentQueryResult,
+  SubagentSendMessageParams,
+  SubagentStopParams,
+  SubagentInterruptParams,
+  SubagentCommandResult,
 } from './subagent-registry.types';
 import type { SavedAnalysisMetadata } from './wizard';
 
@@ -171,14 +184,8 @@ import type {
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
   WizardInstallPackAgentsResult,
-  WizardNewProjectSelectTypeParams,
-  WizardNewProjectSelectTypeResult,
-  WizardNewProjectSubmitAnswersParams,
-  WizardNewProjectSubmitAnswersResult,
-  WizardNewProjectGetPlanParams,
-  WizardNewProjectGetPlanResult,
-  WizardNewProjectApprovePlanParams,
-  WizardNewProjectApprovePlanResult,
+  WizardStartNewProjectChatParams,
+  WizardStartNewProjectChatResult,
 } from './rpc/rpc-setup.types';
 
 import type {
@@ -238,6 +245,18 @@ import type {
   GitCommitResult,
   GitShowFileParams,
   GitShowFileResult,
+  GitBranchesParams,
+  GitBranchesResult,
+  GitCheckoutParams,
+  GitCheckoutResult,
+  GitStashListParams,
+  GitStashListResult,
+  GitTagsParams,
+  GitTagsResult,
+  GitRemotesParams,
+  GitRemotesResult,
+  GitLastCommitParams,
+  GitLastCommitResult,
 } from './rpc/rpc-git.types';
 
 import type {
@@ -270,6 +289,27 @@ import type {
   MemoryStatsResult,
 } from './rpc/rpc-memory.types';
 // === TRACK_1_MEMORY_CURATOR_END ===
+
+// === TASK_2026_114_INDEXING_BEGIN ===
+import type {
+  IndexingGetStatusParams,
+  IndexingGetStatusResult,
+  IndexingStartParams,
+  IndexingStartResult,
+  IndexingPauseParams,
+  IndexingPauseResult,
+  IndexingResumeParams,
+  IndexingResumeResult,
+  IndexingCancelParams,
+  IndexingCancelResult,
+  IndexingSetPipelineEnabledParams,
+  IndexingSetPipelineEnabledResult,
+  IndexingDismissStaleParams,
+  IndexingDismissStaleResult,
+  IndexingAcknowledgeDisclosureParams,
+  IndexingAcknowledgeDisclosureResult,
+} from './rpc/rpc-indexing.types';
+// === TASK_2026_114_INDEXING_END ===
 
 import type {
   HarnessInitializeParams,
@@ -335,6 +375,19 @@ import type {
   PluginConfigState,
   PluginSkillEntry,
 } from './rpc/rpc-misc.types';
+import type {
+  DbHealthResult,
+  DbResetResult,
+} from './rpc/rpc-persistence.types';
+
+// === TASK_2026_117_UPDATE_UX_BEGIN ===
+import type {
+  UpdateCheckNowParams,
+  UpdateCheckNowResult,
+  UpdateInstallNowParams,
+  UpdateInstallNowResult,
+} from './rpc/rpc-update.types';
+// === TASK_2026_117_UPDATE_UX_END ===
 
 // ============================================================
 // RPC Method Registry (Compile-Time Enforcement)
@@ -552,22 +605,10 @@ export interface RpcMethodRegistry {
     params: WizardInstallPackAgentsParams;
     result: WizardInstallPackAgentsResult;
   };
-  // New Project Wizard Methods
-  'wizard:new-project-select-type': {
-    params: WizardNewProjectSelectTypeParams;
-    result: WizardNewProjectSelectTypeResult;
-  };
-  'wizard:new-project-submit-answers': {
-    params: WizardNewProjectSubmitAnswersParams;
-    result: WizardNewProjectSubmitAnswersResult;
-  };
-  'wizard:new-project-get-plan': {
-    params: WizardNewProjectGetPlanParams;
-    result: WizardNewProjectGetPlanResult;
-  };
-  'wizard:new-project-approve-plan': {
-    params: WizardNewProjectApprovePlanParams;
-    result: WizardNewProjectApprovePlanResult;
+  // New Project Chat Handoff
+  'wizard:start-new-project-chat': {
+    params: WizardStartNewProjectChatParams;
+    result: WizardStartNewProjectChatResult;
   };
 
   // ---- License Methods ----
@@ -655,11 +696,24 @@ export interface RpcMethodRegistry {
     result: ProviderClearModelTierResult;
   };
 
-  // ---- Subagent Methods (TASK_2025_103) ----
+  // ---- Subagent Methods (TASK_2025_103, Phase 2) ----
   // TASK_2025_109: chat:subagent-resume removed - now uses context injection
   'chat:subagent-query': {
     params: SubagentQueryParams;
     result: SubagentQueryResult;
+  };
+  // Phase 2: Bidirectional messaging + stop/interrupt
+  'subagent:send-message': {
+    params: SubagentSendMessageParams;
+    result: SubagentCommandResult;
+  };
+  'subagent:stop': {
+    params: SubagentStopParams;
+    result: SubagentCommandResult;
+  };
+  'subagent:interrupt': {
+    params: SubagentInterruptParams;
+    result: SubagentCommandResult;
   };
 
   // ---- Enhanced Prompts Methods (TASK_2025_137) ----
@@ -882,7 +936,11 @@ export interface RpcMethodRegistry {
     result: { success: boolean; error?: string };
   };
   'workspace:switch': {
-    params: { path: string };
+    // TASK_2026_115: `origin` is an opaque per-call token stamped by the
+    // frontend so the resulting WORKSPACE_CHANGED echo can be identified
+    // and dropped (self-echo suppression). Optional for backward compat
+    // with platforms that don't broadcast push events.
+    params: { path: string; origin?: string };
     result: { success: boolean; error?: string };
   };
   'workspace:registerFolder': {
@@ -1104,6 +1162,16 @@ export interface RpcMethodRegistry {
   'git:discard': { params: GitDiscardParams; result: GitDiscardResult };
   'git:commit': { params: GitCommitParams; result: GitCommitResult };
   'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
+  // Git enhancement methods (TASK_2026_111)
+  'git:branches': { params: GitBranchesParams; result: GitBranchesResult };
+  'git:checkout': { params: GitCheckoutParams; result: GitCheckoutResult };
+  'git:stashList': { params: GitStashListParams; result: GitStashListResult };
+  'git:tags': { params: GitTagsParams; result: GitTagsResult };
+  'git:remotes': { params: GitRemotesParams; result: GitRemotesResult };
+  'git:lastCommit': {
+    params: GitLastCommitParams;
+    result: GitLastCommitResult;
+  };
 
   // ---- Terminal Methods (TASK_2025_227) ----
   'terminal:create': {
@@ -1219,6 +1287,26 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisStatsParams;
     result: SkillSynthesisStatsResult;
   };
+  'skillSynthesis:getSettings': {
+    params: SkillSynthesisGetSettingsParams;
+    result: SkillSynthesisGetSettingsResult;
+  };
+  'skillSynthesis:updateSettings': {
+    params: SkillSynthesisUpdateSettingsParams;
+    result: SkillSynthesisUpdateSettingsResult;
+  };
+  'skillSynthesis:pin': {
+    params: SkillSynthesisPinParams;
+    result: SkillSynthesisPinResult;
+  };
+  'skillSynthesis:unpin': {
+    params: SkillSynthesisUnpinParams;
+    result: SkillSynthesisUnpinResult;
+  };
+  'skillSynthesis:runCurator': {
+    params: SkillSynthesisRunCuratorParams;
+    result: SkillSynthesisRunCuratorResult;
+  };
   // === TRACK_2_SKILL_SYNTHESIS_END ===
 
   // === TRACK_3_CRON_SCHEDULER_BEGIN ===
@@ -1273,6 +1361,65 @@ export interface RpcMethodRegistry {
     result: GatewayTestResult;
   };
   // === TRACK_4_MESSAGING_GATEWAY_END ===
+
+  // === THOTH_PERSISTENCE_HARDENING_BEGIN ===
+  'db:health': {
+    params: { fullCheck?: boolean };
+    result: DbHealthResult;
+  };
+  'db:reset': {
+    params: { confirm: string };
+    result: DbResetResult;
+  };
+  // === THOTH_PERSISTENCE_HARDENING_END ===
+
+  // === TASK_2026_114_INDEXING_BEGIN ===
+  // User-controlled workspace indexing (TASK_2026_114)
+  'indexing:getStatus': {
+    params: IndexingGetStatusParams;
+    result: IndexingGetStatusResult;
+  };
+  'indexing:start': {
+    params: IndexingStartParams;
+    result: IndexingStartResult;
+  };
+  'indexing:pause': {
+    params: IndexingPauseParams;
+    result: IndexingPauseResult;
+  };
+  'indexing:resume': {
+    params: IndexingResumeParams;
+    result: IndexingResumeResult;
+  };
+  'indexing:cancel': {
+    params: IndexingCancelParams;
+    result: IndexingCancelResult;
+  };
+  'indexing:setPipelineEnabled': {
+    params: IndexingSetPipelineEnabledParams;
+    result: IndexingSetPipelineEnabledResult;
+  };
+  'indexing:dismissStale': {
+    params: IndexingDismissStaleParams;
+    result: IndexingDismissStaleResult;
+  };
+  'indexing:acknowledgeDisclosure': {
+    params: IndexingAcknowledgeDisclosureParams;
+    result: IndexingAcknowledgeDisclosureResult;
+  };
+  // === TASK_2026_114_INDEXING_END ===
+
+  // === TASK_2026_117_UPDATE_UX_BEGIN ===
+  // Electron auto-update UX (check-now, install-now)
+  'update:check-now': {
+    params: UpdateCheckNowParams;
+    result: UpdateCheckNowResult;
+  };
+  'update:install-now': {
+    params: UpdateInstallNowParams;
+    result: UpdateInstallNowResult;
+  };
+  // === TASK_2026_117_UPDATE_UX_END ===
 }
 
 // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
@@ -1292,6 +1439,7 @@ export interface SkillSynthesisCandidateSummary {
   promotedAt: number | null;
   rejectedAt: number | null;
   rejectedReason: string | null;
+  pinned: boolean;
 }
 
 export interface SkillSynthesisCandidateDetail extends SkillSynthesisCandidateSummary {
@@ -1357,6 +1505,71 @@ export interface SkillSynthesisStatsResult {
   totalRejected: number;
   totalInvocations: number;
   activeSkills: number;
+}
+
+/**
+ * DTO mirroring all 17 SkillSynthesisSettings fields.
+ * Shared between frontend and backend — no branded types.
+ */
+export interface SkillSynthesisSettingsDto {
+  enabled: boolean;
+  successesToPromote: number;
+  dedupCosineThreshold: number;
+  maxActiveSkills: number;
+  candidatesDir: string;
+  eligibilityMinTurns: number;
+  evictionDecayRate: number;
+  generalizationContextThreshold: number;
+  minTrajectoryFidelityRatio: number;
+  dedupClusterThreshold: number;
+  minAbstractionEditDistance: number;
+  judgeEnabled: boolean;
+  minJudgeScore: number;
+  judgeModel: string;
+  maxPinnedSkills: number;
+  curatorEnabled: boolean;
+  curatorIntervalHours: number;
+}
+
+export type SkillSynthesisGetSettingsParams = Record<string, never>;
+export interface SkillSynthesisGetSettingsResult {
+  settings: SkillSynthesisSettingsDto;
+}
+
+export interface SkillSynthesisUpdateSettingsParams {
+  settings: Partial<SkillSynthesisSettingsDto>;
+}
+export interface SkillSynthesisUpdateSettingsResult {
+  updated: boolean;
+}
+
+export interface SkillSynthesisPinParams {
+  id: string;
+}
+export interface SkillSynthesisPinResult {
+  pinned: boolean;
+}
+
+export interface SkillSynthesisUnpinParams {
+  id: string;
+}
+export interface SkillSynthesisUnpinResult {
+  pinned: boolean;
+}
+
+export type SkillSynthesisRunCuratorParams = Record<string, never>;
+
+export interface SkillSynthesisCuratorOverlap {
+  skillIdA: string;
+  skillIdB: string;
+  reason: string;
+}
+
+export interface SkillSynthesisRunCuratorResult {
+  reportPath: string;
+  changesQueued: number;
+  skippedPinned: number;
+  overlaps?: SkillSynthesisCuratorOverlap[];
 }
 // === TRACK_2_SKILL_SYNTHESIS_END ===
 
@@ -1699,11 +1912,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   // Agent Pack Browser Methods (TASK_2025_258)
   'wizard:list-agent-packs': true,
   'wizard:install-pack-agents': true,
-  // New Project Wizard Methods
-  'wizard:new-project-select-type': true,
-  'wizard:new-project-submit-answers': true,
-  'wizard:new-project-get-plan': true,
-  'wizard:new-project-approve-plan': true,
+  // New Project Chat Handoff
+  'wizard:start-new-project-chat': true,
 
   // License Methods
   'license:getStatus': true,
@@ -1733,9 +1943,13 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'provider:getModelTiers': true,
   'provider:clearModelTier': true,
 
-  // Subagent Methods (TASK_2025_103)
+  // Subagent Methods (TASK_2025_103, Phase 2)
   // TASK_2025_109: chat:subagent-resume removed - now uses context injection
   'chat:subagent-query': true,
+  // Phase 2: Bidirectional messaging + stop/interrupt
+  'subagent:send-message': true,
+  'subagent:stop': true,
+  'subagent:interrupt': true,
 
   // Enhanced Prompts Methods (TASK_2025_137)
   'enhancedPrompts:getStatus': true,
@@ -1855,6 +2069,13 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:discard': true,
   'git:commit': true,
   'git:showFile': true,
+  // Git enhancement methods (TASK_2026_111)
+  'git:branches': true,
+  'git:checkout': true,
+  'git:stashList': true,
+  'git:tags': true,
+  'git:remotes': true,
+  'git:lastCommit': true,
 
   // Terminal Methods (TASK_2025_227)
   'terminal:create': true,
@@ -1896,6 +2117,11 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:reject': true,
   'skillSynthesis:invocations': true,
   'skillSynthesis:stats': true,
+  'skillSynthesis:getSettings': true,
+  'skillSynthesis:updateSettings': true,
+  'skillSynthesis:pin': true,
+  'skillSynthesis:unpin': true,
+  'skillSynthesis:runCurator': true,
   // === TRACK_2_SKILL_SYNTHESIS_END ===
 
   // === TRACK_3_CRON_SCHEDULER_BEGIN ===
@@ -1921,6 +2147,27 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'gateway:listMessages': true,
   'gateway:test': true,
   // === TRACK_4_MESSAGING_GATEWAY_END ===
+
+  // === THOTH_PERSISTENCE_HARDENING_BEGIN ===
+  'db:health': true,
+  'db:reset': true,
+  // === THOTH_PERSISTENCE_HARDENING_END ===
+
+  // === TASK_2026_114_INDEXING_BEGIN ===
+  'indexing:getStatus': true,
+  'indexing:start': true,
+  'indexing:pause': true,
+  'indexing:resume': true,
+  'indexing:cancel': true,
+  'indexing:setPipelineEnabled': true,
+  'indexing:dismissStale': true,
+  'indexing:acknowledgeDisclosure': true,
+  // === TASK_2026_114_INDEXING_END ===
+
+  // === TASK_2026_117_UPDATE_UX_BEGIN ===
+  'update:check-now': true,
+  'update:install-now': true,
+  // === TASK_2026_117_UPDATE_UX_END ===
 };
 
 /**

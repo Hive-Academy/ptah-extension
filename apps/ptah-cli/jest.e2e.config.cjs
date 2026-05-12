@@ -24,7 +24,13 @@ module.exports = {
   rootDir: __dirname,
   testMatch: ['<rootDir>/tests/e2e/**/*.e2e.spec.ts'],
   transform: {
-    '^.+\\.[tj]sx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
+    // Restrict ts-jest to TypeScript files only. The nx preset's default
+    // glob also covers .cjs / .js / .mjs, which causes ts-jest to attempt
+    // to compile global-setup.cjs (a plain CommonJS file) and emit a
+    // spurious "allowJs not set" warning. Overriding with a
+    // TypeScript-only pattern suppresses the noise without breaking any
+    // test file in this suite (all test files are .ts or .tsx).
+    '^.+\\.tsx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs'],
   globalSetup: '<rootDir>/tests/e2e/_harness/global-setup.cjs',

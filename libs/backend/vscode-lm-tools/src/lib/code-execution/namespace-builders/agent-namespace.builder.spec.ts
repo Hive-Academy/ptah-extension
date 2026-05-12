@@ -232,6 +232,7 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
   it('routes through registry.spawnAgent and wires agentId back onto the SDK handle', async () => {
     const setAgentId = jest.fn();
     const { deps, mocks } = makeDeps();
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     mocks.registry!.spawnAgent.mockResolvedValue({
       handle: { id: 'h' } as unknown as SdkHandle,
       agentName: 'MyAgent',
@@ -247,6 +248,7 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
     } as SpawnAgentRequest);
 
     expect(out).toEqual({ agentId: 'spawned-1' });
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     expect(mocks.registry!.spawnAgent).toHaveBeenCalledWith(
       'agent-a',
       'task body',
@@ -257,6 +259,7 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
 
   it('throws with helpful message when registry returns a failure status', async () => {
     const { deps, mocks } = makeDeps();
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     mocks.registry!.spawnAgent.mockResolvedValue({
       status: 'no_api_key',
       message: 'missing API key',
@@ -360,6 +363,7 @@ describe('buildAgentNamespace — list', () => {
     mocks.detection.detectAll.mockResolvedValue([
       { cli: 'gemini', installed: true, supportsSteer: false },
     ] as CliDetectionResult[]);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     mocks.registry!.listAgents.mockResolvedValue([
       {
         id: 'ptah-alice',
@@ -390,6 +394,7 @@ describe('buildAgentNamespace — list', () => {
     mocks.detection.detectAll.mockResolvedValue([
       { cli: 'gemini', installed: true, supportsSteer: false },
     ] as CliDetectionResult[]);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     mocks.registry!.listAgents.mockRejectedValue(new Error('registry down'));
 
     const list = await buildAgentNamespace(deps).list();

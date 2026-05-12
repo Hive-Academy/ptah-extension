@@ -48,15 +48,14 @@ jest.mock('fs', () => {
   };
 });
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const jpegMock = require('jpeg-js') as { decode: jest.Mock };
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+
 const gifencMock = require('gifenc') as {
   GIFEncoder: jest.Mock;
   quantize: jest.Mock;
   applyPalette: jest.Mock;
 };
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+
 const fsMock = require('fs') as {
   existsSync: jest.Mock;
   mkdirSync: jest.Mock;

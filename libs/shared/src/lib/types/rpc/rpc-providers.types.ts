@@ -12,6 +12,18 @@
 /** Model tier for provider model mapping */
 export type ProviderModelTier = 'sonnet' | 'opus' | 'haiku';
 
+/**
+ * Scope for provider tier mappings.
+ *
+ * - `mainAgent`: The primary agent using Anthropic direct or a third-party
+ *   proxy as configured in Settings. Tier writes propagate to global
+ *   `process.env` and `AuthEnv` so the SDK picks them up at runtime.
+ * - `cliAgent`: A Ptah CLI sub-agent with its own isolated `AuthEnv` built
+ *   at spawn time. Tier writes are persisted to config only; they are read
+ *   back by `resolveEffectiveTiers()` when the child process starts.
+ */
+export type ProviderTierScope = 'mainAgent' | 'cliAgent';
+
 /** Provider model information */
 export interface ProviderModelInfo {
   /** Model ID (e.g., "anthropic/claude-3.5-sonnet", "kimi-k2") */
@@ -62,6 +74,8 @@ export interface ProviderSetModelTierParams {
   modelId: string;
   /** Provider ID (defaults to active provider) */
   providerId?: string;
+  /** Scope: whether this tier mapping belongs to the main agent or a CLI sub-agent */
+  scope: ProviderTierScope;
 }
 
 /** Response from provider:setModelTier RPC method */
@@ -74,6 +88,8 @@ export interface ProviderSetModelTierResult {
 export interface ProviderGetModelTiersParams {
   /** Provider ID (defaults to active provider) */
   providerId?: string;
+  /** Scope: which agent's tier mapping to retrieve */
+  scope: ProviderTierScope;
 }
 
 /** Response from provider:getModelTiers RPC method */
@@ -92,6 +108,8 @@ export interface ProviderClearModelTierParams {
   tier: ProviderModelTier;
   /** Provider ID (defaults to active provider) */
   providerId?: string;
+  /** Scope: which agent's tier mapping to clear */
+  scope: ProviderTierScope;
 }
 
 /** Response from provider:clearModelTier RPC method */

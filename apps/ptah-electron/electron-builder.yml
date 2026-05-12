@@ -1,7 +1,7 @@
 appId: com.ptah.desktop
 productName: Ptah
 copyright: Copyright 2026 Ptah
-electronVersion: 35.7.5
+electronVersion: 40.8.5
 
 directories:
   output: ../../release

@@ -33,6 +33,10 @@ import type {
   SettingsImportService,
   PtahSettingsExport,
 } from '@ptah-extension/agent-sdk';
+import {
+  PtahSettingsExportSchema,
+  CURRENT_SETTINGS_EXPORT_VERSION,
+} from './settings-export.schema';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IPlatformCommands,
@@ -213,7 +217,58 @@ export class SettingsRpcHandlers {
           };
         }
 
-        const exportData = parsedData as PtahSettingsExport;
+        // Validate the parsed payload against the versioned Zod schema.
+        // We do NOT expose raw Zod error details to the client — those can
+        // contain user-supplied values.  Log details internally only.
+        const parseResult = PtahSettingsExportSchema.safeParse(parsedData);
+        if (!parseResult.success) {
+          this.logger.warn('[RPC] settings:import - schema validation failed', {
+            filePath,
+            issues: parseResult.error.issues.map((i) => ({
+              path: i.path,
+              code: i.code,
+            })),
+          });
+          return {
+            cancelled: false,
+            result: {
+              imported: [],
+              skipped: [],
+              errors: [
+                'The selected file is not a valid Ptah settings export.',
+              ],
+            },
+          };
+        }
+
+        const validated = parseResult.data;
+
+        // Version check (Q4 — Option B): reject exports produced by a newer
+        // version of Ptah.  Older versions are accepted; the schema uses
+        // .passthrough() to handle unknown fields from future revisions.
+        if (validated.version > CURRENT_SETTINGS_EXPORT_VERSION) {
+          this.logger.warn('[RPC] settings:import - export version too high', {
+            fileVersion: validated.version,
+            currentVersion: CURRENT_SETTINGS_EXPORT_VERSION,
+          } as unknown as Error);
+          return {
+            cancelled: false,
+            result: {
+              imported: [],
+              skipped: [],
+              errors: [
+                `Unsupported settings export version: ${validated.version}. ` +
+                  `This export was produced by a newer version of Ptah. ` +
+                  `Update Ptah to import it.`,
+              ],
+            },
+          };
+        }
+
+        // Cast is safe: Zod has validated the required fields and
+        // CURRENT_SETTINGS_EXPORT_VERSION >= validated.version so the shape
+        // is compatible with PtahSettingsExport.
+        const exportData = validated as unknown as PtahSettingsExport;
 
         // Delegate secrets / provider keys to the platform-agnostic service.
         const importResult =

@@ -382,6 +382,23 @@ export interface TabState {
     contextWindow: number;
     cacheReadInputTokens?: number;
   }> | null;
+
+  /**
+   * Whether this tab's session has been activated in the SDK during the
+   * current app run — i.e. it has (or recently had) a live `Query` handle
+   * registered with `SessionLifecycleManager` on the backend.
+   *
+   * Set to `true` the first time the tab transitions into `streaming` or
+   * `resuming`. Stays `true` for the rest of the app run since the backend
+   * keeps active sessions in memory until disposal/tab close.
+   *
+   * Used to gate session-active-only actions (e.g. file rewind, which
+   * requires a live `Query` handle to read checkpoint metadata). Sessions
+   * loaded purely from disk via `session:load` have `hasLiveSession=false`
+   * and would trigger `SessionNotActiveError` on rewind — see
+   * Sentry NODE-NESTJS-2Y / 2N / 2X.
+   */
+  hasLiveSession?: boolean;
 }
 
 /**

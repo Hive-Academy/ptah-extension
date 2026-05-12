@@ -19,6 +19,7 @@ import {
   Download,
   Upload,
   ArrowLeftRight,
+  Database,
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth/auth-config.component';
 import { ProviderModelSelectorComponent } from './auth/provider-model-selector.component';
@@ -29,6 +30,7 @@ import { McpPortConfigComponent } from './pro-features/mcp-port-config.component
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
+import { WorkspaceIndexingComponent } from './workspace-indexing/workspace-indexing.component';
 import {
   PluginStatusWidgetComponent,
   PluginBrowserModalComponent,
@@ -81,6 +83,7 @@ import { ChatStore } from '../services/chat.store';
     SetupStatusWidgetComponent,
     SkillShBrowserComponent,
     McpDirectoryBrowserComponent,
+    WorkspaceIndexingComponent,
     LucideAngularModule,
   ],
   templateUrl: './settings.component.html',
@@ -114,14 +117,20 @@ export class SettingsComponent implements OnInit {
   readonly DownloadIcon = Download;
   readonly UploadIcon = Upload;
   readonly ArrowLeftRightIcon = ArrowLeftRight;
+  readonly DatabaseIcon = Database;
 
   // Loading states for export/import actions
   readonly isExporting = signal(false);
   readonly isImporting = signal(false);
 
-  // Tab state for settings page (4-tab layout; Pro content merged into Ptah AI sub-tabs)
+  // Tab state for settings page (5-tab layout; Pro content merged into Ptah AI sub-tabs;
+  // 'workspace-indexing' added by TASK_2026_114 — free top-level tab, no premium gate.)
   readonly activeSettingsTab = signal<
-    'claude-auth' | 'ptah-ai' | 'ptah-skills' | 'project-setup'
+    | 'claude-auth'
+    | 'ptah-ai'
+    | 'ptah-skills'
+    | 'workspace-indexing'
+    | 'project-setup'
   >('claude-auth');
 
   // Sub-tab state for Ptah AI tab
@@ -178,7 +187,12 @@ export class SettingsComponent implements OnInit {
    * Switch active settings tab
    */
   setActiveTab(
-    tab: 'claude-auth' | 'ptah-ai' | 'ptah-skills' | 'project-setup',
+    tab:
+      | 'claude-auth'
+      | 'ptah-ai'
+      | 'ptah-skills'
+      | 'workspace-indexing'
+      | 'project-setup',
   ): void {
     this.activeSettingsTab.set(tab);
   }

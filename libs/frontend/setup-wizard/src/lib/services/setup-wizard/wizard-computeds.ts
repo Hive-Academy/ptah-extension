@@ -1,8 +1,5 @@
 import { computed, type Signal } from '@angular/core';
-import type {
-  AgentRecommendation,
-  QuestionGroup,
-} from '@ptah-extension/shared';
+import type { AgentRecommendation } from '@ptah-extension/shared';
 import type {
   SkillGenerationProgressItem,
   WizardStep,
@@ -34,16 +31,7 @@ export class WizardComputeds {
   /** Whether a completed multi-phase result is available. */
   public readonly hasMultiPhaseResult: Signal<boolean>;
 
-  /** Currently displayed question group (null when none / out of bounds). */
-  public readonly currentQuestionGroup: Signal<QuestionGroup | null>;
-
-  /** Whether all required questions in the current group are answered. */
-  public readonly currentGroupComplete: Signal<boolean>;
-
-  /** Whether the current group is the last in the sequence. */
-  public readonly isLastGroup: Signal<boolean>;
-
-  /** Active wizard step configuration based on chosen path. */
+  /** Active wizard step configuration. */
   public readonly activeStepConfig: Signal<{
     steps: WizardStep[];
     labels: string[];
@@ -94,82 +82,29 @@ export class WizardComputeds {
       () => state.multiPhaseResult() !== null,
     );
 
-    this.currentQuestionGroup = computed(() => {
-      const groups = state.questionGroups();
-      const index = state.currentGroupIndex();
-      return groups[index] ?? null;
-    });
-
-    this.currentGroupComplete = computed(() => {
-      const group = this.currentQuestionGroup();
-      if (!group) return false;
-      const answers = state.discoveryAnswers();
-      return group.questions
-        .filter((q) => q.required)
-        .every((q) => {
-          const answer = answers[q.id];
-          if (answer === undefined || answer === null) return false;
-          if (Array.isArray(answer))
-            return answer.length >= (q.minSelections ?? 1);
-          return String(answer).trim().length > 0;
-        });
-    });
-
-    this.isLastGroup = computed(() => {
-      const groups = state.questionGroups();
-      return state.currentGroupIndex() >= groups.length - 1;
-    });
-
     this.activeStepConfig = computed<{
       steps: WizardStep[];
       labels: string[];
-    }>(() => {
-      const path = state.wizardPath();
-      if (path === 'new') {
-        return {
-          steps: [
-            'welcome',
-            'project-type',
-            'discovery',
-            'plan-generation',
-            'plan-review',
-            'selection',
-            'generation',
-            'completion',
-          ],
-          labels: [
-            'Welcome',
-            'Type',
-            'Discovery',
-            'Planning',
-            'Review',
-            'Select',
-            'Generate',
-            'Complete',
-          ],
-        };
-      }
-      return {
-        steps: [
-          'welcome',
-          'scan',
-          'analysis',
-          'selection',
-          'generation',
-          'enhance',
-          'completion',
-        ],
-        labels: [
-          'Welcome',
-          'Scan',
-          'Analysis',
-          'Select',
-          'Generate',
-          'Enhance',
-          'Complete',
-        ],
-      };
-    });
+    }>(() => ({
+      steps: [
+        'welcome',
+        'scan',
+        'analysis',
+        'selection',
+        'generation',
+        'enhance',
+        'completion',
+      ],
+      labels: [
+        'Welcome',
+        'Scan',
+        'Analysis',
+        'Select',
+        'Generate',
+        'Enhance',
+        'Complete',
+      ],
+    }));
 
     this.selectedCount = computed(
       () => state.availableAgents().filter((a) => a.selected).length,
@@ -194,14 +129,6 @@ export class WizardComputeds {
           return false;
         case 'completion':
           return true;
-        case 'project-type':
-          return state.newProjectType() !== null;
-        case 'discovery':
-          return this.currentGroupComplete();
-        case 'plan-generation':
-          return false;
-        case 'plan-review':
-          return state.masterPlan() !== null;
         default:
           return false;
       }
@@ -219,10 +146,6 @@ export class WizardComputeds {
         generation: progress?.percentComplete ?? 55,
         enhance: 85,
         completion: 100,
-        'project-type': 15,
-        discovery: 30,
-        'plan-generation': 45,
-        'plan-review': 55,
       };
       return stepProgress[step];
     });

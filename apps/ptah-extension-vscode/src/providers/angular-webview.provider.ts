@@ -8,7 +8,10 @@ import { inject, injectable } from 'tsyringe';
 import * as vscode from 'vscode';
 // SessionManager, InteractiveSessionManager DELETED in TASK_2025_023 purge
 // Sessions now handled by ClaudeProcess via CLI --session-id flag
-import { type WebviewMessage } from '@ptah-extension/shared';
+import {
+  type WebviewMessage,
+  type WorkspaceChangedPayload,
+} from '@ptah-extension/shared';
 import { WebviewEventQueue } from '../services/webview-event-queue';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
 
@@ -88,7 +91,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       webviewView.webview,
-      this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>,
+      this.htmlGenerator.buildWorkspaceInfo(),
     );
 
     // TASK_2025_019 Phase 1: Setup RPC message listener using shared service
@@ -196,10 +199,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       panel.webview,
       {
-        workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<
-          string,
-          unknown
-        >,
+        workspaceInfo: this.htmlGenerator.buildWorkspaceInfo(),
         panelId,
         initialSessionId: options?.initialSessionId,
         initialSessionName: options?.initialSessionName,
@@ -230,7 +230,13 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    */
   private broadcastWorkspaceChanged(): void {
     const workspaceInfo = this.htmlGenerator.buildWorkspaceInfo();
-    const message = { type: 'workspaceChanged', payload: { workspaceInfo } };
+    const message = {
+      type: 'workspaceChanged',
+      payload: {
+        workspaceInfo,
+        origin: null,
+      } satisfies WorkspaceChangedPayload,
+    };
     this._view?.webview.postMessage(message);
     for (const panel of this._panels.values()) {
       panel.webview.postMessage(message);
@@ -368,10 +374,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         const newHtml = this.htmlGenerator.generateAngularWebviewContent(
           panel.webview,
           {
-            workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<
-              string,
-              unknown
-            >,
+            workspaceInfo: this.htmlGenerator.buildWorkspaceInfo(),
             panelId,
           },
         );
@@ -385,7 +388,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     if (this._view?.webview) {
       const newHtml = this.htmlGenerator.generateAngularWebviewContent(
         this._view.webview,
-        this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>,
+        this.htmlGenerator.buildWorkspaceInfo(),
       );
       this._view.webview.html = newHtml;
       reloadedCount++;

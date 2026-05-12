@@ -19,10 +19,11 @@ import { access } from 'fs/promises';
 import { join } from 'path';
 import {
   Logger,
-  ConfigManager,
   TOKENS,
   type WebviewManager,
 } from '@ptah-extension/vscode-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ModelSettings } from '@ptah-extension/settings-core';
 import { Result, MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
   AnalysisPhase,
@@ -109,13 +110,14 @@ export class MultiPhaseAnalysisService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
     @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
     private readonly internalQueryService: InternalQueryService,
     @inject(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE)
     private readonly storageService: AnalysisStorageService,
+    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
+    private readonly modelSettings: ModelSettings,
   ) {}
 
   /**
@@ -134,8 +136,7 @@ export class MultiPhaseAnalysisService {
     const mcpPort = options?.mcpPort;
     const pluginPaths = options?.pluginPaths;
     const model =
-      options?.model ||
-      this.config.getWithDefault<string>('model.selected', DEFAULT_MODEL);
+      options?.model || this.modelSettings.selectedModel.get() || DEFAULT_MODEL;
 
     this.logger.info(`${SERVICE_TAG} Starting multi-phase analysis`, {
       workspace: workspacePath,

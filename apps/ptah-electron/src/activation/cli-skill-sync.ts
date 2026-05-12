@@ -2,6 +2,8 @@
 // Syncs Ptah plugin skills to installed CLI agent directories (Copilot, Gemini).
 // Pro/trial_pro-only fire-and-forget. Caller is responsible for the tier gate.
 
+import * as os from 'os';
+import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
@@ -23,6 +25,9 @@ export function syncCliSkillsOnActivation(
         pluginPathResolver?: (ids: string[]) => string[],
       ) => void;
       syncOnActivation: (enabledPluginIds: string[]) => Promise<unknown[]>;
+      syncSynthesizedSkillsOnActivation: (
+        synthesizedSkillsRoot: string,
+      ) => Promise<unknown[]>;
     };
 
     const pluginLoaderForSync = container.resolve<PluginLoaderService>(
@@ -58,6 +63,23 @@ export function syncCliSkillsOnActivation(
         '[Ptah Electron] CLI skill sync skipped (no enabled plugins)',
       );
     }
+
+    // Fire-and-forget: sync synthesized skills from ~/.ptah/skills/ to CLI agent dirs.
+    // Non-blocking — never delays activation. TASK_2026_THOTH_SKILL_LIFECYCLE
+    const synthesizedRoot = path.join(os.homedir(), '.ptah', 'skills');
+    cliPluginSync
+      .syncSynthesizedSkillsOnActivation(synthesizedRoot)
+      .then((results) => {
+        console.log(
+          `[Ptah Electron] Synthesized skill CLI sync complete (${results.length} results)`,
+        );
+      })
+      .catch((err: unknown) => {
+        console.warn(
+          '[Ptah Electron] Synthesized skill CLI sync failed (non-blocking):',
+          err instanceof Error ? err.message : String(err),
+        );
+      });
   } catch (cliSyncError) {
     console.warn(
       '[Ptah Electron] CLI skill sync setup failed (non-fatal):',

@@ -17,8 +17,13 @@ import {
 import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
+import { registerElectronSettings } from '@ptah-extension/platform-electron';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { TOKENS, SentryService } from '@ptah-extension/vscode-core';
+import {
+  SETTINGS_TOKENS,
+  type MigrationRunner,
+} from '@ptah-extension/settings-core';
 import { fixPath } from '@ptah-extension/agent-sdk';
 import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
@@ -117,6 +122,37 @@ export async function bootstrapElectron(
 
   const container = ElectronDIContainer.setup(platformOptions);
 
+  // PHASE 2.05: Unified settings registration + migration (WP-3C, Batch 3).
+  //
+  // registerElectronSettings wires SETTINGS_TOKENS (SETTINGS_STORE, all 9
+  // repository tokens, MIGRATION_RUNNER) into the container.
+  //
+  // runMigrations() MUST run before any service resolves MODEL_SETTINGS or
+  // REASONING_SETTINGS. Services are registered (Phase 2) but their singleton
+  // instances are not constructed until first resolve — so running the
+  // migration here (before agentAdapter.initialize() in Phase 3.6) satisfies
+  // the ordering constraint from R2.
+  //
+  // ElectronDIContainer.setup() is synchronous; bootstrapElectron() is async,
+  // so we can safely await here without making the phase chain async.
+  try {
+    registerElectronSettings(container);
+    const migrationRunner = container.resolve<MigrationRunner>(
+      SETTINGS_TOKENS.MIGRATION_RUNNER,
+    );
+    await migrationRunner.runMigrations();
+    console.log('[Ptah Electron] Settings registered and migrations applied');
+  } catch (settingsError) {
+    // Non-fatal: log and continue. Worst case, provider-scoped settings fall
+    // back to defaults rather than user-persisted values.
+    console.warn(
+      '[Ptah Electron] Settings registration / migration failed (non-fatal):',
+      settingsError instanceof Error
+        ? settingsError.message
+        : String(settingsError),
+    );
+  }
+
   // Initialize Sentry — DSN injected at build time via esbuild define.
   // Production builds contain the real DSN; development gets empty string (no-op).
   const sentryDsn = typeof __SENTRY_DSN__ !== 'undefined' ? __SENTRY_DSN__ : '';
@@ -182,7 +218,12 @@ export async function bootstrapElectron(
   // persistence + git-watcher switching via the mutable gitWatcherRef).
   // Implementation extracted to ./workspace-restore.
   const { startupWorkspaceRoot: restoredRoot, flushWorkspacePersistence } =
-    await restoreWorkspaces(container, initialFolders, gitWatcherRef);
+    await restoreWorkspaces(
+      container,
+      initialFolders,
+      gitWatcherRef,
+      getMainWindow,
+    );
   let startupWorkspaceRoot = restoredRoot;
   // PHASE 2.6: (Deferred) RPC handlers registered after WebviewManager in Phase 4.5
   // Fallback: if workspace restoration failed but CLI arg was provided

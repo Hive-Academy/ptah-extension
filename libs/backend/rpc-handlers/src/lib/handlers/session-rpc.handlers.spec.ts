@@ -66,6 +66,7 @@ import type {
   SessionHistoryReaderService,
   SdkAgentAdapter,
 } from '@ptah-extension/agent-sdk';
+import { SdkError } from '@ptah-extension/agent-sdk';
 import type { CliSessionReference, SessionId } from '@ptah-extension/shared';
 import {
   createMockLogger,
@@ -213,7 +214,12 @@ async function callRaw(
   h: Harness,
   method: string,
   params: unknown = {},
-): Promise<{ success: boolean; data?: unknown; error?: string }> {
+): Promise<{
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  errorCode?: string;
+}> {
   return h.rpcHandler.handleMessage({
     method,
     params: params as Record<string, unknown>,
@@ -265,6 +271,65 @@ describe('SessionRpcHandlers', () => {
       expect(response.success).toBe(false);
       expect(response.error).toMatch(/workspace-not-authorized/);
       expect(h.metadataStore.getForWorkspace).not.toHaveBeenCalled();
+    });
+
+    it('rejects a path that shares a prefix but is NOT a sub-path (separator boundary)', async () => {
+      // /fake/workspacebaz must NOT match /fake/workspace
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:list', {
+        workspacePath: `${WORKSPACE}baz`,
+        limit: 10,
+        offset: 0,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/workspace-not-authorized/);
+    });
+
+    it('accepts a workspace path with a trailing slash (exact-folder with separator drift)', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.getForWorkspace.mockResolvedValue([]);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:list', {
+        workspacePath: `${WORKSPACE}/`,
+        limit: 10,
+        offset: 0,
+      });
+
+      expect(response.success).toBe(true);
+    });
+
+    it('accepts a sub-path of an open folder (webview sends stale child path)', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.getForWorkspace.mockResolvedValue([]);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:list', {
+        workspacePath: `${WORKSPACE}/subdir/nested`,
+        limit: 10,
+        offset: 0,
+      });
+
+      expect(response.success).toBe(true);
+    });
+
+    it('accepts a path with mixed separators (backslash drift from JSON serialization)', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.getForWorkspace.mockResolvedValue([]);
+      h.handlers.register();
+
+      // Replace forward slashes with backslashes to simulate Windows serialization drift
+      const mixedPath = WORKSPACE.replace(/\//g, '\\');
+      const response = await callRaw(h, 'session:list', {
+        workspacePath: mixedPath,
+        limit: 10,
+        offset: 0,
+      });
+
+      expect(response.success).toBe(true);
     });
 
     it('paginates metadataStore.getForWorkspace() results and sets hasMore correctly', async () => {
@@ -933,6 +998,71 @@ describe('SessionRpcHandlers', () => {
         'badnamewithillegalchars',
       );
     });
+
+    // -----------------------------------------------------------------------
+    // MESSAGE_ID_NOT_FOUND RpcUserError (Fix: NODE-NESTJS-3A/39)
+    // -----------------------------------------------------------------------
+
+    it('returns MESSAGE_ID_NOT_FOUND errorCode (no Sentry) when SdkError says upToMessageId not found in history', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      // Simulate what resolveNativeMessageId throws when the Ptah ID is absent
+      // from the JSONL transcript.
+      h.sdkAdapter.forkSession.mockRejectedValue(
+        new SdkError(
+          `upToMessageId 'msg_1778055502540_cegogbr' not found in session history for session '${VALID_SESSION_ID}'.`,
+        ),
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:forkSession', {
+        sessionId: VALID_SESSION_ID,
+        upToMessageId: 'msg_1778055502540_cegogbr',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('MESSAGE_ID_NOT_FOUND');
+      // Sentry must NOT be called — this is a user-recoverable condition
+      // (the fork checkpoint no longer exists, e.g. after history compaction).
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
+    });
+
+    it('still reports to Sentry and wraps with "Failed to fork session:" for non-history-lookup SdkErrors', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      // A different SdkError — workspace not found, or SDK module missing.
+      h.sdkAdapter.forkSession.mockRejectedValue(
+        new SdkError(
+          `Cannot fork session ${VALID_SESSION_ID}: source metadata has no workspaceId`,
+        ),
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:forkSession', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/Failed to fork session/);
+      // No MESSAGE_ID_NOT_FOUND errorCode — this is an infrastructure error.
+      expect(response.errorCode).toBeUndefined();
+      expect(h.sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          errorSource: 'SessionRpcHandlers.registerForkSession',
+        }),
+      );
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -1071,6 +1201,61 @@ describe('SessionRpcHandlers', () => {
       expect(response.success).toBe(false);
       expect(response.error).toMatch(/invalid-user-message-id/);
       expect(h.sdkAdapter.rewindFiles).not.toHaveBeenCalled();
+    });
+
+    it('rejects with unauthorized-path-rewrite error when rewindFiles result contains paths outside the active workspace', async () => {
+      // Arrange: workspace is WORKSPACE (/fake/workspace).
+      // SDK returns one in-workspace path and one path that escapes to /outside/.
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      const insidePath = `${WORKSPACE}/inside.ts`;
+      const outsidePath = '/outside/workspace/secret.env';
+      h.sdkAdapter.rewindFiles.mockResolvedValue({
+        canRewind: true,
+        filesChanged: [insidePath, outsidePath],
+        insertions: 2,
+        deletions: 1,
+      } as never);
+      h.handlers.register();
+
+      // Act: call with dryRun === false so the path-containment guard fires.
+      const response = await callRaw(h, 'session:rewindFiles', {
+        sessionId: VALID_SESSION_ID,
+        userMessageId: VALID_USER_MESSAGE_ID,
+        dryRun: false,
+      });
+
+      // Assert: handler rejects with the stable error prefix.
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/unauthorized-path-rewrite/);
+
+      // Assert: logger.warn is called with the escaping-path details.
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('unauthorized-path-rewrite'),
+        expect.objectContaining({
+          samplePaths: expect.arrayContaining([outsidePath]),
+        }),
+      );
+
+      // Assert: Sentry is notified — first from the path-containment guard
+      // (errorSource ends in .pathContainment) then from the outer catch block.
+      expect(h.sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          errorSource: 'SessionRpcHandlers.registerRewindFiles.pathContainment',
+        }),
+      );
+      expect(h.sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          errorSource: 'SessionRpcHandlers.registerRewindFiles',
+        }),
+      );
     });
   });
 });

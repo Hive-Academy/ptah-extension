@@ -3,6 +3,10 @@
 // Registration
 export { registerPlatformCliServices } from './registration';
 
+// Settings registration (WP-2B)
+export { registerCliSettings } from './settings/cli-settings-registration';
+export { FileSettingsStore } from './settings/file-settings-store';
+
 // Types
 export type { CliPlatformOptions } from './types';
 

@@ -175,6 +175,8 @@ export const MESSAGE_TYPES = {
   SETUP_WIZARD_COMPLETE: 'setup-wizard:complete',
   SETUP_WIZARD_SCAN_PROGRESS: 'setup-wizard:scan-progress',
   SETUP_WIZARD_ANALYSIS_STREAM: 'setup-wizard:analysis-stream',
+  /** Backend → Frontend: seed a new chat session with a pre-populated user turn (new-project handoff). */
+  SETUP_WIZARD_START_NEW_PROJECT_CHAT: 'setup-wizard:start-new-project-chat',
 
   // ---- AskUserQuestion Messages ----
   // Used by SDK's AskUserQuestion tool to prompt user with clarifying questions
@@ -211,6 +213,14 @@ export const MESSAGE_TYPES = {
   // CLI agent user input routing (Copilot SDK onUserInputRequest)
   AGENT_MONITOR_USER_INPUT_REQUEST: 'agent-monitor:user-input-request',
   AGENT_MONITOR_USER_INPUT_RESPONSE: 'agent-monitor:user-input-response',
+
+  // ---- Gateway Push Messages ----
+  // Backend → Frontend: adapter running/error state changed (TASK_2026_115)
+  GATEWAY_STATUS_CHANGED: 'gateway:statusChanged',
+
+  // ---- Update Messages ----
+  /** Backend → Frontend: update lifecycle state changed (Electron only). TASK_2026_117 */
+  UPDATE_STATUS_CHANGED: 'update:statusChanged',
 } as const;
 
 /**

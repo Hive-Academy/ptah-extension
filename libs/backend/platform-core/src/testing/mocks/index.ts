@@ -81,3 +81,20 @@ export {
   createMockPlatformCommands,
   type MockPlatformCommands,
 } from './commands.mock';
+
+export {
+  createMockMasterKeyProvider,
+  type MockMasterKeyProvider,
+} from './master-key-provider.mock';
+
+export {
+  createMockWorkspaceLifecycleProvider,
+  type MockWorkspaceLifecycleProvider,
+  type MockWorkspaceLifecycleState,
+} from './workspace-lifecycle-provider.mock';
+
+export {
+  createMockHttpServerProvider,
+  type MockHttpServerProvider,
+  type MockHttpServerState,
+} from './http-server-provider.mock';

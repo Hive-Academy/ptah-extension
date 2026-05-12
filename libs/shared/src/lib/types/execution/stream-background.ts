@@ -111,6 +111,84 @@ export interface BackgroundAgentStoppedEvent extends FlatStreamEvent {
   readonly tabId?: string;
 }
 
+// ============================================================================
+// Phase 1: SDK task_* surface — subagent visibility events
+// ============================================================================
+
+/**
+ * Agent progress event — emitted from SDK task_progress system messages.
+ *
+ * Contains an AI-generated rolling summary of what the subagent is doing
+ * (when `agentProgressSummaries: true` is set on the SDK Options) plus
+ * live usage statistics.
+ */
+export interface AgentProgressEvent extends FlatStreamEvent {
+  readonly eventType: 'agent_progress';
+  /** Links to the parent Task tool_use */
+  readonly parentToolUseId: string;
+  /** SDK task_id for the subagent */
+  readonly taskId: string;
+  /** Short present-tense description of current work */
+  readonly description: string;
+  /** AI-generated rolling summary from SDK (requires agentProgressSummaries: true) */
+  readonly summary?: string;
+  /** Name of the last tool the subagent called */
+  readonly lastToolName?: string;
+  /** Cumulative token usage */
+  readonly totalTokens: number;
+  /** Number of tool invocations so far */
+  readonly toolUses: number;
+  /** Elapsed time in milliseconds */
+  readonly durationMs: number;
+}
+
+/**
+ * Agent status event — emitted from SDK task_updated system messages.
+ *
+ * Carries a status patch for a running subagent. Used by the frontend
+ * to update the subagent panel without waiting for completion.
+ */
+export interface AgentStatusEvent extends FlatStreamEvent {
+  readonly eventType: 'agent_status';
+  /** Links to the parent Task tool_use */
+  readonly parentToolUseId: string;
+  /** SDK task_id for the subagent */
+  readonly taskId: string;
+  /** New lifecycle status from the SDK patch */
+  readonly status: 'pending' | 'running' | 'completed' | 'failed' | 'killed';
+  /** Optional description update from the SDK patch */
+  readonly description?: string;
+  /** Error text if status is 'failed' */
+  readonly errorMessage?: string;
+}
+
+/**
+ * Agent completed event — emitted from SDK task_notification system messages.
+ *
+ * Signals the definitive end of a subagent task with final stats and the
+ * path to the output file. Supersedes BackgroundAgentCompletedEvent for
+ * SDK-task-tracked agents.
+ */
+export interface AgentCompletedEvent extends FlatStreamEvent {
+  readonly eventType: 'agent_completed';
+  /** Links to the parent Task tool_use */
+  readonly parentToolUseId: string;
+  /** SDK task_id for the subagent */
+  readonly taskId: string;
+  /** Final disposition */
+  readonly status: 'completed' | 'failed' | 'stopped';
+  /** Short prose summary of what the agent accomplished */
+  readonly summary: string;
+  /** Path to the agent's output file */
+  readonly outputFile: string;
+  /** Final token count */
+  readonly totalTokens?: number;
+  /** Final tool invocation count */
+  readonly toolUses?: number;
+  /** Total elapsed time in milliseconds */
+  readonly durationMs?: number;
+}
+
 /**
  * Union type for all flat events - enables discriminated unions
  */
@@ -131,4 +209,8 @@ export type FlatStreamEventUnion =
   | BackgroundAgentStartedEvent
   | BackgroundAgentProgressEvent
   | BackgroundAgentCompletedEvent
-  | BackgroundAgentStoppedEvent;
+  | BackgroundAgentStoppedEvent
+  // Phase 1: SDK task_* surface
+  | AgentProgressEvent
+  | AgentStatusEvent
+  | AgentCompletedEvent;

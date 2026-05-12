@@ -3,15 +3,10 @@ import type {
   AgentPackInfoDto,
   AgentRecommendation,
   AnalysisStreamPayload,
-  AnswerValue,
-  DiscoveryAnswers,
   EnhancedPromptsSummary,
   GenerationStreamPayload,
-  MasterPlan,
   MultiPhaseAnalysisResponse,
-  NewProjectType,
   ProjectAnalysisResult,
-  QuestionGroup,
   SavedAnalysisMetadata,
 } from '@ptah-extension/shared';
 import type {
@@ -25,7 +20,6 @@ import type {
   ProjectContext,
   ScanProgress,
   SkillGenerationProgressItem,
-  WizardPath,
   WizardStep,
 } from '../setup-wizard-state.types';
 
@@ -76,16 +70,8 @@ export interface WizardInternalState {
   /** If current step is 'generation', set it to 'enhance' (auto-transition). */
   setCurrentStepIfGeneration(): void;
 
-  // === Wave C7h: Wizard step + new-project flow ===
+  // === Wave C7h: Wizard step ===
   readonly currentStep: WritableSignal<WizardStep>;
-  readonly wizardPath: WritableSignal<WizardPath>;
-  readonly newProjectType: WritableSignal<NewProjectType | null>;
-  readonly questionGroups: WritableSignal<QuestionGroup[]>;
-  readonly currentGroupIndex: WritableSignal<number>;
-  readonly discoveryAnswers: WritableSignal<DiscoveryAnswers>;
-  readonly masterPlan: WritableSignal<MasterPlan | null>;
-  readonly planGenerating: WritableSignal<boolean>;
-  readonly forceRegenerate: WritableSignal<boolean>;
 
   // === Wave C7h: Deep analysis + recommendations + selection + history ===
   readonly deepAnalysis: WritableSignal<ProjectAnalysisResult | null>;
@@ -118,14 +104,9 @@ export interface WizardInternalState {
 export type {
   AgentPackInfoDto,
   AgentRecommendation,
-  AnswerValue,
-  DiscoveryAnswers,
   EnhancedPromptsSummary,
-  MasterPlan,
   MultiPhaseAnalysisResponse,
-  NewProjectType,
   ProjectAnalysisResult,
-  QuestionGroup,
   SavedAnalysisMetadata,
 };
 

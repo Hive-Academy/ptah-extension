@@ -399,13 +399,19 @@ export class WelcomeComponent implements OnInit {
   }
 
   protected onStartSetup(): void {
-    this.wizardState.setWizardPath('existing');
     this.wizardState.setCurrentStep('scan');
   }
 
-  protected onStartNewProject(): void {
-    this.wizardState.setWizardPath('new');
-    this.wizardState.setCurrentStep('project-type');
+  protected async onStartNewProject(): Promise<void> {
+    try {
+      await this.wizardRpc.startNewProjectChat();
+      // Backend disposes the wizard panel; this component will be torn down.
+    } catch (error: unknown) {
+      console.error(
+        '[WelcomeComponent] Failed to start new project chat:',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   protected async onUseAnalysis(

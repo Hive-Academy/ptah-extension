@@ -22,10 +22,14 @@ import type {
   CliOutputSegment,
   FlatStreamEventUnion,
   AgentPermissionRequest,
+  AgentProgressEvent,
+  AgentStatusEvent,
+  AgentCompletedEvent,
+  AgentStartEvent,
   CliSessionReference,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { VSCodeService } from '@ptah-extension/core';
+import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 
 /** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
 const MAX_FRONTEND_BUFFER = 50 * 1024;
@@ -81,10 +85,63 @@ export interface MonitoredAgent {
   readonly model?: string;
 }
 
+/**
+ * Per-subagent record for SDK task_* events (Phase 3).
+ *
+ * Distinct from `MonitoredAgent` (CLI process). Keyed by `parentToolUseId`
+ * (the Task tool_use ID), which is also the `toolCallId` on the
+ * corresponding agent ExecutionNode rendered in the chat tree.
+ *
+ * Driven by `agent_start` (initial), `agent_progress`, `agent_status`,
+ * `agent_completed`. State is derived purely from SDK events — UI never
+ * mutates optimistically on RPC.
+ */
+export interface SubagentRecord {
+  /** Parent Task tool_use ID — primary key */
+  readonly parentToolUseId: string;
+  /** SDK task_id, captured on `agent_start` (when present) or `agent_progress`/`agent_status` */
+  taskId?: string;
+  /** Latest description from progress/status events */
+  description?: string;
+  /** AI-generated rolling summary from progress events (most recent) */
+  latestSummary?: string;
+  /** Most recent tool name reported by progress events */
+  lastToolName?: string;
+  /** Lifecycle status from SDK */
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'killed' | 'stopped';
+  /** Cumulative token usage (last reported) */
+  totalTokens?: number;
+  /** Tool invocation count (last reported) */
+  toolUses?: number;
+  /** Elapsed/total duration (last reported) */
+  durationMs?: number;
+  /** Error text if status is 'failed' */
+  errorMessage?: string;
+  /** Final output file path if completed */
+  outputFile?: string;
+}
+
+/**
+ * Error surfaced from subagent RPC calls. Lives in a dedicated channel so
+ * components can show a transient toast / inline message without polluting
+ * the per-record state — the SDK is still the source of truth for status.
+ */
+export interface SubagentRpcError {
+  readonly parentToolUseId: string;
+  readonly method:
+    | 'subagent:send-message'
+    | 'subagent:stop'
+    | 'subagent:interrupt';
+  readonly message: string;
+  readonly code?: string;
+  readonly timestamp: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AgentMonitorStore implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly rpc = inject(ClaudeRpcService);
 
   // Private mutable state â€” readonly array of agents.
   // All writers MUST produce a new array (immutable update); reads go through
@@ -133,6 +190,33 @@ export class AgentMonitorStore implements OnDestroy {
    * This prevents false positives when multiple agents of the same type exist.
    */
   private readonly _resumedAgentNodeIds = signal<Set<string>>(new Set());
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase 3: SDK task_* per-subagent records (keyed by parentToolUseId)
+  // ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * Per-subagent records, keyed by parentToolUseId. Backed by a signal of
+   * a readonly Map; writers always produce a new Map for reference identity.
+   */
+  private readonly _subagents = signal<ReadonlyMap<string, SubagentRecord>>(
+    new Map(),
+  );
+
+  /** Public readonly view of the subagent record map. */
+  readonly subagents = this._subagents.asReadonly();
+
+  /** O(1) lookup helper for templates that prefer a function over getter. */
+  getSubagent(parentToolUseId: string): SubagentRecord | undefined {
+    return this._subagents().get(parentToolUseId);
+  }
+
+  /**
+   * Most recent subagent RPC error. Components subscribe to surface a
+   * transient toast / inline notice. Cleared on next successful RPC call.
+   */
+  private readonly _subagentRpcError = signal<SubagentRpcError | null>(null);
+  readonly subagentRpcError = this._subagentRpcError.asReadonly();
 
   /** Whether this webview instance is the sidebar (not an editor panel) */
   get isSidebar(): boolean {
@@ -850,6 +934,247 @@ export class AgentMonitorStore implements OnDestroy {
     }
 
     this.syncTick();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase 3: SDK task_* event reducers
+  // ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * Capture / upgrade a subagent record from an `agent_start` event.
+   * Sets status to 'running' (default) and records the description and
+   * task_id when present. Idempotent: subsequent agent_start events for
+   * the same parentToolUseId merge into the existing record without
+   * downgrading lifecycle state.
+   */
+  onAgentStart(event: AgentStartEvent): void {
+    const key = event.toolCallId;
+    if (!key) return;
+    this._subagents.update((map) => {
+      const existing = map.get(key);
+      const next = new Map(map);
+      const merged: SubagentRecord = {
+        parentToolUseId: key,
+        taskId: event.taskId ?? existing?.taskId,
+        description: event.agentDescription ?? existing?.description,
+        latestSummary: existing?.latestSummary,
+        lastToolName: existing?.lastToolName,
+        status:
+          existing?.status &&
+          existing.status !== 'pending' &&
+          existing.status !== 'running'
+            ? existing.status
+            : 'running',
+        totalTokens: existing?.totalTokens,
+        toolUses: existing?.toolUses,
+        durationMs: existing?.durationMs,
+        errorMessage: existing?.errorMessage,
+        outputFile: existing?.outputFile,
+      };
+      next.set(key, merged);
+      return next;
+    });
+  }
+
+  /** Reducer for SDK `agent_progress` events. */
+  onAgentProgress(event: AgentProgressEvent): void {
+    const key = event.parentToolUseId;
+    if (!key) return;
+    this._subagents.update((map) => {
+      const existing = map.get(key);
+      const next = new Map(map);
+      const merged: SubagentRecord = {
+        parentToolUseId: key,
+        taskId: event.taskId ?? existing?.taskId,
+        description: event.description ?? existing?.description,
+        latestSummary: event.summary ?? existing?.latestSummary,
+        lastToolName: event.lastToolName ?? existing?.lastToolName,
+        status: existing?.status ?? 'running',
+        totalTokens: event.totalTokens,
+        toolUses: event.toolUses,
+        durationMs: event.durationMs,
+        errorMessage: existing?.errorMessage,
+        outputFile: existing?.outputFile,
+      };
+      next.set(key, merged);
+      return next;
+    });
+  }
+
+  /** Reducer for SDK `agent_status` events. */
+  onAgentStatus(event: AgentStatusEvent): void {
+    const key = event.parentToolUseId;
+    if (!key) return;
+    this._subagents.update((map) => {
+      const existing = map.get(key);
+      const next = new Map(map);
+      const merged: SubagentRecord = {
+        parentToolUseId: key,
+        taskId: event.taskId ?? existing?.taskId,
+        description: event.description ?? existing?.description,
+        latestSummary: existing?.latestSummary,
+        lastToolName: existing?.lastToolName,
+        status: event.status,
+        totalTokens: existing?.totalTokens,
+        toolUses: existing?.toolUses,
+        durationMs: existing?.durationMs,
+        errorMessage: event.errorMessage ?? existing?.errorMessage,
+        outputFile: existing?.outputFile,
+      };
+      next.set(key, merged);
+      return next;
+    });
+  }
+
+  /** Reducer for SDK `agent_completed` events. */
+  onAgentCompleted(event: AgentCompletedEvent): void {
+    const key = event.parentToolUseId;
+    if (!key) return;
+    this._subagents.update((map) => {
+      const existing = map.get(key);
+      const next = new Map(map);
+      const merged: SubagentRecord = {
+        parentToolUseId: key,
+        taskId: event.taskId ?? existing?.taskId,
+        description: existing?.description,
+        latestSummary: event.summary ?? existing?.latestSummary,
+        lastToolName: existing?.lastToolName,
+        status: event.status,
+        totalTokens: event.totalTokens ?? existing?.totalTokens,
+        toolUses: event.toolUses ?? existing?.toolUses,
+        durationMs: event.durationMs ?? existing?.durationMs,
+        errorMessage: existing?.errorMessage,
+        outputFile: event.outputFile ?? existing?.outputFile,
+      };
+      next.set(key, merged);
+      return next;
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase 3: Bidirectional messaging actions
+  //
+  // These dispatch RPC calls but never mutate per-record state optimistically.
+  // The SDK's task_* events drive UI lifecycle. RPC errors land in
+  // `subagentRpcError` for transient surfacing.
+  // ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * Send a follow-up message to a running subagent. Requires the parent
+   * SDK session ID — callers usually source this from `tabManager.activeTab`.
+   */
+  /**
+   * Send a follow-up message to a running subagent. Returns `true` when the
+   * RPC call succeeded, `false` when an error was recorded. Callers use the
+   * return value to conditionally show success / keep-draft UX.
+   */
+  async sendMessageToAgent(
+    parentToolUseId: string,
+    text: string,
+  ): Promise<boolean> {
+    const sessionId = this.tabManager.activeTabSessionId();
+    if (!sessionId) {
+      this.recordSubagentRpcError({
+        parentToolUseId,
+        method: 'subagent:send-message',
+        message: 'No active session — cannot send message to subagent',
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+    const result = await this.rpc.call('subagent:send-message', {
+      sessionId,
+      parentToolUseId,
+      text,
+    });
+    if (!result.isSuccess()) {
+      this.recordSubagentRpcError({
+        parentToolUseId,
+        method: 'subagent:send-message',
+        message: result.error ?? 'Unknown error',
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+    this._subagentRpcError.set(null);
+    return true;
+  }
+
+  /**
+   * Stop a running subagent identified by SDK task_id. The matching
+   * `parentToolUseId` is looked up so error reporting stays scoped.
+   */
+  async stopAgent(taskId: string): Promise<void> {
+    const sessionId = this.tabManager.activeTabSessionId();
+    const parentToolUseId = this.findParentToolUseIdByTaskId(taskId);
+    if (!sessionId) {
+      this.recordSubagentRpcError({
+        parentToolUseId: parentToolUseId ?? taskId,
+        method: 'subagent:stop',
+        message: 'No active session — cannot stop subagent',
+        timestamp: Date.now(),
+      });
+      return;
+    }
+    const result = await this.rpc.call('subagent:stop', {
+      sessionId,
+      taskId,
+    });
+    if (!result.isSuccess()) {
+      this.recordSubagentRpcError({
+        parentToolUseId: parentToolUseId ?? taskId,
+        method: 'subagent:stop',
+        message: result.error ?? 'Unknown error',
+        timestamp: Date.now(),
+      });
+    } else {
+      this._subagentRpcError.set(null);
+    }
+  }
+
+  /**
+   * Interrupt the entire active session (all running subagents in scope).
+   */
+  async interruptSession(): Promise<void> {
+    const sessionId = this.tabManager.activeTabSessionId();
+    if (!sessionId) {
+      this.recordSubagentRpcError({
+        parentToolUseId: '',
+        method: 'subagent:interrupt',
+        message: 'No active session — cannot interrupt',
+        timestamp: Date.now(),
+      });
+      return;
+    }
+    const result = await this.rpc.call('subagent:interrupt', {
+      sessionId,
+    });
+    if (!result.isSuccess()) {
+      this.recordSubagentRpcError({
+        parentToolUseId: '',
+        method: 'subagent:interrupt',
+        message: result.error ?? 'Unknown error',
+        timestamp: Date.now(),
+      });
+    } else {
+      this._subagentRpcError.set(null);
+    }
+  }
+
+  private findParentToolUseIdByTaskId(taskId: string): string | undefined {
+    for (const [key, rec] of this._subagents()) {
+      if (rec.taskId === taskId) return key;
+    }
+    return undefined;
+  }
+
+  private recordSubagentRpcError(err: SubagentRpcError): void {
+    console.warn(
+      '[AgentMonitorStore] Subagent RPC error:',
+      err.method,
+      err.message,
+    );
+    this._subagentRpcError.set(err);
   }
 }
 

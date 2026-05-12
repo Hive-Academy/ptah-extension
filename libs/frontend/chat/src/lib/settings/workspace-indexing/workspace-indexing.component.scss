@@ -1,0 +1,22 @@
+/* WorkspaceIndexingComponent — scoped styles.
+ *
+ * The component is built almost entirely with Tailwind + DaisyUI utility
+ * classes (matching the rest of the settings panels). Only a few structural
+ * tweaks live here.
+ */
+
+:host {
+  display: block;
+}
+
+.workspace-indexing {
+  // Match the "compact VS Code sidebar" feel used by sibling settings cards.
+  font-size: 0.75rem;
+}
+
+.state-block {
+  // Visual separator between the active state block and the toggle row that
+  // lives below it. Tailwind's space-y-3 already gives us margin; this is a
+  // hook for future state-specific tweaks (e.g. animations on enter).
+  min-height: 0;
+}

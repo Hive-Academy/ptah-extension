@@ -15,10 +15,11 @@ import { injectable, inject } from 'tsyringe';
 import {
   Logger,
   TOKENS,
-  ConfigManager,
   LicenseService,
   isPremiumTier,
 } from '@ptah-extension/vscode-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ModelSettings } from '@ptah-extension/settings-core';
 import {
   SDK_TOKENS,
   SlashCommandInterceptor,
@@ -46,8 +47,8 @@ export class ChatSlashCommandRouterService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
-    @inject(TOKENS.CONFIG_MANAGER)
-    private readonly configManager: ConfigManager,
+    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
+    private readonly modelSettings: ModelSettings,
     @inject(TOKENS.AGENT_ADAPTER)
     private readonly sdkAdapter: IAgentAdapter,
     @inject(TOKENS.LICENSE_SERVICE)
@@ -149,10 +150,8 @@ export class ChatSlashCommandRouterService {
             sessionConfig: {
               model:
                 params.model ||
-                this.configManager.getWithDefault<string>(
-                  'model.selected',
-                  DEFAULT_FALLBACK_MODEL_ID,
-                ),
+                this.modelSettings.selectedModel.get() ||
+                DEFAULT_FALLBACK_MODEL_ID,
               projectPath: workspacePath,
             } as AISessionConfig,
             isPremium,

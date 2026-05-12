@@ -9,9 +9,20 @@ import { app, BrowserWindow, dialog, ipcMain, clipboard } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { DependencyContainer } from 'tsyringe';
-import type { IStateStorage } from '@ptah-extension/platform-core';
+import type {
+  IStateStorage,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { createMainWindow } from '../windows/main-window';
+import {
+  GATEWAY_TOKENS,
+  type GatewayService,
+} from '@ptah-extension/messaging-gateway';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { UpdateManager } from '../services/update/update-manager';
+import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 
 // @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -21,14 +32,32 @@ export interface PostWindowOptions {
   resolvedStateStorage: IStateStorage | undefined;
   startupIsLicensed: boolean;
   startupInitialView: string | null;
-  startupWorkspaceRoot: string | undefined;
   /** Mutates caller's mainWindow slot; returned window is for ergonomic chaining. */
   setMainWindow: (win: BrowserWindow) => void;
   getMainWindow: () => BrowserWindow | null;
+  /**
+   * R4 warmup callback from wireRuntime. Called once after the main window
+   * fires `did-finish-load` so the 3s idle timer starts from window-ready,
+   * not from bootHeavyServices completion. Optional — omit in tests.
+   */
+  scheduleWarmup?: () => void;
 }
 
 export interface PostWindowResult {
   revalidationInterval: ReturnType<typeof setInterval> | null;
+  /**
+   * Periodic 4-hour update check interval handle. Cleared in main.ts will-quit
+   * LIFO handler (position 2.5, after revalidationInterval, before git watcher).
+   * Null when UpdateManager.start() bails early (dev mode or already started).
+   * TASK_2026_117
+   */
+  updateCheckInterval: ReturnType<typeof setInterval> | null;
+  /**
+   * Messaging gateway service handle for orderly shutdown. Started after
+   * window creation so adapters have a stable mainWindow for approval prompts.
+   * Null when gateway.enabled is false or start() fails.
+   */
+  messagingGateway: GatewayService | null;
 }
 
 export async function registerPostWindow(
@@ -39,12 +68,14 @@ export async function registerPostWindow(
     resolvedStateStorage,
     startupIsLicensed,
     startupInitialView,
-    startupWorkspaceRoot,
     setMainWindow,
     getMainWindow,
+    scheduleWarmup,
   } = options;
 
   let revalidationInterval: PostWindowResult['revalidationInterval'] = null;
+  let updateCheckInterval: PostWindowResult['updateCheckInterval'] = null;
+  let messagingGateway: GatewayService | null = null;
   // PHASE 4.95: Startup Config IPC Handler
   // Register a synchronous IPC handler that the preload script queries
   // (via ipcRenderer.sendSync) to get license status and workspace info
@@ -56,10 +87,6 @@ export async function registerPostWindow(
   const baseStartupConfig = {
     initialView: startupInitialView,
     isLicensed: startupIsLicensed,
-    workspaceRoot: startupWorkspaceRoot || '',
-    workspaceName: startupWorkspaceRoot
-      ? path.basename(startupWorkspaceRoot)
-      : '',
   };
 
   ipcMain.on('get-startup-config', (event: Electron.IpcMainEvent) => {
@@ -83,10 +110,29 @@ export async function registerPostWindow(
       // Fallback to base startup values if service unavailable
     }
 
+    // Dynamically resolve workspace so webContents.reload() picks up any
+    // workspace switch that happened since initial load.
+    let workspaceRoot = '';
+    let workspaceName = '';
+    try {
+      const workspaceProvider = container.resolve<IWorkspaceProvider>(
+        PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      );
+      const resolvedRoot = workspaceProvider.getWorkspaceRoot();
+      if (resolvedRoot) {
+        workspaceRoot = resolvedRoot;
+        workspaceName = path.basename(resolvedRoot);
+      }
+    } catch {
+      // Workspace provider unavailable — leave empty strings
+    }
+
     event.returnValue = {
       ...baseStartupConfig,
       isLicensed,
       initialView,
+      workspaceRoot,
+      workspaceName,
     };
   });
   // PHASE 4.96: Clipboard IPC Handlers
@@ -104,9 +150,7 @@ export async function registerPostWindow(
   console.log(
     `[Ptah Electron] Startup config registered: initialView=${
       baseStartupConfig.initialView
-    }, isLicensed=${baseStartupConfig.isLicensed}, workspace=${
-      baseStartupConfig.workspaceName || '(none)'
-    }`,
+    }, isLicensed=${baseStartupConfig.isLicensed}`,
   );
   // PHASE 5: Create BrowserWindow + Load Renderer
   const mainWindow = createMainWindow(resolvedStateStorage);
@@ -115,23 +159,75 @@ export async function registerPostWindow(
   const rendererPath = path.join(__dirname, 'renderer', 'index.html');
   mainWindow.loadFile(rendererPath);
 
+  // PHASE 4.96: Schedule embedder warmup AFTER the renderer finishes loading (R4).
+  // Anchoring to did-finish-load ensures the 3s idle timer starts from window-ready,
+  // not from bootHeavyServices completion, so ONNX model I/O does not compete with
+  // the renderer's first paint. Fire-and-forget — warmup failure is non-fatal.
+  if (scheduleWarmup) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      scheduleWarmup();
+    });
+  }
+
   // Open DevTools in development
   if (process.env['NODE_ENV'] === 'development') {
     mainWindow.webContents.openDevTools();
   }
-  // PHASE 6: Auto-Updater (production only)
-  // Check for updates after the window is loaded. Failures must NOT crash the app.
-  if (process.env['NODE_ENV'] !== 'development') {
+  // PHASE 5.5: Messaging gateway cold-start
+  // Started here (after window creation) so gateway adapters have a stable
+  // mainWindow reference for approval prompt dialogs. Failure is non-fatal —
+  // gateway.enabled defaults to false so most users will see start() as a no-op.
+  try {
+    messagingGateway = container.resolve<GatewayService>(
+      GATEWAY_TOKENS.GATEWAY_SERVICE,
+    );
+    await messagingGateway.start();
+    console.log('[Ptah Electron] Messaging gateway started');
     try {
-      const { autoUpdater } = await import('electron-updater');
-      await autoUpdater.checkForUpdatesAndNotify();
-      console.log('[Ptah Electron] Auto-updater check completed');
-    } catch (error) {
-      console.error(
-        '[Ptah Electron] Auto-updater failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
+      const webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER) as {
+        broadcastMessage(type: string, payload: unknown): Promise<void>;
+      };
+      const status = messagingGateway.status();
+      void webviewManager.broadcastMessage(
+        MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+        {
+          status: {
+            enabled: status.enabled,
+            adapters: status.adapters.map((a) => ({
+              platform: a.platform,
+              running: a.running,
+              ...(a.lastError ? { lastError: a.lastError } : {}),
+            })),
+          },
+          origin: null,
+        },
       );
+    } catch {
+      // non-fatal — frontend will hydrate via initialize()'s
+      // Promise.all([refreshStatus(), listBindings()]) RPC fallback
     }
+  } catch (error) {
+    console.warn(
+      '[Ptah Electron] Messaging gateway start skipped (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
+    messagingGateway = null;
+  }
+  // PHASE 6: Event-driven Auto-Updater (TASK_2026_117)
+  // Replaces the previous fire-and-forget checkForUpdatesAndNotify() call with an
+  // event-driven UpdateManager that broadcasts UPDATE_STATUS_CHANGED to the renderer.
+  // Dev-mode skip is handled inside UpdateManager.start() — no env gate needed here.
+  try {
+    const updateManager =
+      container.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
+    await updateManager.start();
+    updateCheckInterval = updateManager.getCheckInterval();
+    console.log('[Ptah Electron] UpdateManager started');
+  } catch (error) {
+    console.error(
+      '[Ptah Electron] UpdateManager failed to start (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
   }
   // PHASE 7: License Status Watcher (TASK_2025_240)
   // Handle dynamic license changes (upgrade/expire) at runtime.
@@ -222,5 +318,5 @@ export async function registerPostWindow(
     );
   }
 
-  return { revalidationInterval };
+  return { revalidationInterval, updateCheckInterval, messagingGateway };
 }

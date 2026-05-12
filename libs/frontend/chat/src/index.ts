@@ -15,3 +15,8 @@ export * from './lib/components';
 export * from './lib/settings';
 export * from './lib/services';
 export * from './lib/directives';
+
+// === TASK_2026_117_UPDATE_UX_BEGIN ===
+export { UpdateBannerService } from './lib/update-banner/update-banner.service';
+export { UpdateBannerComponent } from './lib/update-banner/update-banner.component';
+// === TASK_2026_117_UPDATE_UX_END ===

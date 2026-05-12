@@ -32,8 +32,14 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  RpcHandler,
+  RpcUserError,
+  TOKENS,
+} from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import { ModelNotAvailableError } from '@ptah-extension/agent-sdk';
 import type {
   ChatStartParams,
   ChatStartResult,
@@ -141,6 +147,18 @@ export class ChatRpcHandlers {
         this.logger.debug(`RPC: ${method} success`);
         return result;
       } catch (error) {
+        if (error instanceof RpcUserError) {
+          this.logger.debug(
+            `RPC: ${method} returned user error (${error.errorCode})`,
+          );
+          throw error;
+        }
+        if (error instanceof ModelNotAvailableError) {
+          this.logger.debug(
+            `RPC: ${method} model not available (${error.requestedModel})`,
+          );
+          throw new RpcUserError(error.message, 'MODEL_NOT_AVAILABLE');
+        }
         const err = error instanceof Error ? error : new Error(String(error));
         this.logger.error(`RPC: ${method} failed`, err);
         this.sentryService.captureException(err, {

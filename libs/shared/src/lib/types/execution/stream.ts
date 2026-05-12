@@ -48,7 +48,11 @@ export type StreamEventType =
   | 'background_agent_started'
   | 'background_agent_progress'
   | 'background_agent_completed'
-  | 'background_agent_stopped';
+  | 'background_agent_stopped'
+  // Phase 1: SDK task_* event surface (subagent visibility)
+  | 'agent_progress'
+  | 'agent_status'
+  | 'agent_completed';
 
 /**
  * Base flat event with common fields
@@ -170,6 +174,12 @@ export interface AgentStartEvent extends FlatStreamEvent {
    * @see TASK_2025_099 - Real-time subagent streaming
    */
   readonly agentId?: string;
+  /**
+   * SDK task_id from SDKTaskStartedMessage (Phase 1 addition).
+   * Populated when the SDK emits task_started for this agent.
+   * Used by the dispatcher to route subagent:stop calls.
+   */
+  readonly taskId?: string;
 }
 
 /**

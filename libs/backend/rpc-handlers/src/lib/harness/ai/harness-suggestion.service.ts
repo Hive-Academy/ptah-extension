@@ -15,7 +15,9 @@
  */
 
 import { inject, injectable } from 'tsyringe';
-import { Logger, TOKENS, ConfigManager } from '@ptah-extension/vscode-core';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ModelSettings } from '@ptah-extension/settings-core';
 import {
   McpRegistryProvider,
   DEFAULT_FALLBACK_MODEL_ID,
@@ -98,8 +100,8 @@ export class HarnessSuggestionService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.CONFIG_MANAGER)
-    private readonly configManager: ConfigManager,
+    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
+    private readonly modelSettings: ModelSettings,
     @inject(HARNESS_TOKENS.WORKSPACE_CONTEXT)
     private readonly workspaceContext: HarnessWorkspaceContextService,
     @inject(HARNESS_TOKENS.LLM_RUNNER)
@@ -182,8 +184,7 @@ export class HarnessSuggestionService {
       execute: {
         cwd: workspaceRoot,
         model:
-          this.configManager.get<string>('model.selected') ||
-          DEFAULT_FALLBACK_MODEL_ID,
+          this.modelSettings.selectedModel.get() || DEFAULT_FALLBACK_MODEL_ID,
         prompt: buildSuggestionPrompt({
           description,
           goals,
@@ -525,8 +526,7 @@ export class HarnessSuggestionService {
         execute: {
           cwd: workspaceRoot,
           model:
-            this.configManager.get<string>('model.selected') ||
-            DEFAULT_FALLBACK_MODEL_ID,
+            this.modelSettings.selectedModel.get() || DEFAULT_FALLBACK_MODEL_ID,
           prompt: buildIntentAnalysisPrompt({
             input,
             availableAgents,

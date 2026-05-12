@@ -78,7 +78,10 @@ export class CommandRpcHandlers {
         // This prevents arbitrary VS Code command execution
         // TASK_2025_129 Batch 3: Added workbench.action.reloadWindow for auth reload
         const ALLOWED_COMMAND_PREFIXES = ['ptah.'];
-        const ALLOWED_EXACT_COMMANDS = ['workbench.action.reloadWindow'];
+        const ALLOWED_EXACT_COMMANDS = [
+          'workbench.action.reloadWindow',
+          'workbench.action.files.openFolder', // Open-folder dialog (no-workspace guard in setup widget)
+        ];
         const isAllowed =
           ALLOWED_COMMAND_PREFIXES.some((prefix) =>
             command.startsWith(prefix),

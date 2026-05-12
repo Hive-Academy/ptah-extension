@@ -5,17 +5,21 @@
  *
  * Supported:
  *  - `exec(sql)` parses simple `CREATE TABLE`, `BEGIN`, `COMMIT`,
- *    `ROLLBACK` statements; multi-statement strings are split on `;`.
+ *    `ROLLBACK`, `PRAGMA user_version = N` statements; multi-statement
+ *    strings are split on `;`.
  *  - `prepare(sql)` recognises `INSERT INTO schema_migrations(...) VALUES (?, ?)`
  *    and `SELECT version FROM schema_migrations` for the runner's needs.
- *  - `pragma(...)` is a no-op accumulator.
+ *  - `pragma(...)` is an accumulator that returns configurable values.
  *  - `loadExtension` is configurable via `setLoadExtensionBehavior`.
+ *  - WAL checkpoint calls via `pragma('wal_checkpoint(TRUNCATE)')` are
+ *    recorded in `walCheckpointCalls` for assertion in tests.
  *
  * Anything outside that grammar throws — that is intentional. Tests should
  * exercise real better-sqlite3 once Track 1+ install it. This fake is for
  * the prep track only.
  */
 
+import * as fs from 'node:fs';
 import type {
   SqliteDatabase,
   SqliteStatement,
@@ -29,18 +33,76 @@ interface MigrationRow {
 export class FakeSqliteDatabase implements SqliteDatabase {
   readonly tables = new Set<string>();
   readonly pragmas: string[] = [];
+  /** Records every `wal_checkpoint(TRUNCATE)` call — asserted in D1 tests. */
+  readonly walCheckpointCalls: string[] = [];
   private migrationRows: MigrationRow[] = [];
   private isOpen = true;
   private inTxn = false;
   private loadExtensionBehavior: 'available' | 'unavailable' | 'throw' =
     'available';
   private loadedExtensions: string[] = [];
+  private userVersion = 0;
+  /** When set, `pragma('quick_check', ...)` returns this value instead of 'ok'. */
+  private quickCheckResult = 'ok';
+  private foreignKeyViolations: Array<{
+    table: string;
+    rowid: number;
+    parent: string;
+    fkid: number;
+  }> = [];
+  /**
+   * Tracks the auto_vacuum mode. 0=NONE (default), 1=FULL, 2=INCREMENTAL.
+   * `pragma('auto_vacuum = INCREMENTAL')` sets this to 2.
+   */
+  private autoVacuumMode = 0;
 
   /** Configure how `loadExtension` behaves: present, unavailable, or throwing. */
   setLoadExtensionBehavior(
     behavior: 'available' | 'unavailable' | 'throw',
   ): void {
     this.loadExtensionBehavior = behavior;
+  }
+
+  /**
+   * Seed FK violations returned by `pragma('foreign_key_check')`.
+   * Default: empty array (clean DB).
+   */
+  setForeignKeyViolations(
+    rows: Array<{ table: string; rowid: number; parent: string; fkid: number }>,
+  ): void {
+    this.foreignKeyViolations = rows;
+  }
+
+  /**
+   * Pre-seed the auto_vacuum mode (0=NONE, 1=FULL, 2=INCREMENTAL).
+   * Default: 0 (NONE). Used by migration 0009 tests.
+   */
+  setAutoVacuumMode(mode: 0 | 1 | 2): void {
+    this.autoVacuumMode = mode;
+  }
+
+  /** Read the current auto_vacuum mode as set by `pragma('auto_vacuum = ...')`. */
+  getAutoVacuumMode(): number {
+    return this.autoVacuumMode;
+  }
+
+  /**
+   * Stub implementation of the better-sqlite3 Online Backup API.
+   * Writes a tiny placeholder file at `destPath` so specs can assert on
+   * file existence. Returns a resolved Promise to match the real API shape.
+   */
+  async backup(destPath: string): Promise<void> {
+    fs.writeFileSync(destPath, 'FAKE_BACKUP');
+  }
+
+  /** Override the value returned by `pragma('quick_check', { simple: true })`. */
+  setQuickCheckResult(result: string): void {
+    this.quickCheckResult = result;
+  }
+
+  /** Read the current user_version as set by `PRAGMA user_version = N`. */
+  getUserVersion(): number {
+    return this.userVersion;
   }
 
   get loadedExtensionPaths(): readonly string[] {
@@ -74,6 +136,14 @@ export class FakeSqliteDatabase implements SqliteDatabase {
       this.inTxn = false;
       return;
     }
+    // PRAGMA user_version = N — track the value.
+    const userVersionMatch = /^PRAGMA\s+USER_VERSION\s*=\s*(\d+)$/i.exec(
+      normalised,
+    );
+    if (userVersionMatch) {
+      this.userVersion = Number(userVersionMatch[1]);
+      return;
+    }
     const createMatch =
       /^CREATE (?:VIRTUAL )?TABLE (?:IF NOT EXISTS )?([A-Za-z_][A-Za-z0-9_]*)/i.exec(
         normalised,
@@ -94,6 +164,17 @@ export class FakeSqliteDatabase implements SqliteDatabase {
     // adding `pairing_code`) are inert here; production better-sqlite3
     // applies them for real.
     if (/^ALTER TABLE/i.test(normalised) || /^DROP /i.test(normalised)) {
+      return;
+    }
+    // VACUUM / VACUUM INTO — no-op in the fake (no page rewriting needed),
+    // but enforces the real SQLite constraint that VACUUM cannot run inside a
+    // transaction. VACUUM INTO is accepted and silently ignored (no file I/O).
+    if (/^VACUUM\b/i.test(normalised)) {
+      if (this.inTxn) {
+        throw new Error(
+          'cannot VACUUM from within a transaction (FakeSqliteDatabase)',
+        );
+      }
       return;
     }
     if (upper.startsWith('NOT VALID SQL')) {
@@ -119,8 +200,46 @@ export class FakeSqliteDatabase implements SqliteDatabase {
     return new FakeStatement(this, trimmed);
   }
 
-  pragma(pragma: string, _options?: { simple?: boolean }): unknown {
+  pragma(pragma: string, options?: { simple?: boolean }): unknown {
     this.pragmas.push(pragma);
+
+    // WAL checkpoint calls are tracked separately for D1 test assertions.
+    if (/wal_checkpoint/i.test(pragma)) {
+      this.walCheckpointCalls.push(pragma);
+      return [];
+    }
+
+    // Return structured values for health/boot pragmas when simple=true.
+    if (options?.simple) {
+      const key = pragma.trim().toLowerCase();
+      if (key === 'quick_check') return this.quickCheckResult;
+      if (key === 'page_count') return 10;
+      if (key === 'page_size') return 4096;
+      if (key === 'freelist_count') return 0;
+      if (key === 'journal_mode') return 'wal';
+      if (key === 'user_version') return this.userVersion;
+    }
+
+    // foreign_key_check — return seeded violations (empty by default).
+    if (/^foreign_key_check/i.test(pragma.trim())) {
+      return this.foreignKeyViolations;
+    }
+
+    // auto_vacuum read — return current mode (0=NONE by default).
+    if (/^auto_vacuum$/i.test(pragma.trim())) {
+      return this.autoVacuumMode;
+    }
+
+    // auto_vacuum set — update mode from pragma string like 'auto_vacuum = INCREMENTAL'.
+    const avSetMatch = /^auto_vacuum\s*=\s*(\w+)$/i.exec(pragma.trim());
+    if (avSetMatch) {
+      const val = avSetMatch[1].toUpperCase();
+      if (val === 'NONE') this.autoVacuumMode = 0;
+      else if (val === 'FULL') this.autoVacuumMode = 1;
+      else if (val === 'INCREMENTAL') this.autoVacuumMode = 2;
+      return [];
+    }
+
     return [];
   }
 

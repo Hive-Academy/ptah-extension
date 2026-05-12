@@ -1,17 +1,62 @@
 /**
  * Zod schemas for {@link ConfigRpcHandlers}.
  *
- * INTENTIONALLY EMPTY — the config handler validates its params via the static
- * TypeScript types exported from `@ptah-extension/shared` (e.g.
- * `ConfigModelSwitchParams`, `ConfigAutopilotToggleParams`) plus inline guards
- * (the `validLevels` check in `registerAutopilotToggle` and the tier-override
- * lookup in `getTierOverrides`). No `z.object({...})` literals existed in
- * `config-rpc.handlers.ts` at the time of W2.B3 extraction.
+ * Provides validated reads for `permissionLevel` and `effort` values that come
+ * from `configManager.getWithDefault()` — these values originate from disk and
+ * could be any string if the settings file was externally modified or written
+ * by a future Ptah version. Without Zod validation the generic cast
+ * `getWithDefault<PermissionLevel>(...)` passes unrecognized values straight
+ * through to the permission handler, which trusts the type.
  *
- * This empty export is kept so downstream batches can stub imports consistently
- * across every handler without branching on "does this file exist yet?". If a
- * future task moves the `validLevels` permission-level check (or any other
- * inline validation) to Zod, those schemas belong here.
+ * `parsePermissionLevel` and `parseEffortLevel` replace the unchecked
+ * `getWithDefault<PermissionLevel>` / `as EffortLevel` casts. They return a
+ * documented default when the stored value is unrecognized so the handler
+ * continues to work with a safe fallback rather than silently admitting garbage.
  */
+import { z } from 'zod';
+import type { PermissionLevel, EffortLevel } from '@ptah-extension/shared';
 
-export {};
+// ---------------------------------------------------------------------------
+// Permission level
+// ---------------------------------------------------------------------------
+
+export const PermissionLevelSchema = z.enum([
+  'ask',
+  'auto-edit',
+  'yolo',
+  'plan',
+] as const);
+
+/**
+ * Parse a `permissionLevel` value from config storage.
+ * Returns `fallback` (default: `'ask'`) for any unrecognized value.
+ */
+export function parsePermissionLevel(
+  raw: unknown,
+  fallback: PermissionLevel = 'ask',
+): PermissionLevel {
+  const result = PermissionLevelSchema.safeParse(raw);
+  return result.success ? result.data : fallback;
+}
+
+// ---------------------------------------------------------------------------
+// Effort level
+// ---------------------------------------------------------------------------
+
+export const EffortLevelSchema = z.enum([
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const);
+
+/**
+ * Parse an `effort` value from config storage.
+ * Returns `undefined` for any unrecognized / empty value.
+ */
+export function parseEffortLevel(raw: unknown): EffortLevel | undefined {
+  if (!raw) return undefined;
+  const result = EffortLevelSchema.safeParse(raw);
+  return result.success ? result.data : undefined;
+}

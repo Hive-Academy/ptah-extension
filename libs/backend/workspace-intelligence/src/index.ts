@@ -116,11 +116,21 @@ export * from './ast/ast.types';
 export * from './ast/ast-analysis.interfaces';
 export * from './ast/tree-sitter.config';
 
+// Code Symbol Indexer (TASK_2026_THOTH_CODE_INDEX)
+export {
+  CodeSymbolIndexer,
+  type CodeSymbolIndexerOptions,
+  type IndexingStats,
+} from './services/code-symbol-indexer.service';
+
 export * from './autocomplete/agent-discovery.service';
 export * from './autocomplete/command-discovery.service';
 
 // Quality Assessment (TASK_2025_141)
 export * from './quality';
 
-// DI registration function
-export { registerWorkspaceIntelligenceServices } from './di';
+// DI registration function + tokens
+export {
+  registerWorkspaceIntelligenceServices,
+  CODE_SYMBOL_INDEXER,
+} from './di';

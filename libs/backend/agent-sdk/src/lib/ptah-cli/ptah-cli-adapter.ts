@@ -879,14 +879,9 @@ export class PtahCliAdapter implements IAIProvider {
       }
     }
 
-    // Get compaction configuration if provider is available
+    // Get compaction configuration for logging only (compactionControl was a phantom
+    // field not in SDK Options — removed in Phase 0. Hook-based approach is intact.)
     const compactionConfig = this.compactionConfigProvider?.getConfig();
-    const compactionControl = compactionConfig?.enabled
-      ? {
-          enabled: true,
-          contextTokenThreshold: compactionConfig.contextTokenThreshold,
-        }
-      : undefined;
 
     this.logger.info('[PtahCliAdapter] Building query options', {
       model,
@@ -939,7 +934,8 @@ export class PtahCliAdapter implements IAIProvider {
           );
         },
         hooks,
-        compactionControl,
+        // NOTE: compactionControl is not in the SDK's Options type — it was a
+        // phantom field silently ignored by the SDK. Removed in Phase 0 fix.
         // TASK_2025_184: Reasoning configuration passthrough
         thinking,
         effort,

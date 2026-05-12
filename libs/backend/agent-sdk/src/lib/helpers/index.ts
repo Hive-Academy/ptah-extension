@@ -13,7 +13,6 @@
 export { AuthManager, type AuthResult, type AuthConfig } from './auth-manager';
 export {
   SessionLifecycleManager,
-  type ActiveSession,
   type SDKUserMessage,
   type Query,
   type ContentBlock,
@@ -32,6 +31,10 @@ export {
 export * from './attachment-processor.service';
 export { SubagentHookHandler } from './subagent-hook-handler';
 export {
+  SubagentMessageDispatcher,
+  SUBAGENT_DISPATCHER_TOKEN,
+} from './subagent-message-dispatcher';
+export {
   CompactionConfigProvider,
   type CompactionConfig,
 } from './compaction-config-provider';
@@ -42,6 +45,12 @@ export {
 } from './compaction-hook-handler';
 // Compaction callback registry (TASK_2026_HERMES Track 1)
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
+// Session end callback registry (TASK_2026_THOTH_SKILL_LIFECYCLE)
+export {
+  SessionEndCallbackRegistry,
+  type SessionEndCallback,
+  type SessionEndPayload,
+} from './session-end-callback-registry';
 // Live usage tracker (TASK_2026_109 cycle-break)
 export { LiveUsageTracker } from './live-usage-tracker';
 // Worktree hook handler (TASK_2025_236)
@@ -66,6 +75,10 @@ export {
   type QueryConfig,
 } from './sdk-query-options-builder';
 export { SdkModuleLoader } from './sdk-module-loader';
+// Memory prompt injector (TASK_2026_THOTH_MEMORY_READ)
+export { MemoryPromptInjector } from './memory-prompt-injector';
+// Curator LLM adapter (moved from memory-curator to break circular dependency)
+export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';
 export {
   SdkModelService,
   TIER_TO_MODEL_ID,
@@ -82,9 +95,6 @@ export {
 } from './slash-command-interceptor';
 // History module (TASK_2025_106)
 export * from './history';
-
-// Prompt constants (TASK_2025_135)
-export { PTAH_BEHAVIORAL_PROMPT } from './prompt-constants';
 
 // Plugin loader (TASK_2025_153)
 export { PluginLoaderService } from './plugin-loader.service';

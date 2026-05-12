@@ -15,6 +15,7 @@ import type { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from './tokens';
 import { SqliteConnectionService } from '../sqlite-connection.service';
+import { SqliteBackupService } from '../backup.service';
 
 /**
  * Register persistence-sqlite services in the supplied container.
@@ -37,6 +38,20 @@ export function registerPersistenceSqliteServices(
     PERSISTENCE_TOKENS.SQLITE_CONNECTION,
     SqliteConnectionService,
   );
+  container.registerSingleton(
+    PERSISTENCE_TOKENS.BACKUP_SERVICE,
+    SqliteBackupService,
+  );
+  // Wire the backup service into the connection service after both singletons
+  // are registered. tsyringe 4.x does not provide @optional(), so we post-wire
+  // via setBackupService() to avoid a constructor circular dependency.
+  const connection = container.resolve<SqliteConnectionService>(
+    PERSISTENCE_TOKENS.SQLITE_CONNECTION,
+  );
+  const backup = container.resolve<SqliteBackupService>(
+    PERSISTENCE_TOKENS.BACKUP_SERVICE,
+  );
+  connection.setBackupService(backup);
   logger.info('[persistence-sqlite] services registered', {
     tokens: Object.keys(PERSISTENCE_TOKENS),
   });

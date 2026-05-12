@@ -15,8 +15,8 @@ import {
   PanelLeftClose,
   PanelLeft,
   X,
-  Terminal as TermIcon,
   Columns2,
+  TerminalSquare,
 } from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
 import { CodeEditorComponent } from '../code-editor/code-editor.component';
@@ -128,8 +128,12 @@ import type { FileTreeNode } from '../models/file-tree.model';
 
           <button
             class="btn btn-ghost btn-xs px-2 text-base-content/60 hover:text-base-content"
-            [class.text-primary]="terminalVisible()"
-            [title]="terminalVisible() ? 'Hide terminal' : 'Show terminal'"
+            [class.text-primary]="editorService.terminalVisible()"
+            [title]="
+              editorService.terminalVisible()
+                ? 'Hide terminal'
+                : 'Show terminal'
+            "
             aria-label="Toggle terminal"
             (click)="toggleTerminal()"
           >
@@ -146,7 +150,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
         <!-- Editor area (takes remaining space above terminal) -->
         <div
           class="flex min-h-0"
-          [style.flex]="terminalVisible() ? '1 1 0' : '1 1 auto'"
+          [style.flex]="editorService.terminalVisible() ? '1 1 0' : '1 1 auto'"
         >
           @if (sidebarVisible()) {
             <ptah-sidebar
@@ -154,7 +158,6 @@ import type { FileTreeNode } from '../models/file-tree.model';
               [files]="editorService.fileTree()"
               [activeFilePath]="editorService.activeFilePath()"
               [changedFiles]="gitStatus.files()"
-              [branchName]="gitStatus.branchName()"
               (fileSelected)="onFileSelected($event)"
               (diffRequested)="onDiffRequested($event)"
               (searchResultSelected)="onSearchResultSelected($event)"
@@ -331,7 +334,7 @@ import type { FileTreeNode } from '../models/file-tree.model';
         </div>
 
         <!-- Resize handle between editor and terminal -->
-        @if (terminalVisible()) {
+        @if (editorService.terminalVisible()) {
           <div
             class="h-1 bg-base-300 cursor-row-resize hover:bg-primary/30 active:bg-primary/50 transition-colors flex-shrink-0"
             role="separator"
@@ -341,9 +344,9 @@ import type { FileTreeNode } from '../models/file-tree.model';
         }
 
         <!-- Terminal panel -->
-        @if (terminalVisible()) {
+        @if (editorService.terminalVisible()) {
           <div
-            [style.height.px]="terminalHeight()"
+            [style.height.px]="editorService.terminalHeight()"
             class="flex-shrink-0 min-h-[100px]"
           >
             <ptah-terminal-panel />
@@ -463,14 +466,8 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   /** Width of the sidebar in pixels. Default 256px, min 160px, max 480px. */
   protected readonly sidebarWidth = signal(256);
 
-  /** Whether the terminal panel is visible. */
-  protected readonly terminalVisible = signal(false);
-
   /** Whether the Quick Open file picker is visible (Ctrl+P / Cmd+P). */
   protected readonly quickOpenVisible = signal(false);
-
-  /** Height of the terminal panel in pixels. Default 200px, minimum 100px. */
-  protected readonly terminalHeight = signal(200);
 
   /**
    * Ratio of the left pane width as a percentage (0-100).
@@ -482,8 +479,8 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   readonly PanelLeftCloseIcon = PanelLeftClose;
   readonly PanelLeftIcon = PanelLeft;
   readonly XIcon = X;
-  readonly TerminalIcon = TermIcon;
   readonly SplitIcon = Columns2;
+  readonly TerminalIcon = TerminalSquare;
 
   /** Bound mouse event handlers for terminal resize drag (stored for cleanup). */
   private _resizeMouseMove: ((e: MouseEvent) => void) | null = null;
@@ -547,7 +544,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   protected toggleTerminal(): void {
-    this.terminalVisible.update((v) => !v);
+    this.editorService.toggleTerminal();
   }
 
   /**
@@ -839,7 +836,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     event.preventDefault();
 
     const startY = event.clientY;
-    const startHeight = this.terminalHeight();
+    const startHeight = this.editorService.terminalHeight();
 
     // Run outside Angular zone to avoid triggering change detection on every mousemove
     this.ngZone.runOutsideAngular(() => {
@@ -857,7 +854,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
         // Update signal inside Angular zone so template bindings update
         this.ngZone.run(() => {
-          this.terminalHeight.set(clampedHeight);
+          this.editorService.setTerminalHeight(clampedHeight);
         });
       };
 

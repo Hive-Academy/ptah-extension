@@ -9,6 +9,8 @@
     "@ptah-extension/shared": "0.0.1",
     "@ptah-extension/platform-core": "0.0.1",
     "@ptah-extension/vscode-core": "0.0.1",
+    "@ptah-extension/memory-contracts": "0.0.1",
+    "@ptah-extension/settings-core": "0.0.1",
     "axios": "^1.15.0",
     "tsyringe": "^4.10.0",
     "zod": "^4.1.12",

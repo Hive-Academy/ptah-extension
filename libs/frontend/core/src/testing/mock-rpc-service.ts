@@ -14,7 +14,7 @@
  * @see libs/frontend/core/src/lib/services/claude-rpc.service.ts
  */
 
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, type RpcUserErrorCode } from '@ptah-extension/shared';
 import {
   ClaudeRpcService,
   RpcResult,
@@ -30,7 +30,7 @@ export function rpcSuccess<T>(data: T): RpcResult<T> {
 
 export function rpcError<T = unknown>(
   error: string,
-  errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED',
+  errorCode?: RpcUserErrorCode,
 ): RpcResult<T> {
   return new RpcResult<T>(false, undefined, error, errorCode);
 }
@@ -75,6 +75,15 @@ export function createMockRpcService(
   const querySubagents = jest.fn(async () =>
     rpcSuccess({ subagents: [] }),
   ) as unknown as MockRpcService['querySubagents'];
+  const sendSubagentMessage = jest.fn(async () =>
+    rpcSuccess({ ok: true } as const),
+  ) as unknown as MockRpcService['sendSubagentMessage'];
+  const stopSubagent = jest.fn(async () =>
+    rpcSuccess({ ok: true } as const),
+  ) as unknown as MockRpcService['stopSubagent'];
+  const interruptSubagentSession = jest.fn(async () =>
+    rpcSuccess({ ok: true } as const),
+  ) as unknown as MockRpcService['interruptSubagentSession'];
 
   const mock: MockRpcService = {
     call,
@@ -87,6 +96,9 @@ export function createMockRpcService(
     deleteSession,
     renameSession,
     querySubagents,
+    sendSubagentMessage,
+    stopSubagent,
+    interruptSubagentSession,
   } as unknown as MockRpcService;
 
   if (overrides) {

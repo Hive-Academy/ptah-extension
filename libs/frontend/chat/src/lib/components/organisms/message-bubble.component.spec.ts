@@ -166,4 +166,64 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
 
     expect(emitted).toEqual(['msg-user-9']);
   });
+
+  // Sentry NODE-NESTJS-2Y / 2N / 2X — rewind on a historical session that
+  // has no live SDK Query handle throws SessionNotActiveError on the
+  // backend. The UI guard disables the button and suppresses the click
+  // emission so the RPC never fires.
+  it('disables the rewind button and suppresses emission when session is inactive', () => {
+    fixture = TestBed.createComponent(MessageBubbleComponent);
+    fixture.componentRef.setInput(
+      'message',
+      createExecutionChatMessage({
+        id: 'msg-user-inactive',
+        role: 'user',
+        rawContent: 'cold session',
+      }),
+    );
+    fixture.componentRef.setInput('isSessionActive', false);
+    fixture.detectChanges();
+
+    const button = fixture.debugElement.query(
+      By.css('[data-testid="user-rewind-button"]'),
+    );
+    expect(button).not.toBeNull();
+    expect(button.nativeElement.disabled).toBe(true);
+
+    const emitted: string[] = [];
+    fixture.componentInstance.rewindRequested.subscribe((id) =>
+      emitted.push(id),
+    );
+
+    // Programmatic click bypasses the `[disabled]` pointer guard but the
+    // component's onRewindClick early-returns when isSessionActive is false.
+    button.nativeElement.click();
+    expect(emitted).toEqual([]);
+  });
+
+  it('keeps the rewind button enabled and emits when session is active', () => {
+    fixture = TestBed.createComponent(MessageBubbleComponent);
+    fixture.componentRef.setInput(
+      'message',
+      createExecutionChatMessage({
+        id: 'msg-user-active',
+        role: 'user',
+        rawContent: 'live session',
+      }),
+    );
+    fixture.componentRef.setInput('isSessionActive', true);
+    fixture.detectChanges();
+
+    const button = fixture.debugElement.query(
+      By.css('[data-testid="user-rewind-button"]'),
+    );
+    expect(button.nativeElement.disabled).toBe(false);
+
+    const emitted: string[] = [];
+    fixture.componentInstance.rewindRequested.subscribe((id) =>
+      emitted.push(id),
+    );
+    button.nativeElement.click();
+    expect(emitted).toEqual(['msg-user-active']);
+  });
 });

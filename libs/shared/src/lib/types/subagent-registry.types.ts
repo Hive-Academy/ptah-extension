@@ -117,6 +117,14 @@ export interface SubagentRecord {
    * Only set when status transitions to 'background_completed'.
    */
   completedAt?: number;
+
+  /**
+   * SDK task_id from SDKTaskStartedMessage (Phase 1 addition).
+   * Populated by SubagentRegistryService.setTaskId() when the SDK emits
+   * task_started for this agent. Used by SubagentMessageDispatcher to
+   * route subagent:stop calls via Query.stopTask(taskId).
+   */
+  taskId?: string;
 }
 
 // TASK_2025_109: SubagentResumeParams and SubagentResumeResult removed
@@ -147,4 +155,45 @@ export interface SubagentQueryParams {
 export interface SubagentQueryResult {
   /** Array of subagent records matching the query */
   readonly subagents: SubagentRecord[];
+}
+
+// ============================================================================
+// Phase 2: Bidirectional messaging + stop/interrupt RPC types
+// ============================================================================
+
+/**
+ * Parameters for subagent:send-message RPC method
+ */
+export interface SubagentSendMessageParams {
+  /** Session that owns the subagent */
+  readonly sessionId: string;
+  /** Task tool_use ID that spawned the subagent */
+  readonly parentToolUseId: string;
+  /** Message text to send into the subagent */
+  readonly text: string;
+}
+
+/**
+ * Parameters for subagent:stop RPC method
+ */
+export interface SubagentStopParams {
+  /** Session that owns the subagent */
+  readonly sessionId: string;
+  /** SDK task_id from SDKTaskStartedMessage */
+  readonly taskId: string;
+}
+
+/**
+ * Parameters for subagent:interrupt RPC method
+ */
+export interface SubagentInterruptParams {
+  /** Session to interrupt */
+  readonly sessionId: string;
+}
+
+/**
+ * Result shape for command-type subagent RPC methods (send, stop, interrupt)
+ */
+export interface SubagentCommandResult {
+  readonly ok: true;
 }
