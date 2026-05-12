@@ -22,11 +22,13 @@
  *   - `hasKeyForProvider` synchronous lookup.
  */
 
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type {
   AnthropicProviderInfo,
   AuthGetAuthStatusResponse,
   AuthMethod,
+  EffortLevel,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { ModelStateService } from './model-state.service';
@@ -623,6 +625,91 @@ describe('AuthStateService', () => {
 
       await expect(service.copilotLogin()).resolves.toBeUndefined();
       expect(service.connectionStatus()).toBe('success');
+    });
+
+    // -------------------------------------------------------------------------
+    // Behavioral variants: the mock effortState actually mutates a signal
+    // so the test asserts the UI-observable state changed, not just call count.
+    // -------------------------------------------------------------------------
+
+    it('D1e (behavioral) — saveAndTest: refreshEffort result is observable — effort signal updates after save', async () => {
+      // Build a richer effortState mock that has a writable signal.
+      const effortSignal = signal<EffortLevel | undefined>(undefined);
+      const behavioralEffortState = {
+        currentEffort: effortSignal.asReadonly(),
+        refreshEffort: jest.fn(async () => {
+          // Simulate the backend returning a new effort level post-auth-switch.
+          effortSignal.set('high');
+        }),
+      };
+
+      TestBed.configureTestingModule({
+        providers: [
+          AuthStateService,
+          { provide: ClaudeRpcService, useValue: rpc },
+          { provide: ModelStateService, useValue: modelState },
+          { provide: EffortStateService, useValue: behavioralEffortState },
+        ],
+      });
+      const service = TestBed.inject(AuthStateService);
+      service.setAuthMethod('thirdParty');
+      service.setSelectedProviderId('openrouter');
+
+      rpc.call
+        .mockResolvedValueOnce(rpcSuccess({ success: true }))
+        .mockResolvedValueOnce(rpcSuccess({ success: true }))
+        .mockResolvedValueOnce(
+          rpcSuccess(
+            makeAuthStatusResponse({
+              authMethod: 'thirdParty',
+              anthropicProviderId: 'openrouter',
+            }),
+          ),
+        );
+
+      // Before saveAndTest: effort is undefined.
+      expect(effortSignal()).toBeUndefined();
+
+      await service.saveAndTest({
+        authMethod: 'thirdParty',
+        providerApiKey: 'sk-test',
+      });
+
+      // After saveAndTest: effort must be 'high' — the refreshEffort impl ran.
+      expect(effortSignal()).toBe('high');
+    });
+
+    it('D2d (behavioral) — copilotLogin: refreshEffort result is observable — effort signal updates after login', async () => {
+      const effortSignal = signal<EffortLevel | undefined>(undefined);
+      const behavioralEffortState = {
+        currentEffort: effortSignal.asReadonly(),
+        refreshEffort: jest.fn(async () => {
+          effortSignal.set('low');
+        }),
+      };
+
+      TestBed.configureTestingModule({
+        providers: [
+          AuthStateService,
+          { provide: ClaudeRpcService, useValue: rpc },
+          { provide: ModelStateService, useValue: modelState },
+          { provide: EffortStateService, useValue: behavioralEffortState },
+        ],
+      });
+      const service = TestBed.inject(AuthStateService);
+
+      rpc.call
+        .mockResolvedValueOnce(
+          rpcSuccess({ success: true, username: 'octocat' }),
+        )
+        .mockResolvedValueOnce(rpcSuccess({ success: true }));
+
+      expect(effortSignal()).toBeUndefined();
+
+      await service.copilotLogin();
+
+      // Effort signal must have been updated by the refreshEffort impl.
+      expect(effortSignal()).toBe('low');
     });
   });
 
