@@ -1202,5 +1202,60 @@ describe('SessionRpcHandlers', () => {
       expect(response.error).toMatch(/invalid-user-message-id/);
       expect(h.sdkAdapter.rewindFiles).not.toHaveBeenCalled();
     });
+
+    it('rejects with unauthorized-path-rewrite error when rewindFiles result contains paths outside the active workspace', async () => {
+      // Arrange: workspace is WORKSPACE (/fake/workspace).
+      // SDK returns one in-workspace path and one path that escapes to /outside/.
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      const insidePath = `${WORKSPACE}/inside.ts`;
+      const outsidePath = '/outside/workspace/secret.env';
+      h.sdkAdapter.rewindFiles.mockResolvedValue({
+        canRewind: true,
+        filesChanged: [insidePath, outsidePath],
+        insertions: 2,
+        deletions: 1,
+      } as never);
+      h.handlers.register();
+
+      // Act: call with dryRun === false so the path-containment guard fires.
+      const response = await callRaw(h, 'session:rewindFiles', {
+        sessionId: VALID_SESSION_ID,
+        userMessageId: VALID_USER_MESSAGE_ID,
+        dryRun: false,
+      });
+
+      // Assert: handler rejects with the stable error prefix.
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/unauthorized-path-rewrite/);
+
+      // Assert: logger.warn is called with the escaping-path details.
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('unauthorized-path-rewrite'),
+        expect.objectContaining({
+          samplePaths: expect.arrayContaining([outsidePath]),
+        }),
+      );
+
+      // Assert: Sentry is notified — first from the path-containment guard
+      // (errorSource ends in .pathContainment) then from the outer catch block.
+      expect(h.sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          errorSource: 'SessionRpcHandlers.registerRewindFiles.pathContainment',
+        }),
+      );
+      expect(h.sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          errorSource: 'SessionRpcHandlers.registerRewindFiles',
+        }),
+      );
+    });
   });
 });
