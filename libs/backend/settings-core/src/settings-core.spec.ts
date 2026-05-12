@@ -787,6 +787,8 @@ describe('TC-18: Isolation guarantee — zero unauthorized consumers', () => {
       /apps[\\/]ptah-cli[\\/]src[\\/]cli[\\/]bootstrap[\\/]/,
       /apps[\\/]ptah-electron[\\/]src[\\/]activation[\\/]/,
       /apps[\\/]ptah-extension-vscode[\\/]src[\\/]activation[\\/]/,
+      // Integration spec files legitimately need typed repo imports for mocking.
+      /apps[\\/]ptah-extension-vscode[\\/]src[\\/]integration[\\/]/,
       /libs[\\/]backend[\\/]agent-generation[\\/]/,
       /libs[\\/]backend[\\/]agent-sdk[\\/]/,
       /libs[\\/]backend[\\/]rpc-handlers[\\/]/,
