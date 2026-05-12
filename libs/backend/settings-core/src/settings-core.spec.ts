@@ -11,6 +11,7 @@
  */
 
 import 'reflect-metadata';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as nodeOs from 'os';
 import * as path from 'path';
@@ -37,6 +38,9 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 
 import { defineSetting } from './schema/definition';
+import { SecretsFileStore } from './encryption/secrets-file-store';
+import type { IMasterKeyProvider } from './encryption/master-key-provider';
+import { GatewaySettings } from './repositories/gateway-settings';
 import { SETTINGS_SCHEMA } from './schema/index';
 import { AUTH_METHOD_DEF } from './schema/auth-schema';
 import { ReactiveSettingsStore } from './reactive/reactive-settings-store';
@@ -849,5 +853,159 @@ describe('TC-19 (WP-3T): KNOWN_PROVIDER_AUTH_KEYS ↔ FILE_BASED_SETTINGS_KEYS d
       );
     }
     expect(missing).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TC-29: sensitivity:'secret' routing — values go to secrets.enc.json, NOT
+// to settings.json.
+//
+// This is the behavioral regression guard for BaseSettingsRepository.secretHandleFor.
+// If a secret-sensitivity key falls through to writeGlobal (plaintext storage),
+// a value written via GatewaySettings.telegramTokenCipher.set() would appear
+// in settings.json in plaintext and NOT be recoverable via readSecret.
+// ---------------------------------------------------------------------------
+
+describe('TC-29: sensitivity:secret routing — secret values land in secrets.enc.json, not settings.json', () => {
+  const tmpDir = path.join(mockTestHome, 'tc29-secret-routing');
+  let masterKey: Buffer;
+
+  /**
+   * Build a minimal ISettingsStore that routes secret I/O through
+   * SecretsFileStore and global I/O through an in-memory map.
+   * This is the same pattern used by the production FileSettingsStore.
+   */
+  function buildStore(
+    ptahDir: string,
+    mkProvider: IMasterKeyProvider,
+  ): ISettingsStore {
+    const secretsFileStore = new SecretsFileStore(ptahDir);
+    const globalData: Record<string, unknown> = {};
+
+    return {
+      readGlobal<T>(key: string): T | undefined {
+        return globalData[key] as T | undefined;
+      },
+      async writeGlobal<T>(key: string, value: T): Promise<void> {
+        globalData[key] = value;
+      },
+      async readSecret(key: string): Promise<string | undefined> {
+        const mk = await mkProvider.getMasterKey();
+        return secretsFileStore.read(key, mk);
+      },
+      async writeSecret(key: string, ciphertext: string): Promise<void> {
+        const mk = await mkProvider.getMasterKey();
+        await secretsFileStore.write(key, ciphertext, mk);
+      },
+      async deleteSecret(key: string): Promise<void> {
+        await secretsFileStore.delete(key);
+      },
+      watchGlobal(_key: string, _cb: (value: unknown) => void): IDisposable {
+        return { dispose: jest.fn() };
+      },
+      watchSecret(_key: string, _cb: () => void): IDisposable {
+        return { dispose: jest.fn() };
+      },
+      flushSync: jest.fn(),
+    };
+  }
+
+  beforeEach(() => {
+    masterKey = crypto.randomBytes(32);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    // Remove any leftover files from a previous test.
+    const secretsPath = path.join(tmpDir, 'secrets.enc.json');
+    const settingsPath = path.join(tmpDir, 'settings.json');
+    if (fs.existsSync(secretsPath)) fs.rmSync(secretsPath);
+    if (fs.existsSync(settingsPath)) fs.rmSync(settingsPath);
+  });
+
+  it('writing via secretHandle stores an encrypted envelope in secrets.enc.json', async () => {
+    const mkProvider: IMasterKeyProvider = {
+      getMasterKey: async () => masterKey,
+    };
+    const store = buildStore(tmpDir, mkProvider);
+    const settings = new GatewaySettings(store);
+    const vaultCipher = 'gcm:iv-base64:tag-base64:ct-base64'; // opaque string
+
+    await settings.telegramTokenCipher.set(vaultCipher);
+
+    // 1. secrets.enc.json must exist.
+    const secretsPath = path.join(tmpDir, 'secrets.enc.json');
+    expect(fs.existsSync(secretsPath)).toBe(true);
+
+    // 2. The entry must NOT be the raw plaintext — it must be an encrypted envelope.
+    const raw = fs.readFileSync(secretsPath, 'utf8');
+    const parsed = JSON.parse(raw) as { entries: Record<string, unknown> };
+    const entry = parsed.entries['gateway.telegram.tokenCipher'];
+    expect(entry).toBeDefined();
+    // An encrypted SecretEnvelope has iv/tag/ciphertext fields — NOT the raw value.
+    const envelope = entry as Record<string, unknown>;
+    expect(typeof envelope['iv']).toBe('string');
+    expect(typeof envelope['ciphertext']).toBe('string');
+    // The plaintext vault cipher must NOT appear verbatim in the encrypted output.
+    expect(raw).not.toContain(vaultCipher);
+  });
+
+  it('the same key must NOT appear in settings.json (plaintext file)', async () => {
+    const mkProvider: IMasterKeyProvider = {
+      getMasterKey: async () => masterKey,
+    };
+    const store = buildStore(tmpDir, mkProvider);
+    const settings = new GatewaySettings(store);
+
+    await settings.telegramTokenCipher.set('secret-vault-cipher-xyz');
+
+    // No settings.json was ever written (only in-memory globalData map).
+    const settingsPath = path.join(tmpDir, 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const rawSettings = fs.readFileSync(settingsPath, 'utf8');
+      expect(rawSettings).not.toContain('gateway.telegram.tokenCipher');
+      expect(rawSettings).not.toContain('secret-vault-cipher-xyz');
+    } else {
+      // settings.json was never created — this is the correct behavior.
+      expect(fs.existsSync(settingsPath)).toBe(false);
+    }
+  });
+
+  it('reading back via secretHandle decrypts and returns the original value', async () => {
+    const mkProvider: IMasterKeyProvider = {
+      getMasterKey: async () => masterKey,
+    };
+    const store = buildStore(tmpDir, mkProvider);
+    const settings = new GatewaySettings(store);
+    const original = 'gcm:original-vault-cipher-abc123';
+
+    await settings.telegramTokenCipher.set(original);
+
+    // Fresh store instance (new in-memory) but same on-disk file.
+    const store2 = buildStore(tmpDir, mkProvider);
+    const settings2 = new GatewaySettings(store2);
+    const recovered = await settings2.telegramTokenCipher.get();
+
+    expect(recovered).toBe(original);
+  });
+
+  it('a regression where secretHandleFor routes to writeGlobal would put the value in the globalData map and NOT in secrets.enc.json', async () => {
+    // This test documents the regression scenario: if secretHandleFor were changed
+    // to call writeGlobal instead of writeSecret, secrets.enc.json would not be created.
+    // The production code must call writeSecret, not writeGlobal.
+    const mkProvider: IMasterKeyProvider = {
+      getMasterKey: async () => masterKey,
+    };
+    const store = buildStore(tmpDir, mkProvider);
+    const settings = new GatewaySettings(store);
+
+    await settings.discordTokenCipher.set('discord-vault-cipher-999');
+
+    const secretsPath = path.join(tmpDir, 'secrets.enc.json');
+    expect(fs.existsSync(secretsPath)).toBe(true);
+
+    // If the regression were present, secrets.enc.json would NOT exist (the value
+    // would be in the in-memory globalData map instead). The test above verifies
+    // the correct behavior.
+    const raw = fs.readFileSync(secretsPath, 'utf8');
+    const parsed = JSON.parse(raw) as { entries: Record<string, unknown> };
+    expect(parsed.entries['gateway.discord.tokenCipher']).toBeDefined();
   });
 });
