@@ -10,11 +10,13 @@
  * TC-26: SecretsFileStore.delete removes the entry on disk.
  * TC-27: v3 migration round-trip — moves gateway ciphers and is idempotent.
  * TC-28: v3 migration with no gateway keys is a no-op.
+ * TC-30: v3 migration write-before-delete ordering (crash-injection).
  */
 
 import 'reflect-metadata';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 
@@ -557,5 +559,146 @@ describe('TC-28: runV3Migration with no gateway keys is a no-op', () => {
 
     // mtime must be unchanged — settings.json was not touched.
     expect(statAfter.mtimeMs).toBe(statBefore.mtimeMs);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TC-30: v3 migration write-before-delete ordering (crash-injection).
+//
+// Injects a crash (throw) after SecretsFileStore finishes writing
+// secrets.enc.json but before settings.json is rewritten.
+// Asserts: (a) secrets.enc.json has the migrated value, (b) settings.json
+// still has the original plaintext — no data loss.
+//
+// Sanity check: swap the write order (settings.json rewritten BEFORE
+// secrets.enc.json is finalized) — the crash-injection test must show
+// that secrets.enc.json is missing and settings.json has already lost the key.
+// ---------------------------------------------------------------------------
+
+describe('TC-30: v3 migration atomic write-before-delete (crash-injection)', () => {
+  let tmpDir: string;
+  let masterKey: Buffer;
+  let mockProvider: IMasterKeyProvider;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir('tc30');
+    masterKey = crypto.randomBytes(32);
+    mockProvider = {
+      getMasterKey: async () => masterKey,
+    };
+  });
+
+  afterEach(() => {
+    // Restore any spies that may have been left active.
+    jest.restoreAllMocks();
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  });
+
+  it('crash after secrets.enc.json is written but before settings.json is rewritten leaves no data loss', async () => {
+    const initialSettings = {
+      gateway: { telegram: { tokenCipher: 'crash-test-cipher' } },
+    };
+    const settingsPath = path.join(tmpDir, 'settings.json');
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify(initialSettings, null, 2),
+      'utf8',
+    );
+
+    // Spy on fsPromises.rename (via require to get a mutable handle) and
+    // throw on the SECOND call.
+    // The first rename() finalises secrets.enc.json (*.tmp → secrets.enc.json).
+    // The second rename() would finalise settings.json (settings.v3.tmp → settings.json).
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fspModule = require('fs/promises') as typeof fsPromises;
+    const realRename = fspModule.rename.bind(fspModule);
+    let renameCallCount = 0;
+    const renameSpy = jest
+      .spyOn(fspModule, 'rename')
+      .mockImplementation(async (oldPath, newPath) => {
+        renameCallCount += 1;
+        if (renameCallCount === 2) {
+          // Simulate crash after secrets file is written but before settings is committed.
+          throw new Error('simulated-crash-mid-migration');
+        }
+        // First call: let it proceed normally (secrets.enc.json gets committed).
+        return realRename(oldPath, newPath);
+      });
+
+    // Migration should throw because of the injected crash.
+    await expect(runV3Migration(tmpDir, mockProvider)).rejects.toThrow(
+      'simulated-crash-mid-migration',
+    );
+
+    // --- Post-crash data-loss assertions ---
+
+    // (a) secrets.enc.json must exist and be readable with the migrated value.
+    //     The first rename succeeded, so the secrets file is committed.
+    const secretsPath = path.join(tmpDir, 'secrets.enc.json');
+    expect(fs.existsSync(secretsPath)).toBe(true);
+    const store = new SecretsFileStore(tmpDir);
+    const recovered = await store.read(
+      'gateway.telegram.tokenCipher',
+      masterKey,
+    );
+    expect(recovered).toBe('crash-test-cipher');
+
+    // (b) settings.json must still contain the original plaintext cipher
+    //     because the second rename (settings.v3.tmp → settings.json) was
+    //     aborted by the injected crash. No data loss occurred.
+    expect(fs.existsSync(settingsPath)).toBe(true);
+    const settingsRaw = fs.readFileSync(settingsPath, 'utf8');
+    const settingsAfter = JSON.parse(settingsRaw) as {
+      gateway?: { telegram?: { tokenCipher?: string } };
+    };
+    expect(settingsAfter.gateway?.telegram?.tokenCipher).toBe(
+      'crash-test-cipher',
+    );
+
+    renameSpy.mockRestore();
+  });
+
+  it('rename call order: secrets.enc.json rename happens before settings.json rename', async () => {
+    const initialSettings = {
+      gateway: { telegram: { tokenCipher: 'order-test-cipher' } },
+    };
+    fs.writeFileSync(
+      path.join(tmpDir, 'settings.json'),
+      JSON.stringify(initialSettings, null, 2),
+      'utf8',
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fspModule2 = require('fs/promises') as typeof fsPromises;
+    const realRename2 = fspModule2.rename.bind(fspModule2);
+    const renameTargets: string[] = [];
+    const renameSpy = jest
+      .spyOn(fspModule2, 'rename')
+      .mockImplementation(async (oldPath, newPath) => {
+        renameTargets.push(String(newPath));
+        return realRename2(oldPath, newPath);
+      });
+
+    await runV3Migration(tmpDir, mockProvider);
+
+    // The first rename target must be secrets.enc.json.
+    // The second rename target must be settings.json.
+    expect(renameTargets.length).toBeGreaterThanOrEqual(2);
+    const secretsIdx = renameTargets.findIndex((p) =>
+      p.includes('secrets.enc.json'),
+    );
+    const settingsIdx = renameTargets.findIndex((p) =>
+      p.includes('settings.json'),
+    );
+    expect(secretsIdx).toBeGreaterThanOrEqual(0);
+    expect(settingsIdx).toBeGreaterThanOrEqual(0);
+    // secrets.enc.json must be committed before settings.json.
+    expect(secretsIdx).toBeLessThan(settingsIdx);
+
+    renameSpy.mockRestore();
   });
 });
