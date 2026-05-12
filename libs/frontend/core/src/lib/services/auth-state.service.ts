@@ -13,6 +13,7 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { ModelStateService } from './model-state.service';
+import { EffortStateService } from './effort-state.service';
 import type {
   AuthGetAuthStatusResponse,
   AuthSaveSettingsParams,
@@ -49,6 +50,7 @@ import type {
 export class AuthStateService {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly modelState = inject(ModelStateService);
+  private readonly effortState = inject(EffortStateService);
 
   // --- Private mutable signals ---
 
@@ -460,7 +462,10 @@ export class AuthStateService {
         // failures don't overwrite the successful save+test status
         try {
           await this.refreshAuthStatus();
-          await this.modelState.refreshModels();
+          await Promise.all([
+            this.modelState.refreshModels(),
+            this.effortState.refreshEffort(),
+          ]);
         } catch (refreshError) {
           console.warn(
             '[AuthStateService] Post-save refresh failed (credentials saved successfully):',
@@ -607,9 +612,12 @@ export class AuthStateService {
           );
         }
 
-        // Refresh models for the new provider
+        // Refresh models and effort for the new provider
         try {
-          await this.modelState.refreshModels();
+          await Promise.all([
+            this.modelState.refreshModels(),
+            this.effortState.refreshEffort(),
+          ]);
         } catch (refreshError) {
           console.warn(
             '[AuthStateService] Post-login model refresh failed:',
