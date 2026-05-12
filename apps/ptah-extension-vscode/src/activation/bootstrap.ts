@@ -11,6 +11,11 @@ import {
   PERSISTENCE_TOKENS,
   type SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
+import { registerVscodeSettings } from '@ptah-extension/platform-vscode';
+import {
+  SETTINGS_TOKENS,
+  type MigrationRunner,
+} from '@ptah-extension/settings-core';
 import { DIContainer } from '../di/container';
 import { handleLicenseBlocking } from './license-gate';
 
@@ -106,6 +111,38 @@ export async function bootstrapVscode(
   // STEP 3: FULL DI SETUP (Licensed users only)
   // ========================================
   DIContainer.setup(context);
+
+  // ========================================
+  // STEP 3.05: UNIFIED SETTINGS REGISTRATION + MIGRATION (WP-3C, Batch 3)
+  // ========================================
+  // registerVscodeSettings wires SETTINGS_TOKENS (SETTINGS_STORE, all 9
+  // repository tokens, MIGRATION_RUNNER) into the container.
+  //
+  // runMigrations() MUST run before any service resolves MODEL_SETTINGS or
+  // REASONING_SETTINGS. Services are registered lazily (factory/singleton)
+  // and first resolved when agentAdapter.initialize() is called in Step 7,
+  // so running the migration here satisfies the R2 ordering constraint.
+  //
+  // DIContainer.setup() is synchronous; bootstrapVscode() is async, so we
+  // can safely await here without making the phase chain async.
+  try {
+    const diContainer = DIContainer.getContainer();
+    registerVscodeSettings(diContainer, vscode, context);
+    const migrationRunner = DIContainer.resolve<MigrationRunner>(
+      SETTINGS_TOKENS.MIGRATION_RUNNER,
+    );
+    await migrationRunner.runMigrations();
+    console.log('[Ptah VS Code] Settings registered and migrations applied');
+  } catch (settingsError) {
+    // Non-fatal: log and continue. Worst case, provider-scoped settings fall
+    // back to defaults rather than user-persisted values.
+    console.warn(
+      '[Ptah VS Code] Settings registration / migration failed (non-fatal):',
+      settingsError instanceof Error
+        ? settingsError.message
+        : String(settingsError),
+    );
+  }
 
   // ========================================
   // STEP 3.1: OPEN SQLITE + RUN MIGRATIONS (TASK_2026_HERMES Track 1)
