@@ -411,13 +411,35 @@ describe('SqliteMigrationRunner', () => {
 
 {
   let nativeAvailable = false;
-  let Database: (new (file: string) => unknown) | undefined;
+  let vecAvailable = false;
+  let Database:
+    | (new (file: string) => {
+        loadExtension?: (path: string) => void;
+        close(): void;
+      })
+    | undefined;
+  let vecExtPath: string | undefined;
   try {
-    Database = require('better-sqlite3') as new (file: string) => unknown;
+    Database = require('better-sqlite3') as new (file: string) => {
+      loadExtension?: (path: string) => void;
+      close(): void;
+    };
     // Smoke-test: open an in-memory DB to confirm the ABI matches the runner.
     const probe = new Database(':memory:');
-    (probe as { close(): void }).close();
+    probe.close();
     nativeAvailable = true;
+    try {
+      const sqliteVec = require('sqlite-vec') as {
+        getLoadablePath: () => string;
+      };
+      vecExtPath = sqliteVec.getLoadablePath();
+      const vecProbe = new Database(':memory:');
+      vecProbe.loadExtension?.(vecExtPath);
+      vecProbe.close();
+      vecAvailable = true;
+    } catch {
+      vecAvailable = false;
+    }
   } catch {
     nativeAvailable = false;
   }
@@ -425,61 +447,68 @@ describe('SqliteMigrationRunner', () => {
   const maybe = nativeAvailable ? describe : describe.skip;
 
   maybe('SQL-M real better-sqlite3 migration invariants', () => {
-    function openDb(
-      file = ':memory:',
-    ): import('./sqlite-connection.service').SqliteDatabase {
+    function openDb(file = ':memory:', loadVec = false) {
       if (!Database) throw new Error('better-sqlite3 not available');
-      return new Database(
-        file,
-      ) as import('./sqlite-connection.service').SqliteDatabase;
+      const db = new Database(file);
+      if (loadVec && vecExtPath) db.loadExtension?.(vecExtPath);
+      return db as unknown as import('./sqlite-connection.service').SqliteDatabase;
     }
 
     // SQL-M-1: applying MIGRATIONS to a fresh in-memory DB does not throw
-    // and finalVersion equals the last migration version.
-    it('SQL-M-1: applies all MIGRATIONS to a fresh real in-memory DB without error', async () => {
-      const { MIGRATIONS } = require('./migrations') as {
-        MIGRATIONS: readonly import('./migrations').Migration[];
-      };
-      const db = openDb();
-      const runner = new SqliteMigrationRunner(db, createMockLogger());
+    // and finalVersion equals the last migration version. Tests the
+    // production happy path with sqlite-vec loaded. Skipped if sqlite-vec
+    // is unavailable in the test environment.
+    const sqlM1 = vecAvailable ? it : it.skip;
+    sqlM1(
+      'SQL-M-1: applies all MIGRATIONS to a fresh real in-memory DB without error',
+      async () => {
+        const { MIGRATIONS } = require('./migrations') as {
+          MIGRATIONS: readonly import('./migrations').Migration[];
+        };
+        const db = openDb(':memory:', true);
+        const runner = new SqliteMigrationRunner(db, createMockLogger());
 
-      const result = await runner.applyAll(MIGRATIONS, {
-        vecExtensionLoaded: false,
-      });
+        const result = await runner.applyAll(MIGRATIONS, {
+          vecExtensionLoaded: true,
+        });
 
-      expect(result.appliedVersions.length).toBeGreaterThan(0);
-      expect(result.finalVersion).toBe(
-        MIGRATIONS[MIGRATIONS.length - 1].version,
-      );
-      // Bookkeeping table is consistent with the returned result.
-      const applied = runner.readAppliedVersions();
-      for (const v of result.appliedVersions) {
-        expect(applied.has(v)).toBe(true);
-      }
-      (db as { close(): void }).close();
-    });
+        expect(result.appliedVersions.length).toBeGreaterThan(0);
+        expect(result.finalVersion).toBe(
+          MIGRATIONS[MIGRATIONS.length - 1].version,
+        );
+        const applied = runner.readAppliedVersions();
+        for (const v of result.appliedVersions) {
+          expect(applied.has(v)).toBe(true);
+        }
+        (db as { close(): void }).close();
+      },
+    );
 
     // SQL-M-2: re-running applyAll on an already-migrated DB skips all versions.
-    it('SQL-M-2: re-running applyAll on a fully-migrated DB produces empty appliedVersions', async () => {
-      const { MIGRATIONS } = require('./migrations') as {
-        MIGRATIONS: readonly import('./migrations').Migration[];
-      };
-      const db = openDb();
-      const runner = new SqliteMigrationRunner(db, createMockLogger());
+    const sqlM2 = vecAvailable ? it : it.skip;
+    sqlM2(
+      'SQL-M-2: re-running applyAll on a fully-migrated DB produces empty appliedVersions',
+      async () => {
+        const { MIGRATIONS } = require('./migrations') as {
+          MIGRATIONS: readonly import('./migrations').Migration[];
+        };
+        const db = openDb(':memory:', true);
+        const runner = new SqliteMigrationRunner(db, createMockLogger());
 
-      await runner.applyAll(MIGRATIONS, { vecExtensionLoaded: false });
-      const second = await runner.applyAll(MIGRATIONS, {
-        vecExtensionLoaded: false,
-      });
+        await runner.applyAll(MIGRATIONS, { vecExtensionLoaded: true });
+        const second = await runner.applyAll(MIGRATIONS, {
+          vecExtensionLoaded: true,
+        });
 
-      expect(second.appliedVersions).toEqual([]);
-      expect(second.skippedVersions.length).toBeGreaterThan(0);
-      // finalVersion is unchanged after a no-op run.
-      expect(second.finalVersion).toBe(
-        MIGRATIONS[MIGRATIONS.length - 1].version,
-      );
-      (db as { close(): void }).close();
-    });
+        expect(second.appliedVersions).toEqual([]);
+        // skippedVersions includes already-applied migrations on re-run.
+        expect(second.skippedVersions.length).toBeGreaterThan(0);
+        expect(second.finalVersion).toBe(
+          MIGRATIONS[MIGRATIONS.length - 1].version,
+        );
+        (db as { close(): void }).close();
+      },
+    );
 
     // SQL-M-3: a migration with a syntax error is rolled back — tables from
     // prior migrations remain; the failing migration leaves no bookkeeping row.

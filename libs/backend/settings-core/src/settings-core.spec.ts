@@ -796,6 +796,8 @@ describe('TC-18: Isolation guarantee — zero unauthorized consumers', () => {
       /libs[\\/]backend[\\/]messaging-gateway[\\/]/,
       // tsconfig files declare path aliases — not runtime consumers.
       /tsconfig(\.\w+)?\.json$/,
+      // Documentation mentions the package name in prose — not a runtime import.
+      /^docs[\\/]/,
     ];
 
     const unauthorized = lines.filter(

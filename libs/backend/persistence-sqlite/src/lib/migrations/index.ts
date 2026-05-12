@@ -83,6 +83,7 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 7,
     name: '0007_fix_vec0_rowid',
     sql: sql0007FixVec0Rowid,
+    requiresVec: true,
   },
   {
     version: 8,
