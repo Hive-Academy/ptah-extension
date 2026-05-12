@@ -1,26 +1,41 @@
 /**
- * FileSettingsStore — ISettingsStore adapter for Electron (and CLI).
+ * FileSettingsStore — ISettingsStore adapter for Electron.
  *
  * Delegates global read/write operations to PtahFileSettingsManager so that
  * the settings-core repositories can read and write settings without knowing
  * about the underlying platform file format.
  *
- * Secret operations are stubs that throw an explicit error to mark the Phase 4
- * encryption boundary. Do NOT convert these to no-ops — a silent no-op would
- * silently lose secret writes.
+ * Secret operations are backed by SecretsFileStore (AES-256-GCM in
+ * ~/.ptah/secrets.enc.json) with the master key from IMasterKeyProvider
+ * (ElectronMasterKeyProvider uses safeStorage).
  *
  * WP-2B: Platform adapter creation.
+ * WP-4A: Secret storage implementation.
  */
 
 import type { IDisposable } from '@ptah-extension/platform-core';
 import type { PtahFileSettingsManager } from '@ptah-extension/platform-core';
-import type { ISettingsStore } from '@ptah-extension/settings-core';
+import type {
+  ISettingsStore,
+  IMasterKeyProvider,
+} from '@ptah-extension/settings-core';
+import { SecretsFileStore } from '@ptah-extension/settings-core';
 
 export class FileSettingsStore implements ISettingsStore {
   private readonly fileSettings: PtahFileSettingsManager;
+  private readonly masterKeyProvider: IMasterKeyProvider;
+  private readonly secretsStore: SecretsFileStore;
+  /** Cached master key for synchronous flush path. Null until first async access. */
+  private cachedMasterKey: Buffer | null = null;
 
-  constructor(fileSettings: PtahFileSettingsManager) {
+  constructor(
+    fileSettings: PtahFileSettingsManager,
+    masterKeyProvider: IMasterKeyProvider,
+    secretsStore: SecretsFileStore,
+  ) {
     this.fileSettings = fileSettings;
+    this.masterKeyProvider = masterKeyProvider;
+    this.secretsStore = secretsStore;
   }
 
   // ---------------------------------------------------------------------------
@@ -36,28 +51,34 @@ export class FileSettingsStore implements ISettingsStore {
   }
 
   // ---------------------------------------------------------------------------
-  // Secret storage — Phase 4 placeholder
+  // Secret storage — AES-256-GCM via SecretsFileStore
   // ---------------------------------------------------------------------------
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  readSecret(_key: string): Promise<string | undefined> {
-    throw new Error(
-      'FileSettingsStore.readSecret: Encryption not yet implemented — Phase 4',
-    );
+  /**
+   * Read a secret from the encrypted secrets file.
+   * Returns undefined if the key has never been written.
+   */
+  async readSecret(key: string): Promise<string | undefined> {
+    const masterKey = await this.getAndCacheMasterKey();
+    return this.secretsStore.read(key, masterKey);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  writeSecret(_key: string, _ciphertext: string): Promise<void> {
-    throw new Error(
-      'FileSettingsStore.writeSecret: Encryption not yet implemented — Phase 4',
-    );
+  /**
+   * Encrypt and persist a secret value.
+   *
+   * The parameter name `plaintext` reflects that the adapter performs
+   * AES-256-GCM encryption internally — callers pass the raw value.
+   * (The port parameter was historically named `ciphertext` because callers
+   * were expected to pre-encrypt; with WP-4A this responsibility moves here.)
+   */
+  async writeSecret(key: string, plaintext: string): Promise<void> {
+    const masterKey = await this.getAndCacheMasterKey();
+    await this.secretsStore.write(key, plaintext, masterKey);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  deleteSecret(_key: string): Promise<void> {
-    throw new Error(
-      'FileSettingsStore.deleteSecret: Encryption not yet implemented — Phase 4',
-    );
+  /** Remove a secret from the encrypted secrets file. */
+  async deleteSecret(key: string): Promise<void> {
+    await this.secretsStore.delete(key);
   }
 
   // ---------------------------------------------------------------------------
@@ -77,13 +98,10 @@ export class FileSettingsStore implements ISettingsStore {
 
   /**
    * Subscribe to changes on a secret key.
-   *
-   * No-op for Phase 4 — secrets are not yet persisted via this adapter.
-   * TODO (Phase 5): wire into platform secret-storage change notifications.
+   * Phase 5: cross-process secret change notifications.
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   watchSecret(_key: string, _cb: () => void): IDisposable {
-    // Phase 5: cross-process secret change notifications.
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     return { dispose: () => {} };
   }
@@ -92,7 +110,31 @@ export class FileSettingsStore implements ISettingsStore {
   // Flush
   // ---------------------------------------------------------------------------
 
+  /**
+   * Flush both the global settings file and the secrets file synchronously.
+   *
+   * The master key fetch is async, so this method uses the cached key from
+   * the last async readSecret/writeSecret call. If the cache is empty (no
+   * secrets were accessed in this process), the secrets flush is skipped
+   * with a logged warning (no data has been changed, so nothing is lost).
+   */
   flushSync(): void {
     this.fileSettings.flushSync();
+    if (this.cachedMasterKey === null) {
+      // Secrets were not accessed — nothing to flush.
+      return;
+    }
+    this.secretsStore.flushSync(this.cachedMasterKey);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal
+  // ---------------------------------------------------------------------------
+
+  private async getAndCacheMasterKey(): Promise<Buffer> {
+    if (!this.cachedMasterKey) {
+      this.cachedMasterKey = await this.masterKeyProvider.getMasterKey();
+    }
+    return this.cachedMasterKey;
   }
 }

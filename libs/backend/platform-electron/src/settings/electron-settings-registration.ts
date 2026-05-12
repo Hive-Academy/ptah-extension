@@ -9,6 +9,7 @@
  * Called from WP-3C (app-level bootstrap). NOT called here.
  *
  * WP-2B: Platform adapter creation.
+ * WP-4A: Master key provider + SecretsFileStore wiring.
  */
 
 import * as os from 'os';
@@ -28,40 +29,67 @@ import {
   SkillSynthesisSettings,
   CronSettings,
   MigrationRunner,
+  SecretsFileStore,
   runV1Migration,
   runV2Migration,
+  runV3Migration,
 } from '@ptah-extension/settings-core';
 
 import { FileSettingsStore } from './file-settings-store';
+import { ElectronMasterKeyProvider } from './electron-master-key-provider';
 import { ElectronWorkspaceProvider } from '../implementations/electron-workspace-provider';
 
 /**
  * Register all settings-core tokens for the Electron platform.
  *
  * Registration order:
- * 1. FileSettingsStore (raw backend adapter)
- * 2. ReactiveSettingsStore (wraps backend with in-process event emission)
- * 3. Per-namespace repositories (AuthSettings, ReasoningSettings, …)
- * 4. MigrationRunner (pointed at ~/.ptah/)
+ * 1. ElectronMasterKeyProvider (backed by Electron safeStorage)
+ * 2. SecretsFileStore (reads/writes ~/.ptah/secrets.enc.json)
+ * 3. FileSettingsStore (raw backend adapter — global settings + encryption)
+ * 4. ReactiveSettingsStore (wraps backend with in-process event emission)
+ * 5. Per-namespace repositories (AuthSettings, ReasoningSettings, …)
+ * 6. MigrationRunner (v1 + v2 + v3, pointed at ~/.ptah/)
  *
  * @param container - tsyringe DI container (must already have WORKSPACE_PROVIDER registered)
  */
 export function registerElectronSettings(container: DependencyContainer): void {
+  const ptahDir = path.join(os.homedir(), '.ptah');
+
   // 1. Resolve the workspace provider that owns the shared PtahFileSettingsManager.
   const workspaceProvider = container.resolve<ElectronWorkspaceProvider>(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
 
-  // 2. Wrap PtahFileSettingsManager in the ISettingsStore port.
-  const rawStore = new FileSettingsStore(workspaceProvider.fileSettings);
+  // 2. Master key provider — backed by Electron safeStorage.
+  const masterKeyProvider = new ElectronMasterKeyProvider(ptahDir);
+  container.register(SETTINGS_TOKENS.MASTER_KEY_PROVIDER, {
+    useValue: masterKeyProvider,
+  });
 
-  // 3. Add in-process reactivity layer.
+  // 3. Secrets file store — reads/writes ~/.ptah/secrets.enc.json.
+  const secretsStore = new SecretsFileStore(ptahDir);
+
+  // 4. Wrap PtahFileSettingsManager + encryption in the ISettingsStore port.
+  const rawStore = new FileSettingsStore(
+    workspaceProvider.fileSettings,
+    masterKeyProvider,
+    secretsStore,
+  );
+
+  // WP-5A: Enable cross-process reactivity so that a CLI sidecar (or any other
+  // process writing to ~/.ptah/settings.json) causes this Electron process to
+  // fire its in-process listeners for the changed keys.
+  // persistent: false (set inside enableCrossProcessWatch) ensures the watcher
+  // does not block process exit.
+  workspaceProvider.fileSettings.enableCrossProcessWatch();
+
+  // 5. Add in-process reactivity layer.
   const reactiveStore = new ReactiveSettingsStore(rawStore);
   container.register(SETTINGS_TOKENS.SETTINGS_STORE, {
     useValue: reactiveStore,
   });
 
-  // 4. Per-namespace repositories — each takes the reactive store.
+  // 6. Per-namespace repositories — each takes the reactive store.
   container.register(SETTINGS_TOKENS.AUTH_SETTINGS, {
     useValue: new AuthSettings(reactiveStore),
   });
@@ -90,9 +118,14 @@ export function registerElectronSettings(container: DependencyContainer): void {
     useValue: new CronSettings(reactiveStore),
   });
 
-  // 5. MigrationRunner — pointed at ~/.ptah/ directory.
-  const ptahDir = path.join(os.homedir(), '.ptah');
+  // 7. MigrationRunner — v1, v2, and v3 (gateway cipher migration).
+  //    v3 is bound to this registration's masterKeyProvider.
+  const boundV3 = (dir: string) => runV3Migration(dir, masterKeyProvider);
   container.register(SETTINGS_TOKENS.MIGRATION_RUNNER, {
-    useValue: new MigrationRunner(ptahDir, [runV1Migration, runV2Migration]),
+    useValue: new MigrationRunner(ptahDir, [
+      runV1Migration,
+      runV2Migration,
+      boundV3,
+    ]),
   });
 }

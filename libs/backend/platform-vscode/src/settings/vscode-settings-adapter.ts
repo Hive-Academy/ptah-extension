@@ -14,17 +14,22 @@
  * the top level) so that this file can compile without the vscode types being
  * loaded — preserving testability and correct behaviour for the CLI shim.
  *
- * Secret operations are stubs that throw an explicit error to mark the Phase 4
- * encryption boundary. When Phase 4 lands, replace these with vscode.SecretStorage
- * delegation.
+ * Secret operations are backed by SecretsFileStore (AES-256-GCM in
+ * ~/.ptah/secrets.enc.json) with the master key from VscodeMasterKeyProvider
+ * (which uses vscode.SecretStorage — OS keychain backed).
  *
  * WP-2B: Platform adapter creation.
+ * WP-4A: Secret storage implementation.
  */
 
 import type { IDisposable } from '@ptah-extension/platform-core';
 import { isFileBasedSettingKey } from '@ptah-extension/platform-core';
 import type { VscodeWorkspaceProvider } from '../implementations/vscode-workspace-provider';
-import type { ISettingsStore } from '@ptah-extension/settings-core';
+import type {
+  ISettingsStore,
+  IMasterKeyProvider,
+} from '@ptah-extension/settings-core';
+import { SecretsFileStore } from '@ptah-extension/settings-core';
 
 /**
  * Minimal slice of the vscode module required by VscodeSettingsAdapter.
@@ -48,13 +53,21 @@ export interface VscodeApiSlice {
 export class VscodeSettingsAdapter implements ISettingsStore {
   private readonly workspaceProvider: VscodeWorkspaceProvider;
   private readonly vscode: VscodeApiSlice;
+  private readonly masterKeyProvider: IMasterKeyProvider;
+  private readonly secretsStore: SecretsFileStore;
+  /** Cached master key for synchronous flush path. Null until first async access. */
+  private cachedMasterKey: Buffer | null = null;
 
   constructor(
     workspaceProvider: VscodeWorkspaceProvider,
     vscodeModule: VscodeApiSlice,
+    masterKeyProvider: IMasterKeyProvider,
+    secretsStore: SecretsFileStore,
   ) {
     this.workspaceProvider = workspaceProvider;
     this.vscode = vscodeModule;
+    this.masterKeyProvider = masterKeyProvider;
+    this.secretsStore = secretsStore;
   }
 
   // ---------------------------------------------------------------------------
@@ -79,25 +92,32 @@ export class VscodeSettingsAdapter implements ISettingsStore {
   }
 
   // ---------------------------------------------------------------------------
-  // Secret storage — Phase 4 placeholder (vscode.SecretStorage)
+  // Secret storage — AES-256-GCM via SecretsFileStore
   // ---------------------------------------------------------------------------
 
-  readSecret(_key: string): Promise<string | undefined> {
-    throw new Error(
-      'VscodeSettingsAdapter.readSecret: Encryption not yet implemented — Phase 4',
-    );
+  /**
+   * Read a secret from the encrypted secrets file.
+   * Returns undefined if the key has never been written.
+   */
+  async readSecret(key: string): Promise<string | undefined> {
+    const masterKey = await this.getAndCacheMasterKey();
+    return this.secretsStore.read(key, masterKey);
   }
 
-  writeSecret(_key: string, _ciphertext: string): Promise<void> {
-    throw new Error(
-      'VscodeSettingsAdapter.writeSecret: Encryption not yet implemented — Phase 4',
-    );
+  /**
+   * Encrypt and persist a secret value.
+   *
+   * The parameter name `plaintext` reflects that the adapter performs
+   * AES-256-GCM encryption internally — callers pass the raw value.
+   */
+  async writeSecret(key: string, plaintext: string): Promise<void> {
+    const masterKey = await this.getAndCacheMasterKey();
+    await this.secretsStore.write(key, plaintext, masterKey);
   }
 
-  deleteSecret(_key: string): Promise<void> {
-    throw new Error(
-      'VscodeSettingsAdapter.deleteSecret: Encryption not yet implemented — Phase 4',
-    );
+  /** Remove a secret from the encrypted secrets file. */
+  async deleteSecret(key: string): Promise<void> {
+    await this.secretsStore.delete(key);
   }
 
   // ---------------------------------------------------------------------------
@@ -135,15 +155,12 @@ export class VscodeSettingsAdapter implements ISettingsStore {
 
   /**
    * Subscribe to changes on a secret key.
-   *
-   * No-op for Phase 4 — secrets are not yet persisted via this adapter.
-   * TODO (Phase 4): wire into vscode.SecretStorage.onDidChange.
+   * Phase 5: cross-process secret change notifications via vscode.SecretStorage.onDidChange.
    */
   watchSecret(_key: string, _cb: () => void): IDisposable {
-    // Phase 4: vscode.SecretStorage.onDidChange integration — currently a no-op.
     return {
       dispose: () => {
-        /* no-op until SecretStorage integration */
+        /* Phase 5: vscode.SecretStorage.onDidChange integration */
       },
     };
   }
@@ -153,10 +170,25 @@ export class VscodeSettingsAdapter implements ISettingsStore {
   // ---------------------------------------------------------------------------
 
   /**
-   * Flush file-based settings to disk synchronously.
-   * VS Code's own configuration store handles persistence internally.
+   * Flush both file-based settings and the secrets file synchronously.
+   * VS Code's own configuration store handles its persistence internally.
+   *
+   * Uses the cached master key from the last async access. If no secrets
+   * were accessed in this process, the secrets flush is skipped.
    */
   flushSync(): void {
     this.workspaceProvider.fileSettings.flushSync();
+    this.secretsStore.flushSync(this.cachedMasterKey);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal
+  // ---------------------------------------------------------------------------
+
+  private async getAndCacheMasterKey(): Promise<Buffer> {
+    if (!this.cachedMasterKey) {
+      this.cachedMasterKey = await this.masterKeyProvider.getMasterKey();
+    }
+    return this.cachedMasterKey;
   }
 }
