@@ -31,6 +31,7 @@ import {
   SessionRegistry,
   type SessionRecord,
 } from './session-registry.service';
+import type { Query } from '../session-lifecycle-manager';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -477,19 +478,12 @@ describe('SessionRegistry', () => {
   // TASK_2026_118 Batch 10 — adversarial-input hardening (audit gaps 1-7)
   // -------------------------------------------------------------------------
 
-  // Gap 1 — Empty / whitespace realSessionId guard
-  //
-  // TODO: production guard missing — see test-audit.md Gap 1.
-  // bindRealSessionId() has no guard against empty or whitespace-only strings.
-  // If the SDK emits a blank init UUID, bySessionId.set('', rec) runs silently,
-  // making find('') resolve a valid record. A production guard should reject
-  // blank/whitespace realSessionIds before inserting into bySessionId.
+  // Gap 1 — Empty / whitespace realSessionId guard (production guard added).
+  // bindRealSessionId() rejects empty or whitespace-only strings: a malformed
+  // SDK init message yielding a blank UUID must not let find('') resolve a
+  // live query.
   describe('bindRealSessionId empty/whitespace guard (audit gap 1)', () => {
-    it.skip('does NOT create a bySessionId entry when realSessionId is empty string', () => {
-      // TODO: production guard missing — see test-audit.md Gap 1.
-      // Remove this skip once SessionRegistry.bindRealSessionId validates that
-      // realSessionId is non-empty and non-whitespace before calling
-      // this.bySessionId.set(realSessionId, rec).
+    it('does NOT create a bySessionId entry when realSessionId is empty string', () => {
       const { registry } = makeRegistry();
       registry.register('tab_1', makeConfig(), new AbortController());
       registry.bindRealSessionId('tab_1', '');
@@ -501,8 +495,7 @@ describe('SessionRegistry', () => {
       expect(registry.find('')).toBeUndefined();
     });
 
-    it.skip('does NOT create a bySessionId entry when realSessionId is whitespace only', () => {
-      // TODO: production guard missing — see test-audit.md Gap 1.
+    it('does NOT create a bySessionId entry when realSessionId is whitespace only', () => {
       const { registry } = makeRegistry();
       registry.register('tab_2', makeConfig(), new AbortController());
       registry.bindRealSessionId('tab_2', '   ');
@@ -639,7 +632,7 @@ describe('SessionRegistry', () => {
       const { registry, logger } = makeRegistry();
       const fakeQuery = {
         fakeQuery: true,
-      } as unknown as SessionRecord['query'];
+      } as unknown as Query;
 
       expect(() =>
         registry.setSessionQuery(

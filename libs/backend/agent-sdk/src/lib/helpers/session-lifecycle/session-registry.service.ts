@@ -114,8 +114,19 @@ export class SessionRegistry {
    *
    * Guard: realSessionId must be null on entry (set-once invariant).
    * If it is already set this call is a no-op (logs a warning).
+   *
+   * Empty/whitespace realSessionId is rejected: a malformed SDK init
+   * message yielding a blank UUID would otherwise let `find('')` resolve
+   * a live query, attaching arbitrary callers to whichever session is
+   * registered. See TASK_2026_118 Batch 10 Gap 1.
    */
   bindRealSessionId(tabId: string, realSessionId: string): void {
+    if (!realSessionId || realSessionId.trim().length === 0) {
+      this.logger.warn(
+        `[SessionRegistry] bindRealSessionId: rejected empty/whitespace realSessionId for tabId ${tabId}`,
+      );
+      return;
+    }
     const rec = this.byTabId.get(tabId);
     if (!rec) {
       this.logger.warn(

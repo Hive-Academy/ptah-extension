@@ -5,28 +5,43 @@
  * the settings-core repositories can read and write settings without knowing
  * about the underlying platform file format.
  *
- * This file is intentionally a copy of
+ * This file is intentionally separate from
  * libs/backend/platform-electron/src/settings/file-settings-store.ts.
  * Per the project's hexagonal rules, adapters in different platforms are
- * mutually exclusive copies — each platform lib pays the cost of duplication
+ * mutually exclusive — each platform lib pays the cost of duplication
  * to preserve isolation. Do NOT import or re-export the Electron class here.
  *
- * Secret operations are stubs that throw an explicit error to mark the Phase 4
- * encryption boundary. Do NOT convert these to no-ops — a silent no-op would
- * silently lose secret writes.
+ * Secret operations are backed by SecretsFileStore (AES-256-GCM in
+ * ~/.ptah/secrets.enc.json) with the master key from IMasterKeyProvider
+ * (CliMasterKeyProvider uses keytar with HKDF fallback).
  *
  * WP-2B: Platform adapter creation.
+ * WP-4A: Secret storage implementation.
  */
 
 import type { IDisposable } from '@ptah-extension/platform-core';
 import type { PtahFileSettingsManager } from '@ptah-extension/platform-core';
-import type { ISettingsStore } from '@ptah-extension/settings-core';
+import type {
+  ISettingsStore,
+  IMasterKeyProvider,
+} from '@ptah-extension/settings-core';
+import { SecretsFileStore } from '@ptah-extension/settings-core';
 
 export class FileSettingsStore implements ISettingsStore {
   private readonly fileSettings: PtahFileSettingsManager;
+  private readonly masterKeyProvider: IMasterKeyProvider;
+  private readonly secretsStore: SecretsFileStore;
+  /** Cached master key for synchronous flush path. Null until first async access. */
+  private cachedMasterKey: Buffer | null = null;
 
-  constructor(fileSettings: PtahFileSettingsManager) {
+  constructor(
+    fileSettings: PtahFileSettingsManager,
+    masterKeyProvider: IMasterKeyProvider,
+    secretsStore: SecretsFileStore,
+  ) {
     this.fileSettings = fileSettings;
+    this.masterKeyProvider = masterKeyProvider;
+    this.secretsStore = secretsStore;
   }
 
   // ---------------------------------------------------------------------------
@@ -42,28 +57,32 @@ export class FileSettingsStore implements ISettingsStore {
   }
 
   // ---------------------------------------------------------------------------
-  // Secret storage — Phase 4 placeholder
+  // Secret storage — AES-256-GCM via SecretsFileStore
   // ---------------------------------------------------------------------------
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  readSecret(_key: string): Promise<string | undefined> {
-    throw new Error(
-      'FileSettingsStore.readSecret: Encryption not yet implemented — Phase 4',
-    );
+  /**
+   * Read a secret from the encrypted secrets file.
+   * Returns undefined if the key has never been written.
+   */
+  async readSecret(key: string): Promise<string | undefined> {
+    const masterKey = await this.getAndCacheMasterKey();
+    return this.secretsStore.read(key, masterKey);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  writeSecret(_key: string, _ciphertext: string): Promise<void> {
-    throw new Error(
-      'FileSettingsStore.writeSecret: Encryption not yet implemented — Phase 4',
-    );
+  /**
+   * Encrypt and persist a secret value.
+   *
+   * The parameter name `plaintext` reflects that the adapter performs
+   * AES-256-GCM encryption internally — callers pass the raw value.
+   */
+  async writeSecret(key: string, plaintext: string): Promise<void> {
+    const masterKey = await this.getAndCacheMasterKey();
+    await this.secretsStore.write(key, plaintext, masterKey);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  deleteSecret(_key: string): Promise<void> {
-    throw new Error(
-      'FileSettingsStore.deleteSecret: Encryption not yet implemented — Phase 4',
-    );
+  /** Remove a secret from the encrypted secrets file. */
+  async deleteSecret(key: string): Promise<void> {
+    await this.secretsStore.delete(key);
   }
 
   // ---------------------------------------------------------------------------
@@ -74,22 +93,14 @@ export class FileSettingsStore implements ISettingsStore {
    * Subscribe to in-process changes for a global setting key.
    *
    * Delegates to PtahFileSettingsManager.watch() which fires after every
-   * successful in-process write. Cross-process reactivity (fs.watch on
-   * settings.json shared between CLI and other processes) is Phase 5.
+   * successful in-process write. Cross-process reactivity is Phase 5.
    */
   watchGlobal(key: string, cb: (value: unknown) => void): IDisposable {
     return this.fileSettings.watch(key, cb);
   }
 
-  /**
-   * Subscribe to changes on a secret key.
-   *
-   * No-op for Phase 4 — secrets are not yet persisted via this adapter.
-   * TODO (Phase 5): wire into platform secret-storage change notifications.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  /** Phase 5: cross-process secret change notifications. */
   watchSecret(_key: string, _cb: () => void): IDisposable {
-    // Phase 5: cross-process secret change notifications.
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     return { dispose: () => {} };
   }
@@ -98,7 +109,26 @@ export class FileSettingsStore implements ISettingsStore {
   // Flush
   // ---------------------------------------------------------------------------
 
+  /**
+   * Flush both the global settings file and the secrets file synchronously.
+   *
+   * Uses the cached master key from the last async access. If the cache is
+   * empty (no secrets were accessed in this process), the secrets flush is
+   * skipped — there is no dirty data to write.
+   */
   flushSync(): void {
     this.fileSettings.flushSync();
+    this.secretsStore.flushSync(this.cachedMasterKey);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal
+  // ---------------------------------------------------------------------------
+
+  private async getAndCacheMasterKey(): Promise<Buffer> {
+    if (!this.cachedMasterKey) {
+      this.cachedMasterKey = await this.masterKeyProvider.getMasterKey();
+    }
+    return this.cachedMasterKey;
   }
 }
