@@ -5,12 +5,15 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import type {
-  GatewayBindingDto,
-  GatewayPlatformId,
-  GatewayStatusResult,
-  GatewayTestPlatform,
-  GatewayTestResult,
+import { type MessageHandler } from '@ptah-extension/core';
+import {
+  MESSAGE_TYPES,
+  type GatewayBindingDto,
+  type GatewayPlatformId,
+  type GatewayStatusChangedPayload,
+  type GatewayStatusResult,
+  type GatewayTestPlatform,
+  type GatewayTestResult,
 } from '@ptah-extension/shared';
 
 import { GatewayRpcService } from './gateway-rpc.service';
@@ -37,9 +40,6 @@ export interface RateLimitView {
   readonly minTimeMs: number;
   readonly maxConcurrent: number;
 }
-
-/** Polling cadence for the bindings queue when no event arrives. */
-const BINDINGS_POLL_INTERVAL_MS = 30_000;
 
 const DEFAULT_PLATFORM_STATUS: PlatformStatus = {
   state: 'stopped',
@@ -83,9 +83,28 @@ function emptyErrorMap(): PlatformErrorMap {
  * not retained, logged, or persisted at this layer.
  */
 @Injectable({ providedIn: 'root' })
-export class GatewayStateService {
+export class GatewayStateService implements MessageHandler {
   private readonly rpc = inject(GatewayRpcService);
   private readonly destroyRef = inject(DestroyRef);
+
+  // ── Push-event routing (TASK_2026_115) ─────────────────────────────────
+  /** Message types this service handles via MessageRouterService. */
+  public readonly handledMessageTypes = [
+    MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+  ] as const;
+
+  /**
+   * Set of origin tokens stamped by in-flight user-initiated start/stop/setToken
+   * calls. Each call adds its UUID; the matching GATEWAY_STATUS_CHANGED echo
+   * removes it via `delete()`. Using a `Set` (not a single ref) tolerates rapid
+   * sequential platform actions — e.g. enable Telegram immediately followed by
+   * enable Discord — without overwriting the first action's token before its
+   * echo arrives (TASK_2026_115 review S2). Orphaned tokens (echo never arrived
+   * because backend broadcast failed) are harmless: UUIDs do not collide with
+   * future origins, and the entries are ~36 bytes each. NOT a signal — nothing
+   * renders it.
+   */
+  private readonly _pendingOrigins = new Set<string>();
 
   // ── State signals ──────────────────────────────────────────────────────
   public readonly enabled = signal<boolean>(false);
@@ -98,6 +117,20 @@ export class GatewayStateService {
     maxConcurrent: 2,
   });
   public readonly whisperModel = signal<string>('base.en');
+  /**
+   * Voice-model download progress signal — currently inert.
+   *
+   * Background (TASK_2026_115): the prior `subscribeEvents()` raw
+   * `window.addEventListener('message')` listener that fed this signal was
+   * deleted because backend `GatewayService.emit('event', ...)` (Node
+   * EventEmitter) was never bridged to the renderer IPC channel — the
+   * listener never fired. The signal + `dismissVoiceToast()` action +
+   * template binding in `messaging-gateway-tab.component.ts:110` are
+   * preserved as the public API surface for when a real
+   * `MESSAGE_TYPES.GATEWAY_VOICE_DOWNLOAD_PROGRESS` push event is wired
+   * (follow-up — out of scope for this PR). Until then the signal stays
+   * `null`, the template `@if` block stays hidden.
+   */
   public readonly voiceDownload = signal<VoiceModelDownloadProgress | null>(
     null,
   );
@@ -121,34 +154,34 @@ export class GatewayStateService {
     platform: GatewayPlatformId,
   ): boolean => this.approvedBindings().some((b) => b.platform === platform);
 
-  // ── Internal subscription state ────────────────────────────────────────
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
-  private messageListener: ((event: MessageEvent) => void) | null = null;
-  /** Set of voice-model-download events seen this session — toast is one-shot. */
-  private voiceToastShown = false;
-
-  public constructor() {
-    this.destroyRef.onDestroy(() => this.teardown());
-  }
-
   // ── Lifecycle ──────────────────────────────────────────────────────────
 
-  /** Boot the state service: initial fetch + subscribe to events + start polling. */
+  /**
+   * Boot the state service: one-time initial hydration of status + bindings.
+   * Subsequent updates arrive via the MessageHandler `handleMessage` callback
+   * (GATEWAY_STATUS_CHANGED push events from the backend) — see TASK_2026_115.
+   */
   public async initialize(): Promise<void> {
-    this.subscribeEvents();
-    this.startPolling();
     await Promise.all([this.refreshStatus(), this.listBindings()]);
   }
 
-  private teardown(): void {
-    if (this.pollTimer !== null) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
+  /**
+   * MessageHandler entry point. Called by MessageRouterService when a
+   * GATEWAY_STATUS_CHANGED event is dispatched from the backend.
+   *
+   * Self-echo suppression: if `payload.origin` matches the token stamped by
+   * a recent user-initiated start/stop call, drop the event (the optimistic
+   * UI update has already been applied). Origin === null means the change
+   * was triggered externally (boot, crash recovery) and must be applied.
+   */
+  public handleMessage(msg: { type: string; payload?: unknown }): void {
+    const payload = msg.payload as GatewayStatusChangedPayload | undefined;
+    if (!payload) return;
+    if (payload.origin !== null && this._pendingOrigins.has(payload.origin)) {
+      this._pendingOrigins.delete(payload.origin);
+      return;
     }
-    if (this.messageListener) {
-      window.removeEventListener('message', this.messageListener);
-      this.messageListener = null;
-    }
+    this.applyStatus(payload.status);
   }
 
   // ── Public actions ─────────────────────────────────────────────────────
@@ -192,12 +225,20 @@ export class GatewayStateService {
       await this.rpc.setToken(params);
       // After persisting the token, kick the adapter and refresh status.
       this.markStarting(platform);
+      // Stamp origin so the resulting GATEWAY_STATUS_CHANGED echo is dropped.
+      const origin = crypto.randomUUID();
+      this._pendingOrigins.add(origin);
       try {
-        await this.rpc.start(platform);
+        await this.rpc.start(platform, origin);
       } catch (startErr) {
         this.recordPlatformError(platform, startErr);
+      } finally {
+        // refreshStatus runs on both success and failure paths so the UI
+        // reflects the actual adapter state; the echo (if any) is dropped by
+        // the guard in handleMessage during refreshStatus.
+        await this.refreshStatus();
+        this._pendingOrigins.delete(origin);
       }
-      await this.refreshStatus();
     } catch (err) {
       this.recordPlatformError(platform, err);
       throw err;
@@ -207,21 +248,32 @@ export class GatewayStateService {
   public async startPlatform(platform: GatewayPlatformId): Promise<void> {
     this.clearError(platform);
     this.markStarting(platform);
+    // Stamp origin so the resulting GATEWAY_STATUS_CHANGED echo is dropped
+    // (we already mutated state optimistically via markStarting / refreshStatus).
+    const origin = crypto.randomUUID();
+    this._pendingOrigins.add(origin);
     try {
-      await this.rpc.start(platform);
+      await this.rpc.start(platform, origin);
       await this.refreshStatus();
     } catch (err) {
       this.recordPlatformError(platform, err);
+    } finally {
+      this._pendingOrigins.delete(origin);
     }
   }
 
   public async stopPlatform(platform: GatewayPlatformId): Promise<void> {
     this.clearError(platform);
+    // Stamp origin so the resulting GATEWAY_STATUS_CHANGED echo is dropped.
+    const origin = crypto.randomUUID();
+    this._pendingOrigins.add(origin);
     try {
-      await this.rpc.stop(platform);
+      await this.rpc.stop(platform, origin);
       await this.refreshStatus();
     } catch (err) {
       this.recordPlatformError(platform, err);
+    } finally {
+      this._pendingOrigins.delete(origin);
     }
   }
 
@@ -298,26 +350,6 @@ export class GatewayStateService {
     }
   }
 
-  /**
-   * Subscribes to `gateway:event` IPC frames forwarded by the host. Today the
-   * backend emits voice-model-download / -error; future kinds (binding-requested,
-   * adapter reconnects) extend the same channel.
-   */
-  public subscribeEvents(): void {
-    if (this.messageListener) return; // idempotent
-
-    const listener = (event: MessageEvent): void => {
-      const data = event.data as
-        | { type?: string; payload?: unknown }
-        | null
-        | undefined;
-      if (!data || data.type !== 'gateway:event') return;
-      this.handleGatewayEvent(data.payload);
-    };
-    this.messageListener = listener;
-    window.addEventListener('message', listener);
-  }
-
   // ── Settings injection (read-only mirror) ──────────────────────────────
 
   /**
@@ -342,13 +374,6 @@ export class GatewayStateService {
   }
 
   // ── Internal helpers ───────────────────────────────────────────────────
-
-  private startPolling(): void {
-    if (this.pollTimer !== null) return;
-    this.pollTimer = setInterval(() => {
-      void this.listBindings();
-    }, BINDINGS_POLL_INTERVAL_MS);
-  }
 
   private applyStatus(status: GatewayStatusResult): void {
     this.enabled.set(status.enabled);
@@ -406,54 +431,19 @@ export class GatewayStateService {
     }));
   }
 
-  private handleGatewayEvent(payload: unknown): void {
-    if (!payload || typeof payload !== 'object') return;
-    const ev = payload as { kind?: unknown };
-    if (ev.kind === 'voice-model-download') {
-      const evt = payload as {
-        kind: 'voice-model-download';
-        modelName?: unknown;
-        percent?: unknown;
-      };
-      if (typeof evt.modelName !== 'string') return;
-      const percent =
-        typeof evt.percent === 'number' && Number.isFinite(evt.percent)
-          ? Math.max(0, Math.min(100, evt.percent))
-          : 0;
-      // One-time gate: only show the toast on first transcription this session.
-      if (!this.voiceToastShown && percent < 100) {
-        this.voiceToastShown = true;
-      }
-      this.voiceDownload.set({
-        modelName: evt.modelName,
-        percent,
-        error: null,
-        done: percent >= 100,
-      });
-      return;
-    }
-    if (ev.kind === 'voice-model-download-error') {
-      const evt = payload as {
-        kind: 'voice-model-download-error';
-        modelName?: unknown;
-        reason?: unknown;
-      };
-      const modelName =
-        typeof evt.modelName === 'string' ? evt.modelName : 'unknown';
-      const reason = typeof evt.reason === 'string' ? evt.reason : 'unknown';
-      this.voiceToastShown = true;
-      this.voiceDownload.set({
-        modelName,
-        percent: 0,
-        error: reason,
-        done: true,
-      });
-      return;
-    }
-    if (ev.kind === 'binding-requested') {
-      // New binding arrived: refresh the bindings list. The polling fallback
-      // would catch this within 30s; the event makes it instant.
-      void this.listBindings();
-    }
-  }
+  // TASK_2026_115 follow-up — `handleGatewayEvent` (handled
+  // 'voice-model-download', 'voice-model-download-error', 'binding-requested'
+  // event kinds) was deleted here. Its sole caller — the raw
+  // `subscribeEvents()` `window.addEventListener('message')` listener for
+  // `'gateway:event'` — was confirmed dead code: backend
+  // `GatewayService.emit('event', ...)` is a Node `EventEmitter` call that
+  // was never bridged to the renderer IPC channel, so the listener never
+  // fired. Removing the polling fallback in this PR also removes the 30s
+  // safety net that previously surfaced new binding requests within ≤30s.
+  // Re-wiring requires new typed push events
+  // (`MESSAGE_TYPES.GATEWAY_BINDING_REQUESTED`,
+  // `MESSAGE_TYPES.GATEWAY_VOICE_DOWNLOAD_PROGRESS`) emitted from the
+  // backend mutation points and consumed via `MessageHandler` here. Until
+  // then, new bindings surface only on the next user action that triggers
+  // `listBindings()` / `refreshStatus()`.
 }

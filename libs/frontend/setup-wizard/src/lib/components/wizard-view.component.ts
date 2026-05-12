@@ -53,10 +53,6 @@ import { GenerationProgressComponent } from './generation-progress.component';
 import { CompletionComponent } from './completion.component';
 import { PremiumUpsellComponent } from './premium-upsell.component';
 import { PromptEnhancementComponent } from './prompt-enhancement.component';
-import { ProjectTypeSelectionComponent } from './project-type-selection.component';
-import { DiscoveryStepperComponent } from './discovery-stepper.component';
-import { PlanGenerationComponent } from './plan-generation.component';
-import { PlanReviewComponent } from './plan-review.component';
 
 /**
  * License verification state
@@ -74,10 +70,6 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
     GenerationProgressComponent,
     CompletionComponent,
     PremiumUpsellComponent,
-    ProjectTypeSelectionComponent,
-    DiscoveryStepperComponent,
-    PlanGenerationComponent,
-    PlanReviewComponent,
   ],
   styles: [
     `
@@ -171,18 +163,6 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
               }
               @case ('completion') {
                 <ptah-completion />
-              }
-              @case ('project-type') {
-                <ptah-project-type-selection />
-              }
-              @case ('discovery') {
-                <ptah-discovery-stepper />
-              }
-              @case ('plan-generation') {
-                <ptah-plan-generation />
-              }
-              @case ('plan-review') {
-                <ptah-plan-review />
               }
             }
           </div>

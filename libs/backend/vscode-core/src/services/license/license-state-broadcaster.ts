@@ -76,4 +76,22 @@ export class LicenseStateBroadcaster {
   reset(): void {
     this.lastEmittedStatus = null;
   }
+
+  /**
+   * Seed the tracker with a known status without making an event decision.
+   *
+   * Called from the cache-hit path in verifyLicense() so that a future
+   * network re-verify of the same (valid, tier) pair is correctly suppressed
+   * rather than firing a spurious `license:verified` event (the bug where the
+   * "License Updated" dialog appeared after the 1-hour cache expired even
+   * though the license had not actually changed).
+   *
+   * Only seeds if the tracker is currently null — never overwrites a status
+   * that was set by a real emit, so deliberate changes still fire correctly.
+   */
+  seed(status: LicenseStatus): void {
+    if (this.lastEmittedStatus === null) {
+      this.lastEmittedStatus = { valid: status.valid, tier: status.tier };
+    }
+  }
 }

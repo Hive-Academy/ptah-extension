@@ -36,6 +36,7 @@ import type {
 } from './adapters/adapter.interface';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type { GatewaySettings } from '@ptah-extension/settings-core';
 
 function createLogger(): Logger {
   return {
@@ -44,6 +45,20 @@ function createLogger(): Logger {
     warn: jest.fn(),
     error: jest.fn(),
   } as unknown as Logger;
+}
+
+function createMockGatewaySettings(): jest.Mocked<GatewaySettings> {
+  const handle = () => ({
+    get: jest.fn().mockResolvedValue(''),
+    set: jest.fn().mockResolvedValue(undefined),
+    delete: jest.fn().mockResolvedValue(undefined),
+  });
+  return {
+    telegramTokenCipher: handle(),
+    discordTokenCipher: handle(),
+    slackBotTokenCipher: handle(),
+    slackAppTokenCipher: handle(),
+  } as unknown as jest.Mocked<GatewaySettings>;
 }
 
 function createWorkspace(): IWorkspaceProvider {
@@ -150,6 +165,7 @@ function buildSuite(): Suite {
     slack,
     ffmpeg,
     whisper,
+    createMockGatewaySettings(),
   );
   service.configureForTest({ telegram: telegramAdapter });
   return { service, bindings, messages, telegramAdapter };

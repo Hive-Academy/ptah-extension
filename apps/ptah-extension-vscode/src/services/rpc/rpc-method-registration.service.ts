@@ -28,6 +28,7 @@ import {
   CronRpcHandlers,
   GatewayRpcHandlers,
   MemoryRpcHandlers,
+  PersistenceRpcHandlers,
   SkillsSynthesisRpcHandlers,
   __debugAssertSharedHandlersDisjoint,
 } from '@ptah-extension/rpc-handlers';
@@ -100,6 +101,8 @@ const ELECTRON_ONLY_METHODS: readonly string[] = [
   ...MemoryRpcHandlers.METHODS,
   // Skills synthesis pipeline (requires SQLite SkillSynthesisService/SkillCandidateStore)
   ...SkillsSynthesisRpcHandlers.METHODS,
+  // Persistence health + reset (requires SqliteConnectionService — Electron-only)
+  ...PersistenceRpcHandlers.METHODS,
 ];
 
 /**
@@ -135,9 +138,13 @@ export class RpcMethodRegistrationService {
     // `phase-3-handlers.ts` so they fire before `ChatRpcHandlers` is
     // eagerly resolved by this service's constructor.
 
-    // VS Code excludes SQLite-backed handlers — their DI dependencies are never
-    // registered in the VS Code host. All excluded methods are listed in
-    // ELECTRON_ONLY_METHODS so the verifier accepts the gap.
+    // Thoth features (memory-curator, cron-scheduler, messaging-gateway,
+    // skill-synthesis) are intentionally disabled in the VS Code extension host.
+    // better-sqlite3 cannot run in the extension host process, so the entire
+    // persistence-sqlite layer — and every service that depends on it — is
+    // never registered here. These RPC methods are Electron-only. All excluded
+    // methods are declared in ELECTRON_ONLY_METHODS so the RPC verifier accepts
+    // the gap without emitting warnings.
     registerAllRpcHandlers(this.container, {
       exclude: [
         WorkspaceRpcHandlers,
@@ -145,6 +152,9 @@ export class RpcMethodRegistrationService {
         GatewayRpcHandlers,
         MemoryRpcHandlers,
         SkillsSynthesisRpcHandlers,
+        // PersistenceRpcHandlers requires SqliteConnectionService which is
+        // never registered in the VS Code extension host.
+        PersistenceRpcHandlers,
       ],
     });
 

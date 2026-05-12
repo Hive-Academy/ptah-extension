@@ -41,11 +41,15 @@ function makeLogger(): jest.Mocked<Logger> {
 }
 
 function makeSubagentRegistry(): jest.Mocked<
-  Pick<SubagentRegistryService, 'pruneSession' | 'markPendingBackground'>
+  Pick<
+    SubagentRegistryService,
+    'pruneSession' | 'markPendingBackground' | 'setTaskId'
+  >
 > {
   return {
     pruneSession: jest.fn(),
     markPendingBackground: jest.fn(),
+    setTaskId: jest.fn(),
   };
 }
 
@@ -189,5 +193,127 @@ describe('SdkMessageTransformer — compact_boundary (TASK_2026_109)', () => {
       ),
       expect.any(Object),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix 1: task_started calls setTaskId on the registry
+// ---------------------------------------------------------------------------
+
+function makeTaskStarted(opts: {
+  taskId: string;
+  toolUseId: string;
+  sessionId?: string;
+  skipTranscript?: boolean;
+}): unknown {
+  return {
+    type: 'system',
+    subtype: 'task_started',
+    task_id: opts.taskId,
+    tool_use_id: opts.toolUseId,
+    session_id: opts.sessionId,
+    skip_transcript: opts.skipTranscript ?? false,
+    task_type: 'Task',
+  };
+}
+
+describe('SdkMessageTransformer — task_started (Fix 1 + Fix 2)', () => {
+  let logger: jest.Mocked<Logger>;
+  let registry: ReturnType<typeof makeSubagentRegistry>;
+  let lifecycle: ReturnType<typeof makeSessionLifecycle>;
+  let modelResolver: ReturnType<typeof makeModelResolver>;
+  let transformer: SdkMessageTransformer;
+
+  function build(activeIds: string[] = []): SdkMessageTransformer {
+    logger = makeLogger();
+    registry = makeSubagentRegistry();
+    lifecycle = makeSessionLifecycle(activeIds);
+    modelResolver = makeModelResolver();
+    return new SdkMessageTransformer(
+      logger,
+      makeAuthEnv(),
+      registry as unknown as SubagentRegistryService,
+      modelResolver as unknown as ModelResolver,
+      lifecycle as unknown as SessionLifecycleManager,
+      new LiveUsageTracker(),
+    );
+  }
+
+  it('Fix 1 — calls setTaskId(toolUseId, taskId) when task_started carries a tool_use_id', () => {
+    transformer = build();
+
+    transformer.transform(
+      makeTaskStarted({
+        taskId: 'task-abc',
+        toolUseId: 'tool-use-xyz',
+        sessionId: 'sess-1',
+      }) as never,
+      'sess-1' as never,
+    );
+
+    expect(registry.setTaskId).toHaveBeenCalledWith('tool-use-xyz', 'task-abc');
+  });
+
+  it('Fix 1 — does NOT call setTaskId when task_started has no tool_use_id', () => {
+    transformer = build();
+    const msg = {
+      type: 'system',
+      subtype: 'task_started',
+      task_id: 'task-no-tool',
+      // No tool_use_id
+      session_id: 'sess-2',
+      skip_transcript: false,
+    };
+
+    transformer.transform(msg as never, 'sess-2' as never);
+
+    expect(registry.setTaskId).not.toHaveBeenCalled();
+  });
+
+  it('Fix 2 — emits only one agent_start when task_started precedes the legacy assistant path for same tool_use_id', () => {
+    transformer = build();
+
+    // SDK path fires first
+    transformer.transform(
+      makeTaskStarted({
+        taskId: 'task-dedup',
+        toolUseId: 'tool-dedup-id',
+        sessionId: 'sess-3',
+      }) as never,
+      'sess-3' as never,
+    );
+
+    // Legacy assistant path with isTaskTool block for same tool_use_id.
+    // We simulate this by calling transformAssistantToFlatEvents indirectly
+    // via a synthetic assistant message containing a Task tool_use block.
+    const assistantMsg = {
+      type: 'stream_event',
+      uuid: 'se-1',
+      event: {
+        type: 'content_block_start',
+        index: 0,
+        content_block: {
+          type: 'tool_use',
+          id: 'tool-dedup-id',
+          name: 'Task',
+          input: {
+            description: 'Do something',
+            prompt: 'Go do it',
+          },
+        },
+      },
+    };
+
+    const legacyEvents = transformer.transform(
+      assistantMsg as never,
+      'sess-3' as never,
+    );
+
+    // Any agent_start events from the legacy path for this tool_use_id
+    // should be suppressed because the SDK path already emitted one.
+    const agentStarts = legacyEvents.filter(
+      (e) => (e as { eventType: string }).eventType === 'agent_start',
+    );
+    expect(agentStarts).toHaveLength(0);
   });
 });

@@ -65,8 +65,8 @@ export const RPC_METHOD_REGISTRATION_SERVICE = Symbol.for(
   'RpcMethodRegistrationService',
 );
 // SDK_RPC_HANDLERS - DELETED in TASK_2025_092 (dead code - permission emitter moved to SdkPermissionHandler)
-// AGENT_SESSION_WATCHER_SERVICE - DELETED (no-op stub removed; subagent text now flows
-//   inline via SdkQueryOptionsBuilder.forwardSubagentText)
+// AGENT_SESSION_WATCHER_SERVICE - DELETED (no-op stub removed; subagent visibility now flows
+//   via `agentProgressSummaries: true` Option + task_* system messages handled by SdkMessageTransformer)
 export const SUBAGENT_REGISTRY_SERVICE = Symbol.for('SubagentRegistryService');
 export const SENTRY_SERVICE = Symbol.for('SentryService');
 

@@ -26,6 +26,7 @@ import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
 import type {
   ProviderModelInfo,
   ProviderModelTier,
+  ProviderTierScope,
   ProviderListModelsResult,
   ProviderGetModelTiersResult,
 } from '@ptah-extension/shared';
@@ -327,6 +328,10 @@ export class ProviderModelSelectorComponent implements OnInit {
   // Input: whether the provider has a key configured (guards model loading)
   readonly hasKey = input<boolean>(false);
 
+  // Input: scope determines whether writes affect the main agent's globals
+  // or are isolated to a CLI sub-agent's config.
+  readonly scope = input.required<ProviderTierScope>();
+
   // Template ref for autocomplete
   readonly modelSuggestionTemplate = viewChild.required<
     TemplateRef<{ $implicit: ProviderModelInfo }>
@@ -523,6 +528,7 @@ export class ProviderModelSelectorComponent implements OnInit {
       const result = await this.rpc.call('provider:clearModelTier', {
         tier,
         providerId: this.providerId(),
+        scope: this.scope(),
       });
 
       if (result.isSuccess() && result.data?.success) {
@@ -610,6 +616,7 @@ export class ProviderModelSelectorComponent implements OnInit {
         tier,
         modelId,
         providerId: this.providerId(),
+        scope: this.scope(),
       });
 
       if (result.isSuccess() && result.data?.success) {
@@ -717,6 +724,7 @@ export class ProviderModelSelectorComponent implements OnInit {
     try {
       const result = await this.rpc.call('provider:getModelTiers', {
         providerId: this.providerId(),
+        scope: this.scope(),
       });
 
       // If this load was aborted (provider changed mid-flight), discard the result

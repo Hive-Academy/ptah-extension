@@ -954,7 +954,13 @@ export class PtahCliRegistry {
     agentConfig: PtahCliConfig,
     provider: AnthropicProvider,
   ): PtahCliConfig['tierMappings'] {
-    const mainTiers = this.providerModels.getModelTiers(agentConfig.providerId);
+    // Read CLI-agent scope first (the user's per-agent tier overrides set via
+    // the CLI agent config UI). Fall back to the main-agent scope only as a
+    // last resort — do not let mainTiers silently shadow cliAgent tiers.
+    const mainTiers = this.providerModels.getModelTiers(
+      agentConfig.providerId,
+      'cliAgent',
+    );
     const agentTiers = agentConfig.tierMappings;
     const providerDefaults = provider.defaultTiers;
     const defaultSonnet = provider.staticModels?.[0]?.id ?? undefined;

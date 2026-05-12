@@ -25,6 +25,16 @@ export interface IPlatformCommands {
   reloadWindow(): Promise<void>;
   /** Open a terminal with a command (for auth flows). No-op on Electron. */
   openTerminal(name: string, command: string): void;
+  /**
+   * Bring the chat view to the front / focus it.
+   *
+   * VS Code: focuses the `ptah.main` view via
+   *   `vscode.commands.executeCommand('ptah.main.focus')`.
+   * Electron: broadcasts `MESSAGE_TYPES.SWITCH_VIEW` with `view: 'chat'`
+   *   so the renderer routes to the chat surface.
+   * CLI: no-op (no UI to focus).
+   */
+  focusChat(): Promise<void>;
 }
 
 /**

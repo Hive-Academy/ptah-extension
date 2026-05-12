@@ -67,7 +67,12 @@ import {
   SkillsShRpcHandlers,
   LayoutRpcHandlers,
   TerminalRpcHandlers,
+  UpdateRpcHandlers,
 } from '../services/rpc/handlers';
+
+// TASK_2026_117: Auto-update manager + DI token.
+import { UpdateManager } from '../services/update/update-manager';
+import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 
 import { PtyManagerService } from '../services/pty-manager.service';
 import { ELECTRON_TOKENS } from './electron-tokens';
@@ -125,6 +130,7 @@ export function registerPhase4Handlers(
         c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
         c,
         c.resolve(TOKENS.SENTRY_SERVICE),
+        c.resolve(TOKENS.PLATFORM_COMMANDS),
       ),
   });
   container.registerSingleton(LicenseRpcHandlers);
@@ -276,6 +282,10 @@ export function registerPhase4Handlers(
     useValue: ptyManagerService,
   });
   container.registerSingleton(TerminalRpcHandlers);
+
+  // TASK_2026_117: Register UpdateManager singleton (single 4h timer) and its RPC handlers.
+  container.registerSingleton(UPDATE_MANAGER_TOKEN, UpdateManager);
+  container.registerSingleton(UpdateRpcHandlers);
 
   // Register the orchestrator itself.
   container.registerSingleton(ElectronRpcMethodRegistrationService);

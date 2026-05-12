@@ -21,6 +21,16 @@ import {
   type GitDiscardResult,
   type GitCommitResult,
   type GitShowFileResult,
+  type BranchRef,
+  type GitBranchesResult,
+  type GitCheckoutResult,
+  type StashEntry,
+  type GitStashListResult,
+  type TagRef,
+  type GitTagsResult,
+  type RemoteInfo,
+  type GitRemotesResult,
+  type GitLastCommitResult,
 } from '@ptah-extension/shared';
 
 const GIT_TIMEOUT_MS = 10_000;
@@ -436,6 +446,466 @@ export class GitInfoService {
       throw new Error(
         `Path traversal detected: "${filePath}" contains '..' segments`,
       );
+    }
+  }
+
+  // ==========================================================================
+  // Branch, Checkout, Stash, Tag, Remote, Last-Commit (TASK_2026_111)
+  // ==========================================================================
+
+  /**
+   * List local (and optionally remote) branches with ahead/behind counts.
+   *
+   * Uses `%(ahead-behind:upstream)` (requires git >= 2.31). When that field
+   * is empty but an upstream is configured, falls back to a per-branch
+   * `git rev-list --left-right --count` call. When no upstream is set,
+   * ahead/behind default to 0.
+   */
+  async getBranches(
+    workspacePath: string,
+    includeRemote = false,
+  ): Promise<GitBranchesResult> {
+    const empty: GitBranchesResult = {
+      current: '',
+      local: [],
+      remote: [],
+    };
+    try {
+      // Detect the current branch (allow failure for detached HEAD)
+      let current = '';
+      try {
+        const { stdout: symRefOut, exitCode: symRefCode } = await this.execGit(
+          ['symbolic-ref', '--short', 'HEAD'],
+          workspacePath,
+        );
+        if (symRefCode === 0) {
+          current = symRefOut.trim();
+        }
+      } catch {
+        // Detached HEAD — leave current as ''
+      }
+
+      // git for-each-ref format: refname TAB objectname:short TAB upstream:short TAB ahead-behind:upstream TAB objectname:short (commit time) TAB creatordate:unix
+      const fmt =
+        '%(refname:short)%09%(objectname:short)%09%(upstream:short)%09%(ahead-behind:upstream)%09%(creatordate:unix)';
+
+      const localArgs = ['for-each-ref', `--format=${fmt}`, 'refs/heads/'];
+      const { stdout: localOut, exitCode: localExit } = await this.execGit(
+        localArgs,
+        workspacePath,
+      );
+
+      if (localExit !== 0) {
+        return empty;
+      }
+
+      const local: BranchRef[] = [];
+      for (const line of localOut.split('\n')) {
+        const parsed = await this.parseBranchRefLine(
+          line,
+          false,
+          workspacePath,
+        );
+        if (parsed) local.push(parsed);
+      }
+
+      const remote: BranchRef[] = [];
+      if (includeRemote) {
+        const remoteArgs = ['for-each-ref', `--format=${fmt}`, 'refs/remotes/'];
+        const { stdout: remoteOut, exitCode: remoteExit } = await this.execGit(
+          remoteArgs,
+          workspacePath,
+        );
+
+        if (remoteExit === 0) {
+          for (const line of remoteOut.split('\n')) {
+            // Skip remote HEAD aliases (e.g. origin/HEAD)
+            const shortName = line.split('\t')[0];
+            if (shortName.endsWith('/HEAD')) continue;
+            const parsed = await this.parseBranchRefLine(
+              line,
+              true,
+              workspacePath,
+            );
+            if (parsed) remote.push(parsed);
+          }
+        }
+      }
+
+      // Mark the currently checked-out branch in the local list.
+      // `current` is the short branch name from symbolic-ref; detached HEAD
+      // leaves it as '' so no branch matches and all stay false (correct).
+      for (const b of local) {
+        b.isCurrent = b.name === current;
+      }
+
+      return { current, local, remote };
+    } catch (error) {
+      this.logger.error('[GitInfoService] getBranches failed', {
+        workspacePath,
+        error: error instanceof Error ? error.message : String(error),
+      } as unknown as Error);
+      return empty;
+    }
+  }
+
+  /**
+   * Parse a single `for-each-ref` formatted line into a `BranchRef`.
+   * Format: refname:short TAB objectname:short TAB upstream:short TAB ahead-behind:upstream TAB creatordate:unix
+   */
+  private async parseBranchRefLine(
+    line: string,
+    isRemote: boolean,
+    workspacePath: string,
+  ): Promise<BranchRef | null> {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+
+    const parts = trimmed.split('\t');
+    const name = parts[0] ?? '';
+    const lastCommitHash = parts[1] ?? '';
+    const upstream = parts[2] ?? '';
+    const aheadBehindRaw = parts[3] ?? '';
+    const creatorDateRaw = parts[4] ?? '';
+
+    if (!name) return null;
+
+    let ahead = 0;
+    let behind = 0;
+
+    if (upstream) {
+      if (aheadBehindRaw) {
+        // Format: "N N" (ahead behind) — requires git >= 2.31
+        const [aheadStr, behindStr] = aheadBehindRaw.split(' ');
+        const parsedAhead = parseInt(aheadStr ?? '0', 10);
+        const parsedBehind = parseInt(behindStr ?? '0', 10);
+        if (!isNaN(parsedAhead)) ahead = parsedAhead;
+        if (!isNaN(parsedBehind)) behind = parsedBehind;
+      } else {
+        // Fallback for git < 2.31: rev-list --left-right --count <upstream>...HEAD
+        try {
+          const { stdout: rlOut, exitCode: rlCode } = await this.execGit(
+            ['rev-list', '--left-right', '--count', `${upstream}...${name}`],
+            workspacePath,
+          );
+          if (rlCode === 0) {
+            const [behindStr, aheadStr] = rlOut.trim().split('\t');
+            const parsedBehind = parseInt(behindStr ?? '0', 10);
+            const parsedAhead = parseInt(aheadStr ?? '0', 10);
+            if (!isNaN(parsedBehind)) behind = parsedBehind;
+            if (!isNaN(parsedAhead)) ahead = parsedAhead;
+          }
+        } catch {
+          // Fallback failed — keep 0/0
+        }
+      }
+    }
+
+    const lastCommitTime = creatorDateRaw
+      ? parseInt(creatorDateRaw, 10) * 1000
+      : undefined;
+
+    const ref: BranchRef = {
+      name,
+      isCurrent: false, // set by caller if needed
+      isRemote,
+      upstream: upstream || undefined,
+      ahead,
+      behind,
+      lastCommitHash: lastCommitHash || undefined,
+      lastCommitTime: isNaN(lastCommitTime ?? NaN) ? undefined : lastCommitTime,
+    };
+
+    if (isRemote) {
+      // Extract remote name: "origin/main" → remote = "origin"
+      const slashIdx = name.indexOf('/');
+      if (slashIdx !== -1) {
+        ref.remote = name.substring(0, slashIdx);
+      }
+    }
+
+    return ref;
+  }
+
+  /**
+   * Checkout a branch, creating it if requested.
+   *
+   * Security: `validatePathSegment(branch)` is called before any git operation.
+   * Dirty-tree guard: if `force` is not set and the working tree has changes,
+   * returns `{ success: false, dirty: true }` without running checkout.
+   */
+  async checkout(
+    workspacePath: string,
+    branch: string,
+    createNew?: boolean,
+    force?: boolean,
+  ): Promise<GitCheckoutResult> {
+    try {
+      try {
+        this.validatePathSegment(branch);
+      } catch {
+        return { success: false, error: 'Invalid branch name' };
+      }
+
+      if (!force) {
+        const { stdout: statusOut, exitCode: statusCode } = await this.execGit(
+          ['status', '--porcelain'],
+          workspacePath,
+        );
+        if (statusCode === 0 && statusOut.trim()) {
+          return { success: false, dirty: true };
+        }
+      }
+
+      const args = ['checkout'];
+      if (force) args.push('--force');
+      if (createNew) args.push('-b');
+      args.push(branch);
+
+      const { exitCode, stderr } = await this.execGit(args, workspacePath);
+      if (exitCode !== 0) {
+        return { success: false, error: stderr.trim() || 'checkout failed' };
+      }
+
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('[GitInfoService] checkout failed', {
+        workspacePath,
+        branch,
+        error: message,
+      } as unknown as Error);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * List all stash entries.
+   * Runs: git stash list --format=%gd%x09%s%x09%ct
+   * Tab (%x09) is used as the field separator — it cannot appear in stash
+   * messages entered via the CLI, so there is no collision with message content.
+   */
+  async stashList(workspacePath: string): Promise<GitStashListResult> {
+    try {
+      const { stdout, exitCode } = await this.execGit(
+        ['stash', 'list', '--format=%gd%x09%s%x09%ct'],
+        workspacePath,
+      );
+
+      if (exitCode !== 0) {
+        return { count: 0, entries: [] };
+      }
+
+      const entries: StashEntry[] = [];
+      for (const line of stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        const parts = trimmed.split('\t');
+        const ref = parts[0] ?? '';
+        const message = parts[1] ?? '';
+        const timeRaw = parts[2] ?? '';
+
+        // Extract index from stash@{N}
+        const indexMatch = ref.match(/stash@\{(\d+)\}/);
+        const index = indexMatch ? parseInt(indexMatch[1], 10) : 0;
+        const time = timeRaw ? parseInt(timeRaw, 10) * 1000 : undefined;
+
+        entries.push({ index, message, time });
+      }
+
+      return { count: entries.length, entries };
+    } catch (error) {
+      this.logger.error('[GitInfoService] stashList failed', {
+        workspacePath,
+        error: error instanceof Error ? error.message : String(error),
+      } as unknown as Error);
+      return { count: 0, entries: [] };
+    }
+  }
+
+  /**
+   * List tags sorted by creation date (newest first), limited to `limit` entries.
+   * Runs: git tag --sort=-creatordate --format=...
+   */
+  async getTags(workspacePath: string, limit = 20): Promise<GitTagsResult> {
+    try {
+      const fmt =
+        '%(refname:short)%09%(objectname:short)%09%(*objectname:short)%09%(creatordate:unix)';
+      const { stdout, exitCode } = await this.execGit(
+        ['tag', '--sort=-creatordate', `--format=${fmt}`],
+        workspacePath,
+      );
+
+      if (exitCode !== 0) {
+        return { tags: [] };
+      }
+
+      const tags: TagRef[] = [];
+      for (const line of stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        const parts = trimmed.split('\t');
+        const name = parts[0] ?? '';
+        const objectHash = parts[1] ?? '';
+        const derefHash = parts[2] ?? ''; // non-empty only for annotated tags
+        const creatorDateRaw = parts[3] ?? '';
+
+        if (!name) continue;
+
+        // Annotated tags: the dereferenced hash (*objectname) is non-empty and different
+        const annotated = derefHash !== '' && derefHash !== objectHash;
+        // For annotated tags, use the dereferenced (commit) hash; else use objectname
+        const commit = annotated ? derefHash : objectHash;
+        const time = creatorDateRaw
+          ? parseInt(creatorDateRaw, 10) * 1000
+          : undefined;
+
+        tags.push({
+          name,
+          commit,
+          annotated,
+          time: isNaN(time ?? NaN) ? undefined : time,
+        });
+
+        if (tags.length >= limit) break;
+      }
+
+      return { tags };
+    } catch (error) {
+      this.logger.error('[GitInfoService] getTags failed', {
+        workspacePath,
+        error: error instanceof Error ? error.message : String(error),
+      } as unknown as Error);
+      return { tags: [] };
+    }
+  }
+
+  /**
+   * List all configured remotes with their fetch and push URLs.
+   * Runs: git remote -v
+   */
+  async getRemotes(workspacePath: string): Promise<GitRemotesResult> {
+    try {
+      const { stdout, exitCode } = await this.execGit(
+        ['remote', '-v'],
+        workspacePath,
+      );
+
+      if (exitCode !== 0) {
+        return { remotes: [] };
+      }
+
+      const remoteMap = new Map<string, RemoteInfo>();
+
+      for (const line of stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        // Format: "name<TAB>url (fetch|push)"
+        const tabIdx = trimmed.indexOf('\t');
+        if (tabIdx === -1) continue;
+
+        const remoteName = trimmed.substring(0, tabIdx);
+        const rest = trimmed.substring(tabIdx + 1);
+
+        const fetchMatch = rest.match(/^(.+)\s+\(fetch\)$/);
+        const pushMatch = rest.match(/^(.+)\s+\(push\)$/);
+
+        if (!remoteMap.has(remoteName)) {
+          remoteMap.set(remoteName, {
+            name: remoteName,
+            fetchUrl: '',
+            pushUrl: '',
+          });
+        }
+
+        const info = remoteMap.get(remoteName)!;
+        if (fetchMatch) {
+          info.fetchUrl = fetchMatch[1].trim();
+        } else if (pushMatch) {
+          info.pushUrl = pushMatch[1].trim();
+        }
+      }
+
+      return { remotes: Array.from(remoteMap.values()) };
+    } catch (error) {
+      this.logger.error('[GitInfoService] getRemotes failed', {
+        workspacePath,
+        error: error instanceof Error ? error.message : String(error),
+      } as unknown as Error);
+      return { remotes: [] };
+    }
+  }
+
+  /**
+   * Get the last commit for a given ref (defaults to HEAD).
+   * Runs: git log -1 --format='%H%n%h%n%s%n%an%n%ae%n%ct%n%b' <ref>
+   *
+   * Security: `ref` is validated via `validatePathSegment` before being passed
+   * to execGit. This prevents git flag injection (e.g. --upload-pack=...) from
+   * a crafted frontend request, consistent with the guard applied to `checkout`.
+   */
+  async getLastCommit(
+    workspacePath: string,
+    ref = 'HEAD',
+  ): Promise<GitLastCommitResult> {
+    const emptyResult: GitLastCommitResult = {
+      hash: '',
+      shortHash: '',
+      subject: '',
+      body: '',
+      author: '',
+      authorEmail: '',
+      time: 0,
+    };
+
+    // Reject refs that look like git flags or contain path-traversal segments.
+    try {
+      this.validatePathSegment(ref);
+    } catch {
+      return emptyResult;
+    }
+
+    try {
+      const { stdout, exitCode } = await this.execGit(
+        ['log', '-1', '--format=%H%n%h%n%s%n%an%n%ae%n%ct%n%b', ref],
+        workspacePath,
+      );
+
+      if (exitCode !== 0 || !stdout.trim()) {
+        return emptyResult;
+      }
+
+      // Split on newlines — fields are in fixed positions; body is everything after line 6
+      const lines = stdout.split('\n');
+      const hash = lines[0]?.trim() ?? '';
+      const shortHash = lines[1]?.trim() ?? '';
+      const subject = lines[2]?.trim() ?? '';
+      const author = lines[3]?.trim() ?? '';
+      const authorEmail = lines[4]?.trim() ?? '';
+      const ctRaw = lines[5]?.trim() ?? '';
+      const body = lines.slice(6).join('\n').trim();
+
+      const time = ctRaw ? parseInt(ctRaw, 10) * 1000 : 0;
+
+      return {
+        hash,
+        shortHash,
+        subject,
+        body,
+        author,
+        authorEmail,
+        time: isNaN(time) ? 0 : time,
+      };
+    } catch (error) {
+      this.logger.error('[GitInfoService] getLastCommit failed', {
+        workspacePath,
+        ref,
+        error: error instanceof Error ? error.message : String(error),
+      } as unknown as Error);
+      return emptyResult;
     }
   }
 

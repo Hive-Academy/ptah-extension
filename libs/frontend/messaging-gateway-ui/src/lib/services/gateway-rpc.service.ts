@@ -71,24 +71,30 @@ export class GatewayRpcService {
 
   public async start(
     platform?: GatewayPlatformId,
+    origin?: string,
   ): Promise<GatewayStartResult> {
-    const result = await this.rpc.call(
-      'gateway:start',
-      platform !== undefined ? { platform } : {},
-      { timeout: GATEWAY_RPC_TIMEOUTS.SHORT_MS },
-    );
+    const params: { platform?: GatewayPlatformId; origin?: string } = {};
+    if (platform !== undefined) params.platform = platform;
+    if (origin !== undefined) params.origin = origin;
+    const result = await this.rpc.call('gateway:start', params, {
+      timeout: GATEWAY_RPC_TIMEOUTS.SHORT_MS,
+    });
     if (result.isSuccess() && result.data) {
       return result.data;
     }
     throw new Error(result.error || 'gateway:start failed');
   }
 
-  public async stop(platform?: GatewayPlatformId): Promise<GatewayStopResult> {
-    const result = await this.rpc.call(
-      'gateway:stop',
-      platform !== undefined ? { platform } : {},
-      { timeout: GATEWAY_RPC_TIMEOUTS.SHORT_MS },
-    );
+  public async stop(
+    platform?: GatewayPlatformId,
+    origin?: string,
+  ): Promise<GatewayStopResult> {
+    const params: { platform?: GatewayPlatformId; origin?: string } = {};
+    if (platform !== undefined) params.platform = platform;
+    if (origin !== undefined) params.origin = origin;
+    const result = await this.rpc.call('gateway:stop', params, {
+      timeout: GATEWAY_RPC_TIMEOUTS.SHORT_MS,
+    });
     if (result.isSuccess() && result.data) {
       return result.data;
     }

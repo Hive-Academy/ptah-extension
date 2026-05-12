@@ -22,6 +22,9 @@ import type {
   StructuralSummaryResult,
 } from '@ptah-extension/workspace-intelligence';
 import type { HarnessNamespace } from './namespace-builders/harness-namespace.builder';
+import type { SkillNamespace } from './namespace-builders/skill-namespace.builder';
+import type { MemoryNamespace } from './namespace-builders/memory-namespace.builder';
+import type { CodeNamespace } from './namespace-builders/code-namespace.builder';
 
 // ========================================
 // Ptah API - Main Interface
@@ -66,6 +69,9 @@ export interface PtahAPI {
   // Browser automation namespace (TASK_2025_244)
   browser: BrowserNamespace;
 
+  // Promoted skills namespace (TASK_2026_THOTH_SKILL_LIFECYCLE - ptah.skill.list + ptah.skill.describe)
+  skill: SkillNamespace;
+
   // Dependencies namespace (TASK_2025_182 - import-based dependency graph)
   dependencies: DependenciesNamespace;
 
@@ -86,6 +92,12 @@ export interface PtahAPI {
 
   // Harness builder namespace (TASK_2025_285 - skill search, creation, MCP registry)
   harness?: HarnessNamespace;
+
+  // Memory namespace (TASK_2026_THOTH_MEMORY_READ - ptah.memory.search + ptah.memory.list)
+  memory?: MemoryNamespace;
+
+  // Code symbol indexer namespace (TASK_2026_THOTH_CODE_INDEX - ptah.code.searchSymbols + ptah.code.reindex)
+  code?: CodeNamespace;
 
   /**
    * Get help documentation for Ptah API namespaces

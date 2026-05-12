@@ -25,6 +25,8 @@ import {
   isPremiumTier,
   type SentryService,
 } from '@ptah-extension/vscode-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ModelSettings } from '@ptah-extension/settings-core';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   SessionHistoryReaderService,
@@ -64,6 +66,7 @@ import type {
 import type { ChatSubagentContextInjectorService } from './chat-subagent-context-injector.service';
 import type { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
 import { hasStopIntent } from './chat-stop-intent';
+import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
 
 @injectable()
 export class ChatSessionService {
@@ -101,6 +104,8 @@ export class ChatSessionService {
     private readonly subagentContextInjector: ChatSubagentContextInjectorService,
     @inject(CHAT_TOKENS.SLASH_COMMAND_ROUTER)
     private readonly slashCommandRouter: ChatSlashCommandRouterService,
+    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
+    private readonly modelSettings: ModelSettings,
   ) {}
 
   /**
@@ -119,6 +124,15 @@ export class ChatSessionService {
           success: false,
           error:
             'No workspace folder open. Please open a folder before starting a chat session.',
+        };
+      }
+      if (
+        params.workspacePath &&
+        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
+      ) {
+        return {
+          success: false,
+          error: 'Access denied: workspace path is not an open folder.',
         };
       }
       this.logger.debug('RPC: chat:start called', {
@@ -204,7 +218,7 @@ export class ChatSessionService {
 
       const currentModel =
         options?.model ||
-        this.configManager.get<string>('model.selected') ||
+        this.modelSettings.selectedModel.get() ||
         DEFAULT_FALLBACK_MODEL_ID;
 
       // TASK_2025_093: tabId is the primary tracking key; SDK generates real UUID
@@ -284,6 +298,15 @@ export class ChatSessionService {
           success: false,
           error:
             'No workspace folder open. Please open a folder before continuing a chat session.',
+        };
+      }
+      if (
+        params.workspacePath &&
+        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
+      ) {
+        return {
+          success: false,
+          error: 'Access denied: workspace path is not an open folder.',
         };
       }
       this.logger.debug('RPC: chat:continue called', {
@@ -416,6 +439,15 @@ export class ChatSessionService {
             'No workspace folder open. Please open a folder before resuming a chat session.',
         };
       }
+      if (
+        params.workspacePath &&
+        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
+      ) {
+        return {
+          success: false,
+          error: 'Access denied: workspace path is not an open folder.',
+        };
+      }
       this.logger.info('RPC: chat:resume called', {
         sessionId,
         workspacePath: params.workspacePath || '(empty)',
@@ -490,6 +522,35 @@ export class ChatSessionService {
         cliSessionCount: cliSessions?.length ?? 0,
       });
 
+      // Activate live SDK Query if requested and not already active.
+      // Without activate:true, chat:resume is history-load only and does NOT
+      // start an SDK Query — that is the correct default for normal session loads.
+      // The resume-and-retry rewind path sets activate:true to ensure
+      // rewindFiles finds a live Query in SessionLifecycleManager.
+      let activated = false;
+      if (params.activate === true && params.tabId) {
+        if (!this.sdkAdapter.isSessionActive(sessionId)) {
+          const activateResult = await this.autoResumeIfInactive(
+            sessionId,
+            params.tabId,
+            resolvedWorkspacePath,
+            '',
+            {
+              sessionId: sessionId as string,
+              tabId: params.tabId,
+              workspacePath: resolvedWorkspacePath,
+            } as ChatContinueParams,
+          );
+          if ('justResumed' in activateResult) {
+            activated =
+              activateResult.justResumed ||
+              this.sdkAdapter.isSessionActive(sessionId);
+          }
+        } else {
+          activated = true;
+        }
+      }
+
       return {
         success: true,
         messages,
@@ -497,6 +558,7 @@ export class ChatSessionService {
         stats,
         resumableSubagents,
         cliSessions,
+        activated,
       };
     } catch (error) {
       this.logger.error(
@@ -654,10 +716,8 @@ export class ChatSessionService {
 
     const currentModel =
       params.model ||
-      this.configManager.getWithDefault<string>(
-        'model.selected',
-        DEFAULT_FALLBACK_MODEL_ID,
-      );
+      this.modelSettings.selectedModel.get() ||
+      DEFAULT_FALLBACK_MODEL_ID;
 
     try {
       const stream = await this.sdkAdapter.resumeSession(sessionId, {

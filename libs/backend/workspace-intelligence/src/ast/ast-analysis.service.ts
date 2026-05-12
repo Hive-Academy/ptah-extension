@@ -14,6 +14,7 @@ import {
   QueryMatch,
   QueryCapture,
 } from './tree-sitter-parser.service';
+import { LANGUAGE_QUERIES_MAP } from './tree-sitter.config';
 
 /**
  * Node types for JavaScript/TypeScript AST analysis.
@@ -94,41 +95,57 @@ export class AstAnalysisService {
     );
 
     try {
-      // Extract functions using query
-      const functionsResult = await this.parserService.queryFunctions(
-        content,
-        language,
+      // Build the query entries for this language, filtering out any undefined
+      // query strings (e.g. a language with no exportQuery).
+      const langQueries = LANGUAGE_QUERIES_MAP[language];
+      const queryEntries = [
+        { key: 'functions', queryString: langQueries.functionQuery },
+        { key: 'classes', queryString: langQueries.classQuery },
+        { key: 'imports', queryString: langQueries.importQuery },
+        { key: 'exports', queryString: langQueries.exportQuery },
+      ].filter(
+        (e): e is { key: string; queryString: string } => !!e.queryString,
       );
-      const functions: FunctionInfo[] = functionsResult.isOk()
-        ? this.extractFunctionsFromMatches(functionsResult.value ?? [])
-        : [];
 
-      // Extract classes using query
-      const classesResult = await this.parserService.queryClasses(
+      // Single call — one WASM parse regardless of query count.
+      const multiResult = await this.parserService.queryMulti(
         content,
         language,
+        queryEntries,
       );
-      const classes: ClassInfo[] = classesResult.isOk()
-        ? this.extractClassesFromMatches(classesResult.value ?? [])
-        : [];
 
-      // Extract imports using query
-      const importsResult = await this.parserService.queryImports(
-        content,
-        language,
-      );
-      const imports: ImportInfo[] = importsResult.isOk()
-        ? this.extractImportsFromMatches(importsResult.value ?? [])
-        : [];
+      if (multiResult.isErr()) {
+        const errorMessage =
+          multiResult.error?.message ?? 'queryMulti returned an unknown error';
+        this.logger.error(
+          `AstAnalysisService.analyzeSource() - queryMulti failed for ${logPath}: ${errorMessage}`,
+        );
+        return Result.err(
+          new Error(`AST analysis failed for ${logPath}: ${errorMessage}`),
+        );
+      }
 
-      // Extract exports using query
-      const exportsResult = await this.parserService.queryExports(
-        content,
-        language,
+      const map = multiResult.value;
+      if (!map) {
+        return Result.err(
+          new Error('queryMulti returned null value unexpectedly'),
+        );
+      }
+
+      // Pass each result set through the existing extract* private methods.
+      // map.get() returns undefined for filtered-out queries; ?? [] is the safe fallback.
+      const functions: FunctionInfo[] = this.extractFunctionsFromMatches(
+        map.get('functions') ?? [],
       );
-      const exports: ExportInfo[] = exportsResult.isOk()
-        ? this.extractExportsFromMatches(exportsResult.value ?? [])
-        : [];
+      const classes: ClassInfo[] = this.extractClassesFromMatches(
+        map.get('classes') ?? [],
+      );
+      const imports: ImportInfo[] = this.extractImportsFromMatches(
+        map.get('imports') ?? [],
+      );
+      const exports: ExportInfo[] = this.extractExportsFromMatches(
+        map.get('exports') ?? [],
+      );
 
       const insights: CodeInsights = {
         functions,

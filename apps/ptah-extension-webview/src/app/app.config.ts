@@ -13,6 +13,7 @@ import {
   ClaudeRpcService,
   AutopilotStateService,
   AppStateManager,
+  ElectronLayoutService,
   SESSION_DATA_PROVIDER,
   WORKSPACE_COORDINATOR,
   WIZARD_VIEW_COMPONENT,
@@ -24,7 +25,9 @@ import {
   ChatMessageHandler,
   AgentMonitorMessageHandler,
   ChatStore,
+  UpdateBannerService,
   WorkspaceCoordinatorService,
+  WorkspaceIndexingService,
   provideModelRefreshControl,
 } from '@ptah-extension/chat';
 import {
@@ -36,6 +39,7 @@ import {
   EditorService,
 } from '@ptah-extension/editor';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
+import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui';
 import {
   HarnessBuilderViewComponent,
   SetupHubComponent,
@@ -155,6 +159,40 @@ export const appConfig: ApplicationConfig = {
     ...provideEditorInternalState(),
     // EditorService handles editor:tabContentReverted push events (Electron Monaco revert).
     { provide: MESSAGE_HANDLERS, useExisting: EditorService, multi: true },
+    // ElectronLayoutService listens for WORKSPACE_CHANGED so that "Open Folder"
+    // from the native menu (and any future main-process trigger) re-syncs the
+    // renderer folder list via a workspace:getInfo roundtrip.
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: ElectronLayoutService,
+      multi: true,
+    },
+    // WorkspaceIndexingService listens for `indexing:progress` push events
+    // broadcast from IndexingControlService during active indexing runs.
+    // Required for AC #6 (live progress streaming) — TASK_2026_114.
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: WorkspaceIndexingService,
+      multi: true,
+    },
+    // GatewayStateService listens for GATEWAY_STATUS_CHANGED push events (Electron-only)
+    // to update adapter running/error state without polling. Migration from 30s setInterval.
+    // TASK_2026_115.
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: GatewayStateService,
+      multi: true,
+    },
+    // === TASK_2026_117_UPDATE_UX_BEGIN ===
+    // UpdateBannerService listens for UPDATE_STATUS_CHANGED push events
+    // (Electron-only) emitted by the main-process UpdateManager. Drives the
+    // sticky top-bar update banner in the renderer.
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: UpdateBannerService,
+      multi: true,
+    },
+    // === TASK_2026_117_UPDATE_UX_END ===
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',

@@ -1043,7 +1043,12 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           const answers: Record<string, string> = {};
           for (const q of questions) {
             const recommended = q.options?.[0]?.label;
-            if (recommended) answers[q.header] = recommended;
+            // Key by q.question (full text) to match the frontend's
+            // question-card.component.ts answer map and the manual-flow
+            // response consumer (ASK_USER_QUESTION_RESPONSE). Using q.header
+            // (the short chip label) caused a key mismatch that produced an
+            // effectively empty answer set.
+            if (recommended) answers[q.question] = recommended;
           }
           this.logger.warn(
             '[SdkPermissionHandler] AskUserQuestion idle-timeout reached — auto-picking recommended options',

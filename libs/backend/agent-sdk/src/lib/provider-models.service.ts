@@ -22,6 +22,7 @@ import type {
   AuthEnv,
   ProviderModelInfo,
   ProviderModelTier,
+  ProviderTierScope,
   ModelPricing,
 } from '@ptah-extension/shared';
 import { updatePricingMap } from '@ptah-extension/shared';
@@ -103,9 +104,29 @@ export class ProviderModelsService {
   }
 
   /**
-   * Get the per-provider config key for a tier
+   * Get the per-provider, per-scope config key for a tier.
+   *
+   * Key shape: `provider.<providerId>.<scope>.modelTier.<tier>`
+   * e.g.  `provider.moonshot.mainAgent.modelTier.haiku`
+   *       `provider.moonshot.cliAgent.modelTier.haiku`
+   *
+   * The legacy (pre-scope) key `provider.<providerId>.modelTier.<tier>` is
+   * still honoured on read for the `mainAgent` scope via
+   * `getPersistedTierValue` — no migration writes are needed.
    */
   private getTierConfigKey(
+    providerId: string,
+    tier: ProviderModelTier,
+    scope: ProviderTierScope,
+  ): string {
+    return `provider.${providerId}.${scope}.modelTier.${tier}`;
+  }
+
+  /**
+   * Legacy config key shape used before scope was introduced.
+   * Only used as a read-fallback for the `mainAgent` scope.
+   */
+  private getLegacyTierConfigKey(
     providerId: string,
     tier: ProviderModelTier,
   ): string {
@@ -393,88 +414,117 @@ export class ProviderModelsService {
   }
 
   /**
-   * Set model override for a tier on a specific provider
+   * Set model override for a tier on a specific provider.
    *
-   * Sets both:
-   * 1. Environment variable for immediate use
-   * 2. Per-provider config setting for persistence
+   * Always persists to the scoped config key.
+   * Mutates `this.authEnv` and `process.env` ONLY when `scope === 'mainAgent'`
+   * so that CLI sub-agent configurations cannot poison the main agent's
+   * runtime environment.
    *
    * @param providerId - Provider ID
    * @param tier - Sonnet, Opus, or Haiku
    * @param modelId - Model ID (e.g., "openai/gpt-5.1-codex-max")
+   * @param scope - Whether this write is for the main agent or a CLI sub-agent
    */
   async setModelTier(
     providerId: string,
     tier: ProviderModelTier,
     modelId: string,
+    scope: ProviderTierScope,
   ): Promise<void> {
     const envVar = TIER_ENV_VAR_MAP[tier];
-    const configKey = this.getTierConfigKey(providerId, tier);
+    const configKey = this.getTierConfigKey(providerId, tier, scope);
 
-    // Set AuthEnv variable for immediate use
-    this.authEnv[envVar as keyof AuthEnv] = modelId;
-    // Sync to process.env (SDK reads model tiers from process.env internally)
-    process.env[envVar] = modelId;
-
-    // Persist to config
+    // Persist to config (always, regardless of scope)
     await this.config.set(configKey, modelId);
+
+    // Only propagate to global runtime env for the main agent
+    if (scope === 'mainAgent') {
+      // Set AuthEnv variable for immediate use
+      this.authEnv[envVar as keyof AuthEnv] = modelId;
+      // Sync to process.env (SDK reads model tiers from process.env internally)
+      process.env[envVar] = modelId;
+    }
 
     this.logger.info('[ProviderModelsService] Set model tier', {
       providerId,
       tier,
       modelId,
-      envVar,
+      scope,
+      envVar: scope === 'mainAgent' ? envVar : '(not set — cliAgent scope)',
     });
   }
 
   /**
-   * Get current model tier mappings for a specific provider
+   * Get current model tier mappings for a specific provider and scope.
    *
-   * Reads from per-provider config keys
+   * Reads from the scoped config key
+   * (`provider.<id>.<scope>.modelTier.<tier>`). For `mainAgent` scope,
+   * transparently falls back to the legacy unscoped key
+   * (`provider.<id>.modelTier.<tier>`) so existing user configurations
+   * continue to work without any data migration.
+   *
+   * @param providerId - Provider ID
+   * @param scope - Which agent's tier mapping to retrieve
    */
-  getModelTiers(providerId: string): {
+  getModelTiers(
+    providerId: string,
+    scope: ProviderTierScope,
+  ): {
     sonnet: string | null;
     opus: string | null;
     haiku: string | null;
   } {
     return {
-      sonnet: this.getPersistedTierValue(providerId, 'sonnet'),
-      opus: this.getPersistedTierValue(providerId, 'opus'),
-      haiku: this.getPersistedTierValue(providerId, 'haiku'),
+      sonnet: this.getPersistedTierValue(providerId, 'sonnet', scope),
+      opus: this.getPersistedTierValue(providerId, 'opus', scope),
+      haiku: this.getPersistedTierValue(providerId, 'haiku', scope),
     };
   }
 
   /**
-   * Clear a model tier override for a specific provider
+   * Clear a model tier override for a specific provider and scope.
+   *
+   * Always clears the scoped config key. Removes the global env var entry
+   * ONLY when `scope === 'mainAgent'` to avoid clearing main-agent runtime
+   * state when a CLI sub-agent tier is reset.
    *
    * @param providerId - Provider ID
    * @param tier - Sonnet, Opus, or Haiku
+   * @param scope - Which agent's tier mapping to clear
    */
   async clearModelTier(
     providerId: string,
     tier: ProviderModelTier,
+    scope: ProviderTierScope,
   ): Promise<void> {
     const envVar = TIER_ENV_VAR_MAP[tier];
-    const configKey = this.getTierConfigKey(providerId, tier);
+    const configKey = this.getTierConfigKey(providerId, tier, scope);
 
-    // Clear AuthEnv variable
-    delete this.authEnv[envVar as keyof AuthEnv];
-
-    // Clear config
+    // Clear config (always, regardless of scope)
     await this.config.set(configKey, undefined);
+
+    // Only remove from global runtime env for the main agent
+    if (scope === 'mainAgent') {
+      delete this.authEnv[envVar as keyof AuthEnv];
+    }
 
     this.logger.info('[ProviderModelsService] Cleared model tier', {
       providerId,
       tier,
+      scope,
     });
   }
 
   /**
-   * Apply persisted tier mappings to environment for a specific provider
-   * Call this during authentication setup when a provider is active
+   * Apply persisted tier mappings to environment for a specific provider.
+   * Call this during authentication setup when a provider is active.
+   *
+   * Always reads from the `mainAgent` scope — this method's job is to
+   * populate the main agent's runtime env vars, not CLI sub-agent configs.
    */
   applyPersistedTiers(providerId: string): void {
-    const userTiers = this.getModelTiers(providerId);
+    const userTiers = this.getModelTiers(providerId, 'mainAgent');
     // Fall back to the provider's curated defaults so providers like Ollama
     // (where Anthropic's claude-* model IDs are nonsensical) get sensible
     // tier env vars even when the user has not explicitly mapped tiers.
@@ -776,14 +826,34 @@ export class ProviderModelsService {
   }
 
   /**
-   * Get persisted tier value from config (not env var - this is per-provider)
+   * Get persisted tier value from config for a specific scope.
+   *
+   * Read order:
+   * 1. Scoped key: `provider.<id>.<scope>.modelTier.<tier>`
+   * 2. (mainAgent only) Legacy key: `provider.<id>.modelTier.<tier>`
+   *    — transparent fallback for existing user config written before this
+   *    scope field was introduced. No migration writes are performed.
+   *
+   * The legacy fallback is intentionally limited to `mainAgent` scope so
+   * that CLI sub-agents do not accidentally inherit main-agent tier
+   * overrides that were written before the scope split.
    */
   private getPersistedTierValue(
     providerId: string,
     tier: ProviderModelTier,
+    scope: ProviderTierScope,
   ): string | null {
-    const configKey = this.getTierConfigKey(providerId, tier);
-    const configValue = this.config.get<string>(configKey);
-    return configValue || null;
+    const scopedKey = this.getTierConfigKey(providerId, tier, scope);
+    const scopedValue = this.config.get<string>(scopedKey);
+    if (scopedValue) return scopedValue;
+
+    // Legacy fallback — only for mainAgent scope
+    if (scope === 'mainAgent') {
+      const legacyKey = this.getLegacyTierConfigKey(providerId, tier);
+      const legacyValue = this.config.get<string>(legacyKey);
+      if (legacyValue) return legacyValue;
+    }
+
+    return null;
   }
 }

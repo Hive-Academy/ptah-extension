@@ -10,7 +10,10 @@
  *   - startNewConversation (happy path): auto-name, chat:start RPC payload
  *     including effective model/effort, user message appended
  *   - startNewConversation (RPC failure): marks loaded + failSession()
- *   - startNewConversation (no workspace): warns and returns
+ *   - startNewConversation (no workspace): still calls chat:start with
+ *     workspacePath omitted so the backend can fall back to
+ *     IWorkspaceProvider.getWorkspaceRoot() — fixes the bootstrap-restore
+ *     race where Send was clicked before workspace info arrived
  *   - tabId option scopes to a non-active tab (canvas tile isolation)
  *
  * The full continueConversation path involves SessionManager state machine +
@@ -344,13 +347,180 @@ describe('MessageSenderService', () => {
       expect(tabManager.markLoaded).toHaveBeenCalledWith('tab-1');
     });
 
-    it('warns and returns early when no workspace is available', async () => {
+    it('still calls chat:start with workspacePath omitted when workspace is empty (backend fallback)', async () => {
+      // Bug fix: prior behavior silently dropped the user's message during
+      // the bootstrap-restore race (Angular bootstrap → workspace:getInfo →
+      // workspace:switch → updateWorkspaceRoot in electron-layout.service.ts).
+      // The backend chat:start handler falls back to
+      // IWorkspaceProvider.getWorkspaceRoot() when params.workspacePath is
+      // missing, so the frontend must let the RPC through.
       vscodeConfig.mockReturnValue({ workspaceRoot: '' });
+      rpcCall.mockResolvedValue({ success: true });
+
       await service.send('hello');
-      expect(consoleWarn).toHaveBeenCalledWith(
+
+      // RPC must still be invoked — no silent bail-out.
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+      const [method, payload] = rpcCall.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+      ];
+      expect(method).toBe('chat:start');
+      expect(payload.prompt).toBe('hello');
+      // workspacePath is either omitted entirely or explicitly undefined;
+      // both forms let the backend resolve via IWorkspaceProvider.
+      expect(payload.workspacePath).toBeUndefined();
+      // No "No workspace path" warning — that early-return was the bug.
+      expect(consoleWarn).not.toHaveBeenCalledWith(
         expect.stringContaining('No workspace path'),
       );
-      expect(rpcCall).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('continueConversation bootstrap-restore race recovery', () => {
+    // Scenario: stale tab is restored across a workspace wipe AND the user
+    // clicks Send during the bootstrap-restore race. The local
+    // vscodeService.config().workspaceRoot is still empty, so we must ask
+    // the backend for the resolved workspace via workspace:getInfo BEFORE
+    // running validateSessionExists — otherwise we'd skip the friendly
+    // "session was deleted → start a new one" recovery and the user would
+    // see a cryptic SDK error instead.
+    it('resolves workspace via workspace:getInfo, then validates the session against it before chat:continue fires', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      vscodeConfig.mockReturnValue({ workspaceRoot: '' });
+
+      rpcCall.mockImplementation(
+        (
+          method: string,
+          // payload typed loosely; the test asserts shape via inspection.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          _payload: any,
+        ): Promise<{ success: boolean; data?: unknown }> => {
+          if (method === 'workspace:getInfo') {
+            return Promise.resolve({
+              success: true,
+              data: { activeFolder: 'D:/test', folders: ['D:/test'] },
+            });
+          }
+          if (method === 'session:validate') {
+            return Promise.resolve({ success: true, data: { exists: true } });
+          }
+          return Promise.resolve({ success: true });
+        },
+      );
+
+      await service.send('hello again');
+
+      const callOrder = rpcCall.mock.calls.map((c) => c[0]);
+      // workspace:getInfo MUST come before session:validate, and BOTH must
+      // come before chat:continue (the actual send).
+      const getInfoIdx = callOrder.indexOf('workspace:getInfo');
+      const validateIdx = callOrder.indexOf('session:validate');
+      const continueIdx = callOrder.indexOf('chat:continue');
+      expect(getInfoIdx).toBeGreaterThanOrEqual(0);
+      expect(validateIdx).toBeGreaterThan(getInfoIdx);
+      expect(continueIdx).toBeGreaterThan(validateIdx);
+
+      // session:validate must have been called with the workspace path
+      // resolved from workspace:getInfo, NOT the empty cached one.
+      const validateCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'session:validate',
+      );
+      expect(validateCall?.[1]).toEqual(
+        expect.objectContaining({
+          sessionId: 'sess-X',
+          workspacePath: 'D:/test',
+        }),
+      );
+
+      // chat:continue must carry the resolved workspacePath so the backend
+      // doesn't drift to a different one mid-flight.
+      const continueCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:continue',
+      );
+      expect(continueCall?.[1]).toEqual(
+        expect.objectContaining({ workspacePath: 'D:/test' }),
+      );
+    });
+
+    it('still fires chat:continue with workspacePath omitted when workspace:getInfo also returns empty', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      vscodeConfig.mockReturnValue({ workspaceRoot: '' });
+
+      rpcCall.mockImplementation(
+        (
+          method: string,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          _payload: any,
+        ): Promise<{ success: boolean; data?: unknown }> => {
+          if (method === 'workspace:getInfo') {
+            // Both activeFolder and folders empty — backend has no workspace
+            // either. We must NOT bail (that was the regression); the request
+            // should still go through and let the backend surface the error.
+            return Promise.resolve({
+              success: true,
+              data: { activeFolder: undefined, folders: [], root: undefined },
+            });
+          }
+          // session:validate must NOT be called when we have no workspace
+          // path to feed it; the test below asserts that.
+          return Promise.resolve({ success: true });
+        },
+      );
+
+      await service.send('hello again');
+
+      const callOrder = rpcCall.mock.calls.map((c) => c[0]);
+      expect(callOrder).toContain('workspace:getInfo');
+      expect(callOrder).not.toContain('session:validate');
+      expect(callOrder).toContain('chat:continue');
+
+      const continueCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:continue',
+      );
+      // workspacePath must be omitted (or undefined) so backend falls back
+      // to IWorkspaceProvider.getWorkspaceRoot().
+      expect(
+        (continueCall?.[1] as Record<string, unknown>).workspacePath,
+      ).toBeUndefined();
+      // And we must NOT have started a new conversation — the contract is
+      // "send anyway, let the backend surface the error".
+      expect(callOrder).not.toContain('chat:start');
+    });
+
+    it('happy path: cached workspaceRoot present → ZERO extra RPC calls (no workspace:getInfo)', async () => {
+      // Guard against regression in the other direction: if the cached
+      // workspaceRoot is populated, we MUST NOT incur the extra
+      // workspace:getInfo roundtrip on every continueConversation send.
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      vscodeConfig.mockReturnValue({ workspaceRoot: 'D:/repo' });
+
+      rpcCall.mockImplementation(
+        (
+          method: string,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          _payload: any,
+        ): Promise<{ success: boolean; data?: unknown }> => {
+          if (method === 'session:validate') {
+            return Promise.resolve({ success: true, data: { exists: true } });
+          }
+          return Promise.resolve({ success: true });
+        },
+      );
+
+      await service.send('hello again');
+
+      const callOrder = rpcCall.mock.calls.map((c) => c[0]);
+      expect(callOrder).not.toContain('workspace:getInfo');
+      expect(callOrder).toEqual(['session:validate', 'chat:continue']);
+
+      // session:validate uses the cached path directly.
+      const validateCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'session:validate',
+      );
+      expect(validateCall?.[1]).toEqual(
+        expect.objectContaining({ workspacePath: 'D:/repo' }),
+      );
     });
   });
 });

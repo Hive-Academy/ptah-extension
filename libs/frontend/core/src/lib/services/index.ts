@@ -69,3 +69,10 @@ export {
   CommandDiscoveryFacade,
   type CommandSuggestion,
 } from './command-discovery.facade';
+
+// Push-event utilities (TASK_2026_115)
+// Note: createPushEventSubscriber was removed — it depended on a non-existent
+// `vscode.messages$` Observable. The actual codebase uses the MessageHandler
+// pattern via MESSAGE_HANDLERS (see message-router.types.ts). Future
+// push-event helpers will be designed against that real API.
+export { setIfChanged } from './idempotent-setters';

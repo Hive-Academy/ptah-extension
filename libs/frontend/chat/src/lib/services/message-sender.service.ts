@@ -346,11 +346,14 @@ export class MessageSenderService {
         return;
       }
 
+      // Workspace path may be empty during the gap between Angular bootstrap
+      // and the async workspace-restore chain in electron-layout.service.ts
+      // (restoreLayout → workspace:getInfo → workspace:switch →
+      // updateWorkspaceRoot). Don't bail — the backend chat:start handler
+      // falls back to IWorkspaceProvider.getWorkspaceRoot() when
+      // params.workspacePath is missing. Omit the field so the backend
+      // resolves it deterministically.
       const workspacePath = this.vscodeService.config().workspaceRoot;
-      if (!workspacePath) {
-        console.warn('[MessageSender] No workspace path available');
-        return;
-      }
 
       // Use hoisted activeTabId (already resolved from options.tabId or global)
       if (!activeTabId) {
@@ -434,7 +437,10 @@ export class MessageSenderService {
           prompt: content,
           tabId: activeTabId, // Frontend correlation ID
           name: autoName, // Send message-derived name to backend (not stale activeTab reference)
-          workspacePath,
+          // Omit workspacePath when empty so backend falls back to
+          // IWorkspaceProvider.getWorkspaceRoot() — handles the bootstrap
+          // race where Send is clicked before workspace restore completes.
+          ...(workspacePath ? { workspacePath } : {}),
           ptahCliId, // TASK_2025_170: Route to Ptah CLI agent adapter
           options: {
             model: effectiveModel,
@@ -503,30 +509,55 @@ export class MessageSenderService {
         return;
       }
 
-      const workspacePath = this.vscodeService.config().workspaceRoot;
-      if (!workspacePath) {
-        console.warn('[MessageSender] No workspace path available');
-        return;
+      // Workspace path may be empty during the bootstrap-restore race
+      // (see startNewConversation comment). Don't bail — the backend
+      // chat:continue handler falls back to IWorkspaceProvider.getWorkspaceRoot()
+      // when params.workspacePath is missing. But we still want to run the
+      // friendly "session was deleted → start a new one" recovery when we can,
+      // so when the local cache is empty we ask the backend for the resolved
+      // workspace via workspace:getInfo (one extra RPC roundtrip in the rare
+      // race window) and feed THAT into validateSessionExists.
+      const cachedWorkspacePath = this.vscodeService.config().workspaceRoot;
+      let resolvedWorkspacePath = cachedWorkspacePath;
+
+      if (!resolvedWorkspacePath) {
+        try {
+          const info = await this.claudeRpcService.call(
+            'workspace:getInfo',
+            {},
+          );
+          if (info.success && info.data) {
+            resolvedWorkspacePath =
+              info.data.activeFolder ?? info.data.folders[0] ?? '';
+          }
+        } catch (error) {
+          console.warn(
+            '[MessageSender] workspace:getInfo failed during continueConversation race recovery',
+            error,
+          );
+        }
       }
 
-      // âœ… VALIDATE: Check if session file actually exists on disk
-      const validationResult = await this.validateSessionExists(
-        sessionId,
-        workspacePath,
-      );
-
-      if (!validationResult.exists) {
-        console.warn(
-          `[MessageSender] Session ${sessionId} file not found on disk - starting new session instead`,
-          { sessionId },
+      if (resolvedWorkspacePath) {
+        // VALIDATE: Check if session file actually exists on disk
+        const validationResult = await this.validateSessionExists(
+          sessionId,
+          resolvedWorkspacePath,
         );
 
-        if (activeTabId) {
-          this.tabManager.detachSessionAndMarkLoaded(activeTabId);
-        }
+        if (!validationResult.exists) {
+          console.warn(
+            `[MessageSender] Session ${sessionId} file not found on disk - starting new session instead`,
+            { sessionId },
+          );
 
-        await this.startNewConversation(content, options);
-        return;
+          if (activeTabId) {
+            this.tabManager.detachSessionAndMarkLoaded(activeTabId);
+          }
+
+          await this.startNewConversation(content, options);
+          return;
+        }
       }
 
       if (!activeTabId) {
@@ -581,7 +612,13 @@ export class MessageSenderService {
           sessionId,
           tabId: activeTabId, // For event routing
           name: activeTab?.name, // Send session name (support late naming)
-          workspacePath,
+          // Omit workspacePath when still empty (workspace:getInfo also
+          // failed) so backend falls back to IWorkspaceProvider.getWorkspaceRoot().
+          // Otherwise pass the resolved path — either the renderer's cached
+          // value or the freshly fetched one from workspace:getInfo.
+          ...(resolvedWorkspacePath
+            ? { workspacePath: resolvedWorkspacePath }
+            : {}),
           model: effectiveModel,
           files: files ?? [],
           ...(images && images.length > 0 ? { images } : {}),

@@ -8,7 +8,7 @@ import {
 import { ClaudeRpcService } from '@ptah-extension/core';
 
 import { SetupStatusGetResponse } from '@ptah-extension/shared';
-import { LucideAngularModule, XCircle } from 'lucide-angular';
+import { LucideAngularModule, XCircle, FolderOpen } from 'lucide-angular';
 
 /**
  * SetupStatus type - Agent configuration status information
@@ -52,6 +52,20 @@ export type SetupStatus = SetupStatusGetResponse;
             </div>
           </div>
           <div class="skeleton h-6 w-16"></div>
+        </div>
+      } @else if (workspaceNotOpen()) {
+        <!-- No workspace open — friendly prompt, no error styling -->
+        <div class="flex items-center gap-2 text-base-content/70">
+          <lucide-angular [img]="FolderOpenIcon" class="shrink-0 w-4 h-4" />
+          <span class="text-xs flex-1">Open a folder to configure agents</span>
+          <button
+            class="btn btn-xs btn-outline"
+            (click)="openFolder()"
+            type="button"
+            aria-label="Open folder"
+          >
+            Open Folder
+          </button>
         </div>
       } @else if (error()) {
         <!-- Compact error state -->
@@ -122,14 +136,17 @@ export type SetupStatus = SetupStatusGetResponse;
 export class SetupStatusWidgetComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
 
-  // Lucide icon reference
+  // Lucide icon references
   protected readonly XCircleIcon = XCircle;
+  protected readonly FolderOpenIcon = FolderOpen;
 
   // Signals for reactive state
   readonly status = signal<SetupStatus | null>(null);
   readonly isLoading = signal<boolean>(false);
   readonly error = signal<string | null>(null);
   readonly launching = signal<boolean>(false);
+  /** True when the backend reports no workspace folder is open. */
+  readonly workspaceNotOpen = signal<boolean>(false);
 
   ngOnInit(): void {
     this.fetchStatus();
@@ -142,6 +159,7 @@ export class SetupStatusWidgetComponent implements OnInit {
   async fetchStatus(): Promise<void> {
     this.isLoading.set(true);
     this.error.set(null);
+    this.workspaceNotOpen.set(false);
 
     try {
       const result = await this.rpcService.call(
@@ -153,6 +171,10 @@ export class SetupStatusWidgetComponent implements OnInit {
       if (result.isSuccess() && result.data) {
         this.status.set(result.data);
         this.error.set(null);
+      } else if (result.errorCode === 'WORKSPACE_NOT_OPEN') {
+        // Expected condition: no folder open. Show a friendly prompt instead
+        // of the generic error state so users know exactly what to do.
+        this.workspaceNotOpen.set(true);
       } else {
         this.error.set(result.error || 'Failed to fetch status');
       }
@@ -163,6 +185,16 @@ export class SetupStatusWidgetComponent implements OnInit {
     } finally {
       this.isLoading.set(false);
     }
+  }
+
+  /**
+   * Invoke the VS Code "Open Folder" dialog via the command:execute RPC so
+   * users can open a workspace folder without leaving the extension.
+   */
+  async openFolder(): Promise<void> {
+    await this.rpcService.call('command:execute', {
+      command: 'workbench.action.files.openFolder',
+    });
   }
 
   /**

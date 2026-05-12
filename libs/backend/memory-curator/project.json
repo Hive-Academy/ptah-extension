@@ -19,7 +19,7 @@
           "tsyringe",
           "better-sqlite3",
           "sqlite-vec",
-          "@xenova/transformers",
+          "@huggingface/transformers",
           "ulid",
           "node:worker_threads"
         ]

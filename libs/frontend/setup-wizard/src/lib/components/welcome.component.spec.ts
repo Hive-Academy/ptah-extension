@@ -7,10 +7,10 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 /**
  * WelcomeComponent tests.
  *
- * The component now supports a dual-mode flow (existing analyses + new
- * project bootstrap), injecting both the state facade and the RPC service.
- * These tests assert component creation, the two entry-point handlers, and
- * the state transitions they trigger.
+ * The welcome screen has two entry points: existing-project analysis (drives
+ * the wizard locally) and new-project chat handoff (delegates to the backend
+ * via WizardRpcService.startNewProjectChat). These tests assert component
+ * creation and the two entry-point handlers.
  */
 describe('WelcomeComponent', () => {
   let component: WelcomeComponent;
@@ -21,7 +21,6 @@ describe('WelcomeComponent', () => {
   beforeEach(async () => {
     mockStateService = {
       setCurrentStep: jest.fn(),
-      setWizardPath: jest.fn(),
       setSavedAnalyses: jest.fn(),
       savedAnalyses: signal([]).asReadonly(),
     } as unknown as Partial<SetupWizardStateService>;
@@ -30,6 +29,7 @@ describe('WelcomeComponent', () => {
       listAnalyses: jest.fn().mockResolvedValue([]),
       loadAnalysis: jest.fn(),
       recommendAgents: jest.fn(),
+      startNewProjectChat: jest.fn().mockResolvedValue(undefined),
     } as unknown as Partial<WizardRpcService>;
 
     await TestBed.configureTestingModule({
@@ -50,22 +50,32 @@ describe('WelcomeComponent', () => {
   });
 
   describe('Start Setup (existing project)', () => {
-    it('should set wizardPath to existing and advance to scan step', () => {
+    it('should advance to scan step', () => {
       component['onStartSetup']();
 
-      expect(mockStateService.setWizardPath).toHaveBeenCalledWith('existing');
       expect(mockStateService.setCurrentStep).toHaveBeenCalledWith('scan');
     });
   });
 
   describe('Start Setup (new project)', () => {
-    it('should set wizardPath to new and advance to project-type step', () => {
-      component['onStartNewProject']();
+    it('should delegate to wizardRpc.startNewProjectChat', async () => {
+      await component['onStartNewProject']();
 
-      expect(mockStateService.setWizardPath).toHaveBeenCalledWith('new');
-      expect(mockStateService.setCurrentStep).toHaveBeenCalledWith(
-        'project-type',
+      expect(mockRpcService.startNewProjectChat).toHaveBeenCalled();
+    });
+
+    it('should swallow RPC errors and log them', async () => {
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {
+        /* silence */
+      });
+      (mockRpcService.startNewProjectChat as jest.Mock).mockRejectedValueOnce(
+        new Error('boom'),
       );
+
+      await expect(component['onStartNewProject']()).resolves.toBeUndefined();
+      expect(errSpy).toHaveBeenCalled();
+
+      errSpy.mockRestore();
     });
   });
 });

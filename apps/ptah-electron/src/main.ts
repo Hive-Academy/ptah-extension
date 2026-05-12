@@ -8,12 +8,19 @@ import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { IStateStorage } from '@ptah-extension/platform-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
 import { bootstrapElectron } from './activation/bootstrap';
 import { wireRuntime } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
+import type { UpdateManager } from './services/update/update-manager';
+import { UPDATE_MANAGER_TOKEN } from './services/update/update-tokens';
 
 // @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Force userData path to be stable across dev and packaged builds
+app.setName('Ptah');
 
 // Prevent multiple instances
 const gotLock = app.requestSingleInstanceLock();
@@ -24,6 +31,7 @@ if (!gotLock) {
   let resolvedStateStorage: IStateStorage | undefined;
   let skillJunctionRef: { deactivateSync: () => void } | null = null;
   let revalidationInterval: ReturnType<typeof setInterval> | null = null;
+  let updateCheckInterval: ReturnType<typeof setInterval> | null = null;
   let gitWatcher: {
     stop: () => void;
     switchWorkspace: (p: string) => void;
@@ -34,10 +42,26 @@ if (!gotLock) {
   let skillSynthesis: { stop: () => void } | null = null;
   let cronScheduler: { stop: () => void } | null = null;
   let messagingGateway: { stop: () => Promise<void> } | null = null;
+  let symbolWatcher: { close: () => void } | null = null;
 
   app.whenReady().then(async () => {
     const boot = await bootstrapElectron(() => mainWindow);
     flushWorkspacePersistence = boot.flushWorkspacePersistence;
+
+    app.on('before-quit', () => {
+      try {
+        const workspaceProvider =
+          boot.container.resolve<ElectronWorkspaceProvider>(
+            PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+          );
+        workspaceProvider.fileSettings.flushSync();
+      } catch (error) {
+        console.warn(
+          '[Ptah Electron] before-quit fileSettings flush failed (non-fatal):',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    });
 
     const wired = await wireRuntime({
       container: boot.container,
@@ -46,13 +70,13 @@ if (!gotLock) {
       startupLicenseTier: boot.startupLicenseTier,
     });
     resolvedStateStorage = wired.resolvedStateStorage;
-    skillJunctionRef = wired.skillJunctionRef;
-    gitWatcher = wired.gitWatcher;
-    sqliteConnection = wired.sqliteConnection;
-    memoryCurator = wired.memoryCurator;
-    skillSynthesis = wired.skillSynthesis;
-    cronScheduler = wired.cronScheduler;
-    messagingGateway = wired.messagingGateway;
+    skillJunctionRef = wired.refs.skillJunctionRef;
+    gitWatcher = wired.refs.gitWatcher;
+    sqliteConnection = wired.refs.sqliteConnection;
+    memoryCurator = wired.refs.memoryCurator;
+    skillSynthesis = wired.refs.skillSynthesis;
+    cronScheduler = wired.refs.cronScheduler;
+    symbolWatcher = wired.refs.symbolWatcher;
     // Back-fill the mutable ref so bootstrap's onDidChangeWorkspaceFolders
     // subscription can call gitWatcher.switchWorkspace on folder changes.
     boot.gitWatcherRef.current = gitWatcher;
@@ -62,13 +86,15 @@ if (!gotLock) {
       resolvedStateStorage,
       startupIsLicensed: boot.startupIsLicensed,
       startupInitialView: boot.startupInitialView,
-      startupWorkspaceRoot: boot.startupWorkspaceRoot,
       setMainWindow: (w) => {
         mainWindow = w;
       },
       getMainWindow: () => mainWindow,
+      scheduleWarmup: wired.scheduleWarmup,
     });
     revalidationInterval = post.revalidationInterval;
+    updateCheckInterval = post.updateCheckInterval;
+    messagingGateway = post.messagingGateway;
   });
 
   // Handle second instance (focus existing window).
@@ -118,8 +144,37 @@ if (!gotLock) {
       revalidationInterval = null;
     }
 
+    // 2.5. Clear update check interval + dispose UpdateManager (TASK_2026_117)
+    if (updateCheckInterval !== null) {
+      clearInterval(updateCheckInterval);
+      updateCheckInterval = null;
+    }
+    try {
+      const diContainer = ElectronDIContainer.getContainer();
+      if (diContainer.isRegistered(UPDATE_MANAGER_TOKEN)) {
+        const updateManager =
+          diContainer.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
+        updateManager.dispose();
+      }
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] UpdateManager dispose failed:',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+
     // 3. Stop git file system watcher (TASK_2025_240)
     gitWatcher?.stop();
+
+    // 3.1. Close code symbol chokidar watcher (TASK_2026_THOTH_CODE_INDEX)
+    try {
+      symbolWatcher?.close();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Symbol watcher close failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
 
     // 4. Deactivate skill junctions
     try {

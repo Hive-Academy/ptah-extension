@@ -125,6 +125,15 @@ export class ChatStore {
     return status === 'streaming' || status === 'resuming';
   });
 
+  /**
+   * True when the active tab's session has been activated in the SDK
+   * during this app run (i.e. has a live `Query` handle that supports
+   * rewindFiles). False for sessions loaded purely from disk via
+   * `session:load`. Used by ChatView to gate the rewind action — see
+   * Sentry NODE-NESTJS-2Y / 2N / 2X (`SessionNotActiveError`).
+   */
+  readonly sessionIsActive = this.tabManager.activeTabHasLiveSession;
+
   readonly preloadedStats = this.tabManager.activeTabPreloadedStats;
   readonly liveModelStats = this.tabManager.activeTabLiveModelStats;
   readonly modelUsageList = this.tabManager.activeTabModelUsageList;

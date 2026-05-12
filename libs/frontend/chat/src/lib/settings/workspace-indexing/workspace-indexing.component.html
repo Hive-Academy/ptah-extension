@@ -1,0 +1,391 @@
+<!--
+  WorkspaceIndexingComponent template (TASK_2026_114).
+
+  Renders the 8 UI states:
+    loading | no-workspace | never-indexed | indexing
+    paused  | indexed      | stale         | error
+
+  Plus the always-visible per-pipeline toggle row at the bottom.
+-->
+
+<section class="workspace-indexing border border-secondary/30 rounded-md bg-secondary/5">
+  <div class="p-3 space-y-3">
+    <!-- Section header -->
+    <div class="flex items-center gap-1.5">
+      <lucide-angular [img]="RefreshCwIcon" class="w-4 h-4 text-secondary" />
+      <h2 class="text-xs font-medium uppercase tracking-wide">
+        Workspace Indexing
+      </h2>
+    </div>
+
+    @let state = uiState();
+    @switch (state.kind) {
+      <!-- =========================================================== -->
+      <!-- Loading                                                     -->
+      <!-- =========================================================== -->
+      @case ('loading') {
+        <div class="state-block" data-testid="state-loading">
+          <p class="text-xs text-base-content/60">Loading status…</p>
+        </div>
+      }
+
+      <!-- =========================================================== -->
+      <!-- No workspace                                                -->
+      <!-- =========================================================== -->
+      @case ('no-workspace') {
+        <div class="state-block" data-testid="state-no-workspace">
+          <h3 class="text-sm font-semibold mb-1">No workspace open</h3>
+          <p class="text-xs text-base-content/70">
+            Open a folder to manage indexing.
+          </p>
+        </div>
+      }
+
+      <!-- =========================================================== -->
+      <!-- Never indexed (first launch)                                 -->
+      <!-- =========================================================== -->
+      @case ('never-indexed') {
+        <div class="state-block" data-testid="state-never-indexed">
+          <h3 class="text-sm font-semibold mb-1">Set up workspace search</h3>
+          <p class="text-xs text-base-content/70 mb-3">
+            Ptah is preparing local search for this workspace. Files are read
+            on your machine and nothing is uploaded.
+          </p>
+
+          <div class="flex flex-wrap gap-2 mb-3">
+            <button
+              type="button"
+              class="btn btn-primary btn-xs gap-1"
+              (click)="onStart(false)"
+              aria-label="Index now"
+            >
+              <lucide-angular [img]="PlayIcon" class="w-3 h-3" />
+              <span>Index now</span>
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              (click)="onAcknowledgeDisclosure()"
+            >
+              Learn what gets indexed
+            </button>
+          </div>
+
+          <!-- Privacy disclosure callout -->
+          <div
+            class="alert alert-info text-xs p-2 mb-2"
+            data-testid="callout-first-run"
+          >
+            First-time indexing runs automatically once. You can pause or
+            cancel at any time.
+          </div>
+
+          @if (showFirstRunDisclosure()) {
+            <div
+              class="rounded-md border border-base-300 bg-base-200 p-2 text-xs"
+              data-testid="callout-privacy-disclosure"
+            >
+              <p class="font-medium mb-1">What Ptah indexes</p>
+              <p class="text-base-content/70">
+                Ptah reads files in your workspace to build a local search
+                index stored at <code>~/.ptah/state/ptah.sqlite</code>. Nothing
+                is uploaded. You can disable any pipeline at any time.
+              </p>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- =========================================================== -->
+      <!-- Indexing (active)                                            -->
+      <!-- =========================================================== -->
+      @case ('indexing') {
+        <div class="state-block" data-testid="state-indexing">
+          <h3 class="text-sm font-semibold mb-1">Indexing workspace…</h3>
+          <p class="text-xs text-base-content/70 mb-2">
+            {{ state.percent }}% — {{ state.label || 'preparing…' }}
+          </p>
+
+          <!-- Progress bar — determinate when total is known, indeterminate otherwise -->
+          @if (state.totalKnown) {
+            <progress
+              class="progress progress-primary w-full h-2 mb-3"
+              [value]="state.percent"
+              max="100"
+              data-testid="progress-determinate"
+            ></progress>
+          } @else {
+            <progress
+              class="progress progress-primary w-full h-2 mb-3"
+              data-testid="progress-indeterminate"
+            ></progress>
+          }
+
+          <div class="flex flex-wrap gap-2 mb-2">
+            <button
+              type="button"
+              class="btn btn-primary btn-xs gap-1"
+              (click)="onPause()"
+              aria-label="Pause indexing"
+            >
+              <lucide-angular [img]="PauseIcon" class="w-3 h-3" />
+              <span>Pause</span>
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs gap-1"
+              (click)="onCancel()"
+              aria-label="Cancel indexing"
+            >
+              <lucide-angular [img]="XIcon" class="w-3 h-3" />
+              <span>Cancel</span>
+            </button>
+          </div>
+
+          <div class="alert text-xs p-2" data-testid="callout-indexing">
+            You can keep working. Indexing continues in the background.
+          </div>
+        </div>
+      }
+
+      <!-- =========================================================== -->
+      <!-- Paused                                                       -->
+      <!-- =========================================================== -->
+      @case ('paused') {
+        <div class="state-block" data-testid="state-paused">
+          <h3 class="text-sm font-semibold mb-1">
+            Indexing paused at {{ state.percent }}%
+          </h3>
+          <p class="text-xs text-base-content/70 mb-3">
+            Resume to finish, or cancel to discard progress.
+          </p>
+
+          <div class="flex flex-wrap gap-2 mb-2">
+            <button
+              type="button"
+              class="btn btn-primary btn-xs gap-1"
+              (click)="onResume()"
+              aria-label="Resume indexing"
+            >
+              <lucide-angular [img]="PlayIcon" class="w-3 h-3" />
+              <span>Resume</span>
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs gap-1"
+              (click)="onCancel()"
+              aria-label="Cancel indexing"
+            >
+              <lucide-angular [img]="XIcon" class="w-3 h-3" />
+              <span>Cancel</span>
+            </button>
+          </div>
+
+          <div
+            class="alert alert-warning text-xs p-2"
+            data-testid="callout-paused"
+          >
+            Paused indexing means search results may be incomplete until you
+            resume.
+          </div>
+        </div>
+      }
+
+      <!-- =========================================================== -->
+      <!-- Indexed (clean)                                              -->
+      <!-- =========================================================== -->
+      @case ('indexed') {
+        <div class="state-block" data-testid="state-indexed">
+          <h3 class="text-sm font-semibold mb-1">Indexed</h3>
+          <p class="text-xs text-base-content/70 mb-3">
+            Last updated
+            {{ formatRelativeTime(state.lastIndexedAt) }}. Workspace is up
+            to date.
+          </p>
+
+          <div class="flex flex-wrap gap-2 mb-2">
+            <button
+              type="button"
+              class="btn btn-primary btn-xs gap-1"
+              (click)="onStart(true)"
+              aria-label="Re-index workspace"
+            >
+              <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
+              <span>Re-index</span>
+            </button>
+          </div>
+
+          <!-- Non-git workspace fallback callout -->
+          @if (state.isNonGit) {
+            <div
+              class="alert text-xs p-2"
+              data-testid="callout-non-git"
+            >
+              This workspace is not a git repository. Ptah cannot auto-detect
+              upstream changes — re-index manually after large edits.
+            </div>
+          }
+        </div>
+      }
+
+      <!-- =========================================================== -->
+      <!-- Stale (git HEAD changed)                                     -->
+      <!-- =========================================================== -->
+      @case ('stale') {
+        <div class="state-block" data-testid="state-stale">
+          <h3 class="text-sm font-semibold mb-1">
+            Workspace changed since last index
+          </h3>
+          <p class="text-xs text-base-content/70 mb-3">
+            Re-index to keep search results fresh. Last indexed at git
+            <code>{{ shortSha(state.prevSha) }}</code
+            >; current git is
+            <code>{{ shortSha(state.currentSha) }}</code
+            >.
+          </p>
+
+          <div class="flex flex-wrap gap-2 mb-2">
+            <button
+              type="button"
+              class="btn btn-primary btn-xs gap-1"
+              (click)="onStart(true)"
+              aria-label="Re-index workspace"
+            >
+              <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
+              <span>Re-index</span>
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs gap-1"
+              (click)="onDismissStale()"
+              aria-label="Dismiss stale notice"
+            >
+              <lucide-angular [img]="BellOffIcon" class="w-3 h-3" />
+              <span>Dismiss until next change</span>
+            </button>
+          </div>
+
+          <!-- Git-detection-limit warning (mandatory) -->
+          <div
+            class="alert alert-warning text-xs p-2"
+            data-testid="callout-stale-warning"
+          >
+            Uncommitted edits are not detected. Commit or stash, then re-index
+            for accurate results.
+          </div>
+        </div>
+      }
+
+      <!-- =========================================================== -->
+      <!-- Error                                                        -->
+      <!-- =========================================================== -->
+      @case ('error') {
+        <div class="state-block" data-testid="state-error">
+          <h3 class="text-sm font-semibold mb-1">Indexing failed</h3>
+          <p class="text-xs text-base-content/70 mb-3">
+            {{ state.message }}. Your previous index is still available.
+          </p>
+
+          <div class="flex flex-wrap gap-2 mb-2">
+            <button
+              type="button"
+              class="btn btn-primary btn-xs gap-1"
+              (click)="onStart(true)"
+              aria-label="Try indexing again"
+            >
+              <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
+              <span>Try again</span>
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs gap-1"
+              (click)="onCopyErrorDetails(state.message)"
+              aria-label="Copy error details"
+            >
+              <lucide-angular [img]="ClipboardIcon" class="w-3 h-3" />
+              <span>Copy error details</span>
+            </button>
+          </div>
+
+          <div
+            class="alert alert-error text-xs p-2"
+            data-testid="callout-error"
+          >
+            {{ state.message }}
+          </div>
+        </div>
+      }
+    }
+
+    <!-- =========================================================== -->
+    <!-- Per-pipeline toggle row (always visible)                    -->
+    <!-- =========================================================== -->
+    <div
+      class="border-t border-base-300 pt-3 space-y-2"
+      data-testid="pipeline-toggles"
+    >
+      <!-- Code symbol index toggle -->
+      <div class="flex items-start gap-2">
+        <lucide-angular [img]="CodeIcon" class="w-4 h-4 mt-0.5 text-secondary" />
+        <div class="flex-1">
+          <label class="flex items-center justify-between gap-2 cursor-pointer">
+            <span class="text-xs font-medium">Code symbol index</span>
+            <input
+              type="checkbox"
+              class="toggle toggle-xs toggle-primary"
+              [checked]="symbolsEnabled()"
+              [disabled]="!workspaceRoot()"
+              (change)="onTogglePipeline('symbols', !symbolsEnabled())"
+              data-testid="toggle-symbols"
+              aria-label="Toggle code symbol indexing"
+            />
+          </label>
+          <p class="text-[10px] text-base-content/60 mt-0.5">
+            Indexes function and class symbols across your workspace for fast
+            navigation. Disable if you only use chat.
+          </p>
+          @if (!symbolsEnabled()) {
+            <p
+              class="text-[10px] text-warning mt-1"
+              data-testid="hint-symbols-off"
+            >
+              Symbol search and code navigation will fall back to text search.
+            </p>
+          }
+        </div>
+      </div>
+
+      <!-- Chat memory extraction toggle -->
+      <div class="flex items-start gap-2">
+        <lucide-angular [img]="BrainIcon" class="w-4 h-4 mt-0.5 text-secondary" />
+        <div class="flex-1">
+          <label class="flex items-center justify-between gap-2 cursor-pointer">
+            <span class="text-xs font-medium">Chat memory extraction</span>
+            <input
+              type="checkbox"
+              class="toggle toggle-xs toggle-primary"
+              [checked]="memoryEnabled()"
+              [disabled]="!workspaceRoot()"
+              (change)="onTogglePipeline('memory', !memoryEnabled())"
+              data-testid="toggle-memory"
+              aria-label="Toggle chat memory extraction"
+            />
+          </label>
+          <p class="text-[10px] text-base-content/60 mt-0.5">
+            Saves useful facts from chats so Ptah remembers them later. Runs
+            only when a chat compacts; never scans your files.
+          </p>
+          @if (!memoryEnabled()) {
+            <p
+              class="text-[10px] text-warning mt-1"
+              data-testid="hint-memory-off"
+            >
+              Ptah will not remember facts from new chats. Existing memories
+              are kept.
+            </p>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

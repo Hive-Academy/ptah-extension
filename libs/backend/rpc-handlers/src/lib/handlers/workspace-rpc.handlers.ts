@@ -253,17 +253,22 @@ export class WorkspaceRpcHandlers {
   private registerSwitch(): void {
     this.rpcHandler.registerMethod(
       'workspace:switch',
-      async (params: { path: string } | undefined) => {
+      async (params: { path: string; origin?: string } | undefined) => {
         if (!params?.path) {
           return { success: false, error: 'path is required' };
         }
 
         try {
+          // Store the origin token so the broadcast listener can echo it back
+          // to the frontend for self-echo suppression (TASK_2026_115).
+          this.workspaceLifecycle.setPendingOrigin?.(params.origin ?? null);
+
           // Switch workspace context (creates lazily if needed),
           // then update the provider's active folder.
           const encodedPath =
             await this.workspaceContextManager.switchWorkspace(params.path);
           if (!encodedPath) {
+            this.workspaceLifecycle.setPendingOrigin?.(null);
             return {
               success: false,
               error: `Failed to switch workspace context for: ${params.path}`,
@@ -305,6 +310,7 @@ export class WorkspaceRpcHandlers {
             encodedPath,
           };
         } catch (error) {
+          this.workspaceLifecycle.setPendingOrigin?.(null);
           this.logger.error(
             '[RPC] workspace:switch failed',
             error instanceof Error ? error : new Error(String(error)),

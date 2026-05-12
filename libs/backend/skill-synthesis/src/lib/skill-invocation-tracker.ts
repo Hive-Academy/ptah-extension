@@ -45,11 +45,11 @@ export class SkillInvocationTracker {
     private readonly promotion: SkillPromotionService,
   ) {}
 
-  recordInvocation(
+  async recordInvocation(
     input: RecordInvocationInput,
     settings: SkillSynthesisSettings,
     nowFn: () => number = () => Date.now(),
-  ): RecordInvocationResult {
+  ): Promise<RecordInvocationResult> {
     const candidate = this.store.findById(input.skillId);
     if (!candidate) {
       throw new Error(
@@ -77,7 +77,11 @@ export class SkillInvocationTracker {
       successCount >= settings.successesToPromote
     ) {
       try {
-        promotion = this.promotion.evaluate(input.skillId, settings, nowFn);
+        promotion = await this.promotion.evaluate(
+          input.skillId,
+          settings,
+          nowFn,
+        );
       } catch (err) {
         this.logger.warn(
           '[skill-synthesis] promotion evaluation failed (non-fatal)',

@@ -60,7 +60,7 @@
           "sqlite-vec",
           "croner",
           "ulid",
-          "@xenova/transformers",
+          "@huggingface/transformers",
           "grammy",
           "discord.js",
           "@slack/bolt",

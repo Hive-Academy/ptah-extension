@@ -163,6 +163,9 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
               cacheAge: Date.now() - cachedTimestamp,
             },
           );
+          // Seed the broadcaster so a future network re-verify of the same
+          // status is suppressed rather than firing a spurious license:verified.
+          this.broadcaster.seed(cachedStatus);
           return cachedStatus;
         }
       }

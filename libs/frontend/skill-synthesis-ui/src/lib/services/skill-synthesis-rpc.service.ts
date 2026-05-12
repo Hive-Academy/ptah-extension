@@ -6,6 +6,8 @@ import type {
   SkillSynthesisInvocationEntry,
   SkillSynthesisListCandidatesParams,
   SkillSynthesisPromoteResult,
+  SkillSynthesisRunCuratorResult,
+  SkillSynthesisSettingsDto,
   SkillSynthesisStatsResult,
 } from '@ptah-extension/shared';
 
@@ -16,11 +18,15 @@ import type {
  * - SHORT_MS: short writes (reject) and small reads (invocations).
  * - PROMOTE_MS: promotion involves writing SKILL.md to disk and may
  *   trigger reindex on the backend, so we allow more headroom.
+ * - SETTINGS_MS: settings read/write — fast file I/O.
+ * - CURATOR_MS: Curator LLM pass can take up to 60s; allow 90s total.
  */
 const SKILL_RPC_TIMEOUTS = {
   LIST_MS: 10_000,
   SHORT_MS: 8_000,
   PROMOTE_MS: 20_000,
+  SETTINGS_MS: 8_000,
+  CURATOR_MS: 90_000,
 } as const;
 
 /**
@@ -131,5 +137,73 @@ export class SkillSynthesisRpcService {
       return result.data;
     }
     throw new Error(result.error || 'Failed to load skill stats');
+  }
+
+  /** Fetch the full settings object from the backend. */
+  public async getSettings(): Promise<SkillSynthesisSettingsDto> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:getSettings',
+      {},
+      { timeout: SKILL_RPC_TIMEOUTS.SETTINGS_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.settings;
+    }
+    throw new Error(result.error || 'Failed to load skill synthesis settings');
+  }
+
+  /** Persist a partial settings update. */
+  public async updateSettings(
+    settings: Partial<SkillSynthesisSettingsDto>,
+  ): Promise<void> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:updateSettings',
+      { settings },
+      { timeout: SKILL_RPC_TIMEOUTS.SETTINGS_MS },
+    );
+    if (!result.isSuccess()) {
+      throw new Error(
+        result.error || 'Failed to update skill synthesis settings',
+      );
+    }
+  }
+
+  /** Pin a promoted skill. Returns the new pinned state (true). */
+  public async pin(id: string): Promise<boolean> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:pin',
+      { id },
+      { timeout: SKILL_RPC_TIMEOUTS.SHORT_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.pinned;
+    }
+    throw new Error(result.error || 'Failed to pin skill');
+  }
+
+  /** Unpin a promoted skill. Returns the new pinned state (false). */
+  public async unpin(id: string): Promise<boolean> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:unpin',
+      { id },
+      { timeout: SKILL_RPC_TIMEOUTS.SHORT_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.pinned;
+    }
+    throw new Error(result.error || 'Failed to unpin skill');
+  }
+
+  /** Run the Curator pass and return the report. */
+  public async runCurator(): Promise<SkillSynthesisRunCuratorResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:runCurator',
+      {},
+      { timeout: SKILL_RPC_TIMEOUTS.CURATOR_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to run curator');
   }
 }

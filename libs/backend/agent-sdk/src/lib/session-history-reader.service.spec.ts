@@ -421,4 +421,135 @@ describe('SessionHistoryReaderService', () => {
       ).resolves.toEqual([]);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // resolveNativeMessageId — Fix NODE-NESTJS-3A/39
+  // -------------------------------------------------------------------------
+
+  describe('resolveNativeMessageId', () => {
+    const NATIVE_ID = 'msg_01AbCdEfGhIjKlMnOpQrStUvWxYz';
+    const PTAH_ID = 'msg_1778055502540_cegogbr';
+
+    it('returns a native Anthropic UUID unchanged without reading JSONL (fast path)', async () => {
+      const stubs = makeStubs();
+      const service = makeService(stubs);
+
+      const result = await service.resolveNativeMessageId(
+        'valid-session',
+        '/workspace',
+        NATIVE_ID,
+      );
+
+      expect(result).toBe(NATIVE_ID);
+      // Fast path — no I/O
+      expect(stubs.jsonlReader.findSessionsDirectory).not.toHaveBeenCalled();
+      expect(stubs.jsonlReader.readJsonlMessages).not.toHaveBeenCalled();
+    });
+
+    it('throws SdkError when Ptah ID is at index 0 and no preceding native UUID exists', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/home/user/.claude/projects/workspace',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'user',
+          uuid: PTAH_ID,
+          timestamp: '2026-01-01T00:00:00Z',
+        } as SessionHistoryMessage,
+      ]);
+
+      const service = makeService(stubs);
+      await expect(
+        service.resolveNativeMessageId('valid-session', '/workspace', PTAH_ID),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining(
+          'no native SDK UUID exists at or before that position',
+        ),
+      });
+    });
+
+    it('walks backward and returns nearest preceding native UUID for Ptah ID', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/home/user/.claude/projects/workspace',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'user',
+          uuid: NATIVE_ID,
+          timestamp: '2026-01-01T00:00:00Z',
+        } as SessionHistoryMessage,
+        {
+          type: 'assistant',
+          uuid: PTAH_ID,
+          timestamp: '2026-01-01T00:00:01Z',
+        } as SessionHistoryMessage,
+      ]);
+
+      const service = makeService(stubs);
+      const result = await service.resolveNativeMessageId(
+        'valid-session',
+        '/workspace',
+        PTAH_ID,
+      );
+
+      // PTAH_ID is at index 1; walking backward hits NATIVE_ID at index 0.
+      expect(result).toBe(NATIVE_ID);
+    });
+
+    it('throws SdkError when the ID is not found in JSONL at all', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/home/user/.claude/projects/workspace',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'user',
+          uuid: 'msg_01OtherNative',
+          timestamp: '2026-01-01T00:00:00Z',
+        } as SessionHistoryMessage,
+      ]);
+
+      const service = makeService(stubs);
+      await expect(
+        service.resolveNativeMessageId(
+          'valid-session',
+          '/workspace',
+          'msg_9999999_unknown',
+        ),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('not found in session history'),
+      });
+    });
+
+    it('throws SdkError when the sessions directory is not found', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(null);
+
+      const service = makeService(stubs);
+      await expect(
+        service.resolveNativeMessageId('valid-session', '/workspace', PTAH_ID),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('sessions directory not found'),
+      });
+    });
+
+    it('throws SdkError when the session JSONL file cannot be read', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/home/user/.claude/projects/workspace',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockRejectedValue(
+        new Error('ENOENT: file not found'),
+      );
+
+      const service = makeService(stubs);
+      await expect(
+        service.resolveNativeMessageId('valid-session', '/workspace', PTAH_ID),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('session file not found'),
+      });
+    });
+  });
 });

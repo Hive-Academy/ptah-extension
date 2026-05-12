@@ -45,3 +45,39 @@ export const AuthSettingsSchema = z.object({
 });
 
 export type AuthSettingsInput = z.infer<typeof AuthSettingsSchema>;
+
+// ---------------------------------------------------------------------------
+// Auth method from config storage
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical auth method values understood by the extension.
+ * 'openrouter' is a legacy alias stored by old Ptah versions — it is
+ * normalized to 'thirdParty' before use.
+ */
+const VALID_AUTH_METHODS = [
+  'apiKey',
+  'claudeCli',
+  'thirdParty',
+  'openrouter',
+] as const;
+type RawAuthMethod = (typeof VALID_AUTH_METHODS)[number];
+
+/** The three auth methods exposed to the rest of the handler. */
+export type AuthMethod = 'apiKey' | 'claudeCli' | 'thirdParty';
+
+/**
+ * Parse the `authMethod` stored in config, normalizing legacy aliases.
+ *
+ * - 'openrouter' → 'thirdParty' (legacy alias used by early Ptah builds).
+ * - Any unrecognized value (e.g. 'vscode-lm', 'auto') → 'apiKey' (safe default).
+ *
+ * Replaces the inline `(rawMethod && validMethods.includes(rawMethod) ? ... ) as AuthMethod`
+ * cast in `auth:getAuthStatus` so the normalization is tested in isolation.
+ */
+export function parseAuthMethod(raw: string | null | undefined): AuthMethod {
+  if (!raw) return 'apiKey';
+  if (!(VALID_AUTH_METHODS as readonly string[]).includes(raw)) return 'apiKey';
+  const method = raw as RawAuthMethod;
+  return method === 'openrouter' ? 'thirdParty' : method;
+}

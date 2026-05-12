@@ -19,6 +19,8 @@ export const MEMORY_TOKENS = {
   MEMORY_DECAY_JOB: Symbol.for('PtahMemoryDecayJob'),
   /** ICuratorLLM — small/fast LLM wrapper for extract/resolve prompts. */
   CURATOR_LLM: Symbol.for('PtahCuratorLlm'),
+  /** IndexingControlService — workspace indexing state machine (TASK_2026_114). */
+  INDEXING_CONTROL: Symbol.for('PtahIndexingControl'),
 } as const;
 
 export type MemoryDIToken = keyof typeof MEMORY_TOKENS;

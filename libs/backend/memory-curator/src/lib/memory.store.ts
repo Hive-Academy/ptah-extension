@@ -10,6 +10,10 @@ import { inject, injectable } from 'tsyringe';
 import { ulid } from 'ulid';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
+  type IMemoryLister,
+  type MemoryListPage,
+} from '@ptah-extension/memory-contracts';
+import {
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
   type IEmbedder,
@@ -98,13 +102,33 @@ function rowToChunk(row: ChunkRow): MemoryChunk {
 }
 
 @injectable()
-export class MemoryStore {
+export class MemoryStore implements IMemoryLister {
+  /** Per-workspace write generation counter. Key '' = global (no workspace). */
+  private readonly writeCounts = new Map<string, number>();
+  /** Suppresses repeated per-chunk WARN logs once the embedder is known-dead. */
+  private embedderWarnedOnce = false;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
     private readonly connection: SqliteConnectionService,
     @inject(PERSISTENCE_TOKENS.EMBEDDER) private readonly embedder: IEmbedder,
   ) {}
+
+  /**
+   * Returns the current write generation for a workspace root.
+   * The empty string key covers memories with no workspaceRoot.
+   * Used by MemorySearchService to build cache keys.
+   */
+  getWriteCounter(workspaceRoot: string): number {
+    return this.writeCounts.get(workspaceRoot) ?? 0;
+  }
+
+  /** Increment the write counter for the given workspaceRoot (or '' if null). */
+  private bumpWriteCounter(workspaceRoot: string | null | undefined): void {
+    const key = workspaceRoot ?? '';
+    this.writeCounts.set(key, (this.writeCounts.get(key) ?? 0) + 1);
+  }
 
   /** Insert a Memory + its chunks atomically. Embeddings are computed if vec is available. */
   async insertMemoryWithChunks(
@@ -199,7 +223,17 @@ export class MemoryStore {
       return id;
     }) as unknown as (...args: unknown[]) => unknown;
     const txn = db.transaction(txnFn) as unknown as TxnFn;
-    return txn(memoryParams);
+    try {
+      const result = txn(memoryParams);
+      this.bumpWriteCounter(insert.workspaceRoot);
+      return result;
+    } catch (err: unknown) {
+      // D5: If this is a fatal disk-full error, close the connection and mark it
+      // unavailable so subsequent RPC calls surface PERSISTENCE_UNAVAILABLE
+      // instead of opaque SQLITE_FULL errors.
+      this.connection.handleFatalWriteError(err);
+      throw err;
+    }
   }
 
   private async embedderEmbed(
@@ -208,12 +242,15 @@ export class MemoryStore {
     try {
       return await this.embedder.embed(texts);
     } catch (err) {
-      this.logger.warn(
-        '[memory-curator] embedder.embed failed; chunks stored without vectors',
-        {
-          error: err instanceof Error ? err.message : String(err),
-        },
-      );
+      if (!this.embedderWarnedOnce) {
+        this.embedderWarnedOnce = true;
+        this.logger.warn(
+          '[memory-curator] embedder unavailable; chunks will be stored without vectors until restart',
+          {
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
       return [];
     }
   }
@@ -264,6 +301,60 @@ export class MemoryStore {
     };
   }
 
+  /**
+   * IMemoryLister implementation — read-only list for cross-layer consumers.
+   * Returns a page of memories with a total count for pagination, sorted by salience.
+   */
+  listAll(
+    workspaceRoot?: string,
+    tier?: string,
+    limit = 50,
+    offset = 0,
+  ): MemoryListPage {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (workspaceRoot) {
+      conditions.push('(workspace_root IS NULL OR workspace_root = ?)');
+      params.push(workspaceRoot);
+    }
+    if (tier) {
+      conditions.push('tier = ?');
+      params.push(tier);
+    }
+    const where =
+      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const clampedLimit = Math.max(1, Math.min(500, limit));
+    const clampedOffset = Math.max(0, offset);
+    const rows = this.connection.db
+      .prepare(
+        `SELECT id, subject, content, tier, kind, salience, created_at FROM memories ${where} ORDER BY salience DESC LIMIT ? OFFSET ?`,
+      )
+      .all(...params, clampedLimit, clampedOffset) as Array<{
+      id: string;
+      subject: string | null;
+      content: string;
+      tier: string;
+      kind: string;
+      salience: number;
+      created_at: number;
+    }>;
+    const countRow = this.connection.db
+      .prepare(`SELECT COUNT(*) as n FROM memories ${where}`)
+      .get(...params) as { n: number } | undefined;
+    return {
+      memories: rows.map((r) => ({
+        id: r.id,
+        subject: r.subject,
+        content: r.content,
+        tier: r.tier,
+        kind: r.kind,
+        salience: r.salience,
+        createdAt: r.created_at,
+      })),
+      total: countRow?.n ?? rows.length,
+    };
+  }
+
   getChunks(id: MemoryId): readonly MemoryChunk[] {
     const rows = this.connection.db
       .prepare(
@@ -274,13 +365,43 @@ export class MemoryStore {
   }
 
   setPinned(id: MemoryId, pinned: boolean): void {
+    const ws = this.lookupWorkspaceRoot(id);
     this.connection.db
       .prepare(`UPDATE memories SET pinned = ?, updated_at = ? WHERE id = ?`)
       .run(pinned ? 1 : 0, Date.now(), id);
+    this.bumpWriteCounter(ws);
   }
 
   forget(id: MemoryId): void {
+    const ws = this.lookupWorkspaceRoot(id);
     this.connection.db.prepare(`DELETE FROM memories WHERE id = ?`).run(id);
+    this.bumpWriteCounter(ws);
+  }
+
+  /**
+   * Delete all memory rows whose subject starts with `prefix` and matches workspaceRoot.
+   * Used by CodeSymbolIndexer to clear stale file symbols before re-indexing.
+   * Returns count of deleted rows.
+   * TASK_2026_THOTH_CODE_INDEX
+   *
+   * Uses ESCAPE clause to prevent LIKE metacharacters (`%`, `_`, `\`) in file paths
+   * from silently over-matching and deleting symbols from the wrong files.
+   */
+  deleteBySubjectPrefix(prefix: string, workspaceRoot: string): number {
+    // Escape backslashes first, then % and _ so SQLite LIKE treats them literally.
+    const escaped = prefix
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_');
+    const result = this.connection.db
+      .prepare(
+        `DELETE FROM memories WHERE subject LIKE ? ESCAPE '\\' AND workspace_root IS ? AND kind = 'entity'`,
+      )
+      .run(escaped + '%', workspaceRoot);
+    if (result.changes > 0) {
+      this.bumpWriteCounter(workspaceRoot);
+    }
+    return result.changes;
   }
 
   recordHit(id: MemoryId): void {
@@ -292,6 +413,7 @@ export class MemoryStore {
   }
 
   updateSalience(id: MemoryId, salience: number, tier?: MemoryTier): void {
+    const ws = this.lookupWorkspaceRoot(id);
     if (tier) {
       this.connection.db
         .prepare(
@@ -305,6 +427,7 @@ export class MemoryStore {
         )
         .run(salience, Date.now(), id);
     }
+    this.bumpWriteCounter(ws);
   }
 
   /** Append source content to an existing memory's chunk list (used on merge). */
@@ -313,6 +436,7 @@ export class MemoryStore {
     additional: readonly Omit<ChunkInsert, 'memoryId'>[],
   ): Promise<void> {
     if (additional.length === 0) return;
+    const ws = this.lookupWorkspaceRoot(id);
     const now = Date.now();
     const vecAvailable = this.connection.vecExtensionLoaded;
     const embeddings: Float32Array[] = vecAvailable
@@ -369,7 +493,15 @@ export class MemoryStore {
       }
       updateMemoryStmt.run(now, now, id);
     }) as (...args: unknown[]) => unknown);
-    txn();
+    try {
+      txn();
+      this.bumpWriteCounter(ws);
+    } catch (err: unknown) {
+      // D5: Wire fatal write error classification so disk-full errors close the
+      // connection and surface PERSISTENCE_UNAVAILABLE instead of raw SQLITE_FULL.
+      this.connection.handleFatalWriteError(err);
+      throw err;
+    }
   }
 
   stats(workspaceRoot?: string | null): MemoryStatsResponse {
@@ -441,5 +573,17 @@ export class MemoryStore {
       rebuiltVec = true;
     }
     return { rebuiltFts: true, rebuiltVec };
+  }
+
+  /**
+   * Fetch just the workspace_root for a memory by its ID.
+   * Returns null when the memory is not found or has no workspace.
+   * Used by write methods to scope the write-counter bump.
+   */
+  private lookupWorkspaceRoot(id: MemoryId): string | null {
+    const row = this.connection.db
+      .prepare(`SELECT workspace_root FROM memories WHERE id = ?`)
+      .get(id) as { workspace_root: string | null } | undefined;
+    return row?.workspace_root ?? null;
   }
 }

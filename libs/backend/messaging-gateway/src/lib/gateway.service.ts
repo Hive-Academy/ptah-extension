@@ -32,6 +32,10 @@ import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import {
+  SETTINGS_TOKENS,
+  type GatewaySettings,
+} from '@ptah-extension/settings-core';
 
 import { GATEWAY_TOKENS } from './di/tokens';
 import type { ITokenVault } from './token-vault.interface';
@@ -160,6 +164,8 @@ export class GatewayService extends EventEmitter {
     @inject(BoltSlackAdapter) private readonly slack: BoltSlackAdapter,
     @inject(FfmpegDecoder) private readonly ffmpeg: FfmpegDecoder,
     @inject(WhisperTranscriber) private readonly whisper: WhisperTranscriber,
+    @inject(SETTINGS_TOKENS.GATEWAY_SETTINGS)
+    private readonly gatewaySettings: GatewaySettings,
   ) {
     super();
   }
@@ -281,7 +287,14 @@ export class GatewayService extends EventEmitter {
     }
   }
 
-  /** RPC handler — encrypt + persist a token into the file-based settings. */
+  /**
+   * RPC handler — encrypt + persist a token into the encrypted secrets file.
+   *
+   * The ITokenVault.encrypt() call produces a Vault cipher (application-layer
+   * encryption). The resulting cipher is then stored via the GatewaySettings
+   * secret handles, which apply AES-256-GCM envelope encryption on top
+   * (two-layer encryption — see WP-4A design doc for rationale).
+   */
   async setToken(args: {
     platform: GatewayPlatform;
     token: string;
@@ -289,27 +302,13 @@ export class GatewayService extends EventEmitter {
   }): Promise<void> {
     const cipher = this.vault.encrypt(args.token);
     if (args.platform === 'telegram') {
-      await this.workspace.setConfiguration(
-        'ptah',
-        SETTINGS_KEYS.telegram.token,
-        cipher,
-      );
+      await this.gatewaySettings.telegramTokenCipher.set(cipher);
     } else if (args.platform === 'discord') {
-      await this.workspace.setConfiguration(
-        'ptah',
-        SETTINGS_KEYS.discord.token,
-        cipher,
-      );
+      await this.gatewaySettings.discordTokenCipher.set(cipher);
     } else {
-      await this.workspace.setConfiguration(
-        'ptah',
-        SETTINGS_KEYS.slack.botToken,
-        cipher,
-      );
+      await this.gatewaySettings.slackBotTokenCipher.set(cipher);
       if (args.slackAppToken) {
-        await this.workspace.setConfiguration(
-          'ptah',
-          SETTINGS_KEYS.slack.appToken,
+        await this.gatewaySettings.slackAppTokenCipher.set(
           this.vault.encrypt(args.slackAppToken),
         );
       }
@@ -483,7 +482,7 @@ export class GatewayService extends EventEmitter {
     if (existing === this.telegram) {
       this.telegram.configure({ allowedUserIds: allowed });
     }
-    const token = this.decryptToken('telegram', SETTINGS_KEYS.telegram.token);
+    const token = await this.decryptToken('telegram');
     if (!token) return;
     try {
       await existing.start(token);
@@ -504,7 +503,7 @@ export class GatewayService extends EventEmitter {
     if (existing === this.discord) {
       this.discord.configure({ allowedGuildIds: allowed });
     }
-    const token = this.decryptToken('discord', SETTINGS_KEYS.discord.token);
+    const token = await this.decryptToken('discord');
     if (!token) return;
     try {
       await existing.start(token);
@@ -525,8 +524,8 @@ export class GatewayService extends EventEmitter {
     if (existing === this.slack) {
       this.slack.configure({ allowedTeamIds: allowed });
     }
-    const botToken = this.decryptToken('slack', SETTINGS_KEYS.slack.botToken);
-    const appToken = this.decryptToken('slack', SETTINGS_KEYS.slack.appToken);
+    const botToken = await this.decryptToken('slack');
+    const appToken = await this.decryptSlackAppToken();
     if (!botToken || !appToken) return;
     try {
       await existing.start(botToken, { appToken });
@@ -673,10 +672,32 @@ export class GatewayService extends EventEmitter {
     }
   }
 
-  private decryptToken(platform: GatewayPlatform, key: string): string | null {
-    const cipher =
-      this.workspace.getConfiguration<string>('ptah', key, '') ?? '';
+  private async decryptToken(
+    platform: GatewayPlatform,
+  ): Promise<string | null> {
+    let cipher: string | undefined;
+    try {
+      if (platform === 'telegram') {
+        cipher = await this.gatewaySettings.telegramTokenCipher.get();
+      } else if (platform === 'discord') {
+        cipher = await this.gatewaySettings.discordTokenCipher.get();
+      } else {
+        // Slack: bot token only — appToken is handled separately in maybeStartSlack.
+        cipher = await this.gatewaySettings.slackBotTokenCipher.get();
+      }
+    } catch (err) {
+      this.logger.warn(
+        '[gateway] failed to read secret — secrets file may be corrupt',
+        {
+          platform,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+      return null;
+    }
+
     if (!cipher) return null;
+
     const plain = this.vault.decrypt(cipher);
     if (plain === null) {
       if (!this.decryptFailures.has(platform)) {
@@ -692,6 +713,21 @@ export class GatewayService extends EventEmitter {
       return null;
     }
     return plain;
+  }
+
+  /** Read the Slack app token cipher from the secrets store. */
+  private async decryptSlackAppToken(): Promise<string | null> {
+    let cipher: string | undefined;
+    try {
+      cipher = await this.gatewaySettings.slackAppTokenCipher.get();
+    } catch (err) {
+      this.logger.warn('[gateway] failed to read slack app token secret', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+    if (!cipher) return null;
+    return this.vault.decrypt(cipher);
   }
 
   private cfgBool(key: string, defaultValue: boolean): boolean {

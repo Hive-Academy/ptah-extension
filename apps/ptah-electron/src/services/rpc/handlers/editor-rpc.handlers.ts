@@ -170,19 +170,18 @@ export class EditorRpcHandlers {
     this.registerListAllFiles();
   }
 
-  /** Validate that a file path is within the workspace root. Returns error message or null. */
+  /** Validate that a file path is within any workspace folder. Returns error message or null. */
   private validatePathInWorkspace(filePath: string): string | null {
-    const wsRoot = this.workspace.getWorkspaceRoot();
-    if (!wsRoot) return 'No workspace folder open';
-    const resolved = nodePath.resolve(filePath);
-    const resolvedRoot = nodePath.resolve(wsRoot);
-    if (
-      !resolved.startsWith(resolvedRoot + nodePath.sep) &&
-      resolved !== resolvedRoot
-    ) {
-      return 'Path is outside the workspace';
-    }
-    return null;
+    const folders = this.workspace.getWorkspaceFolders();
+    if (folders.length === 0) return 'No workspace folder open';
+    const normalize = (p: string) =>
+      nodePath.resolve(p).replace(/\\/g, '/').toLowerCase();
+    const target = normalize(filePath);
+    const ok = folders.some((folder) => {
+      const root = normalize(folder);
+      return target === root || target.startsWith(root + '/');
+    });
+    return ok ? null : 'Path is outside the workspace';
   }
 
   /**

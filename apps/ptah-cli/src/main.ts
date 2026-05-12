@@ -28,6 +28,7 @@ import 'reflect-metadata';
 import { fixPath } from '@ptah-extension/agent-sdk';
 import { buildRouter } from './cli/router.js';
 import { JSONRPC_SCHEMA_VERSION } from './cli/jsonrpc/types.js';
+import { CliDIContainer } from './di/container.js';
 
 // Repair process.env.PATH on Linux/macOS for parity with the Electron app
 // and the VS Code extension. Most CLI invocations inherit PATH from the
@@ -44,18 +45,30 @@ let shuttingDown = false;
 function installSignalHandlers(): void {
   const onSignal = (signal: 'SIGINT' | 'SIGTERM', exitCode: number) => () => {
     if (shuttingDown) {
-      // Second signal — bail hard.
+      // Second signal — bail hard without waiting for the event loop.
       process.exit(exitCode);
       return;
     }
     shuttingDown = true;
-    // Defer the exit one tick so an in-flight stdout write can flush.
     process.stderr.write(`\n[ptah] received ${signal}, exiting\n`);
-    setImmediate(() => process.exit(exitCode));
+    // Set the intended exit code then let the event loop drain naturally.
+    // The synchronous 'exit' handler registered below will call flushSync()
+    // before the process terminates, ensuring pending settings writes land on disk.
+    process.exitCode = exitCode;
+    // Return — do NOT call process.exit() here. Letting the event loop finish
+    // means the 'exit' event fires synchronously, which is the only safe place
+    // to call synchronous fs operations (flushSync).
   };
 
   process.on('SIGINT', onSignal('SIGINT', 130));
   process.on('SIGTERM', onSignal('SIGTERM', 143));
+
+  // Synchronous exit hook — guaranteed to fire on all exit paths:
+  // clean exit, process.exit(), and unhandled-rejection crashes.
+  // flushSync() uses fs.writeFileSync + fs.renameSync and never throws.
+  process.on('exit', () => {
+    CliDIContainer.flushSync();
+  });
 }
 
 /**

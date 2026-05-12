@@ -57,7 +57,7 @@ export interface InternalQueryConfig {
   /**
    * Structured output format (JSON Schema).
    * When provided, the SDK constrains the agent's final response to match the schema.
-   * The result is returned in `SDKResultMessageSuccess.structured_output`.
+   * The result is returned in `SDKResultSuccess.structured_output`.
    * The SDK automatically retries if the agent fails to produce valid output.
    */
   outputFormat?: OutputFormat;

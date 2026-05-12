@@ -94,6 +94,15 @@ export class VSCodeService implements MessageHandler {
   // MessageHandler implementation — receives workspaceChanged from extension host
   readonly handledMessageTypes = [MESSAGE_TYPES.WORKSPACE_CHANGED] as const;
 
+  /**
+   * WORKSPACE_CHANGED handler — intentionally no origin-drop logic.
+   *
+   * `updateWorkspaceRoot` is idempotent: it sets the same signal value,
+   * which Angular's signal equality check (Object.is) silently no-ops.
+   * Self-echo suppression is the responsibility of ElectronLayoutService,
+   * which owns the user-initiated switch flow. This handler only updates
+   * the workspace root string for the VS Code host context.
+   */
   handleMessage(message: { type: string; payload?: unknown }): void {
     const payload = message.payload as
       | { workspaceInfo?: { path?: string } | null }

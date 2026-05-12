@@ -24,6 +24,9 @@ import {
   SignatureDeltaEvent,
   CompactionCompleteEvent,
   BackgroundAgentStartedEvent,
+  AgentProgressEvent,
+  AgentStatusEvent,
+  AgentCompletedEvent,
   SessionId,
   calculateMessageCost,
   EventSource,
@@ -57,6 +60,10 @@ import {
   isAssistantMessage,
   isCompactBoundary,
   isLocalCommandOutput,
+  isTaskStarted,
+  isTaskProgress,
+  isTaskUpdated,
+  isTaskNotification,
 } from './types/sdk-types/claude-sdk.types';
 import {
   generateEventId,
@@ -120,6 +127,20 @@ export class SdkMessageTransformer {
    * Set: toolCallId values
    */
   private backgroundTaskToolUseIds: Set<string> = new Set();
+
+  /**
+   * Phase 1: Maps SDK task_id → parent tool_use_id for task_* message routing.
+   * Populated when task_started fires; used by task_progress, task_updated,
+   * and task_notification to recover the parentToolUseId for event emission.
+   */
+  private taskIdToParentToolUseId: Map<string, string> = new Map();
+
+  /**
+   * Phase 1: Tracks which parentToolUseIds have already had an AgentStartEvent
+   * emitted via the authoritative task_started path. Used to suppress the
+   * legacy tool_result correlation path for those agents, preventing duplicates.
+   */
+  private taskStartedEmitted: Set<string> = new Set();
 
   /**
    * Tracks Skill tool_use IDs that are currently executing.
@@ -413,6 +434,26 @@ export class SdkMessageTransformer {
       if (isStreamEvent(sdkMessage)) {
         // Process partial streaming events for real-time UI updates
         return this.transformStreamEventToFlatEvents(sdkMessage, sessionId);
+      }
+
+      // Phase 1: SDK task_* messages — subagent visibility surface.
+      // These system messages carry authoritative lifecycle state for
+      // subagents tracked via `agentProgressSummaries: true` Option.
+
+      if (isTaskStarted(sdkMessage)) {
+        return this.transformTaskStarted(sdkMessage, sessionId);
+      }
+
+      if (isTaskProgress(sdkMessage)) {
+        return this.transformTaskProgress(sdkMessage, sessionId);
+      }
+
+      if (isTaskUpdated(sdkMessage)) {
+        return this.transformTaskUpdated(sdkMessage, sessionId);
+      }
+
+      if (isTaskNotification(sdkMessage)) {
+        return this.transformTaskNotification(sdkMessage, sessionId);
       }
 
       // Unknown message type
@@ -1047,10 +1088,13 @@ export class SdkMessageTransformer {
           parentToolUseId: parent_tool_use_id ?? undefined,
         };
 
-        // Emit agent_start event for Task tools
-        // TASK_2025_095: parentToolUseId must link to the Task tool's toolCallId (block.id)
-        // This allows the frontend tree builder to find the agent via parentToolUseId
-        if (isTaskTool) {
+        // Emit agent_start event for Task tools.
+        // Dedupe: if the SDK-authoritative task_started path already emitted
+        // an agent_start for this tool_use_id, skip the legacy emission so the
+        // frontend never sees two agent_start events for the same agent.
+        // The SDK path is authoritative (it carries taskId); this legacy path
+        // only fires when the SDK path has NOT already covered this toolCallId.
+        if (isTaskTool && !this.taskStartedEmitted.has(block.id)) {
           const agentStartEvent: AgentStartEvent = {
             id: generateEventId(),
             eventType: 'agent_start',
@@ -1338,5 +1382,222 @@ export class SdkMessageTransformer {
     this.toolCallIdByContextAndBlock.clear();
     this.backgroundTaskToolUseIds.clear();
     this.activeSkillToolUseIds.clear();
+    this.taskIdToParentToolUseId.clear();
+    this.taskStartedEmitted.clear();
+  }
+
+  // ==========================================================================
+  // Phase 1: SDK task_* message handlers
+  // ==========================================================================
+
+  /**
+   * Handle SDK task_started — authoritative agent spawn notification.
+   *
+   * Registers the taskId → parentToolUseId mapping in the local registry.
+   * Emits an AgentStartEvent enriched with taskId if one hasn't been emitted
+   * yet for this parentToolUseId (dedupe guard against the legacy tool_result
+   * correlation path). The existing tool_result path remains for non-Task agents.
+   */
+  private transformTaskStarted(
+    msg: import('./types/sdk-types/claude-sdk.types').SDKTaskStartedMessage,
+    sessionId?: SessionId,
+  ): FlatStreamEventUnion[] {
+    const toolUseId = msg.tool_use_id;
+
+    // Register task_id → tool_use_id mapping for later messages
+    if (toolUseId) {
+      this.taskIdToParentToolUseId.set(msg.task_id, toolUseId);
+      // Associate the SDK task_id with the registry record so that
+      // SubagentMessageDispatcher can resolve stopSubagent calls by taskId.
+      // SubagentRecord.taskId drives the Stop button guard in the UI
+      // (canStop = status === 'running' && !!taskId).
+      this.subagentRegistry.setTaskId(toolUseId, msg.task_id);
+    }
+
+    // Skip transcript-only tasks that should not appear in the chat UI
+    if (msg.skip_transcript) {
+      this.logger.debug(
+        '[SdkMessageTransformer] task_started skip_transcript=true — skipping',
+        { taskId: msg.task_id, toolUseId },
+      );
+      return [];
+    }
+
+    if (!toolUseId) {
+      this.logger.debug(
+        '[SdkMessageTransformer] task_started has no tool_use_id — skipping AgentStartEvent',
+        { taskId: msg.task_id },
+      );
+      return [];
+    }
+
+    // Dedupe: if the legacy tool_result path already emitted an agent_start for
+    // this toolUseId, do NOT emit a second one. Mark it as SDK-authoritative so
+    // the tool_result path is suppressed from now on for this agent.
+    if (this.taskStartedEmitted.has(toolUseId)) {
+      return [];
+    }
+    this.taskStartedEmitted.add(toolUseId);
+
+    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+    const messageId =
+      this.currentMessageIdByContext.get('') ?? `task_${msg.task_id}`;
+
+    const event: AgentStartEvent = {
+      id: generateEventId(),
+      eventType: 'agent_start',
+      timestamp: Date.now(),
+      sessionId: resolvedSession,
+      messageId,
+      parentToolUseId: toolUseId,
+      toolCallId: toolUseId,
+      agentType: msg.task_type ?? 'Task',
+      agentDescription: msg.description,
+      agentPrompt: msg.prompt,
+      taskId: msg.task_id,
+    };
+
+    this.logger.debug('[SdkMessageTransformer] task_started → agent_start', {
+      taskId: msg.task_id,
+      toolUseId,
+    });
+
+    return [event];
+  }
+
+  /**
+   * Handle SDK task_progress — rolling progress update with optional summary.
+   */
+  private transformTaskProgress(
+    msg: import('./types/sdk-types/claude-sdk.types').SDKTaskProgressMessage,
+    sessionId?: SessionId,
+  ): FlatStreamEventUnion[] {
+    const parentToolUseId =
+      msg.tool_use_id ?? this.taskIdToParentToolUseId.get(msg.task_id);
+
+    if (!parentToolUseId) {
+      this.logger.debug(
+        '[SdkMessageTransformer] task_progress: no parentToolUseId, skipping',
+        { taskId: msg.task_id },
+      );
+      return [];
+    }
+
+    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+
+    const event: AgentProgressEvent = {
+      id: generateEventId(),
+      eventType: 'agent_progress',
+      timestamp: Date.now(),
+      sessionId: resolvedSession,
+      messageId:
+        this.currentMessageIdByContext.get('') ?? `task_${msg.task_id}`,
+      parentToolUseId,
+      taskId: msg.task_id,
+      description: msg.description,
+      summary: msg.summary,
+      lastToolName: msg.last_tool_name,
+      totalTokens: msg.usage.total_tokens,
+      toolUses: msg.usage.tool_uses,
+      durationMs: msg.usage.duration_ms,
+    };
+
+    return [event];
+  }
+
+  /**
+   * Handle SDK task_updated — status patch for a running subagent.
+   */
+  private transformTaskUpdated(
+    msg: import('./types/sdk-types/claude-sdk.types').SDKTaskUpdatedMessage,
+    sessionId?: SessionId,
+  ): FlatStreamEventUnion[] {
+    const parentToolUseId = this.taskIdToParentToolUseId.get(msg.task_id);
+
+    if (!parentToolUseId) {
+      this.logger.debug(
+        '[SdkMessageTransformer] task_updated: no parentToolUseId, skipping',
+        { taskId: msg.task_id },
+      );
+      return [];
+    }
+
+    const patch = msg.patch;
+    if (!patch.status) {
+      // No status change — nothing useful for the frontend right now
+      return [];
+    }
+
+    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+
+    const event: AgentStatusEvent = {
+      id: generateEventId(),
+      eventType: 'agent_status',
+      timestamp: Date.now(),
+      sessionId: resolvedSession,
+      messageId:
+        this.currentMessageIdByContext.get('') ?? `task_${msg.task_id}`,
+      parentToolUseId,
+      taskId: msg.task_id,
+      status: patch.status,
+      description: patch.description,
+      errorMessage: patch.error,
+    };
+
+    return [event];
+  }
+
+  /**
+   * Handle SDK task_notification — definitive subagent completion.
+   *
+   * Cleans up the taskId registry entry and emits AgentCompletedEvent.
+   */
+  private transformTaskNotification(
+    msg: import('./types/sdk-types/claude-sdk.types').SDKTaskNotificationMessage,
+    sessionId?: SessionId,
+  ): FlatStreamEventUnion[] {
+    const parentToolUseId =
+      msg.tool_use_id ?? this.taskIdToParentToolUseId.get(msg.task_id);
+
+    // Clean up registry regardless of whether we emit
+    this.taskIdToParentToolUseId.delete(msg.task_id);
+
+    if (msg.skip_transcript) {
+      return [];
+    }
+
+    if (!parentToolUseId) {
+      this.logger.debug(
+        '[SdkMessageTransformer] task_notification: no parentToolUseId, skipping',
+        { taskId: msg.task_id, status: msg.status },
+      );
+      return [];
+    }
+
+    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+
+    const event: AgentCompletedEvent = {
+      id: generateEventId(),
+      eventType: 'agent_completed',
+      timestamp: Date.now(),
+      sessionId: resolvedSession,
+      messageId:
+        this.currentMessageIdByContext.get('') ?? `task_${msg.task_id}`,
+      parentToolUseId,
+      taskId: msg.task_id,
+      status: msg.status,
+      summary: msg.summary,
+      outputFile: msg.output_file,
+      totalTokens: msg.usage?.total_tokens,
+      toolUses: msg.usage?.tool_uses,
+      durationMs: msg.usage?.duration_ms,
+    };
+
+    this.logger.debug(
+      '[SdkMessageTransformer] task_notification → agent_completed',
+      { taskId: msg.task_id, status: msg.status },
+    );
+
+    return [event];
   }
 }

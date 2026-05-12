@@ -16,7 +16,7 @@
 # =============================================================================
 
 # Base image: Node.js 20 LTS on Alpine Linux
-FROM node:20-alpine
+FROM node:24-alpine
 
 # Set working directory to monorepo root
 WORKDIR /app

@@ -21,14 +21,21 @@ import { Injectable, inject } from '@angular/core';
 import { type MessageHandler } from '@ptah-extension/core';
 import { FlatStreamEventUnion, MESSAGE_TYPES } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
+import { MessageSenderService } from './message-sender.service';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
-import { TabId, type ClaudeSessionId } from '@ptah-extension/chat-state';
+import {
+  TabId,
+  TabManagerService,
+  type ClaudeSessionId,
+} from '@ptah-extension/chat-state';
 import { StreamRouter } from '@ptah-extension/chat-routing';
 
 @Injectable({ providedIn: 'root' })
 export class ChatMessageHandler implements MessageHandler {
   private readonly chatStore = inject(ChatStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly tabManager = inject(TabManagerService);
+  private readonly messageSender = inject(MessageSenderService);
   /**
    * TASK_2026_106 Phase 3 — authoritative StreamRouter.
    *
@@ -60,6 +67,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
     MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP,
     MESSAGE_TYPES.SESSION_METADATA_CHANGED,
+    MESSAGE_TYPES.SETUP_WIZARD_START_NEW_PROJECT_CHAT,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -96,6 +104,9 @@ export class ChatMessageHandler implements MessageHandler {
         break;
       case MESSAGE_TYPES.SESSION_METADATA_CHANGED:
         this.handleSessionMetadataChanged();
+        break;
+      case MESSAGE_TYPES.SETUP_WIZARD_START_NEW_PROJECT_CHAT:
+        this.handleSetupWizardStartNewProjectChat(message.payload);
         break;
     }
   }
@@ -316,5 +327,30 @@ export class ChatMessageHandler implements MessageHandler {
         '[ChatMessageHandler] permission:session-cleanup received but sessionId is undefined!',
       );
     }
+  }
+
+  /**
+   * SETUP_WIZARD_START_NEW_PROJECT_CHAT: backend handoff from the wizard
+   * welcome screen's "Start New Project" button. Creates a fresh chat tab
+   * and submits the seed `prompt` as the first user turn so the
+   * saas-workspace-initializer skill can begin guiding the conversation.
+   */
+  private handleSetupWizardStartNewProjectChat(payload: unknown): void {
+    const { prompt } = (payload as { prompt?: string }) ?? {};
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+      console.warn(
+        '[ChatMessageHandler] setup-wizard:start-new-project-chat received but prompt is missing!',
+      );
+      return;
+    }
+
+    const tabId = this.tabManager.createTab();
+    this.tabManager.switchTab(tabId);
+    this.messageSender.send(prompt, { tabId }).catch((error: unknown) => {
+      console.error(
+        '[ChatMessageHandler] Failed to seed new-project chat:',
+        error instanceof Error ? error.message : String(error),
+      );
+    });
   }
 }

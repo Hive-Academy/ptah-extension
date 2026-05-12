@@ -106,6 +106,16 @@ export class MessageBubbleComponent {
   /** Total number of messages in the current conversation */
   readonly totalMessages = input<number>(0);
 
+  /**
+   * Whether the parent tab's session is currently active in the SDK
+   * (has a live `Query` handle). When false, the rewind button is
+   * disabled because backend `rewindFiles` would throw
+   * `SessionNotActiveError` — see Sentry NODE-NESTJS-2Y / 2N / 2X.
+   * Defaults to true so existing call sites that don't pass it (tests,
+   * unrelated views) keep current behaviour.
+   */
+  readonly isSessionActive = input<boolean>(true);
+
   // Lucide icons
   readonly UserIcon = User;
   readonly FileTextIcon = FileText;
@@ -259,6 +269,12 @@ export class MessageBubbleComponent {
 
   /** Click handler for the "Rewind to here" action on user bubbles. */
   protected onRewindClick(): void {
+    // Defence-in-depth — the template `[disabled]` guard already blocks
+    // pointer clicks, but keyboard / programmatic invocations can still
+    // reach here. Backend `rewindFiles` throws `SessionNotActiveError`
+    // for inactive sessions (Sentry NODE-NESTJS-2Y / 2N / 2X). The parent
+    // chat-view has its own re-check + user-facing toast.
+    if (!this.isSessionActive()) return;
     this.rewindRequested.emit(this.message().id);
   }
 

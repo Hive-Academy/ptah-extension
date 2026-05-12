@@ -55,7 +55,7 @@ export class SessionStreamPump {
     return {
       async *[Symbol.asyncIterator]() {
         while (!abortController.signal.aborted) {
-          const session = registry.getActiveSession(sessionId);
+          const session = registry.find(sessionId as string);
           if (!session) {
             logger.warn(
               `[SessionLifecycle] Session ${sessionId} not found - ending stream`,
@@ -81,7 +81,7 @@ export class SessionStreamPump {
               const abortHandler = () => resolve('aborted');
               abortController.signal.addEventListener('abort', abortHandler);
 
-              const currentSession = registry.getActiveSession(sessionId);
+              const currentSession = registry.find(sessionId as string);
               if (!currentSession) {
                 resolve('aborted');
                 return;
@@ -173,7 +173,7 @@ export class SessionStreamPump {
     files?: string[],
     images?: InlineImageAttachment[],
   ): Promise<void> {
-    const session = this.registry.getActiveSession(sessionId);
+    const session = this.registry.find(sessionId as string);
     if (!session) {
       throw new SdkError(`Session not found: ${sessionId}`);
     }

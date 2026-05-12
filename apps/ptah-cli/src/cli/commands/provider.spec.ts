@@ -601,7 +601,7 @@ describe('ptah provider tier', () => {
     expect(engine.rpcCalls).toEqual([
       {
         method: 'provider:setModelTier',
-        params: { tier: 'opus', modelId: 'gpt-4' },
+        params: { tier: 'opus', modelId: 'gpt-4', scope: 'mainAgent' },
       },
     ]);
     const last = formatterTrace.notifications.at(-1);
@@ -649,7 +649,7 @@ describe('ptah provider tier', () => {
 
     expect(exit).toBe(ExitCode.Success);
     expect(engine.rpcCalls).toEqual([
-      { method: 'provider:getModelTiers', params: {} },
+      { method: 'provider:getModelTiers', params: { scope: 'mainAgent' } },
     ]);
     const last = formatterTrace.notifications.at(-1);
     expect(last?.method).toBe('provider.tiers');
@@ -674,7 +674,10 @@ describe('ptah provider tier', () => {
 
     expect(exit).toBe(ExitCode.Success);
     expect(engine.rpcCalls).toEqual([
-      { method: 'provider:clearModelTier', params: { tier: 'opus' } },
+      {
+        method: 'provider:clearModelTier',
+        params: { tier: 'opus', scope: 'mainAgent' },
+      },
     ]);
     expect(formatterTrace.notifications.at(-1)?.method).toBe(
       'provider.tier.cleared',

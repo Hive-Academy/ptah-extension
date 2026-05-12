@@ -18,8 +18,13 @@ import {
   LucideAngularModule,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Loader2,
   StopCircle,
+  Square,
+  Send,
+  CheckCircle2,
+  XCircle,
   // TASK_2025_109: PlayCircle removed - Resume button no longer needed
 } from 'lucide-angular';
 // TASK_2026_103 wave B2: ExecutionNodeComponent import removed to break the
@@ -180,6 +185,173 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
           </span>
         }
       </button>
+
+      <!-- Phase 3: SDK task_* per-subagent status row.
+           Only renders when a SubagentRecord exists for this node's toolCallId.
+           Keyed by parentToolUseId — fed by agent_start / agent_progress /
+           agent_status / agent_completed events through AgentMonitorStore. -->
+      @if (subagentRecord(); as rec) {
+        <div
+          class="flex items-center gap-2 px-3 py-1 text-[10px] border-t border-base-300/30 bg-base-100/40"
+          data-testid="subagent-status-row"
+        >
+          <!-- Status badge -->
+          @switch (rec.status) {
+            @case ('running') {
+              <span
+                class="badge badge-xs badge-info gap-1 flex-shrink-0"
+                data-testid="subagent-status-badge"
+                data-status="running"
+              >
+                <span
+                  class="inline-block w-1.5 h-1.5 rounded-full bg-current animate-pulse"
+                ></span>
+                <span class="text-[9px]">running</span>
+              </span>
+            }
+            @case ('completed') {
+              <span
+                class="badge badge-xs badge-success gap-1 flex-shrink-0"
+                data-testid="subagent-status-badge"
+                data-status="completed"
+              >
+                <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
+                <span class="text-[9px]">completed</span>
+              </span>
+            }
+            @case ('failed') {
+              <span
+                class="badge badge-xs badge-error gap-1 flex-shrink-0"
+                data-testid="subagent-status-badge"
+                data-status="failed"
+              >
+                <lucide-angular [img]="XIcon" class="w-2.5 h-2.5" />
+                <span class="text-[9px]">failed</span>
+              </span>
+            }
+            @case ('killed') {
+              <span
+                class="badge badge-xs badge-error gap-1 flex-shrink-0"
+                data-testid="subagent-status-badge"
+                data-status="killed"
+              >
+                <lucide-angular [img]="XIcon" class="w-2.5 h-2.5" />
+                <span class="text-[9px]">failed</span>
+              </span>
+            }
+            @case ('stopped') {
+              <span
+                class="badge badge-xs badge-warning gap-1 flex-shrink-0"
+                data-testid="subagent-status-badge"
+                data-status="stopped"
+              >
+                <lucide-angular [img]="StopCircleIcon" class="w-2.5 h-2.5" />
+                <span class="text-[9px]">stopped</span>
+              </span>
+            }
+            @case ('pending') {
+              <span
+                class="badge badge-xs badge-ghost gap-1 flex-shrink-0"
+                data-testid="subagent-status-badge"
+                data-status="pending"
+              >
+                <lucide-angular
+                  [img]="LoaderIcon"
+                  class="w-2.5 h-2.5 animate-spin"
+                />
+                <span class="text-[9px]">pending</span>
+              </span>
+            }
+          }
+
+          <!-- Progress sub-line: italic, muted, ellipsis-truncated single line -->
+          @if (progressLine(); as line) {
+            <span
+              class="flex-1 min-w-0 italic text-[9px] text-base-content/50 truncate"
+              data-testid="subagent-progress-line"
+              [title]="line"
+            >
+              {{ line }}
+            </span>
+          } @else {
+            <span class="flex-1"></span>
+          }
+
+          <!-- Stop button: only when running and we have a taskId to stop. -->
+          @if (canStop()) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-error"
+              (click)="onStopClick($event)"
+              [disabled]="stopPending()"
+              data-testid="subagent-stop-button"
+              title="Stop this subagent"
+              aria-label="Stop subagent"
+            >
+              <lucide-angular [img]="SquareIcon" class="w-3 h-3" />
+            </button>
+          }
+
+          <!-- Send-message toggle (collapsed by default) -->
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/50"
+            (click)="toggleSendInput($event)"
+            data-testid="subagent-send-toggle"
+            [attr.aria-expanded]="sendInputExpanded()"
+            [title]="sendInputExpanded() ? 'Hide send input' : 'Send a message'"
+          >
+            <lucide-angular
+              [img]="sendInputExpanded() ? ChevronUpIcon : ChevronDownIcon"
+              class="w-3 h-3"
+            />
+            <span class="text-[9px]">Send a message</span>
+          </button>
+        </div>
+
+        <!-- Send-message input (collapsed by default). -->
+        @if (sendInputExpanded()) {
+          <div
+            class="flex items-start gap-2 px-3 py-2 border-t border-base-300/30 bg-base-100/30"
+            data-testid="subagent-send-form"
+          >
+            <textarea
+              #sendTextarea
+              class="textarea textarea-bordered textarea-xs flex-1 text-[11px] resize-none leading-snug min-h-0"
+              [class.textarea-disabled]="!canSendMessage()"
+              [disabled]="!canSendMessage()"
+              [title]="canSendMessage() ? '' : 'Agent is no longer running'"
+              [attr.aria-label]="'Send a message to this subagent'"
+              placeholder="Send a message to this agent…"
+              rows="1"
+              [value]="sendDraft()"
+              (input)="onSendDraftInput($event)"
+              (keydown)="onSendKeydown($event)"
+              data-testid="subagent-send-textarea"
+            ></textarea>
+            <button
+              type="button"
+              class="btn btn-primary btn-xs px-2 min-h-0 h-7 flex-shrink-0"
+              [disabled]="!canSubmitSend()"
+              (click)="onSendSubmit()"
+              data-testid="subagent-send-submit"
+              title="Send (Cmd/Ctrl+Enter)"
+              aria-label="Send message"
+            >
+              <lucide-angular [img]="SendIcon" class="w-3 h-3" />
+            </button>
+          </div>
+          @if (showSentToast()) {
+            <div
+              class="px-3 py-1 text-[10px] text-success/80 italic"
+              data-testid="subagent-sent-toast"
+              animate.enter="agent-fade-in"
+            >
+              sent ✓
+            </div>
+          }
+        }
+      }
 
       <!-- Card description (visible when collapsed for card-like appearance) -->
       @if (isCollapsed() && node().agentDescription) {
@@ -457,8 +629,13 @@ export class InlineAgentBubbleComponent {
   // Icons
   readonly ChevronDownIcon = ChevronDown;
   readonly ChevronRightIcon = ChevronRight;
+  readonly ChevronUpIcon = ChevronUp;
   readonly LoaderIcon = Loader2;
   readonly StopCircleIcon = StopCircle;
+  readonly SquareIcon = Square;
+  readonly SendIcon = Send;
+  readonly CheckIcon = CheckCircle2;
+  readonly XIcon = XCircle;
   // TASK_2025_109: PlayCircleIcon removed - Resume button no longer needed
 
   // Collapse state - expanded by default, auto-collapsed for background agents
@@ -732,5 +909,121 @@ export class InlineAgentBubbleComponent {
 
   protected toggleCollapse(): void {
     this.isCollapsed.update((v) => !v);
+  }
+
+  // ───────────────────────────────────────────────────────────────────
+  // Phase 3: subagent visibility + bidirectional messaging
+  // ───────────────────────────────────────────────────────────────────
+
+  /** parentToolUseId for the SDK task this bubble represents. */
+  readonly parentToolUseId = computed(() => this.node().toolCallId ?? null);
+
+  /** Reactive lookup of the subagent record from AgentMonitorStore. */
+  readonly subagentRecord = computed(() => {
+    const key = this.parentToolUseId();
+    if (!key) return undefined;
+    return this.agentMonitorStore.subagents().get(key);
+  });
+
+  /** Single-line progress text shown next to the status badge. */
+  readonly progressLine = computed(() => {
+    const rec = this.subagentRecord();
+    if (!rec) return null;
+    if (rec.latestSummary) return rec.latestSummary;
+    if (rec.lastToolName) return `last: ${rec.lastToolName}`;
+    if (rec.description) return rec.description;
+    return null;
+  });
+
+  /** Stop button is only valid while running AND we know a taskId. */
+  readonly canStop = computed(() => {
+    const rec = this.subagentRecord();
+    return !!rec && rec.status === 'running' && !!rec.taskId;
+  });
+
+  /** Whether the send-message textarea should accept input. */
+  readonly canSendMessage = computed(() => {
+    const rec = this.subagentRecord();
+    return !!rec && rec.status === 'running';
+  });
+
+  // Send-message UI state
+  readonly sendInputExpanded = signal(false);
+  readonly sendDraft = signal('');
+  readonly sendPending = signal(false);
+  readonly stopPending = signal(false);
+  readonly showSentToast = signal(false);
+  private sentToastTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Submit-button enablement: text non-empty AND record is running. */
+  readonly canSubmitSend = computed(() => {
+    return (
+      this.canSendMessage() &&
+      !this.sendPending() &&
+      this.sendDraft().trim().length > 0
+    );
+  });
+
+  protected toggleSendInput(event: Event): void {
+    event.stopPropagation();
+    this.sendInputExpanded.update((v) => !v);
+  }
+
+  protected onSendDraftInput(event: Event): void {
+    const target = event.target as HTMLTextAreaElement;
+    this.sendDraft.set(target.value);
+    // Auto-grow up to ~3 lines
+    target.style.height = 'auto';
+    const max = 72; // ~3 lines @ 24px line-height
+    target.style.height = Math.min(target.scrollHeight, max) + 'px';
+  }
+
+  protected onSendKeydown(event: KeyboardEvent): void {
+    // Cmd/Ctrl+Enter submits
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      this.onSendSubmit();
+    }
+  }
+
+  protected async onSendSubmit(): Promise<void> {
+    if (!this.canSubmitSend()) return;
+    const key = this.parentToolUseId();
+    if (!key) return;
+    const text = this.sendDraft().trim();
+    this.sendPending.set(true);
+    let sent = false;
+    try {
+      sent = await this.agentMonitorStore.sendMessageToAgent(key, text);
+    } finally {
+      this.sendPending.set(false);
+    }
+    if (sent) {
+      this.sendDraft.set('');
+      this.flashSentToast();
+    }
+    // On failure the draft is preserved so the user can retry; the store's
+    // subagentRpcError signal surfaces the error inline via the template.
+  }
+
+  protected async onStopClick(event: Event): Promise<void> {
+    event.stopPropagation();
+    const rec = this.subagentRecord();
+    if (!rec || !rec.taskId) return;
+    this.stopPending.set(true);
+    try {
+      await this.agentMonitorStore.stopAgent(rec.taskId);
+    } finally {
+      this.stopPending.set(false);
+    }
+  }
+
+  private flashSentToast(): void {
+    if (this.sentToastTimer) clearTimeout(this.sentToastTimer);
+    this.showSentToast.set(true);
+    this.sentToastTimer = setTimeout(() => {
+      this.showSentToast.set(false);
+      this.sentToastTimer = null;
+    }, 2000);
   }
 }

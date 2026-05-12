@@ -7,6 +7,10 @@ description: '3-layer webhook architecture pattern for NestJS applications handl
 
 Pattern for handling inbound webhooks in NestJS with strict separation of concerns across three layers: HTTP validation, event verification and routing, and domain logic execution. Apply this pattern whenever an external service sends events to your application via HTTP callbacks.
 
+## Activation scope
+
+This skill activates **per-module during Stage B** of the SaaS bootstrap, once per inbound webhook source on the roadmap (one Stage B session per `webhook-<provider>` item). It is NOT part of the Stage A foundation produced by `saas-workspace-initializer` — webhook layers land alongside the domain that consumes them, not up front.
+
 ## Architecture
 
 ```
@@ -86,7 +90,10 @@ import { BusinessService } from '../services/business.service';
 export class ExternalWebhookService {
   private readonly logger = new Logger(ExternalWebhookService.name);
 
-  constructor(private readonly prisma: PrismaService, private readonly businessService: BusinessService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly businessService: BusinessService,
+  ) {}
 
   async processWebhook(rawBody: Buffer, signature: string, timestamp: string): Promise<void> {
     try {
@@ -162,7 +169,10 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 export class BusinessService {
   private readonly logger = new Logger(BusinessService.name);
 
-  constructor(private readonly prisma: PrismaService, private readonly eventEmitter: EventEmitter2) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   async handleSubscriptionCreated(data: SubscriptionData): Promise<void> {
     const subscription = await this.prisma.subscription.create({

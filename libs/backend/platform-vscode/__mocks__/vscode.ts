@@ -449,6 +449,23 @@ export const workspace = {
     openDocumentEmitter.event(listener),
   ),
   getWorkspaceFolder: jest.fn((_uri: any) => workspaceFoldersState[0]),
+  /**
+   * Stub for vscode.workspace.updateWorkspaceFolders.
+   * Tests that exercise workspace lifecycle mutations should override this with
+   * a jest.fn() that also updates `workspaceFoldersState` via
+   * `__vscodeState.setWorkspaceFolders(...)`.
+   *
+   * Default implementation: no-op returning true (matches VS Code's return type).
+   */
+  updateWorkspaceFolders: jest.fn(
+    (
+      _start: number,
+      _deleteCount: number | null | undefined,
+      ..._workspaceFoldersToAdd: Array<{
+        uri: { fsPath: string; path: string };
+      }>
+    ): boolean => true,
+  ),
 };
 
 // ---------------------------------------------------------------------------
@@ -733,4 +750,6 @@ export function __resetVscodeTestDouble(): void {
   scripted.nextAction = undefined;
   scripted.nextInput = undefined;
   scripted.nextQuickPick = undefined;
+  (workspace.updateWorkspaceFolders as jest.Mock).mockReset();
+  (workspace.updateWorkspaceFolders as jest.Mock).mockReturnValue(true);
 }

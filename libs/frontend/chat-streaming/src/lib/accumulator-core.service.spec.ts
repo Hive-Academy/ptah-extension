@@ -337,7 +337,15 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     >
   >;
   let agentMonitorStore: jest.Mocked<
-    Pick<AgentMonitorStore, 'markAgentNodesResumed' | 'clearSessionAgents'>
+    Pick<
+      AgentMonitorStore,
+      | 'markAgentNodesResumed'
+      | 'clearSessionAgents'
+      | 'onAgentStart'
+      | 'onAgentProgress'
+      | 'onAgentStatus'
+      | 'onAgentCompleted'
+    >
   >;
   let state: StreamingState;
 
@@ -383,8 +391,20 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     agentMonitorStore = {
       markAgentNodesResumed: jest.fn(),
       clearSessionAgents: jest.fn(),
+      onAgentStart: jest.fn(),
+      onAgentProgress: jest.fn(),
+      onAgentStatus: jest.fn(),
+      onAgentCompleted: jest.fn(),
     } as jest.Mocked<
-      Pick<AgentMonitorStore, 'markAgentNodesResumed' | 'clearSessionAgents'>
+      Pick<
+        AgentMonitorStore,
+        | 'markAgentNodesResumed'
+        | 'clearSessionAgents'
+        | 'onAgentStart'
+        | 'onAgentProgress'
+        | 'onAgentStatus'
+        | 'onAgentCompleted'
+      >
     >;
 
     TestBed.configureTestingModule({

@@ -1,17 +1,45 @@
 /**
- * Zod schemas for {@link SubagentRpcHandlers}.
+ * Zod schemas for {@link SubagentRpcHandlers} — Phase 2 additions.
  *
- * INTENTIONALLY EMPTY — the subagent handler validates its params via the
- * static TypeScript types exported from `@ptah-extension/shared`
- * (`SubagentQueryParams`) with only trivial presence checks for the
- * optional `toolCallId` / `sessionId` fields. No `z.object({...})`
- * literals existed in `subagent-rpc.handlers.ts` at the time of W0.B6
- * extraction.
- *
- * This empty export is kept so downstream batches can stub imports
- * consistently across every handler. If a future task adds Zod validation
- * to the subagent handler (e.g. toolCallId format constraints), those
- * schemas belong here.
+ * The original `chat:subagent-query` handler uses static TypeScript types
+ * and trivial presence checks (no Zod). The three new Phase 2 methods
+ * (`subagent:send-message`, `subagent:stop`, `subagent:interrupt`) each
+ * validate their params with Zod schemas defined here.
  */
 
-export {};
+import { z } from 'zod';
+
+// ---------------------------------------------------------------------------
+// subagent:send-message
+// ---------------------------------------------------------------------------
+
+export const SubagentSendMessageSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required'),
+  parentToolUseId: z.string().min(1, 'parentToolUseId is required'),
+  text: z.string().min(1, 'text is required'),
+});
+
+export type SubagentSendMessageInput = z.infer<
+  typeof SubagentSendMessageSchema
+>;
+
+// ---------------------------------------------------------------------------
+// subagent:stop
+// ---------------------------------------------------------------------------
+
+export const SubagentStopSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required'),
+  taskId: z.string().min(1, 'taskId is required'),
+});
+
+export type SubagentStopInput = z.infer<typeof SubagentStopSchema>;
+
+// ---------------------------------------------------------------------------
+// subagent:interrupt
+// ---------------------------------------------------------------------------
+
+export const SubagentInterruptSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required'),
+});
+
+export type SubagentInterruptInput = z.infer<typeof SubagentInterruptSchema>;

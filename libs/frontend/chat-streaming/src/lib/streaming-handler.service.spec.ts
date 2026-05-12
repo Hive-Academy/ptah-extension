@@ -207,7 +207,14 @@ describe('StreamingHandlerService', () => {
     >
   >;
   let agentMonitorStore: jest.Mocked<
-    Pick<AgentMonitorStore, 'markAgentNodesResumed'>
+    Pick<
+      AgentMonitorStore,
+      | 'markAgentNodesResumed'
+      | 'onAgentStart'
+      | 'onAgentProgress'
+      | 'onAgentStatus'
+      | 'onAgentCompleted'
+    >
   >;
   let consoleWarn: jest.SpyInstance;
   let consoleError: jest.SpyInstance;
@@ -340,7 +347,20 @@ describe('StreamingHandlerService', () => {
 
     agentMonitorStore = {
       markAgentNodesResumed: jest.fn(),
-    } as jest.Mocked<Pick<AgentMonitorStore, 'markAgentNodesResumed'>>;
+      onAgentStart: jest.fn(),
+      onAgentProgress: jest.fn(),
+      onAgentStatus: jest.fn(),
+      onAgentCompleted: jest.fn(),
+    } as jest.Mocked<
+      Pick<
+        AgentMonitorStore,
+        | 'markAgentNodesResumed'
+        | 'onAgentStart'
+        | 'onAgentProgress'
+        | 'onAgentStatus'
+        | 'onAgentCompleted'
+      >
+    >;
 
     consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
     consoleError = jest.spyOn(console, 'error').mockImplementation();

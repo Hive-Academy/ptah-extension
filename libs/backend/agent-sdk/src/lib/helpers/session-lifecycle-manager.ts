@@ -44,13 +44,20 @@ import type {
   WorktreeRemovedCallback,
 } from './worktree-hook-handler';
 import type { ModelResolver } from '../auth/model-resolver';
-import { SessionRegistry } from './session-lifecycle/session-registry.service';
+import {
+  SessionRegistry,
+  type SessionRecord,
+} from './session-lifecycle/session-registry.service';
 import { SessionStreamPump } from './session-lifecycle/session-stream-pump.service';
 import { SessionQueryExecutor } from './session-lifecycle/session-query-executor.service';
 import { SessionControl } from './session-lifecycle/session-control.service';
+import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
 
 // Re-export for backward compatibility with other files
 export type { SDKUserMessage, ContentBlock };
+
+// Re-export SessionRecord and its type alias for all consumers.
+export type { SessionRecord } from './session-lifecycle/session-registry.service';
 
 /**
  * Query interface - matches SDK's Query runtime structure
@@ -67,6 +74,12 @@ export interface Query {
   /** Stream input messages to the query */
   streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
   /**
+   * Stop a specific running subagent by its SDK task_id.
+   * The subagent's output is written to its output_file and a
+   * task_notification with status='stopped' is emitted.
+   */
+  stopTask(taskId: string): Promise<void>;
+  /**
    * Rewind tracked files to their state at a specific user message.
    * Requires the session to have been started with `enableFileCheckpointing: true`.
    * Throws if checkpointing is disabled.
@@ -81,23 +94,6 @@ export interface Query {
     insertions?: number;
     deletions?: number;
   }>;
-}
-
-/**
- * Active session tracking
- */
-export interface ActiveSession {
-  readonly sessionId: SessionId;
-  // Query may be null during pre-registration (before SDK query is created)
-  query: Query | null;
-  readonly config: AISessionConfig;
-  readonly abortController: AbortController;
-  // Mutable: Message queue for streaming input mode
-  messageQueue: SDKUserMessage[];
-  // Mutable: Callback to wake iterator when message arrives
-  resolveNext: (() => void) | null;
-  // Mutable: Current model
-  currentModel: string;
 }
 
 /**
@@ -190,6 +186,13 @@ export interface ExecuteQueryConfig {
    * preserved relative to pre-T2 behavior.
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
+  /**
+   * The user's initial message text for this turn (TASK_2026_THOTH_MEMORY_READ).
+   * Used by SdkQueryOptionsBuilder to drive a memory recall search so the
+   * top-K hits are prepended to the system prompt. Only used for premium users
+   * with a non-empty query.
+   */
+  initialUserQuery?: string;
   /**
    * Pre-warmed `WarmQuery` handle from `SdkAgentAdapter.prewarm()`. When
    * provided, the executor uses `warm.query(prompt)` for the very first
@@ -301,6 +304,8 @@ export class SessionLifecycleManager {
     private readonly authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: ModelResolver,
+    @inject(SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY)
+    private readonly sessionEndRegistry: SessionEndCallbackRegistry,
   ) {
     // Sub-services are constructed eagerly inside the facade because the spec
     // bypasses tsyringe and uses `new SessionLifecycleManager(...)` directly
@@ -329,60 +334,37 @@ export class SessionLifecycleManager {
       this.permissionHandler,
       this.subagentRegistry,
       this.modelResolver,
+      this.sessionEndRegistry,
     );
   }
 
   /**
-   * Pre-register active session (before SDK query is created)
-   * This allows createUserMessageStream to find the session and queue messages
-   * before the SDK query object exists.
+   * Register a new session into the registry.
+   * Delegates to SessionRegistry.register().
+   * Returns the SessionRecord so callers can hold the object reference.
    */
-  preRegisterActiveSession(
-    sessionId: SessionId,
+  register(
+    tabId: string,
     config: AISessionConfig,
     abortController: AbortController,
-  ): void {
-    this._registry.preRegisterActiveSession(sessionId, config, abortController);
+  ): SessionRecord {
+    return this._registry.register(tabId, config, abortController);
   }
 
   /**
-   * Set the SDK query for a pre-registered session
+   * Bind the real SDK session UUID to a registered session record.
+   * Delegates to SessionRegistry.bindRealSessionId().
    */
-  setSessionQuery(sessionId: SessionId, query: Query): void {
-    this._registry.setSessionQuery(sessionId, query);
+  bindRealSessionId(tabId: string, realSessionId: string): void {
+    this._registry.bindRealSessionId(tabId, realSessionId);
   }
 
   /**
-   * Register active session (legacy - combines pre-register and set query)
+   * Find a session record by either tabId or realSessionId.
+   * Delegates to SessionRegistry.find().
    */
-  registerActiveSession(
-    sessionId: SessionId,
-    query: Query,
-    config: AISessionConfig,
-    abortController: AbortController,
-  ): void {
-    this._registry.registerActiveSession(
-      sessionId,
-      query,
-      config,
-      abortController,
-    );
-  }
-
-  /**
-   * Get active session by sessionId
-   */
-  getActiveSession(sessionId: SessionId): ActiveSession | undefined {
-    return this._registry.getActiveSession(sessionId);
-  }
-
-  /**
-   * Record the mapping from tab ID to real SDK session UUID.
-   * Called when the SDK system 'init' message resolves the real session ID.
-   * After this, getActiveSessionIds() returns the real UUID instead of the tab ID.
-   */
-  resolveRealSessionId(tabId: string, realSessionId: string): void {
-    this._registry.resolveRealSessionId(tabId, realSessionId);
+  find(idOrTabId: string): SessionRecord | undefined {
+    return this._registry.find(idOrTabId);
   }
 
   /**
@@ -391,6 +373,9 @@ export class SessionLifecycleManager {
    * The ordering ensures that getActiveSessionIds()[0] returns the session
    * the user most recently interacted with, which is critical for MCP tools
    * like ptah_agent_spawn that pick ids[0] as the parentSessionId.
+   *
+   * TASK_2026_118 Batch 1.5: Delegates directly to the registry — single storage
+   * means the registry owns all ordering and resolution logic.
    */
   getActiveSessionIds(): SessionId[] {
     return this._registry.getActiveSessionIds();
@@ -405,22 +390,6 @@ export class SessionLifecycleManager {
    */
   getActiveSessionWorkspace(): string | undefined {
     return this._registry.getActiveSessionWorkspace();
-  }
-
-  /**
-   * Resolve a tab ID or session ID to the real SDK UUID.
-   * If the input is a known tab ID, returns the resolved real UUID.
-   * Otherwise returns the input as-is (it may already be a real UUID).
-   */
-  getResolvedSessionId(tabIdOrSessionId: string): string {
-    return this._registry.getResolvedSessionId(tabIdOrSessionId);
-  }
-
-  /**
-   * Check if session is active
-   */
-  isSessionActive(sessionId: SessionId): boolean {
-    return this._registry.isSessionActive(sessionId);
   }
 
   /**
@@ -475,21 +444,6 @@ export class SessionLifecycleManager {
   // TASK_2025_102: Query Execution Orchestration
   // Extracted from SdkAgentAdapter to reduce its complexity
   // ============================================================================
-
-  /**
-   * Create a user message stream for SDK consumption
-   * Creates an async iterable that yields user messages from the session queue
-   *
-   * @param sessionId - The session to create stream for
-   * @param abortController - Controller to signal stream termination
-   * @returns AsyncIterable that yields SDKUserMessage objects
-   */
-  createUserMessageStream(
-    sessionId: SessionId,
-    abortController: AbortController,
-  ): AsyncIterable<SDKUserMessage> {
-    return this._streamPump.createUserMessageStream(sessionId, abortController);
-  }
 
   /**
    * Execute an SDK query with all the orchestration steps
@@ -548,8 +502,10 @@ export class SessionLifecycleManager {
       { command: command.substring(0, 50) },
     );
 
-    // Resolve real SDK UUID before endSession deletes the tabIdToRealId mapping
-    const realSessionId = this._registry.getRealOrTabId(sessionId as string);
+    // Resolve real SDK UUID before endSession removes the registry entry.
+    // find() checks both byTabId and bySessionId (dual-index).
+    const rec = this._registry.find(sessionId as string);
+    const realSessionId = rec?.realSessionId ?? (sessionId as string);
 
     // Step 1: End the current session (abort existing query)
     await this._control.endSession(sessionId);
