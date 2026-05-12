@@ -14,6 +14,31 @@
  */
 
 /**
+ * Provider auth keys that each get a `selectedModel` + `reasoningEffort` slot.
+ *
+ * MUST stay in sync with `KNOWN_PROVIDER_AUTH_KEYS` in
+ * `libs/backend/settings-core/src/schema/provider-schema.ts`.
+ * We cannot import that constant here because settings-core depends on
+ * platform-core (not the reverse) — a circular dependency would result.
+ *
+ * WP-3C (R1 fix): these keys must be in FILE_BASED_SETTINGS_KEYS so that
+ * VscodeWorkspaceProvider routes them to ~/.ptah/settings.json instead of
+ * vscode.workspace.getConfiguration (which has no schema for them).
+ */
+const KNOWN_AUTH_KEYS_FOR_FILE_ROUTING = [
+  'apiKey',
+  'claudeCli',
+  'thirdParty.openrouter',
+  'thirdParty.moonshot',
+  'thirdParty.z-ai',
+  'thirdParty.ollama',
+  'thirdParty.ollama-cloud',
+  'thirdParty.lm-studio',
+  'thirdParty.github-copilot',
+  'thirdParty.openai-codex',
+] as const;
+
+/**
  * Settings keys that route to file-based storage (~/.ptah/settings.json).
  *
  * Used by VscodeWorkspaceProvider and ElectronWorkspaceProvider for routing:
@@ -153,6 +178,16 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'gateway.slack.botTokenCipher',
   'gateway.slack.appTokenCipher',
   'gateway.slack.allowedTeamIds',
+
+  // Provider-scoped per-auth model + effort keys (WP-3C, R1 fix).
+  // Generated from KNOWN_AUTH_KEYS_FOR_FILE_ROUTING — one selectedModel and
+  // one reasoningEffort key per provider auth identity.
+  // Keeps VS Code's getConfiguration router from falling through to the
+  // vscode.workspace.getConfiguration path (which has no schema for them).
+  ...KNOWN_AUTH_KEYS_FOR_FILE_ROUTING.flatMap((k) => [
+    `provider.${k}.selectedModel`,
+    `provider.${k}.reasoningEffort`,
+  ]),
 ]);
 
 /**
@@ -305,6 +340,15 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'gateway.slack.botTokenCipher': '',
   'gateway.slack.appTokenCipher': '',
   'gateway.slack.allowedTeamIds': [],
+
+  // Provider-scoped per-auth model + effort keys (WP-3C, R1 fix).
+  // Empty string = "no selection yet / use provider default".
+  ...Object.fromEntries(
+    KNOWN_AUTH_KEYS_FOR_FILE_ROUTING.flatMap((k) => [
+      [`provider.${k}.selectedModel`, ''],
+      [`provider.${k}.reasoningEffort`, ''],
+    ]),
+  ),
 };
 
 /**

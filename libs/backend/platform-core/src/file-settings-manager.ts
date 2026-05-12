@@ -14,9 +14,11 @@
  * Platform-agnostic: NO vscode imports. Usable from both VS Code and Electron contexts.
  *
  * TASK_2025_247 Batch 2, Task 2.1
+ * WP-5A: Cross-process reactivity via fs.watch on settings.json.
  */
 
 import * as fs from 'fs';
+import type { FSWatcher } from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import { homedir } from 'os';
@@ -30,6 +32,14 @@ export interface ISettingsWatchHandle {
   dispose(): void;
 }
 
+/** Maximum retry attempts when re-establishing a lost fs.watch watcher. */
+const CROSS_PROCESS_WATCH_MAX_RETRIES = 3;
+/** Debounce window in milliseconds — coalesces multiple change events from a single atomic rename. */
+const CROSS_PROCESS_WATCH_DEBOUNCE_MS = 50;
+
+/** Whether the active cross-process watcher is on the file or the directory. */
+type CrossProcessWatchMode = 'file' | 'directory' | null;
+
 export class PtahFileSettingsManager {
   /** In-memory cache using flat dot-notation keys */
   private settings: Record<string, unknown> = {};
@@ -40,9 +50,25 @@ export class PtahFileSettingsManager {
   private writePromise: Promise<void> = Promise.resolve();
   /**
    * In-process listeners for individual setting keys.
-   * Phase 5 will add cross-process fs.watch() on top of this.
+   * WP-5A adds cross-process fs.watch() on top of these.
    */
   private readonly listeners = new Map<string, Set<(value: unknown) => void>>();
+
+  // ---------------------------------------------------------------------------
+  // Cross-process watcher state (WP-5A)
+  // ---------------------------------------------------------------------------
+  /** Active FSWatcher, set by enableCrossProcessWatch(). */
+  private crossProcessWatcher: FSWatcher | null = null;
+  /** Which path surface the active watcher is on. */
+  private crossProcessWatchMode: CrossProcessWatchMode = null;
+  /** Debounce timer handle for coalescing rapid change events. */
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Whether enableCrossProcessWatch() has been called (guards against double-init). */
+  private crossProcessWatchEnabled = false;
+  /** Retry counter for re-establishing the watcher after a rename-induced loss. */
+  private watcherRetries = 0;
+  /** Whether a rename-triggered re-establish is already pending (prevents stacking). */
+  private fileRenameReestablishPending = false;
 
   constructor(defaults: FileSettingsDefaults) {
     this.dirPath = path.join(homedir(), '.ptah');
@@ -119,6 +145,66 @@ export class PtahFileSettingsManager {
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // Cross-process reactivity (WP-5A)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Enable cross-process change detection by watching the settings file with
+   * Node's built-in `fs.watch`.
+   *
+   * When another process writes to ~/.ptah/settings.json (via the atomic
+   * tmp+rename pattern), this watcher detects the change, diffs the new file
+   * contents against the in-memory cache, and fires listeners only for keys
+   * whose values actually changed.
+   *
+   * Self-write echo prevention: because `set()` updates `this.settings` before
+   * persisting, any file-change event triggered by our own write produces an
+   * empty diff (disk == cache) and no listeners fire. No mtime tracking needed.
+   *
+   * Atomic-rename handling: `rename` events indicate the inode was replaced.
+   * On `rename`, the watcher is re-established on this.filePath so it follows
+   * the new inode.
+   *
+   * Error recovery: on watcher error, exponential backoff is used (up to
+   * CROSS_PROCESS_WATCH_MAX_RETRIES). After that, the watcher gives up
+   * gracefully — in-process changes continue to work.
+   *
+   * @returns A disposable that closes the watcher when called.
+   */
+  enableCrossProcessWatch(): ISettingsWatchHandle {
+    if (this.crossProcessWatchEnabled) {
+      // Already active — return a no-op disposable.
+      return { dispose: () => this.disposeCrossProcessWatch() };
+    }
+    this.crossProcessWatchEnabled = true;
+    this.watcherRetries = 0;
+    this.startWatcher();
+    return { dispose: () => this.disposeCrossProcessWatch() };
+  }
+
+  /**
+   * Dispose the cross-process watcher and cancel any pending debounce timers.
+   * Safe to call multiple times (idempotent). Handles both 'file' and 'directory' modes.
+   */
+  disposeCrossProcessWatch(): void {
+    this.crossProcessWatchEnabled = false;
+    this.fileRenameReestablishPending = false;
+    if (this.debounceTimer !== null) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    if (this.crossProcessWatcher !== null) {
+      try {
+        this.crossProcessWatcher.close();
+      } catch {
+        // Already closed — ignore.
+      }
+      this.crossProcessWatcher = null;
+    }
+    this.crossProcessWatchMode = null;
+  }
+
   /**
    * Synchronously flush the current in-memory settings to disk using the same
    * atomic tmp-rename pattern as persist(). Safe to call from process-exit
@@ -146,6 +232,290 @@ export class PtahFileSettingsManager {
         `[PtahFileSettingsManager] flushSync failed for ${this.filePath}:`,
         error instanceof Error ? error.message : String(error),
       );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cross-process watcher — private implementation (WP-5A)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Entry point for watcher establishment. Prefers a file-level watcher for
+   * precision (no sibling-file noise). Falls back to a directory-level watcher
+   * only when the file does not yet exist (first-run case). The directory watcher
+   * transitions automatically to a file watcher once settings.json appears.
+   */
+  private startWatcher(): void {
+    // Tear down any existing watcher before creating a new one.
+    this.closeCurrentWatcher();
+
+    // Ensure the ~/.ptah/ directory exists before trying to watch anything.
+    try {
+      fs.mkdirSync(this.dirPath, { recursive: true });
+    } catch {
+      // If we can't create the directory, there's nothing to watch.
+    }
+
+    // PREFERRED path: file-watch (narrow surface — no sibling-file noise).
+    if (this.tryStartFileWatch()) {
+      return;
+    }
+
+    // FALLBACK path: directory-watch, used only when the file is absent.
+    this.startDirectoryWatchForFile();
+  }
+
+  /**
+   * Attempt to establish fs.watch on this.filePath.
+   * Returns true on success, false when the file is absent (ENOENT).
+   * Other errors are logged and also return false (watcher not established).
+   */
+  private tryStartFileWatch(): boolean {
+    try {
+      const watcher = fs.watch(this.filePath, { persistent: false });
+
+      watcher.on('change', () => {
+        this.scheduleDebouncedFlush();
+      });
+
+      watcher.on('rename', () => {
+        this.handleFileRename();
+      });
+
+      watcher.on('error', (err: Error) => {
+        console.warn(
+          `[PtahFileSettingsManager] fs.watch error on ${this.filePath}: ${err.message}`,
+        );
+        this.handleWatcherError(err);
+      });
+
+      this.crossProcessWatcher = watcher;
+      this.crossProcessWatchMode = 'file';
+      // Reset retry counter on successful establishment.
+      this.watcherRetries = 0;
+      return true;
+    } catch (err: unknown) {
+      if (isNodeError(err) && err.code === 'ENOENT') {
+        // File does not exist yet — fall back to directory watch.
+        return false;
+      }
+      // Unexpected error — log and report failure.
+      console.warn(
+        `[PtahFileSettingsManager] fs.watch(file) failed unexpectedly on ${this.filePath}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Establish fs.watch on the ~/.ptah/ directory.
+   * This is the fallback for first-run when settings.json does not exist yet.
+   * Its sole purpose is to detect the moment settings.json appears, then
+   * transition to a file-level watcher and close this directory watcher.
+   *
+   * It also fires the diff pipeline for changes while in this mode, so no
+   * events are lost during the brief window before the file-watch takes over.
+   */
+  private startDirectoryWatchForFile(): void {
+    try {
+      const settingsFileName = path.basename(this.filePath); // 'settings.json'
+      const watcher = fs.watch(
+        this.dirPath,
+        { persistent: false },
+        (eventType: string, filename: string | Buffer | null) => {
+          const name =
+            filename instanceof Buffer ? filename.toString() : filename;
+          if (name !== settingsFileName) return;
+
+          // settings.json appeared or changed. Try to transition to file-watch.
+          // Close directory watcher first, then attempt file-watch.
+          this.closeCurrentWatcher();
+          if (!this.tryStartFileWatch()) {
+            // File still not readable — stay on directory watch for next event.
+            this.startDirectoryWatchForFile();
+          }
+
+          // Also process the change that brought us here.
+          this.scheduleDebouncedFlush();
+        },
+      );
+
+      watcher.on('error', (err: Error) => {
+        console.warn(
+          `[PtahFileSettingsManager] fs.watch error on ${this.dirPath}: ${err.message}`,
+        );
+        this.handleWatcherError(err);
+      });
+
+      this.crossProcessWatcher = watcher;
+      this.crossProcessWatchMode = 'directory';
+      this.watcherRetries = 0;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[PtahFileSettingsManager] Unable to start fs.watch on ${this.dirPath}: ${msg}. ` +
+          `Cross-process change notifications will not be available.`,
+      );
+      this.crossProcessWatcher = null;
+      this.crossProcessWatchMode = null;
+    }
+  }
+
+  /**
+   * Called on a 'rename' event from the file watcher.
+   *
+   * An atomic write (tmp→rename) replaces the inode. The current FSWatcher is
+   * now stale and will not see further changes on the new inode. We must:
+   *   1. Fire the diff pipeline (the rename means new content landed).
+   *   2. After the debounce window settles (file stable), close the stale
+   *      watcher and re-establish a fresh file-watch on the same path.
+   *
+   * We do NOT re-establish synchronously here — doing so inside the rename
+   * callback races with the rename completing on some platforms.
+   */
+  private handleFileRename(): void {
+    if (this.fileRenameReestablishPending) return;
+    this.fileRenameReestablishPending = true;
+
+    // Cancel any existing debounce so we own the next debounce slot.
+    if (this.debounceTimer !== null) {
+      clearTimeout(this.debounceTimer);
+    }
+
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = null;
+      this.fileRenameReestablishPending = false;
+
+      // Process the change that the rename brought.
+      this.processCrossProcessChange();
+
+      // Re-establish the file watcher on the new inode (file is now stable).
+      if (this.crossProcessWatchEnabled) {
+        this.closeCurrentWatcher();
+        if (!this.tryStartFileWatch()) {
+          // File missing after rename — unlikely but fall back to directory watch.
+          this.startDirectoryWatchForFile();
+        }
+      }
+    }, CROSS_PROCESS_WATCH_DEBOUNCE_MS);
+  }
+
+  /**
+   * Close the currently active watcher (file or directory) without modifying
+   * crossProcessWatchEnabled. Safe to call when no watcher is active.
+   */
+  private closeCurrentWatcher(): void {
+    if (this.crossProcessWatcher !== null) {
+      try {
+        this.crossProcessWatcher.close();
+      } catch {
+        // Already closed — ignore.
+      }
+      this.crossProcessWatcher = null;
+    }
+    this.crossProcessWatchMode = null;
+  }
+
+  /**
+   * Schedule a debounced read-diff-notify cycle.
+   * Multiple rapid events (e.g., `change` + `rename` in quick succession) are
+   * coalesced into a single cycle by resetting the timer on each event.
+   */
+  private scheduleDebouncedFlush(): void {
+    if (this.debounceTimer !== null) {
+      clearTimeout(this.debounceTimer);
+    }
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = null;
+      this.processCrossProcessChange();
+    }, CROSS_PROCESS_WATCH_DEBOUNCE_MS);
+  }
+
+  /**
+   * Handle a watcher error by attempting exponential-backoff retry.
+   * After CROSS_PROCESS_WATCH_MAX_RETRIES failures, gives up gracefully.
+   */
+  private handleWatcherError(_err?: Error): void {
+    this.closeCurrentWatcher();
+    if (!this.crossProcessWatchEnabled) return;
+
+    this.watcherRetries += 1;
+    if (this.watcherRetries > CROSS_PROCESS_WATCH_MAX_RETRIES) {
+      console.warn(
+        `[PtahFileSettingsManager] fs.watch failed after ${CROSS_PROCESS_WATCH_MAX_RETRIES} retries on ` +
+          `${this.filePath}. Cross-process reactivity disabled; in-process watch() still works.`,
+      );
+      return;
+    }
+
+    const backoffMs = Math.pow(2, this.watcherRetries - 1) * 100; // 100ms, 200ms, 400ms
+    setTimeout(() => {
+      if (this.crossProcessWatchEnabled) {
+        this.startWatcher();
+      }
+    }, backoffMs);
+  }
+
+  /**
+   * Read the settings file from disk, diff against the in-memory cache, and
+   * fire listeners for any keys that changed.
+   *
+   * Self-write echo prevention: `set()` updates `this.settings` before the
+   * async persist completes. By the time `fs.watch` fires for our own write,
+   * the in-memory cache already matches disk — the diff produces zero changed
+   * keys, so no listeners fire.
+   */
+  private processCrossProcessChange(): void {
+    let freshSettings: Record<string, unknown>;
+
+    try {
+      const raw = fs.readFileSync(this.filePath, 'utf-8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      freshSettings = flattenObject(parsed);
+    } catch (err: unknown) {
+      // File might be mid-write or deleted — skip this event.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[PtahFileSettingsManager] Cross-process read failed for ${this.filePath}: ${msg}`,
+      );
+      return;
+    }
+
+    // Compute the union of all keys in both old and new states.
+    const previousSettings = this.settings;
+    const allKeys = new Set([
+      ...Object.keys(previousSettings),
+      ...Object.keys(freshSettings),
+    ]);
+
+    const changedKeys: string[] = [];
+    for (const key of allKeys) {
+      const oldVal = previousSettings[key];
+      const newVal = freshSettings[key];
+      if (!deepEqual(oldVal, newVal)) {
+        changedKeys.push(key);
+      }
+    }
+
+    if (changedKeys.length === 0) {
+      // No changes — this was our own write echoing back. Do nothing.
+      return;
+    }
+
+    // Update the cache to reflect the new on-disk state.
+    this.settings = freshSettings;
+
+    // Fire listeners for each changed key.
+    for (const key of changedKeys) {
+      const newVal = freshSettings[key];
+      this.listeners.get(key)?.forEach((cb) => {
+        try {
+          cb(newVal);
+        } catch {
+          // Listener errors must not abort other listeners.
+        }
+      });
     }
   }
 
@@ -312,4 +682,30 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  */
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error;
+}
+
+/**
+ * Structural equality check for setting values.
+ *
+ * Used by the cross-process watcher diff to detect which keys changed.
+ * Handles primitives, null, arrays (by JSON serialization), and plain objects
+ * (by JSON serialization). JSON round-trip is sufficient here because setting
+ * values originate from JSON.parse and contain only JSON-serializable types.
+ *
+ * WP-5A: Cross-process reactivity.
+ */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (typeof a !== typeof b) return false;
+  // For objects and arrays, use JSON serialization as a fast structural check.
+  // This is correct because settings round-trip through JSON.stringify/parse.
+  if (typeof a === 'object') {
+    try {
+      return JSON.stringify(a) === JSON.stringify(b);
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
