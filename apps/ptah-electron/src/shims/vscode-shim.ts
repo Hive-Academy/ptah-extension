@@ -69,7 +69,7 @@ const vscodeWindow = {
 
 const vscodeWorkspace = {
   getConfiguration: () => ({
-    get: () => undefined,
+    get: <T>(_key: string, defaultValue?: T): T | undefined => defaultValue,
     has: () => false,
     inspect: () => undefined,
     update: async () => {
@@ -131,6 +131,13 @@ export const authentication = {
 };
 
 export const Disposable = class {
+  private readonly _callOnDispose?: () => void;
+  constructor(callOnDispose?: () => void) {
+    this._callOnDispose = callOnDispose;
+  }
+  dispose() {
+    this._callOnDispose?.();
+  }
   static from(...disposables: Array<{ dispose: () => void }>) {
     return {
       dispose: () => disposables.forEach((d) => d.dispose()),
