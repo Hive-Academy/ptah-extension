@@ -41,7 +41,7 @@ export function registerMemoryCuratorServices(
 
   // Embedder — registered under the shared PERSISTENCE_TOKENS.EMBEDDER token
   // so any persistence-sqlite-aware caller can resolve it. The concrete impl
-  // lives here because it's the curator that owns the @xenova worker.
+  // lives here because it's the curator that owns the @huggingface/transformers worker.
   container.register(
     PERSISTENCE_TOKENS.EMBEDDER,
     { useClass: EmbedderWorkerClient },

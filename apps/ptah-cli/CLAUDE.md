@@ -34,7 +34,7 @@ Headless Node CLI that hosts the full Ptah agent backend in-process and exposes 
 
 - `@ptah-extension/platform-core`, `@ptah-extension/platform-cli`
 - `@ptah-extension/vscode-core`, `@ptah-extension/agent-sdk`, `@ptah-extension/agent-generation`, `@ptah-extension/llm-abstraction`, `@ptah-extension/vscode-lm-tools`, `@ptah-extension/workspace-intelligence`, `@ptah-extension/rpc-handlers`, `@ptah-extension/shared`
-- External: `commander`, `tsyringe`, `reflect-metadata`, plus the three AI provider SDKs and the same heavy externals as Electron (better-sqlite3, sqlite-vec, web-tree-sitter, croner, ulid, grammy, discord.js, @slack/bolt, ffmpeg-static, nodejs-whisper, @xenova/transformers, etc.).
+- External: `commander`, `tsyringe`, `reflect-metadata`, plus the three AI provider SDKs and the same heavy externals as Electron (better-sqlite3, sqlite-vec, web-tree-sitter, croner, ulid, grammy, discord.js, @slack/bolt, ffmpeg-static, nodejs-whisper, @huggingface/transformers, etc.).
 
 ## Build & Run
 

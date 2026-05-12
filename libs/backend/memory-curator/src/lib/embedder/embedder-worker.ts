@@ -1,5 +1,5 @@
 /**
- * Worker thread entry — runs `@xenova/transformers` to embed text and
+ * Worker thread entry — runs `@huggingface/transformers` to embed text and
  * cross-encode (query, candidate) pairs for reranking.
  *
  * Bundled separately by `apps/ptah-electron`'s `build-embedder-worker`
@@ -42,7 +42,9 @@ async function loadPipeline(): Promise<PipelineFn> {
   if (pipelineLoading) return pipelineLoading;
   pipelineLoading = (async () => {
     // Dynamic import so test envs without the package can stub this file.
-    const mod = (await import('@xenova/transformers' as unknown as string)) as {
+    const mod = (await import(
+      '@huggingface/transformers' as unknown as string
+    )) as {
       pipeline: (
         task: string,
         model: string,
@@ -117,7 +119,9 @@ async function loadCrossEncoder(): Promise<CrossEncoderFn> {
   if (crossEncoderLoading) return crossEncoderLoading;
 
   crossEncoderLoading = (async () => {
-    const mod = (await import('@xenova/transformers' as unknown as string)) as {
+    const mod = (await import(
+      '@huggingface/transformers' as unknown as string
+    )) as {
       pipeline: (
         task: string,
         model: string,
@@ -169,7 +173,7 @@ function extractScore(entry: LabelScore | LabelScore[]): number {
  * Run cross-encoder reranking on the given (query, candidate) pairs.
  * Returns candidates sorted by descending score, truncated to topK.
  *
- * Positional correspondence guarantee: `@xenova/transformers` processes
+ * Positional correspondence guarantee: `@huggingface/transformers` processes
  * batched text-classification inputs sequentially and returns results in
  * input order (one array element per input pair). `results[i]` is guaranteed
  * to correspond to `pairs[i]`. The `topk: null` option controls how many

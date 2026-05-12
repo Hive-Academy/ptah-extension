@@ -70,7 +70,7 @@
           "sqlite-vec",
           "croner",
           "ulid",
-          "@xenova/transformers",
+          "@huggingface/transformers",
           "grammy",
           "discord.js",
           "@slack/bolt",
@@ -154,7 +154,7 @@
             ".js": ".mjs"
           }
         },
-        "external": ["@xenova/transformers"]
+        "external": ["@huggingface/transformers"]
       }
     },
     "build": {

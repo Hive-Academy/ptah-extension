@@ -1,7 +1,7 @@
 /**
  * EmbedderWorkerClient — main-thread proxy that implements `IEmbedder` by
  * delegating to a `node:worker_threads` Worker which actually runs the
- * `@xenova/transformers` model. Keeps the heavy ONNX runtime off the
+ * `@huggingface/transformers` model. Keeps the heavy ONNX runtime off the
  * Electron/VS Code main thread.
  *
  * The worker entry is supplied as an absolute path via DI
