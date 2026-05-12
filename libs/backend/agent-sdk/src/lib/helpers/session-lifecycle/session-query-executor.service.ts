@@ -138,8 +138,8 @@ export class SessionQueryExecutor {
     }
 
     // Steps 4-7 may throw (SDK module load failure, options build failure,
-    // query construction failure). If any step fails after preRegisterActiveSession
-    // in Step 2, the session would be left orphaned in activeSessions. Wrap the
+    // query construction failure). If any step fails after register()
+    // in Step 2, the session would be left orphaned in byTabId. Wrap the
     // init sequence in try/catch and clean up the pre-registered session on failure.
     try {
       // Step 4: Get SDK query function

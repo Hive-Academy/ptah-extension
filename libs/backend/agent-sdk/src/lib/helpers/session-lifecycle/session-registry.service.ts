@@ -6,7 +6,7 @@
  * the streaming pump, query executor, and lifecycle-control sub-services all
  * mutate state through this single registry. There is exactly ONE recompute
  * site for `_lastActiveTabId` (`recomputeLastActiveOnRemoval`) shared by both
- * `removeSession` (endSession path) and `removeSessionOnly` (executeQuery
+ * `remove(rec)` (both the endSession path and the executeQuery
  * init-failure rollback path), eliminating the duplicate fallback logic that
  * previously lived in two places.
  *

@@ -368,13 +368,6 @@ export class SessionLifecycleManager {
   }
 
   /**
-   * Set the SDK query for a pre-registered session
-   */
-  setSessionQuery(sessionId: SessionId, query: Query): void {
-    this._registry.setSessionQuery(sessionId, query);
-  }
-
-  /**
    * Get all active session IDs, most recently active first.
    * Returns real SDK UUIDs when resolved, tab IDs otherwise.
    * The ordering ensures that getActiveSessionIds()[0] returns the session
@@ -451,21 +444,6 @@ export class SessionLifecycleManager {
   // TASK_2025_102: Query Execution Orchestration
   // Extracted from SdkAgentAdapter to reduce its complexity
   // ============================================================================
-
-  /**
-   * Create a user message stream for SDK consumption
-   * Creates an async iterable that yields user messages from the session queue
-   *
-   * @param sessionId - The session to create stream for
-   * @param abortController - Controller to signal stream termination
-   * @returns AsyncIterable that yields SDKUserMessage objects
-   */
-  createUserMessageStream(
-    sessionId: SessionId,
-    abortController: AbortController,
-  ): AsyncIterable<SDKUserMessage> {
-    return this._streamPump.createUserMessageStream(sessionId, abortController);
-  }
 
   /**
    * Execute an SDK query with all the orchestration steps
