@@ -406,4 +406,48 @@ describe('ChatViewComponent — handleRewindError resume-and-retry (TASK_2026_11
     // No retry
     expect(h.rewindFilesMock).toHaveBeenCalledTimes(1);
   });
+
+  // -------------------------------------------------------------------------
+  // Gap 16: retry COUNT cap — second session-not-active after successful
+  //         resume must NOT issue a third chat:resume call (infinite-loop guard).
+  // -------------------------------------------------------------------------
+
+  it('infinite-loop guard: second session-not-active after successful resume does NOT issue a third chat:resume', async () => {
+    const h = makeHarness({ confirmResult: true });
+
+    // First dryRun attempt fails with session-not-active → triggers handleRewindError
+    h.rewindFilesMock.mockResolvedValueOnce(rpcFail('session-not-active: foo'));
+
+    // User confirms "Resume & retry" in the dialog (confirmResult: true above)
+
+    // chat:resume succeeds with activated: true
+    h.rpcCallMock.mockResolvedValue(rpcOk({ activated: true, success: true }));
+
+    // Second dryRun attempt (the retry) ALSO returns session-not-active.
+    // Now retryCount === 1, so retryCount > 0 must gate a third chat:resume.
+    h.rewindFilesMock.mockResolvedValueOnce(rpcFail('session-not-active: foo'));
+
+    await h.component.onRewindRequested('msg-cap-1');
+
+    // chat:resume must have been called EXACTLY once (not a second time after
+    // the second session-not-active, which would start an infinite loop).
+    expect(h.rpcCallMock).toHaveBeenCalledWith(
+      'chat:resume',
+      expect.objectContaining({ activate: true }),
+    );
+    expect(
+      h.rpcCallMock.mock.calls.filter(
+        ([method]: [string]) => method === 'chat:resume',
+      ),
+    ).toHaveLength(1);
+
+    // Error toast must be shown with the retry-failed message
+    expect(h.showErrorMock).toHaveBeenCalledTimes(1);
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining('Rewind failed after resume retry'),
+    );
+
+    // rewindFiles called exactly twice: first attempt + retry after resume
+    expect(h.rewindFilesMock).toHaveBeenCalledTimes(2);
+  });
 });
