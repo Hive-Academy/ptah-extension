@@ -429,6 +429,15 @@ async function wireHandle(
       );
     }
     pending.clear();
+    // Surface any task.error payload so failure messages are diagnosable
+    // without needing a verbose flag.
+    const taskErrors = notifications.filter((n) => n.method === 'task.error');
+    const taskErrorSummary =
+      taskErrors.length > 0
+        ? `\n--- task.error payloads ---\n${taskErrors
+            .map((n) => JSON.stringify(n.params, null, 2))
+            .join('\n')}`
+        : '';
     for (const w of notifWaiters) {
       if (w.timer) clearTimeout(w.timer);
       w.reject(
@@ -437,7 +446,7 @@ async function wireHandle(
             `observed methods: ${notifications
               .map((n) => n.method)
               .slice(-5)
-              .join(', ')}`,
+              .join(', ')}${taskErrorSummary}`,
         ),
       );
     }

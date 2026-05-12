@@ -30,6 +30,7 @@ import {
 
 import {
   registerPlatformCliServices,
+  registerCliSettings,
   CliStateStorage,
   CliWorkspaceProvider,
   type CliPlatformOptions,
@@ -678,6 +679,35 @@ export class CliDIContainer {
     logger.info('[CLI DI] Platform abstraction implementations registered');
 
     phaseEnd('3.5', phase3_5Start);
+
+    // ========================================
+    // PHASE 3.6: Settings repositories (SETTINGS_TOKENS)
+    // ========================================
+    // registerCliSettings wires all SETTINGS_TOKENS into the container
+    // (SETTINGS_STORE, MODEL_SETTINGS, REASONING_SETTINGS, AUTH_SETTINGS, etc.)
+    // BEFORE Phase 4 eagerly resolves RPC handler classes (ConfigRpcHandlers,
+    // ChatSessionService, HarnessServices, etc.) that @inject SETTINGS_TOKENS.
+    // Must run in both 'minimal' and 'full' modes so config commands that
+    // resolve settings repositories also find the tokens.
+    //
+    // NOTE: runMigrations() is NOT called here — it requires async I/O and runs
+    // in withEngine() after setup() returns, still before sdkAdapter.initialize().
+    try {
+      registerCliSettings(container);
+      logger.info(
+        '[CLI DI] Settings repositories registered (SETTINGS_TOKENS)',
+      );
+    } catch (settingsRegError) {
+      // Surface the error clearly — missing settings tokens would cause
+      // cryptic DI resolution failures in Phase 4.
+      logger.error(
+        '[CLI DI] Failed to register settings repositories',
+        settingsRegError instanceof Error
+          ? settingsRegError
+          : new Error(String(settingsRegError)),
+      );
+      throw settingsRegError;
+    }
 
     // ========================================
     // PHASE 4: WebviewManager + LM tools + Shared RPC handlers + wiring

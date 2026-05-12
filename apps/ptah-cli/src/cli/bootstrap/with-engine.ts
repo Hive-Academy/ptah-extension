@@ -26,7 +26,6 @@ import {
 import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
 import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
 import { emitFatalError } from '../output/stderr-json.js';
-import { registerCliSettings } from '@ptah-extension/platform-cli';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { MigrationRunner } from '@ptah-extension/settings-core';
 
@@ -203,31 +202,26 @@ export async function withEngine<T>(
     pushAdapter: result.pushAdapter,
   };
 
-  // ---- WP-3C: Unified settings registration + file-settings migration ------
+  // ---- WP-3C: File-settings migration ----------------------------------------
   //
-  // registerCliSettings wires SETTINGS_TOKENS (SETTINGS_STORE, all 9
-  // repository tokens, MIGRATION_RUNNER) into the container.
+  // SETTINGS_TOKENS (SETTINGS_STORE, all 9 repository tokens, MIGRATION_RUNNER)
+  // are registered by CliDIContainer.setup() in Phase 3.6 — BEFORE Phase 4
+  // eagerly resolves RPC handler classes that @inject those tokens.
   //
-  // runMigrations() MUST run before any service resolves MODEL_SETTINGS or
-  // REASONING_SETTINGS. Services are registered lazily and first resolved
-  // when sdkAdapter.initialize() is called below, so running the migration
-  // here satisfies the R2 ordering constraint.
-  //
-  // In `'minimal'` mode (no Phase 4 RPC handlers, no SDK init) we still run
-  // the migration so pre-release config reads pick up migrated values.
+  // runMigrations() runs here (post-setup, pre-SDK-init) so that migrated
+  // values are visible when sdkAdapter.initialize() first reads settings.
   //
   // The call is best-effort: a failed migration is logged to stderr and does
   // not block bootstrap or the command body.
   await (async () => {
     try {
-      registerCliSettings(ctx.container);
       const migrationRunner = ctx.container.resolve<MigrationRunner>(
         SETTINGS_TOKENS.MIGRATION_RUNNER,
       );
       await migrationRunner.runMigrations();
       if (globals.verbose === true) {
         process.stderr.write(
-          '[ptah] withEngine: settings registered and migrations applied\n',
+          '[ptah] withEngine: file-settings migrations applied\n',
         );
       }
     } catch (settingsError) {
@@ -236,7 +230,7 @@ export async function withEngine<T>(
           ? settingsError.message
           : String(settingsError);
       process.stderr.write(
-        `[ptah] withEngine: settings registration / migration failed (non-fatal): ${message}\n`,
+        `[ptah] withEngine: file-settings migration failed (non-fatal): ${message}\n`,
       );
     }
   })();
