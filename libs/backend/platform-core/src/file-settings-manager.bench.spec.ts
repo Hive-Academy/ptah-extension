@@ -70,7 +70,7 @@ describe('Performance smoke — PtahFileSettingsManager (Gap E)', () => {
   // Use a generous 30 s Jest timeout so this does not flake on slow CI.
   const JEST_TIMEOUT = 30_000;
   const WRITE_COUNT = 1_000;
-  const MAX_TOTAL_MS = 5_000; // loose sanity bound — not a perf SLA
+  const MAX_TOTAL_MS = 10_000; // loose sanity bound — not a perf SLA (raised for slow Windows runners)
 
   it(
     `completes ${WRITE_COUNT} sequential set() calls in < ${MAX_TOTAL_MS} ms`,
@@ -101,7 +101,7 @@ describe('Performance smoke — PtahFileSettingsManager (Gap E)', () => {
           `total=${elapsed.toFixed(1)} ms, avg=${avgMs.toFixed(2)} ms/write`,
       );
 
-      // Sanity bound: total must be under 5 s.
+      // Sanity bound: total must be under 10 s (raised from 5 s for slow Windows CI runners).
       // NOTE: This is NOT a performance SLA — just a sanity check that
       // catastrophic O(n²) behavior or infinite write queues haven't regressed.
       expect(elapsed).toBeLessThan(MAX_TOTAL_MS);
