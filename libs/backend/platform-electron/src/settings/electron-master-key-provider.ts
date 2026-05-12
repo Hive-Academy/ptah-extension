@@ -16,22 +16,44 @@
  * WP-4A: Electron master key provider.
  */
 
+import { z } from 'zod';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import type { IMasterKeyProvider } from '@ptah-extension/settings-core';
+import type { IUserInteraction } from '@ptah-extension/platform-core';
 
 const KEY_REF_ALGORITHM = 'electron-safeStorage';
 const KEY_REF_VERSION = 1;
 
-interface MasterKeyRef {
-  version: number;
-  algorithm: string;
-  /** Base64-encoded bytes from safeStorage.encryptString(base64Key). */
-  wrapped: string;
-}
+const CORRUPT_KEY_MESSAGE =
+  "Ptah's encrypted settings store could not be opened (master key is corrupted or unreadable). " +
+  'A new key will be generated and any previously stored secrets will be lost. ' +
+  'You may need to re-enter your API keys and provider credentials.';
+
+// ---------------------------------------------------------------------------
+// Zod schema for master-key-ref.json (Q2 decision)
+// ---------------------------------------------------------------------------
+
+/** Regex matching a non-empty base64 string (standard alphabet + padding). */
+const base64Regex = /^[A-Za-z0-9+/]+=*$/;
+
+const MasterKeyRefSchema = z.object({
+  version: z.number(),
+  algorithm: z.string(),
+  /**
+   * Base64-encoded bytes from safeStorage.encryptString(base64Key).
+   * Must be a syntactically valid base64 string — value format is validated
+   * here so we catch corrupt refs before attempting a decryptString call.
+   */
+  wrapped: z
+    .string()
+    .regex(base64Regex, 'wrapped must be a valid base64 string'),
+});
+
+type MasterKeyRef = z.infer<typeof MasterKeyRefSchema>;
 
 /**
  * Minimal slice of the Electron safeStorage API for testability.
@@ -46,19 +68,40 @@ export interface ElectronSafeStorageApi {
 export class ElectronMasterKeyProvider implements IMasterKeyProvider {
   private readonly keyRefPath: string;
   private cachedKey: Buffer | null = null;
+  /** In-flight Promise coalesces concurrent first-calls to prevent key divergence. */
+  private pendingKey: Promise<Buffer> | null = null;
 
-  constructor(ptahDir?: string) {
+  /**
+   * @param ptahDir - Directory that holds master-key-ref.json.
+   *   Defaults to ~/.ptah.
+   * @param userInteraction - Optional IUserInteraction port for surfacing
+   *   key-corruption errors to the user. When absent, falls back to
+   *   console.error (a TODO comment marks the injection point).
+   */
+  constructor(
+    ptahDir?: string,
+    private readonly userInteraction?: IUserInteraction,
+  ) {
     const dir = ptahDir ?? path.join(os.homedir(), '.ptah');
     this.keyRefPath = path.join(dir, 'master-key-ref.json');
   }
 
   async getMasterKey(): Promise<Buffer> {
     if (this.cachedKey) return this.cachedKey;
+    if (this.pendingKey) return this.pendingKey;
+    this.pendingKey = this.doGetMasterKey();
+    try {
+      const key = await this.pendingKey;
+      this.cachedKey = key;
+      return key;
+    } finally {
+      this.pendingKey = null;
+    }
+  }
 
+  private async doGetMasterKey(): Promise<Buffer> {
     const safeStorage = await this.loadSafeStorage();
-    const key = await this.loadOrCreateKey(safeStorage);
-    this.cachedKey = key;
-    return key;
+    return this.loadOrCreateKey(safeStorage);
   }
 
   private async loadOrCreateKey(
@@ -83,31 +126,43 @@ export class ElectronMasterKeyProvider implements IMasterKeyProvider {
       throw err;
     }
 
-    let ref: unknown;
+    // Parse JSON — corrupt JSON is treated as key-ref corruption.
+    let parsedRef: unknown;
     try {
-      ref = JSON.parse(rawRef);
+      parsedRef = JSON.parse(rawRef);
     } catch {
-      // Corrupt ref file — regenerate.
+      await this.notifyCorruption('corrupt JSON in master-key-ref.json');
       return this.createAndStoreKey(safeStorage);
     }
 
-    if (!isMasterKeyRef(ref)) {
-      // Unrecognised format — regenerate.
+    // Validate schema with Zod (Q2: also validates base64 format of wrapped).
+    const parseResult = MasterKeyRefSchema.safeParse(parsedRef);
+    if (!parseResult.success) {
+      await this.notifyCorruption(
+        `invalid master-key-ref.json schema: ${parseResult.error.message}`,
+      );
       return this.createAndStoreKey(safeStorage);
     }
 
+    const ref: MasterKeyRef = parseResult.data;
     const wrappedBuf = Buffer.from(ref.wrapped, 'base64');
     let base64Key: string;
     try {
       base64Key = safeStorage.decryptString(wrappedBuf);
     } catch {
-      // Decrypt failed (e.g. OS keyring changed) — regenerate and overwrite.
+      // Decrypt failed (e.g. OS keyring changed) — notify and regenerate.
+      await this.notifyCorruption(
+        'decryptString failed (OS keyring may have changed)',
+      );
       return this.createAndStoreKey(safeStorage);
     }
 
     const keyBuf = Buffer.from(base64Key, 'base64');
     if (keyBuf.length !== 32) {
-      // Stored key has wrong length — regenerate.
+      // Stored key has wrong length — notify and regenerate.
+      await this.notifyCorruption(
+        `master key has wrong length ${keyBuf.length} (expected 32)`,
+      );
       return this.createAndStoreKey(safeStorage);
     }
 
@@ -160,19 +215,32 @@ export class ElectronMasterKeyProvider implements IMasterKeyProvider {
       );
     }
   }
+
+  /**
+   * Notify the user that the master key is corrupted/unreadable.
+   * Logs the detail at error level; shows a user-actionable message via
+   * IUserInteraction if available.
+   */
+  private async notifyCorruption(detail: string): Promise<void> {
+    if (this.userInteraction) {
+      try {
+        await this.userInteraction.showErrorMessage(CORRUPT_KEY_MESSAGE);
+      } catch {
+        // Notification failure must not block key regeneration.
+        console.error(
+          `[ptah-electron] ERROR: master key corruption (${detail}). ${CORRUPT_KEY_MESSAGE}`,
+        );
+      }
+    } else {
+      // TODO: inject IUserInteraction at composition root for proper UX
+      console.error(
+        `[ptah-electron] ERROR: master key corruption (${detail}). ${CORRUPT_KEY_MESSAGE}`,
+      );
+    }
+  }
 }
 
 // ---- helpers ----------------------------------------------------------------
-
-function isMasterKeyRef(value: unknown): value is MasterKeyRef {
-  if (typeof value !== 'object' || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v['version'] === 'number' &&
-    typeof v['algorithm'] === 'string' &&
-    typeof v['wrapped'] === 'string'
-  );
-}
 
 function isNodeError(err: unknown): err is NodeJS.ErrnoException {
   return (
