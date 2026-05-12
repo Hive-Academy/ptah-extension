@@ -169,3 +169,40 @@ describe('FileSettingsStore — writeSecret calls SecretsFileStore.write with ma
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// flushSync — both global and secrets flush path
+// ---------------------------------------------------------------------------
+
+describe('FileSettingsStore — flushSync', () => {
+  it('flushes secrets store with cached master key after a secret has been accessed', async () => {
+    const mgr = makeMockFileSettingsManager();
+    const stubSecrets = makeStubSecretsStore();
+    const store = new FileSettingsStore(
+      mgr,
+      mockMasterKeyProvider,
+      stubSecrets,
+    );
+
+    // Access a secret so the master key gets cached.
+    await store.readSecret('my-key');
+
+    store.flushSync();
+
+    expect(mgr.flushSync).toHaveBeenCalled();
+    expect(stubSecrets.flushSync).toHaveBeenCalledWith(FIXED_MASTER_KEY);
+  });
+
+  it('watchSecret returns a disposable with a no-op dispose', () => {
+    const mgr = makeMockFileSettingsManager();
+    const store = new FileSettingsStore(
+      mgr,
+      mockMasterKeyProvider,
+      makeStubSecretsStore(),
+    );
+    const handle = store.watchSecret('irrelevant-key', jest.fn());
+    expect(typeof handle.dispose).toBe('function');
+    // Should not throw.
+    expect(() => handle.dispose()).not.toThrow();
+  });
+});

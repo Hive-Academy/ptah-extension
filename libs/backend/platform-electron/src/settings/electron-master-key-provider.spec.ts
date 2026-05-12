@@ -225,3 +225,242 @@ describe('C2 — ElectronMasterKeyProvider: keyring error propagates; no silent 
     expect(loadSpy).toHaveBeenCalledTimes(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// C3: Persisted key ref — load existing key from disk
+// ---------------------------------------------------------------------------
+
+describe('C3 — ElectronMasterKeyProvider: loads existing key from persisted ref file', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns the same 32-byte key on second instantiation when ref file exists', async () => {
+    const storage = makeAvailableSafeStorage();
+
+    // First provider — creates the key ref file.
+    const provider1 = new ElectronMasterKeyProvider(tmpDir);
+    (
+      provider1 as unknown as {
+        loadSafeStorage: () => Promise<ElectronSafeStorageApi>;
+      }
+    ).loadSafeStorage = jest.fn().mockResolvedValue(storage);
+    const key1 = await provider1.getMasterKey();
+
+    // Second provider — reads from the same dir.
+    const provider2 = new ElectronMasterKeyProvider(tmpDir);
+    (
+      provider2 as unknown as {
+        loadSafeStorage: () => Promise<ElectronSafeStorageApi>;
+      }
+    ).loadSafeStorage = jest.fn().mockResolvedValue(storage);
+    const key2 = await provider2.getMasterKey();
+
+    expect(key2.toString('hex')).toBe(key1.toString('hex'));
+  });
+
+  it('regenerates key when ref file contains corrupt JSON', async () => {
+    const keyRefPath = path.join(tmpDir, 'master-key-ref.json');
+    fs.writeFileSync(keyRefPath, '{ bad json !!!', 'utf8');
+
+    const storage = makeAvailableSafeStorage();
+    const provider = new ElectronMasterKeyProvider(tmpDir);
+    (
+      provider as unknown as {
+        loadSafeStorage: () => Promise<ElectronSafeStorageApi>;
+      }
+    ).loadSafeStorage = jest.fn().mockResolvedValue(storage);
+
+    const key = await provider.getMasterKey();
+    expect(Buffer.isBuffer(key)).toBe(true);
+    expect(key.length).toBe(32);
+    // A valid new ref file should have been written.
+    const written = JSON.parse(fs.readFileSync(keyRefPath, 'utf8'));
+    expect(typeof written.wrapped).toBe('string');
+  });
+
+  it('regenerates key when ref file has unrecognised format (missing fields)', async () => {
+    const keyRefPath = path.join(tmpDir, 'master-key-ref.json');
+    // 'wrapped' field is missing — fails isMasterKeyRef guard.
+    fs.writeFileSync(
+      keyRefPath,
+      JSON.stringify({ version: 1, algorithm: 'electron-safeStorage' }),
+      'utf8',
+    );
+
+    const storage = makeAvailableSafeStorage();
+    const provider = new ElectronMasterKeyProvider(tmpDir);
+    (
+      provider as unknown as {
+        loadSafeStorage: () => Promise<ElectronSafeStorageApi>;
+      }
+    ).loadSafeStorage = jest.fn().mockResolvedValue(storage);
+
+    const key = await provider.getMasterKey();
+    expect(key.length).toBe(32);
+  });
+
+  it('regenerates key when decryption fails (e.g. keyring changed)', async () => {
+    // Write a ref with valid structure but content whose decryption will throw.
+    const keyRefPath = path.join(tmpDir, 'master-key-ref.json');
+    const ref = {
+      version: 1,
+      algorithm: 'electron-safeStorage',
+      wrapped: Buffer.from('unreadable-garbage').toString('base64'),
+    };
+    fs.writeFileSync(keyRefPath, JSON.stringify(ref), 'utf8');
+
+    const failDecryptStorage: ElectronSafeStorageApi = {
+      isEncryptionAvailable: jest.fn().mockReturnValue(true),
+      encryptString: jest
+        .fn()
+        .mockImplementation((plaintext: string) =>
+          Buffer.from(plaintext, 'utf-8'),
+        ),
+      decryptString: jest.fn().mockImplementation(() => {
+        throw new Error('decryption failed');
+      }),
+    };
+
+    const provider = new ElectronMasterKeyProvider(tmpDir);
+    (
+      provider as unknown as {
+        loadSafeStorage: () => Promise<ElectronSafeStorageApi>;
+      }
+    ).loadSafeStorage = jest.fn().mockResolvedValue(failDecryptStorage);
+
+    const key = await provider.getMasterKey();
+    expect(key.length).toBe(32);
+  });
+
+  it('regenerates key when stored key decrypts to wrong length', async () => {
+    const xorKey = 0x42;
+    const storage = makeAvailableSafeStorage();
+
+    // Build a wrapped value for a 16-byte (too short) key using the same XOR logic.
+    const shortKey = Buffer.alloc(16, 0xff);
+    const shortBase64 = shortKey.toString('base64');
+    const shortBuf = Buffer.from(shortBase64, 'utf-8');
+    const wrappedBuf = shortBuf.map((b) => b ^ xorKey);
+
+    const keyRefPath = path.join(tmpDir, 'master-key-ref.json');
+    fs.writeFileSync(
+      keyRefPath,
+      JSON.stringify({
+        version: 1,
+        algorithm: 'electron-safeStorage',
+        wrapped: Buffer.from(wrappedBuf).toString('base64'),
+      }),
+      'utf8',
+    );
+
+    const provider = new ElectronMasterKeyProvider(tmpDir);
+    (
+      provider as unknown as {
+        loadSafeStorage: () => Promise<ElectronSafeStorageApi>;
+      }
+    ).loadSafeStorage = jest.fn().mockResolvedValue(storage);
+
+    const key = await provider.getMasterKey();
+    // Must regenerate — result is a fresh 32-byte key.
+    expect(key.length).toBe(32);
+  });
+
+  it('propagates non-ENOENT errors from readFile', async () => {
+    const storage = makeAvailableSafeStorage();
+    const provider = new ElectronMasterKeyProvider(tmpDir);
+    (
+      provider as unknown as {
+        loadSafeStorage: () => Promise<ElectronSafeStorageApi>;
+      }
+    ).loadSafeStorage = jest.fn().mockResolvedValue(storage);
+
+    // Simulate EACCES by monkey-patching the private loadOrCreateKey to
+    // throw an error with a non-ENOENT code.
+    const permError = Object.assign(new Error('permission denied'), {
+      code: 'EACCES',
+    });
+    (
+      provider as unknown as {
+        loadOrCreateKey: (s: ElectronSafeStorageApi) => Promise<Buffer>;
+      }
+    ).loadOrCreateKey = jest.fn().mockRejectedValue(permError);
+
+    await expect(provider.getMasterKey()).rejects.toThrow('permission denied');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C4: writeKeyRefSync exported helper
+// ---------------------------------------------------------------------------
+
+describe('C4 — writeKeyRefSync: synchronously writes key ref to disk', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('creates the key ref file atomically with correct fields', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { writeKeyRefSync } = require('./electron-master-key-provider');
+    const keyRefPath = path.join(tmpDir, 'master-key-ref.json');
+    const ref = {
+      version: 1,
+      algorithm: 'electron-safeStorage',
+      wrapped: Buffer.from('test-wrapped').toString('base64'),
+    };
+    writeKeyRefSync(keyRefPath, ref);
+
+    const written = JSON.parse(fs.readFileSync(keyRefPath, 'utf8'));
+    expect(written.version).toBe(1);
+    expect(written.algorithm).toBe('electron-safeStorage');
+    expect(written.wrapped).toBe(ref.wrapped);
+  });
+
+  it('creates parent directories if they do not exist', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { writeKeyRefSync } = require('./electron-master-key-provider');
+    const subDir = path.join(tmpDir, 'nested', 'subdir');
+    const keyRefPath = path.join(subDir, 'master-key-ref.json');
+    const ref = {
+      version: 1,
+      algorithm: 'electron-safeStorage',
+      wrapped: 'dGVzdA==',
+    };
+    writeKeyRefSync(keyRefPath, ref);
+    expect(fs.existsSync(keyRefPath)).toBe(true);
+  });
+
+  it('overwrites an existing key ref file', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { writeKeyRefSync } = require('./electron-master-key-provider');
+    const keyRefPath = path.join(tmpDir, 'master-key-ref.json');
+    fs.writeFileSync(
+      keyRefPath,
+      JSON.stringify({ version: 0, algorithm: 'old', wrapped: '' }),
+      'utf8',
+    );
+
+    const ref = {
+      version: 1,
+      algorithm: 'electron-safeStorage',
+      wrapped: 'bmV3',
+    };
+    writeKeyRefSync(keyRefPath, ref);
+
+    const written = JSON.parse(fs.readFileSync(keyRefPath, 'utf8'));
+    expect(written.version).toBe(1);
+    expect(written.wrapped).toBe('bmV3');
+  });
+});

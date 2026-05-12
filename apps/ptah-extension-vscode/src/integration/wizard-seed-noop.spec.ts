@@ -121,7 +121,6 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 
 import type { DependencyContainer } from 'tsyringe';
 import type {
-  ConfigManager,
   Logger,
   RpcHandler,
   SentryService,
@@ -146,6 +145,7 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
+import type { ModelSettings } from '@ptah-extension/settings-core';
 import { SetupRpcHandlers } from '@ptah-extension/rpc-handlers';
 
 // ---------------------------------------------------------------------------
@@ -165,16 +165,24 @@ const AGENT_GENERATION_TOKENS = {
 // Narrow mock surfaces
 // ---------------------------------------------------------------------------
 
-type MockConfigManagerLite = jest.Mocked<
-  Pick<ConfigManager, 'get' | 'getWithDefault' | 'set'>
->;
+interface MockSettingHandle {
+  get: jest.Mock<string, []>;
+  set: jest.Mock<Promise<void>, [string]>;
+  watch: jest.Mock<{ dispose: jest.Mock }, []>;
+}
 
-function createMockConfigManagerLite(): MockConfigManagerLite {
+interface MockModelSettings {
+  selectedModel: MockSettingHandle;
+}
+
+function createMockModelSettings(): MockModelSettings & ModelSettings {
   return {
-    get: jest.fn(),
-    getWithDefault: jest.fn(),
-    set: jest.fn().mockResolvedValue(undefined),
-  } as unknown as MockConfigManagerLite;
+    selectedModel: {
+      get: jest.fn().mockReturnValue(''),
+      set: jest.fn().mockResolvedValue(undefined),
+      watch: jest.fn().mockReturnValue({ dispose: jest.fn() }),
+    },
+  } as unknown as MockModelSettings & ModelSettings;
 }
 
 type MockPluginLoader = jest.Mocked<
@@ -261,7 +269,7 @@ interface Harness {
 function makeHarness(): Harness {
   const logger = createMockLogger();
   const rpcHandler = createMockRpcHandler();
-  const configManager = createMockConfigManagerLite();
+  const modelSettings = createMockModelSettings();
   const pluginLoader = createMockPluginLoader();
   const workspace = createMockWorkspaceProvider({ folders: [WORKSPACE] });
   const container = createMockContainer();
@@ -271,7 +279,7 @@ function makeHarness(): Harness {
   const handlers = new SetupRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as RpcHandler,
-    configManager as unknown as ConfigManager,
+    modelSettings as unknown as ModelSettings,
     pluginLoader as unknown as PluginLoaderService,
     workspace as unknown as IWorkspaceProvider,
     container as unknown as DependencyContainer,

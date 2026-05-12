@@ -172,4 +172,46 @@ describe('CliFileSystemProvider — CLI-specific behaviour', () => {
     const actual = await provider.readFileBytes(path.join(root, 'blob.bin'));
     expect(Array.from(actual)).toEqual(Array.from(bytes));
   });
+
+  it('createFileWatcher wires change/add/unlink events through chokidar and fires the correct IFileWatcher events', async () => {
+    // Replace the module-level chokidar stub with one that captures event
+    // handlers so we can invoke them manually and assert the IFileWatcher
+    // onDidChange / onDidCreate / onDidDelete events fire correctly.
+    const handlers: Record<string, ((fp: string) => void)[]> = {};
+    const mockWatch = jest.fn((_pattern: string, _opts: object) => ({
+      on(event: string, handler: (fp: string) => void): unknown {
+        (handlers[event] ??= []).push(handler);
+        return this;
+      },
+      close: () => Promise.resolve(),
+    }));
+
+    const chokidar = jest.requireMock<{ watch: jest.Mock }>('chokidar');
+    chokidar.watch = mockWatch;
+
+    const watcher = provider.createFileWatcher('**/*.ts');
+
+    const changedFiles: string[] = [];
+    const createdFiles: string[] = [];
+    const deletedFiles: string[] = [];
+
+    watcher.onDidChange((fp) => changedFiles.push(fp));
+    watcher.onDidCreate((fp) => createdFiles.push(fp));
+    watcher.onDidDelete((fp) => deletedFiles.push(fp));
+
+    // Allow the async IIFE inside createFileWatcher to resolve and register
+    // event handlers with the mock watcher.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // Trigger each chokidar event
+    handlers['change']?.[0]?.('/project/foo.ts');
+    handlers['add']?.[0]?.('/project/bar.ts');
+    handlers['unlink']?.[0]?.('/project/baz.ts');
+
+    expect(changedFiles).toEqual(['/project/foo.ts']);
+    expect(createdFiles).toEqual(['/project/bar.ts']);
+    expect(deletedFiles).toEqual(['/project/baz.ts']);
+
+    watcher.dispose();
+  });
 });

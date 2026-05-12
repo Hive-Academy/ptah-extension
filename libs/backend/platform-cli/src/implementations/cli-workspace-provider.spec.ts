@@ -156,4 +156,134 @@ describe('CliWorkspaceProvider — CLI-specific behaviour', () => {
     const folders = provider.getWorkspaceFolders();
     expect(path.isAbsolute(folders[0])).toBe(true);
   });
+
+  // -------------------------------------------------------------------------
+  // addFolder
+  // -------------------------------------------------------------------------
+
+  it('addFolder appends a new folder and fires onDidChangeWorkspaceFolders', () => {
+    const provider = new CliWorkspaceProvider(storage, storage);
+    const initial = provider.getWorkspaceFolders().length;
+    let fired = 0;
+    const sub = provider.onDidChangeWorkspaceFolders(() => {
+      fired += 1;
+    });
+    provider.addFolder(storage);
+    // The resolved storage path is already present — deduplication keeps count the same.
+    const afterDup = provider.getWorkspaceFolders().length;
+    expect(afterDup).toBe(initial); // no-op: already present
+    expect(fired).toBe(0); // no event fired for duplicate
+
+    const newDir = path.join(storage, 'newSub');
+    provider.addFolder(newDir);
+    expect(provider.getWorkspaceFolders().length).toBe(initial + 1);
+    expect(fired).toBe(1);
+    sub.dispose();
+  });
+
+  it('addFolder deduplicates by resolved path and does not fire event', () => {
+    const provider = new CliWorkspaceProvider(storage, storage);
+    provider.setWorkspaceFolders([]);
+    provider.addFolder('/some/abs/folder');
+    let count = 0;
+    const sub = provider.onDidChangeWorkspaceFolders(() => {
+      count += 1;
+    });
+    provider.addFolder('/some/abs/folder'); // duplicate — should no-op
+    expect(count).toBe(0);
+    sub.dispose();
+  });
+
+  // -------------------------------------------------------------------------
+  // removeFolder
+  // -------------------------------------------------------------------------
+
+  it('removeFolder removes an existing folder and fires onDidChangeWorkspaceFolders', () => {
+    const provider = new CliWorkspaceProvider(storage, storage);
+    provider.setWorkspaceFolders(['/fake/a', '/fake/b']);
+    let fired = 0;
+    const sub = provider.onDidChangeWorkspaceFolders(() => {
+      fired += 1;
+    });
+    provider.removeFolder('/fake/a');
+    expect(provider.getWorkspaceFolders()).not.toContain('/fake/a');
+    expect(fired).toBe(1);
+    sub.dispose();
+  });
+
+  it('removeFolder is a no-op and does not fire event for unknown path', () => {
+    const provider = new CliWorkspaceProvider(storage, storage);
+    provider.setWorkspaceFolders(['/fake/a']);
+    let fired = 0;
+    const sub = provider.onDidChangeWorkspaceFolders(() => {
+      fired += 1;
+    });
+    provider.removeFolder('/fake/nonexistent');
+    expect(fired).toBe(0);
+    sub.dispose();
+  });
+
+  it('removeFolder updates activeFolder when the active folder is removed', () => {
+    const provider = new CliWorkspaceProvider(storage, storage);
+    provider.setWorkspaceFolders(['/fake/a', '/fake/b']);
+    provider.setActiveFolder('/fake/a');
+    // Confirm active is set to resolved /fake/a
+    expect(provider.getActiveFolder()).toBe(path.resolve('/fake/a'));
+    provider.removeFolder('/fake/a');
+    // activeFolder should fall back to the first remaining folder
+    const remaining = provider.getActiveFolder();
+    const remainingFolders = provider.getWorkspaceFolders();
+    // Either it's now the first remaining folder, or undefined if empty
+    if (remainingFolders.length > 0) {
+      expect(remaining).toBe(remainingFolders[0]);
+    } else {
+      expect(remaining).toBeUndefined();
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // setActiveFolder / getActiveFolder
+  // -------------------------------------------------------------------------
+
+  it('setActiveFolder updates the active folder and fires onDidChangeWorkspaceFolders', () => {
+    const provider = new CliWorkspaceProvider(storage, storage);
+    provider.setWorkspaceFolders(['/fake/a', '/fake/b']);
+    let fired = 0;
+    const sub = provider.onDidChangeWorkspaceFolders(() => {
+      fired += 1;
+    });
+    provider.setActiveFolder('/fake/b');
+    expect(provider.getActiveFolder()).toBe(path.resolve('/fake/b'));
+    expect(fired).toBe(1);
+    sub.dispose();
+  });
+
+  it('setActiveFolder is a no-op for a path not in the folders list', () => {
+    const provider = new CliWorkspaceProvider(storage, storage);
+    provider.setWorkspaceFolders(['/fake/a']);
+    provider.setActiveFolder('/fake/a');
+    let fired = 0;
+    const sub = provider.onDidChangeWorkspaceFolders(() => {
+      fired += 1;
+    });
+    provider.setActiveFolder('/fake/notpresent');
+    expect(fired).toBe(0);
+    sub.dispose();
+  });
+
+  it('getActiveFolder returns undefined when no folders are present', () => {
+    const provider = new CliWorkspaceProvider(storage, storage);
+    provider.setWorkspaceFolders([]);
+    // After clearing all folders the active folder should be undefined
+    expect(provider.getActiveFolder()).toBeUndefined();
+  });
+
+  it('setConfiguration routes file-based ptah keys through fileSettings', async () => {
+    const provider = new CliWorkspaceProvider(storage, storage);
+    // 'authMethod' is a known FILE_BASED_SETTINGS key (routed to PtahFileSettingsManager)
+    // We verify the value is readable back via getConfiguration.
+    await provider.setConfiguration('ptah', 'authMethod', 'device-flow');
+    const val = provider.getConfiguration<string>('ptah', 'authMethod');
+    expect(val).toBe('device-flow');
+  });
 });
