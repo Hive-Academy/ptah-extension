@@ -23,11 +23,9 @@
  */
 
 import { inject, injectable } from 'tsyringe';
-import {
-  TOKENS,
-  type Logger,
-  type ConfigManager,
-} from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ModelSettings } from '@ptah-extension/settings-core';
 import type { AnalysisStreamPayload } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../../di/tokens';
 import type { PromptDesignerAgent } from '../prompt-designer/prompt-designer-agent';
@@ -197,8 +195,8 @@ export class EnhancedPromptsService {
     private readonly workspaceIntelligence: IWorkspaceIntelligence,
     @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
     private readonly internalQueryService: InternalQueryService,
-    @inject(TOKENS.CONFIG_MANAGER)
-    private readonly config: ConfigManager,
+    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
+    private readonly modelSettings: ModelSettings,
   ) {
     this.stateStore = new EnhancedPromptsStateStore(this.context);
 
@@ -763,11 +761,11 @@ export class EnhancedPromptsService {
         progress: 40,
       });
 
-      // 2. Resolve model: frontend override > user config > fallback.
-      // model.selected is set by SdkAgentAdapter.initialize() from the SDK's
+      // 2. Resolve model: frontend override > typed repository > fallback.
+      // selectedModel is set by SdkAgentAdapter.initialize() from the SDK's
       // supportedModels() API. InternalQueryService resolves bare tier names
       // ('opus', 'sonnet', 'haiku', 'default') to full model IDs before use.
-      const configModel = this.config.get<string>('model.selected');
+      const configModel = this.modelSettings.selectedModel.get();
       const model = sdkConfig?.model || configModel || 'default';
 
       // 3. Execute SDK query with structured output

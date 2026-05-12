@@ -9,7 +9,9 @@
  */
 
 import { inject, injectable } from 'tsyringe';
-import { TOKENS, ConfigManager } from '@ptah-extension/vscode-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ModelSettings } from '@ptah-extension/settings-core';
 import { DEFAULT_FALLBACK_MODEL_ID } from '@ptah-extension/agent-sdk';
 import type {
   GeneratedSkillSpec,
@@ -37,8 +39,8 @@ interface LlmSkillGenerationOutput {
 @injectable()
 export class HarnessSkillGenerationService {
   constructor(
-    @inject(TOKENS.CONFIG_MANAGER)
-    private readonly configManager: ConfigManager,
+    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
+    private readonly modelSettings: ModelSettings,
     @inject(HARNESS_TOKENS.WORKSPACE_CONTEXT)
     private readonly workspaceContext: HarnessWorkspaceContextService,
     @inject(HARNESS_TOKENS.LLM_RUNNER)
@@ -126,8 +128,7 @@ Return ONLY the JSON object matching the schema.`;
         execute: {
           cwd: workspaceRoot,
           model:
-            this.configManager.get<string>('model.selected') ||
-            DEFAULT_FALLBACK_MODEL_ID,
+            this.modelSettings.selectedModel.get() || DEFAULT_FALLBACK_MODEL_ID,
           prompt,
           systemPromptAppend:
             "You are a skill designer. Create practical, detailed skills that automate high-value workflows. Include complete SKILL.md content — not stubs. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",

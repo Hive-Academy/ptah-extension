@@ -17,6 +17,11 @@ import {
   FeatureGateService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type {
+  ModelSettings,
+  ReasoningSettings,
+} from '@ptah-extension/settings-core';
 import {
   SdkAgentAdapter,
   SdkPermissionHandler,
@@ -76,6 +81,10 @@ export class ConfigRpcHandlers {
     private readonly sentryService: SentryService,
     @inject(TOKENS.FEATURE_GATE_SERVICE)
     private readonly featureGate: FeatureGateService,
+    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
+    private readonly modelSettings: ModelSettings,
+    @inject(SETTINGS_TOKENS.REASONING_SETTINGS)
+    private readonly reasoningSettings: ReasoningSettings,
   ) {}
 
   /**
@@ -143,7 +152,7 @@ export class ConfigRpcHandlers {
 
         // Frontend sends full model IDs from the normalized models list.
         // No resolution needed — getSupportedModels() normalizes at source.
-        await this.configManager.set('model.selected', model);
+        await this.modelSettings.selectedModel.set(model);
 
         // Sync to active SDK session if provided
         if (sessionId) {
@@ -196,7 +205,7 @@ export class ConfigRpcHandlers {
       async (params: { model?: string; autopilot?: boolean } | undefined) => {
         try {
           if (params?.model !== undefined) {
-            await this.configManager.set('model.selected', params.model);
+            await this.modelSettings.selectedModel.set(params.model);
           }
           if (params?.autopilot !== undefined) {
             await this.configManager.set('autopilot.enabled', params.autopilot);
@@ -227,7 +236,7 @@ export class ConfigRpcHandlers {
         try {
           this.logger.debug('RPC: config:model-get called');
 
-          const stored = this.configManager.get<string>('model.selected') || '';
+          const stored = this.modelSettings.selectedModel.get() || '';
 
           // 'default' is a valid SDK tier meaning "let the SDK choose" — preserve it as-is.
           if (stored === 'default') {
@@ -241,7 +250,7 @@ export class ConfigRpcHandlers {
             this.logger.info(
               `RPC: config:model-get migrating legacy value '${stored}' → '${resolved}'`,
             );
-            await this.configManager.set('model.selected', resolved);
+            await this.modelSettings.selectedModel.set(resolved);
             return { model: resolved };
           }
 
@@ -260,7 +269,7 @@ export class ConfigRpcHandlers {
                 this.logger.info(
                   `RPC: config:model-get migrating stale model '${stored}' → '${currentLatest}'`,
                 );
-                await this.configManager.set('model.selected', currentLatest);
+                await this.modelSettings.selectedModel.set(currentLatest);
                 return { model: currentLatest };
               }
             }
@@ -443,8 +452,7 @@ export class ConfigRpcHandlers {
           // stores raw tier slots like 'opus'/'sonnet'). Resolve both sides when comparing
           // isSelected so full-ID config and tier-name dropdown entries match correctly.
           const savedModel =
-            this.configManager.get<string>('model.selected') ||
-            DEFAULT_FALLBACK_MODEL_ID;
+            this.modelSettings.selectedModel.get() || DEFAULT_FALLBACK_MODEL_ID;
           const resolvedSavedModel = this.modelResolver.resolve(savedModel);
 
           // sdkModels may contain bare tier names for claudeCli auth (e.g. 'opus', 'sonnet').
@@ -634,10 +642,7 @@ export class ConfigRpcHandlers {
     >('config:effort-get', async () => {
       try {
         this.logger.debug('RPC: config:effort-get called');
-        const effort = this.configManager.getWithDefault<string>(
-          'reasoningEffort',
-          '',
-        );
+        const effort = this.reasoningSettings.effort.get() || '';
         return {
           effort: (effort || undefined) as EffortLevel | undefined,
         };
@@ -667,7 +672,7 @@ export class ConfigRpcHandlers {
         const { effort } = params;
         this.logger.debug('RPC: config:effort-set called', { effort });
 
-        await this.configManager.set('reasoningEffort', effort || '');
+        await this.reasoningSettings.effort.set(effort || '');
 
         this.logger.info('Reasoning effort saved', { effort });
         return { effort };

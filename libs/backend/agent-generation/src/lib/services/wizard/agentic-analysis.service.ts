@@ -18,10 +18,11 @@
 import { injectable, inject } from 'tsyringe';
 import {
   Logger,
-  ConfigManager,
   TOKENS,
   type WebviewManager,
 } from '@ptah-extension/vscode-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ModelSettings } from '@ptah-extension/settings-core';
 import { Result, MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
   AnalysisPhase,
@@ -137,11 +138,12 @@ export class AgenticAnalysisService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
     @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
-    private readonly internalQueryService: InternalQueryService
+    private readonly internalQueryService: InternalQueryService,
+    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
+    private readonly modelSettings: ModelSettings,
   ) {}
 
   /**
@@ -156,11 +158,11 @@ export class AgenticAnalysisService {
       isPremium?: boolean;
       mcpServerRunning?: boolean;
       mcpPort?: number;
-    }
+    },
   ): Promise<Result<DeepProjectAnalysis, Error>> {
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS;
     const model =
-      options?.model || this.config.get<string>('model.selected') || 'default';
+      options?.model || this.modelSettings.selectedModel.get() || 'default';
     const isPremium = options?.isPremium ?? false;
     const mcpServerRunning = options?.mcpServerRunning ?? false;
     const mcpPort = options?.mcpPort;
@@ -176,8 +178,8 @@ export class AgenticAnalysisService {
     if (!isPremium || !mcpServerRunning) {
       return Result.err(
         new Error(
-          `Agentic analysis requires premium license and MCP server. isPremium=${isPremium}, mcpRunning=${mcpServerRunning}`
-        )
+          `Agentic analysis requires premium license and MCP server. isPremium=${isPremium}, mcpRunning=${mcpServerRunning}`,
+        ),
       );
     }
 
@@ -206,7 +208,7 @@ export class AgenticAnalysisService {
         return await this.processStream(
           handle.stream,
           abortController,
-          timeout
+          timeout,
         );
       } finally {
         handle.close();
@@ -218,21 +220,21 @@ export class AgenticAnalysisService {
 
       if (abortReason === ABORT_REASONS.TIMEOUT) {
         this.logger.warn(
-          `${SERVICE_TAG} Analysis timed out after ${timeout}ms`
+          `${SERVICE_TAG} Analysis timed out after ${timeout}ms`,
         );
         this.broadcastStreamMessage({
           kind: 'error',
           content: `Analysis timed out after ${Math.round(
-            timeout / 1000
+            timeout / 1000,
           )} seconds. Falling back to quick analysis...`,
           timestamp: Date.now(),
         });
         return Result.err(
           new Error(
             `Analysis timed out after ${Math.round(
-              timeout / 1000
-            )}s. Quick analysis mode will be used instead.`
-          )
+              timeout / 1000,
+            )}s. Quick analysis mode will be used instead.`,
+          ),
         );
       } else if (abortReason === ABORT_REASONS.USER_CANCELLED) {
         this.logger.info(`${SERVICE_TAG} Analysis cancelled by user`);
@@ -265,7 +267,7 @@ export class AgenticAnalysisService {
       this.activeAbortController = null;
     } else {
       this.logger.debug(
-        `${SERVICE_TAG} cancelAnalysis called but no active analysis`
+        `${SERVICE_TAG} cancelAnalysis called but no active analysis`,
       );
     }
   }
@@ -282,7 +284,7 @@ export class AgenticAnalysisService {
   private async processStream(
     stream: AsyncIterable<SDKMessage>,
     abortController: AbortController,
-    timeoutMs: number
+    timeoutMs: number,
   ): Promise<Result<DeepProjectAnalysis, Error>> {
     // Phase tracking state for progress heuristics
     let currentPhase: AnalysisPhase | undefined;
@@ -375,7 +377,7 @@ export class AgenticAnalysisService {
    * - Percentage clamping
    */
   private normalizeStructuredOutput(
-    structuredOutput: unknown
+    structuredOutput: unknown,
   ): Result<DeepProjectAnalysis, Error> {
     try {
       const validation = ProjectAnalysisZodSchema.safeParse(structuredOutput);
@@ -391,18 +393,18 @@ export class AgenticAnalysisService {
         .map((e) => `${String(e.path.join('.'))}: ${e.message}`)
         .join('; ');
       this.logger.warn(
-        `${SERVICE_TAG} Structured output normalization failed: ${errors}`
+        `${SERVICE_TAG} Structured output normalization failed: ${errors}`,
       );
       return Result.err(
-        new Error(`Failed to normalize structured output: ${errors}`)
+        new Error(`Failed to normalize structured output: ${errors}`),
       );
     } catch (error) {
       return Result.err(
         new Error(
           `Structured output normalization failed: ${
             error instanceof Error ? error.message : String(error)
-          }`
-        )
+          }`,
+        ),
       );
     }
   }
@@ -441,7 +443,7 @@ export class AgenticAnalysisService {
       }
 
       return Result.err(
-        new Error('Could not extract JSON from agent response')
+        new Error('Could not extract JSON from agent response'),
       );
     }
   }
@@ -461,7 +463,7 @@ export class AgenticAnalysisService {
     try {
       this.webviewManager.broadcastMessage(
         MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
-        payload
+        payload,
       );
     } catch (error) {
       this.logger.debug(`${SERVICE_TAG} Failed to broadcast progress`, {
@@ -477,7 +479,7 @@ export class AgenticAnalysisService {
     try {
       this.webviewManager.broadcastMessage(
         MESSAGE_TYPES.SETUP_WIZARD_ANALYSIS_STREAM,
-        payload
+        payload,
       );
     } catch (error) {
       this.logger.debug(`${SERVICE_TAG} Failed to broadcast stream message`, {

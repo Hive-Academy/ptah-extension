@@ -144,7 +144,6 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 
 import type { DependencyContainer } from 'tsyringe';
 import type {
-  ConfigManager,
   Logger,
   RpcHandler,
   SentryService,
@@ -170,7 +169,12 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
+import type { ModelSettings } from '@ptah-extension/settings-core';
 
+import {
+  createMockModelSettings,
+  type MockModelSettings,
+} from '../../test-utils/mock-settings';
 import { SetupRpcHandlers } from './setup-rpc.handlers';
 
 // ---------------------------------------------------------------------------
@@ -199,18 +203,6 @@ const AGENT_GENERATION_TOKENS = {
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces — only what the handler actually touches.
 // ---------------------------------------------------------------------------
-
-type MockConfigManagerLite = jest.Mocked<
-  Pick<ConfigManager, 'get' | 'getWithDefault' | 'set'>
->;
-
-function createMockConfigManagerLite(): MockConfigManagerLite {
-  return {
-    get: jest.fn(),
-    getWithDefault: jest.fn(),
-    set: jest.fn().mockResolvedValue(undefined),
-  } as unknown as MockConfigManagerLite;
-}
 
 type MockPluginLoader = jest.Mocked<
   Pick<
@@ -272,7 +264,7 @@ interface Harness {
   handlers: SetupRpcHandlers;
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
-  configManager: MockConfigManagerLite;
+  modelSettings: MockModelSettings;
   pluginLoader: MockPluginLoader;
   workspace: MockWorkspaceProvider;
   container: MockContainer;
@@ -283,7 +275,7 @@ interface Harness {
 function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   const logger = createMockLogger();
   const rpcHandler = createMockRpcHandler();
-  const configManager = createMockConfigManagerLite();
+  const modelSettings = createMockModelSettings();
   const pluginLoader = createMockPluginLoader();
   const workspace = createMockWorkspaceProvider({
     folders: opts.workspaceFolders ?? [WORKSPACE],
@@ -295,7 +287,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   const handlers = new SetupRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as RpcHandler,
-    configManager as unknown as ConfigManager,
+    modelSettings as unknown as ModelSettings,
     pluginLoader as unknown as PluginLoaderService,
     workspace as unknown as IWorkspaceProvider,
     container as unknown as DependencyContainer,
@@ -307,7 +299,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     handlers,
     logger,
     rpcHandler,
-    configManager,
+    modelSettings,
     pluginLoader,
     workspace,
     container,

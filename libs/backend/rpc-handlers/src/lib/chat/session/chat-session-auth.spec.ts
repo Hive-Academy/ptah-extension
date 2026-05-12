@@ -34,7 +34,9 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
+import type { ModelSettings } from '@ptah-extension/settings-core';
 
+import { createMockModelSettings } from '../../../test-utils/mock-settings';
 import { ChatSessionService } from './chat-session.service';
 
 const OPEN_FOLDER = '/c/projects/my-repo';
@@ -76,6 +78,7 @@ function makeService(
     stub as never,
     stub as never,
     stub as never,
+    createMockModelSettings() as unknown as ModelSettings,
   );
 }
 

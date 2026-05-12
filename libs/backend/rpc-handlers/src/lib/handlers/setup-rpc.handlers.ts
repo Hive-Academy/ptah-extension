@@ -23,8 +23,9 @@ import {
   TOKENS,
   LicenseService,
   type LicenseStatus,
-  ConfigManager,
 } from '@ptah-extension/vscode-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ModelSettings } from '@ptah-extension/settings-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
@@ -134,8 +135,8 @@ export class SetupRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    @inject(TOKENS.CONFIG_MANAGER)
-    private readonly configManager: ConfigManager,
+    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
+    private readonly modelSettings: ModelSettings,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -366,9 +367,7 @@ export class SetupRpcHandlers {
       }
 
       const currentModel =
-        params?.model ||
-        this.configManager.get<string>('model.selected') ||
-        'default';
+        params?.model || this.modelSettings.selectedModel.get() || 'default';
 
       const pluginPaths = this.resolvePluginPaths(isPremium);
 
