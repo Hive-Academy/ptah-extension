@@ -15,6 +15,7 @@ import { VscodeStateStorage } from './implementations/vscode-state-storage';
 import { VscodeDiskStateStorage } from './implementations/vscode-disk-state-storage';
 import { VscodeSecretStorage } from './implementations/vscode-secret-storage';
 import { VscodeWorkspaceProvider } from './implementations/vscode-workspace-provider';
+import { VscodeWorkspaceLifecycleProvider } from './implementations/vscode-workspace-lifecycle-provider';
 import { VscodeUserInteraction } from './implementations/vscode-user-interaction';
 import { VscodeOutputChannel } from './implementations/vscode-output-channel';
 import { VscodeCommandRegistry } from './implementations/vscode-command-registry';
@@ -80,6 +81,15 @@ export function registerPlatformVscodeServices(
     useValue: workspaceProvider,
   });
   context.subscriptions.push(workspaceProvider);
+
+  // Workspace Lifecycle Provider (holds VS Code event subscriptions — register
+  // for disposal). VS Code's workspace folder mutations go through
+  // vscode.workspace.updateWorkspaceFolders; this adapter wraps that API.
+  const workspaceLifecycleProvider = new VscodeWorkspaceLifecycleProvider();
+  container.register(PLATFORM_TOKENS.WORKSPACE_LIFECYCLE_PROVIDER, {
+    useValue: workspaceLifecycleProvider,
+  });
+  context.subscriptions.push(workspaceLifecycleProvider);
 
   // User Interaction
   container.register(PLATFORM_TOKENS.USER_INTERACTION, {

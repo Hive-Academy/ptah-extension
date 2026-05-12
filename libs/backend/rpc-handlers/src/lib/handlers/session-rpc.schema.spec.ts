@@ -19,22 +19,77 @@
 import 'reflect-metadata';
 
 import * as sessionRpcSchema from './session-rpc.schema';
+import { AgentJsonlFirstLineSchema } from './session-rpc.handlers';
 
 describe('session-rpc.schema', () => {
   it('is an intentionally empty module (no Zod schemas exported)', () => {
-    // The only thing `export {}` produces is a module with no own enumerable
-    // keys. If someone adds a schema later, this test will fail and the
-    // author will land here and add proper coverage.
     const ownKeys = Object.keys(sessionRpcSchema);
     expect(ownKeys).toEqual([]);
   });
 
   it('can be imported without side effects', () => {
-    // Re-importing must not throw and must yield the same empty module
-    // object shape. Guards against someone adding top-level side effects
-    // (e.g. `console.log`, global mutation) to what should stay a
-    // passive schema module.
     expect(sessionRpcSchema).toBeDefined();
     expect(typeof sessionRpcSchema).toBe('object');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AgentJsonlFirstLineSchema — JSONL first-line validation (Phase 6 / C-1)
+//
+// This schema is exported from session-rpc.handlers.ts and guards the
+// JSON.parse path that previously admitted any parsed value unchecked.
+// ---------------------------------------------------------------------------
+
+describe('AgentJsonlFirstLineSchema', () => {
+  it('parses a valid first-line object with a sessionId string', () => {
+    const result = AgentJsonlFirstLineSchema.safeParse({
+      sessionId: 'abc123',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.sessionId).toBe('abc123');
+    }
+  });
+
+  it('allows extra fields alongside sessionId (passthrough)', () => {
+    const result = AgentJsonlFirstLineSchema.safeParse({
+      sessionId: 'abc123',
+      type: 'message',
+      content: 'hello',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects an object with no sessionId field', () => {
+    const result = AgentJsonlFirstLineSchema.safeParse({ type: 'message' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'));
+      expect(paths).toContain('sessionId');
+    }
+  });
+
+  it('rejects when sessionId is not a string', () => {
+    const result = AgentJsonlFirstLineSchema.safeParse({ sessionId: 42 });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'));
+      expect(paths).toContain('sessionId');
+    }
+  });
+
+  it('rejects null', () => {
+    const result = AgentJsonlFirstLineSchema.safeParse(null);
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a plain string (not an object)', () => {
+    const result = AgentJsonlFirstLineSchema.safeParse('{"sessionId":"abc"}');
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an empty object', () => {
+    const result = AgentJsonlFirstLineSchema.safeParse({});
+    expect(result.success).toBe(false);
   });
 });

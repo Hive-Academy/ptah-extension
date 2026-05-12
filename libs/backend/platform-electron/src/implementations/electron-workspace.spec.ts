@@ -14,7 +14,9 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   runWorkspaceContract,
+  runWorkspaceLifecycleContract,
   type WorkspaceProviderSetup,
+  type WorkspaceLifecycleProviderSetup,
 } from '@ptah-extension/platform-core/testing';
 import {
   FILE_BASED_SETTINGS_DEFAULTS,
@@ -255,4 +257,32 @@ describe('ElectronWorkspaceProvider — Electron-specific behaviour', () => {
     expect(renameIdx).toBeGreaterThan(-1);
     expect(writeIdx).toBeLessThan(renameIdx);
   });
+});
+
+// ---------------------------------------------------------------------------
+// IWorkspaceLifecycleProvider conformance — ElectronWorkspaceProvider
+// ElectronWorkspaceProvider implements both IWorkspaceProvider and
+// IWorkspaceLifecycleProvider on the same instance.
+// ---------------------------------------------------------------------------
+
+runWorkspaceLifecycleContract('ElectronWorkspaceProvider', async () => {
+  const dir = await fs.mkdtemp(
+    path.join(os.tmpdir(), 'ptah-electron-lifecycle-'),
+  );
+  tmpDirs.push(dir);
+  const provider = new ElectronWorkspaceProvider(dir);
+
+  const setup: WorkspaceLifecycleProviderSetup = {
+    provider,
+    seed(folders: string[]): void {
+      provider.setWorkspaceFolders(folders);
+    },
+    getFolders(): string[] {
+      return provider.getWorkspaceFolders();
+    },
+    subscribeToFolderChanges(fn: () => void) {
+      return provider.onDidChangeWorkspaceFolders(fn);
+    },
+  };
+  return setup;
 });

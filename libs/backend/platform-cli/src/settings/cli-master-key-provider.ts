@@ -26,13 +26,19 @@
 
 import * as crypto from 'crypto';
 import * as os from 'os';
-import type { IMasterKeyProvider } from '@ptah-extension/settings-core';
+import type { IMasterKeyProvider } from '@ptah-extension/platform-core';
+import type { IUserInteraction } from '@ptah-extension/platform-core';
 
 const KEYTAR_SERVICE = 'ptah';
 const KEYTAR_ACCOUNT = 'masterKey';
 
 const FALLBACK_SALT_SOURCE = 'ptah-cli-fallback-salt-v1';
 const FALLBACK_INFO = 'ptah:masterKey:v1';
+
+const CORRUPT_KEY_MESSAGE =
+  "Ptah's encrypted settings store could not be opened (master key is corrupted or unreadable). " +
+  'A new key will be generated and any previously stored secrets will be lost. ' +
+  'You may need to re-enter your API keys and provider credentials.';
 
 /** Minimal keytar API surface used by this provider. */
 interface KeytarApi {
@@ -46,6 +52,7 @@ interface KeytarApi {
 
 export class CliMasterKeyProvider implements IMasterKeyProvider {
   private cachedKey: Buffer | null = null;
+  private pendingKey: Promise<Buffer> | null = null;
   /**
    * If true, the WARN about reduced protection has already been emitted.
    * We track this statically so tests that construct multiple instances
@@ -53,14 +60,29 @@ export class CliMasterKeyProvider implements IMasterKeyProvider {
    */
   private static fallbackWarnEmitted = false;
 
+  /**
+   * Optional IUserInteraction for surfacing key-corruption errors to the user.
+   * When not provided, falls back to console.error.
+   */
+  constructor(private readonly userInteraction?: IUserInteraction) {}
+
   async getMasterKey(): Promise<Buffer> {
     if (this.cachedKey) return this.cachedKey;
-
-    const keytar = await tryLoadKeytar();
-    if (keytar) {
-      const key = await this.getOrCreateKeytarKey(keytar);
+    if (this.pendingKey) return this.pendingKey;
+    this.pendingKey = this.doGetMasterKey();
+    try {
+      const key = await this.pendingKey;
       this.cachedKey = key;
       return key;
+    } finally {
+      this.pendingKey = null;
+    }
+  }
+
+  private async doGetMasterKey(): Promise<Buffer> {
+    const keytar = await tryLoadKeytar();
+    if (keytar) {
+      return this.getOrCreateKeytarKey(keytar);
     }
 
     // Keytar unavailable — use deterministic fallback.
@@ -73,9 +95,7 @@ export class CliMasterKeyProvider implements IMasterKeyProvider {
       );
     }
 
-    const key = deriveFallbackKey();
-    this.cachedKey = key;
-    return key;
+    return deriveFallbackKey();
   }
 
   private async getOrCreateKeytarKey(keytar: KeytarApi): Promise<Buffer> {
@@ -86,7 +106,8 @@ export class CliMasterKeyProvider implements IMasterKeyProvider {
       if (keyBuf.length === 32) {
         return keyBuf;
       }
-      // Stored key has wrong length — generate a fresh one.
+      // Stored key has wrong length — notify and regenerate.
+      await this.notifyCorruption();
     }
 
     // Generate and store a new random key.
@@ -97,6 +118,25 @@ export class CliMasterKeyProvider implements IMasterKeyProvider {
       newKey.toString('base64'),
     );
     return newKey;
+  }
+
+  /**
+   * Notify the user that the master key is corrupted/unreadable and a new
+   * key will be generated, causing loss of any previously stored secrets.
+   */
+  private async notifyCorruption(): Promise<void> {
+    if (this.userInteraction) {
+      try {
+        await this.userInteraction.showErrorMessage(CORRUPT_KEY_MESSAGE);
+      } catch {
+        // If notification fails, log and continue — regeneration must proceed.
+        console.error('[ptah-cli] ERROR:', CORRUPT_KEY_MESSAGE);
+      }
+    } else {
+      // IUserInteraction not provided — log to console as fallback.
+      // Production code always passes userInteraction via registerCliSettings.
+      console.error('[ptah-cli] ERROR:', CORRUPT_KEY_MESSAGE);
+    }
   }
 }
 

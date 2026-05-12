@@ -23,7 +23,7 @@ import * as os from 'os';
 import { encryptValue, decryptValue } from './secret-envelope';
 import { SecretsFileStore } from './secrets-file-store';
 import { runV3Migration } from '../migrations/v3-migration';
-import type { IMasterKeyProvider } from './master-key-provider';
+import type { IMasterKeyProvider } from '@ptah-extension/platform-core';
 
 // ---------------------------------------------------------------------------
 // Temp directory helpers

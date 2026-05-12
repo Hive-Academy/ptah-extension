@@ -49,6 +49,7 @@ import {
   type GatewayPlatform,
   BindingId,
 } from '@ptah-extension/messaging-gateway';
+import { extractGatewayOrigin } from './gateway-rpc.schema';
 
 @injectable()
 export class GatewayRpcHandlers {
@@ -133,8 +134,7 @@ export class GatewayRpcHandlers {
     this.rpcHandler.registerMethod<GatewayStartParams, GatewayStartResult>(
       'gateway:start',
       async (params) => {
-        const origin =
-          (params as { origin?: string } | undefined)?.origin ?? null;
+        const origin = extractGatewayOrigin(params);
         if (params?.platform) {
           await this.gateway.startPlatform(params.platform as GatewayPlatform);
         } else {
@@ -154,8 +154,7 @@ export class GatewayRpcHandlers {
     this.rpcHandler.registerMethod<GatewayStopParams, GatewayStopResult>(
       'gateway:stop',
       async (params) => {
-        const origin =
-          (params as { origin?: string } | undefined)?.origin ?? null;
+        const origin = extractGatewayOrigin(params);
         if (params?.platform) {
           await this.gateway.stopPlatform(params.platform as GatewayPlatform);
         } else {

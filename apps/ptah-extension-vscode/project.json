@@ -4,6 +4,7 @@
   "sourceRoot": "apps/ptah-extension-vscode/src",
   "projectType": "application",
   "tags": ["scope:extension", "type:app"],
+  "implicitDependencies": ["@ptah-extension/rpc-handlers"],
   "targets": {
     "build": {
       "executor": "nx:noop",

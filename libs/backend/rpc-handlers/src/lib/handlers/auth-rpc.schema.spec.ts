@@ -24,7 +24,7 @@ import 'reflect-metadata';
 
 import { ANTHROPIC_PROVIDERS } from '@ptah-extension/agent-sdk';
 
-import { AuthSettingsSchema } from './auth-rpc.schema';
+import { AuthSettingsSchema, parseAuthMethod } from './auth-rpc.schema';
 
 describe('AuthSettingsSchema', () => {
   describe('authMethod', () => {
@@ -146,6 +146,34 @@ describe('AuthSettingsSchema', () => {
         expect(paths).toContain(field);
       }
     });
+  });
+
+  describe('parseAuthMethod', () => {
+    it('returns "apiKey" for null / undefined', () => {
+      expect(parseAuthMethod(null)).toBe('apiKey');
+      expect(parseAuthMethod(undefined)).toBe('apiKey');
+    });
+
+    it('returns "apiKey" for empty string', () => {
+      expect(parseAuthMethod('')).toBe('apiKey');
+    });
+
+    it('passes through recognized methods unchanged', () => {
+      expect(parseAuthMethod('apiKey')).toBe('apiKey');
+      expect(parseAuthMethod('claudeCli')).toBe('claudeCli');
+      expect(parseAuthMethod('thirdParty')).toBe('thirdParty');
+    });
+
+    it('normalizes legacy "openrouter" alias to "thirdParty"', () => {
+      expect(parseAuthMethod('openrouter')).toBe('thirdParty');
+    });
+
+    it.each(['vscode-lm', 'auto', 'APIKEY', 'unknown', '   '])(
+      'defaults unrecognized value "%s" to "apiKey"',
+      (value) => {
+        expect(parseAuthMethod(value)).toBe('apiKey');
+      },
+    );
   });
 
   describe('full payload parsing', () => {

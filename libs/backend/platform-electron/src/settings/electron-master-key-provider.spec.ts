@@ -16,6 +16,7 @@ import 'reflect-metadata';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { runMasterKeyProviderContract } from '@ptah-extension/platform-core/testing';
 import {
   ElectronMasterKeyProvider,
   type ElectronSafeStorageApi,
@@ -463,4 +464,173 @@ describe('C4 — writeKeyRefSync: synchronously writes key ref to disk', () => {
     expect(written.version).toBe(1);
     expect(written.wrapped).toBe('bmV3');
   });
+});
+
+// ---------------------------------------------------------------------------
+// IMasterKeyProvider contract suite — ElectronMasterKeyProvider
+//
+// Per-test storage instance shared across two createProvider(stateRoot) calls
+// so encrypt/decrypt round-trips are consistent within the cross-restart test.
+// ---------------------------------------------------------------------------
+
+{
+  let contractStorage: ElectronSafeStorageApi;
+
+  runMasterKeyProviderContract(
+    'ElectronMasterKeyProvider',
+    (stateRoot: string) => {
+      const provider = new ElectronMasterKeyProvider(stateRoot);
+      (
+        provider as unknown as {
+          loadSafeStorage: () => Promise<ElectronSafeStorageApi>;
+        }
+      ).loadSafeStorage = jest.fn().mockResolvedValue(contractStorage);
+      return provider;
+    },
+    async (): Promise<string> => {
+      contractStorage = makeAvailableSafeStorage();
+      return fs.mkdtempSync(
+        path.join(os.tmpdir(), 'ptah-electron-mkp-contract-'),
+      );
+    },
+    async (stateRoot: string) => {
+      fs.rmSync(stateRoot, { recursive: true, force: true });
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MKP-DL data-loss audit tests — ElectronMasterKeyProvider
+//
+// MKP-DL-4 is already covered by the conformance suite's concurrent-call test
+// ("two concurrent getMasterKey() calls on a fresh instance return identical
+// bytes"). The test below is intentionally omitted to avoid duplication.
+// ---------------------------------------------------------------------------
+
+describe('MKP-DL — ElectronMasterKeyProvider: data-loss audit', () => {
+  let tmpDir: string;
+
+  function makeProvider(
+    dir: string,
+    userInteraction?: { showErrorMessage: jest.Mock },
+  ): ElectronMasterKeyProvider {
+    const storage = makeAvailableSafeStorage();
+    const provider = new ElectronMasterKeyProvider(
+      dir,
+      userInteraction as unknown as import('@ptah-extension/platform-core').IUserInteraction,
+    );
+    (
+      provider as unknown as {
+        loadSafeStorage: () => Promise<ElectronSafeStorageApi>;
+      }
+    ).loadSafeStorage = jest.fn().mockResolvedValue(storage);
+    return provider;
+  }
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-electron-dl-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    jest.restoreAllMocks();
+  });
+
+  // MKP-DL-1: corrupt key-ref on disk — reinit fires user-visible error once,
+  // provider generates a fresh key.
+  it('MKP-DL-1: corrupt key-ref triggers user-visible error message exactly once and generates new key', async () => {
+    // Write a valid key ref first.
+    const provider1 = makeProvider(tmpDir);
+    await provider1.getMasterKey();
+
+    // Corrupt the key-ref file.
+    const keyRefPath = path.join(tmpDir, 'master-key-ref.json');
+    fs.writeFileSync(keyRefPath, '{ not valid json !!!', 'utf8');
+
+    // Create a fresh provider with a mock IUserInteraction.
+    const showErrorMessage = jest.fn().mockResolvedValue(undefined);
+    const provider2 = makeProvider(tmpDir, { showErrorMessage });
+
+    const key = await provider2.getMasterKey();
+
+    // Key must be a valid 32-byte buffer (regenerated).
+    expect(Buffer.isBuffer(key)).toBe(true);
+    expect(key.length).toBe(32);
+
+    // User-visible error fired exactly once.
+    expect(showErrorMessage).toHaveBeenCalledTimes(1);
+    const [msg] = showErrorMessage.mock.calls[0] as [string];
+    expect(msg).toMatch(/corrupted or unreadable/i);
+  });
+
+  // MKP-DL-2: simulate keyring becoming unavailable on second boot.
+  // Behavior is deterministic: all reads fail (provider throws), none succeed partially.
+  it('MKP-DL-2: when safeStorage becomes unavailable on reinit, getMasterKey throws consistently (no partial success)', async () => {
+    // First boot — writes key ref.
+    const provider1 = makeProvider(tmpDir);
+    await provider1.getMasterKey();
+
+    // Second boot — safeStorage encryption unavailable.
+    const unavailStorage = makeUnavailableSafeStorage();
+    const provider2 = new ElectronMasterKeyProvider(tmpDir);
+    (
+      provider2 as unknown as {
+        loadSafeStorage: () => Promise<ElectronSafeStorageApi>;
+      }
+    ).loadSafeStorage = jest.fn().mockResolvedValue(unavailStorage);
+
+    // Both concurrent calls must deterministically fail — never partially succeed.
+    const [r1, r2] = await Promise.allSettled([
+      provider2.getMasterKey(),
+      provider2.getMasterKey(),
+    ]);
+
+    expect(r1.status).toBe('rejected');
+    expect(r2.status).toBe('rejected');
+    // Both errors are the same keyring error (not split outcomes).
+    expect((r1 as PromiseRejectedResult).reason).toBeInstanceOf(Error);
+    expect((r2 as PromiseRejectedResult).reason).toBeInstanceOf(Error);
+  });
+
+  // MKP-DL-3: after key regeneration, the written key-ref is valid JSON
+  // with all required fields.
+  it('MKP-DL-3: key regeneration writes atomic, valid key-ref with all required fields', async () => {
+    const keyRefPath = path.join(tmpDir, 'master-key-ref.json');
+
+    // Corrupt the ref to force regeneration.
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(keyRefPath, '{ bad json }', 'utf8');
+
+    const provider = makeProvider(tmpDir);
+    await provider.getMasterKey();
+
+    // Key-ref must exist and be valid JSON.
+    expect(fs.existsSync(keyRefPath)).toBe(true);
+    const written = JSON.parse(fs.readFileSync(keyRefPath, 'utf8')) as unknown;
+
+    // Validate required fields using the same Zod-equivalent checks.
+    expect(typeof (written as Record<string, unknown>)['version']).toBe(
+      'number',
+    );
+    expect(typeof (written as Record<string, unknown>)['algorithm']).toBe(
+      'string',
+    );
+    expect(typeof (written as Record<string, unknown>)['wrapped']).toBe(
+      'string',
+    );
+    // 'wrapped' must be syntactically valid base64.
+    const base64Regex = /^[A-Za-z0-9+/]+=*$/;
+    expect(
+      base64Regex.test(
+        (written as Record<string, unknown>)['wrapped'] as string,
+      ),
+    ).toBe(true);
+  });
+
+  // MKP-DL-4: covered by the conformance suite's concurrent-call test
+  // "two concurrent getMasterKey() calls on a fresh instance return identical bytes".
+  // No duplicate test here.
+  it.todo(
+    'MKP-DL-4: covered by IMasterKeyProvider contract — two concurrent calls return identical bytes',
+  );
 });

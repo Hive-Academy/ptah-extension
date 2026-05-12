@@ -21,10 +21,8 @@
 
 import type { IDisposable } from '@ptah-extension/platform-core';
 import type { PtahFileSettingsManager } from '@ptah-extension/platform-core';
-import type {
-  ISettingsStore,
-  IMasterKeyProvider,
-} from '@ptah-extension/settings-core';
+import type { IMasterKeyProvider } from '@ptah-extension/platform-core';
+import type { ISettingsStore } from '@ptah-extension/settings-core';
 import { SecretsFileStore } from '@ptah-extension/settings-core';
 
 export class FileSettingsStore implements ISettingsStore {

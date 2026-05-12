@@ -30,10 +30,10 @@ import type { ITokenVault } from './token-vault.interface';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
+import type { IMasterKeyProvider } from '@ptah-extension/platform-core';
 import {
   SecretsFileStore,
   GatewaySettings,
-  type IMasterKeyProvider,
 } from '@ptah-extension/settings-core';
 import type { ISettingsStore } from '@ptah-extension/settings-core';
 import type { IDisposable } from '@ptah-extension/platform-core';

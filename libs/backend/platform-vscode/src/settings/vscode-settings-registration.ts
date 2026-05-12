@@ -51,6 +51,7 @@ import {
   VscodeMasterKeyProvider,
   type VscodeSecretStorageSlice,
 } from './vscode-master-key-provider';
+import type { IUserInteraction } from '@ptah-extension/platform-core';
 
 /**
  * Minimal slice of vscode.ExtensionContext required by this registration.
@@ -88,7 +89,17 @@ export function registerVscodeSettings(
   );
 
   // 2. Master key provider — backed by vscode.SecretStorage.
-  const masterKeyProvider = new VscodeMasterKeyProvider(context.secrets);
+  // IUserInteraction is resolved from the container (registered by
+  // registerPlatformVscodeServices before this function runs) so that
+  // notifyCorruption() shows a user-visible notification instead of falling
+  // back to console.error.
+  const userInteraction = container.resolve<IUserInteraction>(
+    PLATFORM_TOKENS.USER_INTERACTION,
+  );
+  const masterKeyProvider = new VscodeMasterKeyProvider(
+    context.secrets,
+    userInteraction,
+  );
   container.register(SETTINGS_TOKENS.MASTER_KEY_PROVIDER, {
     useValue: masterKeyProvider,
   });

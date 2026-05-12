@@ -401,6 +401,169 @@ describe('SqliteMigrationRunner', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// SQL-M real better-sqlite3 migration invariants
+//
+// These tests use the real `better-sqlite3` native binding to validate the
+// invariants in Section 3.3 of docs/test-strategy-plan.md. They are skipped
+// when the native module is not installed (Track 0 exit criteria).
+// ---------------------------------------------------------------------------
+
+{
+  let nativeAvailable = false;
+  let Database: (new (file: string) => unknown) | undefined;
+  try {
+    Database = require('better-sqlite3') as new (file: string) => unknown;
+    // Smoke-test: open an in-memory DB to confirm the ABI matches the runner.
+    const probe = new Database(':memory:');
+    (probe as { close(): void }).close();
+    nativeAvailable = true;
+  } catch {
+    nativeAvailable = false;
+  }
+
+  const maybe = nativeAvailable ? describe : describe.skip;
+
+  maybe('SQL-M real better-sqlite3 migration invariants', () => {
+    function openDb(
+      file = ':memory:',
+    ): import('./sqlite-connection.service').SqliteDatabase {
+      if (!Database) throw new Error('better-sqlite3 not available');
+      return new Database(
+        file,
+      ) as import('./sqlite-connection.service').SqliteDatabase;
+    }
+
+    // SQL-M-1: applying MIGRATIONS to a fresh in-memory DB does not throw
+    // and finalVersion equals the last migration version.
+    it('SQL-M-1: applies all MIGRATIONS to a fresh real in-memory DB without error', async () => {
+      const { MIGRATIONS } = require('./migrations') as {
+        MIGRATIONS: readonly import('./migrations').Migration[];
+      };
+      const db = openDb();
+      const runner = new SqliteMigrationRunner(db, createMockLogger());
+
+      const result = await runner.applyAll(MIGRATIONS, {
+        vecExtensionLoaded: false,
+      });
+
+      expect(result.appliedVersions.length).toBeGreaterThan(0);
+      expect(result.finalVersion).toBe(
+        MIGRATIONS[MIGRATIONS.length - 1].version,
+      );
+      // Bookkeeping table is consistent with the returned result.
+      const applied = runner.readAppliedVersions();
+      for (const v of result.appliedVersions) {
+        expect(applied.has(v)).toBe(true);
+      }
+      (db as { close(): void }).close();
+    });
+
+    // SQL-M-2: re-running applyAll on an already-migrated DB skips all versions.
+    it('SQL-M-2: re-running applyAll on a fully-migrated DB produces empty appliedVersions', async () => {
+      const { MIGRATIONS } = require('./migrations') as {
+        MIGRATIONS: readonly import('./migrations').Migration[];
+      };
+      const db = openDb();
+      const runner = new SqliteMigrationRunner(db, createMockLogger());
+
+      await runner.applyAll(MIGRATIONS, { vecExtensionLoaded: false });
+      const second = await runner.applyAll(MIGRATIONS, {
+        vecExtensionLoaded: false,
+      });
+
+      expect(second.appliedVersions).toEqual([]);
+      expect(second.skippedVersions.length).toBeGreaterThan(0);
+      // finalVersion is unchanged after a no-op run.
+      expect(second.finalVersion).toBe(
+        MIGRATIONS[MIGRATIONS.length - 1].version,
+      );
+      (db as { close(): void }).close();
+    });
+
+    // SQL-M-3: a migration with a syntax error is rolled back — tables from
+    // prior migrations remain; the failing migration leaves no bookkeeping row.
+    it('SQL-M-3: syntax-error migration is rolled back — prior tables intact', async () => {
+      const db = openDb();
+      const runner = new SqliteMigrationRunner(db, createMockLogger());
+      const goodMigration: Migration = {
+        version: 1,
+        name: '0001_real_good',
+        sql: 'CREATE TABLE real_t1 (id INTEGER PRIMARY KEY);',
+      };
+      const brokenMigration: Migration = {
+        version: 2,
+        name: '0002_real_broken',
+        sql: 'THIS IS NOT VALID SQL AT ALL;',
+      };
+
+      await expect(
+        runner.applyAll([goodMigration, brokenMigration]),
+      ).rejects.toThrow(/migration 2.*failed/);
+
+      // Prior migration's table must still exist.
+      const tableList = (db as { prepare(sql: string): { all(): unknown[] } })
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='real_t1'",
+        )
+        .all() as Array<{ name: string }>;
+      expect(tableList.length).toBe(1);
+
+      // Only version 1 is recorded in schema_migrations.
+      const applied = runner.readAppliedVersions();
+      expect(applied.has(1)).toBe(true);
+      expect(applied.has(2)).toBe(false);
+
+      (db as { close(): void }).close();
+    });
+
+    // SQL-M-4: migration version numbers in MIGRATIONS are strictly monotonically
+    // increasing (no two consecutive entries share or decrease version).
+    it('SQL-M-4: MIGRATIONS version numbers are strictly monotonically increasing', () => {
+      const { MIGRATIONS } = require('./migrations') as {
+        MIGRATIONS: readonly import('./migrations').Migration[];
+      };
+
+      for (let i = 1; i < MIGRATIONS.length; i++) {
+        const prev = MIGRATIONS[i - 1].version;
+        const curr = MIGRATIONS[i].version;
+        expect(curr).toBeGreaterThan(prev);
+      }
+    });
+
+    // SQL-M-5: migrations run in numeric order regardless of how the input
+    // array is ordered.  Provide the array reversed and verify all versions
+    // are applied in ascending order (the runner sorts internally).
+    it('SQL-M-5: migrations are applied in numeric order regardless of input order', async () => {
+      const db = openDb();
+      const runner = new SqliteMigrationRunner(db, createMockLogger());
+      const unordered: Migration[] = [
+        {
+          version: 3,
+          name: '0003_c',
+          sql: 'CREATE TABLE ord_c (id INTEGER PRIMARY KEY);',
+        },
+        {
+          version: 1,
+          name: '0001_a',
+          sql: 'CREATE TABLE ord_a (id INTEGER PRIMARY KEY);',
+        },
+        {
+          version: 2,
+          name: '0002_b',
+          sql: 'CREATE TABLE ord_b (id INTEGER PRIMARY KEY);',
+        },
+      ];
+
+      const result = await runner.applyAll(unordered);
+
+      expect(result.appliedVersions).toEqual([1, 2, 3]);
+      expect(result.finalVersion).toBe(3);
+      (db as { close(): void }).close();
+    });
+  });
+}
+
 // --- Migration 0009: auto_vacuum ---
 
 describe('Migration 0009 — auto_vacuum', () => {

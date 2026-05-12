@@ -47,6 +47,7 @@ import {
   type EffortLevel,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import { parsePermissionLevel, parseEffortLevel } from './config-rpc.schema';
 
 /**
  * RPC handlers for configuration operations
@@ -107,9 +108,14 @@ export class ConfigRpcHandlers {
       'autopilot.enabled',
       false,
     );
-    const savedLevel = this.configManager.getWithDefault<PermissionLevel>(
-      'autopilot.permissionLevel',
-      'ask',
+    // Use parsePermissionLevel to validate the stored value — getWithDefault's
+    // generic parameter is unchecked; if the stored string is unrecognized
+    // (e.g. future format or external edit), fall back to 'ask'.
+    const savedLevel = parsePermissionLevel(
+      this.configManager.getWithDefault<string>(
+        'autopilot.permissionLevel',
+        'ask',
+      ),
     );
     const effectiveLevel = autopilotEnabled ? savedLevel : 'ask';
     this.permissionHandler.setPermissionLevel(effectiveLevel);
@@ -408,11 +414,12 @@ export class ConfigRpcHandlers {
             'autopilot.enabled',
             false,
           );
-          const permissionLevel =
-            this.configManager.getWithDefault<PermissionLevel>(
+          const permissionLevel = parsePermissionLevel(
+            this.configManager.getWithDefault<string>(
               'autopilot.permissionLevel',
               'ask',
-            );
+            ),
+          );
 
           return { enabled, permissionLevel };
         } catch (error) {
@@ -642,9 +649,11 @@ export class ConfigRpcHandlers {
     >('config:effort-get', async () => {
       try {
         this.logger.debug('RPC: config:effort-get called');
-        const effort = this.reasoningSettings.effort.get() || '';
+        const effortRaw = this.reasoningSettings.effort.get();
         return {
-          effort: (effort || undefined) as EffortLevel | undefined,
+          // parseEffortLevel validates the stored string and returns undefined
+          // for any unrecognized value rather than passing it through unchecked.
+          effort: parseEffortLevel(effortRaw),
         };
       } catch (error) {
         this.logger.error(

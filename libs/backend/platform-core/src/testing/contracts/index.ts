@@ -33,3 +33,13 @@ export {
   runAuthProviderContract,
   type AuthProviderSetup,
 } from './run-auth-provider-contract';
+export { runMasterKeyProviderContract } from './run-master-key-provider-contract';
+export {
+  runWorkspaceLifecycleContract,
+  type WorkspaceLifecycleProviderSetup,
+} from './run-workspace-lifecycle-contract';
+export { runPlatformCommandsContract } from './run-platform-commands-contract';
+export {
+  runHttpServerProviderContract,
+  type HttpServerProviderSetup,
+} from './run-http-server-provider-contract';

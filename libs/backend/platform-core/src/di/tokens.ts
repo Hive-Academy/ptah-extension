@@ -58,4 +58,7 @@ export const PLATFORM_TOKENS = {
 
   /** IMemoryWriter — upsert memory entries by stable (fingerprint, subject) identity. */
   MEMORY_WRITER: Symbol.for('PlatformMemoryWriter'),
+
+  /** IMasterKeyProvider — platform-specific 32-byte AES-256 master key retrieval. */
+  MASTER_KEY_PROVIDER: Symbol.for('PlatformMasterKeyProvider'),
 } as const;

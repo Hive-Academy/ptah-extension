@@ -5,7 +5,6 @@ export { SETTINGS_TOKENS } from './di/tokens';
 export type { SecretEnvelope } from './encryption/secret-envelope';
 export { encryptValue, decryptValue } from './encryption/secret-envelope';
 export { SecretsFileStore } from './encryption/secrets-file-store';
-export type { IMasterKeyProvider } from './encryption/master-key-provider';
 
 // ---- Ports ----
 export type { ISettingsStore } from './ports/settings-store.interface';

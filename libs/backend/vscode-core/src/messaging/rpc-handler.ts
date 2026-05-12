@@ -43,7 +43,7 @@ import {
  *
  * Security: Prevents unauthorized method registration and injection attacks
  */
-const ALLOWED_METHOD_PREFIXES = [
+export const ALLOWED_METHOD_PREFIXES = [
   'session:',
   'chat:',
   'file:',

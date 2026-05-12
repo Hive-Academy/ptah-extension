@@ -22,7 +22,7 @@ import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import type { IMasterKeyProvider } from '@ptah-extension/settings-core';
+import type { IMasterKeyProvider } from '@ptah-extension/platform-core';
 import type { IUserInteraction } from '@ptah-extension/platform-core';
 
 const KEY_REF_ALGORITHM = 'electron-safeStorage';
@@ -232,7 +232,8 @@ export class ElectronMasterKeyProvider implements IMasterKeyProvider {
         );
       }
     } else {
-      // TODO: inject IUserInteraction at composition root for proper UX
+      // IUserInteraction not provided — log to console as fallback.
+      // Production code always passes userInteraction via registerElectronSettings.
       console.error(
         `[ptah-electron] ERROR: master key corruption (${detail}). ${CORRUPT_KEY_MESSAGE}`,
       );

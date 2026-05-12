@@ -16,10 +16,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { FileSettingsStore } from './file-settings-store';
 import type { PtahFileSettingsManager } from '@ptah-extension/platform-core';
-import {
-  SecretsFileStore,
-  type IMasterKeyProvider,
-} from '@ptah-extension/settings-core';
+import type { IMasterKeyProvider } from '@ptah-extension/platform-core';
+import { SecretsFileStore } from '@ptah-extension/settings-core';
 
 // ---------------------------------------------------------------------------
 // Shared mock factories

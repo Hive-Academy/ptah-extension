@@ -38,6 +38,7 @@ import {
 import { FileSettingsStore } from './file-settings-store';
 import { ElectronMasterKeyProvider } from './electron-master-key-provider';
 import { ElectronWorkspaceProvider } from '../implementations/electron-workspace-provider';
+import type { IUserInteraction } from '@ptah-extension/platform-core';
 
 /**
  * Register all settings-core tokens for the Electron platform.
@@ -61,7 +62,17 @@ export function registerElectronSettings(container: DependencyContainer): void {
   );
 
   // 2. Master key provider — backed by Electron safeStorage.
-  const masterKeyProvider = new ElectronMasterKeyProvider(ptahDir);
+  // IUserInteraction is resolved from the container (registered by
+  // registerPlatformElectronServices before this function runs) so that
+  // notifyCorruption() shows a user-visible dialog instead of falling
+  // back to console.error. The TODO in ElectronMasterKeyProvider is now closed.
+  const userInteraction = container.resolve<IUserInteraction>(
+    PLATFORM_TOKENS.USER_INTERACTION,
+  );
+  const masterKeyProvider = new ElectronMasterKeyProvider(
+    ptahDir,
+    userInteraction,
+  );
   container.register(SETTINGS_TOKENS.MASTER_KEY_PROVIDER, {
     useValue: masterKeyProvider,
   });

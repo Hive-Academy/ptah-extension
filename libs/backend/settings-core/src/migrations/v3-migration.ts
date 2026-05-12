@@ -32,7 +32,7 @@
 
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
-import type { IMasterKeyProvider } from '../encryption/master-key-provider';
+import type { IMasterKeyProvider } from '@ptah-extension/platform-core';
 import { SecretsFileStore } from '../encryption/secrets-file-store';
 
 /** Keys to migrate from settings.json into secrets.enc.json. */

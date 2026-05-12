@@ -53,6 +53,16 @@ import * as path from 'path';
 import * as os from 'os';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
+import { z } from 'zod';
+
+/**
+ * Minimal schema for JSONL first-line entries in agent session files.
+ * Only `sessionId` is required for the delete-subagents lookup.
+ * Exported for focused unit testing in session-rpc.schema.spec.ts.
+ */
+export const AgentJsonlFirstLineSchema = z.object({
+  sessionId: z.string(),
+});
 
 /**
  * RPC handlers for session operations (SDK-based)
@@ -547,14 +557,33 @@ export class SessionRpcHandlers {
             const content = await fs.readFile(filePath, 'utf-8');
             const firstLine = content.split('\n')[0];
             if (firstLine) {
-              const firstMsg = JSON.parse(firstLine);
-              if (firstMsg.sessionId === sessionId) {
+              let parsed: unknown;
+              try {
+                parsed = JSON.parse(firstLine);
+              } catch {
+                // Malformed JSON — skip file, do not crash.
+                this.logger.debug(
+                  'session:delete — skipping unreadable JSONL (malformed JSON)',
+                  { filePath },
+                );
+                continue;
+              }
+              const result = AgentJsonlFirstLineSchema.safeParse(parsed);
+              if (!result.success) {
+                // Valid JSON but unexpected shape — skip for diagnosis.
+                this.logger.debug(
+                  'session:delete — skipping JSONL with unexpected first-line shape',
+                  { filePath, issues: result.error.issues },
+                );
+                continue;
+              }
+              if (result.data.sessionId === sessionId) {
                 await fs.unlink(filePath);
                 deletedSubagents++;
               }
             }
           } catch {
-            // Skip unreadable/unparseable files
+            // Skip unreadable files (e.g. permission errors)
           }
         }
       } catch {

@@ -17,7 +17,9 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   runWorkspaceContract,
+  runWorkspaceLifecycleContract,
   type WorkspaceProviderSetup,
+  type WorkspaceLifecycleProviderSetup,
 } from '@ptah-extension/platform-core/testing';
 import { CliWorkspaceProvider } from './cli-workspace-provider';
 
@@ -286,4 +288,32 @@ describe('CliWorkspaceProvider — CLI-specific behaviour', () => {
     const val = provider.getConfiguration<string>('ptah', 'authMethod');
     expect(val).toBe('device-flow');
   });
+});
+
+// ---------------------------------------------------------------------------
+// IWorkspaceLifecycleProvider conformance — CliWorkspaceProvider
+// CliWorkspaceProvider implements both IWorkspaceProvider and
+// IWorkspaceLifecycleProvider on the same instance.
+// ---------------------------------------------------------------------------
+
+runWorkspaceLifecycleContract('CliWorkspaceProvider', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ptah-cli-lifecycle-'));
+  tmpDirs.push(dir);
+  const provider = new CliWorkspaceProvider(dir, dir);
+  // Clear the initial CWD folder so contract invariants start from empty.
+  provider.setWorkspaceFolders([]);
+
+  const setup: WorkspaceLifecycleProviderSetup = {
+    provider,
+    seed(folders: string[]): void {
+      provider.setWorkspaceFolders(folders);
+    },
+    getFolders(): string[] {
+      return provider.getWorkspaceFolders();
+    },
+    subscribeToFolderChanges(fn: () => void) {
+      return provider.onDidChangeWorkspaceFolders(fn);
+    },
+  };
+  return setup;
 });

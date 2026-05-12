@@ -39,7 +39,7 @@ afterAll(() => {
 
 import { defineSetting } from './schema/definition';
 import { SecretsFileStore } from './encryption/secrets-file-store';
-import type { IMasterKeyProvider } from './encryption/master-key-provider';
+import type { IMasterKeyProvider } from '@ptah-extension/platform-core';
 import { GatewaySettings } from './repositories/gateway-settings';
 import { SETTINGS_SCHEMA } from './schema/index';
 import { AUTH_METHOD_DEF } from './schema/auth-schema';

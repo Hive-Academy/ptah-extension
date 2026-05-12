@@ -40,6 +40,7 @@ export type {
   IHttpServerHandle,
   HttpServerRequestHandler,
 } from './interfaces/http-server-provider.interface';
+export type { IMasterKeyProvider } from './interfaces/master-key-provider.interface';
 
 // Platform abstractions (moved from @ptah-extension/rpc-handlers in C8)
 export type {

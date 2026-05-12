@@ -38,6 +38,7 @@ import {
 import { FileSettingsStore } from './file-settings-store';
 import { CliMasterKeyProvider } from './cli-master-key-provider';
 import { CliWorkspaceProvider } from '../implementations/cli-workspace-provider';
+import type { IUserInteraction } from '@ptah-extension/platform-core';
 
 /**
  * Register all settings-core tokens for the CLI platform.
@@ -61,7 +62,14 @@ export function registerCliSettings(container: DependencyContainer): void {
   );
 
   // 2. Master key provider — keytar with HKDF-SHA256 fallback.
-  const masterKeyProvider = new CliMasterKeyProvider();
+  // IUserInteraction is resolved from the container (registered by
+  // registerPlatformCliServices before this function runs) so that
+  // notifyCorruption() shows a user-visible error instead of falling
+  // back to console.error. The TODO in CliMasterKeyProvider is now closed.
+  const userInteraction = container.resolve<IUserInteraction>(
+    PLATFORM_TOKENS.USER_INTERACTION,
+  );
+  const masterKeyProvider = new CliMasterKeyProvider(userInteraction);
   container.register(SETTINGS_TOKENS.MASTER_KEY_PROVIDER, {
     useValue: masterKeyProvider,
   });

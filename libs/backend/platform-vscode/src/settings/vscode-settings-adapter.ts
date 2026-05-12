@@ -22,13 +22,13 @@
  * WP-4A: Secret storage implementation.
  */
 
-import type { IDisposable } from '@ptah-extension/platform-core';
+import type {
+  IDisposable,
+  IMasterKeyProvider,
+} from '@ptah-extension/platform-core';
 import { isFileBasedSettingKey } from '@ptah-extension/platform-core';
 import type { VscodeWorkspaceProvider } from '../implementations/vscode-workspace-provider';
-import type {
-  ISettingsStore,
-  IMasterKeyProvider,
-} from '@ptah-extension/settings-core';
+import type { ISettingsStore } from '@ptah-extension/settings-core';
 import { SecretsFileStore } from '@ptah-extension/settings-core';
 
 /**
