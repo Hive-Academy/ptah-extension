@@ -249,15 +249,6 @@ All commands accept the [global flags](#global-flags). Most commands emit JSON-R
 | `settings export` | `[--out <path>]`              | Export a portable settings bundle (writes 0o600 on `--out`).           |
 | `settings import` | `[--in <path>] [--overwrite]` | Import a settings bundle (preserves credentials unless `--overwrite`). |
 
-### `new-project *` — New Project Wizard
-
-| Sub-subcommand                          | Args / flags               | Description                                |
-| --------------------------------------- | -------------------------- | ------------------------------------------ |
-| `new-project select-type <type>`        | —                          | Fetch question groups for a project type.  |
-| `new-project submit-answers`            | `--file <path>` (required) | Submit discovery answers from a JSON file. |
-| `new-project get-plan <session-id>`     | —                          | Load the previously-generated master plan. |
-| `new-project approve-plan <session-id>` | —                          | Approve and persist the master plan.       |
-
 ### `wizard *` — low-level Setup Wizard escape hatches
 
 > Most users should use `ptah setup` instead — it composes these into a 5-phase orchestrator.

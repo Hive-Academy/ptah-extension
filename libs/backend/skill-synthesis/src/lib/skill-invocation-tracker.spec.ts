@@ -26,6 +26,18 @@ const SETTINGS: SkillSynthesisSettings = {
   dedupCosineThreshold: 0.85,
   maxActiveSkills: 50,
   candidatesDir: '',
+  eligibilityMinTurns: 5,
+  evictionDecayRate: 0.95,
+  generalizationContextThreshold: 3,
+  minTrajectoryFidelityRatio: 0.4,
+  dedupClusterThreshold: 0.78,
+  minAbstractionEditDistance: 0.3,
+  judgeEnabled: false,
+  minJudgeScore: 6.0,
+  judgeModel: 'inherit',
+  maxPinnedSkills: 10,
+  curatorEnabled: false,
+  curatorIntervalHours: 24,
 };
 
 function row(overrides: Partial<SkillCandidateRow> = {}): SkillCandidateRow {
@@ -44,6 +56,7 @@ function row(overrides: Partial<SkillCandidateRow> = {}): SkillCandidateRow {
     promotedAt: null,
     rejectedAt: null,
     rejectedReason: null,
+    pinned: false,
     ...overrides,
   };
 }
@@ -74,10 +87,10 @@ describe('SkillInvocationTracker', () => {
     return { store, promotion, tracker };
   }
 
-  it('records a success, increments successCount, and skips promotion below threshold', () => {
+  it('records a success, increments successCount, and skips promotion below threshold', async () => {
     const { store, promotion, tracker } = setup(row({ successCount: 1 }));
     (store.incrementSuccess as jest.Mock).mockReturnValue(2);
-    const result = tracker.recordInvocation(
+    const result = await tracker.recordInvocation(
       { skillId: 'cand_x' as CandidateId, sessionId: 's1', succeeded: true },
       SETTINGS,
     );
@@ -89,10 +102,10 @@ describe('SkillInvocationTracker', () => {
     expect(result.promotion).toBeNull();
   });
 
-  it('triggers promotion evaluation when successCount reaches threshold', () => {
+  it('triggers promotion evaluation when successCount reaches threshold', async () => {
     const { store, promotion, tracker } = setup(row({ successCount: 2 }));
     (store.incrementSuccess as jest.Mock).mockReturnValue(3);
-    const result = tracker.recordInvocation(
+    const result = await tracker.recordInvocation(
       { skillId: 'cand_x' as CandidateId, sessionId: 's1', succeeded: true },
       SETTINGS,
     );
@@ -101,10 +114,10 @@ describe('SkillInvocationTracker', () => {
     expect(result.successCount).toBe(3);
   });
 
-  it('does not trigger promotion on a failed invocation', () => {
+  it('does not trigger promotion on a failed invocation', async () => {
     const { store, promotion, tracker } = setup(row({ successCount: 5 }));
     (store.incrementFailure as jest.Mock).mockReturnValue(1);
-    const result = tracker.recordInvocation(
+    const result = await tracker.recordInvocation(
       { skillId: 'cand_x' as CandidateId, sessionId: 's1', succeeded: false },
       SETTINGS,
     );
@@ -114,36 +127,36 @@ describe('SkillInvocationTracker', () => {
     expect(result.failureCount).toBe(1);
   });
 
-  it('does not trigger promotion for a candidate that is already promoted', () => {
+  it('does not trigger promotion for a candidate that is already promoted', async () => {
     const { store, promotion, tracker } = setup(
       row({ successCount: 9, status: 'promoted' }),
     );
     (store.incrementSuccess as jest.Mock).mockReturnValue(10);
-    tracker.recordInvocation(
+    await tracker.recordInvocation(
       { skillId: 'cand_x' as CandidateId, sessionId: 's1', succeeded: true },
       SETTINGS,
     );
     expect(promotion.evaluate).not.toHaveBeenCalled();
   });
 
-  it('throws when the skill does not exist', () => {
+  it('throws when the skill does not exist', async () => {
     const { store, tracker } = setup(row());
     (store.findById as jest.Mock).mockReturnValueOnce(null);
-    expect(() =>
+    await expect(
       tracker.recordInvocation(
         { skillId: 'missing' as CandidateId, sessionId: 's1', succeeded: true },
         SETTINGS,
       ),
-    ).toThrow(/not found/);
+    ).rejects.toThrow(/not found/);
   });
 
-  it('swallows promotion evaluation errors as non-fatal', () => {
+  it('swallows promotion evaluation errors as non-fatal', async () => {
     const { store, promotion, tracker } = setup(row({ successCount: 2 }));
     (store.incrementSuccess as jest.Mock).mockReturnValue(3);
     (promotion.evaluate as jest.Mock).mockImplementation(() => {
       throw new Error('boom');
     });
-    const result = tracker.recordInvocation(
+    const result = await tracker.recordInvocation(
       { skillId: 'cand_x' as CandidateId, sessionId: 's1', succeeded: true },
       SETTINGS,
     );

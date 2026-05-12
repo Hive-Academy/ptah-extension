@@ -662,7 +662,7 @@ async function runTier(
       const result = await callRpc<{ success: boolean; error?: string }>(
         ctx.transport,
         'provider:setModelTier',
-        { tier, modelId },
+        { tier, modelId, scope: 'mainAgent' },
       );
       if (!result.success) {
         await formatter.writeNotification('task.error', {
@@ -685,7 +685,7 @@ async function runTier(
       const tiers = await callRpc<unknown>(
         ctx.transport,
         'provider:getModelTiers',
-        {},
+        { scope: 'mainAgent' },
       );
       await formatter.writeNotification('provider.tiers', {
         tiers,
@@ -703,7 +703,7 @@ async function runTier(
       const result = await callRpc<{ success: boolean; error?: string }>(
         ctx.transport,
         'provider:clearModelTier',
-        { tier },
+        { tier, scope: 'mainAgent' },
       );
       if (!result.success) {
         await formatter.writeNotification('task.error', {

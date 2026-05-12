@@ -2,6 +2,8 @@
  * API Wrappers Module Exports
  * Provides centralized access to all VS Code API wrapper components
  */
+import type * as vscode from 'vscode';
+import type { WorkspaceInfo } from '@ptah-extension/shared';
 
 export { CommandManager } from './command-manager';
 export type { CommandDefinition } from './command-manager';
@@ -34,7 +36,6 @@ export type {
  * Interface for webview HTML content generation
  * Allows libraries to inject HTML generator without depending on app layer
  */
-import type * as vscode from 'vscode';
 
 /**
  * Options for generating webview HTML content
@@ -55,12 +56,12 @@ export interface IWebviewHtmlGenerator {
    */
   generateAngularWebviewContent(
     webview: vscode.Webview,
-    options?: WebviewHtmlOptions | Record<string, unknown>
+    options?: WebviewHtmlOptions | Record<string, unknown>,
   ): string;
 
   /**
    * Build workspace info object for webview
    * @returns Workspace info or null if no workspace
    */
-  buildWorkspaceInfo(): Record<string, unknown> | null;
+  buildWorkspaceInfo(): WorkspaceInfo | null;
 }

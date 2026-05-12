@@ -70,7 +70,7 @@
           "sqlite-vec",
           "croner",
           "ulid",
-          "@xenova/transformers",
+          "@huggingface/transformers",
           "grammy",
           "discord.js",
           "@slack/bolt",
@@ -149,7 +149,12 @@
         "thirdParty": false,
         "skipTypeCheck": true,
         "deleteOutputPath": false,
-        "external": ["@xenova/transformers"]
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          }
+        },
+        "external": ["@huggingface/transformers"]
       }
     },
     "build": {
@@ -179,7 +184,7 @@
           "nx build-embedder-worker ptah-electron",
           "nx build ptah-extension-webview --configuration=development"
         ],
-        "parallel": true
+        "parallel": false
       }
     },
     "copy-renderer": {
@@ -190,10 +195,18 @@
         "command": "node apps/ptah-electron/scripts/copy-renderer.js"
       }
     },
+    "rebuild-native": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node apps/ptah-electron/scripts/rebuild-native.js"
+      }
+    },
     "serve": {
       "executor": "nx:run-commands",
       "options": {
         "commands": [
+          "node apps/ptah-electron/scripts/rebuild-native.js",
+          "nx build-embedder-worker ptah-electron",
           "nx build-dev ptah-electron",
           "node scripts/copy-wasm.js dist/apps/ptah-electron",
           "nx copy-renderer ptah-electron",

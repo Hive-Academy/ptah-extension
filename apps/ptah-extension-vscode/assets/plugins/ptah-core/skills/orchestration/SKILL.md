@@ -193,7 +193,7 @@ See [agent-name].md for detailed instructions.`,
 
 ## Validation Checkpoints
 
-**ALL checkpoints are run by YOU (the orchestrator) using `AskUserQuestion` or direct user prompts. Subagents NEVER run checkpoints.**
+**ALL checkpoints are run by YOU (the orchestrator). Subagents NEVER run checkpoints.** Use `AskUserQuestion` for pre-deliverable choice checkpoints (0, 0.1, 1.5, 3). Use a plain text message — NOT `AskUserQuestion` — for document review checkpoints (1, 2) so the user can read the generated `task-description.md` / `implementation-plan.md` before replying.
 
 ### Checkpoint 0.1: CLI Agent Discovery (before any agent invocation)
 
@@ -211,15 +211,28 @@ Skip only when: request is extremely specific, task is a clear continuation, or 
 
 Skip only when: codebase has clear established patterns, task extends existing architecture, or user deferred technical decisions.
 
-### Standard Validation Checkpoints (1, 2, 3)
+### Document Review Checkpoints (1, 2) — Plain Message, NOT AskUserQuestion
 
-After PM, Architect, or development deliverables, present to user via `AskUserQuestion`:
+After project-manager produces `task-description.md` (Checkpoint 1) or software-architect produces `implementation-plan.md` (Checkpoint 2), the user needs **time and space to read the generated document** before deciding. Do NOT use `AskUserQuestion` here — a modal choice forces a premature answer before the user has opened the file.
+
+Instead, present the checkpoint as a **plain text message**: surface the document path, a concise summary of what's inside, and explicitly invite review-then-reply. Then stop and wait for the user's free-form response. Acceptable replies are "APPROVED" (proceed), revision feedback, or follow-up questions.
 
 ```
-USER VALIDATION CHECKPOINT - TASK_[ID]
-[Summary of deliverable]
-Reply "APPROVED" to proceed OR provide feedback for revision
+REQUIREMENTS READY FOR REVIEW — TASK_[ID]
+
+Document: .ptah/tasks/TASK_[ID]/task-description.md
+
+[2–4 line summary of scope, key requirements, out-of-scope]
+
+Please open the document and review it. Reply "APPROVED" to proceed,
+or share any feedback / questions and I'll revise.
 ```
+
+The same shape applies to Checkpoint 2 (architecture). Never wrap these in `AskUserQuestion`.
+
+### Choice Checkpoints (0, 0.1, 1.5, 3) — Use AskUserQuestion
+
+Pre-deliverable scope/technical/QA selections still use `AskUserQuestion` because they ARE structured choices among concrete options.
 
 ### Subagent-Triggered Clarification Loop
 

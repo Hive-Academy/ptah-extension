@@ -6,6 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import type { BrowserWindow } from 'electron';
 import type { DependencyContainer } from 'tsyringe';
 import {
   ElectronWorkspaceProvider,
@@ -15,6 +16,8 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { WorkspaceContextManager } from '@ptah-extension/vscode-core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import type { WorkspaceChangedPayload } from '@ptah-extension/shared';
 
 export interface WorkspaceRestoreResult {
   startupWorkspaceRoot: string | undefined;
@@ -27,6 +30,7 @@ export async function restoreWorkspaces(
   gitWatcherRef: {
     current: { stop: () => void; switchWorkspace: (p: string) => void } | null;
   },
+  getMainWindow: () => BrowserWindow | null,
 ): Promise<WorkspaceRestoreResult> {
   let startupWorkspaceRoot: string | undefined;
   let flushWorkspacePersistence: (() => void) | null = null;
@@ -159,6 +163,12 @@ export async function restoreWorkspaces(
     };
 
     workspaceProviderForRestore.onDidChangeWorkspaceFolders(() => {
+      // Read-and-clear the pending origin token stamped by registerSwitch()
+      // before any async or debounce logic so it cannot be consumed by a
+      // later unrelated event (TASK_2026_115 §1.5).
+      const origin = workspaceProviderForRestore.pendingOrigin ?? null;
+      workspaceProviderForRestore.pendingOrigin = null;
+
       if (persistDebounceTimer !== null) {
         clearTimeout(persistDebounceTimer);
       }
@@ -173,6 +183,32 @@ export async function restoreWorkspaces(
       const newActive = workspaceProviderForRestore.getActiveFolder();
       if (newActive) {
         gitWatcherRef.current?.switchWorkspace(newActive);
+
+        const mainWindow = getMainWindow();
+        if (mainWindow) {
+          mainWindow.webContents.send('to-renderer', {
+            type: MESSAGE_TYPES.WORKSPACE_CHANGED,
+            payload: {
+              workspaceInfo: {
+                path: newActive,
+                name: path.basename(newActive),
+                type: 'workspace',
+              },
+              origin,
+            } satisfies WorkspaceChangedPayload,
+          });
+        }
+      } else {
+        const mainWindow = getMainWindow();
+        if (mainWindow) {
+          mainWindow.webContents.send('to-renderer', {
+            type: MESSAGE_TYPES.WORKSPACE_CHANGED,
+            payload: {
+              workspaceInfo: null,
+              origin,
+            } satisfies WorkspaceChangedPayload,
+          });
+        }
       }
     });
   } catch (error) {

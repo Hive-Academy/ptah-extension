@@ -11,6 +11,32 @@
 import type { CliTarget, CliSkillSyncStatus } from '@ptah-extension/shared';
 
 /**
+ * Options controlling install scope so two coexisting install() callers
+ * (plugin sync vs synthesized-skill sync) do not stomp each other's
+ * cleanup pass. Each call should own a distinct prefix bucket.
+ */
+export interface CliSkillInstallOptions {
+  /**
+   * Folder/file prefix applied to installed skill directories AND used as
+   * the cleanup-loop ownership predicate. Default: `'ptah-'` (plugin sync).
+   * Synthesized-skill sync uses `'ptah-synth-'` so it never deletes plugin skills.
+   */
+  folderPrefix?: string;
+  /**
+   * When false, skip the command-file sync (copy + cleanup). Synthesized
+   * skills have no commands; running cleanup would erase plugin commands.
+   * Default: true.
+   */
+  syncCommands?: boolean;
+  /**
+   * When true, skip directories that lack a top-level `SKILL.md` at scan time.
+   * Defends against `_candidates/` and similar non-skill subtrees being copied
+   * as fake skills. Default: false (preserve existing plugin-sync behaviour).
+   */
+  requireSkillMdAtRoot?: boolean;
+}
+
+/**
  * Strategy interface for installing Ptah skills into a specific CLI's
  * user-level discovery directory.
  *
@@ -35,7 +61,10 @@ export interface ICliSkillInstaller {
    * @param pluginPaths - Absolute paths to Ptah plugin directories (from PluginLoaderService)
    * @returns Sync status with skill count and any errors
    */
-  install(pluginPaths: string[]): Promise<CliSkillSyncStatus>;
+  install(
+    pluginPaths: string[],
+    options?: CliSkillInstallOptions,
+  ): Promise<CliSkillSyncStatus>;
 
   /**
    * Remove all Ptah-installed skills from this CLI's directories.

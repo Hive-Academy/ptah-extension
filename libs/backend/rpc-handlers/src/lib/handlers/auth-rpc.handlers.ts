@@ -40,7 +40,7 @@ import {
   AuthGetAuthStatusParams,
   AuthGetAuthStatusResponse,
 } from '@ptah-extension/shared';
-import { AuthSettingsSchema } from './auth-rpc.schema';
+import { AuthSettingsSchema, parseAuthMethod } from './auth-rpc.schema';
 import type { RpcMethodName } from '@ptah-extension/shared';
 
 /**
@@ -164,22 +164,12 @@ export class AuthRpcHandlers {
         // Check SecretStorage for credentials
         const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
 
-        // Get auth method from ConfigManager (non-sensitive)
-        // Normalize legacy/invalid values (e.g. 'vscode-lm', 'auto') to 'apiKey'
+        // Get auth method from ConfigManager (non-sensitive).
+        // parseAuthMethod validates and normalizes the stored value via the
+        // auth-rpc schema — legacy aliases ('openrouter') → 'thirdParty';
+        // unrecognized values ('vscode-lm', 'auto') → 'apiKey'.
         const rawMethod = this.configManager.get<string>('authMethod');
-        const validMethods = [
-          'apiKey',
-          'claudeCli',
-          'thirdParty',
-          'openrouter',
-        ];
-        const authMethod = (
-          rawMethod && validMethods.includes(rawMethod)
-            ? rawMethod === 'openrouter'
-              ? 'thirdParty'
-              : rawMethod
-            : 'apiKey'
-        ) as 'apiKey' | 'claudeCli' | 'thirdParty';
+        const authMethod = parseAuthMethod(rawMethod);
 
         // TASK_2025_129 Batch 3: Get selected provider ID
         const anthropicProviderId = this.configManager.getWithDefault<string>(
@@ -784,7 +774,13 @@ export class AuthRpcHandlers {
     if (!provider?.defaultTiers) return;
 
     try {
-      const currentTiers = this.providerModels.getModelTiers(providerId);
+      // Auto-mapping applies to the main agent only. CLI sub-agents fall back
+      // to provider.defaultTiers at runtime in buildAuthEnv — no persistence
+      // needed for their defaults.
+      const currentTiers = this.providerModels.getModelTiers(
+        providerId,
+        'mainAgent',
+      );
       const { defaultTiers } = provider;
 
       const tierNames = Object.keys(TIER_ENV_VAR_MAP) as Array<
@@ -798,6 +794,7 @@ export class AuthRpcHandlers {
               providerId,
               tier,
               defaultTiers[tier],
+              'mainAgent',
             ),
           );
         }

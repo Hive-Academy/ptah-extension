@@ -48,11 +48,10 @@ jest.mock('gifenc', () => ({
   applyPalette: jest.fn(() => new Uint8Array([0])),
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const chromeLauncherMock = require('chrome-launcher') as {
   launch: jest.Mock;
 };
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+
 const cdpMock = require('chrome-remote-interface') as {
   default: jest.Mock;
 };

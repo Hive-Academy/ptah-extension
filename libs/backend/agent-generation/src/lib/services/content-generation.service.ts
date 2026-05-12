@@ -31,11 +31,9 @@ import type {
   MessageStartEvent,
   MessageCompleteEvent,
 } from '@ptah-extension/shared';
-import {
-  Logger,
-  TOKENS,
-  type ConfigManager,
-} from '@ptah-extension/vscode-core';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { ModelSettings } from '@ptah-extension/settings-core';
 import * as path from 'path';
 import { readFileSync } from 'fs';
 import {
@@ -95,8 +93,8 @@ export class ContentGenerationService implements IContentGenerationService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
     private readonly internalQueryService: InternalQueryService,
-    @inject(TOKENS.CONFIG_MANAGER)
-    private readonly config: ConfigManager,
+    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
+    private readonly modelSettings: ModelSettings,
   ) {}
 
   /**
@@ -252,10 +250,10 @@ export class ContentGenerationService implements IContentGenerationService {
         required: ['description', 'sections'],
       };
 
-      // Resolve model from config
+      // Resolve model from typed repository
       const model =
         sdkConfig?.model ??
-        (this.config.get<string>('model.selected') || 'default');
+        (this.modelSettings.selectedModel.get() || 'default');
 
       // Build system prompt with optional enhanced prompt content
       let systemPrompt = `You are a content generation specialist for developer tooling configuration files.

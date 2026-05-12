@@ -201,6 +201,8 @@ export class StreamingAccumulatorCore {
     const deduplication = ctx.deduplication ?? this.defaultDeduplication;
     const backgroundAgentStore =
       ctx.backgroundAgentStore ?? this.defaultBackgroundAgentStore;
+    const agentMonitorStore =
+      ctx.agentMonitorStore ?? this.defaultAgentMonitorStore;
 
     switch (event.eventType) {
       case 'message_start': {
@@ -466,6 +468,11 @@ export class StreamingAccumulatorCore {
         // the optional onAgentStart hook.
         ctx.onAgentStart?.(event);
 
+        // Phase 3: capture per-subagent record keyed by parentToolUseId
+        // so the inline-agent-bubble can show progress/status updates and
+        // dispatch send-message / stop RPCs.
+        agentMonitorStore.onAgentStart(event);
+
         const pendingDeltas = sessionManager.registerAgent(
           event.toolCallId,
           preliminaryAgentNode,
@@ -568,6 +575,18 @@ export class StreamingAccumulatorCore {
         return this.mutated(event.eventType);
       case 'background_agent_stopped':
         backgroundAgentStore.onStopped(event);
+        return this.mutated(event.eventType);
+
+      // Phase 3: SDK task_* surface — drives per-subagent records
+      // keyed by parentToolUseId for the inline-agent-bubble UI.
+      case 'agent_progress':
+        agentMonitorStore.onAgentProgress(event);
+        return this.mutated(event.eventType);
+      case 'agent_status':
+        agentMonitorStore.onAgentStatus(event);
+        return this.mutated(event.eventType);
+      case 'agent_completed':
+        agentMonitorStore.onAgentCompleted(event);
         return this.mutated(event.eventType);
 
       default:

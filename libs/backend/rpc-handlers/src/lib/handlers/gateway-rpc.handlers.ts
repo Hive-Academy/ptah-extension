@@ -14,6 +14,7 @@
 import { inject, injectable } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { RpcMethodName } from '@ptah-extension/shared';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
   GatewayApprovalStatus,
   GatewayApproveBindingParams,
@@ -31,6 +32,7 @@ import type {
   GatewaySetTokenResult,
   GatewayStartParams,
   GatewayStartResult,
+  GatewayStatusChangedPayload,
   GatewayStatusParams,
   GatewayStatusResult,
   GatewayStopParams,
@@ -47,6 +49,7 @@ import {
   type GatewayPlatform,
   BindingId,
 } from '@ptah-extension/messaging-gateway';
+import { extractGatewayOrigin } from './gateway-rpc.schema';
 
 @injectable()
 export class GatewayRpcHandlers {
@@ -67,6 +70,10 @@ export class GatewayRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(GATEWAY_TOKENS.GATEWAY_SERVICE)
     private readonly gateway: GatewayService,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: {
+      broadcastMessage(type: string, payload: unknown): Promise<void>;
+    },
   ) {}
 
   register(): void {
@@ -86,6 +93,25 @@ export class GatewayRpcHandlers {
   }
 
   // ---------------------------------------------------------------------------
+
+  private async broadcastStatus(origin: string | null): Promise<void> {
+    const status = this.gateway.status();
+    const payload: GatewayStatusChangedPayload = {
+      status: {
+        enabled: status.enabled,
+        adapters: status.adapters.map((a) => ({
+          platform: a.platform as GatewayPlatformId,
+          running: a.running,
+          ...(a.lastError ? { lastError: a.lastError } : {}),
+        })),
+      },
+      origin,
+    };
+    await this.webviewManager.broadcastMessage(
+      MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+      payload,
+    );
+  }
 
   private registerStatus(): void {
     this.rpcHandler.registerMethod<GatewayStatusParams, GatewayStatusResult>(
@@ -108,11 +134,17 @@ export class GatewayRpcHandlers {
     this.rpcHandler.registerMethod<GatewayStartParams, GatewayStartResult>(
       'gateway:start',
       async (params) => {
+        const origin = extractGatewayOrigin(params);
         if (params?.platform) {
           await this.gateway.startPlatform(params.platform as GatewayPlatform);
         } else {
           await this.gateway.start();
         }
+        this.broadcastStatus(origin).catch((err: unknown) =>
+          this.logger.warn('[gateway] broadcastStatus failed after start', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
         return { ok: true };
       },
     );
@@ -122,11 +154,17 @@ export class GatewayRpcHandlers {
     this.rpcHandler.registerMethod<GatewayStopParams, GatewayStopResult>(
       'gateway:stop',
       async (params) => {
+        const origin = extractGatewayOrigin(params);
         if (params?.platform) {
           await this.gateway.stopPlatform(params.platform as GatewayPlatform);
         } else {
           await this.gateway.stop();
         }
+        this.broadcastStatus(origin).catch((err: unknown) =>
+          this.logger.warn('[gateway] broadcastStatus failed after stop', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
         return { ok: true };
       },
     );

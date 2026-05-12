@@ -23,18 +23,7 @@ export type WizardStep =
   | 'selection'
   | 'enhance'
   | 'generation'
-  | 'completion'
-  // New project path
-  | 'project-type'
-  | 'discovery'
-  | 'plan-generation'
-  | 'plan-review';
-
-/**
- * Wizard path discriminator.
- * 'existing' = analyze existing project, 'new' = start new project, null = not yet chosen.
- */
-export type WizardPath = 'existing' | 'new' | null;
+  | 'completion';
 
 /**
  * Project context detected during workspace scan

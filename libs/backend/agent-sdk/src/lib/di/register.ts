@@ -15,6 +15,10 @@ import { DependencyContainer, Lifecycle } from 'tsyringe';
 import { createEmptyAuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  MEMORY_CONTRACT_TOKENS,
+  type IMemoryReader,
+} from '@ptah-extension/memory-contracts';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { CliDetectionService } from '../cli-agents/cli-detection.service';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
@@ -32,10 +36,13 @@ import {
   StreamTransformer,
   AttachmentProcessorService,
   SubagentHookHandler,
+  SubagentMessageDispatcher,
   SdkMessageFactory,
   SdkQueryOptionsBuilder,
   SdkModuleLoader,
   SdkModelService,
+  MemoryPromptInjector,
+  SdkInternalQueryCuratorLlm,
   // History reader child services (TASK_2025_106)
   HistoryEventFactory,
   JsonlReaderService,
@@ -46,6 +53,8 @@ import {
   CompactionHookHandler,
   // Compaction callback registry (TASK_2026_HERMES Track 1)
   CompactionCallbackRegistry,
+  // Session end callback registry (TASK_2026_THOTH_SKILL_LIFECYCLE)
+  SessionEndCallbackRegistry,
   // Live usage tracker (TASK_2026_109 cycle-break)
   LiveUsageTracker,
   // Worktree hook handler (TASK_2025_236)
@@ -210,6 +219,14 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
+  // Session end callback registry (TASK_2026_THOTH_SKILL_LIFECYCLE)
+  // Must be registered BEFORE SessionControl (built inside SessionLifecycleManager facade)
+  container.register(
+    SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY,
+    { useClass: SessionEndCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
   // Session lifecycle manager - depends on Logger only (runtime session tracking)
   container.register(
     SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
@@ -240,10 +257,19 @@ export function registerSdkServices(
 
   // Subagent hook handler - depends on Logger, SubagentRegistryService.
   // TASK_2026_109 Fix 2: AgentSessionWatcherService dep removed — subagent
-  // text now streams inline via `forwardSubagentText: true`.
+  // visibility now flows via `agentProgressSummaries: true` Option + task_*
+  // system messages handled by SdkMessageTransformer.
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER,
     { useClass: SubagentHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // SubagentMessageDispatcher — Phase 2 bidirectional messaging + stop/interrupt.
+  // Depends on Logger, SessionLifecycleManager, SubagentRegistryService.
+  container.register(
+    SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
+    { useClass: SubagentMessageDispatcher },
     { lifecycle: Lifecycle.Singleton },
   );
 
@@ -298,6 +324,33 @@ export function registerSdkServices(
     SDK_TOKENS.SDK_MESSAGE_FACTORY,
     { useClass: SdkMessageFactory },
     { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Curator LLM adapter — SdkInternalQueryCuratorLlm implements ICuratorLLM.
+  // Symbol.for('PtahCuratorLlm') matches MEMORY_CONTRACT_TOKENS.CURATOR_LLM so
+  // memory-curator resolves this registration when it injects CURATOR_LLM.
+  container.register(
+    SDK_TOKENS.SDK_CURATOR_LLM_ADAPTER,
+    { useClass: SdkInternalQueryCuratorLlm },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Memory prompt injector (TASK_2026_THOTH_MEMORY_READ)
+  // Register a no-op fallback for hosts where memory-curator is not registered
+  // (e.g. VS Code pre-HERMES_FINISH landing SQLite support). This prevents the
+  // @inject(MEMORY_CONTRACT_TOKENS.MEMORY_READER) in MemoryPromptInjector from
+  // throwing at construction time when the token is absent.
+  if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_READER)) {
+    const noopReader: IMemoryReader = {
+      search: async () => ({ hits: [], bm25Only: true }),
+    };
+    container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
+      useValue: noopReader,
+    });
+  }
+  container.registerSingleton(
+    SDK_TOKENS.SDK_MEMORY_PROMPT_INJECTOR,
+    MemoryPromptInjector,
   );
 
   // Query options builder - constructs SDK query config (TASK_2025_102)

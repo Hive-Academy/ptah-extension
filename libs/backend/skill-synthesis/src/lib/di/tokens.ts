@@ -6,6 +6,18 @@
  *  - Each description globally unique across all token files.
  *  - Frozen `as const` so consumers narrow on the symbol values.
  */
+
+/**
+ * Cross-library DI token for InternalQueryService.
+ * Matches SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE = Symbol.for('SdkInternalQueryService').
+ *
+ * Defined here instead of importing from `@ptah-extension/agent-sdk` to
+ * avoid a circular dependency (skill-synthesis → agent-sdk → skill-synthesis).
+ */
+export const INTERNAL_QUERY_SERVICE_TOKEN = Symbol.for(
+  'SdkInternalQueryService',
+);
+
 export const SKILL_SYNTHESIS_TOKENS = {
   /** SkillSynthesisService — top-level orchestrator (analyzes sessions). */
   SKILL_SYNTHESIS_SERVICE: Symbol.for('PtahSkillSynthesisService'),
@@ -15,6 +27,12 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_INVOCATION_TRACKER: Symbol.for('PtahSkillInvocationTracker'),
   /** SkillCandidateStore — SQLite persistence layer for candidates + vec rows. */
   SKILL_CANDIDATE_STORE: Symbol.for('PtahSkillCandidateStore'),
+  /** SkillClusterDedupService — cluster-centroid dedup for promoted skills. */
+  SKILL_CLUSTER_DEDUP_SERVICE: Symbol.for('PtahSkillClusterDedupService'),
+  /** SkillJudgeService — LLM-as-judge gate during promotion. */
+  SKILL_JUDGE_SERVICE: Symbol.for('PtahSkillJudgeService'),
+  /** SkillCuratorService — Hermes-style periodic skill curation daemon. */
+  SKILL_CURATOR_SERVICE: Symbol.for('PtahSkillCuratorService'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

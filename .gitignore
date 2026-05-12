@@ -158,3 +158,6 @@ ptah-settings-export.json
 skills/
 !apps/ptah-extension-vscode/assets/plugins/**/skills/
 skills-lock.json
+
+
+apps/coverage/**

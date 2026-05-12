@@ -1,30 +1,36 @@
 # @ptah-extension/chat-routing
 
-Routing layer between **stream events** (from the Claude SDK) and **consumers** (chat tabs, wizard analysis phases, harness builds). Owns:
+[Back to Main](../../../CLAUDE.md)
 
-- `StreamRouter` — the single service that knows both `ConversationRegistry` (conversation ↔ session) and `TabSessionBinding` (tab/surface ↔ conversation). Resolves event → conversation → consumer(s).
-- `StreamingSurfaceRegistry` — non-tab consumer adapter registry. Wizard/harness register `SurfaceAdapter`s here so the canonical `StreamingAccumulatorCore` can write into their state slots without knowing anything about wizard/harness storage layouts.
+## Purpose
 
-Tagged `scope:webview` + `type:feature`. Outbound deps: `chat-state`, `chat-streaming`, `shared`. Nothing imports back into chat-routing from chat-streaming or chat-state.
+Routing layer between **stream events** (from the Claude SDK) and **consumers** (chat tabs + non-tab "surfaces" like wizard analysis phases and harness builds). Resolves `event.sessionId → ConversationId → TabId[] | SurfaceId[]` via the shared `ConversationRegistry` and `TabSessionBinding` from `chat-state`. Sits at the _top_ of the chat dependency graph — nothing in `chat-state` or `chat-streaming` imports back.
 
----
+## Boundaries
 
-## What is a "surface"?
+**Belongs here**: `StreamRouter` (the single resolver service) and `StreamingSurfaceRegistry` (adapter registry for non-tab consumers).
 
-A **tab** is the standard chat consumer — owned by `TabManagerService`, has chat-shaped state (`messages`, `liveModelStats`, `compactionCount`, `viewMode`, `queuedContent`), participates in tab UI enumeration, can receive permission prompts.
+**Does NOT belong**: tab state (→ `chat-state`), streaming accumulator (→ `chat-streaming`), surface state shapes (each consumer owns its own — wizard, harness, etc.), permission UI (the router only resolves _which_ tabs receive a prompt).
 
-A **surface** is a non-tab consumer of the canonical streaming pipeline. Today: setup-wizard analysis phases and harness-builder operations. Surfaces:
+## Public API (from `src/index.ts`)
 
-- **Have their own state shape** (wizard: `Map<phaseKey, StreamingState>`; harness: single `StreamingState` signal). No chat-shaped fields imposed.
-- **Do not appear in `tabs()` enumeration**. The two binding maps (`_byTab` and `_bySurface` inside `TabSessionBinding`) are intentionally separate so consumers that care about UI tabs only do not accidentally enumerate wizard/harness surfaces.
-- **Are not permission targets**. Wizard/harness run in full-auto background mode; auto-allow is enforced at the SDK layer. `routePermissionPrompt` returns tabs only — see "Permission routing scope" below.
-- **Inherit dedup, batching, agent stores, session manager** transitively through the canonical accumulator. This is the entire point — every fix that lands in `StreamingAccumulatorCore` propagates to wizard + harness automatically.
+- `StreamRouter` — service
+- `StreamingSurfaceRegistry` — service
+- `SurfaceAdapter` — type
 
-When to add a new surface vs a new tab: if the consumer renders a transcript-style view backed by an execution tree and runs in unattended/full-auto mode, it is a surface. If the consumer has a user-driven chat conversation with permission prompts, queued content, and per-conversation message history, it is a tab.
+## Internal Structure
 
----
+- `src/lib/stream-router.service.ts` — resolves events to consumers, owns lifecycle hooks (`onSurfaceCreated`, `onSurfaceClosed`, `routeStreamEventForSurface`, `routePermissionPrompt`)
+- `src/lib/streaming-surface-registry.service.ts` — `Map<SurfaceId, SurfaceAdapter>` storage with `register` / `unregister` / `getAdapter`
+- `src/lib/__tests__/` — parity tests that pin surface-path output equality with the canonical tab path
 
-## `SurfaceAdapter` contract
+## Key Concepts
+
+**Tab** — standard chat consumer owned by `TabManagerService`. Has chat-shaped state (`messages`, `liveModelStats`, `compactionCount`, `viewMode`, `queuedContent`), appears in `tabs()` enumeration, can receive permission prompts.
+
+**Surface** — non-tab consumer of the canonical streaming pipeline. Owns its own state shape. Examples: setup-wizard analysis phases (`Map<phaseKey, StreamingState>`), harness-builder operations (single `StreamingState` signal). Does **not** appear in `tabs()`; is **not** a permission target (those flows run full-auto, auto-allow at the SDK layer).
+
+## `SurfaceAdapter` Contract
 
 ```ts
 interface SurfaceAdapter {
@@ -33,82 +39,37 @@ interface SurfaceAdapter {
 }
 ```
 
-Registered with `StreamingSurfaceRegistry.register(surfaceId, getState, setState)`. The accumulator core reads via `getState()` and writes the swapped state via `setState(newState)` — currently used **only on `compaction_complete`**, which mints a fresh `StreamingState` object (see `AccumulatorResult.replacementState`).
+The accumulator mutates state **in place** for every event except `compaction_complete` (which mints a fresh `StreamingState` via `AccumulatorResult.replacementState` and calls `setState`). Because of in-place mutation, signal-backed adapters need a **nudge counter** so Angular's equality check fires — see `WizardSurfaceFacade.nudgePhase` and harness equivalents.
 
-For every other event type, the accumulator mutates the state object **in place**. This means:
+## Lifecycle Invariant
 
-- The adapter's `getState()` should return the same object reference that the consumer's signal/store points at. Wrapping in a new object on every call would break in-place mutations.
-- For Angular signal-backed adapters, register with: `() => _state(), (next) => _state.set(next)`. The signal's identity check fires on `setState` but in-place mutations require a manual nudge from the consumer (see `WizardSurfaceFacade.nudgePhase` / `HarnessSurfaceFacade.nudgeOperation`).
+Always call `streamRouter.onSurfaceClosed(surfaceId)` — **never** `surfaceRegistry.unregister(surfaceId)` directly. `onSurfaceClosed` performs the full teardown: unbind, unregister adapter, and if no tabs **and** no surfaces remain on the conversation, run per-session cleanup (`cleanupSessionDeduplication`, `clearSessionAgents`, `registry.remove(convId)`).
 
-The "nudge" pattern is the documented escape hatch for Angular's signal equality semantics — when the accumulator mutates `state.events` in place, signal observers will not re-evaluate unless the consumer explicitly bumps a counter signal or re-`set`s the parent signal with a shallow copy.
+Calling `unregister` directly bypasses dedup cleanup and leaks the conversation.
 
----
+## Permission Routing Scope
 
-## Lifecycle ordering invariant
+`StreamRouter.routePermissionPrompt(prompt)` returns `readonly TabId[]` — **never** `SurfaceId[]`. Surfaces run full-auto with auto-allow at the SDK layer. If a prompt arrives on a surface-only conversation (defensive case), the router logs `prompt.received.no-tab-surface-only` and auto-denies via `PermissionHandlerService`. If per-surface permission UI is ever needed, add a sibling `routePermissionPromptForSurfaces` — do not widen the existing return type.
 
-**Always** `streamRouter.onSurfaceClosed(surfaceId)` — **never** `surfaceRegistry.unregister(surfaceId)` directly.
+## Single-Operation Assumption (Harness)
 
-`onSurfaceClosed` does the full teardown:
+Harness uses a single `_streamingState` signal — no concurrent builds. If a second `harness:flat-stream` arrives for a different `operationId` mid-build, the existing surface is closed and a new one is registered (with a `harness.surface.concurrent-operation` warning). To lift this, promote to `Map<SurfaceId, StreamingState>` — additive, no router changes required.
 
-1. Snapshot the conversation's sessions.
-2. `binding.unbindSurface(surfaceId)` — drop the surface ↔ conversation edge.
-3. `surfaceRegistry.unregister(surfaceId)` — drop the adapter.
-4. If no tabs AND no surfaces remain bound to the conversation, run per-session cleanup:
-   - `streamingHandler.cleanupSessionDeduplication(sid)` for every session in the conversation
-   - `agentMonitorStore.clearSessionAgents(sid)` for every session
-   - `registry.remove(convId)` to drop the conversation
+## Dependencies
 
-Calling `surfaceRegistry.unregister(surfaceId)` directly bypasses dedup cleanup and conversation removal — the conversation will leak in the registry and the next event for the session will route into nowhere.
+**Internal**: `@ptah-extension/chat-state` (registries, identity), `@ptah-extension/chat-streaming` (accumulator core, dedup/agent cleanup hooks), `@ptah-extension/shared`
 
-Idempotent: closing an already-closed (or never-registered) surface is a graceful no-op.
+**External**: `@angular/core`
 
----
+## Angular Conventions Observed
 
-## Permission routing scope (tab-only by design)
+- `@Injectable({ providedIn: 'root' })` for both services
+- Signal-driven reactions (`effect()`) for the `TabManager.closedTab → router.cleanup` edge (replaces the old `STREAMING_CONTROL` DI inversion that caused NG0200)
 
-`StreamRouter.routePermissionPrompt(prompt)` returns `readonly TabId[]` — **never** `SurfaceId[]`. This is intentional and load-bearing:
+## Guidelines
 
-- Wizard and harness sessions are spawned with **auto-allow** policy at the SDK layer (`apps/ptah-extension-vscode/...sdk-permission-handler.ts`). No prompt should ever reach those sessions.
-- `routePermissionPrompt` resolves the session → conversation, then returns tabs only. If only surfaces are bound to the conversation, the **defensive guard** kicks in (TASK_2026_107 Phase 5):
-  - Logs `console.warn('prompt.received.no-tab-surface-only', { promptId, sessionId, conversationId, surfaceCount })`
-  - Auto-denies via `permissionHandler.handlePermissionResponse({ id, decision: 'deny', reason: 'auto-deny: prompt arrived for surface-only conversation' })` — the SDK is unblocked immediately and the prompt is removed from the queue.
-- Public signature is **byte-unchanged** — the guard runs internally, the return type stays `readonly TabId[]`, and `cancelPendingPromptOnOtherTabs` is similarly tab-only.
-
-If the spec ever needs per-surface permission UI in the future (e.g. "approve this wizard step"), the right move is a sibling `routePermissionPromptForSurfaces(prompt): readonly SurfaceId[]` — do **not** widen `routePermissionPrompt`'s return type.
-
----
-
-## Single-operation assumption (harness)
-
-`HarnessBuilderStateService._streamingState` is a single signal — there is no concurrent-build flow today. Spec assumes one operation in flight at a time. If a second `harness:flat-stream` arrives for a different `operationId` mid-build, the existing surface is closed via `onSurfaceClosed` and a fresh one is registered (with a `harness.surface.concurrent-operation` structured warning).
-
-To lift this assumption (e.g. side-by-side harness builds):
-
-1. Promote `_streamingState` to `Map<SurfaceId, StreamingState>` keyed by surface id.
-2. `getState`/`setState` in the surface adapter look up by surface id.
-3. The view component renders a per-operation tab (or grid tile) from each map entry.
-
-This is additive — no changes to `StreamRouter` or `StreamingAccumulatorCore` required, because the routing graph and accumulator are already per-surface.
-
----
-
-## Concrete consumer examples
-
-- **Wizard**: `libs/frontend/setup-wizard/src/lib/services/setup-wizard/wizard-surface-facade.ts` — lazy-mints a surface per phase, holds the `phaseKey → SurfaceId` map, exposes `routeEvent(phaseKey, event)` for the wizard's analysis-stream handler.
-- **Harness**: `libs/frontend/harness-builder/src/lib/services/harness-surface-facade.ts` (or equivalent — the harness's surface adapter wires `getState` / `setState` to `_streamingState`). Lazy-mints on first `harness:flat-stream` for an `operationId`; tears down on `harness:flat-stream-complete` AND on builder reset.
-
-Both follow the same skeleton:
-
-1. Inject `StreamRouter`, `StreamingSurfaceRegistry`.
-2. Maintain a `Map<consumerKey, SurfaceId>` (e.g. `phaseKey → SurfaceId`, `operationId → SurfaceId`).
-3. On first event for a key: `SurfaceId.create()`, `surfaceRegistry.register(...)`, `streamRouter.onSurfaceCreated(surfaceId, sessionId?)`.
-4. On every event: `streamRouter.routeStreamEventForSurface(event, surfaceId)`.
-5. On end-of-flow / panel close / reset: `streamRouter.onSurfaceClosed(surfaceId)` + drop from local map.
-
-Use these as the reference when wiring a new surface consumer.
-
----
-
-## Testing
-
-Keep tests against the public router API — `onSurfaceCreated`, `onSurfaceClosed`, `routeStreamEventForSurface`, `surfacesForSession`, `routePermissionPrompt`. The `__tests__/surface-vs-tab-parity.spec.ts` integration test pins the contract that the surface path produces the same `StreamingState` shape as the canonical tab path. If that test fails after a Phase 2+ change to the accumulator core, the extraction has regressed — fix the underlying issue, do not weaken the assertions.
+1. **Never** call `surfaceRegistry.unregister` directly — always go through `streamRouter.onSurfaceClosed`.
+2. **Never** widen `routePermissionPrompt`'s return type to include `SurfaceId`. Add a new method.
+3. Signal-backed adapters must implement a nudge pattern (or wrap state in a re-`set` shallow copy) — in-place mutation alone will not trigger downstream re-eval.
+4. New surface consumers follow the pattern: lazy-mint a `SurfaceId`, register adapter, call `onSurfaceCreated`, route every event via `routeStreamEventForSurface`, call `onSurfaceClosed` on teardown.
+5. Public API is byte-stable — defensive guards run internally without changing return shapes.

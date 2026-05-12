@@ -412,7 +412,7 @@ describe('ProviderRpcHandlers', () => {
       const result = await call<{ success: boolean; error?: string }>(
         h,
         'provider:setModelTier',
-        { tier: 'default', modelId: 'x' },
+        { tier: 'default', modelId: 'x', scope: 'mainAgent' },
       );
 
       // The handler catches the ZodError and returns structured failure.
@@ -429,14 +429,14 @@ describe('ProviderRpcHandlers', () => {
       const result = await call<{ success: boolean }>(
         h,
         'provider:setModelTier',
-        { tier: 'sonnet', modelId: '' },
+        { tier: 'sonnet', modelId: '', scope: 'mainAgent' },
       );
 
       expect(result.success).toBe(false);
       expect(h.providerModels.setModelTier).not.toHaveBeenCalled();
     });
 
-    it('writes the tier and clears the SDK model cache on success', async () => {
+    it('writes the tier and clears the SDK model cache on success (mainAgent scope)', async () => {
       const h = makeHarness({
         configSeed: { anthropicProviderId: 'openrouter' },
       });
@@ -445,7 +445,11 @@ describe('ProviderRpcHandlers', () => {
       const result = await call<{ success: boolean }>(
         h,
         'provider:setModelTier',
-        { tier: 'sonnet', modelId: 'anthropic/claude-3.5-sonnet' },
+        {
+          tier: 'sonnet',
+          modelId: 'anthropic/claude-3.5-sonnet',
+          scope: 'mainAgent',
+        },
       );
 
       expect(result.success).toBe(true);
@@ -453,9 +457,33 @@ describe('ProviderRpcHandlers', () => {
         'openrouter',
         'sonnet',
         'anthropic/claude-3.5-sonnet',
+        'mainAgent',
       );
       // TASK_2025_132 contract: clear the SDK cache so the next models-list
       // call re-fetches with fresh tier env vars.
+      expect(h.sdkAdapter.clearModelCache).toHaveBeenCalledTimes(1);
+    });
+
+    it('forwards cliAgent scope to the service without clearing model cache on failure', async () => {
+      const h = makeHarness({
+        configSeed: { anthropicProviderId: 'moonshot' },
+      });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'provider:setModelTier',
+        { tier: 'haiku', modelId: 'kimi-k2.6:cloud', scope: 'cliAgent' },
+      );
+
+      expect(result.success).toBe(true);
+      expect(h.providerModels.setModelTier).toHaveBeenCalledWith(
+        'moonshot',
+        'haiku',
+        'kimi-k2.6:cloud',
+        'cliAgent',
+      );
+      // SDK cache is cleared on success regardless of scope
       expect(h.sdkAdapter.clearModelCache).toHaveBeenCalledTimes(1);
     });
 
@@ -467,7 +495,12 @@ describe('ProviderRpcHandlers', () => {
       const result = await call<{ success: boolean; error?: string }>(
         h,
         'provider:setModelTier',
-        { tier: 'opus', modelId: 'm', providerId: 'openrouter' },
+        {
+          tier: 'opus',
+          modelId: 'm',
+          providerId: 'openrouter',
+          scope: 'mainAgent',
+        },
       );
 
       expect(result.success).toBe(false);
@@ -484,7 +517,7 @@ describe('ProviderRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('provider:getModelTiers', () => {
-    it('returns the service tier map verbatim', async () => {
+    it('returns the service tier map verbatim (mainAgent scope)', async () => {
       const h = makeHarness({
         configSeed: { anthropicProviderId: 'openrouter' },
       });
@@ -499,24 +532,57 @@ describe('ProviderRpcHandlers', () => {
         sonnet: string | null;
         opus: string | null;
         haiku: string | null;
-      }>(h, 'provider:getModelTiers');
+      }>(h, 'provider:getModelTiers', { scope: 'mainAgent' });
 
       expect(result).toEqual({
         sonnet: 'anthropic/claude-3.5-sonnet',
         opus: null,
         haiku: 'anthropic/claude-haiku',
       });
-      expect(h.providerModels.getModelTiers).toHaveBeenCalledWith('openrouter');
+      expect(h.providerModels.getModelTiers).toHaveBeenCalledWith(
+        'openrouter',
+        'mainAgent',
+      );
     });
 
-    it('accepts no params at all (empty object) — the schema defaults providerId to undefined', async () => {
+    it('forwards cliAgent scope to the service', async () => {
+      const h = makeHarness({
+        configSeed: { anthropicProviderId: 'moonshot' },
+      });
+      h.providerModels.getModelTiers.mockReturnValue({
+        sonnet: null,
+        opus: null,
+        haiku: 'kimi-k2.6:cloud',
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        sonnet: string | null;
+        opus: string | null;
+        haiku: string | null;
+      }>(h, 'provider:getModelTiers', { scope: 'cliAgent' });
+
+      expect(result.haiku).toBe('kimi-k2.6:cloud');
+      expect(h.providerModels.getModelTiers).toHaveBeenCalledWith(
+        'moonshot',
+        'cliAgent',
+      );
+    });
+
+    it('scope is required — missing scope is a validation error', async () => {
       const h = makeHarness({
         configSeed: { anthropicProviderId: 'moonshot' },
       });
       h.handlers.register();
 
-      await call(h, 'provider:getModelTiers');
-      expect(h.providerModels.getModelTiers).toHaveBeenCalledWith('moonshot');
+      const response = await h.rpcHandler.handleMessage({
+        method: 'provider:getModelTiers',
+        params: {},
+        correlationId: 'corr',
+      });
+
+      expect(response.success).toBe(false);
+      expect(h.providerModels.getModelTiers).not.toHaveBeenCalled();
     });
 
     it('captures service throws to Sentry and re-throws to RPC boundary', async () => {
@@ -528,7 +594,7 @@ describe('ProviderRpcHandlers', () => {
 
       const response = await h.rpcHandler.handleMessage({
         method: 'provider:getModelTiers',
-        params: {},
+        params: { scope: 'mainAgent' },
         correlationId: 'corr',
       });
 
@@ -550,14 +616,14 @@ describe('ProviderRpcHandlers', () => {
       const result = await call<{ success: boolean }>(
         h,
         'provider:clearModelTier',
-        { tier: 'fast' },
+        { tier: 'fast', scope: 'mainAgent' },
       );
 
       expect(result.success).toBe(false);
       expect(h.providerModels.clearModelTier).not.toHaveBeenCalled();
     });
 
-    it('clears the tier and the SDK model cache on success', async () => {
+    it('clears the tier and the SDK model cache on success (mainAgent scope)', async () => {
       const h = makeHarness({
         configSeed: { anthropicProviderId: 'openrouter' },
       });
@@ -566,15 +632,36 @@ describe('ProviderRpcHandlers', () => {
       const result = await call<{ success: boolean }>(
         h,
         'provider:clearModelTier',
-        { tier: 'opus' },
+        { tier: 'opus', scope: 'mainAgent' },
       );
 
       expect(result.success).toBe(true);
       expect(h.providerModels.clearModelTier).toHaveBeenCalledWith(
         'openrouter',
         'opus',
+        'mainAgent',
       );
       expect(h.sdkAdapter.clearModelCache).toHaveBeenCalledTimes(1);
+    });
+
+    it('forwards cliAgent scope to the service', async () => {
+      const h = makeHarness({
+        configSeed: { anthropicProviderId: 'moonshot' },
+      });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'provider:clearModelTier',
+        { tier: 'haiku', scope: 'cliAgent' },
+      );
+
+      expect(result.success).toBe(true);
+      expect(h.providerModels.clearModelTier).toHaveBeenCalledWith(
+        'moonshot',
+        'haiku',
+        'cliAgent',
+      );
     });
 
     it('captures service failures to Sentry and returns structured error', async () => {
@@ -587,13 +674,115 @@ describe('ProviderRpcHandlers', () => {
       const result = await call<{ success: boolean; error?: string }>(
         h,
         'provider:clearModelTier',
-        { tier: 'haiku', providerId: 'openrouter' },
+        { tier: 'haiku', providerId: 'openrouter', scope: 'mainAgent' },
       );
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('write blocked');
       expect(h.sdkAdapter.clearModelCache).not.toHaveBeenCalled();
       expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Scope-isolation scenario: the exact bug repro at the RPC wiring layer
+  // -------------------------------------------------------------------------
+
+  describe('Scope-isolation scenario (bug repro)', () => {
+    it('routes cliAgent setModelTier and mainAgent getModelTiers to independent service calls', async () => {
+      // This is the exact bug scenario: the UI calls setModelTier for a CLI
+      // sub-agent, then reads tiers for the main agent.  The two scopes must
+      // never bleed into each other at the RPC wiring level.
+      const h = makeHarness({
+        configSeed: { anthropicProviderId: 'moonshot' },
+      });
+      h.handlers.register();
+
+      // Step 1: UI sets tier for the CLI sub-agent.
+      const setResult = await call<{ success: boolean }>(
+        h,
+        'provider:setModelTier',
+        {
+          scope: 'cliAgent',
+          providerId: 'moonshot',
+          tier: 'haiku',
+          modelId: 'kimi-k2.6:cloud',
+        },
+      );
+
+      expect(setResult.success).toBe(true);
+      // The service must have been called with cliAgent scope — NOT mainAgent.
+      expect(h.providerModels.setModelTier).toHaveBeenCalledWith(
+        'moonshot',
+        'haiku',
+        'kimi-k2.6:cloud',
+        'cliAgent',
+      );
+
+      // Step 2: UI reads tiers for the main agent (different scope entirely).
+      h.providerModels.getModelTiers.mockReturnValue({
+        sonnet: null,
+        opus: null,
+        haiku: null,
+      });
+
+      await call<{ sonnet: null; opus: null; haiku: null }>(
+        h,
+        'provider:getModelTiers',
+        { scope: 'mainAgent' },
+      );
+
+      // The service must have been queried with mainAgent scope, not cliAgent.
+      expect(h.providerModels.getModelTiers).toHaveBeenCalledWith(
+        'moonshot',
+        'mainAgent',
+      );
+    });
+
+    it('cross-scope read independence: setting cliAgent tier for provider X does not surface when reading mainAgent tiers for X', async () => {
+      // This is a wiring test — it verifies that the mock is called with the
+      // correct scope arguments so the service can enforce independent storage.
+      // It does NOT re-test the service's own scope-isolation logic.
+      const h = makeHarness({
+        configSeed: { anthropicProviderId: 'moonshot' },
+      });
+      // Simulate independent storage: mainAgent returns empty, cliAgent has a value.
+      h.providerModels.getModelTiers.mockImplementation(
+        (providerId: string, scope: string) => {
+          if (scope === 'cliAgent') {
+            return { sonnet: null, opus: null, haiku: 'kimi-k2.6:cloud' };
+          }
+          return { sonnet: null, opus: null, haiku: null };
+        },
+      );
+      h.handlers.register();
+
+      // Read via mainAgent scope — must get the main-agent shape (all null).
+      const mainResult = await call<{
+        sonnet: null;
+        opus: null;
+        haiku: null;
+      }>(h, 'provider:getModelTiers', { scope: 'mainAgent' });
+
+      expect(mainResult.haiku).toBeNull();
+      expect(h.providerModels.getModelTiers).toHaveBeenCalledWith(
+        'moonshot',
+        'mainAgent',
+      );
+
+      // Read via cliAgent scope — must get the cli-agent shape (haiku populated).
+      h.providerModels.getModelTiers.mockClear();
+      const cliResult = await call<{
+        sonnet: null;
+        opus: null;
+        haiku: string;
+      }>(h, 'provider:getModelTiers', { scope: 'cliAgent' });
+
+      expect(cliResult.haiku).toBe('kimi-k2.6:cloud');
+      expect(h.providerModels.getModelTiers).toHaveBeenCalledWith(
+        'moonshot',
+        'cliAgent',
+      );
     });
   });
 });

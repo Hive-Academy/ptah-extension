@@ -73,7 +73,17 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
+import type {
+  ModelSettings,
+  ReasoningSettings,
+} from '@ptah-extension/settings-core';
 
+import {
+  createMockModelSettings,
+  createMockReasoningSettings,
+  type MockModelSettings,
+  type MockReasoningSettings,
+} from '../../test-utils/mock-settings';
 import { ConfigRpcHandlers } from './config-rpc.handlers';
 
 // ---------------------------------------------------------------------------
@@ -157,12 +167,16 @@ interface Harness {
   modelResolver: MockModelResolver;
   sentry: MockSentryService;
   featureGate: MockFeatureGate;
+  modelSettings: MockModelSettings;
+  reasoningSettings: MockReasoningSettings;
 }
 
 function makeHarness(
   opts: {
     configSeed?: Record<string, unknown>;
     isPro?: boolean;
+    modelSelected?: string;
+    reasoningEffort?: string;
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -174,6 +188,15 @@ function makeHarness(
   const modelResolver = createMockModelResolver();
   const sentry = createMockSentryService();
   const featureGate = createMockFeatureGate({ isPro: opts.isPro });
+  const modelSettings = createMockModelSettings();
+  const reasoningSettings = createMockReasoningSettings();
+
+  if (opts.modelSelected !== undefined) {
+    modelSettings.selectedModel.get.mockReturnValue(opts.modelSelected);
+  }
+  if (opts.reasoningEffort !== undefined) {
+    reasoningSettings.effort.get.mockReturnValue(opts.reasoningEffort);
+  }
 
   const handlers = new ConfigRpcHandlers(
     logger as unknown as Logger,
@@ -185,6 +208,8 @@ function makeHarness(
     modelResolver as unknown as ModelResolver,
     sentry as unknown as SentryService,
     featureGate as unknown as FeatureGateService,
+    modelSettings as unknown as ModelSettings,
+    reasoningSettings as unknown as ReasoningSettings,
   );
 
   return {
@@ -198,6 +223,8 @@ function makeHarness(
     modelResolver,
     sentry,
     featureGate,
+    modelSettings,
+    reasoningSettings,
   };
 }
 
@@ -277,7 +304,7 @@ describe('ConfigRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('config:model-switch', () => {
-    it('persists the selected model to ConfigManager', async () => {
+    it('persists the selected model via ModelSettings', async () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -286,8 +313,7 @@ describe('ConfigRpcHandlers', () => {
       });
 
       expect(result.model).toBe('claude-opus-4-7');
-      expect(h.configManager.set).toHaveBeenCalledWith(
-        'model.selected',
+      expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
         'claude-opus-4-7',
       );
     });
@@ -318,8 +344,7 @@ describe('ConfigRpcHandlers', () => {
       });
 
       expect(result.model).toBe('claude-haiku-4-5');
-      expect(h.configManager.set).toHaveBeenCalledWith(
-        'model.selected',
+      expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
         'claude-haiku-4-5',
       );
     });
@@ -341,7 +366,7 @@ describe('ConfigRpcHandlers', () => {
     });
 
     it('preserves "default" as-is (valid SDK tier meaning "let SDK choose")', async () => {
-      const h = makeHarness({ configSeed: { 'model.selected': 'default' } });
+      const h = makeHarness({ modelSelected: 'default' });
       h.handlers.register();
 
       const result = await call<{ model: string }>(h, 'config:model-get');
@@ -352,7 +377,7 @@ describe('ConfigRpcHandlers', () => {
     });
 
     it('migrates a legacy bare-tier value to a full Claude ID and re-saves', async () => {
-      const h = makeHarness({ configSeed: { 'model.selected': 'opus' } });
+      const h = makeHarness({ modelSelected: 'opus' });
       h.modelResolver.resolve.mockReturnValue('claude-opus-4-7');
       h.handlers.register();
 
@@ -360,16 +385,13 @@ describe('ConfigRpcHandlers', () => {
 
       expect(h.modelResolver.resolve).toHaveBeenCalledWith('opus');
       expect(result.model).toBe('claude-opus-4-7');
-      expect(h.configManager.set).toHaveBeenCalledWith(
-        'model.selected',
+      expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
         'claude-opus-4-7',
       );
     });
 
     it('preserves a dated specific-version ID unchanged', async () => {
-      const h = makeHarness({
-        configSeed: { 'model.selected': 'claude-opus-4-7-20251101' },
-      });
+      const h = makeHarness({ modelSelected: 'claude-opus-4-7-20251101' });
       // detectTier returns the tier even for dated IDs, but the /-\d{8}$/ guard
       // in the handler must prevent migration.
       h.modelResolver.detectTier.mockReturnValue('opus');
@@ -378,16 +400,14 @@ describe('ConfigRpcHandlers', () => {
       const result = await call<{ model: string }>(h, 'config:model-get');
 
       expect(result.model).toBe('claude-opus-4-7-20251101');
-      expect(h.configManager.set).not.toHaveBeenCalled();
+      expect(h.modelSettings.selectedModel.set).not.toHaveBeenCalled();
     });
 
     it('migrates a stale "latest" alias to the current TIER_TO_MODEL_ID value', async () => {
       // Handler compares `stored` to TIER_TO_MODEL_ID[tier]. The only way to
       // guarantee mismatch is to feed a stored value that clearly isn't the
       // current latest for its tier.
-      const h = makeHarness({
-        configSeed: { 'model.selected': 'claude-opus-4-6' },
-      });
+      const h = makeHarness({ modelSelected: 'claude-opus-4-6' });
       h.modelResolver.detectTier.mockReturnValue('opus');
       h.handlers.register();
 
@@ -396,8 +416,7 @@ describe('ConfigRpcHandlers', () => {
       // We don't hardcode the current ID (it changes over time) — we just
       // assert the handler migrated away from the stale value.
       expect(result.model).not.toBe('claude-opus-4-6');
-      expect(h.configManager.set).toHaveBeenCalledWith(
-        'model.selected',
+      expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
         expect.any(String),
       );
     });
@@ -597,9 +616,7 @@ describe('ConfigRpcHandlers', () => {
 
   describe('config:models-list', () => {
     it('merges SDK models + API models and dedupes by id', async () => {
-      const h = makeHarness({
-        configSeed: { 'model.selected': 'claude-opus-4-7' },
-      });
+      const h = makeHarness({ modelSelected: 'claude-opus-4-7' });
       h.sdkAdapter.getSupportedModels.mockResolvedValue([
         {
           value: 'claude-opus-4-7',
@@ -650,9 +667,7 @@ describe('ConfigRpcHandlers', () => {
     });
 
     it('guarantees exactly one isSelected entry even when resolve matches multiple', async () => {
-      const h = makeHarness({
-        configSeed: { 'model.selected': 'claude-opus-4-7' },
-      });
+      const h = makeHarness({ modelSelected: 'claude-opus-4-7' });
       h.sdkAdapter.getSupportedModels.mockResolvedValue([
         {
           value: 'claude-opus-4-7',
@@ -688,9 +703,7 @@ describe('ConfigRpcHandlers', () => {
     });
 
     it('populates providerModelId from tier overrides for non-Anthropic providers', async () => {
-      const h = makeHarness({
-        configSeed: { 'model.selected': 'claude-sonnet-4-6' },
-      });
+      const h = makeHarness({ modelSelected: 'claude-sonnet-4-6' });
       h.providerModels.resolveActiveProviderId.mockReturnValue('openrouter');
       h.providerModels.getModelTiers.mockReturnValue({
         default: null,
@@ -720,9 +733,7 @@ describe('ConfigRpcHandlers', () => {
     });
 
     it('skips tier overrides when active provider is "anthropic"', async () => {
-      const h = makeHarness({
-        configSeed: { 'model.selected': 'claude-sonnet-4-6' },
-      });
+      const h = makeHarness({ modelSelected: 'claude-sonnet-4-6' });
       h.providerModels.resolveActiveProviderId.mockReturnValue('anthropic');
       h.sdkAdapter.getSupportedModels.mockResolvedValue([
         { value: 'claude-sonnet-4-6', displayName: 'Sonnet', description: '' },
@@ -757,7 +768,7 @@ describe('ConfigRpcHandlers', () => {
       expect(result.effort).toBeUndefined();
     });
 
-    it('round-trips an effort value through ConfigManager', async () => {
+    it('round-trips an effort value through ReasoningSettings', async () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -767,23 +778,24 @@ describe('ConfigRpcHandlers', () => {
         { effort: 'high' },
       );
       expect(setResult.effort).toBe('high');
-      expect(h.configManager.set).toHaveBeenCalledWith(
-        'reasoningEffort',
-        'high',
-      );
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('high');
 
+      // Simulate the effect of the set so get returns the updated value.
+      h.reasoningSettings.effort.get.mockReturnValue('high');
       const getResult = await call<{ effort?: string }>(h, 'config:effort-get');
       expect(getResult.effort).toBe('high');
     });
 
     it('clears the effort when an empty value is passed', async () => {
-      const h = makeHarness({ configSeed: { reasoningEffort: 'medium' } });
+      const h = makeHarness({ reasoningEffort: 'medium' });
       h.handlers.register();
 
       await call(h, 'config:effort-set', { effort: '' });
 
-      expect(h.configManager.set).toHaveBeenCalledWith('reasoningEffort', '');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('');
 
+      // Simulate the effect of clearing so get reflects the cleared state.
+      h.reasoningSettings.effort.get.mockReturnValue('');
       const getResult = await call<{ effort?: string }>(h, 'config:effort-get');
       expect(getResult.effort).toBeUndefined();
     });

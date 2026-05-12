@@ -214,4 +214,49 @@ describe('CliUserInteraction — CLI-specific behaviour', () => {
     // Still no spawn — delegation only.
     expect(globalThis.__mockSpawnCalls).toEqual([]);
   });
+
+  it('openExternal returns false when the spawned process emits an error event', async () => {
+    // Override spawn to emit 'error' instead of 'close'
+    const cp =
+      jest.requireMock<typeof import('child_process')>('child_process');
+    const eventsModule = jest.requireActual<typeof import('events')>('events');
+
+    (cp.spawn as jest.Mock).mockImplementationOnce(() => {
+      const emitter = new eventsModule.EventEmitter() as ReturnType<
+        typeof cp.spawn
+      >;
+      (emitter as unknown as { stdin: { write(): void; end(): void } }).stdin =
+        {
+          write: () => undefined,
+          end: () => undefined,
+        };
+      setImmediate(() => emitter.emit('error', new Error('spawn ENOENT')));
+      return emitter;
+    });
+
+    const result = await provider.openExternal('https://example.com');
+    expect(result).toBe(false);
+  });
+
+  it('writeToClipboard resolves even when the spawned process emits an error event', async () => {
+    // Override spawn to emit 'error' so the error handler path is exercised.
+    const cp =
+      jest.requireMock<typeof import('child_process')>('child_process');
+    const eventsModule = jest.requireActual<typeof import('events')>('events');
+
+    (cp.spawn as jest.Mock).mockImplementationOnce(() => {
+      const emitter = new eventsModule.EventEmitter() as ReturnType<
+        typeof cp.spawn
+      >;
+      (emitter as unknown as { stdin: { write(): void; end(): void } }).stdin =
+        {
+          write: () => undefined,
+          end: () => undefined,
+        };
+      setImmediate(() => emitter.emit('error', new Error('clipboard ENOENT')));
+      return emitter;
+    });
+
+    await expect(provider.writeToClipboard('text')).resolves.toBeUndefined();
+  });
 });

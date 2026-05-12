@@ -182,3 +182,149 @@ export interface GitShowFileResult {
   /** Whether the file is binary */
   isBinary?: boolean;
 }
+
+// ============================================================================
+// Branch, Checkout, Stash, Tag, Remote, and Last-Commit RPC Types (TASK_2026_111)
+// ============================================================================
+
+/** Single branch reference returned by git:branches */
+export interface BranchRef {
+  /** Short branch name, e.g. "main" or "origin/main" for remotes */
+  name: string;
+  /** Whether this is the currently checked-out branch */
+  isCurrent: boolean;
+  /** Whether this is a remote-tracking branch */
+  isRemote: boolean;
+  /** Remote name for remote-tracking branches, e.g. "origin" */
+  remote?: string;
+  /** Upstream tracking ref, null when no upstream is configured */
+  upstream?: string | null;
+  /** Commits ahead of upstream (0 when no upstream) */
+  ahead: number;
+  /** Commits behind upstream (0 when no upstream) */
+  behind: number;
+  /** Abbreviated commit hash of the branch tip */
+  lastCommitHash?: string;
+  /** Unix timestamp (ms) of the branch tip commit */
+  lastCommitTime?: number;
+}
+
+/** Parameters for git:branches RPC method */
+export interface GitBranchesParams {
+  /** Whether to include remote-tracking branches in the result */
+  includeRemote?: boolean;
+}
+
+/** Result from git:branches RPC method */
+export interface GitBranchesResult {
+  /** Short name of the currently checked-out branch */
+  current: string;
+  /** Local branches */
+  local: BranchRef[];
+  /** Remote-tracking branches (only populated when includeRemote=true) */
+  remote: BranchRef[];
+}
+
+/** Parameters for git:checkout RPC method */
+export interface GitCheckoutParams {
+  /** Branch name to checkout or create */
+  branch: string;
+  /** Whether to create a new branch (-b flag) */
+  createNew?: boolean;
+  /** Force checkout even with a dirty working tree (--force flag) */
+  force?: boolean;
+}
+
+/** Result from git:checkout RPC method */
+export interface GitCheckoutResult {
+  success: boolean;
+  error?: string;
+  /** True when working tree had uncommitted changes and force=false caused the checkout to abort */
+  dirty?: boolean;
+}
+
+/** Single git stash entry */
+export interface StashEntry {
+  /** Zero-based stash index (the N in stash@{N}) */
+  index: number;
+  /** Stash message */
+  message: string;
+  /** Branch name the stash was created on */
+  branch?: string;
+  /** Unix timestamp (ms) of the stash creation */
+  time?: number;
+}
+
+/** Parameters for git:stashList RPC method */
+export type GitStashListParams = Record<string, never>;
+
+/** Result from git:stashList RPC method */
+export interface GitStashListResult {
+  count: number;
+  entries: StashEntry[];
+}
+
+/** Single tag reference */
+export interface TagRef {
+  /** Tag name */
+  name: string;
+  /** Abbreviated commit hash the tag points to */
+  commit: string;
+  /** Whether the tag is an annotated tag (vs lightweight) */
+  annotated: boolean;
+  /** Unix timestamp (ms) of the tag creation date */
+  time?: number;
+}
+
+/** Parameters for git:tags RPC method */
+export interface GitTagsParams {
+  /** Maximum number of tags to return (default: 20) */
+  limit?: number;
+}
+
+/** Result from git:tags RPC method */
+export interface GitTagsResult {
+  tags: TagRef[];
+}
+
+/** Single git remote */
+export interface RemoteInfo {
+  /** Remote name, e.g. "origin" */
+  name: string;
+  /** Fetch URL */
+  fetchUrl: string;
+  /** Push URL */
+  pushUrl: string;
+}
+
+/** Parameters for git:remotes RPC method */
+export type GitRemotesParams = Record<string, never>;
+
+/** Result from git:remotes RPC method */
+export interface GitRemotesResult {
+  remotes: RemoteInfo[];
+}
+
+/** Parameters for git:lastCommit RPC method */
+export interface GitLastCommitParams {
+  /** Git ref to inspect (default: HEAD) */
+  ref?: string;
+}
+
+/** Result from git:lastCommit RPC method */
+export interface GitLastCommitResult {
+  /** Full commit SHA */
+  hash: string;
+  /** Abbreviated commit hash */
+  shortHash: string;
+  /** Commit subject line */
+  subject: string;
+  /** Commit body (everything after the subject) */
+  body: string;
+  /** Author display name */
+  author: string;
+  /** Author email address */
+  authorEmail: string;
+  /** Commit Unix timestamp in milliseconds */
+  time: number;
+}

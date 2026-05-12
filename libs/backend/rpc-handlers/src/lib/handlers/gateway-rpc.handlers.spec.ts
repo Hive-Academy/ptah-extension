@@ -56,10 +56,15 @@ function buildSuite(): Suite {
     sendTest: jest.fn(),
   } as unknown as jest.Mocked<GatewayService>;
 
+  const webviewManager = {
+    broadcastMessage: jest.fn().mockResolvedValue(undefined),
+  };
+
   const handlers = new GatewayRpcHandlers(
     logger,
     rpc as unknown as RpcHandler,
     gateway,
+    webviewManager,
   );
   handlers.register();
   return { handlers, rpc, gateway };
@@ -79,6 +84,179 @@ describe('GatewayRpcHandlers', () => {
       expect(registered).toContain('gateway:test');
       // Each METHODS entry must register exactly once (no double-binding).
       expect(registered.length).toBe(GatewayRpcHandlers.METHODS.length);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GATEWAY_STATUS_CHANGED emission (TASK_2026_115 Batch 9 — T9.1)
+  // ---------------------------------------------------------------------------
+
+  describe('GatewayRpcHandlers — GATEWAY_STATUS_CHANGED emission', () => {
+    interface EmissionSuite {
+      handlers: GatewayRpcHandlers;
+      rpc: MockRpcHandler;
+      gateway: jest.Mocked<GatewayService>;
+      webviewManager: { broadcastMessage: jest.Mock };
+    }
+
+    function buildEmissionSuite(
+      gatewayStatusOverride?: ReturnType<jest.Mocked<GatewayService>['status']>,
+    ): EmissionSuite {
+      const logger = {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+      } as unknown as Logger;
+      const rpc = createMockRpcHandler();
+      const gateway = {
+        status: jest
+          .fn()
+          .mockReturnValue(
+            gatewayStatusOverride ?? { enabled: true, adapters: [] },
+          ),
+        start: jest.fn().mockResolvedValue(undefined),
+        stop: jest.fn().mockResolvedValue(undefined),
+        startPlatform: jest.fn().mockResolvedValue(undefined),
+        stopPlatform: jest.fn().mockResolvedValue(undefined),
+        setToken: jest.fn().mockResolvedValue(undefined),
+        listBindings: jest.fn().mockReturnValue([]),
+        listMessages: jest.fn().mockReturnValue([]),
+        approveBinding: jest.fn(),
+        setBindingStatus: jest.fn(),
+        sendTest: jest.fn(),
+      } as unknown as jest.Mocked<GatewayService>;
+
+      const webviewManager = {
+        broadcastMessage: jest.fn().mockResolvedValue(undefined),
+      };
+
+      const handlers = new GatewayRpcHandlers(
+        logger,
+        rpc as unknown as RpcHandler,
+        gateway,
+        webviewManager,
+      );
+      handlers.register();
+      return { handlers, rpc, gateway, webviewManager };
+    }
+
+    it('broadcasts GATEWAY_STATUS_CHANGED after gateway:start resolves', async () => {
+      const { rpc, webviewManager } = buildEmissionSuite();
+
+      await rpc.handleMessage({
+        method: 'gateway:start',
+        params: { platform: 'telegram' },
+        correlationId: 'corr-start-1',
+      });
+
+      // broadcastMessage is called via void — flush microtasks
+      await Promise.resolve();
+
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'gateway:statusChanged',
+        expect.objectContaining({ origin: null }),
+      );
+    });
+
+    it('broadcasts GATEWAY_STATUS_CHANGED after gateway:stop resolves', async () => {
+      const { rpc, webviewManager } = buildEmissionSuite();
+
+      await rpc.handleMessage({
+        method: 'gateway:stop',
+        params: { platform: 'telegram' },
+        correlationId: 'corr-stop-1',
+      });
+
+      await Promise.resolve();
+
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'gateway:statusChanged',
+        expect.objectContaining({ origin: null }),
+      );
+    });
+
+    it('threads origin through from RPC params to broadcast payload', async () => {
+      const { rpc, webviewManager } = buildEmissionSuite();
+
+      await rpc.handleMessage({
+        method: 'gateway:start',
+        params: { platform: 'telegram', origin: 'test-origin-uuid' },
+        correlationId: 'corr-start-2',
+      });
+
+      await Promise.resolve();
+
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'gateway:statusChanged',
+        expect.objectContaining({ origin: 'test-origin-uuid' }),
+      );
+    });
+
+    // ── RED-2: broadcastStatus error path — warn logged, RPC still succeeds ──
+    //
+    // When webviewManager.broadcastMessage rejects, the handler catches via
+    // `.catch(logger.warn)` and still returns { ok: true }. Without this test,
+    // a broken broadcast silently swallows with no log validation, and an
+    // accidental `await broadcastStatus(...)` (without the .catch) would cause
+    // the RPC handler to reject instead of resolve.
+    it('logs a warning when broadcastMessage rejects but still returns success from gateway:start', async () => {
+      const logger = {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+      } as unknown as import('@ptah-extension/vscode-core').Logger;
+      const rpc = createMockRpcHandler();
+      const gateway = {
+        status: jest.fn().mockReturnValue({ enabled: true, adapters: [] }),
+        start: jest.fn().mockResolvedValue(undefined),
+        stop: jest.fn().mockResolvedValue(undefined),
+        startPlatform: jest.fn().mockResolvedValue(undefined),
+        stopPlatform: jest.fn().mockResolvedValue(undefined),
+        setToken: jest.fn().mockResolvedValue(undefined),
+        listBindings: jest.fn().mockReturnValue([]),
+        listMessages: jest.fn().mockReturnValue([]),
+        approveBinding: jest.fn(),
+        setBindingStatus: jest.fn(),
+        sendTest: jest.fn(),
+      } as unknown as jest.Mocked<GatewayService>;
+
+      // broadcastMessage rejects — simulates IPC transport failure
+      const webviewManager = {
+        broadcastMessage: jest.fn().mockRejectedValue(new Error('ipc-fail')),
+      };
+
+      const handlers = new GatewayRpcHandlers(
+        logger,
+        rpc as unknown as import('@ptah-extension/vscode-core').RpcHandler,
+        gateway,
+        webviewManager,
+      );
+      handlers.register();
+
+      const response = await rpc.handleMessage({
+        method: 'gateway:start',
+        params: { platform: 'telegram' },
+        correlationId: 'r2-corr-1',
+      });
+
+      // Flush the microtask queue so the .catch(logger.warn) continuation runs
+      await Promise.resolve();
+
+      // The RPC handler must still return success — broadcastStatus failure must
+      // not propagate to the caller.
+      expect(response.success).toBe(true);
+
+      // logger.warn must have been called with context referencing the broadcast
+      // or gateway operation, confirming the error was captured and not silently swallowed.
+      expect(logger.warn as jest.Mock).toHaveBeenCalledWith(
+        expect.stringMatching(/broadcastStatus|gateway/i),
+        expect.anything(),
+      );
+
+      // broadcastMessage was attempted (it failed, but the attempt was made)
+      expect(webviewManager.broadcastMessage).toHaveBeenCalled();
     });
   });
 

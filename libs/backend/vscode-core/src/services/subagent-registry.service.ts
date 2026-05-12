@@ -245,6 +245,45 @@ export class SubagentRegistryService {
   }
 
   /**
+   * Phase 1: Look up a SubagentRecord by its SDK task_id.
+   *
+   * Used by SubagentMessageDispatcher to resolve a taskId from the frontend
+   * into the registry record for routing subagent:stop calls.
+   *
+   * @param taskId - The SDK task_id from SDKTaskStartedMessage
+   * @returns The matching SubagentRecord, or undefined if not found
+   */
+  findByTaskId(taskId: string): SubagentRecord | undefined {
+    for (const record of this.store.values()) {
+      if (record.taskId === taskId) {
+        return record;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Phase 1: Associate an SDK task_id with a toolCallId entry.
+   *
+   * Called when SdkMessageTransformer receives task_started so that later
+   * stop/interrupt calls can look up the SDK taskId from the registry.
+   *
+   * @param toolCallId - The Task tool_use ID (registry key)
+   * @param taskId - The SDK task_id to associate
+   */
+  setTaskId(toolCallId: string, taskId: string): void {
+    const record = this.store.getRaw(toolCallId);
+    if (!record) {
+      this.logger.debug(
+        '[SubagentRegistryService.setTaskId] Record not found, cannot set taskId',
+        { toolCallId, taskId },
+      );
+      return;
+    }
+    this.store.set(toolCallId, { ...record, taskId });
+  }
+
+  /**
    * Get all resumable subagents (status='interrupted', within TTL).
    *
    * Returns subagents that can be resumed via SDK's resume parameter.

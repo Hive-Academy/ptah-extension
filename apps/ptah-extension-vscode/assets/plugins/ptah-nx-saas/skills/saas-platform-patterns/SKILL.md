@@ -7,6 +7,10 @@ description: 'SaaS platform business patterns for NestJS applications implementi
 
 Patterns for turning a NestJS backend into a monetizable SaaS platform. These patterns cover the **business layer** that sits above payment provider integration (Stripe, Paddle, LemonSqueezy, etc.) and below the API surface. Provider-agnostic by design -- swap payment providers without rewriting business logic.
 
+## Activation scope
+
+This skill activates **per-module during Stage B** of the SaaS bootstrap, against Billing & Monetization roadmap items (`billing-*`, `licensing-*`, `subscription-*`, `checkout-*`). `saas-workspace-initializer` deliberately keeps billing out of the Stage A foundation — pull this skill in only when working a specific monetization roadmap item in its own session.
+
 ## Monetization Models
 
 | Model         | Description                                | Complexity | Best For                               |

@@ -26,6 +26,8 @@ import {
 import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
 import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
 import { emitFatalError } from '../output/stderr-json.js';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { MigrationRunner } from '@ptah-extension/settings-core';
 
 /**
  * Lightweight contract for the SDK agent adapter as resolved out of the DI
@@ -199,6 +201,39 @@ export async function withEngine<T>(
     transport: result.transport,
     pushAdapter: result.pushAdapter,
   };
+
+  // ---- WP-3C: File-settings migration ----------------------------------------
+  //
+  // SETTINGS_TOKENS (SETTINGS_STORE, all 9 repository tokens, MIGRATION_RUNNER)
+  // are registered by CliDIContainer.setup() in Phase 3.6 — BEFORE Phase 4
+  // eagerly resolves RPC handler classes that @inject those tokens.
+  //
+  // runMigrations() runs here (post-setup, pre-SDK-init) so that migrated
+  // values are visible when sdkAdapter.initialize() first reads settings.
+  //
+  // The call is best-effort: a failed migration is logged to stderr and does
+  // not block bootstrap or the command body.
+  await (async () => {
+    try {
+      const migrationRunner = ctx.container.resolve<MigrationRunner>(
+        SETTINGS_TOKENS.MIGRATION_RUNNER,
+      );
+      await migrationRunner.runMigrations();
+      if (globals.verbose === true) {
+        process.stderr.write(
+          '[ptah] withEngine: file-settings migrations applied\n',
+        );
+      }
+    } catch (settingsError) {
+      const message =
+        settingsError instanceof Error
+          ? settingsError.message
+          : String(settingsError);
+      process.stderr.write(
+        `[ptah] withEngine: file-settings migration failed (non-fatal): ${message}\n`,
+      );
+    }
+  })();
 
   // ---- CLI bug batch item #12: authMethod camelCase → kebab-case migration --
   //

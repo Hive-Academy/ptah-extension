@@ -249,8 +249,18 @@
       <button
         type="button"
         class="btn btn-ghost btn-xs"
-        title="Rewind file changes to here"
-        aria-label="Rewind file changes to this message"
+        [title]="
+          isSessionActive()
+            ? 'Rewind file changes to here'
+            : 'Rewind is only available during an active conversation'
+        "
+        [attr.aria-label]="
+          isSessionActive()
+            ? 'Rewind file changes to this message'
+            : 'Rewind unavailable — session is not active'
+        "
+        [disabled]="!isSessionActive()"
+        [attr.aria-disabled]="!isSessionActive()"
         data-testid="user-rewind-button"
         (click)="onRewindClick()"
       >

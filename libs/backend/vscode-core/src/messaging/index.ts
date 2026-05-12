@@ -10,8 +10,9 @@
  */
 
 // RPC Handler (Phase 2 - TASK_2025_021)
-export { RpcHandler } from './rpc-handler';
+export { RpcHandler, ALLOWED_METHOD_PREFIXES } from './rpc-handler';
 export type { RpcLicenseValidationResult } from './rpc-handler';
+export { RpcUserError } from './rpc-types';
 export type { RpcMessage, RpcResponse, RpcMethodHandler } from './rpc-types';
 
 // SDK RPC Handlers - DELETED in TASK_2025_092

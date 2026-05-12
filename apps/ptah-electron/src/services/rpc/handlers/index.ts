@@ -29,3 +29,5 @@ export { LayoutRpcHandlers } from './layout-rpc.handlers';
 // TASK_2026_104 Sub-batch B5b: GitRpcHandlers lifted to
 // `@ptah-extension/rpc-handlers` SHARED_HANDLERS. No longer Electron-local.
 export { TerminalRpcHandlers } from './terminal-rpc.handlers';
+// TASK_2026_117: Electron-local auto-update RPC handlers
+export { UpdateRpcHandlers } from './update-rpc.handlers';

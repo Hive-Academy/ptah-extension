@@ -15,7 +15,7 @@
  *
  * Example .env for testing:
  * ```
- * TRIAL_DURATION_DAYS=1
+ * TRIAL_DURATION_DAYS=100
  * ```
  */
 

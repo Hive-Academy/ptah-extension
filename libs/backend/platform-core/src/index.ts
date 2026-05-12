@@ -31,10 +31,16 @@ export type { IEditorProvider } from './interfaces/editor-provider.interface';
 export type { ITokenCounter } from './interfaces/token-counter.interface';
 export type { IDiagnosticsProvider } from './interfaces/diagnostics-provider.interface';
 export type {
+  IMemoryWriter,
+  MemoryWriteRequest,
+  MemoryWriteResult,
+} from './interfaces/memory-writer.interface';
+export type {
   IHttpServerProvider,
   IHttpServerHandle,
   HttpServerRequestHandler,
 } from './interfaces/http-server-provider.interface';
+export type { IMasterKeyProvider } from './interfaces/master-key-provider.interface';
 
 // Platform abstractions (moved from @ptah-extension/rpc-handlers in C8)
 export type {
@@ -73,3 +79,6 @@ export type {
   AgentPackEntry,
   AgentPackDownloadResult,
 } from './agent-pack-download.service';
+
+// Settings auth key resolution helper (WP-2A)
+export { resolveAuthProviderKey } from './settings-auth-key';

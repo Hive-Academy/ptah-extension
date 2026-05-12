@@ -22,14 +22,17 @@
  *   - `hasKeyForProvider` synchronous lookup.
  */
 
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type {
   AnthropicProviderInfo,
   AuthGetAuthStatusResponse,
   AuthMethod,
+  EffortLevel,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { ModelStateService } from './model-state.service';
+import { EffortStateService } from './effort-state.service';
 import { AuthStateService } from './auth-state.service';
 import {
   createMockRpcService,
@@ -70,6 +73,7 @@ function makeAuthStatusResponse(
 describe('AuthStateService', () => {
   let rpc: MockRpcService;
   let modelState: jest.Mocked<Pick<ModelStateService, 'refreshModels'>>;
+  let effortState: jest.Mocked<Pick<EffortStateService, 'refreshEffort'>>;
   let consoleError: jest.SpyInstance;
   let consoleWarn: jest.SpyInstance;
 
@@ -79,6 +83,7 @@ describe('AuthStateService', () => {
         AuthStateService,
         { provide: ClaudeRpcService, useValue: rpc },
         { provide: ModelStateService, useValue: modelState },
+        { provide: EffortStateService, useValue: effortState },
       ],
     });
     return TestBed.inject(AuthStateService);
@@ -89,6 +94,9 @@ describe('AuthStateService', () => {
     modelState = {
       refreshModels: jest.fn(async () => undefined),
     } as jest.Mocked<Pick<ModelStateService, 'refreshModels'>>;
+    effortState = {
+      refreshEffort: jest.fn(async () => undefined),
+    } as jest.Mocked<Pick<EffortStateService, 'refreshEffort'>>;
     consoleError = jest.spyOn(console, 'error').mockImplementation();
     consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
   });
@@ -486,6 +494,222 @@ describe('AuthStateService', () => {
 
       await service.codexLogin();
       expect(rpc.call).toHaveBeenCalledWith('auth:codexLogin', {});
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Gap D — Promise.all([modelState.refreshModels(), effortState.refreshEffort()])
+  // signal propagation after auth:saveSettings success.
+  //
+  // The existing saveAndTest test asserts only that refreshModels was called.
+  // These tests verify BOTH sides of the Promise.all wiring and cover the
+  // second Promise.all in copilotLogin (lines 617-619 of auth-state.service.ts).
+  // ---------------------------------------------------------------------------
+
+  describe('Gap D — Promise.all signal propagation after auth save', () => {
+    it('D1a — saveAndTest: both refreshModels AND refreshEffort are called on success', async () => {
+      const service = createService();
+      service.setAuthMethod('thirdParty');
+      service.setSelectedProviderId('openrouter');
+
+      rpc.call
+        .mockResolvedValueOnce(rpcSuccess({ success: true }))
+        .mockResolvedValueOnce(rpcSuccess({ success: true }))
+        .mockResolvedValueOnce(
+          rpcSuccess(
+            makeAuthStatusResponse({
+              authMethod: 'thirdParty',
+              anthropicProviderId: 'openrouter',
+            }),
+          ),
+        );
+
+      await service.saveAndTest({
+        authMethod: 'thirdParty',
+        providerApiKey: 'sk-test',
+      });
+
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+      expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);
+    });
+
+    it('D1b — saveAndTest: refreshEffort is NOT called when save fails', async () => {
+      const service = createService();
+
+      rpc.call.mockResolvedValueOnce(
+        rpcSuccess({ success: false, error: 'bad key' }),
+      );
+
+      await service.saveAndTest({ authMethod: 'apiKey', anthropicApiKey: '' });
+
+      expect(effortState.refreshEffort).not.toHaveBeenCalled();
+      expect(modelState.refreshModels).not.toHaveBeenCalled();
+    });
+
+    it('D1c — saveAndTest: refreshEffort is NOT called when connection test fails', async () => {
+      const service = createService();
+
+      rpc.call
+        .mockResolvedValueOnce(rpcSuccess({ success: true }))
+        .mockResolvedValueOnce(
+          rpcSuccess({ success: false, errorMessage: 'upstream 401' }),
+        );
+
+      await service.saveAndTest({ authMethod: 'apiKey', anthropicApiKey: 'k' });
+
+      expect(effortState.refreshEffort).not.toHaveBeenCalled();
+      expect(modelState.refreshModels).not.toHaveBeenCalled();
+    });
+
+    it('D1d — saveAndTest: Promise.all failure in post-save refresh does not overwrite success status', async () => {
+      const service = createService();
+
+      rpc.call
+        .mockResolvedValueOnce(rpcSuccess({ success: true }))
+        .mockResolvedValueOnce(rpcSuccess({ success: true }))
+        .mockResolvedValueOnce(rpcSuccess(makeAuthStatusResponse()));
+
+      (modelState.refreshModels as jest.Mock).mockRejectedValueOnce(
+        new Error('refresh boom'),
+      );
+
+      await service.saveAndTest({ authMethod: 'apiKey', anthropicApiKey: 'k' });
+
+      expect(service.connectionStatus()).toBe('success');
+      expect(service.successMessage()).toContain('Connection successful');
+    });
+
+    it('D2a — copilotLogin: both refreshModels AND refreshEffort are called after successful login', async () => {
+      const service = createService();
+
+      rpc.call
+        .mockResolvedValueOnce(
+          rpcSuccess({ success: true, username: 'octocat' }),
+        )
+        .mockResolvedValueOnce(rpcSuccess({ success: true }));
+
+      await service.copilotLogin();
+
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+      expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);
+    });
+
+    it('D2b — copilotLogin: neither refreshModels nor refreshEffort is called on login failure', async () => {
+      const service = createService();
+
+      rpc.call.mockResolvedValueOnce(
+        rpcSuccess({ success: false, error: 'cancelled' }),
+      );
+
+      await service.copilotLogin();
+
+      expect(modelState.refreshModels).not.toHaveBeenCalled();
+      expect(effortState.refreshEffort).not.toHaveBeenCalled();
+    });
+
+    it('D2c — copilotLogin: Promise.all failure in post-login refresh is swallowed gracefully', async () => {
+      const service = createService();
+
+      rpc.call
+        .mockResolvedValueOnce(
+          rpcSuccess({ success: true, username: 'octocat' }),
+        )
+        .mockResolvedValueOnce(rpcSuccess({ success: true }));
+
+      (modelState.refreshModels as jest.Mock).mockRejectedValueOnce(
+        new Error('model refresh boom'),
+      );
+      (effortState.refreshEffort as jest.Mock).mockRejectedValueOnce(
+        new Error('effort refresh boom'),
+      );
+
+      await expect(service.copilotLogin()).resolves.toBeUndefined();
+      expect(service.connectionStatus()).toBe('success');
+    });
+
+    // -------------------------------------------------------------------------
+    // Behavioral variants: the mock effortState actually mutates a signal
+    // so the test asserts the UI-observable state changed, not just call count.
+    // -------------------------------------------------------------------------
+
+    it('D1e (behavioral) — saveAndTest: refreshEffort result is observable — effort signal updates after save', async () => {
+      // Build a richer effortState mock that has a writable signal.
+      const effortSignal = signal<EffortLevel | undefined>(undefined);
+      const behavioralEffortState = {
+        currentEffort: effortSignal.asReadonly(),
+        refreshEffort: jest.fn(async () => {
+          // Simulate the backend returning a new effort level post-auth-switch.
+          effortSignal.set('high');
+        }),
+      };
+
+      TestBed.configureTestingModule({
+        providers: [
+          AuthStateService,
+          { provide: ClaudeRpcService, useValue: rpc },
+          { provide: ModelStateService, useValue: modelState },
+          { provide: EffortStateService, useValue: behavioralEffortState },
+        ],
+      });
+      const service = TestBed.inject(AuthStateService);
+      service.setAuthMethod('thirdParty');
+      service.setSelectedProviderId('openrouter');
+
+      rpc.call
+        .mockResolvedValueOnce(rpcSuccess({ success: true }))
+        .mockResolvedValueOnce(rpcSuccess({ success: true }))
+        .mockResolvedValueOnce(
+          rpcSuccess(
+            makeAuthStatusResponse({
+              authMethod: 'thirdParty',
+              anthropicProviderId: 'openrouter',
+            }),
+          ),
+        );
+
+      // Before saveAndTest: effort is undefined.
+      expect(effortSignal()).toBeUndefined();
+
+      await service.saveAndTest({
+        authMethod: 'thirdParty',
+        providerApiKey: 'sk-test',
+      });
+
+      // After saveAndTest: effort must be 'high' — the refreshEffort impl ran.
+      expect(effortSignal()).toBe('high');
+    });
+
+    it('D2d (behavioral) — copilotLogin: refreshEffort result is observable — effort signal updates after login', async () => {
+      const effortSignal = signal<EffortLevel | undefined>(undefined);
+      const behavioralEffortState = {
+        currentEffort: effortSignal.asReadonly(),
+        refreshEffort: jest.fn(async () => {
+          effortSignal.set('low');
+        }),
+      };
+
+      TestBed.configureTestingModule({
+        providers: [
+          AuthStateService,
+          { provide: ClaudeRpcService, useValue: rpc },
+          { provide: ModelStateService, useValue: modelState },
+          { provide: EffortStateService, useValue: behavioralEffortState },
+        ],
+      });
+      const service = TestBed.inject(AuthStateService);
+
+      rpc.call
+        .mockResolvedValueOnce(
+          rpcSuccess({ success: true, username: 'octocat' }),
+        )
+        .mockResolvedValueOnce(rpcSuccess({ success: true }));
+
+      expect(effortSignal()).toBeUndefined();
+
+      await service.copilotLogin();
+
+      // Effort signal must have been updated by the refreshEffort impl.
+      expect(effortSignal()).toBe('low');
     });
   });
 

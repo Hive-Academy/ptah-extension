@@ -37,7 +37,7 @@ export class EffortStateService {
       if (!result.isSuccess()) {
         console.error(
           '[EffortStateService] Failed to save effort:',
-          result.error
+          result.error,
         );
         this._currentEffort.set(previous);
       }
@@ -45,6 +45,16 @@ export class EffortStateService {
       console.error('[EffortStateService] Error saving effort:', error);
       this._currentEffort.set(previous);
     }
+  }
+
+  /**
+   * Force-refresh the current effort from the backend.
+   * Used after auth provider switches — the backend's `ComputedSettingHandle`
+   * resolves to the new provider's stored slot, so the UI signal must be
+   * re-synced. Mirrors `ModelStateService.refreshModels()`.
+   */
+  async refreshEffort(): Promise<void> {
+    await this.loadEffort();
   }
 
   private async loadEffort(): Promise<void> {

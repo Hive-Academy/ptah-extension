@@ -39,7 +39,7 @@ export class CliWorkspaceProvider
   private readonly fireConfigChange: (data: ConfigurationChangeEvent) => void;
   private readonly fireFoldersChange: (data: void) => void;
 
-  private readonly fileSettings: PtahFileSettingsManager;
+  public readonly fileSettings: PtahFileSettingsManager;
 
   private folders: string[] = [];
   private activeFolder: string | undefined;

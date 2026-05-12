@@ -14,6 +14,7 @@
         "tsConfig": "libs/backend/rpc-handlers/tsconfig.lib.json",
         "assets": ["libs/backend/rpc-handlers/*.md"],
         "format": ["cjs"],
+        "deleteOutputPath": false,
         "external": [
           "vscode",
           "tsyringe",
@@ -22,7 +23,7 @@
           "better-sqlite3",
           "sqlite-vec",
           "croner",
-          "@xenova/transformers",
+          "@huggingface/transformers",
           "ulid",
           "grammy",
           "discord.js",

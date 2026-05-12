@@ -26,20 +26,16 @@ describe('AstAnalysisService', () => {
 
     // Create mock TreeSitterParserService
     mockParserService = {
-      queryFunctions: jest.fn(),
-      queryClasses: jest.fn(),
-      queryImports: jest.fn(),
-      queryExports: jest.fn(),
+      queryMulti: jest.fn(),
       initialize: jest.fn(),
       parse: jest.fn(),
     } as unknown as jest.Mocked<TreeSitterParserService>;
 
-    // Default mock implementations - return empty arrays for all queries.
-    // Query* methods return Promise<Result<...>>, so use mockResolvedValue.
-    mockParserService.queryFunctions.mockResolvedValue(Result.ok([]));
-    mockParserService.queryClasses.mockResolvedValue(Result.ok([]));
-    mockParserService.queryImports.mockResolvedValue(Result.ok([]));
-    mockParserService.queryExports.mockResolvedValue(Result.ok([]));
+    // Default mock implementation — empty result map (no matches for any
+    // query). `analyzeSource` calls `queryMulti` once per invocation.
+    mockParserService.queryMulti.mockResolvedValue(
+      Result.ok(new Map<string, QueryMatch[]>()),
+    );
 
     // Create service with mock logger and parser service
     service = new AstAnalysisService(mockLogger, mockParserService);
@@ -288,8 +284,8 @@ describe('AstAnalysisService', () => {
         },
       ];
 
-      mockParserService.queryFunctions.mockResolvedValue(
-        Result.ok(mockFunctionMatches),
+      mockParserService.queryMulti.mockResolvedValue(
+        Result.ok(new Map([['functions', mockFunctionMatches]])),
       );
 
       const result = await service.analyzeSource(
@@ -326,8 +322,8 @@ describe('AstAnalysisService', () => {
         },
       ];
 
-      mockParserService.queryClasses.mockResolvedValue(
-        Result.ok(mockClassMatches),
+      mockParserService.queryMulti.mockResolvedValue(
+        Result.ok(new Map([['classes', mockClassMatches]])),
       );
 
       const result = await service.analyzeSource(
@@ -363,8 +359,8 @@ describe('AstAnalysisService', () => {
         },
       ];
 
-      mockParserService.queryImports.mockResolvedValue(
-        Result.ok(mockImportMatches),
+      mockParserService.queryMulti.mockResolvedValue(
+        Result.ok(new Map([['imports', mockImportMatches]])),
       );
 
       const result = await service.analyzeSource(
@@ -394,8 +390,8 @@ describe('AstAnalysisService', () => {
         },
       ];
 
-      mockParserService.queryExports.mockResolvedValue(
-        Result.ok(mockExportMatches),
+      mockParserService.queryMulti.mockResolvedValue(
+        Result.ok(new Map([['exports', mockExportMatches]])),
       );
 
       const result = await service.analyzeSource(
@@ -409,8 +405,8 @@ describe('AstAnalysisService', () => {
       expect(result.value?.exports?.[0].kind).toBe('function');
     });
 
-    it('should handle query errors gracefully', async () => {
-      mockParserService.queryFunctions.mockResolvedValue(
+    it('should propagate queryMulti errors as Result.err', async () => {
+      mockParserService.queryMulti.mockResolvedValue(
         Result.err(new Error('Query failed')),
       );
 
@@ -419,9 +415,10 @@ describe('AstAnalysisService', () => {
         'typescript',
       );
 
-      // Should still succeed with empty functions array when query fails
-      expect(result.isOk()).toBe(true);
-      expect(result.value?.functions).toEqual([]);
+      // analyzeSource now performs a single queryMulti call; any failure
+      // surfaces as a Result.err for the whole call.
+      expect(result.isErr()).toBe(true);
+      expect(result.error?.message).toContain('Query failed');
     });
 
     it('should log debug info about analysis', async () => {

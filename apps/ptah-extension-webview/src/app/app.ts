@@ -22,6 +22,7 @@ import {
 import {
   AppShellComponent,
   ElectronShellComponent,
+  UpdateBannerComponent,
 } from '@ptah-extension/chat';
 
 // TASK_2026_106 Phase 2 — eager instantiation of the shadow-mode router so
@@ -31,7 +32,12 @@ import { StreamRouter } from '@ptah-extension/chat-routing';
 
 @Component({
   selector: 'ptah-root',
-  imports: [AppShellComponent, ElectronShellComponent, LucideAngularModule],
+  imports: [
+    AppShellComponent,
+    ElectronShellComponent,
+    UpdateBannerComponent,
+    LucideAngularModule,
+  ],
   templateUrl: './app.html',
   styleUrls: ['./app.css'],
 })

@@ -18,6 +18,8 @@ export const PERSISTENCE_TOKENS = {
   EMBEDDER: Symbol.for('PtahEmbedder'),
   /** Absolute path to the embedder worker entry (useValue: string). */
   EMBEDDER_WORKER_PATH: Symbol.for('PtahEmbedderWorkerPath'),
+  /** IBackupService — SQLite backup + rotation. D2/D7 (TASK_2026_THOTH_PERSISTENCE_HARDENING). */
+  BACKUP_SERVICE: Symbol.for('PtahBackupService'),
 } as const;
 
 export type PersistenceDIToken = keyof typeof PERSISTENCE_TOKENS;

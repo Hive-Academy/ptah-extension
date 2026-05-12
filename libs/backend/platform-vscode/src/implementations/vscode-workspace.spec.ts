@@ -106,7 +106,7 @@ describe('VscodeWorkspaceProvider — VS Code-specific behaviour', () => {
     expect(seen).toContain('ptah.authMethod');
   });
 
-  it('getWorkspaceRoot falls back to the first folder when no active editor is set', () => {
+  it('getWorkspaceRoot returns the first workspace folder', () => {
     __vscodeState.setWorkspaceFolders(['/root/one', '/root/two']);
     expect(provider.getWorkspaceRoot()).toBe('/root/one');
   });

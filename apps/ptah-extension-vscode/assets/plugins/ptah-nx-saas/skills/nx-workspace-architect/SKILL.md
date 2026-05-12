@@ -7,6 +7,10 @@ description: Expert guidance for Nx monorepo architecture with Angular and NestJ
 
 Guide for building scalable, maintainable Nx monorepos with Angular and NestJS.
 
+## Activation scope
+
+This skill activates **per-module during Stage B** of the SaaS bootstrap (one roadmap item per chat session). It is NOT bundled into the Stage A foundation scaffold produced by `saas-workspace-initializer`. Use it when adding a new library, enforcing module boundaries on a specific module, or restructuring an existing area — not to redesign the whole workspace from scratch.
+
 ## Core Principle: Libs Over Apps
 
 - **Apps**: Thin shells that bootstrap and expose libraries. Minimal code.

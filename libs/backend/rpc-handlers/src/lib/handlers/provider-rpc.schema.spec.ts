@@ -85,6 +85,7 @@ describe('ProviderSetModelTierSchema', () => {
       const result = ProviderSetModelTierSchema.safeParse({
         tier,
         modelId: 'some-model',
+        scope: 'mainAgent',
       });
       expect(result.success).toBe(true);
       if (result.success) {
@@ -98,6 +99,7 @@ describe('ProviderSetModelTierSchema', () => {
         const result = ProviderSetModelTierSchema.safeParse({
           tier,
           modelId: 'some-model',
+          scope: 'mainAgent',
         });
         expect(result.success).toBe(false);
         if (!result.success) {
@@ -110,6 +112,7 @@ describe('ProviderSetModelTierSchema', () => {
     it('rejects payloads missing tier entirely', () => {
       const result = ProviderSetModelTierSchema.safeParse({
         modelId: 'some-model',
+        scope: 'mainAgent',
       });
       expect(result.success).toBe(false);
       if (!result.success) {
@@ -126,6 +129,7 @@ describe('ProviderSetModelTierSchema', () => {
       const result = ProviderSetModelTierSchema.safeParse({
         tier: 'sonnet',
         modelId: '',
+        scope: 'mainAgent',
       });
       expect(result.success).toBe(false);
       if (!result.success) {
@@ -135,7 +139,10 @@ describe('ProviderSetModelTierSchema', () => {
     });
 
     it('rejects missing modelId', () => {
-      const result = ProviderSetModelTierSchema.safeParse({ tier: 'sonnet' });
+      const result = ProviderSetModelTierSchema.safeParse({
+        tier: 'sonnet',
+        scope: 'mainAgent',
+      });
       expect(result.success).toBe(false);
       if (!result.success) {
         const paths = result.error.issues.map((i) => i.path.join('.'));
@@ -147,6 +154,7 @@ describe('ProviderSetModelTierSchema', () => {
       const result = ProviderSetModelTierSchema.safeParse({
         tier: 'opus',
         modelId: 'anthropic/claude-3.5-sonnet',
+        scope: 'mainAgent',
       });
       expect(result.success).toBe(true);
       if (result.success) {
@@ -160,6 +168,7 @@ describe('ProviderSetModelTierSchema', () => {
       const result = ProviderSetModelTierSchema.safeParse({
         tier: 'haiku',
         modelId: 'm',
+        scope: 'mainAgent',
       });
       expect(result.success).toBe(true);
       if (result.success) {
@@ -172,10 +181,62 @@ describe('ProviderSetModelTierSchema', () => {
         tier: 'haiku',
         modelId: 'm',
         providerId: 'moonshot',
+        scope: 'mainAgent',
       });
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.providerId).toBe('moonshot');
+      }
+    });
+  });
+
+  describe('scope', () => {
+    it('accepts "mainAgent"', () => {
+      const result = ProviderSetModelTierSchema.safeParse({
+        tier: 'sonnet',
+        modelId: 'model-x',
+        scope: 'mainAgent',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.scope).toBe('mainAgent');
+      }
+    });
+
+    it('accepts "cliAgent"', () => {
+      const result = ProviderSetModelTierSchema.safeParse({
+        tier: 'haiku',
+        modelId: 'kimi-k2',
+        scope: 'cliAgent',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.scope).toBe('cliAgent');
+      }
+    });
+
+    it('rejects unknown scope values', () => {
+      const result = ProviderSetModelTierSchema.safeParse({
+        tier: 'sonnet',
+        modelId: 'm',
+        scope: 'globalAgent',
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const paths = result.error.issues.map((i) => i.path.join('.'));
+        expect(paths).toContain('scope');
+      }
+    });
+
+    it('rejects missing scope', () => {
+      const result = ProviderSetModelTierSchema.safeParse({
+        tier: 'sonnet',
+        modelId: 'm',
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const paths = result.error.issues.map((i) => i.path.join('.'));
+        expect(paths).toContain('scope');
       }
     });
   });
@@ -185,6 +246,7 @@ describe('ProviderSetModelTierSchema', () => {
       tier: 'sonnet' as const,
       modelId: 'anthropic/claude-3.5-sonnet',
       providerId: 'openrouter',
+      scope: 'mainAgent' as const,
     };
     const result = ProviderSetModelTierSchema.safeParse(input);
     expect(result.success).toBe(true);
@@ -195,37 +257,73 @@ describe('ProviderSetModelTierSchema', () => {
 });
 
 describe('ProviderGetModelTiersSchema', () => {
-  it('accepts an empty object', () => {
-    const result = ProviderGetModelTiersSchema.safeParse({});
+  it('accepts scope without providerId', () => {
+    const result = ProviderGetModelTiersSchema.safeParse({
+      scope: 'mainAgent',
+    });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.providerId).toBeUndefined();
+      expect(result.data.scope).toBe('mainAgent');
     }
   });
 
-  it('accepts a populated providerId', () => {
+  it('accepts a populated providerId alongside scope', () => {
     const result = ProviderGetModelTiersSchema.safeParse({
       providerId: 'z-ai',
+      scope: 'cliAgent',
     });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.providerId).toBe('z-ai');
+      expect(result.data.scope).toBe('cliAgent');
     }
   });
 
   it.each([42, null, {}, true])('rejects non-string providerId (%p)', (bad) => {
-    const result = ProviderGetModelTiersSchema.safeParse({ providerId: bad });
+    const result = ProviderGetModelTiersSchema.safeParse({
+      providerId: bad,
+      scope: 'mainAgent',
+    });
     expect(result.success).toBe(false);
     if (!result.success) {
       const paths = result.error.issues.map((i) => i.path.join('.'));
       expect(paths).toContain('providerId');
     }
   });
+
+  it('accepts both scope enum values', () => {
+    for (const scope of ['mainAgent', 'cliAgent'] as const) {
+      const result = ProviderGetModelTiersSchema.safeParse({ scope });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('rejects unknown scope values', () => {
+    const result = ProviderGetModelTiersSchema.safeParse({ scope: 'other' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'));
+      expect(paths).toContain('scope');
+    }
+  });
+
+  it('rejects missing scope', () => {
+    const result = ProviderGetModelTiersSchema.safeParse({});
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'));
+      expect(paths).toContain('scope');
+    }
+  });
 });
 
 describe('ProviderClearModelTierSchema', () => {
   it.each(['sonnet', 'opus', 'haiku'] as const)('accepts tier "%s"', (tier) => {
-    const result = ProviderClearModelTierSchema.safeParse({ tier });
+    const result = ProviderClearModelTierSchema.safeParse({
+      tier,
+      scope: 'mainAgent',
+    });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.tier).toBe(tier);
@@ -233,7 +331,10 @@ describe('ProviderClearModelTierSchema', () => {
   });
 
   it.each(['default', 'fast', ''])('rejects unknown tier "%s"', (tier) => {
-    const result = ProviderClearModelTierSchema.safeParse({ tier });
+    const result = ProviderClearModelTierSchema.safeParse({
+      tier,
+      scope: 'mainAgent',
+    });
     expect(result.success).toBe(false);
     if (!result.success) {
       const paths = result.error.issues.map((i) => i.path.join('.'));
@@ -242,7 +343,9 @@ describe('ProviderClearModelTierSchema', () => {
   });
 
   it('rejects missing tier', () => {
-    const result = ProviderClearModelTierSchema.safeParse({});
+    const result = ProviderClearModelTierSchema.safeParse({
+      scope: 'mainAgent',
+    });
     expect(result.success).toBe(false);
     if (!result.success) {
       const paths = result.error.issues.map((i) => i.path.join('.'));
@@ -250,8 +353,43 @@ describe('ProviderClearModelTierSchema', () => {
     }
   });
 
+  it('accepts both scope enum values', () => {
+    for (const scope of ['mainAgent', 'cliAgent'] as const) {
+      const result = ProviderClearModelTierSchema.safeParse({
+        tier: 'haiku',
+        scope,
+      });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('rejects unknown scope values', () => {
+    const result = ProviderClearModelTierSchema.safeParse({
+      tier: 'sonnet',
+      scope: 'allAgents',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'));
+      expect(paths).toContain('scope');
+    }
+  });
+
+  it('rejects missing scope', () => {
+    const result = ProviderClearModelTierSchema.safeParse({ tier: 'sonnet' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'));
+      expect(paths).toContain('scope');
+    }
+  });
+
   it('round-trips a full valid payload', () => {
-    const input = { tier: 'opus' as const, providerId: 'openrouter' };
+    const input = {
+      tier: 'opus' as const,
+      providerId: 'openrouter',
+      scope: 'mainAgent' as const,
+    };
     const result = ProviderClearModelTierSchema.safeParse(input);
     expect(result.success).toBe(true);
     if (result.success) {

@@ -21,7 +21,7 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Builder - Install dependencies and build the application
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 # Set working directory to monorepo root
 WORKDIR /app
@@ -55,7 +55,7 @@ RUN npx nx build ptah-license-server --configuration=production
 # -----------------------------------------------------------------------------
 # Stage 2: Dependencies - Install production dependencies only
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS deps
+FROM node:24-alpine AS deps
 
 WORKDIR /app
 
@@ -86,7 +86,7 @@ RUN npm install --omit=dev \
 # -----------------------------------------------------------------------------
 # Stage 3: Production - Minimal runtime image
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS production
+FROM node:24-alpine AS production
 
 # Set working directory
 WORKDIR /app

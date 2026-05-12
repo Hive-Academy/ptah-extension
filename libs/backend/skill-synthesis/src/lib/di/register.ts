@@ -19,6 +19,9 @@ import { SkillPromotionService } from '../skill-promotion.service';
 import { SkillInvocationTracker } from '../skill-invocation-tracker';
 import { SkillSynthesisService } from '../skill-synthesis.service';
 import { TrajectoryExtractor } from '../trajectory-extractor';
+import { SkillClusterDedupService } from '../skill-cluster-dedup.service';
+import { SkillJudgeService } from '../skill-judge.service';
+import { SkillCuratorService } from '../skill-curator.service';
 import { SKILL_SYNTHESIS_TOKENS } from './tokens';
 
 export function registerSkillSynthesisServices(
@@ -31,6 +34,9 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SkillCandidateStore);
   container.registerSingleton(SkillMdGenerator);
   container.registerSingleton(TrajectoryExtractor);
+  container.registerSingleton(SkillClusterDedupService);
+  container.registerSingleton(SkillJudgeService);
+  container.registerSingleton(SkillCuratorService);
   container.registerSingleton(SkillPromotionService);
   container.registerSingleton(SkillInvocationTracker);
   container.registerSingleton(SkillSynthesisService);
@@ -47,6 +53,15 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE, {
     useToken: SkillSynthesisService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CLUSTER_DEDUP_SERVICE, {
+    useToken: SkillClusterDedupService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_JUDGE_SERVICE, {
+    useToken: SkillJudgeService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CURATOR_SERVICE, {
+    useToken: SkillCuratorService,
   });
 
   logger.info('[skill-synthesis] services registered', {

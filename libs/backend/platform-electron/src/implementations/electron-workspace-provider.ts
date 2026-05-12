@@ -45,7 +45,9 @@ export class ElectronWorkspaceProvider
   private readonly fireConfigChange: (data: ConfigurationChangeEvent) => void;
   private readonly fireFoldersChange: (data: void) => void;
 
-  private readonly fileSettings: PtahFileSettingsManager;
+  public readonly fileSettings: PtahFileSettingsManager;
+
+  public pendingOrigin: string | null = null;
 
   private folders: string[] = [];
   private activeFolder: string | undefined;
@@ -191,6 +193,11 @@ export class ElectronWorkspaceProvider
       return;
     }
 
+    if (this.activeFolder === resolved) {
+      this.pendingOrigin = null; // clear stale token even on no-op
+      return;
+    }
+
     this.activeFolder = resolved;
     this.fireFoldersChange(undefined as unknown as void);
   }
@@ -202,6 +209,17 @@ export class ElectronWorkspaceProvider
    */
   getActiveFolder(): string | undefined {
     return this.activeFolder;
+  }
+
+  /**
+   * Store a transient origin token immediately before calling setActiveFolder().
+   * The token is read-and-cleared by the workspace broadcast listener so the
+   * push event can echo the token back to the frontend for self-echo suppression.
+   *
+   * TASK_2026_115 Batch 2
+   */
+  setPendingOrigin(origin: string | null): void {
+    this.pendingOrigin = origin;
   }
 
   /**
@@ -253,11 +271,13 @@ export class ElectronWorkspaceProvider
 
   private async persistConfig(): Promise<void> {
     const dir = path.dirname(this.configFilePath);
+    const tmpPath = this.configFilePath + '.tmp';
     await fsPromises.mkdir(dir, { recursive: true });
     await fsPromises.writeFile(
-      this.configFilePath,
+      tmpPath,
       JSON.stringify(this.config, null, 2),
       'utf-8',
     );
+    await fsPromises.rename(tmpPath, this.configFilePath);
   }
 }

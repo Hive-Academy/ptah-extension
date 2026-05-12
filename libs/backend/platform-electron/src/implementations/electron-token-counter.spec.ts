@@ -48,6 +48,23 @@ describe('ElectronTokenCounter — Electron-specific behaviour', () => {
     expect(await counter.countTokens('')).toBe(0);
   });
 
+  it('countTokens falls back to ceil(len/4) when the encoder throws', async () => {
+    let Iso: typeof ElectronTokenCounter | undefined;
+    jest.isolateModules(() => {
+      jest.doMock('gpt-tokenizer', () => ({
+        encode: () => {
+          throw new Error('boom');
+        },
+      }));
+      ({ ElectronTokenCounter: Iso } =
+        require('./electron-token-counter') as typeof import('./electron-token-counter'));
+    });
+    if (!Iso) throw new Error('failed to isolate gpt-tokenizer mock');
+    // 'abcdefgh'.length === 8 → ceil(8/4) === 2.
+    expect(await new Iso().countTokens('abcdefgh')).toBe(2);
+    jest.dontMock('gpt-tokenizer');
+  });
+
   it('countTokens scales with input size (monotonicity across ~10x growth)', async () => {
     const small = await counter.countTokens('abc');
     const big = await counter.countTokens('abc '.repeat(100));

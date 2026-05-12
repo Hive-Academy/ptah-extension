@@ -12,6 +12,7 @@
     "tsyringe": "*",
     "@ptah-extension/vscode-core": "*",
     "gray-matter": "*",
-    "web-tree-sitter": "^0.26.8"
+    "web-tree-sitter": "^0.26.8",
+    "@ptah-extension/memory-contracts": "*"
   }
 }

@@ -178,6 +178,12 @@ export interface ChatResumeParams {
   model?: string;
   /** Ptah CLI agent instance ID (TASK_2025_170: routes to Ptah CLI agent adapter) */
   ptahCliId?: string;
+  /**
+   * When `true`, backend also activates a live SDK Query alongside loading history.
+   * Without this flag, chat:resume is history-load only and does NOT start an SDK Query.
+   * Required for the resume-and-retry rewind path.
+   */
+  activate?: boolean;
 }
 
 /** Response from chat:resume RPC method */
@@ -237,5 +243,10 @@ export interface ChatResumeResult {
    * Populated from SessionMetadataStore.cliSessions[].
    */
   cliSessions?: import('../agent-process.types').CliSessionReference[];
+  /**
+   * `true` when a live SDK Query was started during this resume call.
+   * Only populated when the request included `activate: true`.
+   */
+  activated?: boolean;
   error?: string;
 }

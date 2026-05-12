@@ -128,9 +128,13 @@ test.describe('Auto-updater (Phase 6)', () => {
 
       // Phase 6 must have executed -- either the success log or the
       // non-fatal error log should appear. We tolerate either.
+      // TASK_2026_117: Phase 6 now drives the event-driven UpdateManager;
+      // its start/fail log lines replaced the legacy auto-updater messages.
       const joined = logs.join('');
-      const ranSuccessfully = joined.includes('Auto-updater check completed');
-      const failedNonFatal = joined.includes('Auto-updater failed (non-fatal)');
+      const ranSuccessfully = joined.includes('UpdateManager started');
+      const failedNonFatal = joined.includes(
+        'UpdateManager failed to start (non-fatal)',
+      );
       expect(ranSuccessfully || failedNonFatal).toBe(true);
     } finally {
       await app.close().catch(() => undefined);

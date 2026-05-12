@@ -73,6 +73,7 @@
             [totalMessages]="allMessages().length"
             [isStreaming]="streamingMessageIds().has(msg.id)"
             [isFinalizing]="isFinalizingTransition()"
+            [isSessionActive]="resolvedSessionIsActive()"
             (branchRequested)="onBranchRequested($event)"
             (rewindRequested)="onRewindRequested($event)"
           />

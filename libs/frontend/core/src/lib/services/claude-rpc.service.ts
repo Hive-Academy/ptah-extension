@@ -14,8 +14,9 @@ import {
   SessionRewindResult,
   FileOpenResult,
   MESSAGE_TYPES,
-  // TASK_2025_109: SubagentResumeResult removed - now uses context injection
   SubagentQueryResult,
+  SubagentCommandResult,
+  type RpcUserErrorCode,
 } from '@ptah-extension/shared';
 
 /**
@@ -45,12 +46,8 @@ export class RpcResult<T> {
     public readonly success: boolean,
     public readonly data?: T,
     public readonly error?: string,
-    /**
-     * Error code for programmatic handling (TASK_2025_124)
-     * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
-     * - 'PRO_TIER_REQUIRED': Pro subscription required for this feature
-     */
-    public readonly errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED',
+    /** Error code for programmatic handling — see RpcUserErrorCode for all values. */
+    public readonly errorCode?: RpcUserErrorCode,
   ) {}
 
   /**
@@ -93,12 +90,8 @@ interface RpcResponse<T = unknown> {
   data?: T;
   // Backend may send error as string or { message: string } depending on code path
   error?: string | { message: string };
-  /**
-   * Error code for programmatic handling (TASK_2025_124)
-   * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
-   * - 'PRO_TIER_REQUIRED': Pro subscription required for this feature
-   */
-  errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED';
+  /** Error code for programmatic handling — see RpcUserErrorCode for all values. */
+  errorCode?: RpcUserErrorCode;
   correlationId: string;
 }
 
@@ -134,6 +127,15 @@ const UNLICENSED_ALLOWED_METHODS: readonly string[] = [
   // ModelStateService log RPC-blocked errors during webview bootstrap.
   'config:autopilot-get',
   'config:models-list',
+  // Workspace indexing tab is a free top-level setting (TASK_2026_114 AC #4).
+  'indexing:getStatus',
+  'indexing:start',
+  'indexing:pause',
+  'indexing:resume',
+  'indexing:cancel',
+  'indexing:setPipelineEnabled',
+  'indexing:dismissStale',
+  'indexing:acknowledgeDisclosure',
 ] as const;
 
 @Injectable({ providedIn: 'root' })
@@ -478,5 +480,54 @@ export class ClaudeRpcService implements MessageHandler {
    */
   async querySubagents(): Promise<RpcResult<SubagentQueryResult>> {
     return this.call('chat:subagent-query', {});
+  }
+
+  // ============================================================================
+  // SUBAGENT BIDIRECTIONAL MESSAGING (Phase 2/3 — TASK_2026 subagent visibility)
+  // ============================================================================
+  //
+  // Send-message, stop, and interrupt RPCs let the user steer running SDK
+  // subagents from the inline-agent-bubble UI. State updates flow back via
+  // the SDK's task_* events (`agent_progress` / `agent_status` /
+  // `agent_completed`) — these RPC calls never mutate UI state directly.
+
+  /**
+   * Send a follow-up message to a running subagent.
+   * @param sessionId - Session that owns the subagent
+   * @param parentToolUseId - Task tool_use ID that spawned the subagent
+   * @param text - Message text
+   */
+  async sendSubagentMessage(
+    sessionId: SessionId,
+    parentToolUseId: string,
+    text: string,
+  ): Promise<RpcResult<SubagentCommandResult>> {
+    return this.call('subagent:send-message', {
+      sessionId,
+      parentToolUseId,
+      text,
+    });
+  }
+
+  /**
+   * Stop a running subagent identified by SDK task_id.
+   * @param sessionId - Session that owns the subagent
+   * @param taskId - SDK task_id from SDKTaskStartedMessage
+   */
+  async stopSubagent(
+    sessionId: SessionId,
+    taskId: string,
+  ): Promise<RpcResult<SubagentCommandResult>> {
+    return this.call('subagent:stop', { sessionId, taskId });
+  }
+
+  /**
+   * Interrupt the entire active session (all running subagents in scope).
+   * @param sessionId - Session to interrupt
+   */
+  async interruptSubagentSession(
+    sessionId: SessionId,
+  ): Promise<RpcResult<SubagentCommandResult>> {
+    return this.call('subagent:interrupt', { sessionId });
   }
 }

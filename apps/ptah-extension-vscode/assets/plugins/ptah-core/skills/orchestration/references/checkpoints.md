@@ -2,21 +2,26 @@
 
 This reference documents all user validation checkpoints in the orchestration workflow, including trigger conditions, templates, and error handling patterns.
 
-> **Critical rule**: ALL checkpoints are owned by the orchestrator (main agent). Subagents (PM, Architect, Team-Leader, Developers, Reviewers, etc.) CANNOT call `AskUserQuestion` — it is a UI-coupled tool that only works in the main orchestrator's context. If a subagent needs clarification, it MUST return a `## Clarifications Needed` section to the orchestrator, who then runs `AskUserQuestion` and re-invokes the subagent with the answers.
+> **Critical rules**:
+>
+> 1. All checkpoints are owned by the orchestrator (main agent). Subagents (PM, Architect, Team-Leader, Developers, Reviewers, etc.) CANNOT call `AskUserQuestion` — it is a UI-coupled tool that only works in the main orchestrator's context. If a subagent needs clarification, it MUST return a `## Clarifications Needed` section to the orchestrator, who then runs `AskUserQuestion` and re-invokes the subagent with the answers.
+> 2. **Document review checkpoints (1, 2) use plain text messages, not `AskUserQuestion`.** PM and Architect deliverables are files on disk that the user must open and read before responding — a modal choice would force a premature decision. Pre-deliverable choice checkpoints (0, 0.1, 1.5, 3) still use `AskUserQuestion` because they ARE structured option-picks.
 
 ---
 
 ## Checkpoint Types Overview
 
-| Checkpoint | Name                    | When              | Purpose                        | Response Expected                            |
-| ---------- | ----------------------- | ----------------- | ------------------------------ | -------------------------------------------- |
-| **0.1**    | CLI Agent Discovery     | Before any agent  | Discover & enable CLI helpers  | yes / no / auto                              |
-| **0**      | Scope Clarification     | Before PM         | Clarify ambiguous requests     | Answers or "use your judgment"               |
-| **1**      | Requirements Validation | After PM          | Approve task-description.md    | "APPROVED" or feedback                       |
-| **1.5**    | Technical Clarification | Before Architect  | Technical preferences          | Answers or "use your judgment"               |
-| **2**      | Architecture Validation | After Architect   | Approve implementation-plan.md | "APPROVED" or feedback                       |
-| **3**      | QA Choice               | After Development | Select QA agents               | tester/style/logic/visual/reviewers/all/skip |
-| **SR**     | Subagent Return Loop    | Any subagent step | Resolve subagent clarifications | Answers re-injected into subagent prompt    |
+| Checkpoint | Name                    | When              | Purpose                         | Presentation Mode | Response Expected                            |
+| ---------- | ----------------------- | ----------------- | ------------------------------- | ----------------- | -------------------------------------------- |
+| **0.1**    | CLI Agent Discovery     | Before any agent  | Discover & enable CLI helpers   | `AskUserQuestion` | yes / no / auto                              |
+| **0**      | Scope Clarification     | Before PM         | Clarify ambiguous requests      | `AskUserQuestion` | Answers or "use your judgment"               |
+| **1**      | Requirements Validation | After PM          | Review task-description.md      | **Plain message** | "APPROVED" or feedback                       |
+| **1.5**    | Technical Clarification | Before Architect  | Technical preferences           | `AskUserQuestion` | Answers or "use your judgment"               |
+| **2**      | Architecture Validation | After Architect   | Review implementation-plan.md   | **Plain message** | "APPROVED" or feedback                       |
+| **3**      | QA Choice               | After Development | Select QA agents                | `AskUserQuestion` | tester/style/logic/visual/reviewers/all/skip |
+| **SR**     | Subagent Return Loop    | Any subagent step | Resolve subagent clarifications | `AskUserQuestion` | Answers re-injected into subagent prompt     |
+
+**Why 1 and 2 are plain messages**: they ask the user to review a generated document on disk. Forcing an `AskUserQuestion` modal pre-commits the user to "APPROVED" or "revise" before they've had a chance to actually open and read the file. Plain text gives them room to validate the doc first.
 
 ---
 
@@ -152,18 +157,24 @@ Before I create the requirements, I have a few clarifying questions:
 
 ### When to Present
 
-After project-manager completes and creates `task-description.md`
+After project-manager completes and creates `task-description.md`.
+
+### How to Present — PLAIN MESSAGE, NOT `AskUserQuestion`
+
+Send the checkpoint as a regular text message in the chat. **Do NOT call `AskUserQuestion`.** The user needs to open `task-description.md` and read it before deciding — a modal choice would force a premature answer. Surface the document path prominently, give a short summary so the user can decide whether to dive in now or later, then stop and wait for a free-form reply.
 
 ### Template
 
 ```markdown
 ---
-REQUIREMENTS READY FOR REVIEW - TASK_[ID]
+REQUIREMENTS READY FOR REVIEW — TASK_[ID]
 ---
+
+📄 **Document**: `.ptah/tasks/TASK_[ID]/task-description.md`
 
 ## Overview
 
-[Summary extracted from task-description.md]
+[2–4 line summary extracted from task-description.md]
 
 ## Key Requirements
 
@@ -175,20 +186,19 @@ REQUIREMENTS READY FOR REVIEW - TASK_[ID]
 
 - [Criterion 1]
 - [Criterion 2]
-- [Criterion 3]
 
 ## Out of Scope
 
 - [Exclusion 1]
-- [Exclusion 2]
 
 ---
 
-USER VALIDATION CHECKPOINT
-Reply "APPROVED" to proceed to architecture phase
-OR provide feedback for revision
+Please open the document above and review it at your own pace.
 
----
+When ready, reply:
+
+- **"APPROVED"** — proceed to architecture phase
+- **Feedback / questions** — I'll revise and re-present
 ```
 
 ### Response Handling
@@ -261,18 +271,24 @@ Before I create the architecture, I have a few technical questions:
 
 ### When to Present
 
-After software-architect completes and creates `implementation-plan.md`
+After software-architect completes and creates `implementation-plan.md`.
+
+### How to Present — PLAIN MESSAGE, NOT `AskUserQuestion`
+
+Send the checkpoint as a regular text message in the chat. **Do NOT call `AskUserQuestion`.** The implementation plan is a document the user needs to open and review carefully — locking them into a modal choice rushes that. Surface the document path prominently, give a short summary, then stop and wait for a free-form reply.
 
 ### Template
 
 ```markdown
 ---
-ARCHITECTURE READY FOR REVIEW - TASK_[ID]
+ARCHITECTURE READY FOR REVIEW — TASK_[ID]
 ---
+
+📄 **Document**: `.ptah/tasks/TASK_[ID]/implementation-plan.md`
 
 ## Design Summary
 
-[Summary extracted from implementation-plan.md]
+[2–4 line summary extracted from implementation-plan.md]
 
 ## Components
 
@@ -293,15 +309,16 @@ ARCHITECTURE READY FOR REVIEW - TASK_[ID]
 
 ## Estimated Complexity
 
-[Simple | Medium | Complex] - [N] files, [B] batches expected
+[Simple | Medium | Complex] — [N] files, [B] batches expected
 
 ---
 
-USER VALIDATION CHECKPOINT
-Reply "APPROVED" to proceed to development phase
-OR provide feedback for revision
+Please open the document above and review it at your own pace.
 
----
+When ready, reply:
+
+- **"APPROVED"** — proceed to development phase
+- **Feedback / questions** — I'll revise and re-present
 ```
 
 ### Response Handling
@@ -426,7 +443,7 @@ Task({
 
 Now proceed with your primary deliverable. Do not return clarifications again — these decisions are final.
 
-[Original task prompt]`
+[Original task prompt]`,
 });
 ```
 
