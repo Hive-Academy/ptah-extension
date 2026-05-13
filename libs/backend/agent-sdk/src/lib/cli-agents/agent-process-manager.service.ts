@@ -1457,7 +1457,11 @@ export class AgentProcessManager {
   }
 
   private getWorkspaceRoot(): string {
-    return this.workspace.getWorkspaceRoot() ?? '';
+    // Never return '' — child_process.spawn with cwd:'' falls back to the
+    // parent process cwd (the app install dir in VS Code/Electron), which
+    // makes CLI agents operate on the wrong files. Use the user's home
+    // directory as a safe fallback when no workspace is open.
+    return this.workspace.getWorkspaceRoot() ?? require('os').homedir();
   }
 
   /**

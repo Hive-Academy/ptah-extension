@@ -30,6 +30,7 @@ import {
   MemoryRpcHandlers,
   PersistenceRpcHandlers,
   SkillsSynthesisRpcHandlers,
+  IndexingRpcHandlers,
   __debugAssertSharedHandlersDisjoint,
 } from '@ptah-extension/rpc-handlers';
 import {
@@ -103,6 +104,8 @@ const ELECTRON_ONLY_METHODS: readonly string[] = [
   ...SkillsSynthesisRpcHandlers.METHODS,
   // Persistence health + reset (requires SqliteConnectionService — Electron-only)
   ...PersistenceRpcHandlers.METHODS,
+  // Workspace indexing control (requires IndexingControlService from memory-curator)
+  ...IndexingRpcHandlers.METHODS,
 ];
 
 /**
@@ -155,6 +158,10 @@ export class RpcMethodRegistrationService {
         // PersistenceRpcHandlers requires SqliteConnectionService which is
         // never registered in the VS Code extension host.
         PersistenceRpcHandlers,
+        // IndexingRpcHandlers @inject's MEMORY_TOKENS.INDEXING_CONTROL which
+        // is registered by memory-curator (not wired in VS Code). Excluded
+        // for the same reason as the other SQLite-backed handlers.
+        IndexingRpcHandlers,
       ],
     });
 

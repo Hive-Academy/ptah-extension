@@ -12,21 +12,19 @@
  * resolution happens via `container.resolve(RPC_METHOD_REGISTRATION_SERVICE)`.
  */
 
-import * as path from 'node:path';
-import * as os from 'node:os';
 import { Lifecycle } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
 
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
-import {
-  registerPersistenceSqliteServices,
-  PERSISTENCE_TOKENS,
-} from '@ptah-extension/persistence-sqlite';
-import { registerMemoryCuratorServices } from '@ptah-extension/memory-curator';
-import { registerSkillSynthesisServices } from '@ptah-extension/skill-synthesis';
-import { registerCronSchedulerServices } from '@ptah-extension/cron-scheduler';
+// NOTE: persistence-sqlite, memory-curator, skill-synthesis, cron-scheduler
+// are intentionally NOT imported here. SQLite-backed features (Cron, Gateway,
+// Memory, Skill Synthesis) are Electron-only by design — see
+// rpc-method-registration.service.ts ELECTRON_ONLY_METHODS. The VS Code build
+// must not register these tokens or the activation chain will eagerly load
+// better-sqlite3's native binary, which is not shipped with the marketplace
+// VSIX (would require platform-specific packages).
 import {
   registerVsCodeLmToolsServices,
   IDE_CAPABILITIES_TOKEN,
@@ -164,52 +162,16 @@ export function registerPhase2Libraries(
   // library has been deleted.
 
   // ========================================
-  // PHASE 2.55: Persistence-SQLite + Memory Curator (TASK_2026_HERMES Track 1)
+  // PHASES 2.55 – 2.7: SQLite-backed services — INTENTIONALLY NOT REGISTERED
   // ========================================
-  // Registers SqliteConnectionService (Track 0) and the memory curator
-  // services (MemoryStore, MemorySearchService, MemoryCuratorService).
-  // The connection itself is opened lazily in bootstrap.ts after DI setup.
-  try {
-    const dbPath = path.join(os.homedir(), '.ptah', 'state', 'ptah.sqlite');
-    container.register(PERSISTENCE_TOKENS.SQLITE_DB_PATH, {
-      useValue: dbPath,
-    });
-
-    registerPersistenceSqliteServices(container, logger);
-    registerMemoryCuratorServices(container, logger);
-    logger.info('[DI] Memory curator services registered (Track 1)', {
-      dbPath,
-    });
-  } catch (error) {
-    logger.warn('[DI] Memory curator registration skipped (non-fatal)', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  // ========================================
-  // PHASE 2.6: Skill Synthesis (TASK_2026_HERMES Track 2)
-  // ========================================
-  // Registers SkillSynthesisService, SkillPromotionService,
-  // SkillInvocationTracker, SkillCandidateStore, etc.
-  registerSkillSynthesisServices(container, logger);
-
-  // ========================================
-  // PHASE 2.65: Cron Scheduler (TASK_2026_HERMES Track 3)
-  // ========================================
-  // Registers CronScheduler, CronJobRunner, CatchupCoordinator, JobStore,
-  // RunStore, HandlerRegistry. Depends on persistence-sqlite (Track 0).
-  // NOTE: In VS Code, cron is desktop-only since it requires Electron's
-  // persistent background process. Services are registered but won't start.
-  try {
-    registerCronSchedulerServices(container, logger);
-    logger.info('[DI] Cron scheduler services registered (Track 3)');
-  } catch (error) {
-    logger.warn('[DI] Cron scheduler registration skipped (non-fatal)', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  // NOTE: PHASE 2.7 Messaging Gateway is intentionally NOT registered in VS Code.
-  // Gateway requires Electron's persistent background process for bot adapters.
-  // The Thoth status card shows 'desktop-only' for gateway when isElectron=false.
+  // Persistence-SQLite, Memory Curator, Skill Synthesis, Cron Scheduler, and
+  // Messaging Gateway are Electron-only. The VS Code marketplace VSIX is a
+  // single cross-platform package and does not ship `better-sqlite3` /
+  // `sqlite-vec` native binaries (those would require per-platform VSIXes).
+  //
+  // The Thoth shell tabs (Memory / Skills / Cron / Gateway) detect the
+  // missing DI registrations and render a "desktop-only" placeholder. The
+  // ELECTRON_ONLY_METHODS list in rpc-method-registration.service.ts
+  // documents the corresponding RPC methods that are intentionally absent.
+  logger.info('[DI] SQLite-backed services skipped — Electron-only by design');
 }
