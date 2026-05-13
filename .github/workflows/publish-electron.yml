@@ -157,7 +157,8 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-modules.outputs.cache-hit != 'true'
-        run: npm ci
+        # Fall back to `npm install` if lockfile drift (npm/cli#4828).
+        run: npm ci || npm install --no-audit --no-fund
 
       # Workaround for npm/cli#4828: package-lock.json generated on Windows
       # omits Linux rollup platform binaries. Install them explicitly.
