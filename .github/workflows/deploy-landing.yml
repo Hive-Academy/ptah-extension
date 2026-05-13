@@ -40,8 +40,9 @@ jobs:
         if: steps.cache-modules.outputs.cache-hit != 'true'
         # Workaround for npm/cli#4828: package-lock.json generated on Windows
         # omits Linux rollup platform binaries. Install them explicitly.
+        # Fall back to `npm install` if `npm ci` fails on transitive drift.
         run: |
-          npm ci
+          npm ci || npm install --no-audit --no-fund
           npm install @rollup/rollup-linux-x64-gnu --no-save --force
 
       - name: Build landing page
