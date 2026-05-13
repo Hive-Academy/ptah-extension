@@ -50,8 +50,9 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-modules.outputs.cache-hit != 'true'
+        # Fall back to `npm install` if lockfile drift (npm/cli#4828).
         run: |
-          npm ci
+          npm ci || npm install --no-audit --no-fund
           npm install @rollup/rollup-linux-x64-gnu --no-save --force
 
       - name: Cache Playwright browsers
