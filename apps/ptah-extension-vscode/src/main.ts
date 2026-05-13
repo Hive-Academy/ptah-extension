@@ -1,6 +1,42 @@
 // CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
 
+// Install process-level safety nets BEFORE anything else can throw.
+// Without these, an unhandled background rejection (e.g. from a fire-and-forget
+// Promise inside openAndMigrate, agent SDK preload, or a now-async decryptToken
+// caller) kills the extension host with exit code 7 and we lose the error.
+try {
+  process.on('unhandledRejection', (reason: unknown) => {
+    try {
+      const msg =
+        reason instanceof Error ? String(reason.message) : String(reason);
+      const stack =
+        reason instanceof Error && typeof reason.stack === 'string'
+          ? reason.stack
+          : '';
+      console.error('[Ptah VS Code] UNHANDLED_REJECTION:', msg);
+      if (stack)
+        console.error('[Ptah VS Code] UNHANDLED_REJECTION stack:', stack);
+    } catch {
+      /* ignore */
+    }
+  });
+  process.on('uncaughtException', (err: unknown) => {
+    try {
+      const msg = err instanceof Error ? String(err.message) : String(err);
+      const stack =
+        err instanceof Error && typeof err.stack === 'string' ? err.stack : '';
+      console.error('[Ptah VS Code] UNCAUGHT_EXCEPTION:', msg);
+      if (stack)
+        console.error('[Ptah VS Code] UNCAUGHT_EXCEPTION stack:', stack);
+    } catch {
+      /* ignore */
+    }
+  });
+} catch {
+  /* process listeners are best-effort */
+}
+
 import * as vscode from 'vscode';
 import {
   type Logger,
@@ -37,31 +73,74 @@ export async function activate(
 
     boot.logger.info('Ptah extension activated successfully');
   } catch (error) {
-    console.error('===== PTAH ACTIVATION FAILED =====');
-    console.error('[Activate] Error details:', error);
-    console.error(
-      '[Activate] Error stack:',
-      error instanceof Error ? error.stack : 'No stack trace',
-    );
-    const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
-    logger.error(
-      'Failed to activate Ptah extension',
-      error instanceof Error ? error : new Error(String(error)),
-    );
+    // CRASH-PROOF CATCH: every step is independently try/wrapped so that a
+    // bad error object (Proxy, throwing getter, circular structure) cannot
+    // re-throw and trigger Node exit code 7 ("Internal Exception Handler
+    // Run-Time Failure"). Each step must still attempt to surface a message
+    // so users see something instead of a silent host crash.
+    let safeMessage = 'Unknown error';
+    let safeStack = '';
+    try {
+      safeMessage =
+        error instanceof Error ? String(error.message) : String(error);
+    } catch {
+      safeMessage = '<error message inspection failed>';
+    }
+    try {
+      safeStack =
+        error instanceof Error && typeof error.stack === 'string'
+          ? error.stack
+          : '';
+    } catch {
+      safeStack = '<stack inspection failed>';
+    }
+    try {
+      console.error('===== PTAH ACTIVATION FAILED =====');
+    } catch {
+      // ignore — even console.error can throw if IPC is torn down
+    }
+    try {
+      console.error('[Activate] message:', safeMessage);
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (safeStack) console.error('[Activate] stack:', safeStack);
+    } catch {
+      /* ignore */
+    }
+    try {
+      const errorCtor =
+        error && typeof error === 'object' && error.constructor
+          ? error.constructor.name
+          : typeof error;
+      console.error('[Activate] errorType:', errorCtor);
+    } catch {
+      /* ignore */
+    }
+    try {
+      const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
+      logger.error(
+        'Failed to activate Ptah extension',
+        error instanceof Error ? error : new Error(safeMessage),
+      );
+    } catch {
+      // Logger may not be registered yet — already logged via console above
+    }
     try {
       const sentry = DIContainer.resolve<SentryService>(TOKENS.SENTRY_SERVICE);
       sentry.captureException(
-        error instanceof Error ? error : new Error(String(error)),
+        error instanceof Error ? error : new Error(safeMessage),
         { errorSource: 'activate' },
       );
     } catch {
       // Sentry may not be initialized yet — ignore
     }
-    vscode.window.showErrorMessage(
-      `Ptah activation failed: ${
-        error instanceof Error ? error.message : 'Unknown error'
-      }`,
-    );
+    try {
+      vscode.window.showErrorMessage(`Ptah activation failed: ${safeMessage}`);
+    } catch {
+      /* ignore */
+    }
   }
 }
 

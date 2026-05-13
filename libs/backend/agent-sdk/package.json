@@ -14,7 +14,7 @@
     "axios": "^1.15.0",
     "tsyringe": "^4.10.0",
     "zod": "^4.1.12",
-    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.111",
     "eventemitter3": "^5.0.1",
     "cross-spawn": "^7.0.6",
     "which": "^6.0.1",

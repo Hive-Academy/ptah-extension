@@ -71,6 +71,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
 
   // Agent orchestration — CLI management
   'agentOrchestration.disabledClis',
+  'agentOrchestration.disabledMcpNamespaces',
 
   // Provider: GitHub Copilot
   'provider.github-copilot.tokenExchangeUrl',
@@ -228,6 +229,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
 
   // Agent orchestration — CLI management
   'agentOrchestration.disabledClis': [],
+  'agentOrchestration.disabledMcpNamespaces': [],
 
   // Provider: GitHub Copilot
   'provider.github-copilot.tokenExchangeUrl': '',
@@ -361,6 +363,17 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
 const PROVIDER_BASE_URL_PATTERN = /^provider\.[a-z0-9-]+\.baseUrl$/;
 
 /**
+ * Per-scope tier override keys written by ProviderModelsService:
+ *   provider.<providerId>.<mainAgent|cliAgent>.modelTier.<sonnet|opus|haiku>
+ *
+ * Must be file-routed for every provider id (including trademarked ones not
+ * declarable in package.json contributes.configuration) so that the scoped
+ * writes from the Model Mapping dialog actually persist to ~/.ptah/settings.json.
+ */
+const PROVIDER_SCOPED_TIER_PATTERN =
+  /^provider\.[a-z0-9-]+\.(mainAgent|cliAgent)\.modelTier\.(sonnet|opus|haiku)$/;
+
+/**
  * Returns true when the given settings key should be routed to file-based
  * storage (~/.ptah/settings.json). Prefer this over `FILE_BASED_SETTINGS_KEYS.has()`
  * directly so dynamic key families (e.g. provider base URL overrides) are
@@ -369,5 +382,6 @@ const PROVIDER_BASE_URL_PATTERN = /^provider\.[a-z0-9-]+\.baseUrl$/;
 export function isFileBasedSettingKey(key: string): boolean {
   if (FILE_BASED_SETTINGS_KEYS.has(key)) return true;
   if (PROVIDER_BASE_URL_PATTERN.test(key)) return true;
+  if (PROVIDER_SCOPED_TIER_PATTERN.test(key)) return true;
   return false;
 }

@@ -202,8 +202,16 @@ export function buildAgentNamespace(
         getPluginPaths?.() ?? Promise.resolve(undefined),
       ]);
 
+      // Resolve workingDirectory at spawn time using the same lazy resolver
+      // as the ptah-cli path. Without this, CLI agents (gemini, codex,
+      // copilot) inherit the app install directory in VS Code/Electron
+      // because AgentProcessManager.getWorkspaceRoot() returns '' when no
+      // folder is provided.
+      const workingDirectory = request.workingDirectory ?? getWorkspaceRoot();
+
       const enrichedRequest = {
         ...request,
+        ...(workingDirectory && { workingDirectory }),
         ...(activeSessionId && { parentSessionId: activeSessionId }),
         ...(projectGuidance && { projectGuidance }),
         ...(systemPrompt && { systemPrompt }),
