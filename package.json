@@ -253,7 +253,7 @@
       "dompurify": "^3.3.2"
     },
     "tar": ">=7.5.11",
-    "@hono/node-server": ">=1.19.13",
+    "@hono/node-server": "^1.19.13",
     "@module-federation/dts-plugin": {
       "axios": "1.15.0"
     }
