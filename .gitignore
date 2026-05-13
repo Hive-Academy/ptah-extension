@@ -3,6 +3,9 @@
 # compiled output
 dist
 tmp
+
+# @vscode/test-electron downloads VS Code into this dir
+.vscode-test/
 out-tsc
 
 # dependencies

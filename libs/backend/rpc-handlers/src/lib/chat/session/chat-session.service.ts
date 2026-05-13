@@ -144,7 +144,14 @@ export class ChatSessionService {
 
       // TASK_2025_167: Ptah CLI dispatch
       if (params.ptahCliId) {
-        const dispatch = await this.ptahCli.handleStart(params);
+        // Forward the resolved workspacePath so the Ptah CLI adapter uses
+        // the actual workspace as cwd instead of falling back to homedir
+        // when the frontend omitted workspacePath (e.g. workspace:getInfo
+        // hadn't resolved yet).
+        const dispatch = await this.ptahCli.handleStart({
+          ...params,
+          workspacePath,
+        });
         if (dispatch.stream && dispatch.tabId) {
           this.streamBroadcaster.streamEventsToWebview(
             dispatch.tabId as SessionId,

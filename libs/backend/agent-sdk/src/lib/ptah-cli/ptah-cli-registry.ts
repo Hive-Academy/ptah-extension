@@ -570,11 +570,17 @@ export class PtahCliRegistry {
     const authEnv = this.buildAuthEnv(agentConfig, provider, apiKey);
     seedStaticModelPricing(agentConfig.providerId);
 
-    // Resolve SDK model from tier — prefer provider-specific tier mappings
-    // over hardcoded Anthropic model IDs (critical for local providers like Ollama)
+    // Resolve SDK model.
+    // Priority: agent-level selectedModel (the user's explicit pick in the
+    // CLI agent card) → per-tier mapping → hardcoded Anthropic fallback.
+    // selectedModel must win so users see the model they configured (e.g.
+    // kimi-k2.6:cloud) instead of the provider default (kimi-k2.5:cloud).
     const tier: ModelTier = options?.modelTier ?? 'sonnet';
     const spawnTiers = this.resolveEffectiveTiers(agentConfig, provider);
-    const model = spawnTiers?.[tier] ?? TIER_TO_MODEL_ID[tier];
+    const model =
+      agentConfig.selectedModel?.trim() ||
+      spawnTiers?.[tier] ||
+      TIER_TO_MODEL_ID[tier];
     // workingDirectory should be resolved by the caller (agent-namespace.builder).
     // os.homedir() is a safer fallback than process.cwd() which returns the
     // app installation directory in VS Code extension host / Electron.

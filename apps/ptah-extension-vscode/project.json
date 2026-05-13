@@ -30,7 +30,7 @@
             ".js": ".mjs"
           },
           "banner": {
-            "js": "import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
+            "js": "import { createRequire as __ptah_createRequire } from 'module'; import { fileURLToPath as __ptah_fileURLToPath } from 'url'; import { dirname as __ptah_dirname } from 'path'; const require = __ptah_createRequire(import.meta.url); const __filename = __ptah_fileURLToPath(import.meta.url); const __dirname = __ptah_dirname(__filename);"
           }
         },
         "external": ["vscode"],
@@ -56,7 +56,7 @@
               ".js": ".mjs"
             },
             "banner": {
-              "js": "import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
+              "js": "import { createRequire as __ptah_createRequire } from 'module'; import { fileURLToPath as __ptah_fileURLToPath } from 'url'; import { dirname as __ptah_dirname } from 'path'; const require = __ptah_createRequire(import.meta.url); const __filename = __ptah_fileURLToPath(import.meta.url); const __dirname = __ptah_dirname(__filename);"
             },
             "define": {
               "__SENTRY_DSN__": "\"\""
@@ -71,7 +71,7 @@
               ".js": ".mjs"
             },
             "banner": {
-              "js": "import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
+              "js": "import { createRequire as __ptah_createRequire } from 'module'; import { fileURLToPath as __ptah_fileURLToPath } from 'url'; import { dirname as __ptah_dirname } from 'path'; const require = __ptah_createRequire(import.meta.url); const __filename = __ptah_fileURLToPath(import.meta.url); const __dirname = __ptah_dirname(__filename);"
             },
             "define": {
               "__SENTRY_DSN__": "\"https://f443ca20f86dff7c57cbf370e0f790e6@o4511123313393664.ingest.de.sentry.io/4511142057738320\""
