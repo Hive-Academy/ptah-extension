@@ -1,0 +1,23 @@
+{
+  "name": "ptah-extension-vscode-e2e",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/ptah-extension-vscode-e2e/src",
+  "tags": ["scope:e2e", "type:e2e"],
+  "implicitDependencies": ["ptah-extension-vscode"],
+  "targets": {
+    "e2e": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        { "target": "build", "projects": ["ptah-extension-vscode"] }
+      ],
+      "options": {
+        "cwd": "apps/ptah-extension-vscode-e2e",
+        "command": "node src/runner.mjs"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}

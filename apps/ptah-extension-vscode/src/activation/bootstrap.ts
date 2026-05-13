@@ -7,10 +7,6 @@ import {
   SentryService,
 } from '@ptah-extension/vscode-core';
 import { fixPath } from '@ptah-extension/agent-sdk';
-import {
-  PERSISTENCE_TOKENS,
-  type SqliteConnectionService,
-} from '@ptah-extension/persistence-sqlite';
 import { registerVscodeSettings } from '@ptah-extension/platform-vscode';
 import {
   SETTINGS_TOKENS,
@@ -145,40 +141,14 @@ export async function bootstrapVscode(
   }
 
   // ========================================
-  // STEP 3.1: OPEN SQLITE + RUN MIGRATIONS (TASK_2026_HERMES Track 1)
+  // STEP 3.1: SQLite — NOT OPENED IN VS CODE
   // ========================================
-  // The connection is registered in Phase 2.55 but lazy-opened here so
-  // openAndMigrate() failures (missing better-sqlite3 native build,
-  // disk full, etc.) are non-fatal — memory curator simply stays disabled.
-  let sqliteConnection: SqliteConnectionService | null = null;
-  try {
-    if (DIContainer.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION)) {
-      console.log('[Ptah VS Code] Resolving SQLite connection service...');
-      sqliteConnection = DIContainer.resolve<SqliteConnectionService>(
-        PERSISTENCE_TOKENS.SQLITE_CONNECTION,
-      );
-      console.log(
-        '[Ptah VS Code] SQLite connection service resolved, calling openAndMigrate()...',
-      );
-      await sqliteConnection.openAndMigrate();
-      console.log(
-        '[Ptah VS Code] SQLite connection opened + migrated successfully',
-      );
-    } else {
-      console.warn(
-        '[Ptah VS Code] PERSISTENCE_TOKENS.SQLITE_CONNECTION not registered, skipping',
-      );
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorStack = error instanceof Error ? error.stack : '';
-    console.error(
-      '[Ptah VS Code] SQLite openAndMigrate FAILED (non-fatal):',
-      errorMessage,
-    );
-    console.error('[Ptah VS Code] Error stack:', errorStack);
-    sqliteConnection = null;
-  }
+  // SQLite-backed services (memory curator, cron scheduler, messaging
+  // gateway, skill synthesis) are Electron-only by design. See the matching
+  // skip block in di/phase-2-libraries.ts and the ELECTRON_ONLY_METHODS list
+  // in services/rpc/rpc-method-registration.service.ts. The VS Code VSIX
+  // ships as a single cross-platform package and intentionally does not
+  // carry the `better-sqlite3` / `sqlite-vec` native binaries.
 
   // ========================================
   // STEP 3.5: MIGRATE FILE-BASED SETTINGS (TASK_2025_247)
