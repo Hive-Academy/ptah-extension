@@ -119,14 +119,15 @@ describe('headless task lifecycle (Bug 1 + Bug 4)', () => {
     });
     const client = new InteractRpcClient(runner);
 
-    // Fire both submits WITHOUT awaiting between them. stdin write order is
-    // preserved over the pipe, and the JSON-RPC dispatcher schedules each
-    // request via `void dispatch(message)` (server.ts:100). Handler 1
-    // synchronously sets `currentTurnId` BEFORE its first await
-    // (interact.ts:515-526), so handler 2 — running in the next microtask —
-    // deterministically trips the concurrency guard without any sleep race.
+    // Cork stdin so both writes coalesce into one OS-pipe chunk. Without cork,
+    // Linux delivers them separately and handler 1 settles + clears
+    // currentTurnId before handler 2 dispatches, defeating the guardrail under
+    // test. Cork buffers; uncork-on-nextTick flushes the buffered queue in one
+    // chunk after both write() calls have been issued.
+    runner.child.stdin.cork();
     const firstP = client.submitTask({ task: 'first turn' }, 60_000);
     const secondP = client.submitTask({ task: 'second turn' }, 60_000);
+    process.nextTick(() => runner.child.stdin.uncork());
     const [first, second] = await Promise.allSettled([firstP, secondP]);
 
     // Exactly one of the two must reject: the one that lost the race for
