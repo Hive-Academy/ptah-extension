@@ -5,6 +5,7 @@ import type {
   MemoryGetResult,
   MemoryListResult,
   MemoryPinResult,
+  MemoryPurgeBySubjectPatternResult,
   MemoryRebuildIndexResult,
   MemorySearchResult,
   MemoryStatsResult,
@@ -32,7 +33,7 @@ const MEMORY_RPC_TIMEOUTS = {
  * pattern: each method returns the typed `result.data` on success and throws
  * with the RPC error string on failure.
  *
- * Supported RPC methods (8):
+ * Supported RPC methods (9):
  * - memory:list
  * - memory:search
  * - memory:get
@@ -41,6 +42,7 @@ const MEMORY_RPC_TIMEOUTS = {
  * - memory:forget
  * - memory:rebuildIndex
  * - memory:stats
+ * - memory:purgeBySubjectPattern
  */
 @Injectable({ providedIn: 'root' })
 export class MemoryRpcService {
@@ -72,10 +74,15 @@ export class MemoryRpcService {
   public async search(
     query: string,
     topK?: number,
+    workspaceRoot?: string,
   ): Promise<MemorySearchResult> {
     const result = await this.rpc.call(
       'memory:search',
-      { query, ...(topK !== undefined ? { topK } : {}) },
+      {
+        query,
+        ...(topK !== undefined ? { topK } : {}),
+        ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
+      },
       { timeout: MEMORY_RPC_TIMEOUTS.LIST_MS },
     );
 
@@ -165,5 +172,31 @@ export class MemoryRpcService {
       return result.data;
     }
     throw new Error(result.error || 'memory:stats failed');
+  }
+
+  /**
+   * Purge memory entries whose subject matches a pattern.
+   * - `mode: 'substring'` — escapes LIKE metacharacters then wraps in `%...%`.
+   * - `mode: 'like'` — raw SQL LIKE pattern passed verbatim.
+   */
+  public async purgeBySubjectPattern(
+    pattern: string,
+    mode: 'substring' | 'like',
+    workspaceRoot?: string | null,
+  ): Promise<MemoryPurgeBySubjectPatternResult> {
+    const result = await this.rpc.call(
+      'memory:purgeBySubjectPattern',
+      {
+        pattern,
+        mode,
+        ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
+      },
+      { timeout: MEMORY_RPC_TIMEOUTS.SHORT_MS },
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'memory:purgeBySubjectPattern failed');
   }
 }

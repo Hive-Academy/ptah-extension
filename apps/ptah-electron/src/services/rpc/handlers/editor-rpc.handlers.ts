@@ -507,8 +507,8 @@ export class EditorRpcHandlers {
 
         try {
           // Discover files, excluding generated/binary directories.
-          // Uses brace expansion syntax supported by fast-glob's ignore option.
-          const excludePattern = '**/{node_modules,dist,.git,.nx,.cache}/**';
+          // Single-element array — the brace pattern is one valid fast-glob ignore glob.
+          const excludePattern = ['**/{node_modules,dist,.git,.nx,.cache}/**'];
           const filePaths = await this.fs.findFiles(
             wsRoot.replace(/\\/g, '/') + '/**/*',
             excludePattern,
@@ -763,7 +763,8 @@ export class EditorRpcHandlers {
       }
 
       try {
-        const excludePattern = '**/{node_modules,dist,.git,.nx,.cache}/**';
+        // Single-element array — the brace pattern is one valid fast-glob ignore glob.
+        const excludePattern = ['**/{node_modules,dist,.git,.nx,.cache}/**'];
         const filePaths = await this.fs.findFiles(
           wsRoot.replace(/\\/g, '/') + '/**/*',
           excludePattern,

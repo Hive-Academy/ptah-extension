@@ -107,8 +107,14 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
 
   getStreamingSessionIds(workspacePath: string): SessionId[] {
     const tabs = this.tabManager.getWorkspaceTabs(workspacePath);
+    // `claudeSessionId` is null for new tabs that haven't received
+    // SESSION_ID_RESOLVED yet (use case #1 / #4 in the identity contract).
+    // The explicit `!= null` guard excludes them — abort RPC only targets
+    // sessions whose real SDK UUID is known.
     return tabs
-      .filter((tab) => tab.status === 'streaming' && tab.claudeSessionId)
+      .filter(
+        (tab) => tab.status === 'streaming' && tab.claudeSessionId != null,
+      )
       .map((tab) => tab.claudeSessionId as SessionId);
   }
 

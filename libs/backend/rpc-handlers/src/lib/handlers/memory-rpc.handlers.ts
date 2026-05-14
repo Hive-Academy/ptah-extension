@@ -16,6 +16,11 @@ import {
   type MemorySearchService,
   type MemoryStore,
 } from '@ptah-extension/memory-curator';
+import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
+import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import type {
   MemoryChunkWire,
   MemoryForgetParams,
@@ -26,6 +31,8 @@ import type {
   MemoryListResult,
   MemoryPinParams,
   MemoryPinResult,
+  MemoryPurgeBySubjectPatternParams,
+  MemoryPurgeBySubjectPatternResult,
   MemoryRebuildIndexParams,
   MemoryRebuildIndexResult,
   MemorySearchHitWire,
@@ -36,6 +43,16 @@ import type {
   MemoryWire,
   RpcMethodName,
 } from '@ptah-extension/shared';
+import { RpcUserError } from '@ptah-extension/vscode-core';
+import { z } from 'zod';
+import { MemoryPurgeBySubjectPatternParamsSchema } from './memory-rpc.schema';
+
+/**
+ * Narrow schema for extracting workspaceRoot independently of the full
+ * MemorySearchParamsSchema. This ensures that a bad `topK` or `query` value
+ * cannot poison the scope — workspaceRoot survives any other field's failure.
+ */
+const WorkspaceRootSchema = z.string().min(1).optional();
 
 function toMemoryWire(m: Memory): MemoryWire {
   return {
@@ -80,6 +97,7 @@ export class MemoryRpcHandlers {
     'memory:forget',
     'memory:rebuildIndex',
     'memory:stats',
+    'memory:purgeBySubjectPattern',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -90,6 +108,8 @@ export class MemoryRpcHandlers {
     private readonly search: MemorySearchService,
     @inject(MEMORY_TOKENS.MEMORY_CURATOR)
     private readonly curator: MemoryCuratorService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
 
   register(): void {
@@ -119,7 +139,18 @@ export class MemoryRpcHandlers {
         if (!params || typeof params.query !== 'string') {
           return { hits: [], bm25Only: false };
         }
-        const r = await this.search.searchRich(params.query, params.topK ?? 10);
+        // Extract workspaceRoot independently so that an invalid topK or query
+        // field cannot silently drop the scope (cross-workspace memory leak).
+        // The full MemorySearchParamsSchema (in memory-rpc.schema.ts) remains
+        // the end-to-end validation contract used by the test layer.
+        const workspaceRoot = WorkspaceRootSchema.safeParse(
+          (params as { workspaceRoot?: unknown }).workspaceRoot,
+        ).data;
+        const r = await this.search.searchRich(
+          params.query,
+          params.topK ?? 10,
+          workspaceRoot,
+        );
         const hits: MemorySearchHitWire[] = r.hits.map((h) => ({
           memory: toMemoryWire(h.memory),
           chunk: toChunkWire(h.chunk),
@@ -213,6 +244,70 @@ export class MemoryRpcHandlers {
         params: MemoryStatsParams | undefined,
       ): Promise<MemoryStatsResult> => {
         return this.store.stats(params?.workspaceRoot ?? undefined);
+      },
+    );
+
+    this.rpcHandler.registerMethod(
+      'memory:purgeBySubjectPattern',
+      async (
+        params: MemoryPurgeBySubjectPatternParams | undefined,
+      ): Promise<MemoryPurgeBySubjectPatternResult> => {
+        let validated: MemoryPurgeBySubjectPatternParams;
+        try {
+          validated = MemoryPurgeBySubjectPatternParamsSchema.parse(params);
+        } catch (err) {
+          // Issue 3 (LOW): log full Zod error server-side; send generic message to client.
+          this.logger.warn('[memory] purgeBySubjectPattern — invalid params', {
+            err: String(err),
+          });
+          throw new RpcUserError(
+            'Invalid parameters for memory:purgeBySubjectPattern',
+            'INVALID_PARAMS',
+          );
+        }
+        // Issue 1 (HIGH): reject null/undefined workspaceRoot — cross-workspace purge not permitted.
+        if (
+          validated.workspaceRoot === null ||
+          validated.workspaceRoot === undefined
+        ) {
+          throw new RpcUserError(
+            'memory:purgeBySubjectPattern requires an explicit workspaceRoot; cross-workspace purge is not permitted.',
+            'INVALID_PARAMS',
+          );
+        }
+        // Issue 2 (MEDIUM): workspace authorization guard — defence-in-depth against arbitrary workspaceRoot.
+        if (
+          !isAuthorizedWorkspace(
+            validated.workspaceRoot,
+            this.workspaceProvider,
+          )
+        ) {
+          throw new RpcUserError(
+            'Workspace not authorized',
+            'UNAUTHORIZED_WORKSPACE',
+          );
+        }
+        try {
+          const deleted = this.store.purgeBySubjectPattern(
+            validated.pattern,
+            validated.mode,
+            validated.workspaceRoot,
+          );
+          this.logger.info('[memory] purgeBySubjectPattern complete', {
+            pattern: validated.pattern,
+            mode: validated.mode,
+            deleted,
+          });
+          return { deleted };
+        } catch (err) {
+          this.logger.error('[memory] purgeBySubjectPattern failed', {
+            error: String(err),
+          });
+          throw new RpcUserError(
+            'memory:purgeBySubjectPattern failed; please try again.',
+            'PERSISTENCE_UNAVAILABLE',
+          );
+        }
       },
     );
 

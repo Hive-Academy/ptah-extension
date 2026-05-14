@@ -119,13 +119,20 @@ export class VscodeFileSystemProvider implements IFileSystemProvider {
 
   async findFiles(
     pattern: string,
-    exclude?: string,
+    exclude?: string[],
     maxResults?: number,
     _cwd?: string,
   ): Promise<string[]> {
+    // cwd is intentionally ignored: VS Code findFiles operates on the open workspace folders.
+    // VS Code findFiles requires a single GlobPattern; convert array to {a,b,c} brace expansion.
+    let excludeGlob: string | undefined;
+    if (exclude && exclude.length > 0) {
+      excludeGlob =
+        exclude.length === 1 ? exclude[0] : `{${exclude.join(',')}}`;
+    }
     const uris = await vscode.workspace.findFiles(
       pattern,
-      exclude ?? undefined,
+      excludeGlob,
       maxResults,
     );
     return uris.map((uri) => uri.fsPath);

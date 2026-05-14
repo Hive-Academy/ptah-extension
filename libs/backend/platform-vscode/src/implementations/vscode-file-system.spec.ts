@@ -66,3 +66,90 @@ describe('VscodeFileSystemProvider — VS Code-specific behaviour', () => {
     );
   });
 });
+
+describe('findFiles — exclude brace expansion (TASK_2026_119)', () => {
+  // The VS Code adapter converts a string[] exclude to a single GlobPattern
+  // for vscode.workspace.findFiles (single element: pass-through; multiple
+  // elements: wrap in {a,b,c} brace expansion).
+  //
+  // These tests capture the excludeGlob argument passed to the mock and assert
+  // the conversion is correct, covering both code paths and the undefined case.
+
+  let provider: VscodeFileSystemProvider;
+
+  beforeEach(() => {
+    __resetVscodeTestDouble();
+    provider = new VscodeFileSystemProvider();
+  });
+
+  it('single-element array passes the pattern directly (no braces)', async () => {
+    // Capture the argument passed to vscode.workspace.findFiles
+    const { workspace } = await import('vscode');
+    let capturedExclude: string | undefined = 'NOT_SET' as string | undefined;
+
+    (workspace.findFiles as jest.Mock).mockImplementationOnce(
+      async (_include: string, exclude: string | undefined) => {
+        capturedExclude = exclude;
+        return [];
+      },
+    );
+
+    await provider.findFiles('**/*.ts', ['**/node_modules/**'], 10);
+
+    expect(capturedExclude).toBe('**/node_modules/**');
+    // Must NOT be wrapped in braces for a single-element array
+    expect(capturedExclude).not.toBe('{**/node_modules/**}');
+  });
+
+  it('multi-element array wraps in braces', async () => {
+    const { workspace } = await import('vscode');
+    let capturedExclude: string | undefined;
+
+    (workspace.findFiles as jest.Mock).mockImplementationOnce(
+      async (_include: string, exclude: string | undefined) => {
+        capturedExclude = exclude;
+        return [];
+      },
+    );
+
+    await provider.findFiles(
+      '**/*.ts',
+      ['**/node_modules/**', '**/dist/**'],
+      10,
+    );
+
+    expect(capturedExclude).toBe('{**/node_modules/**,**/dist/**}');
+  });
+
+  it('undefined exclude passes undefined to vscode.workspace.findFiles', async () => {
+    const { workspace } = await import('vscode');
+    let capturedExclude: string | undefined = 'NOT_SET' as string | undefined;
+
+    (workspace.findFiles as jest.Mock).mockImplementationOnce(
+      async (_include: string, exclude: string | undefined) => {
+        capturedExclude = exclude;
+        return [];
+      },
+    );
+
+    await provider.findFiles('**/*.ts', undefined, 10);
+
+    expect(capturedExclude).toBeUndefined();
+  });
+
+  it('empty array passes undefined to vscode.workspace.findFiles', async () => {
+    const { workspace } = await import('vscode');
+    let capturedExclude: string | undefined = 'NOT_SET' as string | undefined;
+
+    (workspace.findFiles as jest.Mock).mockImplementationOnce(
+      async (_include: string, exclude: string | undefined) => {
+        capturedExclude = exclude;
+        return [];
+      },
+    );
+
+    await provider.findFiles('**/*.ts', [], 10);
+
+    expect(capturedExclude).toBeUndefined();
+  });
+});

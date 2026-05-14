@@ -26,6 +26,7 @@ import {
   type CliOutputSegment,
   type FlatStreamEventUnion,
   createEmptyAuthEnv,
+  SessionId,
 } from '@ptah-extension/shared';
 import {
   Logger,
@@ -814,8 +815,11 @@ export class PtahCliRegistry {
     );
     return {
       permissionMode: sdkMode,
+      // CLI path: no tabId arg — tabId stays undefined on the wire per the
+      // CLI contract (UC3). The frontend router falls through to agent-monitor
+      // routing when tabId is absent.
       canUseTool: this.permissionHandler.createCallback(
-        sessionId,
+        sessionId ? SessionId.from(sessionId) : undefined,
         cliAgentResolver,
       ),
     };

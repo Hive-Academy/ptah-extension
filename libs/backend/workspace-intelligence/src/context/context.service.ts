@@ -540,7 +540,7 @@ export class ContextService {
       // Search ALL workspace folders using findFiles
       const filePaths = await this.fsProvider.findFiles(
         '**/*',
-        `{${excludePatterns.join(',')}}`,
+        excludePatterns,
         this.MAX_SEARCH_RESULTS * 2,
         workspaceFolders[0],
       );
@@ -620,12 +620,20 @@ export class ContextService {
     maxDepth = 4,
   ): Promise<FileSearchResult[]> {
     const directories: FileSearchResult[] = [];
+    // Explicit excludes only — do NOT blanket-filter `name.startsWith('.')`,
+    // or user-visible dot-folders (`.ptah`, `.claude`, `.vscode`, `.github`)
+    // disappear from the @ file picker's directory suggestions.
     const excludeSet = new Set([
       'node_modules',
       '.git',
+      '.svn',
+      '.hg',
+      '.DS_Store',
       'dist',
       'build',
       'out',
+      'coverage',
+      '.nyc_output',
     ]);
 
     const processDirectory = async (
@@ -637,10 +645,7 @@ export class ContextService {
       try {
         const entries = await this.fsProvider.readDirectory(dirPath);
         const dirEntries = entries.filter(
-          (e) =>
-            e.type === FileType.Directory &&
-            !excludeSet.has(e.name) &&
-            !e.name.startsWith('.'),
+          (e) => e.type === FileType.Directory && !excludeSet.has(e.name),
         );
 
         // Batch stat calls for all directories at this level
@@ -732,14 +737,56 @@ export class ContextService {
       sortBy: 'relevance',
     });
 
+    // `searchFiles` → `performFileSearch` → `findFiles({ onlyFiles: true })`,
+    // so directories never appear in the file-only branch. Pull matching
+    // directories from the all-files cache (populated by `getAllFiles` /
+    // `discoverDirectories`) and merge them into the result set so typing
+    // `@.ptah` surfaces the `.ptah` folder itself, not just files inside it.
+    const directoryMatches = await this.searchDirectories(query, limit);
+
+    const merged = [...directoryMatches, ...searchResults];
+
     // Prioritize files already in context
-    const prioritized = searchResults.sort((a, b) => {
+    const prioritized = merged.sort((a, b) => {
       const aIncluded = this.isFileIncluded(a.path) ? 1 : 0;
       const bIncluded = this.isFileIncluded(b.path) ? 1 : 0;
       return bIncluded - aIncluded;
     });
 
     return prioritized.slice(0, limit);
+  }
+
+  /**
+   * Filter cached directories by query. Warms the all-files cache if cold,
+   * because `discoverDirectories` is the only producer of directory entries
+   * and the regular file-search path skips them (`onlyFiles: true`).
+   */
+  private async searchDirectories(
+    query: string,
+    limit: number,
+  ): Promise<FileSearchResult[]> {
+    if (
+      this.allFilesCache.length === 0 ||
+      Date.now() - this.allFilesCacheTimestamp >= this.ALL_FILES_CACHE_TTL
+    ) {
+      // Warm the cache; result is ignored — we read from `this.allFilesCache`.
+      await this.getAllFiles(true, 0, this.MAX_SEARCH_RESULTS);
+    }
+
+    const queryLower = query.toLowerCase();
+    const matches: FileSearchResult[] = [];
+
+    for (const entry of this.allFilesCache) {
+      if (!entry.isDirectory) continue;
+      const nameLower = entry.fileName.toLowerCase();
+      const pathLower = entry.relativePath.toLowerCase();
+      if (nameLower.includes(queryLower) || pathLower.includes(queryLower)) {
+        matches.push(entry);
+        if (matches.length >= limit) break;
+      }
+    }
+
+    return matches;
   }
 
   /**
@@ -959,8 +1006,8 @@ export class ContextService {
       searchPattern = `**/*${query}*.{${extensions.join(',')}}`;
     }
 
-    // Build exclude pattern
-    let excludePattern = '**/node_modules/**';
+    // Build exclude patterns
+    const excludePatternList: string[] = ['**/node_modules/**'];
     if (!includeImages && fileTypes.length === 0) {
       const imageExts = [
         'png',
@@ -972,12 +1019,12 @@ export class ContextService {
         'webp',
         'ico',
       ];
-      excludePattern += `,**/*.{${imageExts.join(',')}}`;
+      excludePatternList.push(`**/*.{${imageExts.join(',')}}`);
     }
 
     const filePaths = await this.fsProvider.findFiles(
       searchPattern,
-      excludePattern,
+      excludePatternList,
       maxResults,
       workspaceRoot,
     );

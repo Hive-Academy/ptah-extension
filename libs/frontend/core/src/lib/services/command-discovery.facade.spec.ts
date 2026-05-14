@@ -6,6 +6,15 @@
  */
 
 import { TestBed } from '@angular/core/testing';
+import {
+  type LucideIconData,
+  Zap,
+  Package,
+  User,
+  Plug,
+  Puzzle,
+  HelpCircle,
+} from 'lucide-angular';
 import { CommandDiscoveryFacade } from './command-discovery.facade';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
 
@@ -87,57 +96,57 @@ describe('CommandDiscoveryFacade', () => {
 
   // ── getCommandIcon scope mapping ──────────────────────────────────────────
 
-  it('assigns ⚡ for builtin scope', async () => {
+  it('assigns Zap icon for builtin scope', async () => {
     mockRpc.call.mockResolvedValueOnce(
       rpcSuccess({
         commands: [{ name: 'cmd', description: 'desc', scope: 'builtin' }],
       }),
     );
     await facade.fetchCommands();
-    expect(facade.commands()[0].icon).toBe('⚡');
+    expect(facade.commands()[0].icon).toBe(Zap);
   });
 
-  it('assigns 📦 for project scope', async () => {
+  it('assigns Package icon for project scope', async () => {
     mockRpc.call.mockResolvedValueOnce(
       rpcSuccess({
         commands: [{ name: 'cmd', description: 'desc', scope: 'project' }],
       }),
     );
     await facade.fetchCommands();
-    expect(facade.commands()[0].icon).toBe('📦');
+    expect(facade.commands()[0].icon).toBe(Package);
   });
 
-  it('assigns 👤 for user scope', async () => {
+  it('assigns User icon for user scope', async () => {
     mockRpc.call.mockResolvedValueOnce(
       rpcSuccess({
         commands: [{ name: 'cmd', description: 'desc', scope: 'user' }],
       }),
     );
     await facade.fetchCommands();
-    expect(facade.commands()[0].icon).toBe('👤');
+    expect(facade.commands()[0].icon).toBe(User);
   });
 
-  it('assigns 🔌 for mcp scope', async () => {
+  it('assigns Plug icon for mcp scope', async () => {
     mockRpc.call.mockResolvedValueOnce(
       rpcSuccess({
         commands: [{ name: 'cmd', description: 'desc', scope: 'mcp' }],
       }),
     );
     await facade.fetchCommands();
-    expect(facade.commands()[0].icon).toBe('🔌');
+    expect(facade.commands()[0].icon).toBe(Plug);
   });
 
-  it('assigns 🧩 for plugin scope', async () => {
+  it('assigns Puzzle icon for plugin scope', async () => {
     mockRpc.call.mockResolvedValueOnce(
       rpcSuccess({
         commands: [{ name: 'cmd', description: 'desc', scope: 'plugin' }],
       }),
     );
     await facade.fetchCommands();
-    expect(facade.commands()[0].icon).toBe('🧩');
+    expect(facade.commands()[0].icon).toBe(Puzzle);
   });
 
-  it('assigns ❓ for unknown scope', async () => {
+  it('assigns HelpCircle icon for unknown scope', async () => {
     mockRpc.call.mockResolvedValueOnce(
       rpcSuccess({
         commands: [
@@ -146,7 +155,7 @@ describe('CommandDiscoveryFacade', () => {
       }),
     );
     await facade.fetchCommands();
-    expect(facade.commands()[0].icon).toBe('❓');
+    expect(facade.commands()[0].icon).toBe(HelpCircle);
   });
 
   // ── fetchCommands — cache guard ───────────────────────────────────────────

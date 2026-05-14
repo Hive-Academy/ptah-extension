@@ -54,6 +54,7 @@ export interface MemoryListResult {
 export interface MemorySearchParams {
   readonly query: string;
   readonly topK?: number;
+  readonly workspaceRoot?: string;
 }
 export interface MemorySearchHitWire {
   readonly memory: MemoryWire;
@@ -112,4 +113,14 @@ export interface MemoryStatsResult {
   readonly recall: number;
   readonly archival: number;
   readonly lastCuratedAt: number | null;
+}
+
+// ---- memory:purgeBySubjectPattern ----
+export interface MemoryPurgeBySubjectPatternParams {
+  readonly pattern: string;
+  readonly mode: 'substring' | 'like';
+  readonly workspaceRoot?: string | null;
+}
+export interface MemoryPurgeBySubjectPatternResult {
+  readonly deleted: number;
 }

@@ -818,7 +818,10 @@ export class PtahCliAdapter implements IAIProvider {
     const canUseTool = useBypass
       ? undefined
       : this.permissionHandler.createCallback(
-          sessionId,
+          // CLI path: no tabId arg — tabId stays undefined on the wire per the
+          // CLI contract (UC3). The frontend router falls through to agent-monitor
+          // routing when tabId is absent.
+          sessionId ? SessionId.from(sessionId) : undefined,
           () => agentIdHolder.value,
         );
 

@@ -33,7 +33,6 @@ export interface BootstrapResult {
   startupWorkspaceRoot: string | undefined;
   startupIsLicensed: boolean;
   startupInitialView: string | null;
-  startupLicenseTier: string | undefined;
   initialFolders: string[] | undefined;
   flushWorkspacePersistence: (() => void) | null;
   /** Mutable ref box so the workspace-change subscription can pick up the
@@ -242,7 +241,6 @@ export async function bootstrapElectron(
   // if the license server is unreachable.
   let startupIsLicensed = true;
   let startupInitialView: string | null = null;
-  let startupLicenseTier: string | undefined;
 
   try {
     const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
@@ -253,8 +251,6 @@ export async function bootstrapElectron(
       }>;
     };
     const licenseStatus = await licenseService.verifyLicense();
-
-    startupLicenseTier = licenseStatus.tier;
 
     if (!licenseStatus.valid) {
       startupIsLicensed = false;
@@ -327,7 +323,6 @@ export async function bootstrapElectron(
     startupWorkspaceRoot,
     startupIsLicensed,
     startupInitialView,
-    startupLicenseTier,
     initialFolders,
     flushWorkspacePersistence,
     gitWatcherRef,

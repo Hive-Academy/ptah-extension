@@ -109,7 +109,7 @@ describe('WorkspaceIndexerService', () => {
       fileClassifier,
       tokenCounter,
       mockFsProvider,
-      mockWorkspaceProvider
+      mockWorkspaceProvider,
     );
   });
 
@@ -221,7 +221,7 @@ describe('WorkspaceIndexerService', () => {
             filePath: path,
             ignored: false,
           });
-        }
+        },
       );
 
       fileClassifier.classifyFile.mockReturnValue({
@@ -234,7 +234,7 @@ describe('WorkspaceIndexerService', () => {
 
       expect(result.files).toHaveLength(2); // node_modules file excluded
       expect(
-        result.files.some((f) => f.relativePath.includes('node_modules'))
+        result.files.some((f) => f.relativePath.includes('node_modules')),
       ).toBe(false);
     });
 
@@ -407,7 +407,7 @@ describe('WorkspaceIndexerService', () => {
         undefined;
 
       await expect(service.indexWorkspace()).rejects.toThrow(
-        'No workspace folder available for indexing'
+        'No workspace folder available for indexing',
       );
 
       // Restore workspace folders
@@ -507,7 +507,7 @@ describe('WorkspaceIndexerService', () => {
             filePath: path,
             ignored: false,
           });
-        }
+        },
       );
 
       fileClassifier.classifyFile.mockReturnValue({
@@ -523,6 +523,130 @@ describe('WorkspaceIndexerService', () => {
 
       expect(files).toHaveLength(1);
       expect(files[0].relativePath).toBe('src/app.ts');
+    });
+  });
+
+  describe('node_modules exclusion regression (TASK_2026_119)', () => {
+    it('should call findFiles with an array exclude argument containing **/node_modules/**', async () => {
+      const mockFsProviderWithSpy = {
+        readFile: jest.fn(),
+        readDirectory: jest.fn(),
+        stat: jest.fn(),
+        exists: jest.fn(),
+        findFiles: jest
+          .fn()
+          .mockResolvedValue([
+            '/workspace/src/app.ts',
+            '/workspace/src/utils.ts',
+            '/workspace/node_modules/some-lib/index.js',
+          ]),
+        createFileWatcher: jest.fn(),
+      } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+      const mockWorkspaceProvider = {
+        getWorkspaceFolders: jest.fn().mockReturnValue(['/workspace']),
+        getWorkspaceRoot: jest.fn().mockReturnValue('/workspace'),
+        getConfiguration: jest.fn(),
+        onDidChangeConfiguration: jest.fn(),
+        onDidChangeWorkspaceFolders: jest.fn(),
+      } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+      fileSystemService.stat.mockResolvedValue({
+        type: FileType.Source as unknown as number,
+        ctime: 0,
+        mtime: 0,
+        size: 500,
+      });
+      ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
+      fileClassifier.classifyFile.mockReturnValue({
+        type: FileType.Source,
+        language: 'typescript',
+        confidence: 1.0,
+      });
+
+      const testService = new WorkspaceIndexerService(
+        fileSystemService,
+        patternMatcher,
+        ignoreResolver,
+        fileClassifier,
+        tokenCounter,
+        mockFsProviderWithSpy,
+        mockWorkspaceProvider,
+      );
+
+      await testService.indexWorkspace();
+
+      // The exclude argument must be an array, not a comma-joined string
+      expect(mockFsProviderWithSpy.findFiles).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.arrayContaining(['**/node_modules/**']),
+        undefined,
+        '/workspace',
+      );
+
+      // Verify the exclude arg is actually an array (not a string like the old buggy code)
+      const callArgs = mockFsProviderWithSpy.findFiles.mock
+        .calls[0] as unknown[];
+      const excludeArg = callArgs[1];
+      expect(Array.isArray(excludeArg)).toBe(true);
+      expect(typeof excludeArg).not.toBe('string');
+    });
+
+    it('should not include node_modules paths in result when findFiles filters them', async () => {
+      // Simulate correct fast-glob behaviour: adapter returns only non-excluded files
+      const mockFsProviderFiltered = {
+        readFile: jest.fn(),
+        readDirectory: jest.fn(),
+        stat: jest.fn(),
+        exists: jest.fn(),
+        findFiles: jest
+          .fn()
+          .mockResolvedValue([
+            '/workspace/src/app.ts',
+            '/workspace/src/utils.ts',
+          ]),
+        createFileWatcher: jest.fn(),
+      } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+      const mockWorkspaceProvider = {
+        getWorkspaceFolders: jest.fn().mockReturnValue(['/workspace']),
+        getWorkspaceRoot: jest.fn().mockReturnValue('/workspace'),
+        getConfiguration: jest.fn(),
+        onDidChangeConfiguration: jest.fn(),
+        onDidChangeWorkspaceFolders: jest.fn(),
+      } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+      fileSystemService.stat.mockResolvedValue({
+        type: FileType.Source as unknown as number,
+        ctime: 0,
+        mtime: 0,
+        size: 500,
+      });
+      ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
+      fileClassifier.classifyFile.mockReturnValue({
+        type: FileType.Source,
+        language: 'typescript',
+        confidence: 1.0,
+      });
+
+      const testService = new WorkspaceIndexerService(
+        fileSystemService,
+        patternMatcher,
+        ignoreResolver,
+        fileClassifier,
+        tokenCounter,
+        mockFsProviderFiltered,
+        mockWorkspaceProvider,
+      );
+
+      const result = await testService.indexWorkspace();
+
+      // No node_modules paths should appear in the indexed file list
+      const hasNodeModules = result.files.some((f) =>
+        f.path.includes('node_modules'),
+      );
+      expect(hasNodeModules).toBe(false);
+      expect(result.totalFiles).toBe(2);
     });
   });
 

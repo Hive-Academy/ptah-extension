@@ -168,6 +168,18 @@ describe('AuthSettingsSchema', () => {
       expect(parseAuthMethod('openrouter')).toBe('thirdParty');
     });
 
+    it('normalizes CLI-written "claude-cli" spelling to "claudeCli"', () => {
+      // The CLI bootstrap migration shim rewrites legacy `'claudeCli'` →
+      // `'claude-cli'` on disk. Without this mapping, the auth-status badge
+      // silently fell back to 'API Key' even though the SDK still used the
+      // Claude CLI for actual auth (see auth-method.utils.ts in agent-sdk).
+      expect(parseAuthMethod('claude-cli')).toBe('claudeCli');
+    });
+
+    it('normalizes CLI-written "oauth" spelling to "thirdParty"', () => {
+      expect(parseAuthMethod('oauth')).toBe('thirdParty');
+    });
+
     it.each(['vscode-lm', 'auto', 'APIKEY', 'unknown', '   '])(
       'defaults unrecognized value "%s" to "apiKey"',
       (value) => {
