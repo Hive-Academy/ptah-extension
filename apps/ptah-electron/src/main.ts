@@ -19,8 +19,16 @@ import { UPDATE_MANAGER_TOKEN } from './services/update/update-tokens';
 // @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Force userData path to be stable across dev and packaged builds
-app.setName('Ptah');
+// Force userData path to be stable across dev and packaged builds.
+// In development (NODE_ENV=development from scripts/launch.js) we point
+// userData at a separate directory so the single-instance lock doesn't
+// collide with a running packaged Ptah — letting dev and prod run side
+// by side. ~/.ptah/ptah.db and ~/.ptah/settings.json remain shared.
+const isDev = process.env.NODE_ENV === 'development';
+app.setName(isDev ? 'Ptah Dev' : 'Ptah');
+if (isDev) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'Ptah Dev'));
+}
 
 // Prevent multiple instances
 const gotLock = app.requestSingleInstanceLock();
@@ -43,6 +51,7 @@ if (!gotLock) {
   let cronScheduler: { stop: () => void } | null = null;
   let messagingGateway: { stop: () => Promise<void> } | null = null;
   let symbolWatcher: { close: () => void } | null = null;
+  let licenseReactivityDisposable: { dispose: () => void } | null = null;
 
   app.whenReady().then(async () => {
     const boot = await bootstrapElectron(() => mainWindow);
@@ -67,7 +76,6 @@ if (!gotLock) {
       container: boot.container,
       getMainWindow: () => mainWindow,
       startupWorkspaceRoot: boot.startupWorkspaceRoot,
-      startupLicenseTier: boot.startupLicenseTier,
     });
     resolvedStateStorage = wired.resolvedStateStorage;
     skillJunctionRef = wired.refs.skillJunctionRef;
@@ -77,6 +85,7 @@ if (!gotLock) {
     skillSynthesis = wired.refs.skillSynthesis;
     cronScheduler = wired.refs.cronScheduler;
     symbolWatcher = wired.refs.symbolWatcher;
+    licenseReactivityDisposable = wired.refs.licenseReactivityDisposable;
     // Back-fill the mutable ref so bootstrap's onDidChangeWorkspaceFolders
     // subscription can call gitWatcher.switchWorkspace on folder changes.
     boot.gitWatcherRef.current = gitWatcher;
@@ -172,6 +181,16 @@ if (!gotLock) {
     } catch (error) {
       console.warn(
         '[Ptah Electron] Symbol watcher close failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+
+    // 3.2. Dispose license reactivity binder (removes license event listeners)
+    try {
+      licenseReactivityDisposable?.dispose();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] License reactivity binder dispose failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
     }

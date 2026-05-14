@@ -31,6 +31,7 @@ Core: `Logger`, `ErrorHandler`, `ConfigManager`, `MessageValidatorService`, `Val
 API wrappers: `CommandManager`, `WebviewManager`, `OutputManager`, `StatusBarManager`, `FileSystemManager`.
 Messaging: `RpcHandler`, `RpcUserError`, `verifyRpcRegistration`, `assertRpcRegistration`.
 Services: `SubagentRegistryService`, `WebviewMessageHandlerService`, `AuthSecretsService`, `LicenseService` (+ `isPremiumTier`), `FeatureGateService`.
+License reactivity: `bindLicenseReactivity` (+ `LicenseReactivityOptions`), `bringUpPremiumSubsystems`, `tearDownPremiumSubsystems` (+ `PremiumSubsystemsDeps`) — reactive premium subsystem bring-up/tear-down on `license:verified` / `license:expired`.
 
 ## Internal Structure
 
@@ -41,6 +42,7 @@ Services: `SubagentRegistryService`, `WebviewMessageHandlerService`, `AuthSecret
 - `src/validation/` — `MessageValidatorService` + error types
 - `src/messaging/` — `rpc-handler.ts` (transport), `rpc-verification.ts`
 - `src/services/` — license, feature gate, auth secrets, subagent registry, webview message handler
+- `src/services/license-reactivity/` — `bindLicenseReactivity`, `bringUpPremiumSubsystems`, `tearDownPremiumSubsystems`
 - `src/di/tokens.ts` — `TOKENS` namespace; `di/index.ts` — registration; `di/register-platform-agnostic.ts` — non-VS-Code hosts
 
 ## Key Files
