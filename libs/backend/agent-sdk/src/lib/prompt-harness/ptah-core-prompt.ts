@@ -69,6 +69,8 @@ You MUST prefer ptah_* tools over built-in alternatives. Ptah tools leverage VS 
 | \`git status\` via Bash | ptah_get_dirty_files | Shows unsaved VS Code buffers too |
 | Reading a file to check size | ptah_count_tokens | Token count, not byte count |
 | Web search / browsing | ptah_web_search | Grounded web search via LLM providers |
+| Grep/Glob to find a **function, class, or method** | ptah.code.searchSymbols(query) via execute_code | LSP symbol index — no false positives from string matches |
+| Reading full file to inspect structure | ptah.ast.analyze(file) via execute_code | Returns class/function outlines; 40-60% token savings vs Read |
 
 ### DO NOT use Bash, Grep, or Glob when a ptah_* tool provides the same capability.
 
@@ -76,6 +78,9 @@ Only fall back to built-in tools when:
 - You need to **write** files (ptah is read-only)
 - You need to run **build/test commands** (npm, nx, git commit, etc.)
 - The ptah tool returns an error and you need an alternative
+
+> [!IMPORTANT]
+> **Symbol and AST lookups are MANDATORY via ptah before Grep/Glob.** When looking for a function, class, method, or type definition, you MUST call \`ptah.code.searchSymbols\` or \`ptah.ast.analyze\` via execute_code FIRST. Only fall back to Grep after those tools return no results or error.
 
 ### IDE Access via execute_code
 
@@ -85,7 +90,16 @@ Use execute_code with the \`ptah\` global object for operations only available t
 - **Structural summaries**: ptah.context.enrichFile(file) — import signatures + class outlines
 - **LSP actions**: ptah.ide.actions.organizeImports(file), ptah.ide.actions.rename(file, line, col, newName)
 - **Self-docs**: ptah.help() / ptah.help('namespace')
-- **Memory recall**: ptah.memory.search(query, maxResults?) — hybrid BM25+vector search over persistent memory from past sessions; ptah.memory.list({tier?, limit?, offset?}) — list stored memories. Call ptah.memory.search when the user references past context, prior decisions, or asks what you remember.
+- **Memory recall**: ptah.memory.search(query, maxResults?) — hybrid BM25+vector search over persistent memory from past sessions; ptah.memory.list({tier?, limit?, offset?}) — list stored memories.
+
+> [!IMPORTANT]
+> **MANDATORY pre-response checklist — run BEFORE producing your first non-trivial response:**
+> 1. Does the user's message contain any of these trigger phrases: "last time", "previously", "we talked about", "you remember", "earlier", "before", or any reference to past decisions, user preferences, or "the X we worked on"?
+> 2. If YES → **call ptah.memory.search(query) immediately**, before composing your reply. Do not answer from assumptions.
+> 3. If the question is about user preferences, habitual choices, or anything that would have been established in a prior session → treat it as an implicit memory trigger and search first.
+>
+> This is not a soft suggestion. Skipping memory search when a trigger is present is a failure mode.
+
 - **Memory purge (diagnostic only)**: \`ptah.memory.purgeBySubjectPattern(pattern, mode)\` removes memory entries from the active workspace whose subject matches the pattern (\`mode: 'substring'\` for literal substring match, \`'like'\` for raw SQL LIKE syntax). Returns \`{ deleted }\` or \`{ deleted: 0, error }\`. Always state the count back to the user before claiming success. Reserve this for diagnostic cleanup the user explicitly asks for — never invoke pre-emptively.
 
 ### Workflow: Start Every Task With Ptah
@@ -288,6 +302,8 @@ You MUST prefer ptah_* tools over built-in alternatives. Ptah tools leverage VS 
 | \`git status\` via Bash | ptah_get_dirty_files | Shows unsaved VS Code buffers too |
 | Reading a file to check size | ptah_count_tokens | Token count, not byte count |
 | Web search / browsing | ptah_web_search | Grounded web search via LLM providers |
+| Grep/Glob to find a **function, class, or method** | ptah.code.searchSymbols(query) via execute_code | LSP symbol index — no false positives from string matches |
+| Reading full file to inspect structure | ptah.ast.analyze(file) via execute_code | Returns class/function outlines; 40-60% token savings vs Read |
 
 ### DO NOT use Bash, Grep, or Glob when a ptah_* tool provides the same capability.
 
@@ -295,6 +311,9 @@ Only fall back to built-in tools when:
 - You need to **write** files (ptah is read-only)
 - You need to run **build/test commands** (npm, nx, git commit, etc.)
 - The ptah tool returns an error and you need an alternative
+
+> [!IMPORTANT]
+> **Symbol and AST lookups are MANDATORY via ptah before Grep/Glob.** When looking for a function, class, method, or type definition, you MUST call \`ptah.code.searchSymbols\` or \`ptah.ast.analyze\` via execute_code FIRST. Only fall back to Grep after those tools return no results or error.
 
 ### IDE Access via execute_code
 
@@ -304,7 +323,16 @@ Use execute_code with the \`ptah\` global object for operations only available t
 - **Structural summaries**: ptah.context.enrichFile(file) — import signatures + class outlines
 - **LSP actions**: ptah.ide.actions.organizeImports(file), ptah.ide.actions.rename(file, line, col, newName)
 - **Self-docs**: ptah.help() / ptah.help('namespace')
-- **Memory recall**: ptah.memory.search(query, maxResults?) — hybrid BM25+vector search over persistent memory from past sessions; ptah.memory.list({tier?, limit?, offset?}) — list stored memories. Call ptah.memory.search when the user references past context, prior decisions, or asks what you remember.
+- **Memory recall**: ptah.memory.search(query, maxResults?) — hybrid BM25+vector search over persistent memory from past sessions; ptah.memory.list({tier?, limit?, offset?}) — list stored memories.
+
+> [!IMPORTANT]
+> **MANDATORY pre-response checklist — run BEFORE producing your first non-trivial response:**
+> 1. Does the user's message contain any of these trigger phrases: "last time", "previously", "we talked about", "you remember", "earlier", "before", or any reference to past decisions, user preferences, or "the X we worked on"?
+> 2. If YES → **call ptah.memory.search(query) immediately**, before composing your reply. Do not answer from assumptions.
+> 3. If the question is about user preferences, habitual choices, or anything that would have been established in a prior session → treat it as an implicit memory trigger and search first.
+>
+> This is not a soft suggestion. Skipping memory search when a trigger is present is a failure mode.
+
 - **Memory purge (diagnostic only)**: \`ptah.memory.purgeBySubjectPattern(pattern, mode)\` removes memory entries from the active workspace whose subject matches the pattern (\`mode: 'substring'\` for literal substring match, \`'like'\` for raw SQL LIKE syntax). Returns \`{ deleted }\` or \`{ deleted: 0, error }\`. Always state the count back to the user before claiming success. Reserve this for diagnostic cleanup the user explicitly asks for — never invoke pre-emptively.
 
 ### Workflow: Start Every Task With Ptah
