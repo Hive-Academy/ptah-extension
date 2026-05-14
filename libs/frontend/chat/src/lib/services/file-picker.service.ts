@@ -572,18 +572,4 @@ export class FilePickerService {
       this.textExtensions.has(extension) || this.imageExtensions.has(extension)
     );
   }
-
-  /**
-   * Get file type icon for UI display
-   *
-   * @param file - File or suggestion to get icon for
-   * @returns Emoji icon representing file type
-   */
-  getFileTypeIcon(file: FileSuggestion | ChatFile): string {
-    if ('isImage' in file && file.isImage) return '🖼️';
-    if ('isText' in file && file.isText) return '📄';
-    if (file.type === 'image') return '🖼️';
-    if (file.type === 'text') return '📄';
-    return '📁';
-  }
 }
