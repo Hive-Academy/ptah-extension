@@ -90,7 +90,7 @@ Use execute_code with the \`ptah\` global object for operations only available t
 - **Structural summaries**: ptah.context.enrichFile(file) — import signatures + class outlines
 - **LSP actions**: ptah.ide.actions.organizeImports(file), ptah.ide.actions.rename(file, line, col, newName)
 - **Self-docs**: ptah.help() / ptah.help('namespace')
-- **Memory recall**: ptah.memory.search(query, maxResults?) — hybrid BM25+vector search over persistent memory from past sessions; ptah.memory.list({tier?, limit?, offset?}) — list stored memories.
+- **Memory recall**: ptah.memory.search(query, opts?) — hybrid BM25+vector search over persistent memory from past sessions. \`opts\` is an optional object: \`{ workspace: true }\` scopes to the active workspace, \`{ workspaceRoot: '/abs' }\` uses an explicit path, \`{ maxResults: N }\` tunes result count (default 10). Omitting opts (or just passing a number for maxResults) searches globally. Result includes \`scope: 'workspace'|'global'\` and, if \`workspace: true\` was requested but no workspace was open, \`reason: 'no_workspace'\`. Also: ptah.memory.list({tier?, limit?, offset?}) — list stored memories.
 
 > [!IMPORTANT]
 > **MANDATORY pre-response checklist — run BEFORE producing your first non-trivial response:**
@@ -323,7 +323,7 @@ Use execute_code with the \`ptah\` global object for operations only available t
 - **Structural summaries**: ptah.context.enrichFile(file) — import signatures + class outlines
 - **LSP actions**: ptah.ide.actions.organizeImports(file), ptah.ide.actions.rename(file, line, col, newName)
 - **Self-docs**: ptah.help() / ptah.help('namespace')
-- **Memory recall**: ptah.memory.search(query, maxResults?) — hybrid BM25+vector search over persistent memory from past sessions; ptah.memory.list({tier?, limit?, offset?}) — list stored memories.
+- **Memory recall**: ptah.memory.search(query, opts?) — hybrid BM25+vector search over persistent memory from past sessions. \`opts\` is an optional object: \`{ workspace: true }\` scopes to the active workspace, \`{ workspaceRoot: '/abs' }\` uses an explicit path, \`{ maxResults: N }\` tunes result count (default 10). Omitting opts (or just passing a number for maxResults) searches globally. Result includes \`scope: 'workspace'|'global'\` and, if \`workspace: true\` was requested but no workspace was open, \`reason: 'no_workspace'\`. Also: ptah.memory.list({tier?, limit?, offset?}) — list stored memories.
 
 > [!IMPORTANT]
 > **MANDATORY pre-response checklist — run BEFORE producing your first non-trivial response:**

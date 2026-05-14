@@ -9,8 +9,11 @@
  * `agent-namespace.builder.ts` and `git-namespace.builder.ts`.
  *
  * TASK_2026_THOTH_MEMORY_READ
+ * TASK_2026_122 (follow-up B): added workspace-scope option bag to ptah.memory.search
+ * TASK_2026_122 (Critical Issue 1): Zod validation at MCP boundary for MemorySearchOptions
  */
 
+import { z } from 'zod';
 import type {
   IMemoryReader,
   IMemoryLister,
@@ -26,14 +29,59 @@ export interface MemoryNamespaceDependencies {
   getWorkspaceRoot: () => string;
 }
 
+/**
+ * Options bag for ptah.memory.search.
+ *
+ * - `workspace: true` — scope search to the active workspace (auto-injected root).
+ * - `workspaceRoot: '/abs/path'` — scope search to an explicit absolute path (wins over `workspace`).
+ * - `maxResults` — maximum hits to return (default: 10, capped to 50 by service).
+ *
+ * When both `workspace` and `workspaceRoot` are supplied, `workspaceRoot` wins,
+ * consistent with the frontend filter behaviour.
+ */
+export interface MemorySearchOptions {
+  workspace?: boolean;
+  workspaceRoot?: string;
+  maxResults?: number;
+}
+
+/**
+ * Zod schema for validating the `MemorySearchOptions` object at the MCP boundary.
+ *
+ * The MCP tool path receives untrusted JSON from AI agent code. Fields like
+ * `workspaceRoot` must be validated before calling `.trim()` or similar string
+ * methods, as agents may send `{ workspaceRoot: 123 }` or `{ workspaceRoot: null }`.
+ *
+ * Schema constraints mirror the RPC-handler `MemorySearchParamsSchema` in
+ * `rpc-handlers/src/lib/handlers/memory-rpc.schema.ts`:
+ * - `workspaceRoot` uses `min(1)` to reject empty strings.
+ * - `maxResults` is capped at 50 (same as the RPC handler's `topK` limit).
+ */
+export const MemorySearchOptionsSchema = z.object({
+  workspace: z.boolean().optional(),
+  workspaceRoot: z.string().min(1).optional(),
+  maxResults: z.number().int().positive().max(50).optional(),
+});
+
+/**
+ * Search result with an optional `scope` hint so the agent knows whether its
+ * workspace-scope request was honoured or silently fell back to global.
+ */
+export type MemorySearchResult =
+  | {
+      hits: readonly MemoryHit[];
+      bm25Only: boolean;
+      scope: 'workspace' | 'global';
+      /** Present only when `workspace: true` was requested but no workspace was open. */
+      reason?: 'no_workspace';
+    }
+  | { hits: []; bm25Only: true; scope: 'global' | 'workspace'; error: string };
+
 export interface MemoryNamespace {
   search(
     query: string,
-    maxResults?: number,
-  ): Promise<
-    | { hits: readonly MemoryHit[]; bm25Only: boolean }
-    | { hits: []; bm25Only: true; error: string }
-  >;
+    optionsOrMaxResults?: unknown,
+  ): Promise<MemorySearchResult>;
   list(options?: {
     tier?: string;
     limit?: number;
@@ -48,6 +96,112 @@ export interface MemoryNamespace {
   ): Promise<{ deleted: number } | { deleted: 0; error: string }>;
 }
 
+/**
+ * Resolve the effective workspace root and scope label from the options bag.
+ *
+ * Resolution order (matches frontend filter precedence):
+ * 1. `options.workspaceRoot` (explicit absolute path) — always wins.
+ * 2. `options.workspace === true` — auto-inject active workspace root.
+ * 3. No option / number override (legacy positional) — global (undefined workspaceRoot).
+ *
+ * The second argument accepts `unknown` because the MCP boundary receives
+ * untrusted JSON. Object inputs are validated via `MemorySearchOptionsSchema`
+ * using `safeParse`; invalid objects are silently treated as no opts (global
+ * search) per the error-envelope contract — no TypeError escapes.
+ *
+ * Returns `{ workspaceRoot, scope, noWorkspaceFallback, validatedOpts }`.
+ * `validatedOpts` carries the parsed `MemorySearchOptions` when an object
+ * passed validation (used by the caller to read `maxResults`).
+ */
+function resolveSearchScope(
+  optionsOrMaxResults: unknown,
+  getWorkspaceRoot: () => string,
+): {
+  workspaceRoot: string | undefined;
+  scope: 'workspace' | 'global';
+  noWorkspaceFallback: boolean;
+  validatedOpts: MemorySearchOptions | undefined;
+} {
+  // Backward-compat: positional number or undefined → global search
+  if (
+    optionsOrMaxResults === undefined ||
+    typeof optionsOrMaxResults === 'number'
+  ) {
+    return {
+      workspaceRoot: undefined,
+      scope: 'global',
+      noWorkspaceFallback: false,
+      validatedOpts: undefined,
+    };
+  }
+
+  // Non-object values (string, null, array, boolean, etc.) → treat as no opts
+  if (
+    optionsOrMaxResults === null ||
+    typeof optionsOrMaxResults !== 'object' ||
+    Array.isArray(optionsOrMaxResults)
+  ) {
+    return {
+      workspaceRoot: undefined,
+      scope: 'global',
+      noWorkspaceFallback: false,
+      validatedOpts: undefined,
+    };
+  }
+
+  // Object input: validate at the MCP boundary via Zod before touching any fields
+  const parsed = MemorySearchOptionsSchema.safeParse(optionsOrMaxResults);
+  if (!parsed.success) {
+    // Invalid shape (e.g. workspaceRoot: 123, maxResults: -1) → treat as no opts
+    return {
+      workspaceRoot: undefined,
+      scope: 'global',
+      noWorkspaceFallback: false,
+      validatedOpts: undefined,
+    };
+  }
+
+  const opts = parsed.data;
+
+  // Explicit absolute path wins over workspace flag
+  if (opts.workspaceRoot !== undefined) {
+    // workspaceRoot already passed min(1) so it is a non-empty string
+    return {
+      workspaceRoot: opts.workspaceRoot,
+      scope: 'workspace',
+      noWorkspaceFallback: false,
+      validatedOpts: opts,
+    };
+  }
+
+  if (opts.workspace === true) {
+    const root = getWorkspaceRoot();
+    if (!root) {
+      // No active workspace — fall back to global with a hint
+      return {
+        workspaceRoot: undefined,
+        scope: 'global',
+        noWorkspaceFallback: true,
+        validatedOpts: opts,
+      };
+    }
+    return {
+      workspaceRoot: root,
+      scope: 'workspace',
+      noWorkspaceFallback: false,
+      validatedOpts: opts,
+    };
+  }
+
+  // Options bag supplied but neither workspace nor workspaceRoot → global
+  return {
+    workspaceRoot: undefined,
+    scope: 'global',
+    noWorkspaceFallback: false,
+    validatedOpts: opts,
+  };
+}
+
 export function buildMemoryNamespace(
   deps: MemoryNamespaceDependencies,
 ): MemoryNamespace {
@@ -55,21 +209,40 @@ export function buildMemoryNamespace(
     deps;
 
   return {
-    search: async (query: string, maxResults = 10) => {
+    search: async (
+      query: string,
+      optionsOrMaxResults?: unknown,
+    ): Promise<MemorySearchResult> => {
       const reader = getMemorySearch();
       if (!reader) {
         return {
           hits: [] as [],
           bm25Only: true as const,
+          scope: 'global',
           error: 'Memory search service not available',
         };
       }
+
+      const { workspaceRoot, scope, noWorkspaceFallback, validatedOpts } =
+        resolveSearchScope(optionsOrMaxResults, getWorkspaceRoot);
+
+      // Resolve maxResults — positional number wins; validated opts bag next; then default
+      const maxResults =
+        typeof optionsOrMaxResults === 'number'
+          ? optionsOrMaxResults
+          : (validatedOpts?.maxResults ?? 10);
+
       try {
-        return await reader.search(query, maxResults, getWorkspaceRoot());
+        const result = await reader.search(query, maxResults, workspaceRoot);
+        if (noWorkspaceFallback) {
+          return { ...result, scope, reason: 'no_workspace' as const };
+        }
+        return { ...result, scope };
       } catch (err) {
         return {
           hits: [] as [],
           bm25Only: true as const,
+          scope,
           error: err instanceof Error ? err.message : String(err),
         };
       }
