@@ -106,12 +106,144 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   const handlers = child.resolve(MemoryRpcHandlers);
   handlers.register();
 
-  return { handlers, rpcHandler, store, logger, workspaceProvider };
+  return { handlers, rpcHandler, store, search, logger, workspaceProvider };
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// memory:search — workspaceRoot forwarding (TASK_2026_122)
+// ---------------------------------------------------------------------------
+
+describe('MemoryRpcHandlers — memory:search workspaceRoot forwarding', () => {
+  it('forwards workspaceRoot to search.searchRich when provided', async () => {
+    const { rpcHandler, search } = buildHandlers(['/workspace/project']);
+    search.searchRich.mockResolvedValue({ hits: [], bm25Only: false });
+
+    await rpcHandler.call('memory:search', {
+      query: 'hello world',
+      topK: 5,
+      workspaceRoot: '/workspace/project',
+    });
+
+    expect(search.searchRich).toHaveBeenCalledWith(
+      'hello world',
+      5,
+      '/workspace/project',
+    );
+  });
+
+  it('passes undefined workspaceRoot to search.searchRich when param is absent (global search)', async () => {
+    const { rpcHandler, search } = buildHandlers(['/workspace/project']);
+    search.searchRich.mockResolvedValue({ hits: [], bm25Only: false });
+
+    await rpcHandler.call('memory:search', {
+      query: 'hello world',
+      topK: 10,
+    });
+
+    expect(search.searchRich).toHaveBeenCalledWith(
+      'hello world',
+      10,
+      undefined,
+    );
+  });
+
+  it('returns hits and bm25Only from search.searchRich', async () => {
+    const { rpcHandler, search } = buildHandlers(['/workspace/project']);
+    const fakeHit = {
+      memory: {
+        id: 'mem-1',
+        sessionId: null,
+        workspaceRoot: '/workspace/project',
+        tier: 'core',
+        kind: 'fact',
+        subject: 'test',
+        content: 'test content',
+        sourceMessageIds: [],
+        salience: 0.5,
+        decayRate: 0.01,
+        hits: 0,
+        pinned: false,
+        createdAt: 1000,
+        updatedAt: 1000,
+        lastUsedAt: 1000,
+        expiresAt: null,
+      },
+      chunk: {
+        id: 'ck-1',
+        memoryId: 'mem-1',
+        ord: 0,
+        text: 'test content',
+        tokenCount: 2,
+        createdAt: 1000,
+      },
+      score: 0.9,
+      bm25Rank: 1,
+      vecRank: null,
+    };
+    search.searchRich.mockResolvedValue({ hits: [fakeHit], bm25Only: true });
+
+    const result = await rpcHandler.call('memory:search', {
+      query: 'test',
+      workspaceRoot: '/workspace/project',
+    });
+
+    expect(result).toMatchObject({ bm25Only: true });
+    expect((result as { hits: unknown[] }).hits).toHaveLength(1);
+  });
+
+  it('returns empty hits when params are absent', async () => {
+    const { rpcHandler } = buildHandlers(['/workspace/project']);
+
+    const result = await rpcHandler.call('memory:search', undefined);
+
+    expect(result).toEqual({ hits: [], bm25Only: false });
+  });
+
+  it('ignores invalid workspaceRoot (empty string) and treats it as absent', async () => {
+    const { rpcHandler, search } = buildHandlers(['/workspace/project']);
+    search.searchRich.mockResolvedValue({ hits: [], bm25Only: false });
+
+    await rpcHandler.call('memory:search', {
+      query: 'hello',
+      workspaceRoot: '', // empty — Zod min(1) rejects it
+    });
+
+    // workspaceRoot should be undefined (schema rejected the empty string)
+    expect(search.searchRich).toHaveBeenCalledWith('hello', 10, undefined);
+  });
+
+  it('preserves workspaceRoot when topK is invalid (topK: 0 fails positive() but must not drop scope)', async () => {
+    // Regression: previously parsed = MemorySearchParamsSchema.safeParse(params) and on failure
+    // workspaceRoot silently became undefined — cross-workspace memory leak.
+    const { rpcHandler, search } = buildHandlers(['/workspace/project']);
+    search.searchRich.mockResolvedValue({ hits: [], bm25Only: false });
+
+    await rpcHandler.call('memory:search', {
+      query: 'x',
+      topK: 0, // fails z.number().positive() — must NOT drop workspaceRoot
+      workspaceRoot: '/ws',
+    });
+
+    expect(search.searchRich).toHaveBeenCalledWith('x', 0, '/ws');
+  });
+
+  it('preserves workspaceRoot when topK exceeds max (topK: 51 fails max(50) but must not drop scope)', async () => {
+    const { rpcHandler, search } = buildHandlers(['/workspace/project']);
+    search.searchRich.mockResolvedValue({ hits: [], bm25Only: false });
+
+    await rpcHandler.call('memory:search', {
+      query: 'x',
+      topK: 51, // fails z.number().max(50) — must NOT drop workspaceRoot
+      workspaceRoot: '/ws',
+    });
+
+    expect(search.searchRich).toHaveBeenCalledWith('x', 51, '/ws');
+  });
+});
 
 describe('MemoryRpcHandlers — memory:purgeBySubjectPattern', () => {
   describe('valid params with authorized workspaceRoot', () => {

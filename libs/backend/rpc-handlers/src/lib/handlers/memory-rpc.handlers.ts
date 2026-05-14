@@ -44,7 +44,15 @@ import type {
   RpcMethodName,
 } from '@ptah-extension/shared';
 import { RpcUserError } from '@ptah-extension/vscode-core';
+import { z } from 'zod';
 import { MemoryPurgeBySubjectPatternParamsSchema } from './memory-rpc.schema';
+
+/**
+ * Narrow schema for extracting workspaceRoot independently of the full
+ * MemorySearchParamsSchema. This ensures that a bad `topK` or `query` value
+ * cannot poison the scope — workspaceRoot survives any other field's failure.
+ */
+const WorkspaceRootSchema = z.string().min(1).optional();
 
 function toMemoryWire(m: Memory): MemoryWire {
   return {
@@ -131,7 +139,18 @@ export class MemoryRpcHandlers {
         if (!params || typeof params.query !== 'string') {
           return { hits: [], bm25Only: false };
         }
-        const r = await this.search.searchRich(params.query, params.topK ?? 10);
+        // Extract workspaceRoot independently so that an invalid topK or query
+        // field cannot silently drop the scope (cross-workspace memory leak).
+        // The full MemorySearchParamsSchema (in memory-rpc.schema.ts) remains
+        // the end-to-end validation contract used by the test layer.
+        const workspaceRoot = WorkspaceRootSchema.safeParse(
+          (params as { workspaceRoot?: unknown }).workspaceRoot,
+        ).data;
+        const r = await this.search.searchRich(
+          params.query,
+          params.topK ?? 10,
+          workspaceRoot,
+        );
         const hits: MemorySearchHitWire[] = r.hits.map((h) => ({
           memory: toMemoryWire(h.memory),
           chunk: toChunkWire(h.chunk),

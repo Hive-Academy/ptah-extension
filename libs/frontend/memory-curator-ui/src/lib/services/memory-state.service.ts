@@ -147,10 +147,12 @@ export class MemoryStateService {
     this._loading.set(true);
     this._error.set(null);
     try {
-      // NOTE: memory:search RPC does not currently filter by workspaceRoot —
-      // results are global regardless of scopeFilter. A future task will add
-      // workspace scoping to the backend search handler.
-      const result = await this.rpcService.search(trimmed, 50);
+      const scope = this._scopeFilter();
+      const workspaceRoot =
+        scope === 'workspace'
+          ? (this.getWorkspaceRoot() ?? undefined)
+          : undefined;
+      const result = await this.rpcService.search(trimmed, 50, workspaceRoot);
       this._entries.set(result.hits.map((hit) => hit.memory));
     } catch (err) {
       this._error.set(toErrorMessage(err));

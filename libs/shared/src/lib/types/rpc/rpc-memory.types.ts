@@ -54,6 +54,7 @@ export interface MemoryListResult {
 export interface MemorySearchParams {
   readonly query: string;
   readonly topK?: number;
+  readonly workspaceRoot?: string;
 }
 export interface MemorySearchHitWire {
   readonly memory: MemoryWire;

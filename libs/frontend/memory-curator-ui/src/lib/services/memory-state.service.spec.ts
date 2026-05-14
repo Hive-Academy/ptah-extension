@@ -96,3 +96,99 @@ describe('MemoryStateService — scopeFilter', () => {
     expect(listMock.mock.calls[1][0].workspaceRoot).toBe('D:/ws');
   });
 });
+
+// ---------------------------------------------------------------------------
+// MemoryStateService — search() scopeFilter wiring (TASK_2026_122)
+// ---------------------------------------------------------------------------
+
+describe('MemoryStateService — search() scopeFilter', () => {
+  let service: MemoryStateService;
+  let searchMock: jest.Mock;
+  let listMock: jest.Mock;
+  const workspaceSignal = signal<{
+    path: string;
+    name: string;
+    type: string;
+  } | null>({
+    path: 'D:/ws',
+    name: 'ws',
+    type: 'workspace',
+  });
+
+  beforeEach(() => {
+    searchMock = jest.fn().mockResolvedValue({ hits: [], bm25Only: false });
+    listMock = jest.fn().mockResolvedValue({ memories: [] });
+
+    TestBed.configureTestingModule({
+      providers: [
+        MemoryStateService,
+        {
+          provide: MemoryRpcService,
+          useValue: {
+            list: listMock,
+            search: searchMock,
+            stats: jest
+              .fn()
+              .mockResolvedValue({
+                core: 0,
+                recall: 0,
+                archival: 0,
+                lastCuratedAt: null,
+              }),
+          },
+        },
+        {
+          provide: AppStateManager,
+          useValue: { workspaceInfo: workspaceSignal },
+        },
+      ],
+    });
+    service = TestBed.inject(MemoryStateService);
+  });
+
+  it('search() in "workspace" scope passes the active workspace path as workspaceRoot', async () => {
+    service.setScopeFilter('workspace');
+    await service.search('hello');
+
+    expect(searchMock).toHaveBeenCalledTimes(1);
+    const workspaceRoot = (
+      searchMock.mock.calls[0] as [string, number, string | undefined]
+    )[2];
+    expect(workspaceRoot).toBe('D:/ws');
+  });
+
+  it('search() in "all" scope omits workspaceRoot (undefined)', async () => {
+    service.setScopeFilter('all');
+    await service.search('hello');
+
+    expect(searchMock).toHaveBeenCalledTimes(1);
+    const workspaceRoot = (
+      searchMock.mock.calls[0] as [string, number, string | undefined]
+    )[2];
+    expect(workspaceRoot).toBeUndefined();
+  });
+
+  it('search() with empty query falls back to refresh() instead of calling search RPC', async () => {
+    service.setScopeFilter('workspace');
+    await service.search('   ');
+
+    expect(searchMock).not.toHaveBeenCalled();
+    expect(listMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('switching scope from "workspace" to "all" makes subsequent search() global', async () => {
+    service.setScopeFilter('workspace');
+    await service.search('hello');
+    const firstRoot = (
+      searchMock.mock.calls[0] as [string, number, string | undefined]
+    )[2];
+    expect(firstRoot).toBe('D:/ws');
+
+    service.setScopeFilter('all');
+    await service.search('hello');
+    const secondRoot = (
+      searchMock.mock.calls[1] as [string, number, string | undefined]
+    )[2];
+    expect(secondRoot).toBeUndefined();
+  });
+});

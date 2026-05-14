@@ -74,10 +74,15 @@ export class MemoryRpcService {
   public async search(
     query: string,
     topK?: number,
+    workspaceRoot?: string,
   ): Promise<MemorySearchResult> {
     const result = await this.rpc.call(
       'memory:search',
-      { query, ...(topK !== undefined ? { topK } : {}) },
+      {
+        query,
+        ...(topK !== undefined ? { topK } : {}),
+        ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
+      },
       { timeout: MEMORY_RPC_TIMEOUTS.LIST_MS },
     );
 
