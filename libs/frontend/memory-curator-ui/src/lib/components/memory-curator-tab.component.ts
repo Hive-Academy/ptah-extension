@@ -9,13 +9,15 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
-import { VSCodeService } from '@ptah-extension/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
+import { WorkspaceIndexingComponent } from '@ptah-extension/workspace-indexing';
 import type { MemoryWire } from '@ptah-extension/shared';
 
 import {
   MemoryStateService,
   type MemoryTierFilter,
 } from '../services/memory-state.service';
+import { MemoryRpcService } from '../services/memory-rpc.service';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -43,7 +45,7 @@ interface TierChip {
   selector: 'ptah-memory-curator-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule],
+  imports: [CommonModule, WorkspaceIndexingComponent],
   template: `
     @if (!isElectron()) {
       <div role="alert" class="alert alert-info">
@@ -105,6 +107,72 @@ interface TierChip {
         @if (error()) {
           <div role="alert" class="alert alert-error">
             <span class="text-sm">{{ error() }}</span>
+          </div>
+        }
+
+        <!-- Purge by pattern toolbar -->
+        <section
+          class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-200/40 p-3 md:flex-row md:items-center"
+          aria-label="Purge memory entries by subject pattern"
+        >
+          <div class="flex flex-1 flex-col gap-1">
+            <label
+              for="memory-purge-pattern"
+              class="text-xs uppercase text-base-content/60"
+            >
+              Purge by subject pattern
+            </label>
+            <input
+              id="memory-purge-pattern"
+              type="text"
+              class="input input-sm input-bordered w-full"
+              placeholder="e.g. node_modules  (substring)  or  code:function:%  (like)"
+              [value]="purgePattern()"
+              (input)="onPurgePatternInput($event)"
+              [disabled]="purging()"
+              aria-label="Pattern to match against memory subject"
+            />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label
+              for="memory-purge-mode"
+              class="text-xs uppercase text-base-content/60"
+            >
+              Mode
+            </label>
+            <select
+              id="memory-purge-mode"
+              class="select select-sm select-bordered"
+              [value]="purgeMode()"
+              (change)="onPurgeModeChange($event)"
+              [disabled]="purging()"
+              aria-label="Pattern match mode"
+            >
+              <option value="substring">substring</option>
+              <option value="like">like</option>
+            </select>
+          </div>
+          <button
+            type="button"
+            class="btn btn-sm btn-error md:self-end"
+            [disabled]="!purgePattern().trim() || purging()"
+            (click)="onPurge()"
+          >
+            @if (purging()) {
+              <span class="loading loading-spinner loading-xs"></span>
+            }
+            Purge
+          </button>
+        </section>
+
+        @if (purgeError()) {
+          <div role="alert" class="alert alert-error">
+            <span class="text-sm">{{ purgeError() }}</span>
+          </div>
+        }
+        @if (purgeInfo()) {
+          <div role="status" class="alert alert-success">
+            <span class="text-sm">{{ purgeInfo() }}</span>
           </div>
         }
 
@@ -221,33 +289,10 @@ interface TierChip {
           }
         </section>
 
-        <!-- Settings panel (read-only) -->
-        <section
-          class="rounded-lg border border-base-300 bg-base-200/40 p-3"
-          aria-label="Memory settings (read-only)"
-        >
-          <div class="text-xs uppercase text-base-content/60">
-            Memory settings (edit in Settings → Thoth)
-          </div>
-          <dl class="mt-2 grid grid-cols-1 gap-1 text-xs md:grid-cols-3">
-            <div>
-              <dt class="text-base-content/60">Tier limits</dt>
-              <dd class="font-mono text-base-content">
-                core / recall / archival
-              </dd>
-            </div>
-            <div>
-              <dt class="text-base-content/60">Decay halflife</dt>
-              <dd class="font-mono text-base-content">
-                memory.decayHalflifeDays
-              </dd>
-            </div>
-            <div>
-              <dt class="text-base-content/60">Search top-K</dt>
-              <dd class="font-mono text-base-content">memory.searchTopK</dd>
-            </div>
-          </dl>
-        </section>
+        <!-- Workspace indexing panel (moved from Settings → Workspace Indexing) -->
+        <div aria-label="Workspace indexing settings">
+          <ptah-workspace-indexing />
+        </div>
       </div>
     }
   `,
@@ -255,6 +300,8 @@ interface TierChip {
 export class MemoryCuratorTabComponent implements OnInit {
   private readonly state = inject(MemoryStateService);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly appState = inject(AppStateManager);
+  private readonly rpcService = inject(MemoryRpcService);
 
   /** Whether the webview is running inside the Electron desktop app. */
   public readonly isElectron = computed(
@@ -270,6 +317,17 @@ export class MemoryCuratorTabComponent implements OnInit {
 
   /** Local mirror of the search input — debounced into `state.search()`. */
   protected readonly searchInput = signal<string>('');
+
+  /** Pattern entered into the purge toolbar input. */
+  protected readonly purgePattern = signal<string>('');
+  /** Match mode for the purge pattern (substring → escaped LIKE, like → raw). */
+  protected readonly purgeMode = signal<'substring' | 'like'>('substring');
+  /** Whether a purge RPC is in flight (disables the button + input). */
+  protected readonly purging = signal<boolean>(false);
+  /** Error message from the most recent purge RPC, surfaced inline. */
+  protected readonly purgeError = signal<string | null>(null);
+  /** Info message after a successful purge (e.g. "Deleted 4 entries."). */
+  protected readonly purgeInfo = signal<string | null>(null);
   protected readonly tierFilter = this.state.tierFilter;
   protected readonly filteredEntries = this.state.filteredEntries;
   protected readonly loading = this.state.loading;
@@ -355,6 +413,68 @@ export class MemoryCuratorTabComponent implements OnInit {
 
   protected onRebuildIndex(): void {
     void this.state.rebuildIndex();
+  }
+
+  protected onPurgePatternInput(event: Event): void {
+    this.purgePattern.set((event.target as HTMLInputElement).value);
+  }
+
+  protected onPurgeModeChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    if (value === 'substring' || value === 'like') {
+      this.purgeMode.set(value);
+    }
+  }
+
+  /**
+   * Purge memory entries whose subject matches the entered pattern. Requires
+   * user confirmation via `window.confirm` and refreshes the list + stats on
+   * success. Errors are surfaced through the shared `state.error` signal.
+   */
+  protected onPurge(): void {
+    if (this.purging()) return;
+    const pattern = this.purgePattern().trim();
+    if (pattern === '') return;
+    const mode = this.purgeMode();
+    const workspaceRoot = this.appState.workspaceInfo()?.path ?? null;
+
+    const confirmed = window.confirm(
+      `Delete all memory entries whose subject matches '${pattern}' (mode: ${mode})? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    this.purging.set(true);
+    this.purgeError.set(null);
+    this.purgeInfo.set(null);
+    void this.runPurge(pattern, mode, workspaceRoot);
+  }
+
+  private async runPurge(
+    pattern: string,
+    mode: 'substring' | 'like',
+    workspaceRoot: string | null,
+  ): Promise<void> {
+    try {
+      const result = await this.rpcService.purgeBySubjectPattern(
+        pattern,
+        mode,
+        workspaceRoot,
+      );
+      this.purgePattern.set('');
+      this.purgeInfo.set(
+        `Deleted ${result.deleted} ${result.deleted === 1 ? 'entry' : 'entries'}.`,
+      );
+      await this.state.refresh();
+      await this.state.loadStats();
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'memory:purgeBySubjectPattern failed';
+      this.purgeError.set(message);
+    } finally {
+      this.purging.set(false);
+    }
   }
 
   protected tierBadgeClass(tier: MemoryWire['tier']): string {

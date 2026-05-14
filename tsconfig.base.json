@@ -106,6 +106,9 @@
       "@ptah-extension/shared": ["libs/shared/src/index.ts"],
       "@ptah-extension/shared/testing": ["libs/shared/src/testing/index.ts"],
       "@ptah-extension/ui": ["libs/frontend/ui/src/index.ts"],
+      "@ptah-extension/workspace-indexing": [
+        "libs/frontend/workspace-indexing/src/index.ts"
+      ],
       "@ptah-extension/webview-e2e-harness": [
         "libs/frontend/webview-e2e-harness/src/index.ts"
       ],

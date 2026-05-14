@@ -129,14 +129,6 @@
       </button>
       <button
         class="tab tab-sm flex-1 gap-1.5"
-        [class.tab-active]="activeSettingsTab() === 'workspace-indexing'"
-        (click)="setActiveTab('workspace-indexing')"
-      >
-        <lucide-angular [img]="DatabaseIcon" class="w-3 h-3" />
-        <span class="text-xs">Workspace Indexing</span>
-      </button>
-      <button
-        class="tab tab-sm flex-1 gap-1.5"
         [class.tab-active]="activeSettingsTab() === 'project-setup'"
         (click)="setActiveTab('project-setup')"
       >
@@ -425,14 +417,7 @@
     }
 
     <!-- ============================================ -->
-    <!-- Tab 4: Workspace Indexing (TASK_2026_114)    -->
-    <!-- ============================================ -->
-    @if (activeSettingsTab() === 'workspace-indexing') {
-      <ptah-workspace-indexing />
-    }
-
-    <!-- ============================================ -->
-    <!-- Tab 5: Project Setup (Setup Wizard)          -->
+    <!-- Tab 4: Project Setup (Setup Wizard)          -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'project-setup') {
       <div class="border border-secondary/30 rounded-md bg-secondary/5">
