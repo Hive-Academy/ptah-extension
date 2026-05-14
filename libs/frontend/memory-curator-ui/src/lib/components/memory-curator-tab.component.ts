@@ -155,7 +155,10 @@ interface TierChip {
           <button
             type="button"
             class="btn btn-sm btn-error md:self-end"
-            [disabled]="!purgePattern().trim() || purging()"
+            [disabled]="purgeDisabled()"
+            [attr.title]="
+              !hasWorkspace() ? 'Open a workspace to purge memory.' : null
+            "
             (click)="onPurge()"
           >
             @if (purging()) {
@@ -164,6 +167,12 @@ interface TierChip {
             Purge
           </button>
         </section>
+
+        @if (!hasWorkspace()) {
+          <p class="text-xs text-base-content/60">
+            Open a workspace to purge memory.
+          </p>
+        }
 
         @if (purgeError()) {
           <div role="alert" class="alert alert-error">
@@ -328,6 +337,14 @@ export class MemoryCuratorTabComponent implements OnInit {
   protected readonly purgeError = signal<string | null>(null);
   /** Info message after a successful purge (e.g. "Deleted 4 entries."). */
   protected readonly purgeInfo = signal<string | null>(null);
+  /** True when a workspace is currently open (path is non-empty). */
+  protected readonly hasWorkspace = computed(() =>
+    Boolean(this.appState.workspaceInfo()?.path),
+  );
+  /** Combined disabled signal for the Purge button. */
+  protected readonly purgeDisabled = computed(
+    () => !this.purgePattern().trim() || this.purging() || !this.hasWorkspace(),
+  );
   protected readonly tierFilter = this.state.tierFilter;
   protected readonly filteredEntries = this.state.filteredEntries;
   protected readonly loading = this.state.loading;
@@ -417,6 +434,8 @@ export class MemoryCuratorTabComponent implements OnInit {
 
   protected onPurgePatternInput(event: Event): void {
     this.purgePattern.set((event.target as HTMLInputElement).value);
+    this.purgeInfo.set(null);
+    this.purgeError.set(null);
   }
 
   protected onPurgeModeChange(event: Event): void {
@@ -424,6 +443,8 @@ export class MemoryCuratorTabComponent implements OnInit {
     if (value === 'substring' || value === 'like') {
       this.purgeMode.set(value);
     }
+    this.purgeInfo.set(null);
+    this.purgeError.set(null);
   }
 
   /**
@@ -437,6 +458,11 @@ export class MemoryCuratorTabComponent implements OnInit {
     if (pattern === '') return;
     const mode = this.purgeMode();
     const workspaceRoot = this.appState.workspaceInfo()?.path ?? null;
+
+    if (!workspaceRoot) {
+      this.purgeError.set('Open a workspace before purging memory.');
+      return;
+    }
 
     const confirmed = window.confirm(
       `Delete all memory entries whose subject matches '${pattern}' (mode: ${mode})? This cannot be undone.`,
