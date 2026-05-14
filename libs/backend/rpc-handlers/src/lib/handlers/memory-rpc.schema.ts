@@ -10,7 +10,7 @@ import { z } from 'zod';
 export const MemoryPurgeBySubjectPatternParamsSchema = z.object({
   pattern: z.string().min(1, 'pattern must not be empty'),
   mode: z.enum(['substring', 'like']),
-  workspaceRoot: z.string().nullable().optional(),
+  workspaceRoot: z.string().min(1),
 });
 
 export type MemoryPurgeBySubjectPatternParams = z.infer<

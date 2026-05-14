@@ -16,6 +16,11 @@ import {
   type MemorySearchService,
   type MemoryStore,
 } from '@ptah-extension/memory-curator';
+import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
+import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import type {
   MemoryChunkWire,
   MemoryForgetParams,
@@ -95,6 +100,8 @@ export class MemoryRpcHandlers {
     private readonly search: MemorySearchService,
     @inject(MEMORY_TOKENS.MEMORY_CURATOR)
     private readonly curator: MemoryCuratorService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
 
   register(): void {
@@ -230,9 +237,35 @@ export class MemoryRpcHandlers {
         try {
           validated = MemoryPurgeBySubjectPatternParamsSchema.parse(params);
         } catch (err) {
+          // Issue 3 (LOW): log full Zod error server-side; send generic message to client.
+          this.logger.warn('[memory] purgeBySubjectPattern — invalid params', {
+            err: String(err),
+          });
           throw new RpcUserError(
-            `memory:purgeBySubjectPattern — invalid params: ${String(err)}`,
+            'Invalid parameters for memory:purgeBySubjectPattern',
             'INVALID_PARAMS',
+          );
+        }
+        // Issue 1 (HIGH): reject null/undefined workspaceRoot — cross-workspace purge not permitted.
+        if (
+          validated.workspaceRoot === null ||
+          validated.workspaceRoot === undefined
+        ) {
+          throw new RpcUserError(
+            'memory:purgeBySubjectPattern requires an explicit workspaceRoot; cross-workspace purge is not permitted.',
+            'INVALID_PARAMS',
+          );
+        }
+        // Issue 2 (MEDIUM): workspace authorization guard — defence-in-depth against arbitrary workspaceRoot.
+        if (
+          !isAuthorizedWorkspace(
+            validated.workspaceRoot,
+            this.workspaceProvider,
+          )
+        ) {
+          throw new RpcUserError(
+            'Workspace not authorized',
+            'UNAUTHORIZED_WORKSPACE',
           );
         }
         try {
@@ -252,7 +285,7 @@ export class MemoryRpcHandlers {
             error: String(err),
           });
           throw new RpcUserError(
-            `memory:purgeBySubjectPattern — store error: ${String(err)}`,
+            'memory:purgeBySubjectPattern failed; please try again.',
             'PERSISTENCE_UNAVAILABLE',
           );
         }

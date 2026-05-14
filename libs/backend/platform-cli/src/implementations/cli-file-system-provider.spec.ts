@@ -215,3 +215,59 @@ describe('CliFileSystemProvider — CLI-specific behaviour', () => {
     watcher.dispose();
   });
 });
+
+describe('findFiles — exclude behavior (TASK_2026_119)', () => {
+  // These tests exercise fast-glob's `ignore` option directly against a real
+  // tmp-directory fixture, so they would catch a regression where the exclude
+  // array is accidentally comma-joined into a single string (the original bug).
+
+  let provider: CliFileSystemProvider;
+  let root: string;
+
+  beforeEach(async () => {
+    provider = new CliFileSystemProvider();
+    root = await makeTempDir();
+    // Create fixture structure:
+    //   <root>/src/app.ts          ← should always be returned
+    //   <root>/node_modules/pkg/index.ts ← should be excluded by **/node_modules/**
+    await provider.writeFile(path.join(root, 'src', 'app.ts'), 'export {};');
+    await provider.writeFile(
+      path.join(root, 'node_modules', 'pkg', 'index.ts'),
+      'export {};',
+    );
+  });
+
+  it('string[] exclude filters matching files', async () => {
+    const results = await provider.findFiles(
+      '**/*.ts',
+      ['**/node_modules/**'],
+      100,
+      root,
+    );
+
+    // Normalise separators for cross-platform assertion
+    const normalised = results.map((r) => r.replace(/\\/g, '/'));
+
+    // src/app.ts must appear
+    expect(normalised.some((r) => r.includes('src/app.ts'))).toBe(true);
+    // node_modules paths must NOT appear
+    expect(normalised.some((r) => r.includes('node_modules'))).toBe(false);
+  });
+
+  it('empty exclude array behaves like undefined', async () => {
+    const results = await provider.findFiles('**/*.ts', [], 100, root);
+    const normalised = results.map((r) => r.replace(/\\/g, '/'));
+
+    // Both files should be returned when exclude is empty
+    expect(normalised.some((r) => r.includes('src/app.ts'))).toBe(true);
+    expect(normalised.some((r) => r.includes('node_modules'))).toBe(true);
+  });
+
+  it('undefined exclude returns all files', async () => {
+    const results = await provider.findFiles('**/*.ts', undefined, 100, root);
+    const normalised = results.map((r) => r.replace(/\\/g, '/'));
+
+    expect(normalised.some((r) => r.includes('src/app.ts'))).toBe(true);
+    expect(normalised.some((r) => r.includes('node_modules'))).toBe(true);
+  });
+});
