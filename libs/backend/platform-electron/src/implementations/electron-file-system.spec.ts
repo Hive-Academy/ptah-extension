@@ -209,4 +209,21 @@ describe('findFiles — exclude behavior (TASK_2026_119)', () => {
     expect(normalised.some((r) => r.includes('src/app.ts'))).toBe(true);
     expect(normalised.some((r) => r.includes('node_modules'))).toBe(true);
   });
+
+  // Regression: fast-glob's default `dot: false` silently hid `.ptah/**`,
+  // `.claude/**`, etc. from the @ file picker on Electron while VS Code's
+  // findFiles returned them. Lock in dotfile coverage.
+  it('returns files inside dot-folders (e.g. .ptah/foo.ts)', async () => {
+    await provider.writeFile(path.join(root, '.ptah', 'foo.ts'), 'export {};');
+    await provider.writeFile(
+      path.join(root, '.claude', 'config.ts'),
+      'export {};',
+    );
+
+    const results = await provider.findFiles('**/*.ts', undefined, 100, root);
+    const normalised = results.map((r) => r.replace(/\\/g, '/'));
+
+    expect(normalised.some((r) => r.includes('.ptah/foo.ts'))).toBe(true);
+    expect(normalised.some((r) => r.includes('.claude/config.ts'))).toBe(true);
+  });
 });
