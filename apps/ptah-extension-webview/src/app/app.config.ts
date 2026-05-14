@@ -27,9 +27,9 @@ import {
   ChatStore,
   UpdateBannerService,
   WorkspaceCoordinatorService,
-  WorkspaceIndexingService,
   provideModelRefreshControl,
 } from '@ptah-extension/chat';
+import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
 import {
   WizardViewComponent,
   provideWizardInternalState,

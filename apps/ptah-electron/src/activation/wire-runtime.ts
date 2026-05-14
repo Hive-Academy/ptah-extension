@@ -8,7 +8,8 @@ import {
   ContentDownloadService,
 } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import { TOKENS, bindLicenseReactivity } from '@ptah-extension/vscode-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
   EnhancedPromptsService,
@@ -60,7 +61,6 @@ export interface WireRuntimeOptions {
   container: DependencyContainer;
   getMainWindow: () => BrowserWindow | null;
   startupWorkspaceRoot: string | undefined;
-  startupLicenseTier: string | undefined;
 }
 
 export interface WireRuntimeResult {
@@ -114,14 +114,18 @@ export interface WireRuntimeResult {
      * Must be closed on will-quit to avoid keeping the process alive.
      */
     symbolWatcher: import('chokidar').FSWatcher | null;
+    /**
+     * License reactivity binder disposable. Detaches license:verified and
+     * license:expired listeners. Must be disposed in will-quit LIFO chain.
+     */
+    licenseReactivityDisposable: { dispose: () => void } | null;
   };
 }
 
 export async function wireRuntime(
   options: WireRuntimeOptions,
 ): Promise<WireRuntimeResult> {
-  const { container, getMainWindow, startupWorkspaceRoot, startupLicenseTier } =
-    options;
+  const { container, getMainWindow, startupWorkspaceRoot } = options;
 
   const refs: WireRuntimeResult['refs'] = {
     skillJunctionRef: null,
@@ -132,6 +136,7 @@ export async function wireRuntime(
     cronScheduler: null,
     messagingGateway: null,
     symbolWatcher: null,
+    licenseReactivityDisposable: null,
   };
 
   let resolvedStateStorage: IStateStorage | undefined;
@@ -679,29 +684,9 @@ export async function wireRuntime(
       contentDownload.getPluginsPath(),
     );
 
-    // PHASE 4.565: CLI Skill Sync (TASK_2025_243)
-    // Sync Ptah plugin skills to installed CLI agent directories (Copilot, Gemini).
-    // Premium-only, non-blocking, fire-and-forget.
-    // Mirrors VS Code extension Step 7.1.6 (main.ts:680-740).
-    if (startupLicenseTier === 'pro' || startupLicenseTier === 'trial_pro') {
-      syncCliSkillsOnActivation(container, contentDownload.getPluginsPath());
-    } else {
-      console.log(
-        `[Ptah Electron] CLI skill sync skipped (tier: ${startupLicenseTier ?? 'unknown'})`,
-      );
-    }
-
-    // PHASE 4.566: CLI Agent Sync on Activation (TASK_2025_268)
-    // Pro-gated fire-and-forget; implementation extracted to ./cli-agent-sync.
-    if (startupLicenseTier === 'pro' || startupLicenseTier === 'trial_pro') {
-      if (workspaceRoot) {
-        syncCliAgentsOnActivation(container, workspaceRoot);
-      }
-    } else {
-      console.log(
-        `[Ptah Electron] CLI agent sync skipped (tier: ${startupLicenseTier ?? 'unknown'})`,
-      );
-    }
+    // PHASE 4.565 + 4.566: CLI Skill Sync and CLI Agent Sync are now driven
+    // reactively by the license:verified / license:expired events wired via
+    // bindLicenseReactivity() below — no tier snapshot needed here.
     // PHASE 4.57: Model Pricing Pre-fetch (TASK_2025_240)
     // Pre-fetch model pricing from OpenRouter so cost calculations use live data.
     // Mirrors VS Code extension Step 7.2 (main.ts:754-768).
@@ -773,38 +758,9 @@ export async function wireRuntime(
       );
     }
 
-    // PHASE 4.59: MCP Server Startup (TASK_2025_243)
-    // Start the Code Execution MCP server for Pro tier users.
-    // Mirrors VS Code extension Step 12 (main.ts:905-944).
-    // Non-fatal: MCP server failure should NOT crash the app.
-    if (startupLicenseTier === 'pro' || startupLicenseTier === 'trial_pro') {
-      if (container.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
-        try {
-          console.log('[Ptah Electron] Starting MCP server (Pro tier user)...');
-          const codeExecutionMCP = container.resolve(TOKENS.CODE_EXECUTION_MCP);
-          const mcpPort = await (
-            codeExecutionMCP as { start: () => Promise<number> }
-          ).start();
-          // Update the runtime port so SDK query builders use the actual port
-          // (may differ from default 51820 if fallback to OS-assigned port)
-          setPtahMcpPort(mcpPort);
-          console.log(`[Ptah Electron] MCP Server started on port ${mcpPort}`);
-        } catch (mcpError) {
-          console.warn(
-            '[Ptah Electron] MCP server failed to start (non-fatal):',
-            mcpError instanceof Error ? mcpError.message : String(mcpError),
-          );
-        }
-      } else {
-        console.log(
-          '[Ptah Electron] CODE_EXECUTION_MCP not registered, skipping MCP server startup',
-        );
-      }
-    } else {
-      console.log(
-        `[Ptah Electron] MCP server skipped (tier: ${startupLicenseTier ?? 'unknown'})`,
-      );
-    }
+    // PHASE 4.59: MCP Server Startup is now driven reactively by the
+    // license:verified / license:expired events wired via bindLicenseReactivity()
+    // below — no tier snapshot needed here.
 
     // PHASE 4.6: Session Auto-Discovery (TASK_2025_210)
     // Import existing Claude sessions from ~/.claude/projects/ for the active
@@ -1041,6 +997,63 @@ export async function wireRuntime(
 
   if (startupWorkspaceRoot) {
     await bootHeavyServices(startupWorkspaceRoot);
+  }
+
+  // PHASE 4.60: License Reactivity Binder
+  // Replaces the three stale startupLicenseTier snapshot gates that prevented
+  // MCP server, CLI skill sync, and CLI agent sync from starting when the user
+  // activates a license mid-session. The binder subscribes to license:verified
+  // and license:expired, performs an initial dispatch based on current state,
+  // and brings up / tears down premium subsystems reactively.
+  try {
+    const logger = container.resolve<Logger>(TOKENS.LOGGER);
+
+    // Resolve plugins path for skill sync callback (ContentDownloadService
+    // is a singleton — safe to resolve separately from bootHeavyServices).
+    let pluginsPathForSync: string;
+    try {
+      const contentDownloadForSync = container.resolve<ContentDownloadService>(
+        PLATFORM_TOKENS.CONTENT_DOWNLOAD,
+      );
+      pluginsPathForSync = contentDownloadForSync.getPluginsPath();
+    } catch {
+      const os = await import('os');
+      const path = await import('path');
+      pluginsPathForSync = path.join(os.homedir(), '.ptah', 'plugins');
+    }
+
+    const currentWorkspaceRoot = startupWorkspaceRoot;
+
+    refs.licenseReactivityDisposable = bindLicenseReactivity({
+      container,
+      logger,
+      onMcpPortChange: (port) => {
+        setPtahMcpPort(port ?? 0);
+      },
+      notify: (kind) => {
+        if (kind === 'verified') {
+          console.log('[Ptah Electron] Ptah premium features activated.');
+        } else {
+          console.log(
+            '[Ptah Electron] Ptah premium features deactivated (license expired).',
+          );
+        }
+      },
+      syncCliSkills: () => {
+        syncCliSkillsOnActivation(container, pluginsPathForSync);
+      },
+      syncCliAgents: () => {
+        if (currentWorkspaceRoot) {
+          syncCliAgentsOnActivation(container, currentWorkspaceRoot);
+        }
+      },
+    });
+    console.log('[Ptah Electron] License reactivity binder initialized');
+  } catch (binderError: unknown) {
+    console.warn(
+      '[Ptah Electron] License reactivity binder setup failed (non-fatal):',
+      binderError instanceof Error ? binderError.message : String(binderError),
+    );
   }
 
   /**

@@ -102,4 +102,12 @@ export class MemoryWriterAdapter implements IMemoryWriter {
       id,
     };
   }
+
+  purgeBySubjectPattern(
+    pattern: string,
+    mode: 'substring' | 'like',
+    workspaceRoot: string,
+  ): number {
+    return this.store.purgeBySubjectPattern(pattern, mode, workspaceRoot);
+  }
 }

@@ -5,7 +5,7 @@
 //
 // Split from main.ts per TASK_2025_291 Wave C1 / design section B.3.3.
 
-import { app, BrowserWindow, dialog, ipcMain, clipboard } from 'electron';
+import { BrowserWindow, dialog, ipcMain, clipboard } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { DependencyContainer } from 'tsyringe';
@@ -230,10 +230,10 @@ export async function registerPostWindow(
     );
   }
   // PHASE 7: License Status Watcher (TASK_2025_240)
-  // Handle dynamic license changes (upgrade/expire) at runtime.
-  // Mirrors VS Code extension Step 13 (main.ts:954-1004).
-  // In Electron, we notify via dialog.showMessageBox instead of VS Code's
-  // showInformationMessage, and offer app relaunch instead of window reload.
+  // The license:verified and license:expired subsystem lifecycle is now handled
+  // by bindLicenseReactivity() in wire-runtime.ts (PHASE 4.60). Here we only
+  // keep the 24-hour background revalidation timer and the soft notification
+  // dialog so the user sees a non-blocking confirmation when the tier changes.
   try {
     const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
       on: (event: string, handler: (...args: unknown[]) => void) => void;
@@ -242,29 +242,25 @@ export async function registerPostWindow(
 
     licenseService.on('license:verified', () => {
       console.log('[Ptah Electron] License status changed: verified');
+      // Soft non-blocking notification only — subsystem bring-up is handled
+      // by bindLicenseReactivity in wire-runtime PHASE 4.60.
       const win = getMainWindow();
       if (win) {
-        dialog
-          .showMessageBox(win, {
-            type: 'info',
-            title: 'License Updated',
-            message:
-              'License status updated! Restart the app to apply changes.',
-            buttons: ['Restart Now', 'Later'],
-          })
-          .then((result) => {
-            if (result.response === 0) {
-              app.relaunch();
-              app.exit(0);
-            }
-          });
+        dialog.showMessageBox(win, {
+          type: 'info',
+          title: 'License Activated',
+          message: 'Ptah premium features activated. No restart required.',
+          buttons: ['OK'],
+        });
       }
     });
 
     licenseService.on('license:expired', () => {
       console.warn(
-        '[Ptah Electron] License expired — app will be restricted on restart',
+        '[Ptah Electron] License expired — premium features deactivated',
       );
+      // Soft non-blocking notification only — subsystem tear-down is handled
+      // by bindLicenseReactivity in wire-runtime PHASE 4.60.
       const win = getMainWindow();
       if (win) {
         dialog.showMessageBox(win, {
@@ -275,29 +271,11 @@ export async function registerPostWindow(
           buttons: ['OK'],
         });
       }
-
-      // Clean up CLI skills and agents on premium expiry
-      // Mirrors VS Code extension Step 13 license:expired handler
-      try {
-        if (container.isRegistered(TOKENS.CLI_PLUGIN_SYNC_SERVICE)) {
-          const cliPluginSync = container.resolve(
-            TOKENS.CLI_PLUGIN_SYNC_SERVICE,
-          ) as { cleanupAll: () => Promise<void> };
-          cliPluginSync.cleanupAll().catch((err: unknown) => {
-            console.warn(
-              '[Ptah Electron] CLI plugin cleanup on expiry failed (non-fatal):',
-              err instanceof Error ? err.message : String(err),
-            );
-          });
-        }
-      } catch {
-        // Service not initialized — nothing to clean up
-      }
     });
 
-    // Background revalidation every 24 hours.
-    // The interval reference is stored in the outer scope so the
-    // will-quit handler can clear it during app shutdown.
+    // Background revalidation every 24 hours. The revalidate() call emits
+    // license:verified / license:expired events which route through the
+    // bindLicenseReactivity binder so subsystem state stays in sync.
     revalidationInterval = setInterval(
       () => {
         licenseService.revalidate().catch((err) => {

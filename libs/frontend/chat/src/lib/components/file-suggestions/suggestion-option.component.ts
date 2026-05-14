@@ -7,6 +7,7 @@ import {
   inject,
   computed,
 } from '@angular/core';
+import { LucideAngularModule, type LucideIconData } from 'lucide-angular';
 import type { CommandSuggestion } from '@ptah-extension/core';
 import type { FileSuggestion } from '../../services/file-picker.service';
 
@@ -15,7 +16,7 @@ import type { FileSuggestion } from '../../services/file-picker.service';
  * Agents handled by AgentSelectorComponent - not part of this dropdown
  */
 export type SuggestionItem =
-  | ({ type: 'file'; icon: string; description: string } & Omit<
+  | ({ type: 'file'; icon: LucideIconData; description: string } & Omit<
       FileSuggestion,
       'type'
     >)
@@ -37,6 +38,7 @@ export type SuggestionItem =
  */
 @Component({
   selector: 'ptah-suggestion-option',
+  imports: [LucideAngularModule],
   host: {
     '[id]': 'optionId()',
     class:
@@ -52,33 +54,36 @@ export type SuggestionItem =
   },
   template: `
     <!-- Icon -->
-    <span class="shrink-0 w-4 h-4 flex items-center justify-center text-sm">
-      {{ suggestion().icon }}
-    </span>
+    <lucide-angular
+      [img]="suggestion().icon"
+      class="w-4 h-4 shrink-0 opacity-80"
+    />
 
     <!-- Content area -->
     <div class="flex-1 min-w-0 flex flex-col gap-0.5">
       @if (suggestion().type === 'file') {
-      <!-- Files/Folders: Name prominent, directory secondary -->
-      <span class="font-medium text-xs truncate">{{ suggestion().name }}</span>
-      <span class="text-[11px] opacity-70 truncate">{{
-        suggestion().description
-      }}</span>
-      } @else if (suggestion().type === 'command') {
-      <!-- Commands: Name with badge styling -->
-      <div class="flex items-center gap-2">
+        <!-- Files/Folders: Name prominent, directory secondary -->
         <span class="font-medium text-xs truncate">{{
           suggestion().name
         }}</span>
-        @if (isBuiltinCommand()) {
-        <span class="badge badge-accent badge-xs">Built-in</span>
-        } @else if (isPluginCommand()) {
-        <span class="badge badge-info badge-xs">Plugin</span>
-        }
-      </div>
-      <span class="text-[11px] opacity-70 truncate">{{
-        suggestion().description
-      }}</span>
+        <span class="text-[11px] opacity-70 truncate">{{
+          suggestion().description
+        }}</span>
+      } @else if (suggestion().type === 'command') {
+        <!-- Commands: Name with badge styling -->
+        <div class="flex items-center gap-2">
+          <span class="font-medium text-xs truncate">{{
+            suggestion().name
+          }}</span>
+          @if (isBuiltinCommand()) {
+            <span class="badge badge-accent badge-xs">Built-in</span>
+          } @else if (isPluginCommand()) {
+            <span class="badge badge-info badge-xs">Plugin</span>
+          }
+        </div>
+        <span class="text-[11px] opacity-70 truncate">{{
+          suggestion().description
+        }}</span>
       }
     </div>
   `,

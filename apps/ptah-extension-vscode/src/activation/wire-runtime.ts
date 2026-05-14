@@ -19,8 +19,6 @@ import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
 import { DIContainer } from '../di/container';
 import { SettingsCommands } from '../commands/settings-commands';
 import { activateSkillJunctions, initPluginLoader } from './plugin-activation';
-import { syncCliSkillsOnActivation } from './cli-skill-sync';
-import { syncCliAgentsOnActivation } from './cli-agent-sync';
 
 /**
  * Phase 2 of VS Code activation (TASK_2025_291 Wave C1).
@@ -61,28 +59,12 @@ export async function wireRuntimeVscode(
   initPluginLoader(contentDownload.getPluginsPath(), logger);
   // Step 7.1.5.1: Create workspace skill junctions (TASK_2025_201)
   activateSkillJunctions(contentDownload.getPluginsPath(), logger);
-  // Step 7.1.6: CLI Skill Sync (TASK_2025_160)
-  // Sync Ptah plugin skills to installed CLI agent directories (Copilot, Gemini)
-  // Premium-only, non-blocking, fire-and-forget
-  if (licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro') {
-    syncCliSkillsOnActivation(contentDownload.getPluginsPath(), logger);
-  } else {
-    logger.debug('CLI skill sync skipped (Community tier - Pro feature only)');
-  }
-  // Step 7.1.7: CLI Agent Sync on Activation (TASK_2025_268)
-  // Distribute existing .claude/agents/*.md to all installed CLI targets.
-  // Ensures agents are present after fresh install without re-running the wizard.
-  // Premium-only, non-blocking, fire-and-forget. Uses content-hash dedup to avoid
-  // redundant writes when agent files have not changed since last activation.
-  if (licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro') {
-    const agentSyncWorkspaceRoot =
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (agentSyncWorkspaceRoot) {
-      syncCliAgentsOnActivation(agentSyncWorkspaceRoot, logger);
-    }
-  } else {
-    logger.debug('CLI agent sync skipped (Community tier - Pro feature only)');
-  }
+  // Step 7.1.6 + 7.1.7: CLI Skill Sync and CLI Agent Sync are now driven
+  // reactively by the license:verified / license:expired events wired via
+  // bindLicenseReactivity() in post-init.ts — no tier snapshot needed here.
+  // licenseStatus is still accepted by the function signature for caller
+  // compatibility but is no longer used here.
+  void licenseStatus;
   // Step 7.2: Pre-fetch model pricing from OpenRouter (non-blocking, no auth needed)
   // OpenRouter's /api/v1/models endpoint is publicly accessible and returns
   // pricing data for 200+ models. This replaces hardcoded pricing with live data.

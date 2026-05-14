@@ -258,6 +258,18 @@ export class ChatStore {
     return this.tabManager.findTabBySessionId(sessionId);
   }
 
+  /**
+   * TASK_2026_120 Phase B — plural sibling facade.
+   *
+   * Returns every tab bound to the conversation containing `sessionId`. Use
+   * this for content routing where the canvas-grid scenario can put multiple
+   * tabs on the same conversation; the singular `findTabBySessionId` is
+   * retained for presence checks.
+   */
+  findTabsBySessionId(sessionId: string): readonly TabState[] {
+    return this.tabManager.findTabsBySessionId(sessionId);
+  }
+
   getActiveTabId(): string | null {
     return this.tabManager.activeTabId();
   }

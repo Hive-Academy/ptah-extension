@@ -107,14 +107,14 @@ export class CliFileSystemProvider implements IFileSystemProvider {
 
   async findFiles(
     pattern: string,
-    exclude?: string,
+    exclude?: string[],
     maxResults?: number,
     cwd?: string,
   ): Promise<string[]> {
     // Dynamic import to avoid issues if fast-glob not installed in test environments
     const fg = await import('fast-glob');
     const results = await fg.default(pattern, {
-      ignore: exclude ? [exclude] : undefined,
+      ignore: exclude && exclude.length > 0 ? exclude : undefined,
       absolute: true,
       onlyFiles: true,
       cwd: cwd || undefined,

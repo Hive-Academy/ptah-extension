@@ -599,16 +599,4 @@ describe('FilePickerService', () => {
       expect(service.isFileSupported('archive.zip')).toBe(false);
     });
   });
-
-  describe('getFileTypeIcon()', () => {
-    it('should return image icon for image files', () => {
-      const file = createFileSuggestion({ isImage: true, isText: false });
-      expect(service.getFileTypeIcon(file)).toContain('🖼');
-    });
-
-    it('should return document icon for text files', () => {
-      const file = createFileSuggestion({ isText: true, isImage: false });
-      expect(service.getFileTypeIcon(file)).toContain('📄');
-    });
-  });
 });

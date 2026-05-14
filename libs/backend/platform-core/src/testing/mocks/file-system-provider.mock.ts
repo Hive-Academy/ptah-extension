@@ -200,7 +200,7 @@ export function createMockFileSystemProvider(
     findFiles: jest.fn(
       async (
         pattern: string,
-        _exclude?: string,
+        _exclude?: string[],
         maxResults?: number,
       ): Promise<string[]> => {
         // Minimal glob: treat `**/*` as match-all, else suffix match on the

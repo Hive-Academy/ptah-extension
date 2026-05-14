@@ -42,6 +42,7 @@ import type {
   IFileSystemProvider,
   IDiagnosticsProvider,
   ISecretStorage,
+  IMemoryWriter,
 } from '@ptah-extension/platform-core';
 import {
   WorkspaceAnalyzerService,
@@ -160,6 +161,16 @@ const MEMORY_SEARCH_TOKEN = Symbol.for('PtahMemorySearch');
  * @warning Keep Symbol.for() string value in sync with the canonical definition
  */
 const MEMORY_STORE_TOKEN = Symbol.for('PtahMemoryStore');
+
+/**
+ * Duplicated from PLATFORM_TOKENS.MEMORY_WRITER to avoid circular dependency
+ * between vscode-lm-tools -> platform-core via DI resolution.
+ * Must match: libs/backend/platform-core/src/di/tokens.ts
+ *
+ * @see PLATFORM_TOKENS.MEMORY_WRITER in libs/backend/platform-core/src/di/tokens.ts
+ * @warning Keep Symbol.for() string value in sync with the canonical definition
+ */
+const MEMORY_WRITER_TOKEN = Symbol.for('PlatformMemoryWriter');
 
 /**
  * DI token for IDE capabilities (VS Code-specific).
@@ -585,8 +596,9 @@ export class PtahAPIBuilder {
       ),
 
       // Memory namespace (TASK_2026_THOTH_MEMORY_READ)
-      // Resolved lazily: if MEMORY_SEARCH_TOKEN / MEMORY_STORE_TOKEN are not registered
-      // (VS Code without SQLite support), the namespace returns graceful error objects.
+      // Resolved lazily: if MEMORY_SEARCH_TOKEN / MEMORY_STORE_TOKEN / MEMORY_WRITER_TOKEN
+      // are not registered (VS Code without SQLite support), the namespace returns graceful
+      // error objects.
       memory: this.buildNamespaceSafe('memory', () =>
         buildMemoryNamespace({
           getMemorySearch: () => {
@@ -602,6 +614,15 @@ export class PtahAPIBuilder {
             try {
               return container.isRegistered(MEMORY_STORE_TOKEN)
                 ? container.resolve<IMemoryLister>(MEMORY_STORE_TOKEN)
+                : undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          getMemoryWriter: () => {
+            try {
+              return container.isRegistered(MEMORY_WRITER_TOKEN)
+                ? container.resolve<IMemoryWriter>(MEMORY_WRITER_TOKEN)
                 : undefined;
             } catch {
               return undefined;

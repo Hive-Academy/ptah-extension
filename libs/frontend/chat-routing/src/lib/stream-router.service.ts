@@ -495,13 +495,40 @@ export class StreamRouter {
    * signature is byte-unchanged.
    */
   routePermissionPrompt(prompt: PermissionRequest): readonly TabId[] {
-    if (!prompt.sessionId) return [];
-    const sessionId = prompt.sessionId as ClaudeSessionId;
-    const tabs = this.tabsForSession(sessionId);
+    // TASK_2026_120 Phase B — tabId-first routing.
+    //
+    // Primary lookup: `prompt.tabId → conversationFor(tabId) → tabsFor(convId)`.
+    // This resolves correctly even when the conversation registry has not yet
+    // seen the real SDK session UUID (resumed-session race — use case #2 in
+    // the use-case contract). The legacy `sessionId → tabsForSession` lookup
+    // is retained as a fallback for CLI paths that have no tab (use case #3),
+    // where it correctly returns `[]` and falls through to agent-monitor
+    // routing.
+    let tabs: readonly TabId[] = [];
+    if (prompt.tabId) {
+      const tabId = TabId.safeParse(prompt.tabId);
+      if (tabId) {
+        const convId = this.binding.conversationFor(tabId);
+        if (convId) {
+          tabs = this.binding.tabsFor(convId);
+        }
+      }
+    }
+
+    if (tabs.length === 0 && prompt.sessionId) {
+      tabs = this.tabsForSession(prompt.sessionId as ClaudeSessionId);
+    }
+
     if (tabs.length > 0) {
       this.permissionHandler.attachPromptTargets(prompt.id, tabs);
       return tabs;
     }
+
+    // No tabs resolved. The surface-only defensive guard below requires a
+    // sessionId — without one, return empty (matches the legacy contract:
+    // CLI paths with no tab fall through to agent-monitor routing).
+    if (!prompt.sessionId) return [];
+    const sessionId = prompt.sessionId as ClaudeSessionId;
 
     // No tabs resolved. Check whether the conversation has SURFACES bound
     // (wizard/harness) — that's the regression case the guard catches.
@@ -554,25 +581,43 @@ export class StreamRouter {
    *     guard in `routePermissionPrompt`.
    */
   routeQuestionPrompt(question: AskUserQuestionRequest): readonly TabId[] {
-    if (!question.sessionId) return [];
-    const sessionId = question.sessionId as ClaudeSessionId;
-    const tabs = this.tabsForSession(sessionId);
+    // TASK_2026_120 Phase B — tabId-first routing (parity with
+    // `routePermissionPrompt`).
+    //
+    // Primary lookup: `question.tabId → conversationFor(tabId) → tabsFor(convId)`.
+    // Resolves correctly even when the conversation registry has not yet
+    // seen the real SDK session UUID (resumed-session race — use case #2).
+    // The legacy `sessionId → tabsForSession` lookup is retained as a
+    // fallback for CLI paths (use case #3) and for legacy payloads that
+    // never carried `tabId`.
+    let tabs: readonly TabId[] = [];
+    if (question.tabId) {
+      const tabId = TabId.safeParse(question.tabId);
+      if (tabId) {
+        const convId = this.binding.conversationFor(tabId);
+        if (convId) {
+          tabs = this.binding.tabsFor(convId);
+        }
+      }
+    }
+
+    if (tabs.length === 0 && question.sessionId) {
+      tabs = this.tabsForSession(question.sessionId as ClaudeSessionId);
+    }
+
     if (tabs.length > 0) {
-      // TASK_2026_109_FOLLOWUP_QUESTIONS Q2 — narrow to the originating tab
-      // when the payload identifies one bound to this conversation. If
-      // `question.tabId` is set but doesn't match (closed/forked-away tab),
-      // we MUST NOT fall back to the full bound-tab list — broadcasting on
-      // closed-tab fallback re-creates the original duplicate-card regression.
-      // Instead pick the most-recently-active bound tab (via
-      // `TabManagerService.lastActivityAt`); if no signal is available,
-      // fall through to `activeTabId` (when it's in the bound set) and
-      // ultimately the first bound tab. The full broadcast remains the
-      // ONLY safety net when `question.tabId` is missing entirely
-      // (legacy payloads with no originator).
+      // Q2 narrowing applies regardless of how `tabs` was resolved — both
+      // paths produce the same "all tabs bound to the conversation" set.
       const targets = this.resolveQuestionTargets(question, tabs);
       this.permissionHandler.attachQuestionTargets(question.id, targets);
       return targets;
     }
+
+    // No tabs resolved. The surface-only guard below and the microtask defer
+    // both require a sessionId to make progress — if absent, mirror the
+    // routePermissionPrompt contract and return empty.
+    if (!question.sessionId) return [];
+    const sessionId = question.sessionId as ClaudeSessionId;
 
     const containing = this.registry.findContainingSession(sessionId);
     if (containing) {

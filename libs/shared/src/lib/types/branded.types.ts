@@ -24,6 +24,12 @@ export type MessageId = string & { readonly __brand: 'MessageId' };
  */
 export type CorrelationId = string & { readonly __brand: 'CorrelationId' };
 
+/**
+ * Branded TabId type — identifies a frontend VS Code tab.
+ * Prevents accidental mixing with SessionId (real SDK UUID) or other IDs.
+ */
+export type TabId = string & { readonly __brand: 'TabId' };
+
 // === TRACK_3_CRON_SCHEDULER_BEGIN ===
 /**
  * Branded JobId type — identifies a scheduled cron job row.
@@ -38,8 +44,10 @@ export type JobId = string & { readonly __brand: 'JobId' };
 export type RunId = string & { readonly __brand: 'RunId' };
 // === TRACK_3_CRON_SCHEDULER_END ===
 
-// UUID validation regex for branded type validation
-const UUID_REGEX =
+// UUID validation regex for branded type validation.
+// Exported so validation schemas (e.g. permission.types.ts) can re-use it
+// without duplicating the pattern.
+export const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // === TRACK_3_CRON_SCHEDULER_BEGIN ===
@@ -158,6 +166,43 @@ export const CorrelationId = {
    */
   safeParse(id: string): CorrelationId | null {
     return CorrelationId.validate(id) ? (id as CorrelationId) : null;
+  },
+};
+
+/**
+ * TabId smart constructors with validation
+ */
+export const TabId = {
+  /**
+   * Create a new TabId with UUID v4
+   */
+  create(): TabId {
+    return uuidv4() as TabId;
+  },
+
+  /**
+   * Validate if a string is a valid TabId format
+   */
+  validate(id: string): id is TabId {
+    return UUID_REGEX.test(id);
+  },
+
+  /**
+   * Convert string to TabId with validation
+   * @throws TypeError if invalid format
+   */
+  from(id: string): TabId {
+    if (!TabId.validate(id)) {
+      throw new TypeError(`Invalid TabId format: ${id}`);
+    }
+    return id as TabId;
+  },
+
+  /**
+   * Safely convert string to TabId, returns null if invalid
+   */
+  safeParse(id: string): TabId | null {
+    return TabId.validate(id) ? (id as TabId) : null;
   },
 };
 

@@ -288,6 +288,9 @@ function makePermissionRequest(
     description: 'Run a command',
     timeoutAt: 0,
     sessionId: SESSION_A as unknown as string,
+    // TASK_2026_120 Phase B — explicit default; per-test overrides may set
+    // this to a concrete tabId to exercise the tabId-first lookup path.
+    tabId: undefined,
     ...overrides,
   } as PermissionRequest;
 }
@@ -649,6 +652,129 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
   });
 
   // =============================================================================
+  // TASK_2026_120 Phase B — tabId-first routing contract
+  // =============================================================================
+
+  describe('routePermissionPrompt — TASK_2026_120 tabId-first routing', () => {
+    it('UC1/UC2: tabId present and bound → resolves to originating tab, bypasses sessionId lookup', () => {
+      const tabA = newTabId();
+      router.onTabCreated(tabA, SESSION_A);
+
+      // Prompt carries an unknown sessionId — if sessionId lookup were primary
+      // the router would return []. tabId-first must resolve via the binding.
+      const prompt = makePermissionRequest({
+        id: 'perm-tabid-first',
+        sessionId: SESSION_C as unknown as string,
+        tabId: tabA as unknown as string,
+      });
+
+      const targets = router.routePermissionPrompt(prompt);
+
+      expect(targets).toEqual([tabA]);
+      expect(permissionHandler.attachPromptTargets).toHaveBeenCalledWith(
+        'perm-tabid-first',
+        [tabA],
+      );
+    });
+
+    it('UC3: tabId undefined, sessionId present, no bound tabs → returns empty (CLI path)', () => {
+      const prompt = makePermissionRequest({
+        id: 'perm-cli',
+        sessionId: SESSION_C as unknown as string,
+        tabId: undefined,
+      });
+      const targets = router.routePermissionPrompt(prompt);
+      expect(targets).toEqual([]);
+      expect(permissionHandler.attachPromptTargets).not.toHaveBeenCalled();
+    });
+
+    it('UC2 resumed race: tabId present, session not yet in registry → still routes correctly via TabSessionBinding', () => {
+      const tabA = newTabId();
+      // Bind the tab to a conversation with NO session yet — simulates the
+      // resumed-session race where the tab exists but the real SDK UUID
+      // hasn't been observed.
+      router.onTabCreated(tabA);
+
+      const prompt = makePermissionRequest({
+        id: 'perm-resumed-race',
+        // The session id the prompt carries is unknown to the registry.
+        sessionId: SESSION_B as unknown as string,
+        tabId: tabA as unknown as string,
+      });
+
+      const targets = router.routePermissionPrompt(prompt);
+
+      expect(targets).toEqual([tabA]);
+      expect(permissionHandler.attachPromptTargets).toHaveBeenCalledWith(
+        'perm-resumed-race',
+        [tabA],
+      );
+    });
+  });
+
+  describe('routeQuestionPrompt — TASK_2026_120 tabId-first routing parity', () => {
+    it('UC1/UC2: tabId present and bound → resolves to originating tab (parity with permissions)', () => {
+      const tabA = newTabId();
+      router.onTabCreated(tabA, SESSION_A);
+
+      // Question carries an unknown sessionId — tabId-first must resolve via
+      // the binding, parity with the permission path.
+      const q = makeQuestion({
+        id: 'q-tabid-first',
+        sessionId: SESSION_C as unknown as string,
+        tabId: tabA as unknown as string,
+      });
+
+      const targets = router.routeQuestionPrompt(q);
+
+      expect(targets).toEqual([tabA]);
+      expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+        'q-tabid-first',
+        [tabA],
+      );
+    });
+
+    it('UC3: tabId undefined, sessionId present → tabsForSession fallback → empty → CLI no-op', () => {
+      const q = makeQuestion({
+        id: 'q-cli',
+        sessionId: SESSION_C as unknown as string,
+      });
+
+      const targets = router.routeQuestionPrompt(q);
+
+      expect(targets).toEqual([]);
+      expect(permissionHandler.attachQuestionTargets).not.toHaveBeenCalled();
+      expect(permissionHandler.handleQuestionResponse).not.toHaveBeenCalled();
+    });
+
+    it('no binding yet (microtask defer): questions without tabId and no tab binding defer one tick and recheck', async () => {
+      const tabA = newTabId();
+      const q = makeQuestion({
+        id: 'q-defer',
+        sessionId: SESSION_A as unknown as string,
+        // No tabId — exercises the legacy payload microtask defer path.
+      });
+
+      const targets = router.routeQuestionPrompt(q);
+      expect(targets).toEqual([]);
+      expect(permissionHandler.attachQuestionTargets).not.toHaveBeenCalled();
+      expect(permissionHandler.handleQuestionResponse).not.toHaveBeenCalled();
+
+      // Bind tab BEFORE the microtask drains — simulates the tile-bootstrap
+      // race. Microtask must re-resolve and attach targets without
+      // auto-resolving.
+      router.onTabCreated(tabA, SESSION_A);
+      await Promise.resolve();
+
+      expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+        'q-defer',
+        [tabA],
+      );
+      expect(permissionHandler.handleQuestionResponse).not.toHaveBeenCalled();
+    });
+  });
+
+  // =============================================================================
   // TASK_2026_109_FOLLOWUP_QUESTIONS — AskUserQuestion routing hardening
   // =============================================================================
 
@@ -688,6 +814,9 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
         'q-stale',
         [tabB],
       );
+      // TASK_2026_120 Phase B — question routing must NOT call the permission
+      // tab attachment path. Cross-wire guard.
+      expect(permissionHandler.attachPromptTargets).not.toHaveBeenCalled();
     });
 
     it('Q2: when question.tabId matches a bound tab, targets narrow to that single tab', () => {

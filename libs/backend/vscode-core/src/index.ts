@@ -135,6 +135,17 @@ export { WorkspaceContextManager } from './services/workspace-context-manager';
 export { WorkspaceAwareStateStorage } from './services/workspace-aware-state-storage';
 export type { StateStorageFactory } from './services/workspace-aware-state-storage';
 
+// License Reactivity — reactive premium subsystem bring-up / tear-down
+export {
+  bindLicenseReactivity,
+  bringUpPremiumSubsystems,
+  tearDownPremiumSubsystems,
+} from './services/license-reactivity';
+export type {
+  LicenseReactivityOptions,
+  PremiumSubsystemsDeps,
+} from './services/license-reactivity';
+
 // Platform Abstraction Interfaces (TASK_2025_203)
 // Defined in @ptah-extension/rpc-handlers (import directly from there)
 // NOT re-exported here to avoid circular dependency:

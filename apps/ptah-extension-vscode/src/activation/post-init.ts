@@ -4,18 +4,26 @@ import {
   type LicenseService,
   type LicenseStatus,
   TOKENS,
+  bindLicenseReactivity,
 } from '@ptah-extension/vscode-core';
 import { setPtahMcpPort } from '@ptah-extension/agent-sdk';
+import {
+  PLATFORM_TOKENS,
+  ContentDownloadService,
+} from '@ptah-extension/platform-core';
 import { DIContainer } from '../di/container';
 import { PtahExtension } from '../core/ptah-extension';
+import { syncCliSkillsOnActivation } from './cli-skill-sync';
+import { syncCliAgentsOnActivation } from './cli-agent-sync';
 
 /**
  * Phase 3 of VS Code activation (TASK_2025_291 Wave C1).
  *
  * Covers:
  * - PtahExtension controller construction + initialize() + registerAll()
- * - Step 12: Conditional MCP server start (Pro-gated)
- * - Step 13: License status watcher + background revalidation interval
+ * - Step 12: License-reactive MCP server start (replaces static tier snapshot)
+ * - Step 13: License reactivity binder (license:verified / license:expired)
+ *            + background revalidation interval
  * - First-time welcome message
  *
  * @returns The constructed PtahExtension so the caller can assign it to the
@@ -41,94 +49,108 @@ export async function registerPostInit(
   // Register all providers, commands, and services
   await ptahExtension.registerAll();
 
-  // ========================================
-  // STEP 12: CONDITIONAL MCP SERVER START (TASK_2025_121)
-  // ========================================
-  // MCP Server only starts for Pro tier users (Pro-only feature)
-  if (licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro') {
-    // PRO USER: Register MCP Server (Pro-only feature)
-    // Non-blocking: MCP server failure should NOT crash the extension
-    try {
-      logger.info('Registering premium MCP server (Pro tier user)');
-      const codeExecutionMCP = DIContainer.resolve(TOKENS.CODE_EXECUTION_MCP);
-      const mcpPort = await (
-        codeExecutionMCP as { start: () => Promise<number> }
-      ).start();
-      context.subscriptions.push(codeExecutionMCP as vscode.Disposable);
-      // Update the runtime port so SDK query builders use the actual port
-      // (may differ from default 51820 if fallback to OS-assigned port)
-      setPtahMcpPort(mcpPort);
-      logger.info(`Code Execution MCP Server started on port ${mcpPort}`);
-    } catch (mcpError) {
-      logger.warn('MCP server failed to start (non-blocking)', {
-        error: mcpError instanceof Error ? mcpError.message : String(mcpError),
-      });
-    }
-  } else {
-    // COMMUNITY USER: Skip MCP Server (Pro-only feature)
-    logger.info('Skipping MCP server (Community tier - Pro feature only)', {
-      tier: licenseStatus.tier,
-    });
-  }
-
   // Note: MCP config (.mcp.json) writing removed - SDK tools are now native
   // and don't require external MCP server registration. The Code Execution
   // MCP server runs locally and Ptah tools (help, executeCode) are registered
   // directly with the SDK via mcpServers option in SdkAgentAdapter.
 
   // ========================================
-  // STEP 13: LICENSE STATUS WATCHER
+  // STEP 12 + 13: LICENSE REACTIVITY BINDER
   // ========================================
-  // Handle dynamic license changes (upgrade/expire)
-  const licenseService = DIContainer.resolve<LicenseService>(
-    TOKENS.LICENSE_SERVICE,
-  );
-  licenseService.on('license:verified', async (newStatus: LicenseStatus) => {
-    logger.info('License status changed', { newStatus });
-    // For simplicity, we show a message prompting user to reload window
-    vscode.window
-      .showInformationMessage(
-        'License status updated! Reload window to apply changes.',
-        'Reload Window',
-      )
-      .then((action) => {
-        if (action === 'Reload Window') {
-          vscode.commands.executeCommand('workbench.action.reloadWindow');
-        }
-      });
-  });
+  // Replaces the static startupLicenseTier snapshot gating of Steps 12 and 13.
+  // The binder:
+  //   - Performs an initial dispatch based on current license state
+  //   - Subscribes to license:verified → starts MCP, CLI syncs, invalidates FGS cache
+  //   - Subscribes to license:expired  → stops MCP, cleans up CLI, invalidates FGS cache
+  // This fixes the race where a user activates a license mid-session and
+  // premium subsystems were never started (they read a stale community tier).
+  try {
+    const container = DIContainer.getContainer();
 
-  licenseService.on('license:expired', (newStatus: LicenseStatus) => {
-    logger.warn('License expired - extension will be blocked on reload', {
-      newStatus,
-    });
-    vscode.window.showWarningMessage(
-      'Your Ptah license has expired. Please renew your subscription to continue using the extension.',
-    );
-
-    // TASK_2025_160: Clean up CLI skills and agents on premium expiry
+    // Resolve plugins path for skill sync callback.
+    let pluginsPathForSync: string;
     try {
-      const cliPluginSync = DIContainer.getContainer().resolve(
-        TOKENS.CLI_PLUGIN_SYNC_SERVICE,
-      ) as { cleanupAll: () => Promise<void> };
-      cliPluginSync.cleanupAll().catch((err: unknown) => {
-        logger.warn('CLI plugin cleanup on expiry failed (non-fatal)', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
+      const contentDownload = DIContainer.resolve<ContentDownloadService>(
+        PLATFORM_TOKENS.CONTENT_DOWNLOAD,
+      );
+      pluginsPathForSync = contentDownload.getPluginsPath();
     } catch {
-      // Service not initialized — nothing to clean up
+      const os = await import('os');
+      const path = await import('path');
+      pluginsPathForSync = path.join(os.homedir(), '.ptah', 'plugins');
     }
-  });
 
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+    const binderDisposable = bindLicenseReactivity({
+      container,
+      logger,
+      onMcpPortChange: (port) => {
+        setPtahMcpPort(port ?? 0);
+      },
+      notify: (kind) => {
+        if (kind === 'verified') {
+          vscode.window.showInformationMessage(
+            'Ptah premium features activated.',
+          );
+        } else {
+          vscode.window.showWarningMessage(
+            'Your Ptah license has expired. Please renew your subscription to continue using premium features.',
+          );
+        }
+      },
+      syncCliSkills: () => {
+        syncCliSkillsOnActivation(pluginsPathForSync, logger);
+      },
+      syncCliAgents: () => {
+        if (workspaceRoot) {
+          syncCliAgentsOnActivation(workspaceRoot, logger);
+        }
+      },
+    });
+
+    // Register binder disposal in extension context so it's cleaned up on deactivate.
+    context.subscriptions.push(binderDisposable);
+
+    logger.info('[post-init] License reactivity binder initialized');
+  } catch (binderError: unknown) {
+    logger.warn(
+      '[post-init] License reactivity binder setup failed (non-fatal)',
+      {
+        error:
+          binderError instanceof Error
+            ? binderError.message
+            : String(binderError),
+      },
+    );
+  }
+
+  // ========================================
   // Background revalidation (every 24 hours)
-  const revalidationInterval = setInterval(
-    () => licenseService.revalidate(),
-    24 * 60 * 60 * 1000,
-  );
-  context.subscriptions.push({
-    dispose: () => clearInterval(revalidationInterval),
-  });
+  // ========================================
+  // The revalidate() call emits license:verified / license:expired events
+  // which route through the bindLicenseReactivity binder above, keeping
+  // subsystem state in sync on periodic checks.
+  try {
+    const licenseService = DIContainer.resolve<LicenseService>(
+      TOKENS.LICENSE_SERVICE,
+    );
+    const revalidationInterval = setInterval(
+      () => licenseService.revalidate(),
+      24 * 60 * 60 * 1000,
+    );
+    context.subscriptions.push({
+      dispose: () => clearInterval(revalidationInterval),
+    });
+  } catch (revalError: unknown) {
+    logger.warn(
+      '[post-init] Background revalidation setup failed (non-fatal)',
+      {
+        error:
+          revalError instanceof Error ? revalError.message : String(revalError),
+      },
+    );
+  }
 
   // Show welcome message for first-time users
   const isFirstTime = context.globalState.get('ptah.firstActivation', true);
@@ -136,6 +158,10 @@ export async function registerPostInit(
     await ptahExtension.showWelcome();
     await context.globalState.update('ptah.firstActivation', false);
   }
+
+  // licenseStatus is still used by the caller for initial UI state decisions —
+  // keep the parameter signature intact.
+  void licenseStatus;
 
   return ptahExtension;
 }

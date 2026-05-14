@@ -19,6 +19,8 @@ import {
   ImageIcon,
   Paperclip,
   ImagePlus,
+  File as FileIcon,
+  Folder as FolderIcon,
 } from 'lucide-angular';
 import {
   InlineImageAttachment,
@@ -500,7 +502,7 @@ export class ChatInputComponent implements OnInit {
         const isFolder = f.type === 'directory';
         return {
           type: 'file' as const,
-          icon: isFolder ? 'ðŸ“' : 'ðŸ“„',
+          icon: isFolder ? FolderIcon : f.isImage ? ImageIcon : FileIcon,
           description: f.directory,
           isFolder,
           path: f.path,

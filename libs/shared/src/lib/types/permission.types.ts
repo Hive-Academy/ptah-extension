@@ -10,6 +10,7 @@
 import { z } from 'zod';
 import type { PermissionLevel } from './model-autopilot.types';
 import type { QuestionItem } from '../type-guards/guards';
+import { UUID_REGEX } from './branded.types';
 
 /**
  * Sentinel value for when the parent agent's toolCallId cannot be resolved.
@@ -71,6 +72,9 @@ export interface PermissionRequest {
 
   /** Session ID this permission belongs to (for UI routing to correct tab) */
   readonly sessionId?: string;
+
+  /** Frontend tab ID for direct tab routing (authoritative over `sessionId`). */
+  readonly tabId?: string;
 }
 
 /**
@@ -205,7 +209,16 @@ export const PermissionRequestSchema = z.object({
   timestamp: z.number(),
   description: z.string(),
   timeoutAt: z.number(),
-  sessionId: z.string().optional(),
+  sessionId: z
+    .string()
+    .refine((v) => UUID_REGEX.test(v), {
+      message: 'sessionId must be a UUID v4',
+    })
+    .optional(),
+  tabId: z
+    .string()
+    .refine((v) => UUID_REGEX.test(v), { message: 'tabId must be a UUID v4' })
+    .optional(),
 });
 
 /**
@@ -232,4 +245,28 @@ export const PermissionRuleSchema = z.object({
   action: z.enum(['allow', 'deny']),
   createdAt: z.number(),
   description: z.string().optional(),
+});
+
+/**
+ * Zod schema for AskUserQuestionRequest runtime validation
+ *
+ * Validates incoming question requests at the frontend receive point.
+ */
+export const AskUserQuestionRequestSchema = z.object({
+  id: z.string().uuid(),
+  toolName: z.literal('AskUserQuestion'),
+  questions: z.array(z.unknown()),
+  toolUseId: z.string().optional(),
+  timestamp: z.number(),
+  timeoutAt: z.number(),
+  sessionId: z
+    .string()
+    .refine((v) => UUID_REGEX.test(v), {
+      message: 'sessionId must be a UUID v4',
+    })
+    .optional(),
+  tabId: z
+    .string()
+    .refine((v) => UUID_REGEX.test(v), { message: 'tabId must be a UUID v4' })
+    .optional(),
 });
