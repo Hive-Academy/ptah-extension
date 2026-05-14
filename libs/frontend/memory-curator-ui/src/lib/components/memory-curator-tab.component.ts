@@ -15,6 +15,7 @@ import type { MemoryWire } from '@ptah-extension/shared';
 
 import {
   MemoryStateService,
+  type MemoryScopeFilter,
   type MemoryTierFilter,
 } from '../services/memory-state.service';
 import { MemoryRpcService } from '../services/memory-rpc.service';
@@ -62,6 +63,34 @@ interface TierChip {
       </div>
     } @else {
       <div class="flex h-full w-full flex-col gap-4">
+        <!-- Workspace scope toggle -->
+        <div
+          class="join mb-2"
+          role="tablist"
+          aria-label="Memory workspace scope"
+        >
+          <button
+            type="button"
+            role="tab"
+            class="join-item btn btn-sm"
+            [class.btn-primary]="scopeFilter() === 'workspace'"
+            [attr.aria-selected]="scopeFilter() === 'workspace'"
+            (click)="onScopeFilterChange('workspace')"
+          >
+            This workspace
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="join-item btn btn-sm"
+            [class.btn-primary]="scopeFilter() === 'all'"
+            [attr.aria-selected]="scopeFilter() === 'all'"
+            (click)="onScopeFilterChange('all')"
+          >
+            All workspaces
+          </button>
+        </div>
+
         <!-- Search + tier filter -->
         <div class="flex flex-col gap-2 md:flex-row md:items-center">
           <input
@@ -171,6 +200,18 @@ interface TierChip {
         @if (!hasWorkspace()) {
           <p class="text-xs text-base-content/60">
             Open a workspace to purge memory.
+          </p>
+        }
+        @if (scopeFilter() === 'all') {
+          <p class="text-xs text-warning mt-1">
+            Switch to 'This workspace' to purge.
+            <button
+              type="button"
+              class="btn btn-xs btn-link p-0"
+              (click)="onScopeFilterChange('workspace')"
+            >
+              Switch
+            </button>
           </p>
         }
 
@@ -343,9 +384,14 @@ export class MemoryCuratorTabComponent implements OnInit {
   );
   /** Combined disabled signal for the Purge button. */
   protected readonly purgeDisabled = computed(
-    () => !this.purgePattern().trim() || this.purging() || !this.hasWorkspace(),
+    () =>
+      !this.purgePattern().trim() ||
+      this.purging() ||
+      !this.hasWorkspace() ||
+      this.scopeFilter() === 'all',
   );
   protected readonly tierFilter = this.state.tierFilter;
+  protected readonly scopeFilter = this.state.scopeFilter;
   protected readonly filteredEntries = this.state.filteredEntries;
   protected readonly loading = this.state.loading;
   protected readonly error = this.state.error;
@@ -392,6 +438,16 @@ export class MemoryCuratorTabComponent implements OnInit {
       if (!this.isElectron()) return;
       void this.state.refresh();
     });
+
+    // Reactive effect: when the workspace scope toggle flips, refresh both the
+    // entry list and the stats payload so the UI matches the new scope.
+    effect(() => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+      this.state.scopeFilter();
+      if (!this.isElectron()) return;
+      void this.state.refresh();
+      void this.state.loadStats();
+    });
   }
 
   public ngOnInit(): void {
@@ -414,6 +470,10 @@ export class MemoryCuratorTabComponent implements OnInit {
 
   protected onTierChipClick(tier: MemoryTierFilter): void {
     this.state.setTierFilter(tier);
+  }
+
+  protected onScopeFilterChange(scope: MemoryScopeFilter): void {
+    this.state.setScopeFilter(scope);
   }
 
   protected onPin(id: string): void {

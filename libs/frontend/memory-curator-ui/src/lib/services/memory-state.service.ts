@@ -1,4 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { AppStateManager } from '@ptah-extension/core';
 import type {
   MemoryStatsResult,
   MemoryTierWire,
@@ -9,6 +10,9 @@ import { MemoryRpcService } from './memory-rpc.service';
 
 /** UI-side filter for the tier selector (adds an "all" sentinel). */
 export type MemoryTierFilter = 'all' | MemoryTierWire;
+
+/** UI-side filter for memory workspace scope (workspace-local vs cross-workspace). */
+export type MemoryScopeFilter = 'workspace' | 'all';
 
 /**
  * Per-tier totals derived from the currently-loaded entries. Used by the
@@ -40,11 +44,13 @@ export interface MemoryTierTotals {
 @Injectable({ providedIn: 'root' })
 export class MemoryStateService {
   private readonly rpcService = inject(MemoryRpcService);
+  private readonly appState = inject(AppStateManager);
 
   // -- Private writable signals --
   private readonly _entries = signal<readonly MemoryWire[]>([]);
   private readonly _query = signal<string>('');
   private readonly _tierFilter = signal<MemoryTierFilter>('all');
+  private readonly _scopeFilter = signal<MemoryScopeFilter>('workspace');
   private readonly _stats = signal<MemoryStatsResult | null>(null);
   private readonly _loading = signal<boolean>(false);
   private readonly _error = signal<string | null>(null);
@@ -53,6 +59,7 @@ export class MemoryStateService {
   public readonly entries = this._entries.asReadonly();
   public readonly query = this._query.asReadonly();
   public readonly tierFilter = this._tierFilter.asReadonly();
+  public readonly scopeFilter = this._scopeFilter.asReadonly();
   public readonly stats = this._stats.asReadonly();
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
@@ -89,6 +96,15 @@ export class MemoryStateService {
     this._tierFilter.set(value);
   }
 
+  public setScopeFilter(value: MemoryScopeFilter): void {
+    this._scopeFilter.set(value);
+  }
+
+  /** Current workspace root (null when no workspace is open). */
+  private getWorkspaceRoot(): string | null {
+    return this.appState.workspaceInfo()?.path ?? null;
+  }
+
   // -- RPC-bound actions --
 
   /** Refresh the entry list from `memory:list`, optionally restricted to a tier. */
@@ -97,7 +113,13 @@ export class MemoryStateService {
     this._error.set(null);
     try {
       const tier = this._tierFilter();
+      const scope = this._scopeFilter();
+      const workspaceRoot =
+        scope === 'workspace'
+          ? (this.getWorkspaceRoot() ?? undefined)
+          : undefined;
       const result = await this.rpcService.list({
+        ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
         ...(tier !== 'all' ? { tier } : {}),
         limit: 200,
         offset: 0,
@@ -125,6 +147,9 @@ export class MemoryStateService {
     this._loading.set(true);
     this._error.set(null);
     try {
+      // NOTE: memory:search RPC does not currently filter by workspaceRoot —
+      // results are global regardless of scopeFilter. A future task will add
+      // workspace scoping to the backend search handler.
       const result = await this.rpcService.search(trimmed, 50);
       this._entries.set(result.hits.map((hit) => hit.memory));
     } catch (err) {
@@ -189,7 +214,9 @@ export class MemoryStateService {
   public async loadStats(): Promise<void> {
     this._error.set(null);
     try {
-      const stats = await this.rpcService.stats(null);
+      const scopedRoot =
+        this._scopeFilter() === 'workspace' ? this.getWorkspaceRoot() : null;
+      const stats = await this.rpcService.stats(scopedRoot);
       this._stats.set(stats);
     } catch (err) {
       this._error.set(toErrorMessage(err));
