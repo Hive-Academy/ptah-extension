@@ -86,6 +86,7 @@ Use execute_code with the \`ptah\` global object for operations only available t
 - **LSP actions**: ptah.ide.actions.organizeImports(file), ptah.ide.actions.rename(file, line, col, newName)
 - **Self-docs**: ptah.help() / ptah.help('namespace')
 - **Memory recall**: ptah.memory.search(query, maxResults?) — hybrid BM25+vector search over persistent memory from past sessions; ptah.memory.list({tier?, limit?, offset?}) — list stored memories. Call ptah.memory.search when the user references past context, prior decisions, or asks what you remember.
+- **Memory purge (diagnostic only)**: \`ptah.memory.purgeBySubjectPattern(pattern, mode)\` removes memory entries from the active workspace whose subject matches the pattern (\`mode: 'substring'\` for literal substring match, \`'like'\` for raw SQL LIKE syntax). Returns \`{ deleted }\` or \`{ deleted: 0, error }\`. Always state the count back to the user before claiming success. Reserve this for diagnostic cleanup the user explicitly asks for — never invoke pre-emptively.
 
 ### Workflow: Start Every Task With Ptah
 
@@ -304,6 +305,7 @@ Use execute_code with the \`ptah\` global object for operations only available t
 - **LSP actions**: ptah.ide.actions.organizeImports(file), ptah.ide.actions.rename(file, line, col, newName)
 - **Self-docs**: ptah.help() / ptah.help('namespace')
 - **Memory recall**: ptah.memory.search(query, maxResults?) — hybrid BM25+vector search over persistent memory from past sessions; ptah.memory.list({tier?, limit?, offset?}) — list stored memories. Call ptah.memory.search when the user references past context, prior decisions, or asks what you remember.
+- **Memory purge (diagnostic only)**: \`ptah.memory.purgeBySubjectPattern(pattern, mode)\` removes memory entries from the active workspace whose subject matches the pattern (\`mode: 'substring'\` for literal substring match, \`'like'\` for raw SQL LIKE syntax). Returns \`{ deleted }\` or \`{ deleted: 0, error }\`. Always state the count back to the user before claiming success. Reserve this for diagnostic cleanup the user explicitly asks for — never invoke pre-emptively.
 
 ### Workflow: Start Every Task With Ptah
 

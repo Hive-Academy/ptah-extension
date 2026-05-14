@@ -23,6 +23,18 @@ export interface IMemoryWriter {
    *   5. Return `{ status: 'inserted' | 'replaced', id }`.
    */
   upsert(req: MemoryWriteRequest): Promise<MemoryWriteResult>;
+
+  /**
+   * Delete all memory entries from `workspaceRoot` whose subject matches `pattern`.
+   * - `mode: 'substring'` — escaped LIKE with `%...%` wrapping.
+   * - `mode: 'like'` — raw SQL LIKE pattern passed verbatim.
+   * Returns count of deleted rows.
+   */
+  purgeBySubjectPattern(
+    pattern: string,
+    mode: 'substring' | 'like',
+    workspaceRoot: string,
+  ): number;
 }
 
 export interface MemoryWriteRequest {

@@ -7,6 +7,7 @@
  *     reader is absent or throws
  *   - list: delegates to IMemoryLister with correct args; applies defaults;
  *     error envelope when lister is absent or throws
+ *   - purgeBySubjectPattern: delegates to IMemoryWriter; all error envelopes
  */
 
 import type {
@@ -15,6 +16,7 @@ import type {
   MemoryHit,
   MemoryRecord,
 } from '@ptah-extension/memory-contracts';
+import type { IMemoryWriter } from '@ptah-extension/platform-core';
 import {
   buildMemoryNamespace,
   type MemoryNamespaceDependencies,
@@ -55,7 +57,15 @@ function makeDeps(
   return {
     getMemorySearch: overrides.getMemorySearch ?? (() => undefined),
     getMemoryStore: overrides.getMemoryStore ?? (() => undefined),
+    getMemoryWriter: overrides.getMemoryWriter ?? (() => undefined),
     getWorkspaceRoot: overrides.getWorkspaceRoot ?? (() => 'D:/ws'),
+  };
+}
+
+function makeWriter(deleted = 0): IMemoryWriter {
+  return {
+    upsert: jest.fn(),
+    purgeBySubjectPattern: jest.fn().mockReturnValue(deleted),
   };
 }
 
@@ -236,5 +246,96 @@ describe('buildMemoryNamespace — list', () => {
     await ns.list();
 
     expect(lister.listAll).toHaveBeenCalledWith('D:/other', undefined, 50, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// purgeBySubjectPattern
+// ---------------------------------------------------------------------------
+
+describe('buildMemoryNamespace — purgeBySubjectPattern', () => {
+  it('happy path — writer returns 5, namespace returns { deleted: 5 }', async () => {
+    const writer = makeWriter(5);
+    const ns = buildMemoryNamespace(
+      makeDeps({ getMemoryWriter: () => writer }),
+    );
+
+    const result = await ns.purgeBySubjectPattern('agent:', 'substring');
+
+    expect(result).toEqual({ deleted: 5 });
+    expect(writer.purgeBySubjectPattern).toHaveBeenCalledWith(
+      'agent:',
+      'substring',
+      'D:/ws',
+    );
+  });
+
+  it('writer undefined → { deleted: 0, error: "Memory writer not available" }', async () => {
+    const ns = buildMemoryNamespace(
+      makeDeps({ getMemoryWriter: () => undefined }),
+    );
+
+    const result = await ns.purgeBySubjectPattern('agent:', 'substring');
+
+    expect(result).toEqual({
+      deleted: 0,
+      error: 'Memory writer not available',
+    });
+  });
+
+  it('empty pattern → { deleted: 0, error: "Pattern must not be empty" }', async () => {
+    const writer = makeWriter();
+    const ns = buildMemoryNamespace(
+      makeDeps({ getMemoryWriter: () => writer }),
+    );
+
+    const result = await ns.purgeBySubjectPattern('', 'substring');
+
+    expect(result).toEqual({ deleted: 0, error: 'Pattern must not be empty' });
+  });
+
+  it('empty workspace root → { deleted: 0, error: /No active workspace/ }', async () => {
+    const writer = makeWriter();
+    const ns = buildMemoryNamespace(
+      makeDeps({
+        getMemoryWriter: () => writer,
+        getWorkspaceRoot: () => '',
+      }),
+    );
+
+    const result = await ns.purgeBySubjectPattern('agent:', 'substring');
+
+    expect('error' in result && result.error).toMatch(/No active workspace/);
+    expect(result.deleted).toBe(0);
+  });
+
+  it('invalid mode → { deleted: 0, error: "Invalid mode" }', async () => {
+    const writer = makeWriter();
+    const ns = buildMemoryNamespace(
+      makeDeps({ getMemoryWriter: () => writer }),
+    );
+
+    const result = await ns.purgeBySubjectPattern(
+      'agent:',
+      'regex' as 'substring' | 'like',
+    );
+
+    expect(result).toEqual({ deleted: 0, error: 'Invalid mode' });
+  });
+
+  it('writer throws → caught, returns { deleted: 0, error: <message> }', async () => {
+    const writer: IMemoryWriter = {
+      upsert: jest.fn(),
+      purgeBySubjectPattern: jest.fn().mockImplementation(() => {
+        throw new Error('DB locked');
+      }),
+    };
+    const ns = buildMemoryNamespace(
+      makeDeps({ getMemoryWriter: () => writer }),
+    );
+
+    const result = await ns.purgeBySubjectPattern('agent:', 'substring');
+
+    expect(result).toEqual({ deleted: 0, error: 'DB locked' });
   });
 });
