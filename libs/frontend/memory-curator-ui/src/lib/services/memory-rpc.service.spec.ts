@@ -110,4 +110,41 @@ describe('MemoryRpcService', () => {
 
     await expect(service.forget('m-99')).rejects.toThrow('boom');
   });
+
+  it('purgeBySubjectPattern() calls memory:purgeBySubjectPattern with pattern, mode, workspaceRoot and returns data', async () => {
+    const payload = { deleted: 3 };
+    rpcCall.mockResolvedValue(okResult(payload));
+
+    const result = await service.purgeBySubjectPattern(
+      'node_modules',
+      'substring',
+      '/ws',
+    );
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'memory:purgeBySubjectPattern',
+      { pattern: 'node_modules', mode: 'substring', workspaceRoot: '/ws' },
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(result).toEqual(payload);
+  });
+
+  it('purgeBySubjectPattern() throws with RPC error string on failure', async () => {
+    rpcCall.mockResolvedValue(errResult('store unavailable'));
+
+    await expect(
+      service.purgeBySubjectPattern('foo', 'like', '/ws'),
+    ).rejects.toThrow('store unavailable');
+  });
+
+  it('purgeBySubjectPattern() omits workspaceRoot when undefined', async () => {
+    rpcCall.mockResolvedValue(okResult({ deleted: 0 }));
+
+    await service.purgeBySubjectPattern('foo', 'substring');
+
+    const callArgs = rpcCall.mock.calls[0];
+    const params = callArgs[1] as Record<string, unknown>;
+    expect(params).toEqual({ pattern: 'foo', mode: 'substring' });
+    expect('workspaceRoot' in params).toBe(false);
+  });
 });

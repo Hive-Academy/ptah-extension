@@ -84,13 +84,13 @@ export interface IFileSystemProvider {
    * Replaces: vscode.workspace.findFiles()
    *
    * @param pattern - Glob pattern (e.g., '**\/*.ts')
-   * @param exclude - Optional exclusion glob pattern
+   * @param exclude - Optional array of exclusion glob patterns
    * @param maxResults - Maximum number of results
    * @returns Array of absolute file paths
    */
   findFiles(
     pattern: string,
-    exclude?: string,
+    exclude?: string[],
     maxResults?: number,
     cwd?: string,
   ): Promise<string[]>;

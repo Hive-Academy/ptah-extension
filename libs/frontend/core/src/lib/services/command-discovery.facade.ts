@@ -1,4 +1,13 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
+import {
+  type LucideIconData,
+  Zap,
+  Package,
+  User,
+  Plug,
+  Puzzle,
+  HelpCircle,
+} from 'lucide-angular';
 import { ClaudeRpcService } from './claude-rpc.service';
 
 export interface CommandSuggestion {
@@ -6,7 +15,7 @@ export interface CommandSuggestion {
   readonly description: string;
   readonly scope: 'builtin' | 'project' | 'user' | 'mcp' | 'plugin';
   readonly argumentHint?: string;
-  readonly icon: string;
+  readonly icon: LucideIconData;
 }
 
 @Injectable({
@@ -96,20 +105,20 @@ export class CommandDiscoveryFacade {
     );
   }
 
-  private getCommandIcon(scope: string): string {
+  private getCommandIcon(scope: string): LucideIconData {
     switch (scope) {
       case 'builtin':
-        return '⚡';
+        return Zap;
       case 'project':
-        return '📦';
+        return Package;
       case 'user':
-        return '👤';
+        return User;
       case 'mcp':
-        return '🔌';
+        return Plug;
       case 'plugin':
-        return '🧩';
+        return Puzzle;
       default:
-        return '❓';
+        return HelpCircle;
     }
   }
 

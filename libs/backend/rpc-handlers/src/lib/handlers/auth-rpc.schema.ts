@@ -50,34 +50,33 @@ export type AuthSettingsInput = z.infer<typeof AuthSettingsSchema>;
 // Auth method from config storage
 // ---------------------------------------------------------------------------
 
-/**
- * Canonical auth method values understood by the extension.
- * 'openrouter' is a legacy alias stored by old Ptah versions — it is
- * normalized to 'thirdParty' before use.
- */
-const VALID_AUTH_METHODS = [
-  'apiKey',
-  'claudeCli',
-  'thirdParty',
-  'openrouter',
-] as const;
-type RawAuthMethod = (typeof VALID_AUTH_METHODS)[number];
-
 /** The three auth methods exposed to the rest of the handler. */
 export type AuthMethod = 'apiKey' | 'claudeCli' | 'thirdParty';
 
 /**
- * Parse the `authMethod` stored in config, normalizing legacy aliases.
+ * Parse the `authMethod` stored in config, normalizing legacy and new spellings.
  *
- * - 'openrouter' → 'thirdParty' (legacy alias used by early Ptah builds).
- * - Any unrecognized value (e.g. 'vscode-lm', 'auto') → 'apiKey' (safe default).
+ * The CLI's `auth use` command and bootstrap migration shim write new spellings
+ * (`'claude-cli'`, `'oauth'`) to disk. The frontend Settings UI writes legacy
+ * spellings (`'claudeCli'`, `'thirdParty'`). Both must resolve to the same
+ * canonical triad so the auth-status badge stays consistent with the actual
+ * auth path resolved by `normalizeAuthMethod` in agent-sdk.
  *
- * Replaces the inline `(rawMethod && validMethods.includes(rawMethod) ? ... ) as AuthMethod`
- * cast in `auth:getAuthStatus` so the normalization is tested in isolation.
+ * Mapping (first match wins, default `'apiKey'`):
+ *   'apiKey'                              → 'apiKey'
+ *   'claudeCli' | 'claude-cli'            → 'claudeCli'
+ *   'thirdParty' | 'oauth' | 'openrouter' → 'thirdParty'
+ *   anything else (e.g. 'vscode-lm')      → 'apiKey' (safe default)
+ *
+ * Kept in lockstep with `normalizeAuthMethod` in
+ * `libs/backend/agent-sdk/src/lib/helpers/auth-method.utils.ts`.
  */
 export function parseAuthMethod(raw: string | null | undefined): AuthMethod {
   if (!raw) return 'apiKey';
-  if (!(VALID_AUTH_METHODS as readonly string[]).includes(raw)) return 'apiKey';
-  const method = raw as RawAuthMethod;
-  return method === 'openrouter' ? 'thirdParty' : method;
+  if (raw === 'apiKey') return 'apiKey';
+  if (raw === 'claudeCli' || raw === 'claude-cli') return 'claudeCli';
+  if (raw === 'thirdParty' || raw === 'oauth' || raw === 'openrouter') {
+    return 'thirdParty';
+  }
+  return 'apiKey';
 }

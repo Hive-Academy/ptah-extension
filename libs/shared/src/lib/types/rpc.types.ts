@@ -287,6 +287,8 @@ import type {
   MemoryRebuildIndexResult,
   MemoryStatsParams,
   MemoryStatsResult,
+  MemoryPurgeBySubjectPatternParams,
+  MemoryPurgeBySubjectPatternResult,
 } from './rpc/rpc-memory.types';
 // === TRACK_1_MEMORY_CURATOR_END ===
 
@@ -1259,6 +1261,10 @@ export interface RpcMethodRegistry {
     result: MemoryRebuildIndexResult;
   };
   'memory:stats': { params: MemoryStatsParams; result: MemoryStatsResult };
+  'memory:purgeBySubjectPattern': {
+    params: MemoryPurgeBySubjectPatternParams;
+    result: MemoryPurgeBySubjectPatternResult;
+  };
   // === TRACK_1_MEMORY_CURATOR_END ===
 
   // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===
@@ -2108,6 +2114,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'memory:forget': true,
   'memory:rebuildIndex': true,
   'memory:stats': true,
+  'memory:purgeBySubjectPattern': true,
   // === TRACK_1_MEMORY_CURATOR_END ===
 
   // === TRACK_2_SKILL_SYNTHESIS_BEGIN ===

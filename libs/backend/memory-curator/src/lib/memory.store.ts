@@ -404,6 +404,63 @@ export class MemoryStore implements IMemoryLister {
     return result.changes;
   }
 
+  /**
+   * Delete all memory rows whose subject matches `pattern` under the given mode.
+   *
+   * `mode: 'substring'` — treats `pattern` as a plain substring; LIKE metacharacters
+   * (`%`, `_`, `\`) are escaped so the match is literal, then the pattern is wrapped in
+   * `%pattern%`.
+   *
+   * `mode: 'like'` — treats `pattern` as a raw SQL LIKE expression (e.g.
+   * `code:function:%`). The caller is responsible for escaping. This mode is intentional
+   * for trusted callers (the RPC handler validates input with Zod before reaching here).
+   * ⚠️  SQL injection note: only `mode: 'like'` receives an unescaped value — it is
+   * passed via parameterised SQL, so no string interpolation occurs; the SQL engine
+   * applies it as a LIKE pattern, not as SQL code.
+   *
+   * NULL-subject rows: `subject LIKE ?` evaluates to NULL for NULL-subject rows, so they
+   * are safely excluded from deletion without an extra WHERE clause.
+   *
+   * Returns count of deleted rows. Returns 0 immediately when `pattern.trim() === ''`.
+   */
+  purgeBySubjectPattern(
+    pattern: string,
+    mode: 'substring' | 'like',
+    workspaceRoot?: string | null,
+  ): number {
+    if (pattern.trim() === '') {
+      return 0;
+    }
+
+    let likePattern: string;
+    if (mode === 'substring') {
+      // Escape backslashes first, then % and _ so SQLite LIKE treats them literally.
+      const escaped = pattern
+        .replace(/\\/g, '\\\\')
+        .replace(/%/g, '\\%')
+        .replace(/_/g, '\\_');
+      likePattern = `%${escaped}%`;
+    } else {
+      // mode === 'like': caller provides the raw LIKE pattern verbatim.
+      likePattern = pattern;
+    }
+
+    const sql =
+      workspaceRoot !== undefined && workspaceRoot !== null
+        ? `DELETE FROM memories WHERE subject LIKE ? ESCAPE '\\' AND workspace_root IS ?`
+        : `DELETE FROM memories WHERE subject LIKE ? ESCAPE '\\'`;
+
+    const result =
+      workspaceRoot !== undefined && workspaceRoot !== null
+        ? this.connection.db.prepare(sql).run(likePattern, workspaceRoot)
+        : this.connection.db.prepare(sql).run(likePattern);
+
+    if (result.changes > 0) {
+      this.bumpWriteCounter(workspaceRoot ?? null);
+    }
+    return result.changes;
+  }
+
   recordHit(id: MemoryId): void {
     this.connection.db
       .prepare(

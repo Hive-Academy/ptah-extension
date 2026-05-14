@@ -1,22 +1,20 @@
-/**
- * sdk-permission-handler — unit specs.
+﻿/**
+ * sdk-permission-handler - unit specs.
  *
- * Scope (TASK_2026_109_FOLLOWUP_QUESTIONS): the AskUserQuestion emission path
- * must always stamp `tabId` on the broadcast when a routing identity is
- * available. The frontend stream router (`stream-router.service.ts`'s
- * `routeQuestionPrompt`) uses `tabId` to narrow question delivery to the
- * originating tab; if it's missing/empty, the router falls back to
- * broadcasting to every tab bound to the conversation — which is the
- * "question card on every tile" regression.
+ * Tests lock in the use-case identity contracts for permission and question
+ * routing:
  *
- * These specs lock in:
- *   - `AskUserQuestion` stamps `tabId` from the session/routing context the
- *     callback was created with (no explicit `tabId` arg — main path).
- *   - `AskUserQuestion` prefers an explicit `tabId` argument over the
- *     fallback session id.
- *   - When neither tabId nor sessionId is available (sub-agent / no-tab
- *     path), the handler logs a structured warning so the missing-routing
- *     case is traceable in production.
+ *   UC1 - New session (tabId passed explicitly as third arg to createCallback).
+ *          Wire prompt.tabId = explicit tabId, prompt.sessionId = routingId.
+ *   UC2 - Resumed session (same contract; tabId is the frontend tab UUID,
+ *          sessionId is the real SDK UUID).
+ *   UC3 - CLI path (no tabId arg). Wire prompt.tabId = undefined so the
+ *          frontend router falls through to agent-monitor routing.
+ *
+ * TASK_2026_120 Phase B additions:
+ *   - createCallback type-safety: TabId/SessionId branded params enforce identity
+ *   - cleanupPendingPermissions dual-match: keying by tabId OR sessionId
+ *   - PermissionRequestSchema UUID validation for tabId and sessionId fields
  */
 
 import 'reflect-metadata';
@@ -27,7 +25,7 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, PermissionRequestSchema } from '@ptah-extension/shared';
 
 import { SdkPermissionHandler } from './sdk-permission-handler';
 
@@ -53,6 +51,13 @@ interface AskUserQuestionPayload {
   questions: ReadonlyArray<{ header: string; options: { label: string }[] }>;
 }
 
+interface PermissionRequestPayload {
+  id: string;
+  toolName: string;
+  sessionId?: string;
+  tabId?: string;
+}
+
 function makeHandler(): {
   handler: SdkPermissionHandler;
   logger: MockLogger;
@@ -74,8 +79,6 @@ function makeHandler(): {
     ),
   };
 
-  // Reset container state for hermetic test runs and register the optional
-  // WEBVIEW_MANAGER token so SdkPermissionHandler's lazy resolver picks it up.
   container.clearInstances();
   container.registerInstance(TOKENS.WEBVIEW_MANAGER, webviewManager);
 
@@ -99,60 +102,172 @@ function makeAskInput() {
     questions: [
       {
         header: 'Pick a strategy',
+        question: 'Pick a strategy?',
         options: [{ label: 'A' }, { label: 'B' }],
+        multiSelect: false,
       },
     ],
   };
 }
 
 async function flushMicrotasks(): Promise<void> {
-  // The handler's `sendMessage(...).then(...)` chain queues microtasks; allow
-  // them to settle before asserting on `sent`.
   await Promise.resolve();
   await Promise.resolve();
 }
 
+type SessionIdParam = Parameters<SdkPermissionHandler['createCallback']>[0];
+type TabIdParam = Parameters<SdkPermissionHandler['createCallback']>[2];
+
+function asSessionId(s: string): SessionIdParam {
+  return s as SessionIdParam;
+}
+function asTabId(s: string): TabIdParam {
+  return s as TabIdParam;
+}
+
 // ---------------------------------------------------------------------------
-// Specs
+// UC1 / UC2 / UC3 - createCallback use-case contract tests
 // ---------------------------------------------------------------------------
 
-describe('SdkPermissionHandler — AskUserQuestion tabId stamping', () => {
+describe('SdkPermissionHandler - createCallback use-case contracts', () => {
   afterEach(() => {
     container.clearInstances();
     jest.clearAllMocks();
   });
 
-  it('askUserQuestion stamps tabId from session context when available', async () => {
+  it('createCallback - UC1 new session: prompt.tabId equals tabId arg, prompt.sessionId equals routingId', async () => {
     const { handler, sent } = makeHandler();
 
-    // Main session path: caller passes `routingId` (== frontend tabId) as the
-    // first argument of createCallback. Our signature treats this as both
-    // sessionId-for-cleanup AND tabId fallback when no explicit tabId is
-    // supplied — matching `sdk-query-options-builder.ts` real-world usage.
-    const ROUTING_ID = 'tab-abc-123';
-    const callback = handler.createCallback(ROUTING_ID);
+    const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const ROUTING_ID = TAB_ID;
+    const callback = handler.createCallback(
+      asSessionId(ROUTING_ID),
+      undefined,
+      asTabId(TAB_ID),
+    );
 
     const ac = new AbortController();
-    // Fire-and-forget — handleAskUserQuestion blocks awaiting a webview
-    // response. We abort after the request is emitted to drain it.
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-uc1',
+      },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    const payload = broadcast!.payload as unknown as PermissionRequestPayload;
+    expect(payload.tabId).toBe(TAB_ID);
+    expect(payload.sessionId).toBe(ROUTING_ID);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('createCallback - UC2 resumed session: prompt.tabId equals explicit tabId arg, prompt.sessionId equals real SDK UUID', async () => {
+    const { handler, sent } = makeHandler();
+
+    const REAL_SESSION_UUID = '11111111-2222-4333-8444-555555555555';
+    const EXPLICIT_TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const callback = handler.createCallback(
+      asSessionId(REAL_SESSION_UUID),
+      undefined,
+      asTabId(EXPLICIT_TAB_ID),
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Write',
+      { file_path: '/tmp/x', content: 'y' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-uc2',
+      },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    const payload = broadcast!.payload as unknown as PermissionRequestPayload;
+    expect(payload.tabId).toBe(EXPLICIT_TAB_ID);
+    expect(payload.sessionId).toBe(REAL_SESSION_UUID);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('createCallback - UC3 CLI path (no tabId): prompt.tabId is undefined, prompt.sessionId equals real SDK UUID', async () => {
+    const { handler, sent } = makeHandler();
+
+    const REAL_SESSION_UUID = '11111111-2222-4333-8444-555555555555';
+    const callback = handler.createCallback(asSessionId(REAL_SESSION_UUID));
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'echo' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-uc3',
+      },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    const payload = broadcast!.payload as unknown as PermissionRequestPayload;
+    expect(payload.tabId).toBeUndefined();
+    expect(payload.sessionId).toBe(REAL_SESSION_UUID);
+
+    ac.abort();
+    await pending;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AskUserQuestion tabId stamping
+// ---------------------------------------------------------------------------
+
+describe('SdkPermissionHandler - AskUserQuestion tabId stamping', () => {
+  afterEach(() => {
+    container.clearInstances();
+    jest.clearAllMocks();
+  });
+
+  it('askUserQuestion stamps tabId from session context when available (tabId ?? sessionId fallback in handleAskUserQuestion)', async () => {
+    const { handler, sent } = makeHandler();
+
+    const ROUTING_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const callback = handler.createCallback(asSessionId(ROUTING_ID));
+
+    const ac = new AbortController();
     const pending = callback('AskUserQuestion', makeAskInput(), {
       signal: ac.signal,
       toolUseID: 'tool-use-1',
     });
 
-    // Allow the synchronous request build + sendMessage promise to dispatch.
     await flushMicrotasks();
 
     const broadcast = sent.find(
       (m) => m.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
     );
     expect(broadcast).toBeDefined();
-    if (!broadcast) throw new Error('test setup failed: broadcast missing');
-    const payload = broadcast.payload as unknown as AskUserQuestionPayload;
+    const payload = broadcast!.payload as unknown as AskUserQuestionPayload;
     expect(payload.tabId).toBe(ROUTING_ID);
     expect(payload.sessionId).toBe(ROUTING_ID);
 
-    // Drain — abort the pending awaitQuestionResponse promise.
     ac.abort();
     await pending;
   });
@@ -160,9 +275,6 @@ describe('SdkPermissionHandler — AskUserQuestion tabId stamping', () => {
   it('askUserQuestion logs warning when tabId is unavailable (sub-agent / no-tab path)', async () => {
     const { handler, logger, sent } = makeHandler();
 
-    // No routing context at all — simulates a sub-agent or CLI-only flow
-    // where no originating tab exists. createCallback() is called with
-    // undefined sessionId AND undefined tabId.
     const callback = handler.createCallback(undefined, undefined, undefined);
 
     const ac = new AbortController();
@@ -173,8 +285,6 @@ describe('SdkPermissionHandler — AskUserQuestion tabId stamping', () => {
 
     await flushMicrotasks();
 
-    // The warning must be emitted so production traces show why the frontend
-    // fell back to broadcasting on every tab.
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('emitted without tabId'),
       expect.objectContaining({
@@ -183,14 +293,11 @@ describe('SdkPermissionHandler — AskUserQuestion tabId stamping', () => {
       }),
     );
 
-    // The broadcast still happens (the agent still needs an answer) but with
-    // no tabId — frontend falls back to all-tabs routing.
     const broadcast = sent.find(
       (m) => m.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
     );
     expect(broadcast).toBeDefined();
-    if (!broadcast) throw new Error('test setup failed: broadcast missing');
-    const payload = broadcast.payload as unknown as AskUserQuestionPayload;
+    const payload = broadcast!.payload as unknown as AskUserQuestionPayload;
     expect(payload.tabId).toBeUndefined();
 
     ac.abort();
@@ -200,15 +307,12 @@ describe('SdkPermissionHandler — AskUserQuestion tabId stamping', () => {
   it('askUserQuestion prefers explicit tabId argument over sessionId fallback', async () => {
     const { handler, sent } = makeHandler();
 
-    // CLI sub-agent path: sessionId is the real SDK UUID (not a tab), but
-    // the caller knows the originating tab and passes it explicitly. The
-    // explicit tabId must win over the sessionId-as-tabId fallback.
-    const REAL_SESSION_UUID = '11111111-2222-3333-4444-555555555555';
-    const EXPLICIT_TAB_ID = 'tab-xyz-999';
+    const REAL_SESSION_UUID = '11111111-2222-4333-8444-555555555555';
+    const EXPLICIT_TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
     const callback = handler.createCallback(
-      REAL_SESSION_UUID,
+      asSessionId(REAL_SESSION_UUID),
       undefined,
-      EXPLICIT_TAB_ID,
+      asTabId(EXPLICIT_TAB_ID),
     );
 
     const ac = new AbortController();
@@ -223,8 +327,7 @@ describe('SdkPermissionHandler — AskUserQuestion tabId stamping', () => {
       (m) => m.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
     );
     expect(broadcast).toBeDefined();
-    if (!broadcast) throw new Error('test setup failed: broadcast missing');
-    const payload = broadcast.payload as unknown as AskUserQuestionPayload;
+    const payload = broadcast!.payload as unknown as AskUserQuestionPayload;
     expect(payload.tabId).toBe(EXPLICIT_TAB_ID);
     expect(payload.sessionId).toBe(REAL_SESSION_UUID);
 
@@ -234,10 +337,272 @@ describe('SdkPermissionHandler — AskUserQuestion tabId stamping', () => {
 });
 
 // ---------------------------------------------------------------------------
+// PermissionRequest tabId stamping
+// ---------------------------------------------------------------------------
+
+describe('SdkPermissionHandler - PermissionRequest tabId stamping', () => {
+  afterEach(() => {
+    container.clearInstances();
+    jest.clearAllMocks();
+  });
+
+  it('stamps tabId only when explicit tabId arg present (no sessionId fallback for permission route)', async () => {
+    const { handler, sent } = makeHandler();
+
+    const ROUTING_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const callback = handler.createCallback(asSessionId(ROUTING_ID));
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-use-1',
+      },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    const payload = broadcast!.payload as unknown as PermissionRequestPayload;
+    expect(payload.tabId).toBeUndefined();
+    expect(payload.sessionId).toBe(ROUTING_ID);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('prefers explicit tabId argument over sessionId (resumed-session path)', async () => {
+    const { handler, sent } = makeHandler();
+
+    const REAL_SESSION_UUID = '11111111-2222-4333-8444-555555555555';
+    const EXPLICIT_TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const callback = handler.createCallback(
+      asSessionId(REAL_SESSION_UUID),
+      undefined,
+      asTabId(EXPLICIT_TAB_ID),
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Write',
+      { file_path: '/tmp/x', content: 'y' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-use-2',
+      },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    const payload = broadcast!.payload as unknown as PermissionRequestPayload;
+    expect(payload.tabId).toBe(EXPLICIT_TAB_ID);
+    expect(payload.sessionId).toBe(REAL_SESSION_UUID);
+
+    ac.abort();
+    await pending;
+  });
+
+  it('emits PermissionRequest with undefined tabId when no routing context available (sub-agent / CLI path)', async () => {
+    const { handler, sent } = makeHandler();
+
+    const callback = handler.createCallback(undefined, undefined, undefined);
+
+    const ac = new AbortController();
+    const pending = callback(
+      'Bash',
+      { command: 'echo' },
+      {
+        signal: ac.signal,
+        toolUseID: 'tool-use-3',
+      },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    const payload = broadcast!.payload as unknown as PermissionRequestPayload;
+    expect(payload.tabId).toBeUndefined();
+    expect(payload.sessionId).toBeUndefined();
+
+    ac.abort();
+    await pending;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cleanupPendingPermissions - dual-match on tabId OR sessionId
+// ---------------------------------------------------------------------------
+
+describe('SdkPermissionHandler - cleanupPendingPermissions keying', () => {
+  afterEach(() => {
+    container.clearInstances();
+    jest.clearAllMocks();
+  });
+
+  it('cleanupPendingPermissions - keying by tabId cleans interactive-path requests', async () => {
+    const { handler, sent } = makeHandler();
+
+    const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const SESSION_UUID = '11111111-2222-4333-8444-555555555555';
+    const callback = handler.createCallback(
+      asSessionId(SESSION_UUID),
+      undefined,
+      asTabId(TAB_ID),
+    );
+
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-cleanup-tab',
+      },
+    );
+
+    await flushMicrotasks();
+    expect(sent.some((m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST)).toBe(
+      true,
+    );
+
+    handler.cleanupPendingPermissions(TAB_ID);
+
+    const result = await pending;
+    expect(result).toMatchObject({ behavior: 'deny' });
+  });
+
+  it('cleanupPendingPermissions - keying by sessionId cleans CLI-path requests', async () => {
+    const { handler, sent } = makeHandler();
+
+    const SESSION_UUID = '11111111-2222-4333-8444-555555555555';
+    const callback = handler.createCallback(asSessionId(SESSION_UUID));
+
+    const pending = callback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-cleanup-session',
+      },
+    );
+
+    await flushMicrotasks();
+    expect(sent.some((m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST)).toBe(
+      true,
+    );
+
+    handler.cleanupPendingPermissions(SESSION_UUID);
+
+    const result = await pending;
+    expect(result).toMatchObject({ behavior: 'deny' });
+  });
+
+  it('cleanupPendingPermissions - all-cleanup (no arg) clears both interactive and CLI requests', async () => {
+    const { handler } = makeHandler();
+
+    const TAB_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const SESSION_UUID = '11111111-2222-4333-8444-555555555555';
+    const CLI_SESSION = 'cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa';
+
+    const interactiveCallback = handler.createCallback(
+      asSessionId(SESSION_UUID),
+      undefined,
+      asTabId(TAB_ID),
+    );
+    const interactivePending = interactiveCallback(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-all-interactive',
+      },
+    );
+
+    const cliCallback = handler.createCallback(asSessionId(CLI_SESSION));
+    const cliPending = cliCallback(
+      'Write',
+      { file_path: '/tmp/x', content: 'y' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-all-cli',
+      },
+    );
+
+    await flushMicrotasks();
+
+    handler.cleanupPendingPermissions();
+
+    const [interactiveResult, cliResult] = await Promise.all([
+      interactivePending,
+      cliPending,
+    ]);
+
+    expect(interactiveResult).toMatchObject({ behavior: 'deny' });
+    expect(cliResult).toMatchObject({ behavior: 'deny' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PermissionRequestSchema - UUID validation for tabId and sessionId
+// ---------------------------------------------------------------------------
+
+describe('PermissionRequestSchema - UUID validation', () => {
+  const BASE_VALID = {
+    id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    toolName: 'Bash',
+    toolInput: { command: 'ls' },
+    timestamp: Date.now(),
+    description: 'test',
+    timeoutAt: 0,
+  };
+
+  it('PermissionRequestSchema rejects non-UUID tabId at parse time', () => {
+    const result = PermissionRequestSchema.safeParse({
+      ...BASE_VALID,
+      tabId: 'not-a-uuid',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('PermissionRequestSchema rejects non-UUID sessionId at parse time', () => {
+    const result = PermissionRequestSchema.safeParse({
+      ...BASE_VALID,
+      sessionId: 'not-a-uuid',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('PermissionRequestSchema accepts valid UUID tabId and sessionId', () => {
+    const result = PermissionRequestSchema.safeParse({
+      ...BASE_VALID,
+      tabId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      sessionId: '11111111-2222-4333-8444-555555555555',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('PermissionRequestSchema accepts missing optional tabId and sessionId', () => {
+    const result = PermissionRequestSchema.safeParse(BASE_VALID);
+    expect(result.success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fix 6: auto-timeout answers keyed by q.question, not q.header
 // ---------------------------------------------------------------------------
 
-describe('SdkPermissionHandler — AskUserQuestion idle-timeout answer keying (Fix 6)', () => {
+describe('SdkPermissionHandler - AskUserQuestion idle-timeout answer keying (Fix 6)', () => {
   beforeEach(() => {
     jest.useFakeTimers();
   });
@@ -251,7 +616,9 @@ describe('SdkPermissionHandler — AskUserQuestion idle-timeout answer keying (F
   it('keys auto-timeout answers by q.question not q.header', async () => {
     const { handler } = makeHandler();
 
-    const callback = handler.createCallback('sess-timeout');
+    const callback = handler.createCallback(
+      asSessionId('aaaaaaaa-bbbb-4ccc-8ddd-sess55555555'),
+    );
 
     const questions = [
       {
@@ -270,7 +637,6 @@ describe('SdkPermissionHandler — AskUserQuestion idle-timeout answer keying (F
 
     const ac = new AbortController();
 
-    // Fire-and-forget — will resolve after the idle timeout fires
     const pending = callback(
       'AskUserQuestion',
       { questions },
@@ -279,18 +645,13 @@ describe('SdkPermissionHandler — AskUserQuestion idle-timeout answer keying (F
 
     await flushMicrotasks();
 
-    // Advance past the 5-minute idle timeout
     jest.runAllTimers();
 
-    // Allow the resolve microtask to propagate
     await Promise.resolve();
     await Promise.resolve();
 
     const result = await pending;
 
-    // The PermissionResult for AskUserQuestion is:
-    //   { behavior: 'allow', updatedInput: { ...input, answers: {...} } }
-    // The answers must be keyed by q.question (full text) not q.header (chip label).
     expect(result).not.toBeNull();
     const permResult = result as unknown as {
       behavior: string;
@@ -299,13 +660,11 @@ describe('SdkPermissionHandler — AskUserQuestion idle-timeout answer keying (F
     expect(permResult.behavior).toBe('allow');
     const answers = permResult.updatedInput?.answers ?? {};
 
-    // Correct keys — full question text
     expect(answers['Which deployment strategy should I use?']).toBe(
       'Blue-Green',
     );
     expect(answers['Which database should I migrate first?']).toBe('Postgres');
 
-    // Wrong keys — short chip labels must NOT appear
     expect(answers['Strategy']).toBeUndefined();
     expect(answers['DB']).toBeUndefined();
   });

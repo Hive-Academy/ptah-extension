@@ -823,6 +823,110 @@ describe('MemorySearchService — weighted RRF (R5)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// workspaceRoot filtering — BM25 and vec path (TASK_2026_122)
+// ---------------------------------------------------------------------------
+
+describe('MemorySearchService — workspaceRoot filtering', () => {
+  /**
+   * Build a service with a controllable `db.prepare().all()` mock.
+   * Returns the `allMock` so tests can assert on calls made to it.
+   */
+  function makeServiceForWorkspaceFilter(
+    opts: {
+      rows?: Array<{
+        rowid: number;
+        chunk_id: string;
+        memory_id: string;
+        ord: number;
+        text: string;
+        token_count: number;
+        created_at: number;
+      }>;
+      vecLoaded?: boolean;
+    } = {},
+  ): {
+    service: MemorySearchService;
+    allMock: jest.Mock;
+    prepareMock: jest.Mock;
+  } {
+    const rows = opts.rows ?? [];
+    const allMock = jest.fn(() => rows);
+    const prepareMock = jest.fn(() => ({ all: allMock }));
+    const connection: SqliteConnectionService = {
+      vecExtensionLoaded: opts.vecLoaded ?? false,
+      db: { prepare: prepareMock },
+    } as unknown as SqliteConnectionService;
+    const store: MemoryStore = {
+      getById: jest.fn(() => undefined),
+      recordHit: jest.fn(),
+      getWriteCounter: jest.fn(() => 0),
+    } as unknown as MemoryStore;
+    const service = new MemorySearchService(
+      makeLogger(),
+      connection,
+      makeEmbedder(),
+      store,
+    );
+    return { service, allMock, prepareMock };
+  }
+
+  it('BM25: passes workspaceRoot as a SQL param when provided', async () => {
+    const { service, allMock } = makeServiceForWorkspaceFilter();
+
+    await service.searchRich('hello', 10, '/workspace/project');
+
+    // The allMock receives BM25 SQL params: [escapedQuery, workspaceRoot, limit]
+    expect(allMock).toHaveBeenCalled();
+    const callArgs = allMock.mock.calls[0] as unknown[];
+    // workspaceRoot should appear somewhere in the params list
+    expect(callArgs).toContain('/workspace/project');
+  });
+
+  it('BM25: omits workspaceRoot param when not provided (global search)', async () => {
+    const { service, allMock } = makeServiceForWorkspaceFilter();
+
+    await service.searchRich('hello', 10);
+
+    expect(allMock).toHaveBeenCalled();
+    const callArgs = allMock.mock.calls[0] as unknown[];
+    // When workspaceRoot is undefined, only [escapedQuery, limit] are passed
+    // (the workspace filter clause is omitted from the SQL entirely).
+    expect(callArgs).not.toContain('/workspace/project');
+    // Should only have the FTS query and limit (2 params, no workspace value)
+    expect(callArgs.length).toBe(2);
+  });
+
+  it('BM25: different workspaceRoots produce separate cache entries', async () => {
+    const { service, allMock } = makeServiceForWorkspaceFilter();
+
+    await service.searchRich('hello', 10, '/ws/a');
+    await service.searchRich('hello', 10, '/ws/b');
+
+    // Both calls must reach the DB (different cache keys).
+    expect(allMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('BM25: omitted workspaceRoot and explicit workspace are separate cache entries', async () => {
+    const { service, allMock } = makeServiceForWorkspaceFilter();
+
+    await service.searchRich('hello', 10); // global
+    await service.searchRich('hello', 10, '/ws/a'); // scoped
+
+    expect(allMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('BM25: same query + same workspaceRoot is served from cache on second call', async () => {
+    const { service, allMock } = makeServiceForWorkspaceFilter();
+
+    await service.searchRich('hello', 10, '/workspace/project');
+    await service.searchRich('hello', 10, '/workspace/project');
+
+    // Should only reach the DB once; second call hits the LRU cache.
+    expect(allMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Porter stemming integration test (skipped without native better-sqlite3)
 // ---------------------------------------------------------------------------
 
