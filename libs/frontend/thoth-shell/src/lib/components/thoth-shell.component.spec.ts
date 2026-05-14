@@ -38,6 +38,7 @@ const memoryStateStub = {
   entries: () => [],
   query: () => '',
   tierFilter: () => 'all',
+  scopeFilter: () => 'workspace',
   stats: () => null,
   loading: () => false,
   error: () => null,
@@ -45,6 +46,7 @@ const memoryStateStub = {
   totalsByTier: () => ({ core: 0, recall: 0, archival: 0, total: 0 }),
   setQuery: () => undefined,
   setTierFilter: () => undefined,
+  setScopeFilter: () => undefined,
   refresh: () => Promise.resolve(),
   search: () => Promise.resolve(),
   pin: () => Promise.resolve(),
@@ -69,6 +71,7 @@ describe('ThothShellComponent', () => {
     appState = {
       thothActiveTab: activeTabSignal.asReadonly(),
       setThothActiveTab: jest.fn((tab) => activeTabSignal.set(tab)),
+      workspaceInfo: signal(null),
     } as unknown as jest.Mocked<
       Pick<AppStateManager, 'thothActiveTab' | 'setThothActiveTab'>
     >;

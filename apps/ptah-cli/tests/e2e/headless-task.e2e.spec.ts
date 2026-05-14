@@ -1,21 +1,25 @@
 /**
- * Bug 1 + Bug 4 (TASK_2026_107 commit `38536e14`).
+ * Headless task lifecycle business guardrails.
  *
- * `chat-bridge` emits a TERMINAL `task.complete` or `task.error` notification
- * on every settle path so headless consumers can deterministically detect
- * end-of-turn. Before the fix, only the request response was sent and the
- * notification stream had no terminal envelope — `--once` and CI loops hung.
+ * Three guardrails are exercised here, each tied to a production invariant
+ * documented in `apps/ptah-cli/src/cli/commands/interact.ts`:
  *
- * We exercise the failure path:
- *   - inject a fake `ANTHROPIC_API_KEY` so SDK init succeeds and interact
- *     reaches `session.ready`;
- *   - submit `task.submit` with the dummy key, which causes the SDK call to
- *     fail upstream (auth/network/etc.);
- *   - assert a `task.error` notification with `params.command === 'task.submit'`
- *     lands on stdout (proving the chat-bridge terminal-event wiring runs).
+ *   1. TERMINAL NOTIFICATION on every settle path (Bug 1+4 / chat-bridge.ts:212).
+ *      A fake `ANTHROPIC_API_KEY` reaches `session.ready` (SDK init does not
+ *      validate the key) but the first upstream call fails. The guardrail is
+ *      that chat-bridge MUST emit a `task.error` notification with
+ *      `params.command === 'task.submit'` so headless consumers (--once, CI
+ *      loops, A2A bridges) can detect end-of-turn without polling.
  *
- * Concurrent + cancel paths are also exercised because they don't require
- * a successful upstream call.
+ *   2. SINGLE-TURN CONCURRENCY (interact.ts:515-522). The interact loop
+ *      rejects a second `task.submit` with JSON-RPC code -32603 and message
+ *      `turn already in flight` while `currentTurnId !== null`. This protects
+ *      backend turn state from interleaved chat:start/chat:continue calls.
+ *
+ *   3. CANCEL IDEMPOTENCY (interact.ts:594-596). `task.cancel` against an
+ *      unknown turn_id resolves `{ cancelled: false, reason: 'no matching
+ *      turn' }` instead of throwing, so retried cancels from flaky peers
+ *      never crash the session.
  */
 
 import {
@@ -54,59 +58,92 @@ describe('headless task lifecycle (Bug 1 + Bug 4)', () => {
     await tmp.cleanup();
   });
 
-  it('task.submit on a fake-key session settles via task.error or task.complete notification', async () => {
+  it('task.submit emits a terminal task.complete | task.error notification with required envelope fields (chat-bridge terminal-event guardrail)', async () => {
     runner = await CliRunner.spawn({
       home: tmp,
       env: { ANTHROPIC_API_KEY: FAKE_API_KEY, PTAH_AUTO_APPROVE: 'true' },
     });
     const client = new InteractRpcClient(runner);
 
-    // Fire-and-forget the request — chat-bridge's terminal notification is
-    // what we're proving exists. The request promise may resolve OR reject
-    // depending on how the upstream failure surfaces; either way, a terminal
-    // notification MUST land.
+    // The load-bearing guardrail is that chat-bridge ALWAYS emits a terminal
+    // envelope (`task.complete` OR `task.error`) so headless consumers — A2A
+    // bridges, --once loops, CI runners — can detect end-of-turn without
+    // polling. Which kind lands depends on whether the SDK accepts the fake
+    // key locally (some providers return synthetic responses, others reject)
+    // — the bridge's contract is kind-agnostic. Either is acceptable, but the
+    // envelope shape must satisfy the schema in docs/jsonrpc-schema.md § 1.10.
     const requestPromise = client
       .submitTask({ task: 'ping' }, 60_000)
-      .catch((err) => ({
-        error: err instanceof Error ? err.message : String(err),
-      }));
+      .catch(() => undefined);
 
     const terminal = await client.awaitTaskTerminal(60_000);
     expect(['complete', 'error']).toContain(terminal.kind);
     expect(terminal.params.command).toBe('task.submit');
 
-    // Drain the request so afterEach shutdown is clean.
-    await requestPromise;
+    if (terminal.kind === 'error') {
+      const errParams = terminal.params;
+      expect(errParams.code).toBe(-32603);
+      expect(typeof errParams.message).toBe('string');
+      expect((errParams.message ?? '').length).toBeGreaterThan(0);
+      expect(typeof errParams.ptah_code).toBe('string');
+      // duration_ms is nested under `details` for errors (chat-bridge.ts:232).
+      const details = errParams.details as
+        | { duration_ms?: unknown }
+        | undefined;
+      expect(typeof details?.duration_ms).toBe('number');
+    } else {
+      const okParams = terminal.params;
+      expect(typeof okParams.duration_ms).toBe('number');
+      expect(okParams.duration_ms).toBeGreaterThanOrEqual(0);
+      expect(okParams.summary).toBeDefined();
+      expect(typeof okParams.summary?.session_id).toBe('string');
+      expect((okParams.summary?.session_id ?? '').length).toBeGreaterThan(0);
+      expect(typeof okParams.summary?.turn_id).toBe('string');
+      expect((okParams.summary?.turn_id ?? '').length).toBeGreaterThan(0);
+    }
+
+    // The request itself must also resolve — proving the bridge releases the
+    // turn slot AND the handler's response is paired with the notification.
+    const result = (await requestPromise) as
+      | { turn_id?: string; complete?: boolean }
+      | undefined;
+    expect(result).toBeDefined();
+    expect(typeof result?.turn_id).toBe('string');
+    expect(typeof result?.complete).toBe('boolean');
   });
 
-  it('concurrent task.submit returns -32603 internal error', async () => {
+  it('rejects a second task.submit while the first is in flight with -32603 "turn already in flight"', async () => {
     runner = await CliRunner.spawn({
       home: tmp,
       env: { ANTHROPIC_API_KEY: FAKE_API_KEY, PTAH_AUTO_APPROVE: 'true' },
     });
     const client = new InteractRpcClient(runner);
 
-    const first = client
-      .submitTask({ task: 'first turn' }, 60_000)
-      .catch(() => undefined);
-    // Tiny delay to ensure the first request lands at the dispatcher first.
-    await new Promise((r) => setTimeout(r, 50));
+    // Fire both submits WITHOUT awaiting between them. stdin write order is
+    // preserved over the pipe, and the JSON-RPC dispatcher schedules each
+    // request via `void dispatch(message)` (server.ts:100). Handler 1
+    // synchronously sets `currentTurnId` BEFORE its first await
+    // (interact.ts:515-526), so handler 2 — running in the next microtask —
+    // deterministically trips the concurrency guard without any sleep race.
+    const firstP = client.submitTask({ task: 'first turn' }, 60_000);
+    const secondP = client.submitTask({ task: 'second turn' }, 60_000);
+    const [first, second] = await Promise.allSettled([firstP, secondP]);
 
-    let secondError: unknown = null;
-    try {
-      await client.submitTask({ task: 'second turn' }, 5_000);
-    } catch (err) {
-      secondError = err;
-    }
-    expect(secondError).toBeTruthy();
-    // RpcError exposes `code` directly (see cli-runner.ts).
-    const code = (secondError as { code?: number } | null)?.code;
-    expect(code).toBe(-32603);
-    expect(String((secondError as Error).message).toLowerCase()).toContain(
+    // Exactly one of the two must reject: the one that lost the race for
+    // `currentTurnId`. The first turn's handler returns a result envelope on
+    // upstream failure (see interact.ts:568-576) so it fulfils, not rejects.
+    const rejected = [first, second].filter(
+      (r): r is PromiseRejectedResult => r.status === 'rejected',
+    );
+    const fulfilled = [first, second].filter((r) => r.status === 'fulfilled');
+    expect(rejected).toHaveLength(1);
+    expect(fulfilled).toHaveLength(1);
+
+    const err = rejected[0].reason as { code?: number; message?: string };
+    expect(err.code).toBe(-32603);
+    expect(String(err.message ?? '').toLowerCase()).toContain(
       'turn already in flight',
     );
-
-    await first;
   });
 
   it('task.cancel with bogus turn_id is idempotent', async () => {
