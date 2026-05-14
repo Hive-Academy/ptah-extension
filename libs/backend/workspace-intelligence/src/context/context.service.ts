@@ -540,7 +540,7 @@ export class ContextService {
       // Search ALL workspace folders using findFiles
       const filePaths = await this.fsProvider.findFiles(
         '**/*',
-        `{${excludePatterns.join(',')}}`,
+        excludePatterns,
         this.MAX_SEARCH_RESULTS * 2,
         workspaceFolders[0],
       );
@@ -959,8 +959,8 @@ export class ContextService {
       searchPattern = `**/*${query}*.{${extensions.join(',')}}`;
     }
 
-    // Build exclude pattern
-    let excludePattern = '**/node_modules/**';
+    // Build exclude patterns
+    const excludePatternList: string[] = ['**/node_modules/**'];
     if (!includeImages && fileTypes.length === 0) {
       const imageExts = [
         'png',
@@ -972,12 +972,12 @@ export class ContextService {
         'webp',
         'ico',
       ];
-      excludePattern += `,**/*.{${imageExts.join(',')}}`;
+      excludePatternList.push(`**/*.{${imageExts.join(',')}}`);
     }
 
     const filePaths = await this.fsProvider.findFiles(
       searchPattern,
-      excludePattern,
+      excludePatternList,
       maxResults,
       workspaceRoot,
     );

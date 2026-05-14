@@ -356,8 +356,15 @@ export class WorkspaceIndexerService {
       : '**/*';
 
     // Exclude common build/dependency directories by default
-    const defaultExcludes =
-      '**/node_modules/**,**/dist/**,**/build/**,**/.git/**,**/out/**,**/target/**,**/.nx/**';
+    const defaultExcludes: string[] = [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/build/**',
+      '**/.git/**',
+      '**/out/**',
+      '**/target/**',
+      '**/.nx/**',
+    ];
 
     const files = await this.fsProvider.findFiles(
       pattern,
