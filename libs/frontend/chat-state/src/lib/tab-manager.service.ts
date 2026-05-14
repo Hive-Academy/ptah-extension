@@ -330,6 +330,10 @@ export class TabManagerService {
    * to support background workspace streaming. When a tab is found in the
    * active workspace, it returns directly from the signal. When found in a
    * background workspace, it returns the tab from the partition service.
+   *
+   * @deprecated For content routing prefer `findTabsBySessionId` (plural) —
+   *   returns all bound tabs. Retained for presence checks and cross-workspace
+   *   lookups where returning a single result is intentional.
    */
   findTabBySessionId(sessionId: string): TabState | null {
     // First check active workspace tabs (fast path - from signal)

@@ -117,10 +117,18 @@ export class StreamingHandlerService {
         primaryTab = this.tabManager.tabs().find((t) => t.id === tabId);
       }
 
-      // Fallback: Find target tab by event.sessionId
+      // Fallback: Find target tab by event.sessionId.
+      // TASK_2026_120 Phase B — use the plural lookup so streaming updates
+      // fan out to all tabs bound to the conversation (canvas-grid scenario).
+      // The plural method falls back to the legacy singular result when no
+      // conversation binding exists yet, so the not-yet-migrated path stays
+      // identical. The first bound tab is used as `primaryTab` to preserve
+      // the legacy return-value semantics; the multi-tab fan-out below
+      // (using `findTabsBySessionId` again at line ~191) then visits every
+      // bound tab including secondaries.
       if (!primaryTab) {
-        primaryTab =
-          this.tabManager.findTabBySessionId(event.sessionId) ?? undefined;
+        const bound = this.tabManager.findTabsBySessionId(event.sessionId);
+        primaryTab = bound.length > 0 ? bound[0] : undefined;
       }
 
       // If no tab found and no tabId was provided, initialize active empty tab.

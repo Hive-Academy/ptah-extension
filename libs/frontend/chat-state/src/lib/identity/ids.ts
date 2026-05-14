@@ -22,6 +22,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type { SessionId } from '@ptah-extension/shared';
+import { TabId as SharedTabId } from '@ptah-extension/shared';
 
 /** UUID v4 format used by every brand below. */
 const UUID_REGEX =
@@ -34,26 +35,17 @@ const UUID_REGEX =
 /**
  * Identifies a tab — a UI surface a user can open, close, or arrange in the
  * canvas grid. Lives only in the renderer; never round-trips through the SDK.
+ *
+ * TASK_2026_120 Phase B — `TabId` has been promoted to `@ptah-extension/shared`
+ * so backend signatures can refer to the same brand (see `branded.types.ts`).
+ * Re-exported here unchanged so all existing
+ * `import { TabId } from '@ptah-extension/chat-state'` callers continue to
+ * resolve `.create()`, `.validate()`, `.from()`, and `.safeParse()` against
+ * the canonical brand.
  */
-export type TabId = string & { readonly __brand: 'TabId' };
+export type TabId = SharedTabId;
 
-export const TabId = {
-  create(): TabId {
-    return uuidv4() as TabId;
-  },
-  validate(id: string): id is TabId {
-    return UUID_REGEX.test(id);
-  },
-  from(id: string): TabId {
-    if (!TabId.validate(id)) {
-      throw new TypeError(`Invalid TabId format: ${id}`);
-    }
-    return id as TabId;
-  },
-  safeParse(id: string): TabId | null {
-    return TabId.validate(id) ? (id as TabId) : null;
-  },
-};
+export const TabId = SharedTabId;
 
 // ---------------------------------------------------------------------------
 // ClaudeSessionId

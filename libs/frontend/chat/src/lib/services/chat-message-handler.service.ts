@@ -19,7 +19,12 @@
 
 import { Injectable, inject } from '@angular/core';
 import { type MessageHandler } from '@ptah-extension/core';
-import { FlatStreamEventUnion, MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  AskUserQuestionRequestSchema,
+  FlatStreamEventUnion,
+  MESSAGE_TYPES,
+  PermissionRequestSchema,
+} from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
 import { MessageSenderService } from './message-sender.service';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
@@ -192,7 +197,18 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    const prompt = payload as Parameters<
+    // TASK_2026_120 Phase B — validate at the frontend receive point.
+    // A malformed payload must NOT crash the message-handler loop for other
+    // message types; log + early-return.
+    const parsed = PermissionRequestSchema.safeParse(payload);
+    if (!parsed.success) {
+      console.warn(
+        '[ChatMessageHandler] Invalid PermissionRequest payload — dropped',
+        parsed.error,
+      );
+      return;
+    }
+    const prompt = parsed.data as Parameters<
       typeof this.chatStore.handlePermissionRequest
     >[0];
     // 1. Append to PermissionHandler queue first so the prompt is in
@@ -276,8 +292,19 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
+    // TASK_2026_120 Phase B — validate at the frontend receive point.
+    // A malformed payload must NOT crash the message-handler loop for other
+    // message types; log + early-return.
+    const parsed = AskUserQuestionRequestSchema.safeParse(payload);
+    if (!parsed.success) {
+      console.warn(
+        '[ChatMessageHandler] Invalid AskUserQuestionRequest payload — dropped',
+        parsed.error,
+      );
+      return;
+    }
     const question =
-      payload as import('@ptah-extension/shared').AskUserQuestionRequest;
+      parsed.data as import('@ptah-extension/shared').AskUserQuestionRequest;
     // 1. Enqueue the question first so the router-resolved targets land
     //    on a question that's already in the queue.
     this.chatStore.handleQuestionRequest(question);

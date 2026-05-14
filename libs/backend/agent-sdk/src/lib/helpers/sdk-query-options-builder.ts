@@ -21,6 +21,8 @@ import { MemoryPromptInjector } from './memory-prompt-injector';
 import {
   AISessionConfig,
   AuthEnv,
+  SessionId,
+  TabId,
   type McpHttpServerOverride,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
@@ -567,14 +569,21 @@ export class SdkQueryOptionsBuilder {
       cwd,
     );
 
-    // Create permission callback with tabId for UI routing (TASK_2025_187).
-    // For new sessions sessionId == tabId (trackingId = tabId from startChatSession).
-    // For RESUMED sessions sessionId is the real SDK UUID while sessionConfig.tabId
-    // is still the frontend tab ID — use tabId so AskUserQuestion/permission cards
-    // route to the correct tab instead of being silently filtered out.
+    // `routingId` is the first arg to `createCallback` (treated as the real SDK
+    // session UUID for cleanup purposes). For new sessions tabId == sessionId;
+    // for resumed sessions sessionId is the real SDK UUID.
     const routingId = sessionConfig?.tabId ?? sessionId;
+
+    // Pass `sessionConfig?.tabId` as the explicit third arg (TabId) so the
+    // permission handler stamps the authoritative tab ID on every emitted
+    // `PermissionRequest` and `AskUserQuestionRequest`. The frontend stream
+    // router prefers `prompt.tabId` over `prompt.sessionId` for routing.
     const canUseToolCallback: CanUseTool =
-      this.permissionHandler.createCallback(routingId);
+      this.permissionHandler.createCallback(
+        routingId ? SessionId.from(routingId) : undefined,
+        undefined,
+        sessionConfig?.tabId ? TabId.from(sessionConfig.tabId) : undefined,
+      );
 
     // Create merged hooks (subagent + compaction + worktree)
     // TASK_2025_098: Pass sessionId and callback for compaction hooks

@@ -36,6 +36,8 @@ import {
   isExitPlanModeToolInput,
   MESSAGE_TYPES,
   UNKNOWN_AGENT_TOOL_CALL_ID,
+  SessionId,
+  TabId,
   type AgentPermissionRequest,
   type QuestionItem,
   type PermissionRequest,
@@ -72,8 +74,10 @@ import { PermissionRuleStore } from './permission/permission-rule-store';
  */
 interface PendingRequest {
   resolve: (response: PermissionResponse) => void;
-  /** Session ID this request belongs to (for session-scoped cleanup) */
-  sessionId?: string;
+  /** Real SDK UUID — used for CLI-path cleanup (no tab exists). */
+  sessionId?: SessionId;
+  /** Frontend tab UUID — used for interactive-path cleanup. */
+  tabId?: TabId;
 }
 
 /**
@@ -107,8 +111,10 @@ interface AskUserQuestionResponse {
  */
 interface PendingQuestionRequest {
   resolve: (response: AskUserQuestionResponse | null) => void;
-  /** Session ID this request belongs to (for session-scoped cleanup) */
-  sessionId?: string;
+  /** Real SDK UUID — used for CLI-path cleanup (no tab exists). */
+  sessionId?: SessionId;
+  /** Frontend tab UUID — used for interactive-path cleanup. */
+  tabId?: TabId;
   /** Idle-timeout timer that auto-picks the recommended option after
    *  ASK_USER_QUESTION_IDLE_TIMEOUT_MS. Cleared when a real response or
    *  abort arrives first. Null when timeout is disabled. */
@@ -382,24 +388,21 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   /**
    * Create a `canUseTool` callback bound to a routing context.
    *
-   * @param sessionId - Session/routing ID used to address the originating
-   *   conversation. For the main interactive path this is the frontend tabId
-   *   (see `sdk-query-options-builder.ts` — `routingId = tabId ?? sessionId`),
-   *   so it is also a valid `tabId` for AskUserQuestion routing. For CLI
-   *   sub-agent / Ptah CLI registry paths this is the real SDK session UUID
-   *   and may NOT be a tab — pass `tabId` explicitly when the originating tab
-   *   is known.
+   * @param sessionId - The real SDK session UUID for this query. Used to store
+   *   on `PendingRequest.sessionId` for CLI-path cleanup. For the main
+   *   interactive path, pass the frontend `tabId` separately.
    * @param cliAgentResolver - Optional resolver that maps the active call to a
    *   CLI agent ID for agent-monitor routing.
-   * @param tabId - Authoritative frontend tab ID. When provided, this is
-   *   stamped onto AskUserQuestion broadcasts so the frontend stream router
-   *   can narrow to the originating tab instead of broadcasting to every tab
-   *   bound to the conversation. TASK_2026_109_FOLLOWUP_QUESTIONS.
+   * @param tabId - Authoritative frontend tab UUID. When provided, it is
+   *   stamped onto `PermissionRequest.tabId` and `AskUserQuestionRequest.tabId`
+   *   so the frontend stream router resolves `tabId → conversation → tabs[]`
+   *   directly. CLI paths omit this arg — `tabId` stays `undefined` on the wire
+   *   so the router correctly falls through to agent-monitor routing.
    */
   createCallback(
-    sessionId?: string,
+    sessionId?: SessionId,
     cliAgentResolver?: () => string | undefined,
-    tabId?: string,
+    tabId?: TabId,
   ): CanUseTool {
     return async (
       toolName: string,
@@ -457,6 +460,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         this.logger.info(
           `[SdkPermissionHandler] Handling AskUserQuestion tool request (bypasses all auto-approval)`,
         );
+        // Pass the raw tabId arg — handleAskUserQuestion recomputes the resolved
+        // tabId internally (applying its own tabId ?? sessionId fallback logic).
         return await this.handleAskUserQuestion(
           input,
           options.toolUseID,
@@ -476,6 +481,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           options.toolUseID,
           sessionId,
           options.signal,
+          tabId,
         );
       }
 
@@ -554,6 +560,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           options.agentID,
           options.signal,
           cliAgentResolver,
+          tabId,
         );
       }
 
@@ -569,6 +576,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           options.agentID,
           options.signal,
           cliAgentResolver,
+          tabId,
         );
       }
 
@@ -594,6 +602,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           options.agentID,
           options.signal,
           cliAgentResolver,
+          tabId,
         );
       }
 
@@ -608,6 +617,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         options.agentID,
         options.signal,
         cliAgentResolver,
+        tabId,
       );
     };
   }
@@ -616,10 +626,11 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     toolName: string,
     input: Record<string, unknown>,
     toolUseId?: string,
-    sessionId?: string,
+    sessionId?: SessionId,
     agentID?: string,
     signal?: AbortSignal,
     cliAgentResolver?: () => string | undefined,
+    tabId?: TabId,
   ): Promise<PermissionResult> {
     const startTime = Date.now();
 
@@ -646,6 +657,10 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       );
     }
 
+    // Wire types are plain string — branded → string is a structural up-cast.
+    // Only stamp tabId when an explicit tabId was passed. CLI paths pass only
+    // sessionId (no tabId) — leave prompt.tabId undefined so the frontend
+    // router correctly falls through to agent-monitor routing.
     const request: PermissionRequest = {
       id: requestId,
       toolName,
@@ -656,6 +671,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       description,
       timeoutAt,
       sessionId,
+      tabId,
     };
 
     this.pendingRequestContext.set(requestId, { toolName, toolInput: input });
@@ -680,7 +696,12 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       emitLatency: Date.now() - startTime,
     });
 
-    const response = await this.awaitResponse(requestId, signal, sessionId);
+    const response = await this.awaitResponse(
+      requestId,
+      signal,
+      sessionId,
+      tabId,
+    );
 
     this.logger.info(`[SdkPermissionHandler] Permission response received`, {
       requestId,
@@ -834,9 +855,9 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   private async handleAskUserQuestion(
     input: Record<string, unknown>,
     toolUseId: string,
-    sessionId?: string,
+    sessionId?: SessionId,
     signal?: AbortSignal,
-    tabId?: string,
+    tabId?: TabId,
   ): Promise<PermissionResult> {
     if (!isAskUserQuestionToolInput(input)) {
       this.logger.warn('[SdkPermissionHandler] Invalid AskUserQuestion input', {
@@ -851,13 +872,13 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     const requestId = generateRequestId();
     const now = Date.now();
 
-    // TASK_2026_109_FOLLOWUP_QUESTIONS — Always stamp `tabId` when we have a
-    // routing identity. Prefer the explicit `tabId` argument; fall back to
-    // `sessionId` because the main session path passes `routingId` (which is
-    // the frontend tabId — see `sdk-query-options-builder.ts`). The frontend
-    // stream router uses tabId to narrow question delivery to the originating
-    // tab; missing tabId causes the regression where the question card
-    // appears on every tile bound to the conversation.
+    // Always stamp `tabId` when we have a routing identity. Prefer the explicit
+    // `tabId` argument; fall back to `sessionId` because the main session path
+    // passes `routingId` (which is the frontend tabId — see
+    // `sdk-query-options-builder.ts`). The frontend stream router uses tabId to
+    // narrow question delivery to the originating tab; missing tabId causes the
+    // regression where the question card appears on every tile bound to the
+    // conversation.
     const resolvedTabId = tabId ?? sessionId;
 
     const request: AskUserQuestionRequest = {
@@ -929,6 +950,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       sessionId,
       input.questions,
       resolvedTabId,
+      tabId,
     );
 
     if (!response) {
@@ -958,8 +980,9 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   private async handleExitPlanMode(
     input: Record<string, unknown>,
     toolUseId: string,
-    sessionId?: string,
+    sessionId?: SessionId,
     signal?: AbortSignal,
+    tabId?: TabId,
   ): Promise<PermissionResult> {
     if (!isExitPlanModeToolInput(input)) {
       this.logger.warn(
@@ -987,6 +1010,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       sessionId,
       undefined,
       signal,
+      undefined,
+      tabId,
     );
 
     if (result.behavior === 'allow') {
@@ -1015,9 +1040,10 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   private async awaitQuestionResponse(
     requestId: string,
     signal?: AbortSignal,
-    sessionId?: string,
+    sessionId?: SessionId,
     questions?: QuestionItem[],
-    tabId?: string,
+    resolvedTabId?: string,
+    tabId?: TabId,
   ): Promise<AskUserQuestionResponse | null> {
     return new Promise<AskUserQuestionResponse | null>((resolve) => {
       if (signal?.aborted) {
@@ -1063,14 +1089,14 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           // Notify the webview to remove the now-stale question card so the
           // user sees what was auto-answered. handleQuestionResponse on the
           // frontend already filters the request out of `_questionRequests`.
+          // Stamp resolvedTabId (tabId ?? sessionId) so the auto-resolution
+          // lands on the originating tab, mirroring the routing applied to
+          // the original AskUserQuestion request.
           this.webviewManager
             ?.sendMessage(
               'ptah.main',
               MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED,
-              // TASK_2026_109_FOLLOWUP_QUESTIONS — stamp tabId so the
-              // auto-resolution lands on the originating tab, mirroring the
-              // routing applied to the original AskUserQuestion request.
-              { id: requestId, answers, sessionId, tabId },
+              { id: requestId, answers, sessionId, tabId: resolvedTabId },
             )
             .catch((error) => {
               this.logger.error(
@@ -1096,6 +1122,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           resolve(response);
         },
         sessionId,
+        tabId,
         idleTimer,
       });
     });
@@ -1121,7 +1148,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   private async awaitResponse(
     requestId: string,
     signal?: AbortSignal,
-    sessionId?: string,
+    sessionId?: SessionId,
+    tabId?: TabId,
   ): Promise<PermissionResponse | null> {
     return new Promise<PermissionResponse | null>((resolve) => {
       if (signal?.aborted) {
@@ -1144,6 +1172,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           resolve(response);
         },
         sessionId,
+        tabId,
       });
     });
   }
@@ -1184,7 +1213,9 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
     if (sessionId) {
       for (const [requestId, pending] of this.pendingRequests.entries()) {
-        if (pending.sessionId === sessionId) {
+        // Match on tabId (interactive path) OR sessionId (CLI path) so the
+        // caller can pass either ID and cleanup correctly finds the records.
+        if (pending.tabId === sessionId || pending.sessionId === sessionId) {
           pending.resolve({
             id: requestId,
             decision: 'deny',
@@ -1199,7 +1230,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         requestId,
         pending,
       ] of this.pendingQuestionRequests.entries()) {
-        if (pending.sessionId === sessionId) {
+        // Same dual-match for question requests.
+        if (pending.tabId === sessionId || pending.sessionId === sessionId) {
           pending.resolve(null);
           this.pendingQuestionRequests.delete(requestId);
         }
