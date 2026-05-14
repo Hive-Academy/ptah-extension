@@ -26,6 +26,8 @@ import type {
   MemoryListResult,
   MemoryPinParams,
   MemoryPinResult,
+  MemoryPurgeBySubjectPatternParams,
+  MemoryPurgeBySubjectPatternResult,
   MemoryRebuildIndexParams,
   MemoryRebuildIndexResult,
   MemorySearchHitWire,
@@ -36,6 +38,8 @@ import type {
   MemoryWire,
   RpcMethodName,
 } from '@ptah-extension/shared';
+import { RpcUserError } from '@ptah-extension/vscode-core';
+import { MemoryPurgeBySubjectPatternParamsSchema } from './memory-rpc.schema';
 
 function toMemoryWire(m: Memory): MemoryWire {
   return {
@@ -80,6 +84,7 @@ export class MemoryRpcHandlers {
     'memory:forget',
     'memory:rebuildIndex',
     'memory:stats',
+    'memory:purgeBySubjectPattern',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -213,6 +218,44 @@ export class MemoryRpcHandlers {
         params: MemoryStatsParams | undefined,
       ): Promise<MemoryStatsResult> => {
         return this.store.stats(params?.workspaceRoot ?? undefined);
+      },
+    );
+
+    this.rpcHandler.registerMethod(
+      'memory:purgeBySubjectPattern',
+      async (
+        params: MemoryPurgeBySubjectPatternParams | undefined,
+      ): Promise<MemoryPurgeBySubjectPatternResult> => {
+        let validated: MemoryPurgeBySubjectPatternParams;
+        try {
+          validated = MemoryPurgeBySubjectPatternParamsSchema.parse(params);
+        } catch (err) {
+          throw new RpcUserError(
+            `memory:purgeBySubjectPattern — invalid params: ${String(err)}`,
+            'INVALID_PARAMS',
+          );
+        }
+        try {
+          const deleted = this.store.purgeBySubjectPattern(
+            validated.pattern,
+            validated.mode,
+            validated.workspaceRoot,
+          );
+          this.logger.info('[memory] purgeBySubjectPattern complete', {
+            pattern: validated.pattern,
+            mode: validated.mode,
+            deleted,
+          });
+          return { deleted };
+        } catch (err) {
+          this.logger.error('[memory] purgeBySubjectPattern failed', {
+            error: String(err),
+          });
+          throw new RpcUserError(
+            `memory:purgeBySubjectPattern — store error: ${String(err)}`,
+            'PERSISTENCE_UNAVAILABLE',
+          );
+        }
       },
     );
 

@@ -113,3 +113,13 @@ export interface MemoryStatsResult {
   readonly archival: number;
   readonly lastCuratedAt: number | null;
 }
+
+// ---- memory:purgeBySubjectPattern ----
+export interface MemoryPurgeBySubjectPatternParams {
+  readonly pattern: string;
+  readonly mode: 'substring' | 'like';
+  readonly workspaceRoot?: string | null;
+}
+export interface MemoryPurgeBySubjectPatternResult {
+  readonly deleted: number;
+}

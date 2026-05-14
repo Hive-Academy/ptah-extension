@@ -325,3 +325,139 @@ describe('MemoryStore — per-workspace counter independence', () => {
     expect(store.getWriteCounter('/ws/any')).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// purgeBySubjectPattern
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a SqliteConnectionService stub that records every `prepare(sql)` call
+ * and returns a dedicated `run` mock per prepared statement.
+ *
+ * `runChanges` controls the `.changes` returned by each `run()` call (shared).
+ */
+function makePurgeDb(runChanges = 1): {
+  stub: SqliteConnectionService;
+  preparedSqls: string[];
+  runArgs: unknown[][];
+} {
+  const preparedSqls: string[] = [];
+  const runArgs: unknown[][] = [];
+
+  const stub = {
+    vecExtensionLoaded: false,
+    db: {
+      prepare: jest.fn((sql: string) => {
+        preparedSqls.push(sql);
+        return {
+          run: jest.fn((...args: unknown[]) => {
+            runArgs.push(args);
+            return { changes: runChanges };
+          }),
+          get: jest.fn(() => undefined),
+          all: jest.fn(() => []),
+        };
+      }),
+      exec: jest.fn(),
+      transaction: jest.fn(
+        (fn: (...args: unknown[]) => unknown) =>
+          (...args: unknown[]) =>
+            fn(...args),
+      ),
+    },
+  } as unknown as SqliteConnectionService;
+
+  return { stub, preparedSqls, runArgs };
+}
+
+describe('MemoryStore.purgeBySubjectPattern', () => {
+  // --- Test 1: substring mode escapes metacharacters and wraps in %…% ---
+  it('substring mode: passes escaped %pattern% to SQL and returns deleted count', () => {
+    const { stub, preparedSqls, runArgs } = makePurgeDb(1);
+    const store = makeStore(stub);
+
+    const deleted = store.purgeBySubjectPattern('node_modules', 'substring');
+
+    expect(deleted).toBe(1);
+    // SQL must be parameterised — no pattern in the SQL string itself.
+    expect(preparedSqls[0]).toContain('subject LIKE ?');
+    // The ESCAPE clause must be present (literal backslash in the SQL string).
+    expect(preparedSqls[0]).toContain("ESCAPE '\\'");
+    // Pattern must be wrapped in % and passed as bind parameter.
+    // Note: '_' is a LIKE metachar so substring mode escapes it to '\_'.
+    expect(runArgs[0][0]).toBe('%node\\_modules%');
+    // Write counter must have been bumped.
+    expect(store.getWriteCounter('')).toBe(1);
+  });
+
+  // --- Test 2: like mode passes the pattern verbatim ---
+  it('like mode: passes the raw LIKE pattern verbatim to SQL', () => {
+    const { stub, preparedSqls, runArgs } = makePurgeDb(3);
+    const store = makeStore(stub);
+
+    const deleted = store.purgeBySubjectPattern('code:function:%', 'like');
+
+    expect(deleted).toBe(3);
+    expect(preparedSqls[0]).toContain('subject LIKE ?');
+    // Pattern must be verbatim, not wrapped.
+    expect(runArgs[0][0]).toBe('code:function:%');
+  });
+
+  // --- Test 3: empty pattern guard — returns 0 immediately, no SQL executed ---
+  it('empty pattern guard: returns 0 without executing any SQL', () => {
+    const { stub, preparedSqls, runArgs } = makePurgeDb(99);
+    const store = makeStore(stub);
+
+    // Whitespace-only should also be treated as empty.
+    expect(store.purgeBySubjectPattern('', 'substring')).toBe(0);
+    expect(store.purgeBySubjectPattern('   ', 'substring')).toBe(0);
+
+    // No prepare() call should have occurred.
+    // (The stub's prepare mock is shared; filter to purge-related calls.)
+    // Since no DB calls occur for purge, preparedSqls must be empty.
+    expect(preparedSqls).toHaveLength(0);
+    expect(runArgs).toHaveLength(0);
+    // No write counter bump.
+    expect(store.getWriteCounter('')).toBe(0);
+  });
+
+  // --- Test 4: NULL-subject rows are preserved ---
+  // NULL-subject rows are excluded by LIKE semantics (NULL LIKE ? → NULL/falsy),
+  // so we verify the SQL does NOT include an explicit NULL-exclusion clause,
+  // meaning the store relies on SQLite's own NULL-safe LIKE behaviour.
+  it('NULL-subject rows: SQL does not explicitly exclude NULLs (relies on LIKE NULL semantics)', () => {
+    const { stub, preparedSqls } = makePurgeDb(0);
+    const store = makeStore(stub);
+
+    store.purgeBySubjectPattern('anything', 'substring');
+
+    // SQL must use LIKE on subject but must NOT have an extra "subject IS NOT NULL"
+    // clause — the LIKE NULL-safety is inherent to SQLite behaviour.
+    expect(preparedSqls[0]).not.toContain('IS NOT NULL');
+    // Confirm the store returns 0 changes when no rows are matched.
+    expect(store.getWriteCounter('')).toBe(0); // no bump when changes === 0
+  });
+
+  // --- Test 5: workspaceRoot scoping ---
+  it('workspaceRoot scoping: adds AND workspace_root IS ? clause and passes workspaceRoot as second bind param', () => {
+    const { stub, preparedSqls, runArgs } = makePurgeDb(2);
+    const store = makeStore(stub);
+
+    const deleted = store.purgeBySubjectPattern(
+      'stale_prefix',
+      'substring',
+      '/ws/A',
+    );
+
+    expect(deleted).toBe(2);
+    expect(preparedSqls[0]).toContain('workspace_root IS ?');
+    // First bind param is the LIKE pattern, second is the workspaceRoot.
+    // Note: '_' is a LIKE metachar so substring mode escapes it to '\_'.
+    expect(runArgs[0][0]).toBe('%stale\\_prefix%');
+    expect(runArgs[0][1]).toBe('/ws/A');
+    // Write counter bumped for /ws/A.
+    expect(store.getWriteCounter('/ws/A')).toBe(1);
+    // Other workspace unaffected.
+    expect(store.getWriteCounter('/ws/B')).toBe(0);
+  });
+});
