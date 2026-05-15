@@ -94,8 +94,18 @@ jobs:
           BUMP_TYPE="${{ github.event.inputs.bump || 'patch' }}"
           OLD_VERSION=$(node -p "require('./package.json').version")
 
+          # Strip any prerelease / build suffix (e.g. "0.2.31-debug.4" -> "0.2.31")
+          # before parsing — the naive `.split('.').map(Number)` would otherwise
+          # turn "31-debug" into NaN and produce an invalid "0.2.NaN" version
+          # that vsce rejects at package time.
           NEW_VERSION=$(node -e "
-            const [major, minor, patch] = '${OLD_VERSION}'.split('.').map(Number);
+            const base = '${OLD_VERSION}'.split(/[-+]/)[0];
+            const parts = base.split('.').map(Number);
+            if (parts.length !== 3 || parts.some(Number.isNaN)) {
+              console.error('Invalid base version: ${OLD_VERSION} -> ' + base);
+              process.exit(1);
+            }
+            const [major, minor, patch] = parts;
             const bump = '${BUMP_TYPE}';
             if (bump === 'major') console.log(\`\${major+1}.0.0\`);
             else if (bump === 'minor') console.log(\`\${major}.\${minor+1}.0\`);
