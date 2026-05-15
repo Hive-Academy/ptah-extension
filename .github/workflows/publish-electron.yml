@@ -75,8 +75,16 @@ jobs:
           BUMP_TYPE="${{ github.event.inputs.bump || 'patch' }}"
           OLD_VERSION=$(node -p "require('./apps/ptah-electron/package.json').version")
 
+          # Strip any prerelease / build suffix before parsing so versions
+          # like "1.2.3-rc.1" or "1.2.3+build" never produce NaN segments.
           NEW_VERSION=$(node -e "
-            const [major, minor, patch] = '${OLD_VERSION}'.split('.').map(Number);
+            const base = '${OLD_VERSION}'.split(/[-+]/)[0];
+            const parts = base.split('.').map(Number);
+            if (parts.length !== 3 || parts.some(Number.isNaN)) {
+              console.error('Invalid base version: ${OLD_VERSION} -> ' + base);
+              process.exit(1);
+            }
+            const [major, minor, patch] = parts;
             const bump = '${BUMP_TYPE}';
             if (bump === 'major') console.log(\`\${major+1}.0.0\`);
             else if (bump === 'minor') console.log(\`\${major}.\${minor+1}.0\`);
